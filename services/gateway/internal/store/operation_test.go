@@ -77,6 +77,18 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationPairingCodeClaim, Repository: "ClientRepository",
 			Method: "ClaimPairingCode", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationCredentialSecretSave: {
+			ID: OperationCredentialSecretSave, Repository: "CredentialRepository",
+			Method: "SaveCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationCredentialSecretGet: {
+			ID: OperationCredentialSecretGet, Repository: "CredentialRepository",
+			Method: "GetCredentialSecret", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationCredentialSecretDelete: {
+			ID: OperationCredentialSecretDelete, Repository: "CredentialRepository",
+			Method: "DeleteCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

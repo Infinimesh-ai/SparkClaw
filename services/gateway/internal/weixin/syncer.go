@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -31,11 +32,12 @@ const (
 )
 
 type Syncer struct {
-	store      store.Store
-	dispatcher *Dispatcher
-	client     *http.Client
-	cfg        config.Config
-	media      *MediaAdapter
+	store       store.Store
+	dispatcher  *Dispatcher
+	client      *http.Client
+	cfg         config.Config
+	media       *MediaAdapter
+	credentials credential.CredentialVault
 
 	slots chan struct{}
 	wg    sync.WaitGroup
@@ -66,6 +68,11 @@ func NewSyncer(st store.Store) *Syncer {
 
 func (s *Syncer) WithDispatcher(dispatcher *Dispatcher) *Syncer {
 	s.dispatcher = dispatcher
+	return s
+}
+
+func (s *Syncer) WithCredentialVault(vault credential.CredentialVault) *Syncer {
+	s.credentials = vault
 	return s
 }
 
@@ -149,10 +156,14 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 	if baseURL == "" {
 		return nil
 	}
-	secret, ok := s.store.GetCredentialSecret(strings.TrimSpace(binding.CredentialRef))
-	if !ok || strings.TrimSpace(secret.Value) == "" {
-		return nil
+	if s.credentials == nil {
+		return &credential.Error{Code: credential.CodeKeyUnavailable}
 	}
+	secret, err := s.credentials.Open(workCtx, strings.TrimSpace(binding.CredentialRef))
+	if err != nil {
+		return err
+	}
+	defer clearSecret(secret)
 	payload := map[string]any{
 		"get_updates_buf": binding.ProviderCursor,
 		"base_info": map[string]any{
@@ -168,7 +179,7 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 	if err != nil {
 		return err
 	}
-	weixinproto.SetHeaders(req, secret.Value)
+	weixinproto.SetHeaders(req, strings.TrimSpace(string(secret)))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
@@ -244,6 +255,12 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 	}
 	s.enqueueBatch(workCtx, scope, inboundBatch{Binding: binding, Cursor: decoded.GetUpdatesBuf, Msgs: envelopes})
 	return nil
+}
+
+func clearSecret(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }
 
 // enqueueBatch hands a binding's inbound messages to the bounded dispatch

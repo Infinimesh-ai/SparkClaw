@@ -42,6 +42,9 @@ const (
 	OperationPairingCodeSave             StoreOperation = "pairing_code.save"
 	OperationPairingCodeGet              StoreOperation = "pairing_code.get"
 	OperationPairingCodeClaim            StoreOperation = "pairing_code.claim"
+	OperationCredentialSecretSave        StoreOperation = "credential_secret.save"
+	OperationCredentialSecretGet         StoreOperation = "credential_secret.get"
+	OperationCredentialSecretDelete      StoreOperation = "credential_secret.delete"
 )
 
 type StoreError struct {
@@ -175,6 +178,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationPairingCodeClaim: {
 		ID: OperationPairingCodeClaim, Repository: "ClientRepository",
 		Method: "ClaimPairingCode", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationCredentialSecretSave: {
+		ID: OperationCredentialSecretSave, Repository: "CredentialRepository",
+		Method: "SaveCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationCredentialSecretGet: {
+		ID: OperationCredentialSecretGet, Repository: "CredentialRepository",
+		Method: "GetCredentialSecret", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationCredentialSecretDelete: {
+		ID: OperationCredentialSecretDelete, Repository: "CredentialRepository",
+		Method: "DeleteCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 }
 

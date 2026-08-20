@@ -286,16 +286,14 @@ func controlProviderServer(t *testing.T, failSends int) (*httptest.Server, func(
 
 func newControlReplyTestDispatcher(t *testing.T, st *store.MemoryStore, runtime *fakeAgentRuntime, baseURL string) (*Dispatcher, app.NotificationBinding) {
 	t.Helper()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := newPendingReplyTestBinding()
+	binding.CredentialRef = credentialRef
 	binding.BaseURL = baseURL
 	st.SaveNotificationBinding(binding)
 	cfg := config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: baseURL}
-	return NewDispatcher(st, runtime, cfg), binding
+	return NewDispatcher(st, runtime, cfg).WithCredentialVault(vault), binding
 }
 
 func TestClearConversationReplyIsRetriedWithoutRepeatingTheClear(t *testing.T) {

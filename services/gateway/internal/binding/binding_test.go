@@ -109,7 +109,10 @@ func TestTelegramAdapterVerifiesBeforeSealing(t *testing.T) {
 	if started.QRCodeURL != "" || started.QRCodeImage != "" || started.ProviderState != "" || started.ExpiresAt != nil || started.ContextToken != "" {
 		t.Fatalf("Telegram bot verification should not create QR or challenge state: %#v", started)
 	}
-	stored, ok := st.GetCredentialSecret(started.CredentialRef)
+	stored, ok, err := st.GetCredentialSecret(t.Context(), started.CredentialRef)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || strings.Contains(stored.Value, token) || stored.Value == token {
 		t.Fatalf("Telegram token reached store in plaintext: %#v ok=%v", stored, ok)
 	}

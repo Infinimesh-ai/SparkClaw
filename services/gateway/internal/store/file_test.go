@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -601,11 +602,13 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	if _, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted"); err != nil || memory == nil {
 		t.Fatalf("accepted memory missing memory=%#v err=%v", memory, err)
 	}
-	st.SaveCredentialSecret(app.CredentialSecret{
+	if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{
 		Ref:   "browser-auth:test",
 		Kind:  "browser-auth-state",
 		Value: `{"cookie":"fixture=browser-cookie"}`,
-	})
+	})); err != nil {
+		t.Fatal(err)
+	}
 	st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
 		OwnerID:          app.DefaultOwnerID,
 		BrowserProfileID: "default",
@@ -634,8 +637,8 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	if record, ok := reloaded.FindBrowserAuthRecord(app.DefaultOwnerID, "default", "https://example.com", "", ""); !ok || record.CredentialRef != "browser-auth:test" {
 		t.Fatalf("browser auth record did not reload from encrypted state: %#v ok=%v", record, ok)
 	}
-	if secret, ok := reloaded.GetCredentialSecret("browser-auth:test"); !ok || !strings.Contains(secret.Value, "browser-cookie") {
-		t.Fatalf("browser auth secret did not reload from encrypted state: %#v ok=%v", secret, ok)
+	if secret, ok, err := reloaded.GetCredentialSecret(context.Background(), "browser-auth:test"); err != nil || !ok || !strings.Contains(secret.Value, "browser-cookie") {
+		t.Fatalf("browser auth secret did not reload from encrypted state: %#v ok=%v err=%v", secret, ok, err)
 	}
 }
 

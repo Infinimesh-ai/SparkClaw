@@ -21,6 +21,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -48,8 +49,8 @@ const (
 	TypingStatusCancel TypingStatus = 2
 )
 
-func SendWeixinText(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, messageText, dedupeKey string) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).Send(ctx, Notification{
+func SendWeixinText(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, messageText, dedupeKey string) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).Send(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -60,8 +61,8 @@ func SendWeixinText(ctx context.Context, st store.Store, channelCfg config.Notif
 	})
 }
 
-func SendWeixinImage(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, imagePath, caption, dedupeKey string) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).SendImage(ctx, Notification{
+func SendWeixinImage(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, imagePath, caption, dedupeKey string) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendImage(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -73,8 +74,8 @@ func SendWeixinImage(ctx context.Context, st store.Store, channelCfg config.Noti
 	})
 }
 
-func SendWeixinFile(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, filePath, fileName, caption, dedupeKey string) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).SendFile(ctx, Notification{
+func SendWeixinFile(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, filePath, fileName, caption, dedupeKey string) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendFile(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -87,8 +88,8 @@ func SendWeixinFile(ctx context.Context, st store.Store, channelCfg config.Notif
 	})
 }
 
-func SendWeixinTyping(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL string, status TypingStatus) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).SendTyping(ctx, Notification{
+func SendWeixinTyping(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL string, status TypingStatus) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendTyping(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -113,21 +114,55 @@ type WeixinAdapter struct {
 	channel   string
 	cfg       config.NotificationChannelConfig
 	store     store.Store
+	vault     credential.CredentialVault
 	client    *http.Client
 	resources delivery.ResourceResolver
 }
 
-func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, stores ...store.Store) *WeixinAdapter {
-	var st store.Store
-	if len(stores) > 0 {
-		st = stores[0]
-	}
+func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, st store.Store, vault credential.CredentialVault) *WeixinAdapter {
 	return &WeixinAdapter{
 		channel:   channel,
 		cfg:       cfg,
 		store:     st,
+		vault:     vault,
 		client:    &http.Client{Timeout: 15 * time.Second},
 		resources: delivery.NewStoreResourceResolver(st),
+	}
+}
+
+func (a *WeixinAdapter) openToken(ctx context.Context, credentialRef string) (string, func(), error) {
+	if token := strings.TrimSpace(a.cfg.Token); token != "" {
+		return token, func() {}, nil
+	}
+	if strings.TrimSpace(credentialRef) == "" {
+		return "", func() {}, errors.New("openclaw-weixin token is not configured")
+	}
+	if a.vault == nil {
+		return "", func() {}, &credential.Error{Code: credential.CodeKeyUnavailable}
+	}
+	raw, err := a.vault.Open(ctx, credentialRef)
+	if err != nil {
+		return "", func() {}, err
+	}
+	release := func() {
+		for index := range raw {
+			raw[index] = 0
+		}
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		release()
+		return "", func() {}, &credential.Error{Code: credential.CodeUnsealFailed}
+	}
+	return token, release, nil
+}
+
+func credentialRetryState(err error) string {
+	switch credential.ErrorCode(err) {
+	case credential.CodeCanceled, credential.CodeUnavailable:
+		return "retryable"
+	default:
+		return "blocked"
 	}
 }
 
@@ -327,15 +362,11 @@ func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Re
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")
@@ -420,15 +451,11 @@ func (a *WeixinAdapter) SendImage(ctx context.Context, notification Notification
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")
@@ -505,15 +532,11 @@ func (a *WeixinAdapter) SendFile(ctx context.Context, notification Notification)
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")
@@ -643,15 +666,11 @@ func (a *WeixinAdapter) SendTyping(ctx context.Context, notification Notificatio
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")

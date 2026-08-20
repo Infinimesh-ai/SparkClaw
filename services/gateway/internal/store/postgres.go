@@ -20,18 +20,22 @@ import (
 )
 
 type PostgresStore struct {
-	db                    *pgxpool.Pool
-	operationTimeouts     OperationTimeouts
-	onboardingPostgres    onboardingPostgresOps
-	ownerPostgres         ownerPostgresOps
-	clientPostgres        ownerPostgresOps
-	ownerMu               sync.Mutex
-	ownerWriteHighWater   map[string]time.Time
-	ownerNow              func() time.Time
-	clientCommandGate     *semaphore.Weighted
-	clientWriteHighWater  map[string]time.Time
-	pairingWriteHighWater map[string]time.Time
-	clientNow             func() time.Time
+	db                       *pgxpool.Pool
+	operationTimeouts        OperationTimeouts
+	onboardingPostgres       onboardingPostgresOps
+	ownerPostgres            ownerPostgresOps
+	clientPostgres           ownerPostgresOps
+	ownerMu                  sync.Mutex
+	ownerWriteHighWater      map[string]time.Time
+	ownerNow                 func() time.Time
+	clientCommandGate        *semaphore.Weighted
+	clientWriteHighWater     map[string]time.Time
+	pairingWriteHighWater    map[string]time.Time
+	clientNow                func() time.Time
+	credentialPostgres       ownerPostgresOps
+	credentialCommandGate    *semaphore.Weighted
+	credentialWriteHighWater map[string]time.Time
+	credentialNow            func() time.Time
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -81,22 +85,30 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 	}
 	st := &PostgresStore{
 		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
-		onboardingPostgres:      pgxOnboardingPostgresOps{pool: pool},
-		ownerPostgres:           pgxOwnerPostgresOps{pool: pool},
-		clientPostgres:          pgxOwnerPostgresOps{pool: pool},
-		clientCommandGate:       semaphore.NewWeighted(1),
-		ownerWriteHighWater:     map[string]time.Time{},
-		ownerNow:                time.Now,
-		clientWriteHighWater:    map[string]time.Time{},
-		pairingWriteHighWater:   map[string]time.Time{},
-		clientNow:               time.Now,
-		passiveNotificationRevs: map[string]uint64{},
+		onboardingPostgres:       pgxOnboardingPostgresOps{pool: pool},
+		ownerPostgres:            pgxOwnerPostgresOps{pool: pool},
+		clientPostgres:           pgxOwnerPostgresOps{pool: pool},
+		clientCommandGate:        semaphore.NewWeighted(1),
+		ownerWriteHighWater:      map[string]time.Time{},
+		ownerNow:                 time.Now,
+		clientWriteHighWater:     map[string]time.Time{},
+		pairingWriteHighWater:    map[string]time.Time{},
+		clientNow:                time.Now,
+		credentialPostgres:       pgxOwnerPostgresOps{pool: pool},
+		credentialCommandGate:    semaphore.NewWeighted(1),
+		credentialWriteHighWater: map[string]time.Time{},
+		credentialNow:            time.Now,
+		passiveNotificationRevs:  map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	if err := st.validateClientState(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.validateCredentialState(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -2265,50 +2277,6 @@ func (s *PostgresStore) ListChannelInboxUpdates(channel, status string, readyBef
 	}
 	defer rows.Close()
 	return collectRows(rows, scanChannelInboxUpdate)
-}
-
-func (s *PostgresStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
-	now := time.Now().UTC()
-	if secret.CreatedAt.IsZero() {
-		secret.CreatedAt = now
-	}
-	secret.UpdatedAt = now
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO credential_secrets (ref, kind, value, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (ref) DO UPDATE SET
-			kind = EXCLUDED.kind,
-			value = EXCLUDED.value,
-			updated_at = EXCLUDED.updated_at
-	`, secret.Ref, secret.Kind, secret.Value, secret.CreatedAt, secret.UpdatedAt)
-	s.appendAudit(ctx, "credential_secret.saved", "", "", "gateway", secret.Kind, map[string]any{
-		"ref":  secret.Ref,
-		"kind": secret.Kind,
-	})
-	return secret
-}
-
-func (s *PostgresStore) GetCredentialSecret(ref string) (app.CredentialSecret, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT ref, kind, value, created_at, updated_at
-		FROM credential_secrets
-		WHERE ref = $1
-	`, ref)
-	secret, err := scanCredentialSecret(row)
-	return secret, err == nil
-}
-
-func (s *PostgresStore) DeleteCredentialSecret(ref string) error {
-	tag, err := s.db.Exec(context.Background(), `DELETE FROM credential_secrets WHERE ref = $1`, ref)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errors.New("credential secret not found")
-	}
-	s.appendAudit(context.Background(), "credential_secret.deleted", "", "", "gateway", "credential deleted", map[string]any{"ref": ref})
-	return nil
 }
 
 func (s *PostgresStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {

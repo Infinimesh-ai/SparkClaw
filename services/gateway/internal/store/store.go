@@ -69,6 +69,12 @@ type ClientRepository interface {
 	ClaimPairingCode(context.Context, string, app.Client) (app.PairingCode, app.Client, error)
 }
 
+type CredentialRepository interface {
+	SaveCredentialSecret(context.Context, CredentialSaveCommand) (app.CredentialSecret, error)
+	GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error)
+	DeleteCredentialSecret(context.Context, CredentialDeleteCondition) (app.CredentialSecret, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -90,6 +96,7 @@ type Store interface {
 	ISCPOnboardingRepository
 	OwnerRepository
 	ClientRepository
+	CredentialRepository
 	CreateSession(title string) app.Session
 	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
 	ListSessions() []app.Session
@@ -189,9 +196,6 @@ type Store interface {
 	GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool)
 	FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool)
 	ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate
-	SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret
-	GetCredentialSecret(ref string) (app.CredentialSecret, bool)
-	DeleteCredentialSecret(ref string) error
 	SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord
 	GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool)
 	FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool)
@@ -237,6 +241,9 @@ var (
 	_ ClientRepository         = (*MemoryStore)(nil)
 	_ ClientRepository         = (*FileStore)(nil)
 	_ ClientRepository         = (*PostgresStore)(nil)
+	_ CredentialRepository     = (*MemoryStore)(nil)
+	_ CredentialRepository     = (*FileStore)(nil)
+	_ CredentialRepository     = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

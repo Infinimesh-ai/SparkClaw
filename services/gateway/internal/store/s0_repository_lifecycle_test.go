@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -27,8 +28,10 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "client.saved", eventType: "client.saved",
 	},
 	"CredentialRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-lifecycle", Kind: "token", Value: "secret"})
+		mutate: func(t *testing.T, st Store) {
+			if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-lifecycle", Kind: "token", Value: "secret"})); err != nil {
+				t.Fatal(err)
+			}
 		},
 		auditType: "credential_secret.saved",
 	},

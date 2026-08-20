@@ -330,7 +330,7 @@ type ChannelInboxUpdate struct {
 type CredentialSecret struct {
 	Ref       string    `json:"ref"`
 	Kind      string    `json:"kind"`
-	Value     string    `json:"value"`
+	Value     string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

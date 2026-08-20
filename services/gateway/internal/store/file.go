@@ -106,6 +106,14 @@ type snapshotPairingCode struct {
 	ClientID  string     `json:"client_id,omitempty"`
 }
 
+type snapshotCredentialSecret struct {
+	Ref       string    `json:"ref"`
+	Kind      string    `json:"kind"`
+	Value     string    `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type snapshotJSON Snapshot
 
 func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
@@ -125,18 +133,27 @@ func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 			ClaimedAt: cloneTimePointer(code.ClaimedAt), ClientID: code.ClientID,
 		}
 	}
+	credentials := make(map[string]snapshotCredentialSecret, len(snapshot.CredentialSecrets))
+	for ref, secret := range snapshot.CredentialSecrets {
+		credentials[ref] = snapshotCredentialSecret{
+			Ref: secret.Ref, Kind: secret.Kind, Value: secret.Value,
+			CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt,
+		}
+	}
 	return json.Marshal(struct {
 		snapshotJSON
-		Clients      map[string]snapshotClient      `json:"clients"`
-		PairingCodes map[string]snapshotPairingCode `json:"pairing_codes"`
-	}{snapshotJSON: snapshotJSON(snapshot), Clients: clients, PairingCodes: pairings})
+		Clients           map[string]snapshotClient           `json:"clients"`
+		PairingCodes      map[string]snapshotPairingCode      `json:"pairing_codes"`
+		CredentialSecrets map[string]snapshotCredentialSecret `json:"credential_secrets"`
+	}{snapshotJSON: snapshotJSON(snapshot), Clients: clients, PairingCodes: pairings, CredentialSecrets: credentials})
 }
 
 func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
 	var decoded struct {
 		snapshotJSON
-		Clients      map[string]snapshotClient      `json:"clients"`
-		PairingCodes map[string]snapshotPairingCode `json:"pairing_codes"`
+		Clients           map[string]snapshotClient           `json:"clients"`
+		PairingCodes      map[string]snapshotPairingCode      `json:"pairing_codes"`
+		CredentialSecrets map[string]snapshotCredentialSecret `json:"credential_secrets"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return err
@@ -156,6 +173,13 @@ func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
 			ID: code.ID, CodeHash: code.CodeHash, Status: code.Status,
 			ExpiresAt: code.ExpiresAt, CreatedAt: code.CreatedAt,
 			ClaimedAt: cloneTimePointer(code.ClaimedAt), ClientID: code.ClientID,
+		}
+	}
+	snapshot.CredentialSecrets = make(map[string]app.CredentialSecret, len(decoded.CredentialSecrets))
+	for ref, secret := range decoded.CredentialSecrets {
+		snapshot.CredentialSecrets[ref] = app.CredentialSecret{
+			Ref: secret.Ref, Kind: secret.Kind, Value: secret.Value,
+			CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt,
 		}
 	}
 	return nil
@@ -184,6 +208,8 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 				return nil, err
 			}
 			raw = decrypted
+		} else if isEncryptedSnapshotEnvelope(raw) {
+			return nil, errors.New("encrypted file state requires state encryption configuration")
 		}
 		var snapshot Snapshot
 		if err := json.Unmarshal(raw, &snapshot); err != nil {
@@ -199,6 +225,10 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		}
 		if err := normalizePersistedISCPOnboardings(snapshot.ISCPOnboardings); err != nil {
 			return nil, err
+		}
+		snapshot.CredentialSecrets = ensureMap(snapshot.CredentialSecrets)
+		if err := normalizeAndValidatePersistedCredentialSecrets(snapshot.CredentialSecrets); err != nil {
+			return nil, fmt.Errorf("validate credential state: %w", err)
 		}
 		inner.loadSnapshot(snapshot)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -1113,25 +1143,35 @@ func (s *FileStore) ListChannelInboxUpdates(channel, status string, readyBefore 
 	return s.inner.ListChannelInboxUpdates(channel, status, readyBefore, limit)
 }
 
-func (s *FileStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveCredentialSecret(secret)
-	s.persist()
-	return out
-}
-
-func (s *FileStore) GetCredentialSecret(ref string) (app.CredentialSecret, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetCredentialSecret(ref)
-}
-
-func (s *FileStore) DeleteCredentialSecret(ref string) error {
-	defer s.admitLegacyCommand()()
-	err := s.inner.DeleteCredentialSecret(ref)
-	if err == nil {
-		s.persist()
+func (s *FileStore) SaveCredentialSecret(ctx context.Context, command CredentialSaveCommand) (app.CredentialSecret, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationCredentialSecretSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.CredentialSecret{}, err
 	}
-	return err
+	defer release()
+	return runFileCommand(s, ctx, OperationCredentialSecretSave, func(ctx context.Context) (app.CredentialSecret, error) {
+		return s.inner.SaveCredentialSecret(ctx, command)
+	})
+}
+
+func (s *FileStore) GetCredentialSecret(ctx context.Context, ref string) (app.CredentialSecret, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationCredentialSecretGet, 1)
+	if err != nil {
+		return app.CredentialSecret{}, false, err
+	}
+	defer release()
+	return s.inner.GetCredentialSecret(ctx, ref)
+}
+
+func (s *FileStore) DeleteCredentialSecret(ctx context.Context, condition CredentialDeleteCondition) (app.CredentialSecret, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationCredentialSecretDelete, fileAdmissionCapacity)
+	if err != nil {
+		return app.CredentialSecret{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationCredentialSecretDelete, func(ctx context.Context) (app.CredentialSecret, error) {
+		return s.inner.DeleteCredentialSecret(ctx, condition)
+	})
 }
 
 func (s *FileStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
@@ -1361,6 +1401,14 @@ type encryptedSnapshot struct {
 	Ciphertext string `json:"ciphertext"`
 }
 
+func isEncryptedSnapshotEnvelope(raw []byte) bool {
+	var envelope encryptedSnapshot
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return false
+	}
+	return envelope.Ciphertext != ""
+}
+
 type fileEncryption struct {
 	aead cipher.AEAD
 }
@@ -1418,7 +1466,10 @@ func (e *fileEncryption) encrypt(raw []byte) ([]byte, error) {
 
 func (e *fileEncryption) decrypt(raw []byte) ([]byte, error) {
 	var envelope encryptedSnapshot
-	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Version == 1 && envelope.Ciphertext != "" {
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Ciphertext != "" {
+		if envelope.Version != 1 {
+			return nil, fmt.Errorf("unsupported state encryption version %d", envelope.Version)
+		}
 		if !strings.EqualFold(envelope.Alg, "AES-256-GCM") {
 			return nil, fmt.Errorf("unsupported state encryption algorithm %q", envelope.Alg)
 		}

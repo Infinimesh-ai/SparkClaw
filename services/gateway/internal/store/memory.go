@@ -47,21 +47,23 @@ type MemoryStore struct {
 	passiveNotificationIDsByKey map[string]string
 	// passiveNotificationRevs increases per owner on every inbox change so
 	// pollers can skip listing when nothing changed. Process-local only.
-	passiveNotificationRevs map[string]uint64
-	externalChatSessions    map[string]app.ExternalChatSession
-	externalChatMessages    map[string]app.ExternalChatMessage
-	messageReceives         map[string]app.MessageReceiveRecord
-	messageDeliveries       map[string]app.MessageDeliveryRecord
-	channelInboxUpdates     map[string]app.ChannelInboxUpdate
-	credentialSecrets       map[string]app.CredentialSecret
-	browserAuthRecords      map[string]app.BrowserAuthRecord
-	browserLoginBlocks      map[string]app.BrowserLoginBlock
-	memories                map[string]app.Memory
-	memoryCandidates        map[string]app.MemoryCandidate
-	auditEvents             []app.AuditEvent
-	events                  []app.Event
-	evalRuns                map[string]app.EvalRun
-	artifactObjects         map[string]app.ArtifactObject
+	passiveNotificationRevs  map[string]uint64
+	externalChatSessions     map[string]app.ExternalChatSession
+	externalChatMessages     map[string]app.ExternalChatMessage
+	messageReceives          map[string]app.MessageReceiveRecord
+	messageDeliveries        map[string]app.MessageDeliveryRecord
+	channelInboxUpdates      map[string]app.ChannelInboxUpdate
+	credentialSecrets        map[string]app.CredentialSecret
+	credentialWriteHighWater map[string]time.Time
+	credentialNow            func() time.Time
+	browserAuthRecords       map[string]app.BrowserAuthRecord
+	browserLoginBlocks       map[string]app.BrowserLoginBlock
+	memories                 map[string]app.Memory
+	memoryCandidates         map[string]app.MemoryCandidate
+	auditEvents              []app.AuditEvent
+	events                   []app.Event
+	evalRuns                 map[string]app.EvalRun
+	artifactObjects          map[string]app.ArtifactObject
 	// artifactObjectIDsByURI indexes artifactObjects by URI so lookups on the
 	// observation.read path stay O(1) instead of scanning the full store.
 	artifactObjectIDsByURI map[string]map[string]struct{}
@@ -110,6 +112,8 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 		messageDeliveries:           map[string]app.MessageDeliveryRecord{},
 		channelInboxUpdates:         map[string]app.ChannelInboxUpdate{},
 		credentialSecrets:           map[string]app.CredentialSecret{},
+		credentialWriteHighWater:    map[string]time.Time{},
+		credentialNow:               time.Now,
 		browserAuthRecords:          map[string]app.BrowserAuthRecord{},
 		browserLoginBlocks:          map[string]app.BrowserLoginBlock{},
 		memories:                    map[string]app.Memory{},
@@ -293,6 +297,15 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	}
 	s.channelInboxUpdates = ensureMap(snapshot.ChannelInboxUpdates)
 	s.credentialSecrets = ensureMap(snapshot.CredentialSecrets)
+	if s.credentialWriteHighWater == nil {
+		s.credentialWriteHighWater = map[string]time.Time{}
+	}
+	for ref, secret := range s.credentialSecrets {
+		highWater := latestCredentialTime(secret)
+		if highWater.After(s.credentialWriteHighWater[ref]) {
+			s.credentialWriteHighWater[ref] = highWater
+		}
+	}
 	s.browserAuthRecords = ensureMap(snapshot.BrowserAuthRecords)
 	s.browserLoginBlocks = ensureMap(snapshot.BrowserLoginBlocks)
 	for id, block := range s.browserLoginBlocks {
@@ -2260,38 +2273,109 @@ func externalChatSessionTitle(channel string) string {
 	return "微信会话"
 }
 
-func (s *MemoryStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
+func (s *MemoryStore) SaveCredentialSecret(ctx context.Context, command CredentialSaveCommand) (app.CredentialSecret, error) {
+	ctx, cancel := operationContext(ctx, OperationCredentialSecretSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationCredentialSecretSave, ctx); err != nil {
+		return app.CredentialSecret{}, err
+	}
+	command, err := normalizeCredentialSaveCommand(command)
+	if err != nil {
+		return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if secret.CreatedAt.IsZero() {
-		secret.CreatedAt = now
+	if err := operationContextError(OperationCredentialSecretSave, ctx); err != nil {
+		return app.CredentialSecret{}, err
 	}
-	secret.UpdatedAt = now
-	s.credentialSecrets[secret.Ref] = secret
-	s.appendAuditLocked("credential_secret.saved", "", "", "gateway", secret.Kind, map[string]any{
-		"ref":  secret.Ref,
-		"kind": secret.Kind,
+	current, exists := s.credentialSecrets[command.secret.Ref]
+	if exists {
+		current, err = normalizePersistedCredentialSecret(current)
+		if err != nil {
+			return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorCorrupt, err)
+		}
+	}
+	if command.mode == credentialSaveCreate {
+		if exists {
+			return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorConflict, errors.New("credential already exists"))
+		}
+	} else if !exists || credentialSecretDigest(current) != command.expected {
+		return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorConflict, errors.New("credential changed"))
+	}
+	commandAt := nextRepositoryTime(s.credentialNow(), s.credentialWriteHighWater[command.secret.Ref], latestCredentialTime(current))
+	candidate := command.secret
+	if exists {
+		candidate.CreatedAt = current.CreatedAt
+		candidate.UpdatedAt = commandAt
+	} else {
+		candidate.CreatedAt = commandAt
+		candidate.UpdatedAt = commandAt
+	}
+	s.credentialWriteHighWater[candidate.Ref] = commandAt
+	s.credentialSecrets[candidate.Ref] = candidate
+	s.appendAuditLockedAt(commandAt, "credential_secret.saved", "", "", "gateway", candidate.Kind, map[string]any{
+		"ref": candidate.Ref, "kind": candidate.Kind,
 	})
-	return secret
+	return candidate, nil
 }
 
-func (s *MemoryStore) GetCredentialSecret(ref string) (app.CredentialSecret, bool) {
+func (s *MemoryStore) GetCredentialSecret(ctx context.Context, ref string) (app.CredentialSecret, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationCredentialSecretGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationCredentialSecretGet, ctx); err != nil {
+		return app.CredentialSecret{}, false, err
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return app.CredentialSecret{}, false, nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationCredentialSecretGet, ctx); err != nil {
+		return app.CredentialSecret{}, false, err
+	}
 	secret, ok := s.credentialSecrets[ref]
-	return secret, ok
+	if !ok {
+		return app.CredentialSecret{}, false, nil
+	}
+	secret, err := normalizePersistedCredentialSecret(secret)
+	if err != nil {
+		return app.CredentialSecret{}, false, storeError(OperationCredentialSecretGet, StoreErrorCorrupt, err)
+	}
+	return secret, true, nil
 }
 
-func (s *MemoryStore) DeleteCredentialSecret(ref string) error {
+func (s *MemoryStore) DeleteCredentialSecret(ctx context.Context, condition CredentialDeleteCondition) (app.CredentialSecret, error) {
+	ctx, cancel := operationContext(ctx, OperationCredentialSecretDelete, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationCredentialSecretDelete, ctx); err != nil {
+		return app.CredentialSecret{}, err
+	}
+	condition, err := normalizeCredentialDeleteCondition(condition)
+	if err != nil {
+		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.credentialSecrets[ref]; !ok {
-		return errors.New("credential secret not found")
+	if err := operationContextError(OperationCredentialSecretDelete, ctx); err != nil {
+		return app.CredentialSecret{}, err
 	}
-	delete(s.credentialSecrets, ref)
-	s.appendAuditLocked("credential_secret.deleted", "", "", "gateway", "credential deleted", map[string]any{"ref": ref})
-	return nil
+	secret, ok := s.credentialSecrets[condition.ref]
+	if !ok {
+		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorNotFound, errors.New("credential not found"))
+	}
+	secret, err = normalizePersistedCredentialSecret(secret)
+	if err != nil {
+		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorCorrupt, err)
+	}
+	if credentialSecretDigest(secret) != condition.expected {
+		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorConflict, errors.New("credential changed"))
+	}
+	commandAt := nextRepositoryTime(s.credentialNow(), s.credentialWriteHighWater[secret.Ref], latestCredentialTime(secret))
+	s.credentialWriteHighWater[secret.Ref] = commandAt
+	delete(s.credentialSecrets, secret.Ref)
+	s.appendAuditLockedAt(commandAt, "credential_secret.deleted", "", "", "gateway", "credential deleted", map[string]any{"ref": secret.Ref})
+	return secret, nil
 }
 
 func (s *MemoryStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {

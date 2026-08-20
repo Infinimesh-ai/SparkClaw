@@ -88,9 +88,10 @@ func newConnectorAssembly(
 
 	weixinConfig := cfg.Tools.Notifications.Channels["weixin"]
 	weixinSyncer := weixin.NewSyncer(st).
+		WithCredentialVault(vault).
 		WithConfig(cfg).
-		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(resultDeliverer))
-	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
+		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(resultDeliverer))
+	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st, vault)
 	if err := registry.Register(connector.Registration{
 		Channel:   "weixin",
 		SetupKind: app.ConnectorSetupQR,

@@ -2766,12 +2766,16 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer revokeResp.Body.Close()
-	var revoked map[string]any
-	if err := json.NewDecoder(revokeResp.Body).Decode(&revoked); err != nil {
+	var unavailable map[string]any
+	if err := json.NewDecoder(revokeResp.Body).Decode(&unavailable); err != nil {
 		t.Fatal(err)
 	}
-	if revoked["status"] != "revoked" {
-		t.Fatalf("expected revoked binding, got %#v", revoked)
+	if revokeResp.StatusCode != http.StatusServiceUnavailable || unavailable["code"] != credential.CodeUnavailable {
+		t.Fatalf("expected unavailable revoke before the durable connector barrier, status=%d body=%#v", revokeResp.StatusCode, unavailable)
+	}
+	retained, ok := st.GetNotificationBinding(id)
+	if !ok || retained.Status != "active" || retained.CredentialRef == "" {
+		t.Fatalf("ambiguous revoke did not retain the active binding and credential: %#v ok=%v", retained, ok)
 	}
 }
 
@@ -2934,7 +2938,10 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if !ok || persisted.CredentialRef == "" || persisted.ExternalUserID != "" || persisted.ExternalChatID != "" || persisted.ProviderState != "" || persisted.ExpiresAt != nil {
 		t.Fatalf("unexpected persisted Telegram binding: %#v ok=%v", persisted, ok)
 	}
-	secret, ok := st.GetCredentialSecret(persisted.CredentialRef)
+	secret, ok, err := st.GetCredentialSecret(t.Context(), persisted.CredentialRef)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || strings.Contains(secret.Value, validToken) || !strings.Contains(secret.Value, "AES-256-GCM") {
 		t.Fatalf("Telegram credential was not sealed: %#v ok=%v", secret, ok)
 	}

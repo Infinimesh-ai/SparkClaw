@@ -47,6 +47,7 @@ var migratedFileAdmissions = map[string]string{
 	"GetClient": "admitMigrated", "ListClients": "admitMigrated", "RevokeClient": "admitMigrated",
 	"FindClientByTokenHash": "admitMigrated", "TouchClient": "admitMigrated",
 	"SavePairingCode": "admitMigrated", "GetPairingCode": "admitMigrated", "ClaimPairingCode": "admitMigrated",
+	"SaveCredentialSecret": "admitMigrated", "GetCredentialSecret": "admitMigrated", "DeleteCredentialSecret": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

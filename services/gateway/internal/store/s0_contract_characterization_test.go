@@ -134,8 +134,6 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/agent/agent.go:type Runtime":                           1,
 		"internal/agent/tool_exposure.go:func newToolExposureEngine":     1,
 		"internal/agent/tool_exposure.go:type toolExposureEngine":        1,
-		"internal/credential/vault.go:func New":                          1,
-		"internal/credential/vault.go:type Vault":                        1,
 		"internal/gateway/server.go:func New":                            1,
 		"internal/gateway/server.go:func NewWithTrace":                   1,
 		"internal/gateway/server.go:func runHasPendingApproval":          1,
@@ -153,7 +151,7 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/mcpaccess/service.go:func runHasApprovedApproval":      1,
 		"internal/mcpaccess/service.go:func runHasPendingApproval":       1,
 		"internal/mcpaccess/service.go:type Service":                     1,
-		"internal/notification/notification.go:func NewWeixinAdapter":    2,
+		"internal/notification/notification.go:func NewWeixinAdapter":    1,
 		"internal/notification/notification.go:func SendWeixinFile":      1,
 		"internal/notification/notification.go:func SendWeixinImage":     1,
 		"internal/notification/notification.go:func SendWeixinText":      1,
@@ -660,8 +658,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 41 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 41", got)
+	if got := strings.Count(source, "s.persist()"); got != 39 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 39", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -712,8 +710,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 27 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 27", count)
+	if count != 26 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 26", count)
 	}
 }
 

@@ -43,7 +43,7 @@ func TestNotificationAdapterUsesBoundEncryptedCredential(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(7)})
-	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte(token))
+	ref, err := vault.Seal(t.Context(), "bind_notification", "telegram-bot-token", []byte(token))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,10 @@ func TestNotificationAdapterUsesBoundEncryptedCredential(t *testing.T) {
 	if gotChatID != 99 || gotThreadID != 7 || gotText != "scheduled reminder" {
 		t.Fatalf("unexpected Telegram payload: chat=%d thread=%d text=%q", gotChatID, gotThreadID, gotText)
 	}
-	stored, ok := st.GetCredentialSecret(ref)
+	stored, ok, err := st.GetCredentialSecret(t.Context(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || strings.Contains(stored.Value, token) {
 		t.Fatalf("credential was not encrypted at rest: %#v", stored)
 	}
@@ -79,7 +82,7 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(9)})
-	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte("123456:AA-multimedia"))
+	ref, err := vault.Seal(t.Context(), "bind_multimedia", "telegram-bot-token", []byte("123456:AA-multimedia"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +147,7 @@ func TestNotificationAdapterSanitizesProviderFailure(t *testing.T) {
 	defer server.Close()
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(8)})
-	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte(token))
+	ref, err := vault.Seal(t.Context(), "bind_failure", "telegram-bot-token", []byte(token))
 	if err != nil {
 		t.Fatal(err)
 	}

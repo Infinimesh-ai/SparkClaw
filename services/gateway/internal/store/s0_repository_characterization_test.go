@@ -242,27 +242,37 @@ func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store, dimension st
 func characterizeS0CredentialRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
-		if got, ok := st.GetCredentialSecret("credential-s0"); !ok || got.Value != "first" {
-			t.Fatalf("credential save/get = %#v ok=%v", got, ok)
-		}
-	case s0DimensionAbsence:
-		if _, ok := st.GetCredentialSecret("missing"); ok {
-			t.Fatal("missing credential was found")
-		}
-	case s0DimensionDuplicate:
-		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
-		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "updated"})
-		if got, ok := st.GetCredentialSecret("credential-s0"); !ok || got.Value != "updated" {
-			t.Fatalf("credential overwrite = %#v ok=%v", got, ok)
-		}
-	case s0DimensionConflictDeletion:
-		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
-		if err := st.DeleteCredentialSecret("credential-s0"); err != nil {
+		if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := st.GetCredentialSecret("credential-s0"); ok {
-			t.Fatal("deleted credential was found")
+		if got, ok, err := st.GetCredentialSecret(context.Background(), "credential-s0"); err != nil || !ok || got.Value != "first" {
+			t.Fatalf("credential save/get = %#v ok=%v err=%v", got, ok, err)
+		}
+	case s0DimensionAbsence:
+		if _, ok, err := st.GetCredentialSecret(context.Background(), "missing"); err != nil || ok {
+			t.Fatalf("missing credential result ok=%v err=%v", ok, err)
+		}
+	case s0DimensionDuplicate:
+		created, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialReplace(created, app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "updated"})); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok, err := st.GetCredentialSecret(context.Background(), "credential-s0"); err != nil || !ok || got.Value != "updated" {
+			t.Fatalf("credential overwrite = %#v ok=%v err=%v", got, ok, err)
+		}
+	case s0DimensionConflictDeletion:
+		created, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.DeleteCredentialSecret(context.Background(), NewCredentialDeleteCondition(created)); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, err := st.GetCredentialSecret(context.Background(), "credential-s0"); err != nil || ok {
+			t.Fatalf("deleted credential result ok=%v err=%v", ok, err)
 		}
 	default:
 		t.Fatalf("unexpected CredentialRepository dimension %q", dimension)

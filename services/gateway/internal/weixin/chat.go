@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
@@ -45,11 +46,18 @@ type Dispatcher struct {
 	cfg               config.NotificationChannelConfig
 	workspaceBaseRoot string
 	results           connectorruntime.ResultDeliverer
+	credentials       credential.CredentialVault
 }
 
 func (d *Dispatcher) WithResultDeliverer(deliverer connectorruntime.ResultDeliverer) *Dispatcher {
 	copy := *d
 	copy.results = deliverer
+	return &copy
+}
+
+func (d *Dispatcher) WithCredentialVault(vault credential.CredentialVault) *Dispatcher {
+	copy := *d
+	copy.credentials = vault
 	return &copy
 }
 
@@ -155,7 +163,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	processing = d.store.SaveExternalChatMessage(processing)
 	receive = receives.Advance(receive, "routed", inboundMsg.ID, "")
 	recipient := d.replyRecipient(inbound)
-	if _, err := notification.SendWeixinTyping(ctx, d.store, d.cfg,
+	if _, err := notification.SendWeixinTyping(ctx, d.store, d.credentials, d.cfg,
 		recipient,
 		inbound.ContextToken,
 		inbound.Binding.CredentialRef,
@@ -165,7 +173,9 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		d.auditTypingFailure(chatSession, inbound, "start", err)
 	}
 	defer func() {
-		if _, err := notification.SendWeixinTyping(context.Background(), d.store, d.cfg,
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if _, err := notification.SendWeixinTyping(cleanupCtx, d.store, d.credentials, d.cfg,
 			recipient,
 			inbound.ContextToken,
 			inbound.Binding.CredentialRef,
@@ -376,7 +386,7 @@ func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMes
 	recipient := d.replyRecipient(inbound)
 	if mediaPath, ok := singleMediaMarkdownPath(answer); ok {
 		if imagePath, ok := d.workspaceMediaPath(mediaPath, inbound); ok {
-			return notification.SendWeixinImage(ctx, d.store, d.cfg,
+			return notification.SendWeixinImage(ctx, d.store, d.credentials, d.cfg,
 				recipient,
 				inbound.ContextToken,
 				inbound.Binding.CredentialRef,
@@ -388,7 +398,7 @@ func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMes
 		}
 	}
 	if filePath, fileName, ok := d.workspaceFilePath(answer, inbound); ok {
-		return notification.SendWeixinFile(ctx, d.store, d.cfg,
+		return notification.SendWeixinFile(ctx, d.store, d.credentials, d.cfg,
 			recipient,
 			inbound.ContextToken,
 			inbound.Binding.CredentialRef,
@@ -399,7 +409,7 @@ func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMes
 			runID,
 		)
 	}
-	return notification.SendWeixinText(ctx, d.store, d.cfg,
+	return notification.SendWeixinText(ctx, d.store, d.credentials, d.cfg,
 		recipient,
 		inbound.ContextToken,
 		inbound.Binding.CredentialRef,

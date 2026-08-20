@@ -1,17 +1,47 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+type unavailableNotificationCredentialRepository struct {
+	err error
+}
+
+func (r unavailableNotificationCredentialRepository) SaveCredentialSecret(context.Context, store.CredentialSaveCommand) (app.CredentialSecret, error) {
+	return app.CredentialSecret{}, r.err
+}
+
+func (r unavailableNotificationCredentialRepository) GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error) {
+	return app.CredentialSecret{}, false, r.err
+}
+
+func (r unavailableNotificationCredentialRepository) DeleteCredentialSecret(context.Context, store.CredentialDeleteCondition) (app.CredentialSecret, error) {
+	return app.CredentialSecret{}, r.err
+}
+
+func newNotificationTestCredential(t *testing.T, st *store.MemoryStore, bindingID string) (credential.CredentialVault, string) {
+	t.Helper()
+	vault := credential.New(st, credential.Options{Key: strings.Repeat("n", 32)})
+	ref, err := vault.Seal(t.Context(), bindingID, "openclaw-weixin-bot-token", []byte("bot-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return vault, ref
+}
 
 func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 	var gotAuth string
@@ -34,11 +64,7 @@ func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault, credentialRef := newNotificationTestCredential(t, st, "bind_1")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
@@ -46,7 +72,7 @@ func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		ContextToken:      "ctx-token",
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
@@ -58,11 +84,11 @@ func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 		Provider: "openclaw-weixin-qr",
 		BaseURL:  ts.URL,
 	}
-	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st).Send(t.Context(), Notification{
+	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st, vault).Send(t.Context(), Notification{
 		Channel:          "weixin",
 		Recipient:        "wx-user-1",
 		RecipientBinding: "ctx-token",
-		CredentialRef:    "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:    credentialRef,
 		BaseURL:          ts.URL,
 		MessageText:      "提醒内容",
 	})
@@ -92,7 +118,7 @@ func TestWeixinProviderPreflightsAudioFallbackBeforeExternalSend(t *testing.T) {
 	defer server.Close()
 	st := store.NewMemoryStore()
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_audio", Channel: "weixin", Status: "active", ExternalUserID: "wx-user", ContextToken: "ctx", BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
-	provider := NewWeixinAdapter("weixin", config.NotificationChannelConfig{Enabled: true, BaseURL: server.URL, Token: "token"}, st)
+	provider := NewWeixinAdapter("weixin", config.NotificationChannelConfig{Enabled: true, BaseURL: server.URL, Token: "token"}, st, nil)
 	providers := delivery.NewProviderRegistry()
 	if err := providers.Register(provider); err != nil {
 		t.Fatal(err)
@@ -129,11 +155,7 @@ func TestWeixinBindingScopeCompatibilityDefaultsToAllMessaging(t *testing.T) {
 
 func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault, credentialRef := newNotificationTestCredential(t, st, "bind_1")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
@@ -141,7 +163,7 @@ func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
@@ -152,10 +174,10 @@ func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 		Provider: "openclaw-weixin-qr",
 		BaseURL:  "http://127.0.0.1:1",
 	}
-	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st).Send(t.Context(), Notification{
+	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st, vault).Send(t.Context(), Notification{
 		Channel:          "weixin",
 		RecipientBinding: "ctx-token",
-		CredentialRef:    "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:    credentialRef,
 		BaseURL:          "http://127.0.0.1:1",
 		MessageText:      "提醒内容",
 	})
@@ -164,5 +186,26 @@ func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 	}
 	if result.Status != "failed" || result.RetryState != "blocked" || result.Error != "weixin recipient binding is not configured" {
 		t.Fatalf("unexpected result: %#v err=%v", result, err)
+	}
+}
+
+func TestWeixinSendProjectsCredentialFailureWithoutBackendDetails(t *testing.T) {
+	const canary = "private credential backend diagnostic"
+	repository := unavailableNotificationCredentialRepository{err: &store.StoreError{
+		Code: store.StoreErrorUnavailable, Operation: store.OperationCredentialSecretGet, Err: errors.New(canary),
+	}}
+	vault := credential.New(repository, credential.Options{Key: strings.Repeat("u", 32)})
+	result, err := NewWeixinAdapter("weixin", config.NotificationChannelConfig{
+		Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: "http://127.0.0.1:1",
+	}, store.NewMemoryStore(), vault).Send(t.Context(), Notification{
+		Channel: "weixin", Recipient: "wx-user", RecipientBinding: "context",
+		CredentialRef: "credential-sensitive-ref", MessageText: "message",
+	})
+	if err == nil || result.Status != "failed" || result.RetryState != "retryable" || result.Error != "credential is temporarily unavailable" {
+		t.Fatalf("unexpected credential failure: result=%#v err=%v", result, err)
+	}
+	combined := result.Error + err.Error()
+	if strings.Contains(combined, canary) || strings.Contains(combined, "credential-sensitive-ref") {
+		t.Fatalf("credential failure disclosed backend data: %q", combined)
 	}
 }

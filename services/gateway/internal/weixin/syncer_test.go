@@ -19,6 +19,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -27,6 +28,23 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
+
+type unavailableWeixinCredentialStore struct {
+	store.Store
+	err error
+}
+
+func (s *unavailableWeixinCredentialStore) SaveCredentialSecret(context.Context, store.CredentialSaveCommand) (app.CredentialSecret, error) {
+	return app.CredentialSecret{}, s.err
+}
+
+func (s *unavailableWeixinCredentialStore) GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error) {
+	return app.CredentialSecret{}, false, s.err
+}
+
+func (s *unavailableWeixinCredentialStore) DeleteCredentialSecret(context.Context, store.CredentialDeleteCondition) (app.CredentialSecret, error) {
+	return app.CredentialSecret{}, s.err
+}
 
 func weixinTestRuntimeScope() connectorruntime.RuntimeScope {
 	return connectorruntime.RuntimeScope{
@@ -39,7 +57,7 @@ func newWeixinTestResultDeliverer(t *testing.T, st store.Store, cfg config.Confi
 	t.Helper()
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := delivery.NewProviderRegistry()
-	if err := providers.Register(notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st)); err != nil {
+	if err := providers.Register(notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st, newWeixinTestVault(t, st))); err != nil {
 		t.Fatal(err)
 	}
 	gateway := delivery.NewGateway(endpoints, providers, nil)
@@ -68,11 +86,8 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
@@ -80,7 +95,7 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		ProviderCursor:    "cursor-1",
 		DefaultForChannel: true,
@@ -88,7 +103,7 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 
-	NewSyncer(st).Tick(t.Context(), weixinTestRuntimeScope())
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), weixinTestRuntimeScope())
 
 	if gotAuth != "Bearer bot-secret" {
 		t.Fatalf("expected auth header, got %q", gotAuth)
@@ -114,11 +129,12 @@ func TestSyncerOwnerGateSkipsDisabledBindingAcquisition(t *testing.T) {
 	}))
 	defer ts.Close()
 	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
 	for _, ownerID := range []string{"owner-a", "owner-b"} {
-		credentialRef := "credential-" + ownerID
-		st.SaveCredentialSecret(app.CredentialSecret{Ref: credentialRef, Kind: "openclaw-weixin-bot-token", Value: "secret"})
+		bindingID := "binding-" + ownerID
+		credentialRef := sealWeixinTestCredential(t, vault, bindingID, "secret")
 		st.SaveNotificationBinding(app.NotificationBinding{
-			ID: "binding-" + ownerID, OwnerID: ownerID, Channel: "weixin", Provider: "openclaw-weixin-qr",
+			ID: bindingID, OwnerID: ownerID, Channel: "weixin", Provider: "openclaw-weixin-qr",
 			Status: "active", CredentialRef: credentialRef, BaseURL: ts.URL,
 		})
 	}
@@ -126,9 +142,35 @@ func TestSyncerOwnerGateSkipsDisabledBindingAcquisition(t *testing.T) {
 		Channel:      "weixin",
 		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-b" },
 	}
-	NewSyncer(st).Tick(t.Context(), scope)
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), scope)
 	if calls.Load() != 1 {
 		t.Fatalf("provider polls = %d, want only enabled owner-b", calls.Load())
+	}
+}
+
+func TestSyncerStoresOnlyStableCredentialFailure(t *testing.T) {
+	const canary = "private sync credential backend diagnostic"
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+	base := store.NewMemoryStore()
+	binding := base.SaveNotificationBinding(app.NotificationBinding{
+		ID: "binding-credential-failure", OwnerID: app.DefaultOwnerID, Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: "active", CredentialRef: "credential-private-ref", BaseURL: server.URL,
+	})
+	st := &unavailableWeixinCredentialStore{Store: base, err: &store.StoreError{
+		Code: store.StoreErrorUnavailable, Operation: store.OperationCredentialSecretGet, Err: errors.New(canary),
+	}}
+	vault := credential.New(st, credential.Options{Key: strings.Repeat("u", 32)})
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), weixinTestRuntimeScope())
+	stored, found := base.GetNotificationBinding(binding.ID)
+	if !found || stored.LastError != "credential is temporarily unavailable" {
+		t.Fatalf("stored credential error=%q found=%v", stored.LastError, found)
+	}
+	if strings.Contains(stored.LastError, canary) || strings.Contains(stored.LastError, binding.CredentialRef) || calls.Load() != 0 {
+		t.Fatalf("credential failure leaked details or reached provider: error=%q calls=%d", stored.LastError, calls.Load())
 	}
 }
 
@@ -257,11 +299,8 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
@@ -269,16 +308,16 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
@@ -381,27 +420,24 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
@@ -540,11 +576,8 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 		Bytes:       len(rawImage),
 		CreatedAt:   time.Now().UTC(),
 	})
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
@@ -552,16 +585,16 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"]).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"]).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
@@ -645,11 +678,8 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
@@ -657,7 +687,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		ProviderCursor:    "cursor-1",
 		DefaultForChannel: true,
@@ -665,8 +695,8 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
@@ -774,27 +804,24 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 		Provider: "openclaw-weixin-qr",
 	}
 	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
 	for id, baseURL := range map[string]string{"bind_a": serverA.URL, "bind_b": serverB.URL} {
-		st.SaveCredentialSecret(app.CredentialSecret{
-			Ref:   "provider:openclaw-weixin-qr:" + id,
-			Kind:  "openclaw-weixin-bot-token",
-			Value: "bot-secret",
-		})
+		credentialRef := sealWeixinTestCredential(t, vault, id, "bot-secret")
 		st.SaveNotificationBinding(app.NotificationBinding{
 			ID:            id,
 			OwnerID:       app.DefaultOwnerID,
 			Channel:       "weixin",
 			Provider:      "openclaw-weixin-qr",
 			Status:        "active",
-			CredentialRef: "provider:openclaw-weixin-qr:" + id,
+			CredentialRef: credentialRef,
 			BaseURL:       baseURL,
 			CreatedAt:     time.Now().UTC(),
 			UpdatedAt:     time.Now().UTC(),
 		})
 	}
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
@@ -853,22 +880,19 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := app.NotificationBinding{
 		ID:            "bind_1",
 		Channel:       "weixin",
 		Provider:      "openclaw-weixin-qr",
 		Status:        "active",
-		CredentialRef: "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef: credentialRef,
 		BaseURL:       ts.URL,
 	}
 	st.SaveNotificationBinding(binding)
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	inbound := InboundMessage{
 		Binding:      binding,
@@ -957,11 +981,8 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := app.NotificationBinding{
 		ID:             "bind_1",
 		OwnerID:        app.DefaultOwnerID,
@@ -969,7 +990,7 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 		Provider:       "openclaw-weixin-qr",
 		Status:         "active",
 		ExternalUserID: "wx-user-1",
-		CredentialRef:  "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:  credentialRef,
 		BaseURL:        ts.URL,
 		ProviderCursor: "cursor-1",
 		CreatedAt:      time.Now().UTC(),
@@ -990,13 +1011,13 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 	}}
 	transient := errors.New("provider connection reset")
 	deliverer := &fakeResultDeliverer{errs: []error{transient, transient, transient}}
-	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithCredentialVault(vault).WithResultDeliverer(deliverer)
 
 	chatSessionID := ""
 	for tick, wantAttempts := range []int{1, 2, 3} {
 		// A fresh Syncer per tick simulates a gateway restart between polls:
 		// the retry budget must come from the store, not from syncer memory.
-		syncer := NewSyncer(st).WithDispatcher(dispatcher)
+		syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 		syncer.Tick(t.Context(), weixinTestRuntimeScope())
 		syncer.Wait()
 		chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
@@ -1065,11 +1086,8 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := app.NotificationBinding{
 		ID:             "bind_1",
 		OwnerID:        app.DefaultOwnerID,
@@ -1077,7 +1095,7 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 		Provider:       "openclaw-weixin-qr",
 		Status:         "active",
 		ExternalUserID: "wx-user-1",
-		CredentialRef:  "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:  credentialRef,
 		BaseURL:        ts.URL,
 		ProviderCursor: "cursor-1",
 		CreatedAt:      time.Now().UTC(),
@@ -1099,8 +1117,8 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 	deliverer := &fakeResultDeliverer{errs: []error{
 		delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked"),
 	}}
-	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithCredentialVault(vault).WithResultDeliverer(deliverer)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()

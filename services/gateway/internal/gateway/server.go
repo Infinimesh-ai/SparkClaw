@@ -199,19 +199,15 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		tools.WithArtifactStore(artifacts)
 	}
 	s := &Server{
-		cfg:       cfg,
-		store:     st,
-		tools:     tools,
-		runtime:   runtime,
-		models:    modelrouter.New(cfg),
-		traces:    traces,
-		artifacts: artifacts,
-		policies:  policy.New(cfg),
-		speech:    speech.NewDisabled(cfg.Speech),
-		credentials: credential.New(st, credential.Options{
-			Key:     cfg.State.CredentialKey,
-			KeyFile: cfg.State.CredentialKeyFile,
-		}),
+		cfg:                     cfg,
+		store:                   st,
+		tools:                   tools,
+		runtime:                 runtime,
+		models:                  modelrouter.New(cfg),
+		traces:                  traces,
+		artifacts:               artifacts,
+		policies:                policy.New(cfg),
+		speech:                  speech.NewDisabled(cfg.Speech),
 		mux:                     http.NewServeMux(),
 		started:                 time.Now().UTC(),
 		limiter:                 newRateLimiter(cfg.Gateway.RateLimit),
@@ -1127,10 +1123,7 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 	}
 	started = s.store.SaveNotificationBinding(started)
 	if persisted, ok := s.store.GetNotificationBinding(started.ID); !ok || persisted.CredentialRef != started.CredentialRef {
-		if started.CredentialRef != "" {
-			_ = s.credentials.Delete(r.Context(), started.CredentialRef)
-		}
-		writeError(w, http.StatusInternalServerError, errors.New("notification binding could not be persisted"))
+		writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeUnavailable})
 		return
 	}
 	writeJSON(w, http.StatusCreated, publicNotificationBinding(started, true))
@@ -1156,11 +1149,19 @@ func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) 
 			binding.LastError = poll.LastError
 			binding.UpdatedAt = time.Now().UTC()
 			if poll.CredentialRef != "" && poll.CredentialSecret != "" {
-				s.store.SaveCredentialSecret(app.CredentialSecret{
-					Ref:   poll.CredentialRef,
-					Kind:  poll.CredentialKind,
-					Value: poll.CredentialSecret,
-				})
+				if s.credentials == nil {
+					writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeKeyUnavailable})
+					return
+				}
+				secret := []byte(poll.CredentialSecret)
+				credentialRef, sealErr := s.credentials.Seal(r.Context(), binding.ID, poll.CredentialKind, secret)
+				clearBytes(secret)
+				poll.CredentialSecret = ""
+				if sealErr != nil {
+					writeError(w, connectorStartStatus(errorCode(sealErr)), sealErr)
+					return
+				}
+				binding.CredentialRef = credentialRef
 			}
 			if binding.Status == "active" {
 				if binding.DefaultForChannel || !s.hasActiveDefaultNotificationBinding(binding.Channel, binding.ID) {
@@ -1170,6 +1171,12 @@ func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) 
 				binding.QRCodeImage = ""
 			}
 			binding = s.store.SaveNotificationBinding(binding)
+			persisted, persistedOK := s.store.GetNotificationBinding(binding.ID)
+			if !persistedOK || persisted.Status != binding.Status || persisted.CredentialRef != binding.CredentialRef {
+				writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeUnavailable})
+				return
+			}
+			binding = persisted
 			if !isPendingNotificationBinding(binding.Status) {
 				s.closeNotificationBindingBrowser(binding)
 			}
@@ -1245,6 +1252,14 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	_ = s.bindings.Cancel(r.Context(), binding)
+	if strings.TrimSpace(binding.CredentialRef) != "" {
+		if s.cancelBinding != nil {
+			s.cancelBinding(binding)
+		}
+		s.closeNotificationBindingBrowser(binding)
+		writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeUnavailable})
+		return
+	}
 	revoked, err := s.store.RevokeNotificationBinding(bindingID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -1254,9 +1269,6 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 		s.cancelBinding(binding)
 	}
 	s.closeNotificationBindingBrowser(binding)
-	if strings.TrimSpace(binding.CredentialRef) != "" {
-		_ = s.credentials.Delete(r.Context(), binding.CredentialRef)
-	}
 	writeJSON(w, http.StatusOK, publicNotificationBinding(revoked))
 }
 
@@ -3198,6 +3210,12 @@ func errorCode(err error) string {
 	return ""
 }
 
+func clearBytes(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
+}
+
 func connectorStartStatus(code string) int {
 	switch code {
 	case binding.CodeOperatorDisabled:
@@ -3208,7 +3226,11 @@ func connectorStartStatus(code string) int {
 		return http.StatusConflict
 	case binding.CodeConnectorUnavailable:
 		return http.StatusNotImplemented
-	case credential.CodeKeyUnavailable:
+	case credential.CodeInvalid:
+		return http.StatusBadRequest
+	case credential.CodeCanceled:
+		return http.StatusRequestTimeout
+	case credential.CodeUnavailable, credential.CodeKeyUnavailable, credential.CodeUnsealFailed:
 		return http.StatusServiceUnavailable
 	case binding.CodeInvalidBotToken:
 		return http.StatusBadRequest

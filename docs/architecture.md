@@ -477,6 +477,14 @@ passive notifications and read state, connector settings, memories, evals, and
 audit events. Memory, file snapshot, and PostgreSQL backends implement the same
 durable state contracts.
 
+Gateway is the only PostgreSQL application-schema owner. Ordered SQL embedded
+in the Store package is applied under a fixed startup advisory lock and recorded
+in `sparkclaw_schema_migrations` with immutable filenames and checksums. A fresh
+database and a pre-ledger SparkClaw database use the same transaction: pending
+SQL, compatibility reconciliation, scratch-derived catalog validation, and
+ledger rows either commit together or leave readiness false. The PostgreSQL
+image does not install a second schema copy.
+
 Artifacts hold large or inspectable outputs such as tool observations, browser
 evidence, replaceable parsed-document observations, generated documents/media,
 memory exports, rollback files, and eval failure archives. Filesystem and

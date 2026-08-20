@@ -354,6 +354,12 @@ tool/model call、持久文档记录与谱系、approval、schedule、endpoint�
 binding、connector setting、inbox、被动通知及 read state、memory、eval 和 audit event。
 memory、file snapshot 和 PostgreSQL 后端实现相同的 durable state contract。
 
+Gateway 是 PostgreSQL application schema 的唯一 owner。Store package 内按序内嵌的 SQL
+在固定 startup advisory lock 下执行，并以不可变 filename 和 checksum 记录到
+`sparkclaw_schema_migrations`。全新数据库与 ledger 出现前的 SparkClaw 数据库使用同一事务：
+pending SQL、兼容数据 reconciliation、由同一内嵌 SQL 派生的 scratch catalog 校验和 ledger row
+要么一起提交，要么保持 readiness 为 false。PostgreSQL image 不再安装第二份 schema。
+
 Artifact 保存大型或可检查输出，例如 tool observation、browser evidence、generated
 document/media、可替换的文档解析 observation、memory export、rollback file 和 eval failure
 archive。filesystem 与 S3-compatible backend 共用 metadata contract。secret 和 raw speech

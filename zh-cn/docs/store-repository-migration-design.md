@@ -4,8 +4,8 @@
 
 > 状态：S2 pilot 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在
 > `0b85cc4` 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83`
-> 获得接受。CredentialRepository 合同修订 8 处于活动状态，审查 1-7 返回
-> `REVISE`。其设计 GO 将授权 live Credential foundation checkpoint，随后完成
+> 获得接受。CredentialRepository 合同修订 8 在审查 1-7 返回 `REVISE` 后，于
+> `b0884f6` 获得 `GO`。该 GO 授权 live Credential foundation checkpoint，随后完成
 > ConnectorRepository lifecycle migration，最后执行 integrated Credential gate。
 
 ## 目标与阶段边界
@@ -544,5 +544,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Credential contract 审查 5 | `4d54acf` | `REVISE` | Credential code 被阻塞到 Connector GO，但 Connector recovery 已要求新的 AbortSeal，形成 sequencing cycle；旧 cleanup ownership 仍依赖 volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 6 | `3c86739` | `REVISE` | foundation 在没有 Connector exact pre-active proof 时尝试 AbortSeal，stale concurrent compensation 可能删除 active credential；Connector 也在迁移顺序中重复出现 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 7 | `8ef063f` | `REVISE` | 路线图仍授权 foundation AbortSeal，legacy revoke 也可在没有 durable transition proof 时删除 credential；仅推迟 cleanup 还会使 public Vault Delete 没有合法 caller | Context-isolated gatekeepers / 2026-08-20 |
+| S3 Credential contract 审查 8 | `b0884f6` | `GO` | foundation/private reconciliation 与 Connector/public cleanup 已无 dead code 地分离；ambiguous legacy start/revoke fail-closed，双语路线图都要求 exact barrier authorization | Context-isolated gatekeeper / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

@@ -2,9 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-credential-repository-design.md)
 
-> Status: S3 design revision 8, 2026-08-20. Reviews 1-7 returned `REVISE`; no
-> CredentialRepository code is authorized before an independent
-> context-isolated design GO. A design GO authorizes only the live Credential
+> Status: S3 design revision 8 received independent `GO` at `b0884f6` on
+> 2026-08-20 after reviews 1-7 returned `REVISE`. This authorizes only the live Credential
 > foundation checkpoint below, followed by ConnectorRepository lifecycle
 > migration and then the final Credential integration gate.
 
@@ -504,4 +503,4 @@ Credential candidate receives its own context-isolated implementation GO.
 | Credential contract review 5 | `4d54acf` | `REVISE` | Credential code was blocked until Connector GO while Connector recovery already required the not-yet-authorized AbortSeal, creating a sequencing cycle; stale text also left cleanup solely with volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 6 | `3c86739` | `REVISE` | Foundation used AbortSeal without Connector's required exact pre-active proof, so concurrent Weixin activation could make stale compensation delete an active credential; the roadmap also scheduled Connector twice | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 7 | `8ef063f` | `REVISE` | The roadmap still assigned AbortSeal to foundation, and legacy revoke could delete a credential without durable binding-transition proof; deferring that call also exposed public Delete as dead code | Context-isolated gatekeepers / 2026-08-20 |
-| Credential contract review 8 | pending | pending | pending | pending |
+| Credential contract review 8 | `b0884f6` | `GO` | Foundation exposes no public cleanup; private repository delete has a live reconciliation caller; ambiguous start/revoke retains credentials; Connector introduces Delete/AbortSeal only with exact durable barriers and live callers; bilingual roadmaps agree | Context-isolated gatekeeper / 2026-08-20 |

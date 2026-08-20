@@ -4,8 +4,8 @@
 
 > Status: S2 pilot was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`;
 > and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository
-> contract revision 8 is active after reviews 1-7 returned `REVISE`. Its design
-> GO authorizes a live Credential foundation checkpoint, then a complete
+> contract revision 8 received `GO` at `b0884f6` after reviews 1-7 returned
+> `REVISE`. The GO authorizes a live Credential foundation checkpoint, then a complete
 > ConnectorRepository lifecycle migration, then the final integrated Credential
 > gate.
 
@@ -616,5 +616,6 @@ migrations remain in place.
 | S3 Credential contract review 5 | `4d54acf` | `REVISE` | Credential code was blocked until Connector GO even though Connector recovery required the new AbortSeal, creating a sequencing cycle; stale cleanup ownership still relied on volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 6 | `3c86739` | `REVISE` | Foundation attempted AbortSeal without Connector's exact pre-active proof, allowing stale concurrent compensation to delete an active credential; Connector also appeared twice in the migration order | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 7 | `8ef063f` | `REVISE` | The roadmap still authorized foundation AbortSeal, while legacy revoke could delete a credential without durable transition proof; simply deferring cleanup also left public Vault Delete without a legal caller | Context-isolated gatekeepers / 2026-08-20 |
+| S3 Credential contract review 8 | `b0884f6` | `GO` | Foundation/private reconciliation and Connector/public cleanup are separated without dead code; ambiguous legacy start/revoke is fail-closed, and both language roadmaps enforce exact barrier authorization | Context-isolated gatekeeper / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

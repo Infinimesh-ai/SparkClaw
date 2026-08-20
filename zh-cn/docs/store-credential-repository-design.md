@@ -2,9 +2,8 @@
 
 > 语言：[English](../../docs/store-credential-repository-design.md) | 简体中文
 
-> 状态：S3 设计修订 8，2026-08-20。审查 1-7 返回 `REVISE`；在独立、
-> 上下文隔离的设计审查获得 GO 之前，不授权编写 CredentialRepository 代码。
-> 设计 GO 只授权下述 live Credential foundation checkpoint，随后迁移
+> 状态：S3 设计修订 8 在审查 1-7 返回 `REVISE` 后，于 2026-08-20 在
+> `b0884f6` 获得独立 `GO`。该 GO 只授权下述 live Credential foundation checkpoint，随后迁移
 > ConnectorRepository lifecycle，最后再执行 Credential integration gate。
 
 ## 边界与现有缺陷
@@ -436,4 +435,4 @@ implementation GO 前，不开始 SessionRepository 设计。
 | Credential contract review 5 | `4d54acf` | `REVISE` | Credential code 被阻塞到 Connector GO，但 Connector recovery 已要求尚未获授权的 AbortSeal，形成 sequencing cycle；旧文本仍把 cleanup 单独交给 volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 6 | `3c86739` | `REVISE` | foundation 在没有 Connector exact pre-active proof 时调用 AbortSeal，因此并发 Weixin activation 可能使 stale compensation 删除 active credential；路线图也重复安排了 Connector | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 7 | `8ef063f` | `REVISE` | 路线图仍把 AbortSeal 分给 foundation，legacy revoke 也可能在没有 durable binding-transition proof 时删除 credential；推迟该调用还暴露出 public Delete 成为 dead code | Context-isolated gatekeepers / 2026-08-20 |
-| Credential contract review 8 | pending | pending | pending | pending |
+| Credential contract review 8 | `b0884f6` | `GO` | foundation 不暴露 public cleanup；private repository delete 有 live reconciliation caller；ambiguous start/revoke 保留 credential；Connector 只把 Delete/AbortSeal 与 exact durable barrier 及 live caller 同时引入；双语路线图一致 | Context-isolated gatekeeper / 2026-08-20 |

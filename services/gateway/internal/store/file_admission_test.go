@@ -1,0 +1,299 @@
+package store
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+)
+
+var fileCommandMethods = map[string]struct{}{
+	"AddAudit": {}, "AddMemoryCandidate": {}, "AddMessage": {},
+	"ClaimDueReminders": {}, "ClaimPairingCode": {}, "CreateMCPOperation": {},
+	"CreatePassiveNotification": {}, "CreateSession": {}, "CreateSessionWithScope": {},
+	"DeleteCredentialSecret": {}, "DeleteMCPAccessRecords": {}, "DeleteMCPAccessTicket": {},
+	"DeleteMCPBinding": {}, "DeleteMemory": {}, "DeleteSession": {},
+	"MarkAllPassiveNotificationsRead": {}, "MarkPassiveNotificationRead": {},
+	"PruneMemories": {}, "PrunePassiveNotifications": {}, "RedeemMCPAccessTicket": {},
+	"ResolveApproval": {}, "ResolveMemoryCandidate": {}, "RevokeBrowserAuthRecord": {},
+	"RevokeClient": {}, "RevokeMCPAccessTicket": {}, "RevokeMCPBinding": {},
+	"RevokeNotificationBinding": {}, "SaveApproval": {}, "SaveArtifactObject": {},
+	"SaveBrowserAuthRecord": {}, "SaveBrowserLoginBlock": {}, "SaveChannelInboxUpdate": {},
+	"SaveClient": {}, "SaveCredentialSecret": {}, "SaveDocumentRecord": {},
+	"SaveEpisodeSummary": {}, "SaveEvalRun": {}, "SaveExternalChatMessage": {},
+	"SaveExternalChatSession": {}, "SaveISCPOnboarding": {}, "SaveMCPAccessTicket": {},
+	"SaveMessageDelivery": {}, "SaveMessageReceive": {}, "SaveModelCall": {},
+	"SaveNotificationBinding": {}, "SaveOwnerProfile": {}, "SavePairingCode": {},
+	"SaveReminder": {}, "SaveReminderDelivery": {}, "SaveRun": {},
+	"SaveRunFeedback": {}, "SaveToolCall": {}, "TouchClient": {},
+	"TouchMCPBinding": {}, "UpdateBrowserLoginBlock": {}, "UpdateConnectorSetting": {},
+	"UpdateMCPOperation": {}, "UpdateMemory": {}, "UpdateOwnerProfile": {},
+	"UpdatePendingApproval": {}, "UpdatePendingReminder": {}, "UpdateSessionTitle": {},
+}
+
+func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
+	accepted := map[string]struct{}{}
+	for _, methods := range s0RepositoryMethods {
+		for _, method := range methods {
+			if _, exists := accepted[method]; exists {
+				t.Fatalf("duplicate accepted FileStore method %s", method)
+			}
+			accepted[method] = struct{}{}
+		}
+	}
+	if len(accepted) != 141 {
+		t.Fatalf("accepted FileStore method count = %d, want 141", len(accepted))
+	}
+	if len(fileCommandMethods) != 62 {
+		t.Fatalf("FileStore command classification count = %d, want 62", len(fileCommandMethods))
+	}
+	for method := range fileCommandMethods {
+		if _, exists := accepted[method]; !exists {
+			t.Fatalf("command classification contains unknown FileStore method %s", method)
+		}
+	}
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{}
+	files := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(files, entry.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || !function.Name.IsExported() || !isFileStoreMethod(function) {
+				continue
+			}
+			name := function.Name.Name
+			if _, exists := accepted[name]; !exists {
+				t.Errorf("unexpected public FileStore method %s", name)
+				continue
+			}
+			if previous := found[name]; previous != "" {
+				t.Errorf("FileStore method %s is declared in both %s and %s", name, previous, entry.Name())
+				continue
+			}
+			found[name] = entry.Name()
+
+			want := "admitLegacyRead"
+			if _, command := fileCommandMethods[name]; command {
+				want = "admitLegacyCommand"
+			}
+			got := firstFileAdmission(function)
+			if got != want {
+				t.Errorf("%s first statement admission = %q, want %q", name, got, want)
+			}
+			if count := countFileAdmissions(function); count != 1 {
+				t.Errorf("%s admission wrapper count = %d, want 1", name, count)
+			}
+		}
+	}
+	for method := range accepted {
+		if found[method] == "" {
+			t.Errorf("accepted FileStore method %s is not implemented", method)
+		}
+	}
+	if len(found) != len(accepted) {
+		t.Fatalf("admitted FileStore method count = %d, want %d", len(found), len(accepted))
+	}
+}
+
+func isFileStoreMethod(function *ast.FuncDecl) bool {
+	if function.Recv == nil || len(function.Recv.List) != 1 {
+		return false
+	}
+	pointer, ok := function.Recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	receiver, ok := pointer.X.(*ast.Ident)
+	return ok && receiver.Name == "FileStore"
+}
+
+func firstFileAdmission(function *ast.FuncDecl) string {
+	if function.Body == nil || len(function.Body.List) == 0 {
+		return ""
+	}
+	deferred, ok := function.Body.List[0].(*ast.DeferStmt)
+	if !ok || len(deferred.Call.Args) != 0 {
+		return ""
+	}
+	acquire, ok := deferred.Call.Fun.(*ast.CallExpr)
+	if !ok || len(acquire.Args) != 0 {
+		return ""
+	}
+	selector, ok := acquire.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	receiver, ok := selector.X.(*ast.Ident)
+	if !ok || receiver.Name != "s" {
+		return ""
+	}
+	return selector.Sel.Name
+}
+
+func countFileAdmissions(function *ast.FuncDecl) int {
+	count := 0
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if ok && (selector.Sel.Name == "admitLegacyRead" || selector.Sel.Name == "admitLegacyCommand") {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+func TestFileStoreAdmissionBlocksReadersAndCommandsUntilPersistence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestFileStore(path)
+	release := store.admitLegacyCommand()
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			release()
+		}
+	})
+
+	tentative := app.Client{ID: "client_tentative", Name: "tentative"}
+	store.inner.SaveClient(tentative)
+
+	readStarted := make(chan struct{})
+	readDone := make(chan struct{})
+	go func() {
+		close(readStarted)
+		_, _ = store.GetClient(tentative.ID)
+		close(readDone)
+	}()
+	<-readStarted
+
+	commandStarted := make(chan struct{})
+	commandDone := make(chan struct{})
+	go func() {
+		close(commandStarted)
+		store.SaveClient(app.Client{ID: "client_queued", Name: "queued"})
+		close(commandDone)
+	}()
+	<-commandStarted
+
+	assertFileAdmissionBlocked(t, readDone, "read")
+	assertFileAdmissionBlocked(t, commandDone, "command")
+	if err := store.persistSnapshotLocked(); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	released = true
+	awaitFileAdmission(t, readDone, "read")
+	awaitFileAdmission(t, commandDone, "command")
+
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.GetClient(tentative.ID); !ok {
+		t.Fatal("persisted mutation was lost after releasing admission")
+	}
+	if _, ok := reloaded.GetClient("client_queued"); !ok {
+		t.Fatal("queued command did not persist after admission")
+	}
+}
+
+func TestFileStoreAdmissionAllowsConcurrentReads(t *testing.T) {
+	store := newTestFileStore("")
+	release := store.admitLegacyRead()
+	defer release()
+
+	done := make(chan struct{})
+	go func() {
+		store.ListSessions()
+		close(done)
+	}()
+	awaitFileAdmission(t, done, "concurrent read")
+}
+
+func TestFileStoreAdmissionDoesNotLetReadersBypassQueuedCommand(t *testing.T) {
+	store := newTestFileStore("")
+	releaseRead := store.admitLegacyRead()
+
+	commandStarted := make(chan struct{})
+	commandDone := make(chan struct{})
+	go func() {
+		close(commandStarted)
+		store.SaveClient(app.Client{ID: "client_writer", Name: "writer"})
+		close(commandDone)
+	}()
+	<-commandStarted
+	waitForQueuedFileCommand(t, store)
+
+	readDone := make(chan bool, 1)
+	go func() {
+		_, ok := store.GetClient("client_writer")
+		readDone <- ok
+	}()
+	select {
+	case <-readDone:
+		t.Fatal("reader bypassed a queued FileStore command")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	releaseRead()
+	awaitFileAdmission(t, commandDone, "queued command")
+	select {
+	case ok := <-readDone:
+		if !ok {
+			t.Fatal("reader ran before the queued command became visible")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reader remained blocked after queued command completed")
+	}
+}
+
+func newTestFileStore(path string) *FileStore {
+	return &FileStore{inner: NewMemoryStore(), path: path, admission: newFileAdmission()}
+}
+
+func waitForQueuedFileCommand(t *testing.T, store *FileStore) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if !store.admission.TryAcquire(1) {
+			return
+		}
+		store.admission.Release(1)
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("command did not queue for exclusive FileStore admission")
+}
+
+func assertFileAdmissionBlocked(t *testing.T, done <-chan struct{}, operation string) {
+	t.Helper()
+	select {
+	case <-done:
+		t.Fatalf("%s passed exclusive FileStore admission", operation)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func awaitFileAdmission(t *testing.T, done <-chan struct{}, operation string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("%s did not complete after FileStore admission was released", operation)
+	}
+}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -13,17 +14,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"golang.org/x/sync/semaphore"
 )
+
+const fileAdmissionCapacity int64 = 1 << 20
 
 type FileStore struct {
 	inner      *MemoryStore
 	path       string
 	encryption *fileEncryption
-	mu         sync.Mutex
+	admission  *semaphore.Weighted
 }
 
 type FileStoreOptions struct {
@@ -80,13 +83,14 @@ func NewFileStore(path string) (*FileStore, error) {
 
 func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 	inner := NewMemoryStore()
+	admission := newFileAdmission()
 	path := opts.Path
 	encryption, err := newFileEncryption(opts)
 	if err != nil {
 		return nil, err
 	}
 	if path == "" {
-		return &FileStore{inner: inner, encryption: encryption}, nil
+		return &FileStore{inner: inner, encryption: encryption, admission: admission}, nil
 	}
 	if raw, err := os.ReadFile(path); err == nil {
 		if encryption != nil {
@@ -104,30 +108,54 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return &FileStore{inner: inner, path: path, encryption: encryption}, nil
+	return &FileStore{inner: inner, path: path, encryption: encryption, admission: admission}, nil
+}
+
+func newFileAdmission() *semaphore.Weighted {
+	return semaphore.NewWeighted(fileAdmissionCapacity)
+}
+
+func (s *FileStore) admitLegacyRead() func() {
+	return s.admitLegacy(1)
+}
+
+func (s *FileStore) admitLegacyCommand() func() {
+	return s.admitLegacy(fileAdmissionCapacity)
+}
+
+func (s *FileStore) admitLegacy(weight int64) func() {
+	if err := s.admission.Acquire(context.Background(), weight); err != nil {
+		panic(fmt.Sprintf("acquire FileStore admission: %v", err))
+	}
+	return func() { s.admission.Release(weight) }
 }
 
 func (s *FileStore) CreateSession(title string) app.Session {
+	defer s.admitLegacyCommand()()
 	out := s.inner.CreateSession(title)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session {
+	defer s.admitLegacyCommand()()
 	out := s.inner.CreateSessionWithScope(title, ownerID, workspaceRoot, source, hidden)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) ListSessions() []app.Session {
+	defer s.admitLegacyRead()()
 	return s.inner.ListSessions()
 }
 
 func (s *FileStore) GetSession(id string) (app.Session, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetSession(id)
 }
 
 func (s *FileStore) UpdateSessionTitle(id, title string) (app.Session, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.UpdateSessionTitle(id, title)
 	if err == nil {
 		s.persist()
@@ -136,6 +164,7 @@ func (s *FileStore) UpdateSessionTitle(id, title string) (app.Session, error) {
 }
 
 func (s *FileStore) DeleteSession(id string) (app.Session, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.DeleteSession(id)
 	if err == nil {
 		s.persist()
@@ -144,19 +173,23 @@ func (s *FileStore) DeleteSession(id string) (app.Session, error) {
 }
 
 func (s *FileStore) SaveClient(client app.Client) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveClient(client)
 	s.persist()
 }
 
 func (s *FileStore) GetClient(id string) (app.Client, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetClient(id)
 }
 
 func (s *FileStore) ListClients() []app.Client {
+	defer s.admitLegacyRead()()
 	return s.inner.ListClients()
 }
 
 func (s *FileStore) RevokeClient(id string) (app.Client, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.RevokeClient(id)
 	if err == nil {
 		s.persist()
@@ -165,52 +198,63 @@ func (s *FileStore) RevokeClient(id string) (app.Client, error) {
 }
 
 func (s *FileStore) FindClientByTokenHash(tokenHash string) (app.Client, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindClientByTokenHash(tokenHash)
 }
 
 func (s *FileStore) TouchClient(id string) {
+	defer s.admitLegacyCommand()()
 	s.inner.TouchClient(id)
 	s.persist()
 }
 
 func (s *FileStore) GetOwnerProfile() app.OwnerProfile {
+	defer s.admitLegacyRead()()
 	return s.inner.GetOwnerProfile()
 }
 
 func (s *FileStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
+	defer s.admitLegacyCommand()()
 	out := s.inner.UpdateOwnerProfile(profile)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetOwnerProfileByID(id string) (app.OwnerProfile, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetOwnerProfileByID(id)
 }
 
 func (s *FileStore) SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveOwnerProfile(profile)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) ListOwnerProfiles() []app.OwnerProfile {
+	defer s.admitLegacyRead()()
 	return s.inner.ListOwnerProfiles()
 }
 
 func (s *FileStore) FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindOwnerProfileByExternalRef(source, externalRef)
 }
 
 func (s *FileStore) SavePairingCode(code app.PairingCode) {
+	defer s.admitLegacyCommand()()
 	s.inner.SavePairingCode(code)
 	s.persist()
 }
 
 func (s *FileStore) GetPairingCode(id string) (app.PairingCode, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetPairingCode(id)
 }
 
 func (s *FileStore) ClaimPairingCode(id, clientID string) (app.PairingCode, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.ClaimPairingCode(id, clientID)
 	if err == nil {
 		s.persist()
@@ -219,8 +263,7 @@ func (s *FileStore) ClaimPairingCode(id, clientID string) (app.PairingCode, erro
 }
 
 func (s *FileStore) SaveISCPOnboarding(onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.SaveISCPOnboarding(onboarding)
 	if err != nil {
 		return app.ISCPOnboarding{}, err
@@ -235,20 +278,17 @@ func (s *FileStore) SaveISCPOnboarding(onboarding app.ISCPOnboarding) (app.ISCPO
 }
 
 func (s *FileStore) GetISCPOnboarding(id string) (app.ISCPOnboarding, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.GetISCPOnboarding(id)
 }
 
 func (s *FileStore) ListISCPOnboardings(ownerID string) []app.ISCPOnboarding {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.ListISCPOnboardings(ownerID)
 }
 
 func (s *FileStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previous, existed := s.inner.GetMCPAccessTicket(ticket.ID)
 	out, err := s.inner.SaveMCPAccessTicket(ticket)
 	if err != nil {
@@ -268,26 +308,22 @@ func (s *FileStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAcce
 }
 
 func (s *FileStore) GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.GetMCPAccessTicket(id)
 }
 
 func (s *FileStore) FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.FindMCPAccessTicketBySecretHash(secretHash)
 }
 
 func (s *FileStore) ListMCPAccessTickets(ownerID string) []app.MCPAccessTicket {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.ListMCPAccessTickets(ownerID)
 }
 
 func (s *FileStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previous, existed := s.inner.FindMCPAccessTicketBySecretHash(secretHash)
 	out, err := s.inner.RedeemMCPAccessTicket(secretHash, peer, now)
 	if err != nil {
@@ -307,8 +343,7 @@ func (s *FileStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIde
 }
 
 func (s *FileStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAccessTicket, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previous, existed := s.inner.GetMCPAccessTicket(id)
 	out, err := s.inner.RevokeMCPAccessTicket(id, now)
 	if err != nil {
@@ -326,8 +361,7 @@ func (s *FileStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAcce
 }
 
 func (s *FileStore) DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.DeleteMCPAccessTicket(ownerID, id)
 	if err != nil {
 		return app.MCPAccessTicket{}, err
@@ -342,23 +376,19 @@ func (s *FileStore) DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTick
 }
 
 func (s *FileStore) GetMCPBinding(id string) (app.MCPBinding, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.GetMCPBinding(id)
 }
 func (s *FileStore) FindMCPBindingForPeer(domainID, deviceID, thumbprint string) (app.MCPBinding, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.FindMCPBindingForPeer(domainID, deviceID, thumbprint)
 }
 func (s *FileStore) ListMCPBindings(ownerID string) []app.MCPBinding {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.ListMCPBindings(ownerID)
 }
 func (s *FileStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previous, existed := s.inner.GetMCPBinding(id)
 	previousOperations := s.inner.ListMCPOperations(id)
 	out, err := s.inner.RevokeMCPBinding(id, now)
@@ -380,8 +410,7 @@ func (s *FileStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, 
 }
 
 func (s *FileStore) DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previousOperations := s.inner.ListMCPOperations(id)
 	out, err := s.inner.DeleteMCPBinding(ownerID, id)
 	if err != nil {
@@ -400,8 +429,7 @@ func (s *FileStore) DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error)
 }
 
 func (s *FileStore) DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previousTickets := cloneMCPAccessTicketMap(s.inner.mcpAccessTickets)
 	previousBindings := cloneMCPBindingMap(s.inner.mcpBindings)
 	previousOperations := cloneMCPOperationMap(s.inner.mcpOperations)
@@ -421,8 +449,7 @@ func (s *FileStore) DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDelet
 }
 
 func (s *FileStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previous, existed := s.inner.GetMCPBinding(id)
 	err := s.inner.TouchMCPBinding(id, iscpSessionID, now)
 	if err != nil {
@@ -439,8 +466,7 @@ func (s *FileStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) err
 	return nil
 }
 func (s *FileStore) CreateMCPOperation(operation app.MCPOperation) (app.MCPOperation, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	out, created, err := s.inner.CreateMCPOperation(operation)
 	if err != nil || !created {
 		return out, created, err
@@ -454,23 +480,19 @@ func (s *FileStore) CreateMCPOperation(operation app.MCPOperation) (app.MCPOpera
 	return out, true, nil
 }
 func (s *FileStore) GetMCPOperation(id string) (app.MCPOperation, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.GetMCPOperation(id)
 }
 func (s *FileStore) FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.FindMCPOperationByIdempotency(bindingID, idempotencyKey)
 }
 func (s *FileStore) ListMCPOperations(bindingID string) []app.MCPOperation {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyRead()()
 	return s.inner.ListMCPOperations(bindingID)
 }
 func (s *FileStore) UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.admitLegacyCommand()()
 	previous, existed := s.inner.GetMCPOperation(operation.ID)
 	out, err := s.inner.UpdateMCPOperation(operation, expectedVersion)
 	if err != nil {
@@ -488,88 +510,107 @@ func (s *FileStore) UpdateMCPOperation(operation app.MCPOperation, expectedVersi
 }
 
 func (s *FileStore) AddMessage(message app.Message) app.Message {
+	defer s.admitLegacyCommand()()
 	out := s.inner.AddMessage(message)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveDocumentRecord(record)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetDocumentRecord(id)
 }
 
 func (s *FileStore) ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord {
+	defer s.admitLegacyRead()()
 	return s.inner.ListDocumentRecords(ownerID, sessionID, limit)
 }
 
 func (s *FileStore) ListMessages(sessionID string) []app.Message {
+	defer s.admitLegacyRead()()
 	return s.inner.ListMessages(sessionID)
 }
 
 func (s *FileStore) SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveRunFeedback(feedback)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) ListRunFeedback(runID string) []app.RunFeedback {
+	defer s.admitLegacyRead()()
 	return s.inner.ListRunFeedback(runID)
 }
 
 func (s *FileStore) SaveRun(run app.AgentRun) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveRun(run)
 	s.persist()
 }
 
 func (s *FileStore) GetRun(id string) (app.AgentRun, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetRun(id)
 }
 
 func (s *FileStore) ListRuns(sessionID string) []app.AgentRun {
+	defer s.admitLegacyRead()()
 	return s.inner.ListRuns(sessionID)
 }
 
 func (s *FileStore) SaveModelCall(call app.ModelCall) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveModelCall(call)
 	s.persist()
 }
 
 func (s *FileStore) ListModelCalls(sessionID, runID string) []app.ModelCall {
+	defer s.admitLegacyRead()()
 	return s.inner.ListModelCalls(sessionID, runID)
 }
 
 func (s *FileStore) SaveToolCall(call app.ToolCall) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveToolCall(call)
 	s.persist()
 }
 
 func (s *FileStore) GetToolCall(id string) (app.ToolCall, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetToolCall(id)
 }
 
 func (s *FileStore) ListToolCalls(sessionID string) []app.ToolCall {
+	defer s.admitLegacyRead()()
 	return s.inner.ListToolCalls(sessionID)
 }
 
 func (s *FileStore) SaveApproval(approval app.Approval) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveApproval(approval)
 	s.persist()
 }
 
 func (s *FileStore) GetApproval(id string) (app.Approval, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetApproval(id)
 }
 
 func (s *FileStore) FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindApprovalByExternalRef(source, externalID)
 }
 
 func (s *FileStore) UpdatePendingApproval(approval app.Approval) (app.Approval, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.UpdatePendingApproval(approval)
 	if err == nil {
 		s.persist()
@@ -578,6 +619,7 @@ func (s *FileStore) UpdatePendingApproval(approval app.Approval) (app.Approval, 
 }
 
 func (s *FileStore) ResolveApproval(id, status, note string) (app.Approval, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.ResolveApproval(id, status, note)
 	if err == nil {
 		s.persist()
@@ -586,16 +628,19 @@ func (s *FileStore) ResolveApproval(id, status, note string) (app.Approval, erro
 }
 
 func (s *FileStore) ListApprovals(status string) []app.Approval {
+	defer s.admitLegacyRead()()
 	return s.inner.ListApprovals(status)
 }
 
 func (s *FileStore) SaveReminder(reminder app.Reminder) app.Reminder {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveReminder(reminder)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.UpdatePendingReminder(reminder, expectedUpdatedAt)
 	if err == nil {
 		s.persist()
@@ -604,14 +649,17 @@ func (s *FileStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdated
 }
 
 func (s *FileStore) GetReminder(id string) (app.Reminder, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetReminder(id)
 }
 
 func (s *FileStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
+	defer s.admitLegacyRead()()
 	return s.inner.ListReminders(filter)
 }
 
 func (s *FileStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder {
+	defer s.admitLegacyCommand()()
 	out := s.inner.ClaimDueReminders(now, staleBefore, limit)
 	if len(out) > 0 {
 		s.persist()
@@ -620,28 +668,34 @@ func (s *FileStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []a
 }
 
 func (s *FileStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveReminderDelivery(delivery)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
+	defer s.admitLegacyRead()()
 	return s.inner.ListReminderDeliveries(reminderID)
 }
 
 func (s *FileStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetConnectorSetting(ownerID, channel)
 }
 
 func (s *FileStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
+	defer s.admitLegacyRead()()
 	return s.inner.ListConnectorSettings(ownerID)
 }
 
 func (s *FileStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
+	defer s.admitLegacyRead()()
 	return s.inner.ListAllConnectorSettings()
 }
 
 func (s *FileStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.UpdateConnectorSetting(setting, expectedVersion)
 	if err == nil {
 		s.persist()
@@ -650,20 +704,24 @@ func (s *FileStore) UpdateConnectorSetting(setting app.ConnectorSetting, expecte
 }
 
 func (s *FileStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveNotificationBinding(binding)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetNotificationBinding(id)
 }
 
 func (s *FileStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
+	defer s.admitLegacyRead()()
 	return s.inner.ListNotificationBindings(channel, status)
 }
 
 func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBinding, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.RevokeNotificationBinding(id)
 	if err == nil {
 		s.persist()
@@ -672,6 +730,7 @@ func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBindin
 }
 
 func (s *FileStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+	defer s.admitLegacyCommand()()
 	out, created, err := s.inner.CreatePassiveNotification(notification)
 	if err != nil || !created {
 		// Idempotent replays change nothing; skip the full snapshot rewrite.
@@ -684,18 +743,22 @@ func (s *FileStore) CreatePassiveNotification(notification app.PassiveNotificati
 }
 
 func (s *FileStore) GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetPassiveNotification(ownerID, id)
 }
 
 func (s *FileStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
+	defer s.admitLegacyRead()()
 	return s.inner.ListPassiveNotifications(ownerID, after, limit)
 }
 
 func (s *FileStore) CountUnreadPassiveNotifications(ownerID string) int {
+	defer s.admitLegacyRead()()
 	return s.inner.CountUnreadPassiveNotifications(ownerID)
 }
 
 func (s *FileStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.MarkPassiveNotificationRead(ownerID, id, readAt)
 	if err == nil {
 		err = s.persistSnapshot()
@@ -704,6 +767,7 @@ func (s *FileStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.
 }
 
 func (s *FileStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error) {
+	defer s.admitLegacyCommand()()
 	count, err := s.inner.MarkAllPassiveNotificationsRead(ownerID, readAt)
 	if err == nil && count > 0 {
 		err = s.persistSnapshot()
@@ -712,6 +776,7 @@ func (s *FileStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.
 }
 
 func (s *FileStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int {
+	defer s.admitLegacyCommand()()
 	removed := s.inner.PrunePassiveNotifications(cutoff, maxPerOwner)
 	if removed > 0 {
 		s.persist()
@@ -720,114 +785,139 @@ func (s *FileStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int)
 }
 
 func (s *FileStore) PassiveNotificationRevision(ownerID string) uint64 {
+	defer s.admitLegacyRead()()
 	return s.inner.PassiveNotificationRevision(ownerID)
 }
 
 func (s *FileStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveExternalChatSession(session)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetExternalChatSession(id string) (app.ExternalChatSession, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetExternalChatSession(id)
 }
 
 func (s *FileStore) ListExternalChatSessions(channel, status string) []app.ExternalChatSession {
+	defer s.admitLegacyRead()()
 	return s.inner.ListExternalChatSessions(channel, status)
 }
 
 func (s *FileStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindExternalChatSession(bindingID, externalChatID, externalThreadID)
 }
 
 func (s *FileStore) FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindExternalChatSessionByLinkedSessionID(sessionID)
 }
 
 func (s *FileStore) SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveExternalChatMessage(message)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetExternalChatMessage(id string) (app.ExternalChatMessage, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetExternalChatMessage(id)
 }
 
 func (s *FileStore) FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
 }
 
 func (s *FileStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
+	defer s.admitLegacyRead()()
 	return s.inner.ListExternalChatMessages(chatSessionID, limit)
 }
 
 func (s *FileStore) SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveMessageReceive(record)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetMessageReceive(id string) (app.MessageReceiveRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetMessageReceive(id)
 }
 
 func (s *FileStore) FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindMessageReceive(sourceEndpointID, nativeMessageID)
 }
 
 func (s *FileStore) ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord {
+	defer s.admitLegacyRead()()
 	return s.inner.ListMessageReceives(ownerID, actorID, limit)
 }
 
 func (s *FileStore) SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveMessageDelivery(record)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetMessageDelivery(id)
 }
 
 func (s *FileStore) FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey)
 }
 
 func (s *FileStore) ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord {
+	defer s.admitLegacyRead()()
 	return s.inner.ListMessageDeliveries(ownerID, actorID, limit)
 }
 
 func (s *FileStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveChannelInboxUpdate(update)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetChannelInboxUpdate(id)
 }
 
 func (s *FileStore) FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindChannelInboxUpdate(bindingID, externalID)
 }
 
 func (s *FileStore) ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate {
+	defer s.admitLegacyRead()()
 	return s.inner.ListChannelInboxUpdates(channel, status, readyBefore, limit)
 }
 
 func (s *FileStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveCredentialSecret(secret)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetCredentialSecret(ref string) (app.CredentialSecret, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetCredentialSecret(ref)
 }
 
 func (s *FileStore) DeleteCredentialSecret(ref string) error {
+	defer s.admitLegacyCommand()()
 	err := s.inner.DeleteCredentialSecret(ref)
 	if err == nil {
 		s.persist()
@@ -836,24 +926,29 @@ func (s *FileStore) DeleteCredentialSecret(ref string) error {
 }
 
 func (s *FileStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveBrowserAuthRecord(record)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetBrowserAuthRecord(id)
 }
 
 func (s *FileStore) FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint)
 }
 
 func (s *FileStore) ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord {
+	defer s.admitLegacyRead()()
 	return s.inner.ListBrowserAuthRecords(ownerID, browserProfileID)
 }
 
 func (s *FileStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.RevokeBrowserAuthRecord(id, reason)
 	if err == nil {
 		s.persist()
@@ -862,12 +957,14 @@ func (s *FileStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthR
 }
 
 func (s *FileStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	defer s.admitLegacyCommand()()
 	out := s.inner.SaveBrowserLoginBlock(block)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.UpdateBrowserLoginBlock(block, expectedVersion)
 	if err == nil {
 		s.persist()
@@ -876,24 +973,29 @@ func (s *FileStore) UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expecte
 }
 
 func (s *FileStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetBrowserLoginBlock(id)
 }
 
 func (s *FileStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindActiveBrowserLoginBlock(sessionID)
 }
 
 func (s *FileStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
+	defer s.admitLegacyRead()()
 	return s.inner.ListBrowserLoginBlocks(sessionID, status)
 }
 
 func (s *FileStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {
+	defer s.admitLegacyCommand()()
 	out := s.inner.AddMemoryCandidate(candidate)
 	s.persist()
 	return out
 }
 
 func (s *FileStore) ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error) {
+	defer s.admitLegacyCommand()()
 	candidate, memory, err := s.inner.ResolveMemoryCandidate(id, status)
 	if err == nil {
 		s.persist()
@@ -902,14 +1004,17 @@ func (s *FileStore) ResolveMemoryCandidate(id, status string) (app.MemoryCandida
 }
 
 func (s *FileStore) ListMemoryCandidates(status string) []app.MemoryCandidate {
+	defer s.admitLegacyRead()()
 	return s.inner.ListMemoryCandidates(status)
 }
 
 func (s *FileStore) SearchMemories(query string) []app.Memory {
+	defer s.admitLegacyRead()()
 	return s.inner.SearchMemories(query)
 }
 
 func (s *FileStore) UpdateMemory(id, kind, content string) (app.Memory, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.UpdateMemory(id, kind, content)
 	if err == nil {
 		s.persist()
@@ -918,6 +1023,7 @@ func (s *FileStore) UpdateMemory(id, kind, content string) (app.Memory, error) {
 }
 
 func (s *FileStore) DeleteMemory(id string) (app.Memory, error) {
+	defer s.admitLegacyCommand()()
 	out, err := s.inner.DeleteMemory(id)
 	if err == nil {
 		s.persist()
@@ -926,6 +1032,7 @@ func (s *FileStore) DeleteMemory(id string) (app.Memory, error) {
 }
 
 func (s *FileStore) PruneMemories(cutoff time.Time) []app.Memory {
+	defer s.admitLegacyCommand()()
 	out := s.inner.PruneMemories(cutoff)
 	if len(out) > 0 {
 		s.persist()
@@ -934,58 +1041,71 @@ func (s *FileStore) PruneMemories(cutoff time.Time) []app.Memory {
 }
 
 func (s *FileStore) AddAudit(event app.AuditEvent) {
+	defer s.admitLegacyCommand()()
 	s.inner.AddAudit(event)
 	s.persist()
 }
 
 func (s *FileStore) ListAudit(sessionID string) []app.AuditEvent {
+	defer s.admitLegacyRead()()
 	return s.inner.ListAudit(sessionID)
 }
 
 func (s *FileStore) EventsAfter(sessionID, after string) []app.Event {
+	defer s.admitLegacyRead()()
 	return s.inner.EventsAfter(sessionID, after)
 }
 
 func (s *FileStore) MessageEventHead(sessionID string) (string, error) {
+	defer s.admitLegacyRead()()
 	return s.inner.MessageEventHead(sessionID)
 }
 
 func (s *FileStore) MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error) {
+	defer s.admitLegacyRead()()
 	return s.inner.MessageEventsAfter(sessionID, after, limit)
 }
 
 func (s *FileStore) SaveEvalRun(run app.EvalRun) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveEvalRun(run)
 	s.persist()
 }
 
 func (s *FileStore) GetEvalRun(id string) (app.EvalRun, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.GetEvalRun(id)
 }
 
 func (s *FileStore) ListEvalRuns() []app.EvalRun {
+	defer s.admitLegacyRead()()
 	return s.inner.ListEvalRuns()
 }
 
 func (s *FileStore) SaveArtifactObject(object app.ArtifactObject) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveArtifactObject(object)
 	s.persist()
 }
 
 func (s *FileStore) ListArtifactObjects(limit int) []app.ArtifactObject {
+	defer s.admitLegacyRead()()
 	return s.inner.ListArtifactObjects(limit)
 }
 
 func (s *FileStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool) {
+	defer s.admitLegacyRead()()
 	return s.inner.FindArtifactObjectByURI(uri, sessionID, runID)
 }
 
 func (s *FileStore) SaveEpisodeSummary(summary app.EpisodeSummary) {
+	defer s.admitLegacyCommand()()
 	s.inner.SaveEpisodeSummary(summary)
 	s.persist()
 }
 
 func (s *FileStore) ListEpisodeSummaries(sessionID string) []app.EpisodeSummary {
+	defer s.admitLegacyRead()()
 	return s.inner.ListEpisodeSummaries(sessionID)
 }
 
@@ -997,8 +1117,6 @@ func (s *FileStore) persistSnapshot() error {
 	if s.path == "" {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return s.persistSnapshotLocked()
 }
 

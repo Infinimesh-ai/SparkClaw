@@ -50,7 +50,7 @@ func TestFileStoreDoesNotRetainISCPOnboardingWhenPersistenceFails(t *testing.T) 
 	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st := &FileStore{inner: NewMemoryStore(), path: filepath.Join(parentFile, "state.json")}
+	st := newTestFileStore(filepath.Join(parentFile, "state.json"))
 	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(time.Now().UTC(), "iscp_onboarding_rollback", app.DefaultOwnerID))
 	if err == nil || receipt.ID != "" || len(st.ListISCPOnboardings("")) != 0 {
 		t.Fatalf("failed onboarding persistence returned or retained a receipt: receipt=%#v count=%d err=%v", receipt, len(st.ListISCPOnboardings("")), err)
@@ -412,7 +412,7 @@ func TestFileStoreDoesNotReturnOrRetainTicketWhenPersistenceFails(t *testing.T) 
 		t.Fatal("FileStore unexpectedly opened a state path below a regular file")
 	}
 
-	st = &FileStore{inner: NewMemoryStore(), path: filepath.Join(parentFile, "state.json")}
+	st = newTestFileStore(filepath.Join(parentFile, "state.json"))
 	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(time.Now().UTC(), "must-not-survive"))
 	if err == nil || ticket.ID != "" || len(st.ListMCPAccessTickets("")) != 0 {
 		t.Fatalf("failed ticket persistence returned or retained a ticket: ticket=%#v count=%d err=%v", ticket, len(st.ListMCPAccessTickets("")), err)

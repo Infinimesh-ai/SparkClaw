@@ -53,6 +53,7 @@ type PostgresStore struct {
 	evaluationPostgres                ownerPostgresOps
 	artifactMetadataPostgres          ownerPostgresOps
 	browserStatePostgres              ownerPostgresOps
+	memoryPostgres                    ownerPostgresOps
 	approvalCommandGate               *semaphore.Weighted
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
@@ -133,6 +134,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		evaluationPostgres:                pgxOwnerPostgresOps{pool: pool},
 		artifactMetadataPostgres:          pgxOwnerPostgresOps{pool: pool},
 		browserStatePostgres:              pgxOwnerPostgresOps{pool: pool},
+		memoryPostgres:                    pgxOwnerPostgresOps{pool: pool},
 		approvalCommandGate:               semaphore.NewWeighted(1),
 		passiveNotificationRevs:           map[string]uint64{},
 	}
@@ -2800,180 +2802,261 @@ func classifyBrowserStatePostgresError(operation StoreOperation, ctx context.Con
 	return storeError(operation, StoreErrorUnavailable, cause)
 }
 
-func (s *PostgresStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {
-	if candidate.ID == "" {
-		candidate.ID = app.NewID("mc")
+func (s *PostgresStore) AddMemoryCandidate(ctx context.Context, candidate app.MemoryCandidate) (app.MemoryCandidate, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryCandidateAdd, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryCandidateAdd, ctx); err != nil {
+		return app.MemoryCandidate{}, err
 	}
-	if candidate.CreatedAt.IsZero() {
-		candidate.CreatedAt = time.Now().UTC()
+	candidate = prepareMemoryCandidate(candidate, time.Now().UTC())
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMemoryCandidateAdd, s.memoryPostgres)
+	if err != nil {
+		return app.MemoryCandidate{}, err
 	}
-	if candidate.Status == "" {
-		candidate.Status = "pending"
-	}
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
+	defer releasePostgresSession(session, release)
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO memory_candidates (
 			id, session_id, run_id, kind, content, sensitivity, status, reason, created_at, resolved_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
+			session_id = EXCLUDED.session_id,
+			run_id = EXCLUDED.run_id,
 			kind = EXCLUDED.kind,
 			content = EXCLUDED.content,
 			sensitivity = EXCLUDED.sensitivity,
 			status = EXCLUDED.status,
 			reason = EXCLUDED.reason,
+			created_at = EXCLUDED.created_at,
 			resolved_at = EXCLUDED.resolved_at
-	`, candidate.ID, candidate.SessionID, candidate.RunID, candidate.Kind, candidate.Content, candidate.Sensitivity, candidate.Status, candidate.Reason, candidate.CreatedAt, candidate.ResolvedAt)
-	s.appendAudit(ctx, "memory_candidate.created", candidate.SessionID, candidate.RunID, "agent", candidate.Content, map[string]any{"kind": candidate.Kind})
-	s.appendEvent(ctx, "memory_candidate.created", candidate.SessionID, candidate.RunID, candidate)
-	return candidate
+	`, candidate.ID, candidate.SessionID, candidate.RunID, candidate.Kind, candidate.Content, candidate.Sensitivity, candidate.Status, candidate.Reason, candidate.CreatedAt, candidate.ResolvedAt); err != nil {
+		return app.MemoryCandidate{}, finishMemoryPostgresStatement(ctx, OperationMemoryCandidateAdd, session, transaction, release, err)
+	}
+	if err := appendMemoryLifecycle(transaction, ctx, "memory_candidate.created", candidate.SessionID, candidate.RunID, "agent", candidate.Content, map[string]any{"kind": candidate.Kind}, candidate); err != nil {
+		return app.MemoryCandidate{}, finishMemoryPostgresStatement(ctx, OperationMemoryCandidateAdd, session, transaction, release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return candidate, storeError(OperationMemoryCandidateAdd, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneMemoryCandidate(candidate), nil
 }
 
-func (s *PostgresStore) ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error) {
-	ctx := context.Background()
-	tx, err := s.db.Begin(ctx)
+func (s *PostgresStore) ResolveMemoryCandidate(ctx context.Context, id, status string) (app.MemoryCandidate, *app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryCandidateResolve, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryCandidateResolve, ctx); err != nil {
+		return app.MemoryCandidate{}, nil, err
+	}
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMemoryCandidateResolve, s.memoryPostgres)
 	if err != nil {
 		return app.MemoryCandidate{}, nil, err
 	}
-	defer rollbackTx(ctx, tx)
-	row := tx.QueryRow(ctx, `
+	defer releasePostgresSession(session, release)
+	candidate, err := scanMemoryCandidate(transaction.QueryRow(ctx, `
 		SELECT id, session_id, run_id, kind, content, sensitivity, status, reason, created_at, resolved_at
 		FROM memory_candidates
 		WHERE id = $1
 		FOR UPDATE
-	`, id)
-	candidate, err := scanMemoryCandidate(row)
+	`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.MemoryCandidate{}, nil, memoryPostgresBusinessError(ctx, OperationMemoryCandidateResolve, StoreErrorNotFound, session, transaction, release, errors.New("memory candidate not found"))
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.MemoryCandidate{}, nil, errors.New("memory candidate not found")
-		}
-		return app.MemoryCandidate{}, nil, err
+		return app.MemoryCandidate{}, nil, finishMemoryPostgresStatement(ctx, OperationMemoryCandidateResolve, session, transaction, release, err)
 	}
+	candidate = normalizeMemoryCandidate(candidate)
 	if candidate.Status != "pending" {
-		return app.MemoryCandidate{}, nil, errors.New("memory candidate already resolved")
+		return app.MemoryCandidate{}, nil, memoryPostgresBusinessError(ctx, OperationMemoryCandidateResolve, StoreErrorConflict, session, transaction, release, errors.New("memory candidate already resolved"))
 	}
-	now := time.Now().UTC()
+	now := postgresTime(time.Now().UTC())
 	candidate.Status = status
 	candidate.ResolvedAt = &now
-	if _, err := tx.Exec(ctx, `
+	if _, err := transaction.Exec(ctx, `
 		UPDATE memory_candidates
 		SET status = $2, resolved_at = $3
 		WHERE id = $1
 	`, candidate.ID, candidate.Status, candidate.ResolvedAt); err != nil {
-		return app.MemoryCandidate{}, nil, err
+		return app.MemoryCandidate{}, nil, finishMemoryPostgresStatement(ctx, OperationMemoryCandidateResolve, session, transaction, release, err)
 	}
 	var memory *app.Memory
 	if status == "accepted" {
-		m := app.Memory{
-			ID:        app.NewID("mem"),
-			Kind:      candidate.Kind,
-			Content:   candidate.Content,
-			SourceID:  candidate.RunID,
-			CreatedAt: now,
-		}
-		if _, err := tx.Exec(ctx, `
+		accepted := normalizeMemory(app.Memory{
+			ID: app.NewID("mem"), Kind: candidate.Kind, Content: candidate.Content,
+			SourceID: candidate.RunID, CreatedAt: now,
+		})
+		if _, err := transaction.Exec(ctx, `
 			INSERT INTO memories (id, kind, content, source_run_id, created_at)
 			VALUES ($1, $2, $3, $4, $5)
-		`, m.ID, m.Kind, m.Content, m.SourceID, m.CreatedAt); err != nil {
-			return app.MemoryCandidate{}, nil, err
+		`, accepted.ID, accepted.Kind, accepted.Content, accepted.SourceID, accepted.CreatedAt); err != nil {
+			return app.MemoryCandidate{}, nil, finishMemoryPostgresStatement(ctx, OperationMemoryCandidateResolve, session, transaction, release, err)
 		}
-		memory = &m
+		memory = &accepted
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.MemoryCandidate{}, nil, err
+	if err := appendMemoryLifecycle(transaction, ctx, "memory_candidate."+status, candidate.SessionID, candidate.RunID, "owner", candidate.Content, nil, candidate); err != nil {
+		return app.MemoryCandidate{}, nil, finishMemoryPostgresStatement(ctx, OperationMemoryCandidateResolve, session, transaction, release, err)
 	}
-	s.appendAudit(ctx, "memory_candidate."+status, candidate.SessionID, candidate.RunID, "owner", candidate.Content, nil)
-	s.appendEvent(ctx, "memory_candidate."+status, candidate.SessionID, candidate.RunID, candidate)
-	return candidate, memory, nil
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return candidate, memory, storeError(OperationMemoryCandidateResolve, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneMemoryCandidate(candidate), memory, nil
 }
 
-func (s *PostgresStore) ListMemoryCandidates(status string) []app.MemoryCandidate {
-	rows, err := s.db.Query(context.Background(), `
+func (s *PostgresStore) ListMemoryCandidates(ctx context.Context, status string) ([]app.MemoryCandidate, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryCandidateList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryCandidateList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.memoryPostgres.Query(ctx, `
 		SELECT id, session_id, run_id, kind, content, sensitivity, status, reason, created_at, resolved_at
 		FROM memory_candidates
 		WHERE $1 = '' OR status = $1
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id ASC
 	`, status)
 	if err != nil {
-		return []app.MemoryCandidate{}
+		return nil, classifyMemoryPostgresError(OperationMemoryCandidateList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanMemoryCandidate)
+	out := []app.MemoryCandidate{}
+	for rows.Next() {
+		candidate, err := scanMemoryCandidate(rows)
+		if err != nil {
+			return nil, classifyMemoryPostgresError(OperationMemoryCandidateList, ctx, err)
+		}
+		out = append(out, cloneMemoryCandidate(normalizeMemoryCandidate(candidate)))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyMemoryPostgresError(OperationMemoryCandidateList, ctx, err)
+	}
+	return out, nil
 }
 
-func (s *PostgresStore) SearchMemories(query string) []app.Memory {
-	rows, err := s.db.Query(context.Background(), `
+func (s *PostgresStore) SearchMemories(ctx context.Context, query string) ([]app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemorySearch, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemorySearch, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.memoryPostgres.Query(ctx, `
 		SELECT id, kind, content, source_run_id, created_at
 		FROM memories
 		WHERE $1 = ''
 			OR lower(content) LIKE '%' || lower($1) || '%'
 			OR lower(kind) LIKE '%' || lower($1) || '%'
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id ASC
 	`, query)
 	if err != nil {
-		return []app.Memory{}
+		return nil, classifyMemoryPostgresError(OperationMemorySearch, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanMemory)
+	out := []app.Memory{}
+	for rows.Next() {
+		memory, err := scanMemory(rows)
+		if err != nil {
+			return nil, classifyMemoryPostgresError(OperationMemorySearch, ctx, err)
+		}
+		out = append(out, normalizeMemory(memory))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyMemoryPostgresError(OperationMemorySearch, ctx, err)
+	}
+	return out, nil
 }
 
-func (s *PostgresStore) UpdateMemory(id, kind, content string) (app.Memory, error) {
-	ctx := context.Background()
-	row := s.db.QueryRow(ctx, `
-		UPDATE memories AS memory
-		SET kind = $2, content = $3
-		FROM agent_runs AS run
-		WHERE memory.id = $1 AND run.id = memory.source_run_id
-		RETURNING memory.id, memory.kind, memory.content, memory.source_run_id, memory.created_at, run.session_id
-	`, id, kind, content)
-	memory, sessionID, err := scanMemoryWithSession(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.Memory{}, errors.New("memory not found")
-		}
+func (s *PostgresStore) UpdateMemory(ctx context.Context, id, kind, content string) (app.Memory, error) {
+	return s.updateOrDeleteMemory(ctx, OperationMemoryUpdate, id, kind, content)
+}
+
+func (s *PostgresStore) DeleteMemory(ctx context.Context, id string) (app.Memory, error) {
+	return s.updateOrDeleteMemory(ctx, OperationMemoryDelete, id, "", "")
+}
+
+func (s *PostgresStore) updateOrDeleteMemory(ctx context.Context, operation StoreOperation, id, kind, content string) (app.Memory, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Memory{}, err
 	}
-	s.appendAudit(ctx, "memory.updated", sessionID, memory.SourceID, "owner", memory.Content, map[string]any{"memory_id": memory.ID, "kind": memory.Kind})
-	s.appendEvent(ctx, "memory.updated", sessionID, memory.SourceID, memory)
+	session, transaction, release, err := beginPostgresTransaction(ctx, operation, s.memoryPostgres)
+	if err != nil {
+		return app.Memory{}, err
+	}
+	defer releasePostgresSession(session, release)
+	query := `
+		WITH changed AS (
+			UPDATE memories
+			SET kind = $2, content = $3
+			WHERE id = $1
+			RETURNING id, kind, content, source_run_id, created_at
+		)
+		SELECT changed.id, changed.kind, changed.content, changed.source_run_id, changed.created_at, run.session_id
+		FROM changed
+		JOIN agent_runs AS run ON run.id = changed.source_run_id
+	`
+	arguments := []any{id, kind, content}
+	eventType := "memory.updated"
+	if operation == OperationMemoryDelete {
+		query = `
+			WITH changed AS (
+				DELETE FROM memories
+				WHERE id = $1
+				RETURNING id, kind, content, source_run_id, created_at
+			)
+			SELECT changed.id, changed.kind, changed.content, changed.source_run_id, changed.created_at, run.session_id
+			FROM changed
+			JOIN agent_runs AS run ON run.id = changed.source_run_id
+		`
+		arguments = []any{id}
+		eventType = "memory.deleted"
+	}
+	memory, sessionID, err := scanMemoryWithSession(transaction.QueryRow(ctx, query, arguments...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Memory{}, memoryPostgresBusinessError(ctx, operation, StoreErrorNotFound, session, transaction, release, errors.New("memory not found"))
+	}
+	if err != nil {
+		return app.Memory{}, finishMemoryPostgresStatement(ctx, operation, session, transaction, release, err)
+	}
+	memory = normalizeMemory(memory)
+	if err := appendMemoryLifecycle(transaction, ctx, eventType, sessionID, memory.SourceID, "owner", memory.Content, map[string]any{"memory_id": memory.ID, "kind": memory.Kind}, memory); err != nil {
+		return app.Memory{}, finishMemoryPostgresStatement(ctx, operation, session, transaction, release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return memory, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
 	return memory, nil
 }
 
-func (s *PostgresStore) DeleteMemory(id string) (app.Memory, error) {
-	ctx := context.Background()
-	row := s.db.QueryRow(ctx, `
-		DELETE FROM memories AS memory
-		USING agent_runs AS run
-		WHERE memory.id = $1 AND run.id = memory.source_run_id
-		RETURNING memory.id, memory.kind, memory.content, memory.source_run_id, memory.created_at, run.session_id
-	`, id)
-	memory, sessionID, err := scanMemoryWithSession(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.Memory{}, errors.New("memory not found")
-		}
-		return app.Memory{}, err
+func (s *PostgresStore) PruneMemories(ctx context.Context, cutoff time.Time) ([]app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryPrune, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryPrune, ctx); err != nil {
+		return nil, err
 	}
-	s.appendAudit(ctx, "memory.deleted", sessionID, memory.SourceID, "owner", memory.Content, map[string]any{"memory_id": memory.ID, "kind": memory.Kind})
-	s.appendEvent(ctx, "memory.deleted", sessionID, memory.SourceID, memory)
-	return memory, nil
-}
-
-func (s *PostgresStore) PruneMemories(cutoff time.Time) []app.Memory {
 	if cutoff.IsZero() {
-		return []app.Memory{}
+		return []app.Memory{}, nil
 	}
-	ctx := context.Background()
-	rows, err := s.db.Query(ctx, `
-		DELETE FROM memories AS memory
-		USING agent_runs AS run
-		WHERE memory.source_run_id = run.id
-			AND memory.created_at < $1
-		RETURNING memory.id, memory.kind, memory.content, memory.source_run_id, memory.created_at, run.session_id
+	cutoff = postgresTime(cutoff)
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMemoryPrune, s.memoryPostgres)
+	if err != nil {
+		return nil, err
+	}
+	defer releasePostgresSession(session, release)
+	rows, err := transaction.Query(ctx, `
+		WITH pruned AS (
+			DELETE FROM memories
+			WHERE created_at < $1
+			RETURNING id, kind, content, source_run_id, created_at
+		)
+		SELECT pruned.id, pruned.kind, pruned.content, pruned.source_run_id, pruned.created_at, run.session_id
+		FROM pruned
+		JOIN agent_runs AS run ON run.id = pruned.source_run_id
 	`, cutoff)
 	if err != nil {
-		return []app.Memory{}
+		return nil, finishMemoryPostgresStatement(ctx, OperationMemoryPrune, session, transaction, release, err)
 	}
-	defer rows.Close()
 	type prunedMemory struct {
 		memory    app.Memory
 		sessionID string
@@ -2982,23 +3065,64 @@ func (s *PostgresStore) PruneMemories(cutoff time.Time) []app.Memory {
 	for rows.Next() {
 		memory, sessionID, err := scanMemoryWithSession(rows)
 		if err != nil {
-			continue
+			rows.Close()
+			return nil, finishMemoryPostgresStatement(ctx, OperationMemoryPrune, session, transaction, release, err)
 		}
-		pruned = append(pruned, prunedMemory{memory: memory, sessionID: sessionID})
+		pruned = append(pruned, prunedMemory{memory: normalizeMemory(memory), sessionID: sessionID})
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, finishMemoryPostgresStatement(ctx, OperationMemoryPrune, session, transaction, release, err)
+	}
+	rows.Close()
 	out := make([]app.Memory, 0, len(pruned))
 	for _, item := range pruned {
 		out = append(out, item.memory)
-		s.appendAudit(ctx, "memory.pruned", item.sessionID, item.memory.SourceID, "memory-retention", item.memory.Kind, map[string]any{
-			"memory_id": item.memory.ID,
-			"cutoff":    cutoff.UTC().Format(time.RFC3339),
-		})
-		s.appendEvent(ctx, "memory.pruned", item.sessionID, item.memory.SourceID, item.memory)
+		if err := appendMemoryLifecycle(transaction, ctx, "memory.pruned", item.sessionID, item.memory.SourceID, "memory-retention", item.memory.Kind, map[string]any{
+			"memory_id": item.memory.ID, "cutoff": cutoff.Format(time.RFC3339),
+		}, item.memory); err != nil {
+			return nil, finishMemoryPostgresStatement(ctx, OperationMemoryPrune, session, transaction, release, err)
+		}
 	}
 	slices.SortFunc(out, func(a, b app.Memory) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
+		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return out, storeError(OperationMemoryPrune, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return out, nil
+}
+
+func appendMemoryLifecycle(transaction onboardingPostgresTx, ctx context.Context, eventType, sessionID, runID, actor, summary string, fields map[string]any, payload any) error {
+	at := postgresTime(time.Now().UTC())
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
+		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6, $7, $8)
+	`, app.NewID("audit"), at, eventType, sessionID, runID, actor, summary, optionalJSON(fields)); err != nil {
+		return err
+	}
+	_, err := transaction.Exec(ctx, `
+		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
+		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6)
+	`, app.NewID("evt"), at, eventType, sessionID, runID, mustJSON(payload))
+	return err
+}
+
+func finishMemoryPostgresStatement(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
+	return classifyMemoryPostgresError(operation, ctx, cause)
+}
+
+func memoryPostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+}
+
+func classifyMemoryPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
+	return classifyPostgresReadError(operation, ctx, cause)
 }
 
 func (s *PostgresStore) AddAudit(ctx context.Context, event app.AuditEvent) error {

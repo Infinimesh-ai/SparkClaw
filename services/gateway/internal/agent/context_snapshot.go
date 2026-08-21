@@ -52,10 +52,14 @@ func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, curre
 	if err != nil {
 		return agentContextSnapshot{}, fmt.Errorf("load tool context: %w", err)
 	}
+	memories, err := r.store.SearchMemories(ctx, currentContent)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load memory context: %w", err)
+	}
 	return agentContextSnapshot{
 		Messages:     recentContextMessages(messages, currentRunID, defaultContextMessageLimit),
 		Episodes:     recentContextEpisodes(episodes, defaultContextEpisodeLimit),
-		Memories:     relevantContextMemories(r.store.SearchMemories(currentContent), defaultContextMemoryLimit),
+		Memories:     relevantContextMemories(memories, defaultContextMemoryLimit),
 		ToolResults:  recentContextToolResults(toolCalls, currentRunID, defaultContextToolLimit),
 		RecentImages: recentContextImages(messages, currentRunID, 3),
 	}, nil

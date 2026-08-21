@@ -229,7 +229,6 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 			return s.connectors.Enabled(ownerID, "mcp")
 		})
 	}
-	s.applyMemoryRetention()
 	s.routes()
 	return s
 }
@@ -441,7 +440,10 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
 	sessions, err := s.store.ListSessions(r.Context())
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -508,6 +510,16 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	if s.limiter != nil {
 		rateLimited = s.limiter.rejectedCount()
 	}
+	memoryCandidates, err := s.store.ListMemoryCandidates(r.Context(), "")
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	memories, err := s.store.SearchMemories(r.Context(), "")
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
 	lines := []string{
 		"# HELP sparkclaw_gateway_uptime_seconds Gateway process uptime in seconds.",
 		"# TYPE sparkclaw_gateway_uptime_seconds gauge",
@@ -550,10 +562,10 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_approvals_pending %d", pendingApprovals),
 		"# HELP sparkclaw_memory_candidates_total Current memory candidate count.",
 		"# TYPE sparkclaw_memory_candidates_total gauge",
-		fmt.Sprintf("sparkclaw_memory_candidates_total %d", len(s.store.ListMemoryCandidates(""))),
+		fmt.Sprintf("sparkclaw_memory_candidates_total %d", len(memoryCandidates)),
 		"# HELP sparkclaw_memories_total Current accepted memory count.",
 		"# TYPE sparkclaw_memories_total gauge",
-		fmt.Sprintf("sparkclaw_memories_total %d", len(s.store.SearchMemories(""))),
+		fmt.Sprintf("sparkclaw_memories_total %d", len(memories)),
 		"# HELP sparkclaw_episode_summaries_total Current episode summary count.",
 		"# TYPE sparkclaw_episode_summaries_total gauge",
 		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(allEpisodes)),
@@ -2319,25 +2331,31 @@ func mergeApprovalArgs(current, patch map[string]any) map[string]any {
 }
 
 func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	writeJSON(w, http.StatusOK, map[string]any{"memories": s.store.SearchMemories(r.URL.Query().Get("query"))})
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	memories, err := s.store.SearchMemories(r.Context(), r.URL.Query().Get("query"))
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 func (s *Server) getMemoryExport(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
 	export, err := s.buildMemoryExport(r.Context())
 	if err != nil {
-		writeOwnerStoreError(w, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, export)
 }
 
 func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
 	export, err := s.buildMemoryExport(r.Context())
 	if err != nil {
-		writeOwnerStoreError(w, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	raw, err := json.MarshalIndent(export, "", "  ")
@@ -2385,15 +2403,23 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error) {
-	s.applyMemoryRetention()
-	candidates := s.store.ListMemoryCandidates("")
+	if _, err := s.applyMemoryRetention(ctx); err != nil {
+		return app.MemoryExport{}, err
+	}
+	candidates, err := s.store.ListMemoryCandidates(ctx, "")
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	pending := 0
 	for _, candidate := range candidates {
 		if candidate.Status == "pending" {
 			pending++
 		}
 	}
-	memories := s.store.SearchMemories("")
+	memories, err := s.store.SearchMemories(ctx, "")
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	episodes, err := s.store.ListEpisodeSummaries(ctx, "")
 	if err != nil {
 		return app.MemoryExport{}, err
@@ -2418,7 +2444,10 @@ func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error
 }
 
 func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
 	var req struct {
 		Kind    string `json:"kind"`
 		Content string `json:"content"`
@@ -2443,30 +2472,33 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	memory, err := s.store.UpdateMemory(r.PathValue("id"), req.Kind, req.Content)
+	memory, err := s.store.UpdateMemory(r.Context(), r.PathValue("id"), req.Kind, req.Content)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, memory)
 }
 
 func (s *Server) deleteMemory(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	memory, err := s.store.DeleteMemory(r.PathValue("id"))
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	memory, err := s.store.DeleteMemory(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, memory)
 }
 
-func (s *Server) applyMemoryRetention() []app.Memory {
+func (s *Server) applyMemoryRetention(ctx context.Context) ([]app.Memory, error) {
 	if s.cfg.Memory.RetentionDays <= 0 {
-		return []app.Memory{}
+		return []app.Memory{}, nil
 	}
 	cutoff := time.Now().UTC().AddDate(0, 0, -s.cfg.Memory.RetentionDays)
-	return s.store.PruneMemories(cutoff)
+	return s.store.PruneMemories(ctx, cutoff)
 }
 
 func memorySensitivePattern(content string, patterns []string) (string, bool) {
@@ -2486,7 +2518,12 @@ func memorySensitivePattern(content string, patterns []string) (string, bool) {
 func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 	ownerID := queryOwnerID(r)
 	candidates := []app.MemoryCandidate{}
-	for _, candidate := range s.store.ListMemoryCandidates(r.URL.Query().Get("status")) {
+	stored, err := s.store.ListMemoryCandidates(r.Context(), r.URL.Query().Get("status"))
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	for _, candidate := range stored {
 		visible, err := s.sessionIDVisibleToOwner(r.Context(), candidate.SessionID, ownerID)
 		if err != nil {
 			writeSessionStoreError(w, err)
@@ -2500,18 +2537,18 @@ func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) acceptMemoryCandidate(w http.ResponseWriter, r *http.Request) {
-	candidate, memory, err := s.store.ResolveMemoryCandidate(r.PathValue("id"), "accepted")
+	candidate, memory, err := s.store.ResolveMemoryCandidate(r.Context(), r.PathValue("id"), "accepted")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"candidate": candidate, "memory": memory})
 }
 
 func (s *Server) rejectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
-	candidate, _, err := s.store.ResolveMemoryCandidate(r.PathValue("id"), "rejected")
+	candidate, _, err := s.store.ResolveMemoryCandidate(r.Context(), r.PathValue("id"), "rejected")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, candidate)
@@ -3561,6 +3598,23 @@ func writeApprovalStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusGatewayTimeout, errors.New("approval operation timed out"))
 	default:
 		writeError(w, http.StatusServiceUnavailable, errors.New("approval service is unavailable"))
+	}
+}
+
+func writeMemoryStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("memory request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("memory record not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("memory candidate was already resolved"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("memory request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("memory operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("memory service is unavailable"))
 	}
 }
 

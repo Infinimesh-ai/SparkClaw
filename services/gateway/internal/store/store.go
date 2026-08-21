@@ -167,6 +167,16 @@ type BrowserStateRepository interface {
 	ListBrowserLoginBlocks(context.Context, string, string) ([]app.BrowserLoginBlock, error)
 }
 
+type MemoryRepository interface {
+	AddMemoryCandidate(context.Context, app.MemoryCandidate) (app.MemoryCandidate, error)
+	ResolveMemoryCandidate(context.Context, string, string) (app.MemoryCandidate, *app.Memory, error)
+	ListMemoryCandidates(context.Context, string) ([]app.MemoryCandidate, error)
+	SearchMemories(context.Context, string) ([]app.Memory, error)
+	UpdateMemory(context.Context, string, string, string) (app.Memory, error)
+	DeleteMemory(context.Context, string) (app.Memory, error)
+	PruneMemories(context.Context, time.Time) ([]app.Memory, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -199,6 +209,7 @@ type Store interface {
 	EvaluationRepository
 	ArtifactMetadataRepository
 	BrowserStateRepository
+	MemoryRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -263,13 +274,6 @@ type Store interface {
 	GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool)
 	FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool)
 	ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate
-	AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate
-	ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error)
-	ListMemoryCandidates(status string) []app.MemoryCandidate
-	SearchMemories(query string) []app.Memory
-	UpdateMemory(id, kind, content string) (app.Memory, error)
-	DeleteMemory(id string) (app.Memory, error)
-	PruneMemories(cutoff time.Time) []app.Memory
 }
 
 // Compile-time checks that every backend implements the full Store interface.
@@ -313,6 +317,9 @@ var (
 	_ BrowserStateRepository     = (*MemoryStore)(nil)
 	_ BrowserStateRepository     = (*FileStore)(nil)
 	_ BrowserStateRepository     = (*PostgresStore)(nil)
+	_ MemoryRepository           = (*MemoryStore)(nil)
+	_ MemoryRepository           = (*FileStore)(nil)
+	_ MemoryRepository           = (*PostgresStore)(nil)
 	_ Store                      = (*MemoryStore)(nil)
 	_ Store                      = (*FileStore)(nil)
 	_ Store                      = (*PostgresStore)(nil)

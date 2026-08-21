@@ -222,7 +222,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatalf("resolved PostgreSQL approval changed after stale update: %#v", storedExternal)
 	}
 
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -230,40 +230,41 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if memory == nil || memory.Content != "postgres is configured" {
 		t.Fatalf("memory did not materialize: %#v", memory)
 	}
-	if memories := st.SearchMemories("configured"); len(memories) != 1 {
+	if memories := mustSearchMemories(t, st, "configured"); len(memories) != 1 {
 		t.Fatalf("memory search failed: %#v", memories)
 	}
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "postgres memory editor updated")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "postgres memory editor updated")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Kind != "procedural" || updated.Content != "postgres memory editor updated" {
 		t.Fatalf("memory update failed: %#v", updated)
 	}
-	if memories := st.SearchMemories("configured"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "configured"); len(memories) != 0 {
 		t.Fatalf("old memory content still searchable: %#v", memories)
 	}
-	if memories := st.SearchMemories("editor updated"); len(memories) != 1 || memories[0].ID != memory.ID {
+	if memories := mustSearchMemories(t, st, "editor updated"); len(memories) != 1 || memories[0].ID != memory.ID {
 		t.Fatalf("updated memory search failed: %#v", memories)
 	}
-	deleted, err := st.DeleteMemory(memory.ID)
+	deleted, err := testDeleteMemory(t, st, memory.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted.ID != memory.ID {
 		t.Fatalf("delete returned wrong memory: %#v", deleted)
 	}
-	if memories := st.SearchMemories("editor updated"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "editor updated"); len(memories) != 0 {
 		t.Fatalf("deleted memory still searchable: %#v", memories)
 	}
-	retentionCandidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	retentionCandidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -271,15 +272,16 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, retentionMemory, err := st.ResolveMemoryCandidate(retentionCandidate.ID, "accepted")
+
+	_, retentionMemory, err := testResolveMemoryCandidate(t, st, retentionCandidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pruned := st.PruneMemories(time.Now().UTC().AddDate(0, 0, 1))
+	pruned := mustPruneMemories(t, st, time.Now().UTC().AddDate(0, 0, 1))
 	if len(pruned) != 1 || pruned[0].ID != retentionMemory.ID {
 		t.Fatalf("unexpected pruned postgres memories: %#v", pruned)
 	}
-	if memories := st.SearchMemories("retention memory"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "retention memory"); len(memories) != 0 {
 		t.Fatalf("pruned postgres memory still searchable: %#v", memories)
 	}
 	if events := mustEventsAfter(t, st, session.ID, ""); len(events) == 0 {

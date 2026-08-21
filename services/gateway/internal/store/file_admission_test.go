@@ -71,6 +71,8 @@ var migratedFileAdmissions = map[string]string{
 	"ListBrowserAuthRecords": "admitMigrated", "RevokeBrowserAuthRecord": "admitMigrated",
 	"SaveBrowserLoginBlock": "admitMigrated", "UpdateBrowserLoginBlock": "admitMigrated", "GetBrowserLoginBlock": "admitMigrated",
 	"FindActiveBrowserLoginBlock": "admitMigrated", "ListBrowserLoginBlocks": "admitMigrated",
+	"AddMemoryCandidate": "admitMigrated", "ResolveMemoryCandidate": "admitMigrated", "ListMemoryCandidates": "admitMigrated",
+	"SearchMemories": "admitMigrated", "UpdateMemory": "admitMigrated", "DeleteMemory": "admitMigrated", "PruneMemories": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

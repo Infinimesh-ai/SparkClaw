@@ -106,8 +106,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "browser_auth.record_saved", eventType: "browser_auth.record_saved",
 	},
 	"MemoryRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.AddMemoryCandidate(app.MemoryCandidate{ID: "memory-lifecycle", SessionID: "session-lifecycle", RunID: "run-lifecycle", Status: "pending"})
+		mutate: func(t *testing.T, st Store) {
+			mustAddMemoryCandidate(t, st, app.MemoryCandidate{ID: "memory-lifecycle", SessionID: "session-lifecycle", RunID: "run-lifecycle", Status: "pending"})
 		},
 		auditType: "memory_candidate.created", eventType: "memory_candidate.created",
 	},

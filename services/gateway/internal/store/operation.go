@@ -78,6 +78,13 @@ const (
 	OperationBrowserLoginBlockGet        StoreOperation = "browser_login_block.get"
 	OperationBrowserLoginBlockFindActive StoreOperation = "browser_login_block.find_active"
 	OperationBrowserLoginBlockList       StoreOperation = "browser_login_block.list"
+	OperationMemoryCandidateAdd          StoreOperation = "memory_candidate.add"
+	OperationMemoryCandidateResolve      StoreOperation = "memory_candidate.resolve"
+	OperationMemoryCandidateList         StoreOperation = "memory_candidate.list"
+	OperationMemorySearch                StoreOperation = "memory.search"
+	OperationMemoryUpdate                StoreOperation = "memory.update"
+	OperationMemoryDelete                StoreOperation = "memory.delete"
+	OperationMemoryPrune                 StoreOperation = "memory.prune"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -380,6 +387,34 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationBrowserLoginBlockList: {
 		ID: OperationBrowserLoginBlockList, Repository: "BrowserStateRepository",
 		Method: "ListBrowserLoginBlocks", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMemoryCandidateAdd: {
+		ID: OperationMemoryCandidateAdd, Repository: "MemoryRepository",
+		Method: "AddMemoryCandidate", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMemoryCandidateResolve: {
+		ID: OperationMemoryCandidateResolve, Repository: "MemoryRepository",
+		Method: "ResolveMemoryCandidate", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMemoryCandidateList: {
+		ID: OperationMemoryCandidateList, Repository: "MemoryRepository",
+		Method: "ListMemoryCandidates", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMemorySearch: {
+		ID: OperationMemorySearch, Repository: "MemoryRepository",
+		Method: "SearchMemories", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMemoryUpdate: {
+		ID: OperationMemoryUpdate, Repository: "MemoryRepository",
+		Method: "UpdateMemory", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMemoryDelete: {
+		ID: OperationMemoryDelete, Repository: "MemoryRepository",
+		Method: "DeleteMemory", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMemoryPrune: {
+		ID: OperationMemoryPrune, Repository: "MemoryRepository",
+		Method: "PruneMemories", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

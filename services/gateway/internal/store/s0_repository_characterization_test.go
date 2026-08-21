@@ -585,12 +585,12 @@ func characterizeS0BrowserStateRepository(t *testing.T, st Store, dimension stri
 func characterizeS0MemoryRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		candidate := st.AddMemoryCandidate(app.MemoryCandidate{ID: "candidate-s0", SessionID: "session-s0", RunID: "run-s0", Status: "pending", Content: "remember"})
-		if got := st.ListMemoryCandidates("pending"); len(got) != 1 || got[0].ID != candidate.ID {
+		candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{ID: "candidate-s0", SessionID: "session-s0", RunID: "run-s0", Status: "pending", Content: "remember"})
+		if got := mustListMemoryCandidates(t, st, "pending"); len(got) != 1 || got[0].ID != candidate.ID {
 			t.Fatalf("memory candidate add/list = %#v", got)
 		}
 	case s0DimensionAbsence:
-		if got := st.SearchMemories("missing"); len(got) != 0 {
+		if got := mustSearchMemories(t, st, "missing"); len(got) != 0 {
 			t.Fatalf("missing memory search = %#v", got)
 		}
 	default:
@@ -723,7 +723,6 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"ScheduleRepository":            s0ScheduleAliasSafe,
 	"PassiveNotificationRepository": s0PassiveAliasSafe,
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
-	"MemoryRepository":              s0MemoryAliasSafe,
 }
 
 func TestS0AuditRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -791,6 +790,16 @@ func TestS0BrowserStateRepositoryMutableValuesAreIsolated(t *testing.T) {
 		t.Run(backend.name, func(t *testing.T) {
 			if !s0BrowserAliasSafe(t, backend.store) {
 				t.Fatal("BrowserStateRepository exposed mutable login-block state")
+			}
+		})
+	}
+}
+
+func TestS0MemoryRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0MemoryAliasSafe(t, backend.store) {
+				t.Fatal("MemoryRepository exposed a mutable resolution-time alias")
 			}
 		})
 	}
@@ -893,10 +902,10 @@ func s0BrowserAliasSafe(t *testing.T, st Store) bool {
 func s0MemoryAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
 	resolvedAt := time.Now().UTC()
-	st.AddMemoryCandidate(app.MemoryCandidate{ID: "candidate-alias", Status: "resolved", ResolvedAt: &resolvedAt})
-	got := st.ListMemoryCandidates("resolved")
+	mustAddMemoryCandidate(t, st, app.MemoryCandidate{ID: "candidate-alias", Status: "resolved", ResolvedAt: &resolvedAt})
+	got := mustListMemoryCandidates(t, st, "resolved")
 	*got[0].ResolvedAt = got[0].ResolvedAt.Add(time.Hour)
-	again := st.ListMemoryCandidates("resolved")
+	again := mustListMemoryCandidates(t, st, "resolved")
 	return !again[0].ResolvedAt.Equal(*got[0].ResolvedAt)
 }
 

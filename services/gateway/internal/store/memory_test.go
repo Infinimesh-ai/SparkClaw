@@ -105,7 +105,7 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	session := mustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -113,7 +113,8 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,31 +122,31 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		t.Fatal("accepted candidate did not create a memory")
 	}
 
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "SparkClaw likes edited memory")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "SparkClaw likes edited memory")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Kind != "procedural" || updated.Content != "SparkClaw likes edited memory" || updated.SourceID != run.ID {
 		t.Fatalf("memory did not update cleanly: %#v", updated)
 	}
-	if oldMatches := st.SearchMemories("old memory"); len(oldMatches) != 0 {
+	if oldMatches := mustSearchMemories(t, st, "old memory"); len(oldMatches) != 0 {
 		t.Fatalf("old memory content still searchable: %#v", oldMatches)
 	}
-	if newMatches := st.SearchMemories("edited memory"); len(newMatches) != 1 || newMatches[0].ID != memory.ID {
+	if newMatches := mustSearchMemories(t, st, "edited memory"); len(newMatches) != 1 || newMatches[0].ID != memory.ID {
 		t.Fatalf("updated memory not searchable: %#v", newMatches)
 	}
 
-	deleted, err := st.DeleteMemory(memory.ID)
+	deleted, err := testDeleteMemory(t, st, memory.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted.ID != memory.ID {
 		t.Fatalf("delete returned wrong memory: %#v", deleted)
 	}
-	if matches := st.SearchMemories("edited memory"); len(matches) != 0 {
+	if matches := mustSearchMemories(t, st, "edited memory"); len(matches) != 0 {
 		t.Fatalf("deleted memory still searchable: %#v", matches)
 	}
-	if _, err := st.UpdateMemory(memory.ID, "profile", "missing"); err == nil {
+	if _, err := testUpdateMemory(t, st, memory.ID, "profile", "missing"); err == nil {
 		t.Fatal("expected updating a deleted memory to fail")
 	}
 
@@ -571,11 +572,11 @@ func TestMemoryStorePrunesExpiredMemories(t *testing.T) {
 	st.memories[old.ID] = old
 	st.memories[fresh.ID] = fresh
 
-	pruned := st.PruneMemories(time.Now().UTC().AddDate(0, 0, -7))
+	pruned := mustPruneMemories(t, st, time.Now().UTC().AddDate(0, 0, -7))
 	if len(pruned) != 1 || pruned[0].ID != old.ID {
 		t.Fatalf("unexpected pruned memories: %#v", pruned)
 	}
-	if matches := st.SearchMemories("retention memory"); len(matches) != 1 || matches[0].ID != fresh.ID {
+	if matches := mustSearchMemories(t, st, "retention memory"); len(matches) != 1 || matches[0].ID != fresh.ID {
 		t.Fatalf("retention pruning left wrong memories: %#v", matches)
 	}
 	if !hasAuditType(mustListAudit(t, st, session.ID), "memory.pruned") || !hasEventType(mustEventsAfter(t, st, session.ID, ""), "memory.pruned") {

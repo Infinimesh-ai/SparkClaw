@@ -302,18 +302,19 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		TotalTokens: 7,
 	})
 
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Kind:      "profile",
 		Content:   "remember me",
 		Status:    "pending",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "remember me after edit")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "remember me after edit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,22 +404,22 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(modelCalls) != 1 || modelCalls[0].TotalTokens != 7 || modelCalls[0].Operation != "chat" {
 		t.Fatalf("model calls did not reload: %#v", modelCalls)
 	}
-	candidates := reloaded.ListMemoryCandidates("pending")
+	candidates := mustListMemoryCandidates(t, reloaded, "pending")
 	if len(candidates) != 0 {
 		t.Fatalf("candidate did not reload: %#v", candidates)
 	}
-	memories := reloaded.SearchMemories("after edit")
+	memories := mustSearchMemories(t, reloaded, "after edit")
 	if len(memories) != 1 || memories[0].ID != updated.ID || memories[0].Kind != "procedural" {
 		t.Fatalf("updated memory did not reload: %#v", memories)
 	}
-	if _, err := reloaded.DeleteMemory(updated.ID); err != nil {
+	if _, err := testDeleteMemory(t, reloaded, updated.ID); err != nil {
 		t.Fatal(err)
 	}
 	afterDelete, err := NewFileStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memories := afterDelete.SearchMemories("after edit"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, afterDelete, "after edit"); len(memories) != 0 {
 		t.Fatalf("deleted memory reloaded unexpectedly: %#v", memories)
 	}
 	owner := mustGetOwnerProfile(t, reloaded)
@@ -600,7 +601,7 @@ func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	session := mustCreateSession(t, st, "Retention")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -610,11 +611,12 @@ func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 		Reason:      "test",
 		CreatedAt:   time.Now().UTC().AddDate(0, 0, -30),
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pruned := st.PruneMemories(time.Now().UTC().AddDate(0, 0, 1))
+	pruned := mustPruneMemories(t, st, time.Now().UTC().AddDate(0, 0, 1))
 	if len(pruned) != 1 || pruned[0].ID != memory.ID {
 		t.Fatalf("unexpected pruned memories: %#v", pruned)
 	}
@@ -622,7 +624,7 @@ func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memories := reloaded.SearchMemories("file retention"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, reloaded, "file retention"); len(memories) != 0 {
 		t.Fatalf("pruned memory reloaded unexpectedly: %#v", memories)
 	}
 	if !hasAuditType(mustListAudit(t, reloaded, session.ID), "memory.pruned") {
@@ -643,14 +645,15 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	session := mustCreateSession(t, st, "Encrypted Session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Kind:      "profile",
 		Content:   "super private encrypted memory",
 		Status:    "pending",
 	})
-	if _, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted"); err != nil || memory == nil {
+
+	if _, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted"); err != nil || memory == nil {
 		t.Fatalf("accepted memory missing memory=%#v err=%v", memory, err)
 	}
 	if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{
@@ -682,7 +685,7 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memories := reloaded.SearchMemories("encrypted memory"); len(memories) != 1 {
+	if memories := mustSearchMemories(t, reloaded, "encrypted memory"); len(memories) != 1 {
 		t.Fatalf("encrypted memory did not reload: %#v", memories)
 	}
 	if record, ok := mustFindBrowserAuthRecord(t, reloaded, app.DefaultOwnerID, "default", "https://example.com", "", ""); !ok || record.CredentialRef != "browser-auth:test" {
@@ -702,14 +705,15 @@ func TestFileStoreEncryptionReadsLegacyPlaintextState(t *testing.T) {
 	session := mustCreateSession(t, st, "Legacy Plaintext")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Kind:      "profile",
 		Content:   "legacy plaintext memory",
 		Status:    "pending",
 	})
-	if _, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted"); err != nil || memory == nil {
+
+	if _, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted"); err != nil || memory == nil {
 		t.Fatalf("accepted legacy memory missing memory=%#v err=%v", memory, err)
 	}
 
@@ -721,7 +725,7 @@ func TestFileStoreEncryptionReadsLegacyPlaintextState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memories := reloaded.SearchMemories("legacy plaintext"); len(memories) != 1 {
+	if memories := mustSearchMemories(t, reloaded, "legacy plaintext"); len(memories) != 1 {
 		t.Fatalf("legacy plaintext state did not reload with encryption enabled: %#v", memories)
 	}
 	testSaveRun(reloaded, run)

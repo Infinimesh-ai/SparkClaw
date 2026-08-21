@@ -22,7 +22,7 @@ func TestMemoryWriteCandidateRejectsSensitiveContentByDefault(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "appears sensitive") {
 		t.Fatalf("expected sensitive memory rejection, got %v", err)
 	}
-	if candidates := st.ListMemoryCandidates(""); len(candidates) != 0 {
+	if candidates := mustListMemoryCandidates(t, st, ""); len(candidates) != 0 {
 		t.Fatalf("sensitive memory candidate should not be saved: %#v", candidates)
 	}
 }
@@ -40,7 +40,7 @@ func TestMemoryWriteCandidateRejectsSensitiveLabelByDefault(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "sensitivity") {
 		t.Fatalf("expected sensitive label rejection, got %v", err)
 	}
-	if candidates := st.ListMemoryCandidates(""); len(candidates) != 0 {
+	if candidates := mustListMemoryCandidates(t, st, ""); len(candidates) != 0 {
 		t.Fatalf("sensitive labeled memory candidate should not be saved: %#v", candidates)
 	}
 }
@@ -62,7 +62,7 @@ func TestMemoryWriteCandidateAllowsSensitiveContentWhenConfigured(t *testing.T) 
 	if result.Output == nil {
 		t.Fatal("expected memory candidate output")
 	}
-	if candidates := st.ListMemoryCandidates("pending"); len(candidates) != 1 {
+	if candidates := mustListMemoryCandidates(t, st, "pending"); len(candidates) != 1 {
 		t.Fatalf("expected one pending candidate, got %#v", candidates)
 	}
 }
@@ -83,7 +83,7 @@ func TestMemoryProposeAliasesWriteCandidate(t *testing.T) {
 	if result.Output == nil {
 		t.Fatal("expected memory candidate output")
 	}
-	candidates := st.ListMemoryCandidates("pending")
+	candidates := mustListMemoryCandidates(t, st, "pending")
 	if len(candidates) != 1 || candidates[0].RunID != "run_alias" || candidates[0].Kind != "procedural" {
 		t.Fatalf("memory.propose did not create expected candidate: %#v", candidates)
 	}
@@ -106,14 +106,14 @@ func TestMemoryWriteSensitiveCreatesAcceptedSensitiveMemory(t *testing.T) {
 	if out["sensitivity"] != "sensitive" {
 		t.Fatalf("expected sensitive output, got %#v", out)
 	}
-	if pending := st.ListMemoryCandidates("pending"); len(pending) != 0 {
+	if pending := mustListMemoryCandidates(t, st, "pending"); len(pending) != 0 {
 		t.Fatalf("sensitive memory candidate should be resolved immediately after approval: %#v", pending)
 	}
-	candidates := st.ListMemoryCandidates("accepted")
+	candidates := mustListMemoryCandidates(t, st, "accepted")
 	if len(candidates) != 1 || candidates[0].Sensitivity != "sensitive" || candidates[0].RunID != "run_sensitive" {
 		t.Fatalf("accepted sensitive candidate missing: %#v", candidates)
 	}
-	memories := st.SearchMemories("sk-approved-sensitive-test")
+	memories := mustSearchMemories(t, st, "sk-approved-sensitive-test")
 	if len(memories) != 1 || memories[0].Kind != "credential_note" || memories[0].SourceID != "run_sensitive" {
 		t.Fatalf("sensitive memory not searchable: %#v", memories)
 	}

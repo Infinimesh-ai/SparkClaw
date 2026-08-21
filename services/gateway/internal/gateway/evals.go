@@ -472,7 +472,10 @@ func (s *Server) evalMemoryCandidate(ctx context.Context) app.EvalCase {
 		if !ok || candidate.Status != "pending" {
 			return fmt.Errorf("unexpected memory candidate output: %#v", result.Output)
 		}
-		candidates := st.ListMemoryCandidates("pending")
+		candidates, err := st.ListMemoryCandidates(ctx, "pending")
+		if err != nil {
+			return err
+		}
 		for _, candidate := range candidates {
 			if candidate.SessionID == session.ID && candidate.RunID == agentRun.ID {
 				return nil
@@ -504,7 +507,7 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 		if _, err := st.SaveRun(ctx, run); err != nil {
 			return err
 		}
-		oldCandidate := st.AddMemoryCandidate(app.MemoryCandidate{
+		oldCandidate, err := st.AddMemoryCandidate(ctx, app.MemoryCandidate{
 			SessionID:   session.ID,
 			RunID:       run.ID,
 			Kind:        "profile",
@@ -513,7 +516,10 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 			Status:      "pending",
 			Reason:      "smoke eval",
 		})
-		_, oldMemory, err := st.ResolveMemoryCandidate(oldCandidate.ID, "accepted")
+		if err != nil {
+			return err
+		}
+		_, oldMemory, err := st.ResolveMemoryCandidate(ctx, oldCandidate.ID, "accepted")
 		if err != nil {
 			return err
 		}
@@ -523,7 +529,7 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 		time.Sleep(2 * time.Millisecond)
 		cutoff := time.Now().UTC()
 		time.Sleep(2 * time.Millisecond)
-		freshCandidate := st.AddMemoryCandidate(app.MemoryCandidate{
+		freshCandidate, err := st.AddMemoryCandidate(ctx, app.MemoryCandidate{
 			SessionID:   session.ID,
 			RunID:       run.ID,
 			Kind:        "profile",
@@ -532,14 +538,20 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 			Status:      "pending",
 			Reason:      "smoke eval",
 		})
-		_, freshMemory, err := st.ResolveMemoryCandidate(freshCandidate.ID, "accepted")
+		if err != nil {
+			return err
+		}
+		_, freshMemory, err := st.ResolveMemoryCandidate(ctx, freshCandidate.ID, "accepted")
 		if err != nil {
 			return err
 		}
 		if freshMemory == nil {
 			return errors.New("fresh retention memory was not accepted")
 		}
-		pruned := st.PruneMemories(cutoff)
+		pruned, err := st.PruneMemories(ctx, cutoff)
+		if err != nil {
+			return err
+		}
 		if len(pruned) != 1 || pruned[0].ID != oldMemory.ID {
 			return fmt.Errorf("memory retention pruned wrong memories: %#v", pruned)
 		}
@@ -551,10 +563,18 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 		if !ok || out["count"] != 1 {
 			return fmt.Errorf("memory retention did not prune exactly one expired memory: %#v", result.Output)
 		}
-		if memories := st.SearchMemories("old-retention-marker"); len(memories) != 0 {
+		memories, err := st.SearchMemories(ctx, "old-retention-marker")
+		if err != nil {
+			return err
+		}
+		if len(memories) != 0 {
 			return fmt.Errorf("expired memory remained searchable: %#v", memories)
 		}
-		if memories := st.SearchMemories("fresh-retention-marker"); len(memories) != 1 || memories[0].ID != freshMemory.ID {
+		memories, err = st.SearchMemories(ctx, "fresh-retention-marker")
+		if err != nil {
+			return err
+		}
+		if len(memories) != 1 || memories[0].ID != freshMemory.ID {
 			return fmt.Errorf("fresh memory was pruned unexpectedly: %#v", memories)
 		}
 		audits, err := st.ListAudit(ctx, session.ID)

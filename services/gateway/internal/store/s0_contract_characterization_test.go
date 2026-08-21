@@ -652,8 +652,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 15 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 15", got)
+	if got := strings.Count(source, "s.persist()"); got != 10 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 10", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -675,7 +675,6 @@ var s0PostgresRowsErrCases = []s0PostgresRowsErrCase{
 	{"PassiveNotificationRepository", "postgres.go", "PrunePassiveNotifications", 2},
 	{"DeliveryRecordRepository", "postgres.go", "ListMessageReceives", 1},
 	{"DeliveryRecordRepository", "postgres.go", "ListMessageDeliveries", 1},
-	{"MemoryRepository", "postgres.go", "PruneMemories", 1},
 	{"shared", "postgres.go", "collectRows", 1},
 }
 
@@ -693,8 +692,8 @@ func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
 			loopCount += strings.Count(body, ".Next()")
 		})
 	}
-	if loopCount != 9 {
-		t.Fatalf("unchecked PostgreSQL row loop count = %d, want remaining S0 defect baseline 9", loopCount)
+	if loopCount != 8 {
+		t.Fatalf("unchecked PostgreSQL row loop count = %d, want remaining S0 defect baseline 8", loopCount)
 	}
 }
 
@@ -704,8 +703,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 11 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 11", count)
+	if count != 10 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 10", count)
 	}
 }
 

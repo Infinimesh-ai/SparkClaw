@@ -321,6 +321,34 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationNotificationBindingUpdate, Repository: "ConnectorRepository",
 			Method: "UpdateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationMemoryCandidateAdd: {
+			ID: OperationMemoryCandidateAdd, Repository: "MemoryRepository",
+			Method: "AddMemoryCandidate", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationMemoryCandidateResolve: {
+			ID: OperationMemoryCandidateResolve, Repository: "MemoryRepository",
+			Method: "ResolveMemoryCandidate", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationMemoryCandidateList: {
+			ID: OperationMemoryCandidateList, Repository: "MemoryRepository",
+			Method: "ListMemoryCandidates", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMemorySearch: {
+			ID: OperationMemorySearch, Repository: "MemoryRepository",
+			Method: "SearchMemories", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMemoryUpdate: {
+			ID: OperationMemoryUpdate, Repository: "MemoryRepository",
+			Method: "UpdateMemory", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationMemoryDelete: {
+			ID: OperationMemoryDelete, Repository: "MemoryRepository",
+			Method: "DeleteMemory", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationMemoryPrune: {
+			ID: OperationMemoryPrune, Repository: "MemoryRepository",
+			Method: "PruneMemories", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

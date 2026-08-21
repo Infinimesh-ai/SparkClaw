@@ -1761,9 +1761,14 @@ func (h *ToolHub) filesWriteDraft(ctx context.Context, args map[string]any) (Res
 }
 
 func (h *ToolHub) memorySearch(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
-	h.applyMemoryRetention()
+	if _, err := h.applyMemoryRetention(ctx); err != nil {
+		return Result{}, err
+	}
 	query := stringArg(args, "query", "")
-	memories := h.store.SearchMemories(query)
+	memories, err := h.store.SearchMemories(ctx, query)
+	if err != nil {
+		return Result{}, err
+	}
 	ownerID, err := h.ownerIDForSession(ctx, sessionID)
 	if err != nil {
 		return Result{}, err
@@ -1831,7 +1836,7 @@ func (h *ToolHub) memoryVisibleToOwner(ctx context.Context, memory app.Memory, o
 	return h.sessionVisibleToOwner(ctx, run.SessionID, ownerID)
 }
 
-func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) memoryWriteCandidate(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	content := stringArg(args, "content", "")
 	if content == "" {
 		return Result{}, errors.New("content cannot be empty")
@@ -1841,7 +1846,7 @@ func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID str
 			return Result{}, fmt.Errorf("memory candidate appears sensitive (%s); sensitive memory is disabled", pattern)
 		}
 	}
-	candidate := h.store.AddMemoryCandidate(app.MemoryCandidate{
+	candidate, err := h.store.AddMemoryCandidate(ctx, app.MemoryCandidate{
 		SessionID:   sessionID,
 		RunID:       runID,
 		Kind:        stringArg(args, "kind", "profile"),
@@ -1851,16 +1856,19 @@ func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID str
 		Status:      "pending",
 		CreatedAt:   time.Now().UTC(),
 	})
+	if err != nil {
+		return Result{}, err
+	}
 	return Result{Output: candidate}, nil
 }
 
-func (h *ToolHub) memoryWriteSensitive(args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) memoryWriteSensitive(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	content := stringArg(args, "content", "")
 	if content == "" {
 		return Result{}, errors.New("content cannot be empty")
 	}
 	kind := stringArg(args, "kind", "profile")
-	memoryCandidate := h.store.AddMemoryCandidate(app.MemoryCandidate{
+	memoryCandidate, err := h.store.AddMemoryCandidate(ctx, app.MemoryCandidate{
 		SessionID:   sessionID,
 		RunID:       runID,
 		Kind:        kind,
@@ -1870,7 +1878,10 @@ func (h *ToolHub) memoryWriteSensitive(args map[string]any, sessionID, runID str
 		Status:      "pending",
 		CreatedAt:   time.Now().UTC(),
 	})
-	candidate, memory, err := h.store.ResolveMemoryCandidate(memoryCandidate.ID, "accepted")
+	if err != nil {
+		return Result{}, err
+	}
+	candidate, memory, err := h.store.ResolveMemoryCandidate(ctx, memoryCandidate.ID, "accepted")
 	if err != nil {
 		return Result{}, err
 	}
@@ -1905,12 +1916,12 @@ func (h *ToolHub) memorySensitivePattern(content, sensitivity string) (string, b
 	return "", false
 }
 
-func (h *ToolHub) applyMemoryRetention() []app.Memory {
+func (h *ToolHub) applyMemoryRetention(ctx context.Context) ([]app.Memory, error) {
 	if h.cfg.Memory.RetentionDays <= 0 {
-		return []app.Memory{}
+		return []app.Memory{}, nil
 	}
 	cutoff := time.Now().UTC().AddDate(0, 0, -h.cfg.Memory.RetentionDays)
-	return h.store.PruneMemories(cutoff)
+	return h.store.PruneMemories(ctx, cutoff)
 }
 
 func (h *ToolHub) resolveRoot(root string) (string, error) {

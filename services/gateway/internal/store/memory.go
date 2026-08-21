@@ -171,7 +171,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		BrowserAuthRecords:   cloneBrowserAuthRecordMap(s.browserAuthRecords),
 		BrowserLoginBlocks:   cloneBrowserLoginBlockMap(s.browserLoginBlocks),
 		Memories:             cloneMap(s.memories),
-		MemoryCandidates:     cloneMap(s.memoryCandidates),
+		MemoryCandidates:     cloneMemoryCandidateMap(s.memoryCandidates),
 		AuditEvents:          cloneAuditEventsBestEffort(s.auditEvents),
 		Events:               cloneClientLifecycleEvents(s.events),
 		EvalRuns:             cloneMap(s.evalRuns),
@@ -367,7 +367,13 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		s.browserLoginBlocks[id] = migrateLegacyBrowserLoginBlock(block)
 	}
 	s.memories = ensureMap(snapshot.Memories)
+	for id, memory := range s.memories {
+		s.memories[id] = normalizeMemory(memory)
+	}
 	s.memoryCandidates = ensureMap(snapshot.MemoryCandidates)
+	for id, candidate := range s.memoryCandidates {
+		s.memoryCandidates[id] = cloneMemoryCandidate(normalizeMemoryCandidate(candidate))
+	}
 	s.auditEvents = cloneAuditEventsBestEffort(snapshot.AuditEvents)
 	s.events = cloneClientLifecycleEvents(snapshot.Events)
 	s.evalRuns = ensureMap(snapshot.EvalRuns)
@@ -2812,73 +2818,97 @@ func (s *MemoryStore) listBrowserLoginBlocksLocked(sessionID, status string) []a
 	return out
 }
 
-func (s *MemoryStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {
+func (s *MemoryStore) AddMemoryCandidate(ctx context.Context, candidate app.MemoryCandidate) (app.MemoryCandidate, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryCandidateAdd, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryCandidateAdd, ctx); err != nil {
+		return app.MemoryCandidate{}, err
+	}
+	candidate = prepareMemoryCandidate(candidate, time.Now().UTC())
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if candidate.ID == "" {
-		candidate.ID = app.NewID("mc")
+	if err := operationContextError(OperationMemoryCandidateAdd, ctx); err != nil {
+		return app.MemoryCandidate{}, err
 	}
-	if candidate.CreatedAt.IsZero() {
-		candidate.CreatedAt = time.Now().UTC()
-	}
-	if candidate.Status == "" {
-		candidate.Status = "pending"
-	}
-	s.memoryCandidates[candidate.ID] = candidate
+	s.memoryCandidates[candidate.ID] = cloneMemoryCandidate(candidate)
 	s.appendAuditLocked("memory_candidate.created", candidate.SessionID, candidate.RunID, "agent", candidate.Content, map[string]any{"kind": candidate.Kind})
 	s.appendEventLocked("memory_candidate.created", candidate.SessionID, candidate.RunID, candidate)
-	return candidate
+	return cloneMemoryCandidate(candidate), nil
 }
 
-func (s *MemoryStore) ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error) {
+func (s *MemoryStore) ResolveMemoryCandidate(ctx context.Context, id, status string) (app.MemoryCandidate, *app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryCandidateResolve, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryCandidateResolve, ctx); err != nil {
+		return app.MemoryCandidate{}, nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationMemoryCandidateResolve, ctx); err != nil {
+		return app.MemoryCandidate{}, nil, err
+	}
 	candidate, ok := s.memoryCandidates[id]
 	if !ok {
-		return app.MemoryCandidate{}, nil, errors.New("memory candidate not found")
+		return app.MemoryCandidate{}, nil, storeError(OperationMemoryCandidateResolve, StoreErrorNotFound, errors.New("memory candidate not found"))
 	}
 	if candidate.Status != "pending" {
-		return app.MemoryCandidate{}, nil, errors.New("memory candidate already resolved")
+		return app.MemoryCandidate{}, nil, storeError(OperationMemoryCandidateResolve, StoreErrorConflict, errors.New("memory candidate already resolved"))
 	}
-	now := time.Now().UTC()
+	now := postgresTime(time.Now().UTC())
 	candidate.Status = status
 	candidate.ResolvedAt = &now
-	s.memoryCandidates[id] = candidate
+	s.memoryCandidates[id] = cloneMemoryCandidate(candidate)
 	var memory *app.Memory
 	if status == "accepted" {
-		m := app.Memory{
-			ID:        app.NewID("mem"),
-			Kind:      candidate.Kind,
-			Content:   candidate.Content,
-			SourceID:  candidate.RunID,
-			CreatedAt: now,
-		}
-		s.memories[m.ID] = m
-		memory = &m
+		accepted := normalizeMemory(app.Memory{
+			ID: app.NewID("mem"), Kind: candidate.Kind, Content: candidate.Content,
+			SourceID: candidate.RunID, CreatedAt: now,
+		})
+		s.memories[accepted.ID] = accepted
+		memory = &accepted
 	}
 	s.appendAuditLocked("memory_candidate."+status, candidate.SessionID, candidate.RunID, "owner", candidate.Content, nil)
 	s.appendEventLocked("memory_candidate."+status, candidate.SessionID, candidate.RunID, candidate)
-	return candidate, memory, nil
+	return cloneMemoryCandidate(candidate), memory, nil
 }
 
-func (s *MemoryStore) ListMemoryCandidates(status string) []app.MemoryCandidate {
+func (s *MemoryStore) ListMemoryCandidates(ctx context.Context, status string) ([]app.MemoryCandidate, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryCandidateList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryCandidateList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationMemoryCandidateList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.MemoryCandidate{}
 	for _, candidate := range s.memoryCandidates {
 		if status == "" || candidate.Status == status {
-			out = append(out, candidate)
+			out = append(out, cloneMemoryCandidate(candidate))
 		}
 	}
 	slices.SortFunc(out, func(a, b app.MemoryCandidate) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
+		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) SearchMemories(query string) []app.Memory {
+func (s *MemoryStore) SearchMemories(ctx context.Context, query string) ([]app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemorySearch, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemorySearch, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationMemorySearch, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.Memory{}
 	q := strings.ToLower(query)
 	for _, memory := range s.memories {
@@ -2887,17 +2917,28 @@ func (s *MemoryStore) SearchMemories(query string) []app.Memory {
 		}
 	}
 	slices.SortFunc(out, func(a, b app.Memory) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
+		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) UpdateMemory(id, kind, content string) (app.Memory, error) {
+func (s *MemoryStore) UpdateMemory(ctx context.Context, id, kind, content string) (app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryUpdate, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryUpdate, ctx); err != nil {
+		return app.Memory{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationMemoryUpdate, ctx); err != nil {
+		return app.Memory{}, err
+	}
 	memory, ok := s.memories[id]
 	if !ok {
-		return app.Memory{}, errors.New("memory not found")
+		return app.Memory{}, storeError(OperationMemoryUpdate, StoreErrorNotFound, errors.New("memory not found"))
 	}
 	memory.Kind = kind
 	memory.Content = content
@@ -2908,12 +2949,20 @@ func (s *MemoryStore) UpdateMemory(id, kind, content string) (app.Memory, error)
 	return memory, nil
 }
 
-func (s *MemoryStore) DeleteMemory(id string) (app.Memory, error) {
+func (s *MemoryStore) DeleteMemory(ctx context.Context, id string) (app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryDelete, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryDelete, ctx); err != nil {
+		return app.Memory{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationMemoryDelete, ctx); err != nil {
+		return app.Memory{}, err
+	}
 	memory, ok := s.memories[id]
 	if !ok {
-		return app.Memory{}, errors.New("memory not found")
+		return app.Memory{}, storeError(OperationMemoryDelete, StoreErrorNotFound, errors.New("memory not found"))
 	}
 	delete(s.memories, id)
 	sessionID := s.sessionIDForRunLocked(memory.SourceID)
@@ -2922,12 +2971,21 @@ func (s *MemoryStore) DeleteMemory(id string) (app.Memory, error) {
 	return memory, nil
 }
 
-func (s *MemoryStore) PruneMemories(cutoff time.Time) []app.Memory {
-	if cutoff.IsZero() {
-		return []app.Memory{}
+func (s *MemoryStore) PruneMemories(ctx context.Context, cutoff time.Time) ([]app.Memory, error) {
+	ctx, cancel := operationContext(ctx, OperationMemoryPrune, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMemoryPrune, ctx); err != nil {
+		return nil, err
 	}
+	if cutoff.IsZero() {
+		return []app.Memory{}, nil
+	}
+	cutoff = postgresTime(cutoff)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationMemoryPrune, ctx); err != nil {
+		return nil, err
+	}
 	pruned := []app.Memory{}
 	for id, memory := range s.memories {
 		if memory.CreatedAt.IsZero() || !memory.CreatedAt.Before(cutoff) {
@@ -2938,14 +2996,17 @@ func (s *MemoryStore) PruneMemories(cutoff time.Time) []app.Memory {
 		sessionID := s.sessionIDForRunLocked(memory.SourceID)
 		s.appendAuditLocked("memory.pruned", sessionID, memory.SourceID, "memory-retention", memory.Kind, map[string]any{
 			"memory_id": memory.ID,
-			"cutoff":    cutoff.UTC().Format(time.RFC3339),
+			"cutoff":    cutoff.Format(time.RFC3339),
 		})
 		s.appendEventLocked("memory.pruned", sessionID, memory.SourceID, memory)
 	}
 	slices.SortFunc(pruned, func(a, b app.Memory) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
+		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return pruned
+	return pruned, nil
 }
 
 func (s *MemoryStore) AddAudit(ctx context.Context, event app.AuditEvent) error {

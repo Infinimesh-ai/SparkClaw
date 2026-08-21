@@ -1105,7 +1105,7 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	session := storetest.MustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -1113,7 +1113,8 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1184,7 +1185,7 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	if deleteResp.StatusCode != http.StatusOK {
 		t.Fatalf("memory delete returned %d", deleteResp.StatusCode)
 	}
-	if matches := st.SearchMemories("edited memory"); len(matches) != 0 {
+	if matches := mustSearchMemories(t, st, "edited memory"); len(matches) != 0 {
 		t.Fatalf("deleted memory still searchable: %#v", matches)
 	}
 	missingResp, err := http.Post(ts.URL+"/api/memories/"+memory.ID+"/delete", "application/json", bytes.NewBufferString(`{}`))
@@ -1213,7 +1214,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	if _, err := st.UpdateOwnerProfile(context.Background(), profile); err != nil {
 		t.Fatal(err)
 	}
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -1221,6 +1222,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
+
 	testSaveEpisodeSummary(st, app.EpisodeSummary{
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -1232,11 +1234,11 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	})
 
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "SparkClaw export keeps edited memory")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "SparkClaw export keeps edited memory")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1375,7 +1377,7 @@ func TestMemoryRetentionPrunesExpiredMemories(t *testing.T) {
 	if len(decoded.Memories) != 1 || decoded.Memories[0].ID != fresh.ID {
 		t.Fatalf("retention did not prune old memory: %#v", decoded.Memories)
 	}
-	if oldMatches := st.SearchMemories("old retention"); len(oldMatches) != 0 {
+	if oldMatches := mustSearchMemories(t, st, "old retention"); len(oldMatches) != 0 {
 		t.Fatalf("old memory remained in store: %#v", oldMatches)
 	}
 	if !hasGatewayAuditType(mustGatewayListAudit(t, st, session.ID), "memory.pruned") {
@@ -1867,7 +1869,7 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 		StartedAt: time.Now().UTC().AddDate(0, 0, -30),
 	}
 	testSaveRun(st, ownerRun)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   ownerSession.ID,
 		RunID:       ownerRun.ID,
 		Kind:        "profile",
@@ -1876,7 +1878,8 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 		Status:      "pending",
 		Reason:      "test setup",
 	})
-	if _, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted"); err != nil || memory == nil {
+
+	if _, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted"); err != nil || memory == nil {
 		t.Fatalf("setup memory failed memory=%#v err=%v", memory, err)
 	}
 
@@ -1901,10 +1904,10 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 	if run.Status != "passed" {
 		t.Fatalf("unexpected smoke eval result: %#v", run)
 	}
-	if memories := st.SearchMemories("owner memory should survive"); len(memories) != 1 {
+	if memories := mustSearchMemories(t, st, "owner memory should survive"); len(memories) != 1 {
 		t.Fatalf("smoke eval pruned existing memory: %#v", memories)
 	}
-	if candidates := st.ListMemoryCandidates("pending"); len(candidates) != 0 {
+	if candidates := mustListMemoryCandidates(t, st, "pending"); len(candidates) != 0 {
 		t.Fatalf("smoke eval left review candidates in main store: %#v", candidates)
 	}
 }
@@ -2099,7 +2102,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if queued.ToolCall.Status != "approval_pending" || queued.Approval.Tool != "memory.write_sensitive" {
 		t.Fatalf("unexpected queued sensitive memory approval: %#v", queued)
 	}
-	if memories := st.SearchMemories("sk-approved-sensitive-test"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "sk-approved-sensitive-test"); len(memories) != 0 {
 		t.Fatalf("sensitive memory persisted before approval: %#v", memories)
 	}
 	pendingRun, ok := testGetRun(st, queued.ToolCall.RunID)
@@ -2132,7 +2135,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if approved.ToolCall.Status != "completed_after_approval" {
 		t.Fatalf("sensitive memory did not complete after approval: %#v", approved.ToolCall)
 	}
-	memories := st.SearchMemories("sk-approved-sensitive-test")
+	memories := mustSearchMemories(t, st, "sk-approved-sensitive-test")
 	if len(memories) != 1 || memories[0].Kind != "credential_note" || memories[0].SourceID != queued.ToolCall.RunID {
 		t.Fatalf("approved sensitive memory not persisted: %#v", memories)
 	}

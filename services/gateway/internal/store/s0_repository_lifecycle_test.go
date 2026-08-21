@@ -53,8 +53,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		eventType: "run.completed",
 	},
 	"DocumentRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveDocumentRecord(app.DocumentRecord{ID: "document-lifecycle", SessionID: "session-lifecycle", LastActivityAt: time.Now().UTC()})
+		mutate: func(t *testing.T, st Store) {
+			mustSaveDocumentRecord(t, st, app.DocumentRecord{ID: "document-lifecycle", SessionID: "session-lifecycle", LastActivityAt: time.Now().UTC()})
 		},
 		auditType: "document.saved", eventType: "document.saved",
 	},

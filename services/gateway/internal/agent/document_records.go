@@ -15,16 +15,19 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func (r Runtime) recordMessageDocuments(session app.Session, message app.Message) {
+func (r Runtime) recordMessageDocuments(ctx context.Context, session app.Session, message app.Message) error {
 	if r.store == nil {
-		return
+		return nil
 	}
 	for _, attachment := range message.Attachments {
 		path := normalizeGovernedDocumentPath(attachment.RelPath)
 		if path == "" {
 			continue
 		}
-		record, ok := r.documentRecordByPath(session.ID, path)
+		record, ok, err := r.documentRecordByPath(ctx, session.ID, path)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			record = app.DocumentRecord{
 				ID:           app.NewID("doc"),
@@ -50,8 +53,11 @@ func (r Runtime) recordMessageDocuments(session app.Session, message app.Message
 			workspaceRoot = r.tools.Config().Workspaces.DefaultRoot
 		}
 		record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
-		r.store.SaveDocumentRecord(record)
+		if _, err := r.store.SaveDocumentRecord(ctx, record); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (r Runtime) confirmDocumentRecord(ctx context.Context, sessionID, runID string, reference documentContextReference, preflight documentPreflight) (app.DocumentRecord, error) {
@@ -63,7 +69,10 @@ func (r Runtime) confirmDocumentRecord(ctx context.Context, sessionID, runID str
 	if err != nil {
 		return app.DocumentRecord{}, err
 	}
-	record, ok := r.documentRecordByIDOrPath(reference.DocumentID, sessionID, preflight.InputRef)
+	record, ok, err := r.documentRecordByIDOrPath(ctx, reference.DocumentID, sessionID, preflight.InputRef)
+	if err != nil {
+		return app.DocumentRecord{}, err
+	}
 	if !ok {
 		record = app.DocumentRecord{
 			ID:           app.NewID("doc"),
@@ -86,7 +95,7 @@ func (r Runtime) confirmDocumentRecord(ctx context.Context, sessionID, runID str
 	record.LastActivityID = runID
 	record.LastActivityAt = time.Now().UTC()
 	record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
-	return r.store.SaveDocumentRecord(record), nil
+	return r.store.SaveDocumentRecord(ctx, record)
 }
 
 func (r Runtime) recordDocumentToolActivity(ctx context.Context, call app.ToolCall) error {
@@ -102,8 +111,7 @@ func (r Runtime) recordDocumentToolActivity(ctx context.Context, call app.ToolCa
 		return err
 	}
 	if call.Capability == app.ToolCapabilityDocumentEdit || toolCallProducesDocumentOutput(call, workspaceRoot) {
-		r.recordDocumentEditOutputs(call, ownerID, workspaceRoot)
-		return nil
+		return r.recordDocumentEditOutputs(ctx, call, ownerID, workspaceRoot)
 	}
 	path := normalizeGovernedDocumentPath(firstNonEmptyString(
 		strings.TrimSpace(stringValue(call.Arguments["path"])),
@@ -112,7 +120,10 @@ func (r Runtime) recordDocumentToolActivity(ctx context.Context, call app.ToolCa
 	if path == "" {
 		return nil
 	}
-	record, ok := r.documentRecordByPath(call.SessionID, path)
+	record, ok, err := r.documentRecordByPath(ctx, call.SessionID, path)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		record = app.DocumentRecord{
 			ID:           app.NewID("doc"),
@@ -130,15 +141,21 @@ func (r Runtime) recordDocumentToolActivity(ctx context.Context, call app.ToolCa
 	record.LastActivityAt = completedToolCallTime(call)
 	record.Status = app.DocumentStatusAvailable
 	record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
-	r.store.SaveDocumentRecord(record)
-	return nil
+	_, err = r.store.SaveDocumentRecord(ctx, record)
+	return err
 }
 
-func (r Runtime) recordDocumentEditOutputs(call app.ToolCall, ownerID, workspaceRoot string) {
+func (r Runtime) recordDocumentEditOutputs(ctx context.Context, call app.ToolCall, ownerID, workspaceRoot string) error {
 	inputPath := normalizeGovernedDocumentPath(strings.TrimSpace(stringValue(call.Arguments["path"])))
-	parent, _ := r.documentRecordByPath(call.SessionID, inputPath)
+	parent, _, err := r.documentRecordByPath(ctx, call.SessionID, inputPath)
+	if err != nil {
+		return err
+	}
 	for _, outputPath := range documentOutputPaths(call, workspaceRoot) {
-		record, ok := r.documentRecordByPath(call.SessionID, outputPath)
+		record, ok, err := r.documentRecordByPath(ctx, call.SessionID, outputPath)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			record = app.DocumentRecord{
 				ID:           app.NewID("doc"),
@@ -158,30 +175,41 @@ func (r Runtime) recordDocumentEditOutputs(call app.ToolCall, ownerID, workspace
 		record.LastActivityAt = completedToolCallTime(call)
 		record.Status = app.DocumentStatusAvailable
 		record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
-		r.store.SaveDocumentRecord(record)
-	}
-}
-
-func (r Runtime) documentRecordByIDOrPath(documentID, sessionID, path string) (app.DocumentRecord, bool) {
-	if documentID != "" {
-		if record, ok := r.store.GetDocumentRecord(documentID); ok && record.SessionID == sessionID {
-			return record, true
+		if _, err := r.store.SaveDocumentRecord(ctx, record); err != nil {
+			return err
 		}
 	}
-	return r.documentRecordByPath(sessionID, path)
+	return nil
 }
 
-func (r Runtime) documentRecordByPath(sessionID, path string) (app.DocumentRecord, bool) {
+func (r Runtime) documentRecordByIDOrPath(ctx context.Context, documentID, sessionID, path string) (app.DocumentRecord, bool, error) {
+	if documentID != "" {
+		record, ok, err := r.store.GetDocumentRecord(ctx, documentID)
+		if err != nil {
+			return app.DocumentRecord{}, false, err
+		}
+		if ok && record.SessionID == sessionID {
+			return record, true, nil
+		}
+	}
+	return r.documentRecordByPath(ctx, sessionID, path)
+}
+
+func (r Runtime) documentRecordByPath(ctx context.Context, sessionID, path string) (app.DocumentRecord, bool, error) {
 	path = normalizeGovernedDocumentPath(path)
 	if r.store == nil || path == "" {
-		return app.DocumentRecord{}, false
+		return app.DocumentRecord{}, false, nil
 	}
-	for _, record := range r.store.ListDocumentRecords("", sessionID, 1000) {
+	records, err := r.store.ListDocumentRecords(ctx, "", sessionID, 1000)
+	if err != nil {
+		return app.DocumentRecord{}, false, err
+	}
+	for _, record := range records {
 		if normalizeGovernedDocumentPath(record.GovernedPath) == path {
-			return record, true
+			return record, true, nil
 		}
 	}
-	return app.DocumentRecord{}, false
+	return app.DocumentRecord{}, false, nil
 }
 
 func (r Runtime) ownerIDForSession(ctx context.Context, sessionID string) (string, error) {

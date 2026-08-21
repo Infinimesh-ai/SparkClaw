@@ -363,19 +363,19 @@ func characterizeS0DocumentRepository(t *testing.T, st Store, dimension string) 
 	record := app.DocumentRecord{ID: "document-s0", OwnerID: "owner-s0", SessionID: "session-s0", Name: "first", LastActivityAt: time.Now().UTC()}
 	switch dimension {
 	case s0DimensionSuccess:
-		saved := st.SaveDocumentRecord(record)
-		if got, ok := st.GetDocumentRecord(saved.ID); !ok || got.Name != record.Name {
+		saved := mustSaveDocumentRecord(t, st, record)
+		if got, ok := mustGetDocumentRecord(t, st, saved.ID); !ok || got.Name != record.Name {
 			t.Fatalf("document save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetDocumentRecord("missing"); ok {
+		if _, ok := mustGetDocumentRecord(t, st, "missing"); ok {
 			t.Fatal("missing document was found")
 		}
 	case s0DimensionDuplicate:
-		record = st.SaveDocumentRecord(record)
+		record = mustSaveDocumentRecord(t, st, record)
 		record.Name = "updated"
-		st.SaveDocumentRecord(record)
-		if got := st.ListDocumentRecords("owner-s0", "session-s0", 0); len(got) != 1 || got[0].Name != "updated" {
+		mustSaveDocumentRecord(t, st, record)
+		if got := mustListDocumentRecords(t, st, "owner-s0", "session-s0", 0); len(got) != 1 || got[0].Name != "updated" {
 			t.Fatalf("document overwrite created duplicates: %#v", got)
 		}
 	default:

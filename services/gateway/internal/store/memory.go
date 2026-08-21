@@ -259,6 +259,9 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.modelCalls = ensureMap(snapshot.ModelCalls)
 	s.toolCalls = ensureMap(snapshot.ToolCalls)
 	s.documentRecords = ensureMap(snapshot.DocumentRecords)
+	for id, record := range s.documentRecords {
+		s.documentRecords[id] = normalizePersistedDocumentRecord(record)
+	}
 	s.approvals = ensureMap(snapshot.Approvals)
 	s.reminders = ensureMap(snapshot.Reminders)
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
@@ -1387,33 +1390,22 @@ func (s *MemoryStore) ListToolCalls(ctx context.Context, sessionID string) ([]ap
 	return out, nil
 }
 
-func (s *MemoryStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
+func (s *MemoryStore) SaveDocumentRecord(ctx context.Context, record app.DocumentRecord) (app.DocumentRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationDocumentRecordSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationDocumentRecordSave, ctx); err != nil {
+		return app.DocumentRecord{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if record.ID == "" {
-		record.ID = app.NewID("doc")
+	if err := operationContextError(OperationDocumentRecordSave, ctx); err != nil {
+		return app.DocumentRecord{}, err
 	}
-	if record.OwnerID == "" {
-		record.OwnerID = app.DefaultOwnerID
+	var existing *app.DocumentRecord
+	if current, ok := s.documentRecords[record.ID]; ok {
+		existing = &current
 	}
-	if record.Status == "" {
-		record.Status = app.DocumentStatusAvailable
-	}
-	if record.CreatedAt.IsZero() {
-		if existing, ok := s.documentRecords[record.ID]; ok && !existing.CreatedAt.IsZero() {
-			record.CreatedAt = existing.CreatedAt
-		} else {
-			record.CreatedAt = now
-		}
-	}
-	if record.LastActivityAt.IsZero() {
-		record.LastActivityAt = now
-	}
-	if record.LastActivityID == "" {
-		record.LastActivityID = record.ID
-	}
-	record.UpdatedAt = now
+	record = prepareDocumentRecord(record, existing, time.Now())
 	s.documentRecords[record.ID] = record
 	s.appendAuditLocked("document.saved", record.SessionID, record.SourceRunID, "document_registry", record.LastActivity, map[string]any{
 		"document_id": record.ID,
@@ -1421,19 +1413,35 @@ func (s *MemoryStore) SaveDocumentRecord(record app.DocumentRecord) app.Document
 		"activity_id": record.LastActivityID,
 	})
 	s.appendEventLocked("document.saved", record.SessionID, record.SourceRunID, record)
-	return record
+	return record, nil
 }
 
-func (s *MemoryStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) {
+func (s *MemoryStore) GetDocumentRecord(ctx context.Context, id string) (app.DocumentRecord, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationDocumentRecordGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationDocumentRecordGet, ctx); err != nil {
+		return app.DocumentRecord{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationDocumentRecordGet, ctx); err != nil {
+		return app.DocumentRecord{}, false, err
+	}
 	record, ok := s.documentRecords[id]
-	return record, ok
+	return record, ok, nil
 }
 
-func (s *MemoryStore) ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord {
+func (s *MemoryStore) ListDocumentRecords(ctx context.Context, ownerID, sessionID string, limit int) ([]app.DocumentRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationDocumentRecordList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationDocumentRecordList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationDocumentRecordList, ctx); err != nil {
+		return nil, err
+	}
 	out := make([]app.DocumentRecord, 0)
 	for _, record := range s.documentRecords {
 		if (ownerID == "" || record.OwnerID == ownerID) && (sessionID == "" || record.SessionID == sessionID) {
@@ -1449,10 +1457,11 @@ func (s *MemoryStore) ListDocumentRecords(ownerID, sessionID string, limit int) 
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	if limit > 0 && len(out) > limit {
+	limit = normalizeDocumentRecordLimit(limit)
+	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out
+	return out, nil
 }
 
 func (s *MemoryStore) SaveApproval(approval app.Approval) {

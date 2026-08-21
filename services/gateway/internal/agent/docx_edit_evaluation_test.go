@@ -395,9 +395,10 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	persistedRun, ok := testGetRun(reloaded, run.ID)
+	documentRecords := mustListAgentDocumentRecords(t, reloaded, session.OwnerID, session.ID, 10)
 	if !ok || persistedRun.State != "completed" || len(reloaded.ListApprovals("approved")) != 1 ||
-		len(reloaded.ListDocumentRecords(session.OwnerID, session.ID, 10)) < 2 {
-		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, reloaded.ListApprovals("approved"), reloaded.ListDocumentRecords(session.OwnerID, session.ID, 10))
+		len(documentRecords) < 2 {
+		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, reloaded.ListApprovals("approved"), documentRecords)
 	}
 }
 

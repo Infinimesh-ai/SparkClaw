@@ -21,7 +21,7 @@ func TestFileStorePersistsDocumentRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustCreateSession(t, st, "documents")
-	saved := st.SaveDocumentRecord(app.DocumentRecord{
+	saved := mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_file", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "reports/report.pdf", Name: "report.pdf", Format: app.DocumentFormatPDF,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceAttachment,
@@ -32,7 +32,7 @@ func TestFileStorePersistsDocumentRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := reloaded.GetDocumentRecord(saved.ID)
+	got, ok := mustGetDocumentRecord(t, reloaded, saved.ID)
 	if !ok || got.GovernedPath != saved.GovernedPath || got.SourceMessageID != "m_file" {
 		t.Fatalf("file snapshot omitted document record: %#v ok=%v", got, ok)
 	}

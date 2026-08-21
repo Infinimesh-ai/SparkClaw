@@ -417,9 +417,10 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"pri
 		t.Fatal(err)
 	}
 	assertPendingMCPWorkspaceApproval(t, st, result)
+	documentRecords := mustListAgentDocumentRecords(t, st, "", session.ID, 10)
 	if result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead ||
 		result.Approvals[0].Arguments["contract_revision"] != documentPathAccessContractRevision ||
-		len(st.ListDocumentRecords("", session.ID, 10)) != 0 {
+		len(documentRecords) != 0 {
 		t.Fatalf("external MCP document request performed pre-approval preflight: %#v", result)
 	}
 }

@@ -471,7 +471,7 @@ func s0CharacterizationBackends(t *testing.T) []s0CharacterizationBackend {
 
 func characterizeSuccessAbsenceOrderScopeAndClone(t *testing.T, st Store) {
 	t.Helper()
-	if _, ok := st.GetDocumentRecord("missing"); ok {
+	if _, ok := mustGetDocumentRecord(t, st, "missing"); ok {
 		t.Fatal("missing document was reported as present")
 	}
 	base := time.Date(2026, 8, 20, 1, 2, 3, 0, time.UTC)
@@ -480,9 +480,9 @@ func characterizeSuccessAbsenceOrderScopeAndClone(t *testing.T, st Store) {
 		{ID: "doc-other-owner", OwnerID: "owner-b", SessionID: "session-a", GovernedPath: "/workspace/other.txt", LastActivityAt: base.Add(2 * time.Minute)},
 		{ID: "doc-new", OwnerID: "owner-a", SessionID: "session-a", GovernedPath: "/workspace/new.txt", LastActivityAt: base.Add(time.Minute)},
 	} {
-		st.SaveDocumentRecord(record)
+		mustSaveDocumentRecord(t, st, record)
 	}
-	got := st.ListDocumentRecords("owner-a", "session-a", 10)
+	got := mustListDocumentRecords(t, st, "owner-a", "session-a", 10)
 	if len(got) != 2 || got[0].ID != "doc-new" || got[1].ID != "doc-old" {
 		t.Fatalf("owner-scoped document order = %#v", got)
 	}
@@ -654,8 +654,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 26 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 26", got)
+	if got := strings.Count(source, "s.persist()"); got != 25 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 25", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -706,8 +706,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 18 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 18", count)
+	if count != 17 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 17", count)
 	}
 }
 

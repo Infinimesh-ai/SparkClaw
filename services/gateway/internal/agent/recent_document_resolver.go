@@ -58,7 +58,11 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 			reference := documentContextReference{
 				Ref: path, Name: filepath.Base(filepath.FromSlash(path)), Provenance: documentProvenanceExplicitCurrent,
 			}
-			if record, ok := r.documentRecordByPath(sessionID, path); ok {
+			record, ok, err := r.documentRecordByPath(ctx, sessionID, path)
+			if err != nil {
+				return documentContextResolution{}, err
+			}
+			if ok {
 				reference = documentReferenceFromRecord(record, documentProvenanceExplicitCurrent)
 			}
 			references = append(references, reference)
@@ -67,7 +71,11 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 	}
 	if references := documentReferencesFromMessageParts(resources); len(references) > 0 {
 		for index := range references {
-			if record, ok := r.documentRecordByPath(sessionID, references[index].Ref); ok {
+			record, ok, err := r.documentRecordByPath(ctx, sessionID, references[index].Ref)
+			if err != nil {
+				return documentContextResolution{}, err
+			}
+			if ok {
 				references[index] = documentReferenceFromRecord(record, documentProvenanceCurrentResource)
 			}
 		}
@@ -80,10 +88,11 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 	if err != nil {
 		return documentContextResolution{}, err
 	}
-	if references := recentDocumentRecordReferences(
-		r.store.ListDocumentRecords("", sessionID, 100),
-		workspaceRoot,
-	); len(references) > 0 {
+	records, err := r.store.ListDocumentRecords(ctx, "", sessionID, 100)
+	if err != nil {
+		return documentContextResolution{}, err
+	}
+	if references := recentDocumentRecordReferences(records, workspaceRoot); len(references) > 0 {
 		return documentContextResolution{References: references}, nil
 	}
 

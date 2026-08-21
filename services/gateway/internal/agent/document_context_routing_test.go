@@ -225,7 +225,7 @@ func TestRecentDocumentResolverPrefersDurableRecordMetadata(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	observedAt := time.Now().UTC()
-	record := st.SaveDocumentRecord(app.DocumentRecord{
+	record := mustSaveAgentDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_latest", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "reports/latest.docx", Name: "最新报告.docx",
 		ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -233,7 +233,7 @@ func TestRecentDocumentResolverPrefersDurableRecordMetadata(t *testing.T) {
 		Source: app.DocumentSourceToolOutput, SourceToolCallID: "tc_edit",
 		LastActivity: app.DocumentActivityEdited, LastActivityID: "tc_edit", LastActivityAt: observedAt,
 	})
-	st.SaveDocumentRecord(app.DocumentRecord{
+	mustSaveAgentDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_latest_legacy_absolute", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: filepath.Join(session.WorkspaceRoot, "reports", "latest.docx"), Name: "最新报告.docx",
 		Source: app.DocumentSourceToolOutput, SourceToolCallID: "tc_edit",
@@ -259,7 +259,7 @@ func TestRecentDocumentResolverPrefersDurableRecordMetadata(t *testing.T) {
 func TestUnrelatedQuestionDoesNotInheritRecentDocumentTarget(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
-	st.SaveDocumentRecord(app.DocumentRecord{
+	mustSaveAgentDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_recent", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "notice.docx", Name: "通知.docx", Format: app.DocumentFormatDOCX,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceAttachment,
@@ -353,7 +353,7 @@ func TestRecentDocumentResolverKeepsCurrentExplicitPathAuthoritative(t *testing.
 func TestDocumentEditOutputsShareOneTraceableRecentActivity(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
-	parent := st.SaveDocumentRecord(app.DocumentRecord{
+	parent := mustSaveAgentDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_parent", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "input.pdf", Name: "input.pdf", Format: app.DocumentFormatPDF,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceAttachment,
@@ -371,7 +371,7 @@ func TestDocumentEditOutputsShareOneTraceableRecentActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	records := st.ListDocumentRecords(session.OwnerID, session.ID, 10)
+	records := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
 	if len(records) < 3 || records[0].LastActivityID != call.ID || records[1].LastActivityID != call.ID ||
 		records[0].ParentDocumentID != parent.ID || records[1].ParentDocumentID != parent.ID {
 		t.Fatalf("multi-output edit did not preserve one traceable activity and lineage: %#v", records)

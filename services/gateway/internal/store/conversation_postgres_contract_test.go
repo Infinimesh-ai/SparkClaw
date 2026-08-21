@@ -61,6 +61,7 @@ func (s *fakeConversationPostgresSession) Terminate(context.Context) error {
 
 type fakeConversationPostgresTx struct {
 	rowQueue   []onboardingPostgresRow
+	rowSQL     []string
 	execSQL    []string
 	execErrors map[int]error
 	commits    int
@@ -76,7 +77,8 @@ func (t *fakeConversationPostgresTx) Exec(_ context.Context, sql string, _ ...an
 	return pgconn.NewCommandTag("INSERT 0 1"), nil
 }
 
-func (t *fakeConversationPostgresTx) QueryRow(context.Context, string, ...any) onboardingPostgresRow {
+func (t *fakeConversationPostgresTx) QueryRow(_ context.Context, sql string, _ ...any) onboardingPostgresRow {
+	t.rowSQL = append(t.rowSQL, sql)
 	if len(t.rowQueue) == 0 {
 		return fakeConversationPostgresRow{err: errors.New("unexpected transaction QueryRow")}
 	}

@@ -117,6 +117,12 @@ type RunRepository interface {
 	ListEpisodeSummaries(context.Context, string) ([]app.EpisodeSummary, error)
 }
 
+type DocumentRepository interface {
+	SaveDocumentRecord(context.Context, app.DocumentRecord) (app.DocumentRecord, error)
+	GetDocumentRecord(context.Context, string) (app.DocumentRecord, bool, error)
+	ListDocumentRecords(context.Context, string, string, int) ([]app.DocumentRecord, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -143,6 +149,7 @@ type Store interface {
 	SessionRepository
 	ConversationRepository
 	RunRepository
+	DocumentRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -162,9 +169,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord
-	GetDocumentRecord(id string) (app.DocumentRecord, bool)
-	ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord
 	SaveApproval(approval app.Approval)
 	GetApproval(id string) (app.Approval, bool)
 	FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool)
@@ -269,6 +273,9 @@ var (
 	_ RunRepository            = (*MemoryStore)(nil)
 	_ RunRepository            = (*FileStore)(nil)
 	_ RunRepository            = (*PostgresStore)(nil)
+	_ DocumentRepository       = (*MemoryStore)(nil)
+	_ DocumentRepository       = (*FileStore)(nil)
+	_ DocumentRepository       = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

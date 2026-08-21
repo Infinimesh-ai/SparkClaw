@@ -73,29 +73,29 @@ func TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped(t *testing.T) {
 	st := NewMemoryStore()
 	session := mustCreateSession(t, st, "documents")
 	older := time.Now().UTC().Add(-time.Minute)
-	st.SaveDocumentRecord(app.DocumentRecord{
+	mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_old", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "old.pdf", Name: "old.pdf", Format: app.DocumentFormatPDF,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceAttachment,
 		LastActivity: app.DocumentActivityAttached, LastActivityID: "m_old", LastActivityAt: older,
 	})
-	latest := st.SaveDocumentRecord(app.DocumentRecord{
+	latest := mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_new", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "new.docx", Name: "new.docx", Format: app.DocumentFormatDOCX,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceToolOutput,
 		LastActivity: app.DocumentActivityEdited, LastActivityID: "tc_new", LastActivityAt: older.Add(time.Minute),
 	})
-	records := st.ListDocumentRecords(session.OwnerID, session.ID, 1)
+	records := mustListDocumentRecords(t, st, session.OwnerID, session.ID, 1)
 	if len(records) != 1 || records[0].ID != latest.ID {
 		t.Fatalf("document records were not returned by recent activity: %#v", records)
 	}
-	if got, ok := st.GetDocumentRecord(latest.ID); !ok || got.GovernedPath != "new.docx" {
+	if got, ok := mustGetDocumentRecord(t, st, latest.ID); !ok || got.GovernedPath != "new.docx" {
 		t.Fatalf("document record did not round trip: %#v ok=%v", got, ok)
 	}
 	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if records := st.ListDocumentRecords("", session.ID, 10); len(records) != 0 {
+	if records := mustListDocumentRecords(t, st, "", session.ID, 10); len(records) != 0 {
 		t.Fatalf("session deletion retained document records: %#v", records)
 	}
 }

@@ -47,6 +47,7 @@ type PostgresStore struct {
 	connectorNow                      func() time.Time
 	conversationPostgres              ownerPostgresOps
 	runPostgres                       ownerPostgresOps
+	documentPostgres                  ownerPostgresOps
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -120,6 +121,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		connectorNow:                      time.Now,
 		conversationPostgres:              pgxOwnerPostgresOps{pool: pool},
 		runPostgres:                       pgxOwnerPostgresOps{pool: pool},
+		documentPostgres:                  pgxOwnerPostgresOps{pool: pool},
 		passiveNotificationRevs:           map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
@@ -469,7 +471,7 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 		return app.Message{}, classifyConversationPostgresError(OperationConversationAddMessage, ctx, err)
 	}
 
-	session, transaction, release, err := beginConversationTransaction(ctx, OperationConversationAddMessage, s.conversationPostgres)
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationConversationAddMessage, s.conversationPostgres)
 	if err != nil {
 		return app.Message{}, err
 	}
@@ -503,7 +505,7 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 		if readErr != nil {
 			return app.Message{}, finishConversationStatement(ctx, OperationConversationAddMessage, candidate, session, transaction, release, readErr)
 		}
-		if rollbackErr := rollbackConversationTransaction(ctx, session, transaction, release, nil); rollbackErr != nil {
+		if rollbackErr := rollbackPostgresTransaction(ctx, session, transaction, release, nil); rollbackErr != nil {
 			return app.Message{}, classifyConversationPostgresError(OperationConversationAddMessage, ctx, rollbackErr)
 		}
 		return cloneMessage(existing), nil
@@ -561,7 +563,7 @@ func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) ([]a
 	return out, nil
 }
 
-func beginConversationTransaction(ctx context.Context, operation StoreOperation, backend ownerPostgresOps) (onboardingPostgresSession, onboardingPostgresTx, *bool, error) {
+func beginPostgresTransaction(ctx context.Context, operation StoreOperation, backend ownerPostgresOps) (onboardingPostgresSession, onboardingPostgresTx, *bool, error) {
 	session, err := backend.Acquire(ctx)
 	if err != nil {
 		return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
@@ -582,7 +584,7 @@ func beginConversationTransaction(ctx context.Context, operation StoreOperation,
 	return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 }
 
-func rollbackConversationTransaction(ctx context.Context, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+func rollbackPostgresTransaction(ctx context.Context, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
 	if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 		*release = false
 		return errors.Join(cause, rollbackErr, session.Terminate(ctx))
@@ -591,12 +593,12 @@ func rollbackConversationTransaction(ctx context.Context, session onboardingPost
 }
 
 func finishConversationStatement(ctx context.Context, operation StoreOperation, _ app.Message, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	cause = rollbackConversationTransaction(ctx, session, transaction, release, cause)
+	cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
 	return classifyConversationPostgresError(operation, ctx, cause)
 }
 
 func conversationBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackConversationTransaction(ctx, session, transaction, release, cause))
+	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifyConversationPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
@@ -660,7 +662,7 @@ func (s *PostgresStore) SaveRunFeedback(ctx context.Context, feedback app.RunFee
 	}
 	feedback, err = prepareRunFeedback(feedback, existing, time.Now().UTC())
 	if err != nil {
-		cause := rollbackConversationTransaction(ctx, session, transaction, &release, err)
+		cause := rollbackPostgresTransaction(ctx, session, transaction, &release, err)
 		return app.RunFeedback{}, storeError(OperationRunFeedbackSave, StoreErrorInvalid, cause)
 	}
 	if _, err := transaction.Exec(ctx, `
@@ -966,7 +968,7 @@ func runPostgresWrite[T any](s *PostgresStore, parent context.Context, operation
 func finishRunPostgresPreCandidate(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
-		cause = rollbackConversationTransaction(ctx, session, transaction, release, cause)
+		cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
 		if postgresError != nil {
 			return storeError(operation, StoreErrorInternal, cause)
 		}
@@ -980,7 +982,7 @@ func finishRunPostgresStatement[T any](ctx context.Context, operation StoreOpera
 	var zero T
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
-		cause = rollbackConversationTransaction(ctx, session, transaction, release, cause)
+		cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
 		if postgresError != nil {
 			return zero, storeError(operation, StoreErrorInternal, cause)
 		}
@@ -1020,29 +1022,28 @@ func runAdvisoryKey(kind, id string) int64 {
 	return int64(binary.BigEndian.Uint64(digest[:8]))
 }
 
-func (s *PostgresStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
-	ctx := context.Background()
-	now := time.Now().UTC()
+func (s *PostgresStore) SaveDocumentRecord(ctx context.Context, record app.DocumentRecord) (app.DocumentRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationDocumentRecordSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationDocumentRecordSave, ctx); err != nil {
+		return app.DocumentRecord{}, err
+	}
 	if record.ID == "" {
 		record.ID = app.NewID("doc")
 	}
-	if record.OwnerID == "" {
-		record.OwnerID = app.DefaultOwnerID
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationDocumentRecordSave, s.documentPostgres)
+	if err != nil {
+		return app.DocumentRecord{}, err
 	}
-	if record.Status == "" {
-		record.Status = app.DocumentStatusAvailable
-	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = now
-	}
-	if record.LastActivityAt.IsZero() {
-		record.LastActivityAt = now
-	}
-	if record.LastActivityID == "" {
-		record.LastActivityID = record.ID
-	}
-	record.UpdatedAt = now
-	_, _ = s.db.Exec(ctx, `
+	defer func() {
+		if *release {
+			session.Release()
+		}
+	}()
+
+	record = prepareDocumentRecord(record, nil, time.Now())
+	var persistedCreatedAt time.Time
+	if err := transaction.QueryRow(ctx, `
 		INSERT INTO document_records (
 			id, owner_id, session_id, governed_path, name, content_type, format,
 			size_bytes, sha256, status, source, source_message_id, source_run_id,
@@ -1072,22 +1073,51 @@ func (s *PostgresStore) SaveDocumentRecord(record app.DocumentRecord) app.Docume
 			last_activity_id = EXCLUDED.last_activity_id,
 			last_activity_at = EXCLUDED.last_activity_at,
 			updated_at = EXCLUDED.updated_at
+		RETURNING created_at
 	`, record.ID, record.OwnerID, record.SessionID, record.GovernedPath, record.Name,
 		record.ContentType, record.Format, record.SizeBytes, record.SHA256, record.Status,
 		record.Source, record.SourceMessageID, record.SourceRunID, record.SourceToolCallID,
 		record.ParentDocumentID, record.LastActivity, record.LastActivityID,
-		record.LastActivityAt, record.CreatedAt, record.UpdatedAt)
-	s.appendAudit(ctx, "document.saved", record.SessionID, record.SourceRunID, "document_registry", record.LastActivity, map[string]any{
+		record.LastActivityAt, record.CreatedAt, record.UpdatedAt).Scan(&persistedCreatedAt); err != nil {
+		return app.DocumentRecord{}, finishDocumentPostgresStatement(ctx, session, transaction, release, err)
+	}
+	record.CreatedAt = normalizeDocumentTime(persistedCreatedAt)
+	if err := appendDocumentLifecycle(transaction, ctx, record); err != nil {
+		return app.DocumentRecord{}, finishDocumentPostgresStatement(ctx, session, transaction, release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return record, storeError(OperationDocumentRecordSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return record, nil
+}
+
+func appendDocumentLifecycle(transaction onboardingPostgresTx, ctx context.Context, record app.DocumentRecord) error {
+	fields := map[string]any{
 		"document_id": record.ID,
 		"path":        record.GovernedPath,
 		"activity_id": record.LastActivityID,
-	})
-	s.appendEvent(ctx, "document.saved", record.SessionID, record.SourceRunID, record)
-	return record
+	}
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
+		VALUES ($1, $2, 'document.saved', nullif($3, ''), nullif($4, ''), 'document_registry', $5, $6)
+	`, app.NewID("audit"), normalizeDocumentTime(time.Now()), record.SessionID, record.SourceRunID, record.LastActivity, optionalJSON(fields)); err != nil {
+		return err
+	}
+	_, err := transaction.Exec(ctx, `
+		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
+		VALUES ($1, $2, 'document.saved', nullif($3, ''), nullif($4, ''), $5)
+	`, app.NewID("evt"), normalizeDocumentTime(time.Now()), record.SessionID, record.SourceRunID, mustJSON(record))
+	return err
 }
 
-func (s *PostgresStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) {
-	row := s.db.QueryRow(context.Background(), `
+func (s *PostgresStore) GetDocumentRecord(ctx context.Context, id string) (app.DocumentRecord, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationDocumentRecordGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationDocumentRecordGet, ctx); err != nil {
+		return app.DocumentRecord{}, false, err
+	}
+	row := s.documentPostgres.QueryRow(ctx, `
 		SELECT id, owner_id, session_id, governed_path, name, content_type, format,
 			size_bytes, sha256, status, source, source_message_id, source_run_id,
 			source_tool_call_id, parent_document_id, last_activity, last_activity_id,
@@ -1096,14 +1126,23 @@ func (s *PostgresStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) 
 		WHERE id = $1
 	`, id)
 	record, err := scanDocumentRecord(row)
-	return record, err == nil
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.DocumentRecord{}, false, nil
+	}
+	if err != nil {
+		return app.DocumentRecord{}, false, classifyDocumentPostgresError(OperationDocumentRecordGet, ctx, err)
+	}
+	return record, true, nil
 }
 
-func (s *PostgresStore) ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord {
-	if limit <= 0 {
-		limit = 100
+func (s *PostgresStore) ListDocumentRecords(ctx context.Context, ownerID, sessionID string, limit int) ([]app.DocumentRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationDocumentRecordList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationDocumentRecordList, ctx); err != nil {
+		return nil, err
 	}
-	rows, err := s.db.Query(context.Background(), `
+	limit = normalizeDocumentRecordLimit(limit)
+	rows, err := s.documentPostgres.Query(ctx, `
 		SELECT id, owner_id, session_id, governed_path, name, content_type, format,
 			size_bytes, sha256, status, source, source_message_id, source_run_id,
 			source_tool_call_id, parent_document_id, last_activity, last_activity_id,
@@ -1114,10 +1153,38 @@ func (s *PostgresStore) ListDocumentRecords(ownerID, sessionID string, limit int
 		LIMIT $3
 	`, ownerID, sessionID, limit)
 	if err != nil {
-		return []app.DocumentRecord{}
+		return nil, classifyDocumentPostgresError(OperationDocumentRecordList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanDocumentRecord)
+	out := make([]app.DocumentRecord, 0)
+	for rows.Next() {
+		record, err := scanDocumentRecord(rows)
+		if err != nil {
+			return nil, classifyDocumentPostgresError(OperationDocumentRecordList, ctx, err)
+		}
+		out = append(out, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyDocumentPostgresError(OperationDocumentRecordList, ctx, err)
+	}
+	return out, nil
+}
+
+func finishDocumentPostgresStatement(ctx context.Context, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
+	return classifyDocumentPostgresError(OperationDocumentRecordSave, ctx, cause)
+}
+
+func classifyDocumentPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
+	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return contextStoreError(operation, ctx, cause)
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(cause, &postgresError) {
+		return storeError(operation, StoreErrorInternal, cause)
+	}
+	return storeError(operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) SaveApproval(approval app.Approval) {
@@ -3294,7 +3361,10 @@ func scanDocumentRecord(row scanner) (app.DocumentRecord, error) {
 		&record.CreatedAt,
 		&record.UpdatedAt,
 	)
-	return record, err
+	if err != nil {
+		return app.DocumentRecord{}, err
+	}
+	return normalizePersistedDocumentRecord(record), nil
 }
 
 func scanApproval(row scanner) (app.Approval, error) {

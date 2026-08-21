@@ -50,6 +50,9 @@ const (
 	OperationToolCallList                StoreOperation = "tool_call.list"
 	OperationEpisodeSummarySave          StoreOperation = "episode_summary.save"
 	OperationEpisodeSummaryList          StoreOperation = "episode_summary.list"
+	OperationDocumentRecordSave          StoreOperation = "document_record.save"
+	OperationDocumentRecordGet           StoreOperation = "document_record.get"
+	OperationDocumentRecordList          StoreOperation = "document_record.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -240,6 +243,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationEpisodeSummaryList: {
 		ID: OperationEpisodeSummaryList, Repository: "RunRepository",
 		Method: "ListEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationDocumentRecordSave: {
+		ID: OperationDocumentRecordSave, Repository: "DocumentRepository",
+		Method: "SaveDocumentRecord", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationDocumentRecordGet: {
+		ID: OperationDocumentRecordGet, Repository: "DocumentRepository",
+		Method: "GetDocumentRecord", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationDocumentRecordList: {
+		ID: OperationDocumentRecordList, Repository: "DocumentRepository",
+		Method: "ListDocumentRecords", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

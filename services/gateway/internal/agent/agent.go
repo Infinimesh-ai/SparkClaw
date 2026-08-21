@@ -200,7 +200,9 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if err != nil {
 		return Result{}, fmt.Errorf("persist owner message: %w", err)
 	}
-	r.recordMessageDocuments(session, userMessage)
+	if err := r.recordMessageDocuments(ctx, session, userMessage); err != nil {
+		return Result{}, fmt.Errorf("persist message documents: %w", err)
+	}
 	if result, handled, err := r.resumeBrowserLoginBlock(ctx, sessionID, visibleContent, emit); handled || err != nil {
 		return result, err
 	}

@@ -122,17 +122,17 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		got.PolicyContext.MCP == nil || got.PolicyContext.MCP.RequesterDeviceID != policyContext.MCP.RequesterDeviceID {
 		t.Fatalf("tool call did not round trip: %#v ok=%v", got, ok)
 	}
-	documentRecord := st.SaveDocumentRecord(app.DocumentRecord{
+	documentRecord := mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_pg", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "report.docx", Name: "report.docx", Format: app.DocumentFormatDOCX,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceToolOutput,
 		SourceRunID: run.ID, SourceToolCallID: call.ID, LastActivity: app.DocumentActivityEdited,
 		LastActivityID: call.ID, LastActivityAt: time.Now().UTC(),
 	})
-	if got, ok := st.GetDocumentRecord(documentRecord.ID); !ok || got.SourceToolCallID != call.ID {
+	if got, ok := mustGetDocumentRecord(t, st, documentRecord.ID); !ok || got.SourceToolCallID != call.ID {
 		t.Fatalf("document record did not round trip: %#v ok=%v", got, ok)
 	}
-	if records := st.ListDocumentRecords(session.OwnerID, session.ID, 10); len(records) != 1 || records[0].ID != documentRecord.ID {
+	if records := mustListDocumentRecords(t, st, session.OwnerID, session.ID, 10); len(records) != 1 || records[0].ID != documentRecord.ID {
 		t.Fatalf("document records did not list: %#v", records)
 	}
 	modelCompleted := time.Now().UTC()

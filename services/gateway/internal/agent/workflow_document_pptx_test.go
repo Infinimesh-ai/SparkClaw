@@ -779,7 +779,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
 		t.Fatalf("approved PPTX edit modified its source: %v", err)
 	}
-	records := st.ListDocumentRecords(session.OwnerID, session.ID, 10)
+	records := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
 	if len(records) < 2 || records[0].GovernedPath != "deck-sparkclaw-edit.pptx" || records[0].ParentDocumentID == "" {
 		t.Fatalf("PPTX output lineage was not persisted: %#v", records)
 	}

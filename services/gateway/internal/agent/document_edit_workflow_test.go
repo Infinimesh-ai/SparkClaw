@@ -121,7 +121,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartFile || result.WorkflowResult.Content.Parts[0].Disposition != app.MessageDispositionAttachment {
 		t.Fatalf("unified document result omitted change summary or file: %#v", result.WorkflowResult)
 	}
-	documentRecords := st.ListDocumentRecords(session.OwnerID, session.ID, 10)
+	documentRecords := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
 	if len(documentRecords) < 2 || documentRecords[0].GovernedPath != "notes-sparkclaw-edit.md" ||
 		documentRecords[0].ParentDocumentID == "" || documentRecords[0].SourceToolCallID != executed.ID ||
 		documentRecords[0].LastActivity != app.DocumentActivityEdited {

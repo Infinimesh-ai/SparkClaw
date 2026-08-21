@@ -197,6 +197,26 @@ projections. Add focused component/library tests for state logic and build the
 full app. Inspect changed views at desktop and mobile sizes against a running
 Gateway. See [WebChat](webchat.md).
 
+## Store Changes
+
+Use the typed interfaces in `internal/store/store.go`; do not recreate a broad
+Store dependency. Runtime is limited to `cmd/sparkclaw` assembly and lifecycle.
+Consumers receive only their required repositories.
+
+Keep shared normalization, command, replay, and reconciliation semantics in
+`<repository>_contract.go`. Implement storage in matching
+`<repository>_memory.go`, `<repository>_file.go`, and
+`<repository>_postgres.go` files. Update the File `Snapshot` for every new
+snapshot-backed record. Backend construction and generic durability primitives
+stay in the small root backend files.
+
+Classify each operation P0, P1, or P2 before choosing verification. Every change
+needs three-backend parity and explicit context/error behavior. Add transaction,
+idempotency, unknown-outcome reconciliation, deterministic failure injection,
+real PostgreSQL, and race evidence only when the operation's risk or aggregate
+invariant requires it. The exact policy, lifecycle, and test commands are in
+[Store](store.md).
+
 ## Models And Prompts
 
 - Gateway selects model lanes; prompts do not self-route.

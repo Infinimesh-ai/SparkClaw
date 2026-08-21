@@ -49,15 +49,7 @@ documentation tree.
 | [Model baseline](../benchmarks/model_baseline.md) | Measured model endpoint evidence and operating limits |
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
-| [Store reliability migration roadmap](store-contract-reliability-migration-design.md) | Draft stage order and mandatory design/implementation review gates; large-file splits are deferred until Store closeout |
-| [Store contract foundation](store-contract-foundation-design.md) | S0 inventory, repository ownership, error/context contract, mutation matrix, and characterization gate |
-| [Store S0 contract inventory](store-s0-contract-inventory.md) | Executable 141-method ownership, backend state, production consumer, mutation, and pilot evidence |
-| [Store S0 PostgreSQL reconciliation manifest](store-s0-postgresql-reconciliation-manifest.md) | Constraint-aware root migration versus embedded schema comparison and explicit parser limits |
-| [Store S0 baseline and acceptance report](store-s0-acceptance-report.md) | Entry baseline, verification evidence, timeout basis, unresolved risks, and pending human review record |
-| [File Store durability](store-file-durability-design.md) | S2 read isolation, context-aware transaction gate, pilot repository, durable replacement, rollback, and unknown-outcome contract |
-| [PostgreSQL schema and Store configuration](store-postgresql-schema-config-design.md) | S1 embedded migration authority, ledger adoption, strict Store configuration, and unchanged DSN-gated CI setup |
-| [Store repository migration](store-repository-migration-design.md) | S2 pilot, S3 one-repository waves across all backends/callers, and S4 removal of the broad Store interface |
-| [Store Runtime and supervision](store-runtime-supervision-design.md) | S5 assembly-only Runtime, finite supervision, health, probes, metrics, and lifecycle |
+| [Store](store.md) | Typed repositories, risk-tiered reliability, three backends, embedded PostgreSQL migrations, Runtime supervision, source layout, and verification |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
 | [Info aggregated result consumption](info-aggregate-result-consumption-design.md) | Implemented typed, non-reaggregating consumption of Info `answer_context`, including citation, limitation, and Info-final browser-order contracts |
 | [Resilient PPTX overlength adaptation](pptx-overlength-resilience-design.md) | Phase 0 No-Go report and bounded render-check design; production behavior remains unchanged |

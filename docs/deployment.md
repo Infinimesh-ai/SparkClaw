@@ -378,6 +378,9 @@ Useful options:
 SPARKCLAW_STATE_BACKEND=memory
 SPARKCLAW_STATE_PATH=/path/to/state.json
 SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS=180
+SPARKCLAW_STATE_READ_TIMEOUT_SECONDS=10
+SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS=30
+SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS=60
 SPARKCLAW_STATE_ENCRYPT_AT_REST=true
 SPARKCLAW_STATE_ENCRYPTION_KEY_FILE=/path/to/key
 ```
@@ -399,7 +402,19 @@ load. When file encryption is enabled, configure exactly one of the direct key
 or a readable, non-empty key file. PostgreSQL requires a non-empty DSN;
 `SPARKCLAW_POSTGRES_DSN` remains a legacy override that wins over
 `SPARKCLAW_STATE_DSN` when both are set. Store startup defaults to 180 seconds
-and accepts values from 1 through 900.
+and accepts values from 1 through 900. Read, write, and transaction operation
+budgets default to 10, 30, and 60 seconds; each accepts values from 1 through
+900 and preserves a shorter caller deadline.
+
+Gateway starts listening only after the selected backend probe succeeds.
+`/readyz` returns `503` with a bounded Store status when runtime supervision
+marks the backend unready. Recovery probes retry periodically. `/metrics`
+exports `sparkclaw_store_ready`, active operations, operation totals, and total
+duration with bounded backend/repository/operation/mode/outcome labels; it does
+not expose state paths, DSNs, owner IDs, record IDs, or raw errors. Shutdown
+rejects new Store operations, drains admitted work within its close deadline,
+and closes the backend. See [Store](store.md) for the complete state machine and
+failure contract.
 
 Gateway applies the embedded ordered schema before readiness. It serializes new
 runners with an advisory lock and records immutable filename/checksum rows in

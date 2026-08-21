@@ -326,6 +326,9 @@ data/memory/gateway-state.json
 SPARKCLAW_STATE_BACKEND=memory
 SPARKCLAW_STATE_PATH=/path/to/state.json
 SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS=180
+SPARKCLAW_STATE_READ_TIMEOUT_SECONDS=10
+SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS=30
+SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS=60
 SPARKCLAW_STATE_ENCRYPT_AT_REST=true
 SPARKCLAW_STATE_ENCRYPTION_KEY_FILE=/path/to/key
 ```
@@ -345,7 +348,15 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 在 load 后必须得到 normalized absolute path。启用 file encryption 时，direct key 与可读且非空的
 key file 必须且只能配置一个。PostgreSQL 需要非空 DSN；同时设置时，legacy
 `SPARKCLAW_POSTGRES_DSN` 仍优先于 `SPARKCLAW_STATE_DSN`。Store startup 默认 180 秒，
-允许范围为 1 到 900 秒。
+允许范围为 1 到 900 秒。read、write、transaction operation budget 默认分别为 10、30、60
+秒，每项允许范围均为 1 到 900 秒，并保留更短的 caller deadline。
+
+所选 backend probe 成功后 Gateway 才开始 listen。Runtime supervision 将 backend 标为 unready
+时，`/readyz` 返回 `503` 与有限 Store status；recovery probe 会周期 retry。`/metrics` 导出
+`sparkclaw_store_ready`、active operation、operation total 与总 duration，只使用有限的
+backend/repository/operation/mode/outcome label，不暴露 state path、DSN、owner ID、record ID
+或 raw error。Shutdown 会拒绝新 Store operation，在 close deadline 内 drain 已获准工作，最后
+关闭 backend。完整 state machine 与 failure contract 见 [Store](store.md)。
 
 Gateway 会在 readiness 前应用内嵌的有序 schema。新 runner 由 advisory lock 串行化，
 不可变 filename/checksum 记录到 `sparkclaw_schema_migrations`。没有 ledger 的数据库作为

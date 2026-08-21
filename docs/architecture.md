@@ -470,12 +470,22 @@ client is a separate direction and remains unchanged.
 
 ## State And Artifacts
 
-Store interfaces own sessions, messages, Agent runs, route/fusion evidence,
+Typed Store repositories own sessions, messages, Agent runs, route/fusion evidence,
 Workflow state, tool/model calls, durable document records and lineage,
 approvals, schedules, endpoints, deliveries, connector bindings, inbox records,
 passive notifications and read state, connector settings, memories, evals, and
 audit events. Memory, file snapshot, and PostgreSQL backends implement the same
-durable state contracts.
+state contracts. Consumers depend only on the repositories they use; the broad
+Store interface has been removed.
+
+An assembly-only Store Runtime selects one backend, exposes its typed
+repositories to `cmd/sparkclaw`, and owns finite operation budgets, readiness,
+bounded metrics, recovery probes, drain, and close. It does not forward business
+methods or escape assembly. File commands serialize snapshot replacement and
+fence uncertain outcomes until digest-based reconciliation. PostgreSQL commands
+use transactions where one local aggregate spans records. Reliability depth is
+assigned by operation risk instead of applying the P0 protocol to every
+repository. See [Store](store.md).
 
 Gateway is the only PostgreSQL application-schema owner. Ordered SQL embedded
 in the Store package is applied under a fixed startup advisory lock and recorded

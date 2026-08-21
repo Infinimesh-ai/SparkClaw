@@ -56,7 +56,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	if len(messages) != 2 || messages[0].ID != "tg_message_42" || messages[1].RunID != "tg_run_42" {
 		t.Fatalf("duplicate or unstable messages were created: %#v", messages)
 	}
-	audit := st.ListAudit(session.ID)
+	audit := mustAgentListAudit(t, st, session.ID)
 	if !hasAgentAuditField(audit, "message.envelope.normalized", "source_kind", app.MessageSourceWeb) {
 		t.Fatalf("normalized message audit is missing its source kind: %#v", audit)
 	}
@@ -145,14 +145,14 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 		t.Fatalf("guard-blocked request should not call chat model: %#v", modelCalls)
 	}
 	foundAudit := false
-	for _, event := range st.ListAudit(session.ID) {
+	for _, event := range mustAgentListAudit(t, st, session.ID) {
 		if event.Type == "guard.reviewed" && event.Fields["verdict"] == "block" {
 			foundAudit = true
 			break
 		}
 	}
 	if !foundAudit {
-		t.Fatalf("guard review audit missing: %#v", st.ListAudit(session.ID))
+		t.Fatalf("guard review audit missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || episodes[0].Outcome != "blocked" {
@@ -206,8 +206,8 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != "completed" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
-	if hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
-		t.Fatalf("successful document read should not use the missing-final fallback: %#v", st.ListAudit(session.ID))
+	if hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
+		t.Fatalf("successful document read should not use the missing-final fallback: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	if !hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "workflow_final_answer", documentWorkflowModelLane) {
 		t.Fatalf("document read did not run its profile finalizer: %#v", testListModelCalls(st, session.ID, result.Run.ID))
@@ -224,9 +224,9 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 		confirmation.OutcomeRefs[0].Attributes["path"] != "project-note.txt" {
 		t.Fatalf("document target confirmation evidence was not persisted: %#v", confirmation)
 	}
-	assertNoLegacyRoutingAudit(t, st.ListAudit(session.ID))
-	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.fixed") {
-		t.Fatalf("workspace read did not use the authoritative exposure boundary: %#v", st.ListAudit(session.ID))
+	assertNoLegacyRoutingAudit(t, mustAgentListAudit(t, st, session.ID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "tools.exposure.fixed") {
+		t.Fatalf("workspace read did not use the authoritative exposure boundary: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -1899,7 +1899,7 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	compactEvidence := "COMPACT_EVIDENCE " + strings.Repeat("document evidence ", 900)
 	minimalEvidence := "MINIMAL_EVIDENCE selected candidate content"
 
-	system, user, err := runtime.admitWorkflowStepPrompt(
+	system, user, err := runtime.admitWorkflowStepPrompt(t.Context(),
 		session.ID, "run_admission", 2, modelrouter.Task{LaneHint: "deep"}, "edit the selected paragraph", nil,
 		stageContext, nil,
 		provisionedWorkflowEvidence{Text: fullEvidence, CompactText: compactEvidence, MinimalText: minimalEvidence},
@@ -1916,9 +1916,9 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	if estimatePromptTokens(system, user) > threshold || !strings.HasSuffix(user, workflowStepOutputContract()) {
 		t.Fatalf("admitted prompt violates terminal contract: estimate=%d threshold=%d", estimatePromptTokens(system, user), threshold)
 	}
-	auditRaw, _ := json.Marshal(st.ListAudit(session.ID))
+	auditRaw, _ := json.Marshal(mustAgentListAudit(t, st, session.ID))
 	if !strings.Contains(string(auditRaw), `"to_variant":"minimal"`) {
-		t.Fatalf("prompt admission audit missing: %#v", st.ListAudit(session.ID))
+		t.Fatalf("prompt admission audit missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 

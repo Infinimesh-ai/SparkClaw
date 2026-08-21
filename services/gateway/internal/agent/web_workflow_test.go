@@ -706,8 +706,8 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Browser == nil || result.Run.Workflow.Browser.Result == nil ||
 		!result.Run.Workflow.Browser.Result.PresentationEquivalent || result.Run.Workflow.Browser.Result.PresentationAssertionID == "" ||
-		!hasAgentAuditField(st.ListAudit(session.ID), "workflow.evidence_projection.skipped", "reason_code", "presentation_equivalence") {
-		t.Fatalf("equivalent visible result did not persist its assertion and skipped-call audit: result=%#v audit=%#v", result.Run.Workflow, st.ListAudit(session.ID))
+		!hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "workflow.evidence_projection.skipped", "reason_code", "presentation_equivalence") {
+		t.Fatalf("equivalent visible result did not persist its assertion and skipped-call audit: result=%#v audit=%#v", result.Run.Workflow, mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -1023,8 +1023,8 @@ func TestUnmatchedRouteBlocksWithoutLegacyFallback(t *testing.T) {
 	if result.Run.State != "blocked" || result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.Status != app.WorkflowResultBlocked {
 		t.Fatalf("unmatched route did not produce a blocked router result: %#v", result)
 	}
-	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.visible_tools") {
-		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), st.ListAudit(session.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) || hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "task_hint.generated") || hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.visible_tools") {
+		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -1315,7 +1315,7 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 		workflowID == app.WorkflowDocumentRead && result.Run.Workflow.Plan.ProfileRevision >= 3 ||
 		workflowID == app.WorkflowBrowserWeather && result.Run.Workflow.Plan.ProfileRevision >= 3
 	if directOnly {
-		if foundWorkflowStep || !hasAgentAuditType(st.ListAudit(sessionID), "workflow.direct_tool_invoked") {
+		if foundWorkflowStep || !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "workflow.direct_tool_invoked") {
 			t.Fatalf("%s must run its structural stages without model tool selection: model_calls=%#v", workflowID, modelCalls)
 		}
 	} else if !foundWorkflowStep {
@@ -1324,9 +1324,9 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 	if workflowID == app.WorkflowDocumentRead && !hasModelCallOperation(modelCalls, "workflow_final_answer", documentWorkflowModelLane) {
 		t.Fatalf("document.read did not finalize direct evidence on Fast: %#v", modelCalls)
 	}
-	assertNoLegacyRoutingAudit(t, st.ListAudit(sessionID))
-	if !hasAgentAuditType(st.ListAudit(sessionID), "workflow.dispatched") || !hasAgentAuditType(st.ListAudit(sessionID), "tools.exposure.fixed") {
-		t.Fatalf("workflow dispatcher/exposure audit missing: %#v", st.ListAudit(sessionID))
+	assertNoLegacyRoutingAudit(t, mustAgentListAudit(t, st, sessionID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "workflow.dispatched") || !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "tools.exposure.fixed") {
+		t.Fatalf("workflow dispatcher/exposure audit missing: %#v", mustAgentListAudit(t, st, sessionID))
 	}
 }
 

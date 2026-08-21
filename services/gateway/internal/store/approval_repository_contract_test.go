@@ -150,11 +150,11 @@ func approvalContractFixture(id, externalID string, created time.Time) app.Appro
 func assertApprovalLifecycleContract(t *testing.T, repository Store) {
 	t.Helper()
 	auditCounts := map[string]int{}
-	for _, event := range repository.ListAudit("") {
+	for _, event := range mustListAudit(t, repository, "") {
 		auditCounts[event.Type]++
 	}
 	eventCounts := map[string]int{}
-	for _, event := range repository.EventsAfter("", "") {
+	for _, event := range mustEventsAfter(t, repository, "", "") {
 		eventCounts[event.Type]++
 	}
 	if auditCounts["approval.pending"] != 1 || auditCounts["approval.modified"] != 1 || auditCounts["approval.approved"] != 1 {

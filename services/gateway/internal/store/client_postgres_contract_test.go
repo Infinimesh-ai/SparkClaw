@@ -663,7 +663,7 @@ func TestPostgresClientRealDatabaseContract(t *testing.T) {
 		t.Fatalf("partial client found=%v err=%v", found, err)
 	}
 
-	events := store.EventsAfter("", "")
+	events := mustEventsAfter(t, store, "", "")
 	eventTypes := make([]string, 0, len(events))
 	for _, event := range events {
 		eventTypes = append(eventTypes, event.Type)
@@ -673,7 +673,7 @@ func TestPostgresClientRealDatabaseContract(t *testing.T) {
 		t.Fatalf("event sequence=%v", eventTypes)
 	}
 	auditTypes := map[string]int{}
-	for _, audit := range store.ListAudit("") {
+	for _, audit := range mustListAudit(t, store, "") {
 		auditTypes[audit.Type]++
 	}
 	if auditTypes["client.saved"] != 1 || auditTypes["pairing_code.claimed"] != 1 {

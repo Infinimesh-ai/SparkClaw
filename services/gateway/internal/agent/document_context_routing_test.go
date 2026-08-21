@@ -25,8 +25,8 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"状态正常"}`)
 	if hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "request_normalization", "fast") {
 		t.Fatalf("removed request normalization still made a model call: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
-	if hasAgentAuditType(st.ListAudit(session.ID), "message.request.normalized") {
-		t.Fatalf("removed request normalization still emitted an audit: %#v", st.ListAudit(session.ID))
+	if hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "message.request.normalized") {
+		t.Fatalf("removed request normalization still emitted an audit: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	raw, err := json.Marshal(result.Run.MessageContext)
 	if err != nil {

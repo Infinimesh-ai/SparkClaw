@@ -155,7 +155,7 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 				}
 			}
 		}
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: run.SessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
@@ -163,6 +163,7 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 			Summary:   "Provisioned persisted evidence for the active workflow stage",
 			Fields:    auditFields,
 		})
+
 	}
 	if len(sections) == 0 {
 		return provisionedWorkflowEvidence{}, nil

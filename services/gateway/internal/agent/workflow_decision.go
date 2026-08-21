@@ -84,7 +84,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		return "", false, err
 	}
 	view.Entries = scopeDocumentDirectoryEntries(run.Workflow.Route, view.Entries)
-	r.auditDirectorySearch(*run, view)
+	r.auditDirectorySearch(ctx, *run, view)
 	if refreshed, exists, err := r.store.GetRun(ctx, run.ID); err != nil {
 		return "", false, err
 	} else if exists {
@@ -141,7 +141,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		}
 
 		if selectionErr != nil {
-			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			r.auditWorkflowDecisionAttempt(ctx, *run, node, state.Attempts, selectionErr)
 			if state.Attempts >= node.MaxAttempts {
 				if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.Invalid); err != nil {
 					return "", false, err
@@ -152,7 +152,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		}
 		if selection.EntryID == "" {
 			selectionErr = errors.New("workflow operation selection returned no entry while eligible entries remain")
-			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			r.auditWorkflowDecisionAttempt(ctx, *run, node, state.Attempts, selectionErr)
 			if state.Attempts >= node.MaxAttempts {
 				if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.NoMatch); err != nil {
 					return "", false, err
@@ -164,7 +164,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		entry, exists := directoryViewEntry(view, selection.EntryID)
 		if !exists {
 			selectionErr = errors.New("workflow operation selection returned an entry outside the active view")
-			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			r.auditWorkflowDecisionAttempt(ctx, *run, node, state.Attempts, selectionErr)
 			if state.Attempts >= node.MaxAttempts {
 				if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.Invalid); err != nil {
 					return "", false, err
@@ -211,7 +211,7 @@ func (r Runtime) selectWorkflowDecisionEntry(
 	if run.Workflow.Nodes[node.ID].Attempts > 0 {
 		validationErrorCodes = []string{"selection_empty_or_invalid"}
 	}
-	projectionRecord := r.recordWorkflowEvidenceProjection(run, workflowEvidenceProjectionInput{
+	projectionRecord := r.recordWorkflowEvidenceProjection(ctx, run, workflowEvidenceProjectionInput{
 		Payload:        decisionProjection.DependencyEvidence + "\n" + decisionProjection.CandidateProjection,
 		SourceEventIDs: decisionProjection.SourceEventIDs,
 		Consumer: workflowEvidenceProjectionConsumer{
@@ -230,6 +230,7 @@ func (r Runtime) selectWorkflowDecisionEntry(
 		ValidationErrorCodes: validationErrorCodes,
 		Reused:               run.Workflow.Nodes[node.ID].Attempts > 0, ModelOperation: "workflow_operation_selection",
 	})
+
 	repairProjectionID := originalProjectionID
 	if repairProjectionID == "" {
 		repairProjectionID = projectionRecord.ProjectionID
@@ -504,14 +505,16 @@ func (r Runtime) completeWorkflowDecision(ctx context.Context, run *app.AgentRun
 		"view_id": view.ViewID, "entry_id": entry.ID, "capability": entry.Capability.Name,
 		"format": format, "operation": operation, "via": via,
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow-decision", Type: "tools.directory.selected",
 		Summary: "Selected one entry inside the frozen workflow decision scope", Fields: fields,
 	})
-	r.store.AddAudit(app.AuditEvent{
+
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "workflow.decision_resolved",
 		Summary: "Resolved the workflow decision node", Fields: fields,
 	})
+
 	if semantics, ok := profile.(workflowDecisionSemantics); ok {
 		return strings.TrimSpace(semantics.DecisionResolvedInstruction(entry)), nil
 	}
@@ -531,22 +534,24 @@ func (r Runtime) blockWorkflowDecision(ctx context.Context, run *app.AgentRun, n
 		return err
 	}
 	*run = saved
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "workflow.decision_blocked",
 		Summary: reason, Fields: map[string]any{
 			"workflow_id": run.Workflow.Plan.ProfileID, "node_id": node.ID, "attempts": state.Attempts,
 		},
 	})
+
 	return nil
 }
 
-func (r Runtime) auditWorkflowDecisionAttempt(run app.AgentRun, node app.WorkflowNode, attempt int, err error) {
-	r.store.AddAudit(app.AuditEvent{
+func (r Runtime) auditWorkflowDecisionAttempt(ctx context.Context, run app.AgentRun, node app.WorkflowNode, attempt int, err error) {
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "workflow.decision_attempt_failed",
 		Summary: "Workflow decision output was invalid", Fields: map[string]any{
 			"workflow_id": run.Workflow.Plan.ProfileID, "node_id": node.ID, "attempt": attempt, "error": err.Error(),
 		},
 	})
+
 }
 
 func directoryViewEntry(view app.DirectoryView, entryID app.ToolDirectoryEntryID) (app.ToolDirectoryEntry, bool) {

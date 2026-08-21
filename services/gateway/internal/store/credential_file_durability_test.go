@@ -75,14 +75,14 @@ func TestFileCredentialDeleteFailureRestoresSecretAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeAudit := len(st.ListAudit(""))
+	beforeAudit := len(mustListAudit(t, st, ""))
 	st.commitOps = &controlledFileCommitOps{failStage: "encode", failRemaining: 1}
 	if deleted, err := st.DeleteCredentialSecret(context.Background(), NewCredentialDeleteCondition(created)); StoreErrorCodeOf(err) != StoreErrorDurability || deleted.Ref != "" {
 		t.Fatalf("deleted=%#v err=%v code=%q", deleted, err, StoreErrorCodeOf(err))
 	}
 	stored, found, err := st.GetCredentialSecret(context.Background(), created.Ref)
-	if err != nil || !found || !credentialSecretsEqual(stored, created) || len(st.ListAudit("")) != beforeAudit {
-		t.Fatalf("stored=%#v found=%v err=%v audit=%d/%d", stored, found, err, len(st.ListAudit("")), beforeAudit)
+	if err != nil || !found || !credentialSecretsEqual(stored, created) || len(mustListAudit(t, st, "")) != beforeAudit {
+		t.Fatalf("stored=%#v found=%v err=%v audit=%d/%d", stored, found, err, len(mustListAudit(t, st, "")), beforeAudit)
 	}
 }
 

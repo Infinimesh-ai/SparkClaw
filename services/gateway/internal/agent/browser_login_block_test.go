@@ -84,9 +84,9 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	if adapter.closeCalls != 0 {
 		t.Fatalf("successful browser completion closed %d production tabs", adapter.closeCalls)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "browser_login_block.post_login_target_validated",
+	if !hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "browser_login_block.post_login_target_validated",
 		"post_login_url", "https://wx.mail.qq.com/home/index#/list/1/1") {
-		t.Fatalf("validated post-login target was not audited: %#v", st.ListAudit(session.ID))
+		t.Fatalf("validated post-login target was not audited: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	blocks := st.ListBrowserLoginBlocks(session.ID, app.BrowserHandoffStatusResolved)
 	if len(blocks) != 1 || strings.Contains(blocks[0].LoginHandoffURL, "sid=") ||
@@ -100,7 +100,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	}
 	for label, value := range map[string]any{
 		"tool calls": testListToolCalls(st, session.ID),
-		"audits":     st.ListAudit(session.ID),
+		"audits":     mustAgentListAudit(t, st, session.ID),
 		"handoffs":   st.ListBrowserLoginBlocks(session.ID, ""),
 		"episodes":   testListEpisodeSummaries(st, session.ID),
 		"result":     second,
@@ -166,9 +166,9 @@ func TestBrowserLoginResumeRejectsUnrelatedVisiblePageBeforeHiddenRead(t *testin
 		block.LastError != "browser_login_post_login_target_mismatch" {
 		t.Fatalf("target mismatch overwrote the authorized resume target: %#v", block)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "browser_login_block.post_login_target_rejected",
+	if !hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "browser_login_block.post_login_target_rejected",
 		"post_login_url", "https://other.example/") {
-		t.Fatalf("rejected post-login target was not audited: %#v", st.ListAudit(session.ID))
+		t.Fatalf("rejected post-login target was not audited: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -432,8 +432,8 @@ func TestPersistedBrowserRevision1LoginHandoffsRetireBeforeBrowserAccess(t *test
 				blocks[0].ResolvedAt == nil {
 				t.Fatalf("retired r1 handoff was not resolved explicitly: %#v", blocks)
 			}
-			if !hasAgentAuditType(st.ListAudit(sessionID), "workflow.legacy_login_resume_retired") {
-				t.Fatalf("retired r1 handoff audit is missing: %#v", st.ListAudit(sessionID))
+			if !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "workflow.legacy_login_resume_retired") {
+				t.Fatalf("retired r1 handoff audit is missing: %#v", mustAgentListAudit(t, st, sessionID))
 			}
 		})
 	}
@@ -513,7 +513,7 @@ func TestFinishBrowserLoginBlockTerminalRetriesOnCASConflict(t *testing.T) {
 	if _, err := st.UpdateBrowserLoginBlock(concurrent, block.Version); err != nil {
 		t.Fatal(err)
 	}
-	runtime.finishBrowserLoginBlockTerminal(stale, app.BrowserLoginBlockStatusFailed,
+	runtime.finishBrowserLoginBlockTerminal(t.Context(), stale, app.BrowserLoginBlockStatusFailed,
 		"original run for browser login block was not found", "done?")
 	current, ok := st.GetBrowserLoginBlock(block.ID)
 	if !ok || current.Status != app.BrowserLoginBlockStatusFailed || current.ResolvedAt == nil ||
@@ -541,7 +541,7 @@ func TestFinishBrowserLoginBlockTerminalKeepsExistingTerminalState(t *testing.T)
 	if _, err := st.UpdateBrowserLoginBlock(resolved, block.Version); err != nil {
 		t.Fatal(err)
 	}
-	runtime.finishBrowserLoginBlockTerminal(stale, app.BrowserLoginBlockStatusFailed, "should not stomp", "")
+	runtime.finishBrowserLoginBlockTerminal(t.Context(), stale, app.BrowserLoginBlockStatusFailed, "should not stomp", "")
 	current, _ := st.GetBrowserLoginBlock(block.ID)
 	if current.Status != app.BrowserHandoffStatusResolved || current.LastError == "should not stomp" {
 		t.Fatalf("terminal helper stomped an already-terminal block: %#v", current)

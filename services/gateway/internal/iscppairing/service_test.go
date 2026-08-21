@@ -68,7 +68,7 @@ func TestHTTPAuthorityAndServiceIssueCopyOnceTicket(t *testing.T) {
 	if strings.Contains(string(snapshot), "signed-ticket-value") || strings.Contains(string(snapshot), `"signature"`) {
 		t.Fatalf("persisted onboarding leaked the Pairing Ticket: %s", snapshot)
 	}
-	audits := st.ListAudit("")
+	audits := mustPairingListAudit(t, st, "")
 	auditJSON, _ := json.Marshal(audits)
 	if strings.Contains(string(auditJSON), "signed-ticket-value") {
 		t.Fatalf("audit leaked the Pairing Ticket: %s", auditJSON)

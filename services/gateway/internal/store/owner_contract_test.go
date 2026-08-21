@@ -32,8 +32,8 @@ func TestOwnerRepositoryMemoryAndFileContract(t *testing.T) {
 			repository := backend.new(t)
 			createdAt := time.Date(2026, 8, 20, 1, 2, 3, 456789123, time.FixedZone("test", 8*60*60))
 			preferences := map[string]string{"tone": "brief"}
-			auditsBefore := len(repository.ListAudit(""))
-			eventsBefore := len(repository.EventsAfter("", ""))
+			auditsBefore := len(mustListAudit(t, repository, ""))
+			eventsBefore := len(mustEventsAfter(t, repository, "", ""))
 			saved, err := repository.SaveOwnerProfile(context.Background(), app.OwnerProfile{
 				ID: "  owner-contract  ", Source: "  source  ", ExternalRef: "  external  ",
 				WorkspaceRoot: "  /workspace  ", DefaultChannel: "  weixin  ",
@@ -53,7 +53,7 @@ func TestOwnerRepositoryMemoryAndFileContract(t *testing.T) {
 				saved.UpdatedAt.Nanosecond()%1000 != 0 || saved.Preferences == nil {
 				t.Fatalf("assigned metadata = %#v", saved)
 			}
-			if len(repository.ListAudit("")) != auditsBefore+1 || len(repository.EventsAfter("", "")) != eventsBefore+1 {
+			if len(mustListAudit(t, repository, "")) != auditsBefore+1 || len(mustEventsAfter(t, repository, "", "")) != eventsBefore+1 {
 				t.Fatal("owner profile, audit, and event did not commit together")
 			}
 
@@ -253,10 +253,10 @@ func TestFileOwnerFailureRollbackKeepsIssuedTimestampUnique(t *testing.T) {
 	if !saved.UpdatedAt.After(issued) {
 		t.Fatalf("later candidate timestamp %s did not exceed failed candidate %s", saved.UpdatedAt, issued)
 	}
-	if got := len(store.ListAudit("")) - len(before.snapshot.AuditEvents); got != 1 {
+	if got := len(mustListAudit(t, store, "")) - len(before.snapshot.AuditEvents); got != 1 {
 		t.Fatalf("committed owner audit count = %d, want 1", got)
 	}
-	if got := len(store.EventsAfter("", "")) - len(before.snapshot.Events); got != 1 {
+	if got := len(mustEventsAfter(t, store, "", "")) - len(before.snapshot.Events); got != 1 {
 		t.Fatalf("committed owner event count = %d, want 1", got)
 	}
 }

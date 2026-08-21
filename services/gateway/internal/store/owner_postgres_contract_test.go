@@ -451,15 +451,15 @@ func TestPostgresOwnerRepositoryRealDatabase(t *testing.T) {
 		t.Fatalf("existing default overwritten: %#v want %#v", preserved, existing)
 	}
 
-	auditsBefore := len(store.ListAudit(""))
-	eventsBefore := len(store.EventsAfter("", ""))
+	auditsBefore := len(mustListAudit(t, store, ""))
+	eventsBefore := len(mustEventsAfter(t, store, "", ""))
 	createdAt := time.Date(2025, 2, 3, 4, 5, 6, 123456789, time.UTC)
 	saved := mustSaveOwnerProfile(t, store, app.OwnerProfile{
 		ID: "owner-real", Source: "weixin", ExternalRef: "real-ref", DisplayName: "Real",
 		Preferences: map[string]string{"mode": "real"}, CreatedAt: createdAt,
 	})
-	if saved.CreatedAt.Nanosecond()%1000 != 0 || len(store.ListAudit("")) != auditsBefore+1 || len(store.EventsAfter("", "")) != eventsBefore+1 {
-		t.Fatalf("real atomic save=%#v audit=%d event=%d", saved, len(store.ListAudit(""))-auditsBefore, len(store.EventsAfter("", ""))-eventsBefore)
+	if saved.CreatedAt.Nanosecond()%1000 != 0 || len(mustListAudit(t, store, "")) != auditsBefore+1 || len(mustEventsAfter(t, store, "", "")) != eventsBefore+1 {
+		t.Fatalf("real atomic save=%#v audit=%d event=%d", saved, len(mustListAudit(t, store, ""))-auditsBefore, len(mustEventsAfter(t, store, "", ""))-eventsBefore)
 	}
 	listed, err := store.ListOwnerProfiles(context.Background())
 	if err != nil || len(listed) != 2 {

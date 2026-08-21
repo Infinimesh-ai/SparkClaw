@@ -168,7 +168,7 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 	if err != nil || !found || stored.Value == "" || strings.Contains(stored.Value, secret) {
 		t.Fatalf("sealed credential was not retained safely: %#v found=%v err=%v", stored, found, err)
 	}
-	for _, audit := range reloaded.ListAudit("") {
+	for _, audit := range mustGatewayListAudit(t, reloaded, "") {
 		if audit.Type == "credential_secret.deleted" {
 			t.Fatalf("ambiguous binding save deleted its credential: %#v", audit)
 		}

@@ -122,7 +122,7 @@ func (a *MediaAdapter) DownloadInboundImage(ctx context.Context, binding app.Not
 	}
 	if a.store != nil {
 		a.store.SaveArtifactObject(object)
-		a.store.AddAudit(app.AuditEvent{
+		recordAudit(ctx, a.store, app.AuditEvent{
 			SessionID: sessionID,
 			Actor:     "gateway",
 			Type:      "weixin.image.downloaded",
@@ -197,7 +197,7 @@ func (a *MediaAdapter) DownloadInboundFile(ctx context.Context, binding app.Noti
 	}
 	if a.store != nil {
 		a.store.SaveArtifactObject(object)
-		a.store.AddAudit(app.AuditEvent{
+		recordAudit(ctx, a.store, app.AuditEvent{
 			SessionID: sessionID,
 			Actor:     "gateway",
 			Type:      "weixin.file.downloaded",

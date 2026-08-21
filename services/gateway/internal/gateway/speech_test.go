@@ -164,7 +164,7 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("speech transcription must not create tool calls: %#v", calls)
 	}
-	audits := st.ListAudit(session.ID)
+	audits := mustGatewayListAudit(t, st, session.ID)
 	speechAudits := make([]any, 0, 2)
 	startedAudit := false
 	completedAudit := false
@@ -275,7 +275,7 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 		t.Fatalf("cancelled transcription returned %d", resp.StatusCode)
 	}
 	found := false
-	for _, event := range st.ListAudit(session.ID) {
+	for _, event := range mustGatewayListAudit(t, st, session.ID) {
 		if event.Type == "speech.transcription.cancelled" {
 			found = true
 			if _, ok := event.Fields["text"]; ok {
@@ -284,7 +284,7 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("missing cancellation audit: %#v", st.ListAudit(session.ID))
+		t.Fatalf("missing cancellation audit: %#v", mustGatewayListAudit(t, st, session.ID))
 	}
 }
 

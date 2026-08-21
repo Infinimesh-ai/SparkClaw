@@ -157,7 +157,7 @@ func (h *ToolHub) prepareBrowserAuth(ctx context.Context, parsed *url.URL, args 
 		return nil, err
 	}
 	state.AuthStrategy = "managed_shared_chromium_profile"
-	h.addBrowserAuthAudit("browser_auth.profile_selected", sessionID, runID, metadata, state, map[string]any{"shared_profile": true})
+	h.addBrowserAuthAudit(ctx, "browser_auth.profile_selected", sessionID, runID, metadata, state, map[string]any{"shared_profile": true})
 	return state, nil
 }
 
@@ -222,7 +222,7 @@ func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *br
 		out["browser_page_auth_confidence"] = "profile_continuity"
 		out["browser_page_auth_signals"] = append(stringList(out["browser_page_auth_signals"]), "managed_profile_continuity")
 		out["browser_auth_status"] = "profile_verified"
-		h.addBrowserAuthAudit("browser_auth.shared_profile_verified", sessionID, runID, metadata, state, map[string]any{
+		h.addBrowserAuthAudit(ctx, "browser_auth.shared_profile_verified", sessionID, runID, metadata, state, map[string]any{
 			"confidence": "profile_continuity",
 			"signals":    out["browser_page_auth_signals"],
 		})
@@ -230,7 +230,7 @@ func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *br
 	}
 	if pageAuthState == "unknown" && boolArg(args, "login_handoff_completed", false) {
 		out["browser_auth_status"] = "profile_inconclusive"
-		h.addBrowserAuthAudit("browser_auth.evidence_inconclusive", sessionID, runID, metadata, state, map[string]any{
+		h.addBrowserAuthAudit(ctx, "browser_auth.evidence_inconclusive", sessionID, runID, metadata, state, map[string]any{
 			"confidence": stringArg(out, "browser_page_auth_confidence", "insufficient"),
 			"signals":    out["browser_page_auth_signals"],
 		})
@@ -238,7 +238,7 @@ func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *br
 	}
 	if boolArg(args, "login_handoff_completed", false) {
 		out["browser_auth_status"] = "profile_verified"
-		h.addBrowserAuthAudit("browser_auth.shared_profile_verified", sessionID, runID, metadata, state, nil)
+		h.addBrowserAuthAudit(ctx, "browser_auth.shared_profile_verified", sessionID, runID, metadata, state, nil)
 	} else {
 		out["browser_auth_status"] = "profile_active"
 	}
@@ -258,7 +258,7 @@ func (h *ToolHub) applyBrowserAuthOutputBase(out map[string]any, state *browserA
 func (h *ToolHub) finalizeBrowserAuthChallenge(ctx context.Context, out map[string]any, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata, sessionID, runID string) {
 	out["auth_challenge_kind"] = "login_or_verification"
 	out["login_handoff_required"] = true
-	h.addBrowserAuthAudit("browser_auth.challenge_detected", sessionID, runID, metadata, state, nil)
+	h.addBrowserAuthAudit(ctx, "browser_auth.challenge_detected", sessionID, runID, metadata, state, nil)
 	if metadata.BrowserMode == "collaborative" || metadata.Presentation == "visible" || metadata.SurfaceVisible {
 		out["browser_auth_status"] = "handoff_waiting"
 		out["login_surface"] = "collaborative_visible"
@@ -298,10 +298,10 @@ func (h *ToolHub) openBrowserLoginHandoff(ctx context.Context, out map[string]an
 	out["login_handoff_opened"] = true
 	out["login_handoff_url"] = handoffArgs["url"]
 	out["login_handoff_provider"] = result.Provider
-	h.addBrowserAuthAudit("browser_auth.handoff_started", sessionID, runID, metadata, state, nil)
+	h.addBrowserAuthAudit(ctx, "browser_auth.handoff_started", sessionID, runID, metadata, state, nil)
 }
 
-func (h *ToolHub) addBrowserAuthAudit(typ, sessionID, runID string, metadata browserModeMetadata, state *browserAuthRunState, extra map[string]any) {
+func (h *ToolHub) addBrowserAuthAudit(ctx context.Context, typ, sessionID, runID string, metadata browserModeMetadata, state *browserAuthRunState, extra map[string]any) {
 	if h.store == nil || state == nil {
 		return
 	}
@@ -318,7 +318,7 @@ func (h *ToolHub) addBrowserAuthAudit(typ, sessionID, runID string, metadata bro
 	for key, value := range extra {
 		fields[key] = value
 	}
-	h.store.AddAudit(app.AuditEvent{
+	h.addAudit(ctx, app.AuditEvent{
 		Type:      typ,
 		SessionID: sessionID,
 		RunID:     runID,

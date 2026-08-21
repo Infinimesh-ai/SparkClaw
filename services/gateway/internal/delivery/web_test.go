@@ -62,7 +62,10 @@ func TestPersistentWebDeliveryProjectsAndPersistsMessageOnce(t *testing.T) {
 	if attachments[1].Name != "reply.mp3" || attachments[2].Name != "report.pdf" {
 		t.Fatalf("web delivery did not derive resource names: %#v", attachments)
 	}
-	events := st.EventsAfter(session.ID, "")
+	events, err := st.EventsAfter(t.Context(), session.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	messageEvents := 0
 	for _, event := range events {
 		if event.Type == "message.created" {

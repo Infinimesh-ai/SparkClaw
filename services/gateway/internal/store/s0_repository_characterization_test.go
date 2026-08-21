@@ -602,29 +602,29 @@ func characterizeS0AuditRepository(t *testing.T, st Store, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
-		st.AddAudit(app.AuditEvent{ID: "audit-s0", SessionID: "session-s0", Type: "saved", Time: base})
-		if got := st.ListAudit("session-s0"); len(got) != 1 || got[0].ID != "audit-s0" {
+		mustAddAudit(t, st, app.AuditEvent{ID: "audit-s0", SessionID: "session-s0", Type: "saved", Time: base})
+		if got := mustListAudit(t, st, "session-s0"); len(got) != 1 || got[0].ID != "audit-s0" {
 			t.Fatalf("audit add/list = %#v", got)
 		}
 	case s0DimensionAbsence:
-		if got := st.ListAudit("missing-session"); len(got) != 0 {
+		if got := mustListAudit(t, st, "missing-session"); len(got) != 0 {
 			t.Fatalf("missing audit list = %#v", got)
 		}
 	case s0DimensionOrderScope:
-		st.AddAudit(app.AuditEvent{ID: "audit-old", SessionID: "session-s0", Type: "old", Time: base})
-		st.AddAudit(app.AuditEvent{ID: "audit-new", SessionID: "session-s0", Type: "new", Time: base.Add(time.Minute)})
-		st.AddAudit(app.AuditEvent{ID: "audit-other", SessionID: "other-session", Type: "other", Time: base.Add(2 * time.Minute)})
-		if got := st.ListAudit("session-s0"); len(got) != 2 || got[0].ID != "audit-new" || got[1].ID != "audit-old" {
+		mustAddAudit(t, st, app.AuditEvent{ID: "audit-old", SessionID: "session-s0", Type: "old", Time: base})
+		mustAddAudit(t, st, app.AuditEvent{ID: "audit-new", SessionID: "session-s0", Type: "new", Time: base.Add(time.Minute)})
+		mustAddAudit(t, st, app.AuditEvent{ID: "audit-other", SessionID: "other-session", Type: "other", Time: base.Add(2 * time.Minute)})
+		if got := mustListAudit(t, st, "session-s0"); len(got) != 2 || got[0].ID != "audit-new" || got[1].ID != "audit-old" {
 			t.Fatalf("audit order/scope = %#v", got)
 		}
 	case s0DimensionEventSequence:
 		mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-event-old", DisplayName: "old"})
 		mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-event-new", DisplayName: "new"})
-		events := st.EventsAfter("", "")
+		events := mustEventsAfter(t, st, "", "")
 		if len(events) != 2 || events[0].Type != "owner_profile.updated" || events[1].Type != "owner_profile.updated" {
 			t.Fatalf("event order = %#v", events)
 		}
-		if after := st.EventsAfter("", events[0].ID); len(after) != 1 || after[0].ID != events[1].ID {
+		if after := mustEventsAfter(t, st, "", events[0].ID); len(after) != 1 || after[0].ID != events[1].ID {
 			t.Fatalf("event after-cursor sequence = %#v", after)
 		}
 	default:
@@ -725,8 +725,17 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
 	"BrowserStateRepository":        s0BrowserAliasSafe,
 	"MemoryRepository":              s0MemoryAliasSafe,
-	"AuditRepository":               s0AuditAliasSafe,
 	"EvaluationRepository":          s0EvaluationAliasSafe,
+}
+
+func TestS0AuditRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0AuditAliasSafe(t, backend.store) {
+				t.Fatal("AuditRepository exposed mutable fields")
+			}
+		})
+	}
 }
 
 func TestS0ApprovalRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -875,10 +884,10 @@ func s0MemoryAliasSafe(t *testing.T, st Store) bool {
 
 func s0AuditAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.AddAudit(app.AuditEvent{ID: "audit-alias", Fields: map[string]any{"value": "original"}})
-	got := st.ListAudit("")
+	mustAddAudit(t, st, app.AuditEvent{ID: "audit-alias", Fields: map[string]any{"value": "original"}})
+	got := mustListAudit(t, st, "")
 	got[0].Fields["value"] = "mutated"
-	return st.ListAudit("")[0].Fields["value"] != "mutated"
+	return mustListAudit(t, st, "")[0].Fields["value"] != "mutated"
 }
 
 func s0EvaluationAliasSafe(t *testing.T, st Store) bool {

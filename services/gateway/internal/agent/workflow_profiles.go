@@ -415,13 +415,14 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 		} else {
 			stageContext.SemanticVariables = []string{"answer_content"}
 		}
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: run.SessionID, RunID: run.ID, Actor: "tool-exposure", Type: "tools.exposure.none",
 			Summary: "No-tool workflow intentionally exposes no tools",
 			Fields: map[string]any{
 				"workflow_id": run.Workflow.Plan.ProfileID, "node_id": stageContext.WorkflowNodeID, "scope_revision": state.ScopeRevision,
 			},
 		})
+
 		return []app.ToolDefinition{}, nil
 	}
 	profile, err := r.profiles.Get(run.Workflow.Plan.ProfileID, run.Workflow.Plan.ProfileRevision)
@@ -435,7 +436,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if err != nil {
 		return nil, err
 	}
-	r.auditDirectorySearch(run, view)
+	r.auditDirectorySearch(ctx, run, view)
 	if len(view.Entries) == 0 {
 		return nil, errors.New("no registered tool satisfies the active workflow scope")
 	}
@@ -451,7 +452,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 		return nil, err
 	}
 	stageContext.ScopeRevision = view.ScopeRevision
-	r.auditFixedWorkflowExposure(run, view, entryIDs, exposure.Definitions)
+	r.auditFixedWorkflowExposure(ctx, run, view, entryIDs, exposure.Definitions)
 	includeSupport := workflowStageUsesModel(profile, run.Workflow, node, state)
 	visibleDefinitions, capabilities, err := workflowStageVisibleTools(run, stageContext.WorkflowNodeID, exposure.Definitions, includeSupport)
 	if err != nil {
@@ -463,7 +464,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	visibleDefinitions = materializeBrowserFormDraftSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
 	visibleDefinitions = workflowModelToolProjection(run, entryIDs, visibleDefinitions)
 	stageContext.SemanticVariables = workflowModelSemanticVariables(visibleDefinitions)
-	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
+	r.auditWorkflowStageExposure(ctx, run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }
 
@@ -554,23 +555,26 @@ func workflowStageCapabilityNames(node app.WorkflowNode, stage string) ([]string
 	return nil, true
 }
 
-func (r Runtime) auditDirectorySearch(run app.AgentRun, view app.DirectoryView) {
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.directory.searched", Summary: "Searched the active workflow capability scope", Fields: map[string]any{
+func (r Runtime) auditDirectorySearch(ctx context.Context, run app.AgentRun, view app.DirectoryView) {
+	r.addAudit(ctx, app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.directory.searched", Summary: "Searched the active workflow capability scope", Fields: map[string]any{
 		"workflow_id": view.WorkflowID, "node_id": view.NodeID, "scope_revision": view.ScopeRevision,
 		"directory_revision": view.DirectoryRevision, "view_id": view.ViewID, "entry_ids": directoryEntryIDs(view.Entries),
 	}})
+
 }
 
-func (r Runtime) auditFixedWorkflowExposure(run app.AgentRun, view app.DirectoryView, entryIDs []app.ToolDirectoryEntryID, definitions []app.ToolDefinition) {
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.fixed", Summary: "Materialized the workflow's fixed tool boundary", Fields: map[string]any{
+func (r Runtime) auditFixedWorkflowExposure(ctx context.Context, run app.AgentRun, view app.DirectoryView, entryIDs []app.ToolDirectoryEntryID, definitions []app.ToolDefinition) {
+	r.addAudit(ctx, app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.fixed", Summary: "Materialized the workflow's fixed tool boundary", Fields: map[string]any{
 		"workflow_id": view.WorkflowID, "view_id": view.ViewID, "entry_ids": entryIDs, "tools": visibleToolNames(definitions),
 	}})
+
 }
 
-func (r Runtime) auditWorkflowStageExposure(run app.AgentRun, nodeID app.WorkflowNodeID, stage string, capabilities []string, definitions []app.ToolDefinition) {
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.stage_filtered", Summary: "Projected the materialized tool boundary for the active workflow stage", Fields: map[string]any{
+func (r Runtime) auditWorkflowStageExposure(ctx context.Context, run app.AgentRun, nodeID app.WorkflowNodeID, stage string, capabilities []string, definitions []app.ToolDefinition) {
+	r.addAudit(ctx, app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.stage_filtered", Summary: "Projected the materialized tool boundary for the active workflow stage", Fields: map[string]any{
 		"workflow_id": run.Workflow.Plan.ProfileID, "node_id": nodeID, "stage": stage, "capabilities": capabilities, "tools": visibleToolNames(definitions),
 	}})
+
 }
 
 func (r Runtime) workflowActorRef(run app.AgentRun) string {

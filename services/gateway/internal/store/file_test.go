@@ -50,7 +50,7 @@ func TestFileStoreNotificationBindingSaveRollsBackOnPersistenceFailure(t *testin
 	if initial.ID == "" {
 		t.Fatal("initial notification binding was not persisted")
 	}
-	initialAuditCount := len(st.ListAudit(""))
+	initialAuditCount := len(mustListAudit(t, st, ""))
 	initialEventCount := len(st.inner.snapshot().Events)
 
 	blocker := filepath.Join(t.TempDir(), "not-a-directory")
@@ -69,7 +69,7 @@ func TestFileStoreNotificationBindingSaveRollsBackOnPersistenceFailure(t *testin
 	if !found || got.Status != initial.Status || got.CredentialRef != "" {
 		t.Fatalf("failed persistence remained visible in memory: %#v found=%v", got, found)
 	}
-	if got := len(st.ListAudit("")); got != initialAuditCount {
+	if got := len(mustListAudit(t, st, "")); got != initialAuditCount {
 		t.Fatalf("failed persistence retained audit entries: got %d want %d", got, initialAuditCount)
 	}
 	if got := len(st.inner.snapshot().Events); got != initialEventCount {
@@ -625,8 +625,8 @@ func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	if memories := reloaded.SearchMemories("file retention"); len(memories) != 0 {
 		t.Fatalf("pruned memory reloaded unexpectedly: %#v", memories)
 	}
-	if !hasAuditType(reloaded.ListAudit(session.ID), "memory.pruned") {
-		t.Fatalf("pruned memory audit did not persist: %#v", reloaded.ListAudit(session.ID))
+	if !hasAuditType(mustListAudit(t, reloaded, session.ID), "memory.pruned") {
+		t.Fatalf("pruned memory audit did not persist: %#v", mustListAudit(t, reloaded, session.ID))
 	}
 }
 

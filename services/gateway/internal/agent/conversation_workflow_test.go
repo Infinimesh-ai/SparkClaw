@@ -138,8 +138,8 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 	}
 	if hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "workflow_answer", "deep") ||
 		hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "intent_tree_graph", "fast") ||
-		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.message_completed") {
-		t.Fatalf("multipart publication used a chat answer model or missed its typed completion audit: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), st.ListAudit(session.ID))
+		!hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.message_completed") {
+		t.Fatalf("multipart publication used a chat answer model or missed its typed completion audit: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), mustAgentListAudit(t, st, session.ID))
 	}
 	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 1 || messages[0].Role != "user" {
@@ -231,8 +231,8 @@ func TestConversationAnswerRunsWithoutToolsOrLegacyFallback(t *testing.T) {
 		hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
 		t.Fatalf("conversation.answer used tools, approvals, or the step loop: result=%#v calls=%#v", result, testListModelCalls(st, session.ID, result.Run.ID))
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.none") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow.model_answer_completed") {
-		t.Fatalf("no-tool workflow boundary was not audited: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "tools.exposure.none") || !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.model_answer_completed") {
+		t.Fatalf("no-tool workflow boundary was not audited: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -307,7 +307,7 @@ func TestMCPConversationMediaNameAndQuerySelectStableTopOne(t *testing.T) {
 			}
 		})
 	}
-	audits := st.ListAudit(session.ID)
+	audits := mustAgentListAudit(t, st, session.ID)
 	if !hasAgentAuditType(audits, "workflow.response_media_lookup") {
 		t.Fatalf("response-media filename lookup was not audited: %#v", audits)
 	}
@@ -513,7 +513,7 @@ func TestRejectedMCPWorkspaceApprovalExposesNoResourceFacts(t *testing.T) {
 	if blocked.State != "blocked" || blocked.MessageContext.ResponseMedia != nil {
 		t.Fatalf("rejected workspace approval exposed a resource decision: %#v", blocked)
 	}
-	for _, event := range st.ListAudit(session.ID) {
+	for _, event := range mustAgentListAudit(t, st, session.ID) {
 		if event.RunID == blocked.ID && event.Type == "workflow.response_media_lookup" {
 			t.Fatalf("rejected workspace approval performed discovery: %#v", event)
 		}
@@ -562,7 +562,7 @@ func TestMCPWorkspaceApprovalCannotBeReusedAfterLocatorOrTargetChange(t *testing
 			if err != nil || !resumed || result.Run.State != "blocked" || result.Run.MessageContext.ResponseMedia != nil {
 				t.Fatalf("changed workspace contract did not fail closed: resumed=%v result=%#v err=%v", resumed, result, err)
 			}
-			for _, event := range st.ListAudit(session.ID) {
+			for _, event := range mustAgentListAudit(t, st, session.ID) {
 				if event.RunID == pending.Run.ID && event.Type == "workflow.response_media_lookup" {
 					t.Fatalf("changed workspace contract performed discovery: %#v", event)
 				}
@@ -580,7 +580,7 @@ func assertPendingMCPWorkspaceApproval(t *testing.T, st *store.MemoryStore, resu
 		result.Approvals[0].PolicyContext == nil || result.Approvals[0].PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
 		t.Fatalf("MCP workspace request did not pause at the data boundary: %#v", result)
 	}
-	for _, event := range st.ListAudit(result.Run.SessionID) {
+	for _, event := range mustAgentListAudit(t, st, result.Run.SessionID) {
 		if event.RunID == result.Run.ID && event.Type == "workflow.response_media_lookup" {
 			t.Fatalf("MCP workspace lookup ran before approval: %#v", event)
 		}

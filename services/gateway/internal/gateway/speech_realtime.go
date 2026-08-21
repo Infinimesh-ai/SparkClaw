@@ -30,6 +30,7 @@ type speechRealtimeTicket struct {
 	language        string
 	maxAudioSeconds int
 	expiresAt       time.Time
+	auditCtx        context.Context
 	session         speech.RealtimeSession
 	timer           *time.Timer
 }
@@ -95,14 +96,14 @@ func (s *Server) postSpeechRealtimeSession(w http.ResponseWriter, r *http.Reques
 		id: app.NewID("speech-rt"), tokenHash: hashSecret(token), ownerID: principal.OwnerID,
 		sessionID: input.SessionID, requestID: input.RequestID, language: input.Language,
 		maxAudioSeconds: speechMaxAudioSeconds(s.cfg),
-		expiresAt:       now.Add(time.Duration(speech.RealtimeTicketTTL) * time.Second), session: realtime,
+		expiresAt:       now.Add(time.Duration(speech.RealtimeTicketTTL) * time.Second), auditCtx: context.WithoutCancel(r.Context()), session: realtime,
 	}
 	s.speechRealtimeMu.Lock()
 	s.speechRealtimeTickets[ticket.tokenHash] = ticket
 	s.speechRealtimeTicketIDs[ticket.id] = ticket.tokenHash
 	ticket.timer = time.AfterFunc(time.Until(ticket.expiresAt), func() { s.expireSpeechRealtimeTicket(ticket.id, ticket.tokenHash) })
 	s.speechRealtimeMu.Unlock()
-	s.addSpeechAudit("speech.realtime.admitted", ticket.sessionID, ticket.requestID, "Realtime speech session admitted", map[string]any{
+	s.addSpeechAudit(r.Context(), "speech.realtime.admitted", ticket.sessionID, ticket.requestID, "Realtime speech session admitted", map[string]any{
 		"request_id": ticket.requestID, "model": s.cfg.Speech.Model, "protocol": speech.RealtimeProtocol,
 	})
 	ready := realtime.ReadyEvent()
@@ -129,7 +130,7 @@ func (s *Server) deleteSpeechRealtimeSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	_ = ticket.session.Close()
-	s.addSpeechAudit("speech.realtime.cancelled", ticket.sessionID, ticket.requestID, "Realtime speech session cancelled before connection", map[string]any{
+	s.addSpeechAudit(r.Context(), "speech.realtime.cancelled", ticket.sessionID, ticket.requestID, "Realtime speech session cancelled before connection", map[string]any{
 		"request_id": ticket.requestID, "code": speech.CodeCancelled,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"cancelled": true})
@@ -179,12 +180,12 @@ func (s *Server) getSpeechRealtime(w http.ResponseWriter, r *http.Request) {
 	_ = ticket.session.Close()
 	_ = client.Close()
 	if result.kind == "final" {
-		s.addSpeechAudit("speech.realtime.completed", ticket.sessionID, ticket.requestID, "Realtime speech transcription completed", map[string]any{
+		s.addSpeechAudit(opCtx, "speech.realtime.completed", ticket.sessionID, ticket.requestID, "Realtime speech transcription completed", map[string]any{
 			"request_id": ticket.requestID, "duration_ms": result.durationMS, "revisions": result.revision,
 			"model": s.cfg.Speech.Model,
 		})
 	} else if result.kind != "disconnected" {
-		s.addSpeechAudit("speech.realtime.failed", ticket.sessionID, ticket.requestID, "Realtime speech transcription ended", map[string]any{
+		s.addSpeechAudit(opCtx, "speech.realtime.failed", ticket.sessionID, ticket.requestID, "Realtime speech transcription ended", map[string]any{
 			"request_id": ticket.requestID, "code": result.code, "retryable": result.retryable,
 		})
 	}
@@ -471,7 +472,7 @@ func (s *Server) expireSpeechRealtimeTicket(id, tokenHash string) {
 	delete(s.speechRealtimeTicketIDs, id)
 	s.speechRealtimeMu.Unlock()
 	_ = ticket.session.Close()
-	s.addSpeechAudit("speech.realtime.expired", ticket.sessionID, ticket.requestID, "Realtime speech session expired before connection", map[string]any{
+	s.addSpeechAudit(ticket.auditCtx, "speech.realtime.expired", ticket.sessionID, ticket.requestID, "Realtime speech session expired before connection", map[string]any{
 		"request_id": ticket.requestID, "code": speech.CodeTimeout,
 	})
 }

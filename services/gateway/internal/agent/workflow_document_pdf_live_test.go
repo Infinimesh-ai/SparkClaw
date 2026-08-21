@@ -93,7 +93,7 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 	if modelCallID != firstPage["ocr_model_call_id"] {
 		t.Fatalf("page provenance does not reference the fresh ModelCall: page=%#v call=%#v", firstPage, modelCalls[0])
 	}
-	assertLiveOCRAudit(t, state.ListAudit(session.ID), first.Call.RunID, "miss", modelCallID)
+	assertLiveOCRAudit(t, mustAgentListAudit(t, state, session.ID), first.Call.RunID, "miss", modelCallID)
 	assertLiveOCRTrace(t, runtime, state, traceDir, first.Call, 1, "miss", modelCallID)
 
 	afterFirst := hub.DocumentOCRReadiness()
@@ -109,7 +109,7 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 	if calls := testListModelCalls(state, session.ID, ""); len(calls) != 1 {
 		t.Fatalf("cache hit created a duplicate live OCR ModelCall: %#v", calls)
 	}
-	assertLiveOCRAudit(t, state.ListAudit(session.ID), second.Call.RunID, "hit", modelCallID)
+	assertLiveOCRAudit(t, mustAgentListAudit(t, state, session.ID), second.Call.RunID, "hit", modelCallID)
 	assertLiveOCRTrace(t, runtime, state, traceDir, second.Call, 0, "hit", modelCallID)
 
 	metrics := strings.Join(hub.DocumentMetrics(), "\n")

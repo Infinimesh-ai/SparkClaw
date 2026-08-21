@@ -59,7 +59,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		if run, err = r.saveRun(ctx, run); err != nil {
 			return Result{}, true, err
 		}
-		r.auditWorkflowOutcome(run, outcome, assessment, changed, applyErr)
+		r.auditWorkflowOutcome(ctx, run, outcome, assessment, changed, applyErr)
 		if applyErr != nil && assessment.Status != app.AssessmentBlocked {
 			result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, applyErr)
 			return result, true, resultErr
@@ -133,7 +133,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		if strings.TrimSpace(workflowExecution.FinalAnswer) != "" {
 			run.Summary = workflowExecution.FinalAnswer
 		}
-		run.Summary = r.applyGroundedSummary(run.SessionID, run.ID, content, run.Summary, currentToolCalls)
+		run.Summary = r.applyGroundedSummary(ctx, run.SessionID, run.ID, content, run.Summary, currentToolCalls)
 	}
 	if strings.TrimSpace(run.Summary) == "" {
 		run.Summary = "The matched workflow completed after its approved action."
@@ -163,7 +163,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	if err != nil {
 		return Result{}, true, fmt.Errorf("persist resumed workflow response: %w", err)
 	}
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType, Summary: string(run.Workflow.Status)})
+	r.addAudit(ctx, app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType, Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	return Result{
 		Run: run, Message: assistant, ToolCalls: workflowExecution.ToolCalls, Approvals: workflowExecution.Approvals, RouteDecision: &route,
@@ -209,7 +209,7 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.dispatched",
 		Summary: "Dispatched a validated capability leaf to its exact workflow contract",
 		Fields: map[string]any{
@@ -218,6 +218,7 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 			"plan_digest": run.Workflow.PlanDigest, "active_node_ids": run.Workflow.ActiveNodeIDs,
 		},
 	})
+
 	stageContext := resolved.Profile.StageContext(run.Workflow)
 	visibleTools, err := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run), &stageContext)
 	if err != nil {
@@ -228,7 +229,7 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 	} else if ok {
 		run = refreshed
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "gateway", Type: "gateway.dispatch",
 		Summary: "Dispatched a matched capability through its fixed workflow boundary",
 		Fields: map[string]any{
@@ -236,6 +237,7 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 			"scope_revision": stageContext.ScopeRevision, "tools": visibleToolNames(visibleTools),
 		},
 	})
+
 	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Context: stageContext, Tools: visibleTools}, nil
 }
 

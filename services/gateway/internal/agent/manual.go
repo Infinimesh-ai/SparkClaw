@@ -176,7 +176,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		if verifier, ok := policy.VerifierDecision(def, decision, time.Now().UTC()); ok {
 			approvalArgs = policy.AttachVerifier(args, verifier)
 			call.Arguments = approvalArgs
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     runID,
 				Actor:     "verifier",
@@ -190,6 +190,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 					"manual":        true,
 				},
 			})
+
 		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),

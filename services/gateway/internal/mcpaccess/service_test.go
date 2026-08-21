@@ -247,7 +247,7 @@ func TestServiceDefaultsAccessTicketTTLToOneDay(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Date(2026, time.August, 13, 8, 0, 0, 0, time.UTC)
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,12 +263,12 @@ func TestActiveBindingForPeerRejectsLegacySchemaAndWrongScope(t *testing.T) {
 	} {
 		st := store.NewMemoryStore()
 		service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-		issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+		issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 		if err != nil {
 			t.Fatal(err)
 		}
 		peer := app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
-		binding, err := service.RedeemAccessTicket(issued.Secret, peer)
+		binding, err := service.RedeemAccessTicket(t.Context(), issued.Secret, peer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -319,7 +319,7 @@ func TestServiceLateResultCannotOverwriteCancelledOperation(t *testing.T) {
 	service := New(st, runtime, func(context.Context, agent.Result) error {
 		return errors.New("terminal delivery rejected")
 	}).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestServiceNegotiatesMCPVersionAndIgnoresBusinessNotifications(t *testing.T
 		t.Fatalf("unsupported MCP version was negotiated: %#v", wrong)
 	}
 
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Now().UTC()
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 func TestServiceRejectsOperationDeadlineBeyondMaximum(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +550,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 		Status: app.WorkflowResultSucceeded, Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Text: "private result"}}},
 	}}}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 	_ = dispatchRPC(t, service, peer, "mcp", "audit-idempotency-secret", "tools/call", map[string]any{
 		"name": conversationToolName, "arguments": map[string]any{"text": "private argument"},
 	})
-	raw, err := json.Marshal(st.ListAudit(""))
+	raw, err := json.Marshal(mustMCPListAudit(t, st, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,7 +580,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 func TestServiceRejectsDeviceSubstitutionAndRevocation(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +603,7 @@ func TestServiceBindingRevocationCancelsExecutionAndRejectsApproval(t *testing.T
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{block: make(chan struct{})}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +650,7 @@ func TestServiceDoesNotConsumeTicketWhileConnectorDisabled(t *testing.T) {
 	st := store.NewMemoryStore()
 	enabled := true
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return enabled })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +682,7 @@ func TestServiceRejectsLegacyAccessTicketSchema(t *testing.T) {
 func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -791,7 +791,7 @@ func TestServiceOperationCancelStopsRunningInvocation(t *testing.T) {
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{block: make(chan struct{})}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -960,7 +960,7 @@ func TestServiceNilWorkflowResultReachesTerminalFailure(t *testing.T) {
 		deliverCalls++
 		return nil
 	}).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -993,7 +993,7 @@ func TestServiceNilWorkflowResultReachesTerminalFailure(t *testing.T) {
 func TestIssueTicketRecordsIssuingActor(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-actor", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, "management-actor", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func TestScheduleSemanticParaphraseIsSelectedByFusionRouting(t *testing.T) {
 		t.Fatalf("Fast semantic route did not select schedule creation and freeze the owner query: %#v", routing.Route)
 	}
 	if routing.Fusion == nil || len(routing.Fusion.Candidates) == 0 || routing.Fusion.Candidates[0].CandidateID != "schedule.manage#create" {
-		t.Fatalf("semantic schedule route did not persist fusion evidence: routing=%#v audit=%#v", routing, st.ListAudit(session.ID))
+		t.Fatalf("semantic schedule route did not persist fusion evidence: routing=%#v audit=%#v", routing, mustAgentListAudit(t, st, session.ID))
 	}
 }
 

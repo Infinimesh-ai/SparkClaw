@@ -55,7 +55,7 @@ func TestWorkflowFailureProjectionKeepsDiagnosticsOutOfPublicResults(t *testing.
 			execution := workflowExecutionResult{}
 			execution.fail(code, errors.New(sentinel))
 			runtime := Runtime{store: st}
-			runtime.auditWorkflowExecutionFailure(session.ID, run.ID, "workflow.test_failure", execution.FailureCode, execution.FailureDiagnostic, nil)
+			runtime.auditWorkflowExecutionFailure(t.Context(), session.ID, run.ID, "workflow.test_failure", execution.FailureCode, execution.FailureDiagnostic, nil)
 			execution = execution.withPublicFailureProjection()
 			run.Summary = publicWorkflowFailureMessage(execution.FailureCode)
 			testSaveRun(st, run)
@@ -78,7 +78,7 @@ func TestWorkflowFailureProjectionKeepsDiagnosticsOutOfPublicResults(t *testing.
 			if workflowResult == nil || workflowResult.Error == nil || workflowResult.Error.Code != string(code) || workflowResult.Error.Message != run.Summary {
 				t.Fatalf("workflow result did not preserve the stable public failure contract: %#v", workflowResult)
 			}
-			auditJSON, err := json.Marshal(st.ListAudit(session.ID))
+			auditJSON, err := json.Marshal(mustAgentListAudit(t, st, session.ID))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -120,7 +120,7 @@ func TestWorkflowSetupFailureUsesSafePublicProjection(t *testing.T) {
 	if result.WorkflowResult == nil || result.WorkflowResult.Error == nil || result.WorkflowResult.Error.Code != string(workflowFailureSetup) {
 		t.Fatalf("setup failure did not expose its stable reason code: %#v", result.WorkflowResult)
 	}
-	auditJSON, err := json.Marshal(st.ListAudit(session.ID))
+	auditJSON, err := json.Marshal(mustAgentListAudit(t, st, session.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

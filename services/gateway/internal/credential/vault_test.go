@@ -45,7 +45,7 @@ func TestVaultDeterministicSealReplayAndIsolation(t *testing.T) {
 	if err != nil || !bytes.Equal(opened, token) {
 		t.Fatalf("opened=%q err=%v", opened, err)
 	}
-	if audits := st.ListAudit(""); countAuditType(audits, "credential_secret.saved") != 2 {
+	if audits := mustCredentialListAudit(t, st, ""); countAuditType(audits, "credential_secret.saved") != 2 {
 		t.Fatalf("replay appended an audit: %#v", audits)
 	}
 }
@@ -246,8 +246,8 @@ func TestVaultReconcilesUnknownCreateAndCleansOrphanBeforeDifferentMutation(t *t
 	if err != nil || other == "" {
 		t.Fatalf("post-orphan seal ref=%q err=%v", other, err)
 	}
-	if countAuditType(repository.inner.ListAudit(""), "credential_secret.deleted") != 1 {
-		t.Fatalf("orphan was not conditionally deleted: %#v", repository.inner.ListAudit(""))
+	if countAuditType(mustCredentialListAudit(t, repository.inner, ""), "credential_secret.deleted") != 1 {
+		t.Fatalf("orphan was not conditionally deleted: %#v", mustCredentialListAudit(t, repository.inner, ""))
 	}
 }
 
@@ -288,8 +288,8 @@ func TestVaultReconcilesUnknownOrphanDeleteBeforeNextSeal(t *testing.T) {
 	if err != nil || ref == "" {
 		t.Fatalf("post-delete reconciliation ref=%q err=%v", ref, err)
 	}
-	if countAuditType(repository.inner.ListAudit(""), "credential_secret.deleted") != 1 {
-		t.Fatalf("unknown delete produced the wrong audit count: %#v", repository.inner.ListAudit(""))
+	if countAuditType(mustCredentialListAudit(t, repository.inner, ""), "credential_secret.deleted") != 1 {
+		t.Fatalf("unknown delete produced the wrong audit count: %#v", mustCredentialListAudit(t, repository.inner, ""))
 	}
 }
 

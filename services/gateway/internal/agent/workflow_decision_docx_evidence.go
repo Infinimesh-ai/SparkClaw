@@ -76,7 +76,7 @@ func (r Runtime) workflowDOCXDecisionEvidence(ctx context.Context, run app.Agent
 		sections = append(sections, section)
 		used := len([]byte(section))
 		remaining -= used
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: run.SessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
@@ -88,6 +88,7 @@ func (r Runtime) workflowDOCXDecisionEvidence(ctx context.Context, run app.Agent
 				"provisioned_bytes": used, "total_artifact_bytes": artifactBytes,
 			},
 		})
+
 	}
 	if len(sections) == 0 {
 		return "", errors.New("decision node has no completed persisted evidence source")

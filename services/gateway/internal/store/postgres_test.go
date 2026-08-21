@@ -282,10 +282,10 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if memories := st.SearchMemories("retention memory"); len(memories) != 0 {
 		t.Fatalf("pruned postgres memory still searchable: %#v", memories)
 	}
-	if events := st.EventsAfter(session.ID, ""); len(events) == 0 {
+	if events := mustEventsAfter(t, st, session.ID, ""); len(events) == 0 {
 		t.Fatalf("expected event stream entries")
 	}
-	if audit := st.ListAudit(session.ID); len(audit) == 0 {
+	if audit := mustListAudit(t, st, session.ID); len(audit) == 0 {
 		t.Fatalf("expected audit entries")
 	}
 	st.SaveEvalRun(app.EvalRun{

@@ -89,7 +89,7 @@ func TestISCPPairingOwnerAPIReturnsTicketOnceAndPersistsReceipt(t *testing.T) {
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), "pairing-ticket") || strings.Contains(listed.Body.String(), "copy-once-signature") || strings.Contains(listed.Body.String(), `"signature"`) {
 		t.Fatalf("onboarding list leaked or omitted receipt data: status=%d body=%s", listed.Code, listed.Body.String())
 	}
-	audits, _ := json.Marshal(st.ListAudit(""))
+	audits, _ := json.Marshal(mustGatewayListAudit(t, st, ""))
 	if strings.Contains(string(audits), "copy-once-signature") {
 		t.Fatalf("audit leaked Pairing Ticket: %s", audits)
 	}
@@ -251,7 +251,7 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
 	if _, ok := st.GetMCPAccessTicket(other.ID); !ok {
 		t.Fatal("bulk DELETE removed another owner's record")
 	}
-	audits, _ := json.Marshal(st.ListAudit(""))
+	audits, _ := json.Marshal(mustGatewayListAudit(t, st, ""))
 	for _, eventType := range []string{"mcp.access_ticket.deleted", "mcp.binding.deleted", "mcp.access_records.deleted"} {
 		if !strings.Contains(string(audits), eventType) {
 			t.Fatalf("deletion audit %q was not recorded: %s", eventType, audits)

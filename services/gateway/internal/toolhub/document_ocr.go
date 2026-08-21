@@ -76,7 +76,7 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 					if resource, exists := resources[strings.TrimSpace(stringArg(record, "resource_key", ""))]; exists {
 						metadata.SourceSHA256 = resource.SHA256
 					}
-					e.hub.recordDocumentOCRBypass(metadata, "disabled", "ocr_adapter_disabled")
+					e.hub.recordDocumentOCRBypass(ctx, metadata, "disabled", "ocr_adapter_disabled")
 				}
 			}
 			return document.EnrichmentResult{Enrichment: enrichment}, nil
@@ -99,7 +99,7 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 		if !exists || len(resource.Content) == 0 {
 			record["ocr"] = skippedDocumentOCR("unsupported", "image bytes were not exposed by the document parser")
 			if scannedPDF && stringArg(record, "kind", "") == "page_image" {
-				e.hub.recordDocumentOCRBypass(documentOCRMetadataForRecord(request.Document, record, execution), "render_failed", "ocr_page_resource_unavailable")
+				e.hub.recordDocumentOCRBypass(ctx, documentOCRMetadataForRecord(request.Document, record, execution), "render_failed", "ocr_page_resource_unavailable")
 			}
 			continue
 		}
@@ -142,7 +142,7 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 	for _, hash := range hashes {
 		if len(tasks) >= limit {
 			setOCRForRecords(recordsByHash[hash], skippedDocumentOCR("skipped", "OCR page budget was exhausted"))
-			invocation := e.hub.recordDocumentOCRBypass(representative[hash].metadata, "budget_omitted", "ocr_page_budget_exhausted")
+			invocation := e.hub.recordDocumentOCRBypass(ctx, representative[hash].metadata, "budget_omitted", "ocr_page_budget_exhausted")
 			e.hub.recordAdditionalDocumentOCRPages(invocation, len(recordsByHash[hash])-1)
 			warnings = append(warnings, "OvisOCR2 page budget was exhausted before all relevant images were parsed")
 			continue
@@ -211,7 +211,7 @@ func (e *ovisDocumentOCREnricher) parseImages(ctx context.Context, tasks []docum
 			select {
 			case semaphore <- struct{}{}:
 			case <-ctx.Done():
-				invocation := e.hub.recordDocumentOCRBypass(task.metadata, "cancelled", "request_cancelled")
+				invocation := e.hub.recordDocumentOCRBypass(ctx, task.metadata, "cancelled", "request_cancelled")
 				invocation.Err = ctx.Err()
 				results <- documentOCRResult{hash: task.hash, invocation: invocation}
 				return
@@ -219,7 +219,7 @@ func (e *ovisDocumentOCREnricher) parseImages(ctx context.Context, tasks []docum
 			defer func() { <-semaphore }()
 			prepared, err := prepareImageForModel(task.resource.Content, task.resource.ContentType)
 			if err != nil {
-				invocation := e.hub.recordDocumentOCRBypass(task.metadata, "render_failed", "ocr_image_preparation_failed")
+				invocation := e.hub.recordDocumentOCRBypass(ctx, task.metadata, "render_failed", "ocr_image_preparation_failed")
 				invocation.Err = err
 				results <- documentOCRResult{hash: task.hash, invocation: invocation}
 				return

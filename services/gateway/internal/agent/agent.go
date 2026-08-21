@@ -90,6 +90,12 @@ func NewRuntimeWithContext(ctx context.Context, st store.Store, tools *toolhub.T
 	}, nil
 }
 
+func (r Runtime) addAudit(ctx context.Context, event app.AuditEvent) {
+	if err := r.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
+		slog.Warn("agent audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
+	}
+}
+
 func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
 	r.artifacts = artifacts
 	return r
@@ -225,7 +231,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist received run: %w", err)
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     run.ID,
 		Actor:     "message_plane",
@@ -241,6 +247,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			"catalog_revision": r.capabilities.Revision(),
 		},
 	})
+
 	run.Risk = classifyRisk(semanticRoutingContent(agentContent))
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist classified run: %w", err)
@@ -326,7 +333,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		if run, err = r.saveRun(ctx, run); err != nil {
 			return Result{}, fmt.Errorf("persist message control failure: %w", err)
 		}
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID, RunID: run.ID, Actor: "message_control", Type: "message.control.blocked",
 			Summary: "Typed delivery directive could not be resolved",
 			Fields: map[string]any{
@@ -334,10 +341,11 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 				"recipient_present": strings.TrimSpace(routing.Delivery.RequestedRecipientText) != "", "reason": controlErr.Error(),
 			},
 		})
+
 		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, blocked)
 	}
 	run.MessageContext.ReturnRoute = returnRoute
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: run.ID, Actor: "message_control", Type: "message.control.routed",
 		Summary: string(deliverySelection.Status),
 		Fields: map[string]any{
@@ -349,6 +357,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			"idempotency_key": envelope.IdempotencyKey, "correlation_id": envelope.CorrelationID, "causation_id": envelope.CausationID,
 		},
 	})
+
 	if controlRoute, terminal := messageControlTerminalRoute(deliverySelection, r.capabilities.Revision()); terminal {
 		run.MessageContext.Route = controlRoute
 		if run, err = r.saveRun(ctx, run); err != nil {
@@ -413,13 +422,14 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	now := time.Now().UTC()
 	finalizeWorkflowRunState(&run, execution, now)
 	if execution.Cancelled {
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
 			Type:      "workflow.execution_cancelled",
 			Summary:   "The Gateway lifecycle ended before the active workflow completed",
 		})
+
 	}
 	run.ModelLane = execution.Chat.Lane
 	if execution.FailureCode != "" {
@@ -432,12 +442,12 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 				run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, observations, approvals)
 			}
 		}
-		run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
+		run.Summary = r.applyGroundedSummary(ctx, sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
 	}
 	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 &&
 		execution.BrowserLoginBlock == nil && !isEndpointMediaPublication(run) {
 		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     run.ID,
 				Actor:     "runtime",
@@ -447,6 +457,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 					"error": err.Error(),
 				},
 			})
+
 		}
 	}
 	if run, err = r.saveRun(ctx, run); err != nil {
@@ -634,13 +645,14 @@ func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun,
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist retired workflow run: %w", err)
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID,
 		RunID:     run.ID,
 		Actor:     "runtime",
 		Type:      auditType,
 		Summary:   auditSummary,
 	})
+
 	storedApprovals, err := r.store.ListApprovals(ctx, "")
 	if err != nil {
 		return Result{}, fmt.Errorf("load retired workflow approvals: %w", err)
@@ -705,7 +717,7 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 		return Result{}, false, fmt.Errorf("load approved workflow tool calls: %w", err)
 	}
 	currentToolCalls := toolCallsForRun(storedToolCalls, run.ID)
-	summary := r.applyGroundedSummary(sessionID, run.ID, content, "", currentToolCalls)
+	summary := r.applyGroundedSummary(ctx, sessionID, run.ID, content, "", currentToolCalls)
 	if strings.TrimSpace(summary) == "" {
 		return Result{}, false, nil
 	}
@@ -757,7 +769,7 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	if err != nil {
 		return Result{}, false, fmt.Errorf("persist approved workflow response: %w", err)
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     run.ID,
 		Actor:     "runtime",
@@ -767,6 +779,7 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 			"tool": last.Tool,
 		},
 	})
+
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 	if run.MessageContext != nil {
@@ -886,6 +899,11 @@ func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrou
 			slog.Warn("agent trace model calls unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
 			return
 		}
+		audit, err := r.store.ListAudit(ctx, run.SessionID)
+		if err != nil {
+			slog.Warn("agent trace audit unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
 		object, _ := r.traces.WriteRunObject(ctx, trace.RunTrace{
 			Run:        run,
 			Model:      chat,
@@ -894,7 +912,7 @@ func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrou
 			Approvals:  approvals,
 			Feedback:   feedback,
 			Messages:   messages,
-			Audit:      r.store.ListAudit(run.SessionID),
+			Audit:      audit,
 			Episode:    episode,
 		})
 		if object != nil {
@@ -924,7 +942,7 @@ func (r Runtime) classifyWithGuard(ctx context.Context, sessionID, runID, conten
 		slog.Warn("guard model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
 	}
 	if err != nil {
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,
 			RunID:     runID,
 			Actor:     "model-router",
@@ -934,6 +952,7 @@ func (r Runtime) classifyWithGuard(ctx context.Context, sessionID, runID, conten
 				"error": err.Error(),
 			},
 		})
+
 		return guard, err
 	}
 	if guard.Verdict == "allow" {
@@ -948,7 +967,7 @@ func (r Runtime) classifyWithGuard(ctx context.Context, sessionID, runID, conten
 		auditType = "guard.verdict_unknown"
 		summary = "Guard reply produced no recognizable verdict; run proceeds"
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     runID,
 		Actor:     "guard",
@@ -962,6 +981,7 @@ func (r Runtime) classifyWithGuard(ctx context.Context, sessionID, runID, conten
 			"model":      guard.Model,
 		},
 	})
+
 	return guard, nil
 }
 
@@ -1268,7 +1288,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		if verifier, ok := policy.VerifierDecision(def, decision, time.Now().UTC()); ok {
 			plan.Args = policy.AttachVerifier(plan.Args, verifier)
 			call.Arguments = plan.Args
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     runID,
 				Actor:     "verifier",
@@ -1281,6 +1301,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 					"requires_deep": decision.RequiresDeep,
 				},
 			})
+
 		}
 		approval := app.Approval{
 			ID:            app.NewID("ap"),

@@ -383,8 +383,8 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		result.Message.Attachments[0].RelPath != "report-sparkclaw-edit.docx" {
 		t.Fatalf("approved DOCX workflow did not resume with its output copy: resumed=%t result=%#v err=%v", resumed, result, err)
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow.decision_resolved") ||
-		!hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.evidence_provisioned") {
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.decision_resolved") ||
+		!hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.evidence_provisioned") {
 		t.Fatalf("real DOCX path omitted decision/evidence audit records")
 	}
 	if _, err := os.Stat(statePath); err != nil {

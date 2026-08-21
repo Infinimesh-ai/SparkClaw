@@ -98,9 +98,10 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 		return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeOutcomeUnknown, "MCP operation changed during delivery", "outcome_unknown")
 	}
 	operation = updated
-	auditOperationStore(p.store, "mcp.operation.result_recorded", operation, "Recorded a Workflow result for an MCP operation", map[string]any{
+	auditOperationStore(ctx, p.store, "mcp.operation.result_recorded", operation, "Recorded a Workflow result for an MCP operation", map[string]any{
 		"outcome": operation.State, "workflow_result_status": resultStatus, "error_code": operation.ErrorCode,
 	})
+
 	receipt := app.DeliveryReceipt{
 		DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded,
 		ProviderRef: "mcp-operation:" + operation.ID, Attempt: 1, AttemptedAt: now, DeliveredAt: &now,

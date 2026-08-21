@@ -94,6 +94,12 @@ type Server struct {
 	pairing                  *pairingCoordinator
 }
 
+func (s *Server) addAudit(ctx context.Context, event app.AuditEvent) {
+	if err := s.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
+		slog.Warn("gateway audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
+	}
+}
+
 type Option func(*Server)
 
 type ConnectorController interface {
@@ -784,7 +790,7 @@ func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Security.ApprovalRequiredTools = approvalRequired
 	s.policies = policy.New(s.cfg)
 	s.runtime = s.runtime.WithPolicy(s.policies)
-	s.store.AddAudit(app.AuditEvent{
+	s.addAudit(r.Context(), app.AuditEvent{
 		Actor:   "owner",
 		Type:    "tool_policy.updated",
 		Summary: "Tool policy updated",
@@ -1476,7 +1482,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	after := lastEventID(s.store.EventsAfter(sessionID, ""))
+	initialEvents, err := s.store.EventsAfter(r.Context(), sessionID, "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	after := lastEventID(initialEvents)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, errors.New("message streaming is unavailable"))
@@ -1537,7 +1548,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	sendRuntimeEvents := func() bool {
-		for _, event := range s.store.EventsAfter(sessionID, after) {
+		events, err := s.store.EventsAfter(r.Context(), sessionID, after)
+		if err != nil {
+			slog.Warn("message stream events unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+			return false
+		}
+		for _, event := range events {
 			if event.ID == after {
 				continue
 			}
@@ -1605,7 +1621,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"events": s.store.EventsAfter(r.PathValue("id"), r.URL.Query().Get("after"))})
+	events, err := s.store.EventsAfter(r.Context(), r.PathValue("id"), r.URL.Query().Get("after"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
@@ -1634,7 +1655,12 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	send := func() bool {
-		for _, event := range s.store.EventsAfter(sessionID, after) {
+		events, err := s.store.EventsAfter(r.Context(), sessionID, after)
+		if err != nil {
+			slog.Warn("session events unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+			return false
+		}
+		for _, event := range events {
 			if event.ID == after {
 				continue
 			}
@@ -1680,7 +1706,12 @@ func (s *Server) listSessionToolCalls(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionAudit(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"audit_events": s.store.ListAudit(r.PathValue("id"))})
+	events, err := s.store.ListAudit(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audit_events": events})
 }
 
 func (s *Server) listSessionEpisodes(w http.ResponseWriter, r *http.Request) {
@@ -2333,7 +2364,7 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   now,
 	}
 	s.store.SaveArtifactObject(artifactObject)
-	s.store.AddAudit(app.AuditEvent{
+	s.addAudit(r.Context(), app.AuditEvent{
 		Type:    "memory.exported",
 		Actor:   "owner",
 		Summary: artifactObject.URI,
@@ -2675,7 +2706,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   now,
 	}
 	s.store.SaveArtifactObject(object)
-	s.store.AddAudit(app.AuditEvent{
+	s.addAudit(r.Context(), app.AuditEvent{
 		SessionID: sessionID,
 		Actor:     "owner",
 		Type:      uploadAuditType(isImage),
@@ -2987,7 +3018,11 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		return
 	}
 	current.Messages = messages
-	current.Audit = s.store.ListAudit(run.SessionID)
+	current.Audit, err = s.store.ListAudit(ctx, run.SessionID)
+	if err != nil {
+		slog.Warn("trace audit refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
 	object, _ := s.traces.WriteRunObject(ctx, current)
 	if object != nil {
 		s.store.SaveArtifactObject(app.ArtifactObject{

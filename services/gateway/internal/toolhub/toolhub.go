@@ -71,6 +71,15 @@ type DynamicToolRegistration struct {
 	Execute    DynamicToolExecutor
 }
 
+func (h *ToolHub) addAudit(ctx context.Context, event app.AuditEvent) {
+	if h == nil || h.store == nil {
+		return
+	}
+	if err := h.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
+		slog.Warn("toolhub audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
+	}
+}
+
 type DynamicToolOrigin struct {
 	Source     string `json:"source"`
 	RemoteName string `json:"remote_name"`

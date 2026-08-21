@@ -86,15 +86,15 @@ func TestDocumentOCRCacheIsOwnerScopedAndPersistsOnlyFreshModelCalls(t *testing.
 			t.Fatalf("fresh OCR call provenance is incomplete: %#v", call)
 		}
 	}
-	auditJSON, err := json.Marshal(append(state.ListAudit(ownerAFirst.ID), state.ListAudit(ownerASecond.ID)...))
+	auditJSON, err := json.Marshal(append(mustToolHubListAudit(t, state, ownerAFirst.ID), mustToolHubListAudit(t, state, ownerASecond.ID)...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(auditJSON), "sensitive OCR marker") {
 		t.Fatalf("OCR text leaked into audit fields: %s", auditJSON)
 	}
-	if !hasDocumentOCRAudit(state.ListAudit(ownerASecond.ID), "hit", first.ModelCallID) {
-		t.Fatalf("cache-hit audit omitted provenance: %#v", state.ListAudit(ownerASecond.ID))
+	if !hasDocumentOCRAudit(mustToolHubListAudit(t, state, ownerASecond.ID), "hit", first.ModelCallID) {
+		t.Fatalf("cache-hit audit omitted provenance: %#v", mustToolHubListAudit(t, state, ownerASecond.ID))
 	}
 	readiness := hub.DocumentOCRReadiness()
 	if !readiness.ConfiguredEnabled || !readiness.AdapterReady || readiness.RuntimeStatus != "ready" || readiness.LastCallStatus != "succeeded" {

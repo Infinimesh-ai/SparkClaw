@@ -149,11 +149,11 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		t.Fatal("expected updating a deleted memory to fail")
 	}
 
-	audit := st.ListAudit(session.ID)
+	audit := mustListAudit(t, st, session.ID)
 	if !hasAuditType(audit, "memory.updated") || !hasAuditType(audit, "memory.deleted") {
 		t.Fatalf("memory editor events missing from audit: %#v", audit)
 	}
-	events := st.EventsAfter(session.ID, "")
+	events := mustEventsAfter(t, st, session.ID, "")
 	if !hasEventType(events, "memory.updated") || !hasEventType(events, "memory.deleted") {
 		t.Fatalf("memory editor events missing from event stream: %#v", events)
 	}
@@ -183,7 +183,7 @@ func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 	if reloaded.Preferences["tone"] != "concise" {
 		t.Fatalf("owner profile preferences were not cloned: %#v", reloaded)
 	}
-	if !hasAuditType(st.ListAudit(""), "owner_profile.updated") || !hasEventType(st.EventsAfter("", ""), "owner_profile.updated") {
+	if !hasAuditType(mustListAudit(t, st, ""), "owner_profile.updated") || !hasEventType(mustEventsAfter(t, st, "", ""), "owner_profile.updated") {
 		t.Fatalf("owner profile update was not audited")
 	}
 }
@@ -256,8 +256,8 @@ func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) 
 	if _, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); ok {
 		t.Fatalf("revoked browser auth record should not be active")
 	}
-	if !hasAuditType(st.ListAudit(""), "browser_auth.record_saved") || !hasAuditType(st.ListAudit(""), "browser_auth.record_revoked") {
-		t.Fatalf("browser auth audit events missing: %#v", st.ListAudit(""))
+	if !hasAuditType(mustListAudit(t, st, ""), "browser_auth.record_saved") || !hasAuditType(mustListAudit(t, st, ""), "browser_auth.record_revoked") {
+		t.Fatalf("browser auth audit events missing: %#v", mustListAudit(t, st, ""))
 	}
 }
 
@@ -544,7 +544,7 @@ func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	if len(items) != 1 || items[0].Rating != "up" || items[0].Note != "looks better" {
 		t.Fatalf("feedback did not list cleanly: %#v", items)
 	}
-	if !hasAuditType(st.ListAudit(session.ID), "run_feedback.saved") || !hasEventType(st.EventsAfter(session.ID, ""), "run_feedback.saved") {
+	if !hasAuditType(mustListAudit(t, st, session.ID), "run_feedback.saved") || !hasEventType(mustEventsAfter(t, st, session.ID, ""), "run_feedback.saved") {
 		t.Fatalf("feedback was not audited")
 	}
 }
@@ -578,7 +578,7 @@ func TestMemoryStorePrunesExpiredMemories(t *testing.T) {
 	if matches := st.SearchMemories("retention memory"); len(matches) != 1 || matches[0].ID != fresh.ID {
 		t.Fatalf("retention pruning left wrong memories: %#v", matches)
 	}
-	if !hasAuditType(st.ListAudit(session.ID), "memory.pruned") || !hasEventType(st.EventsAfter(session.ID, ""), "memory.pruned") {
+	if !hasAuditType(mustListAudit(t, st, session.ID), "memory.pruned") || !hasEventType(mustEventsAfter(t, st, session.ID, ""), "memory.pruned") {
 		t.Fatalf("memory retention pruning was not audited")
 	}
 }
@@ -610,7 +610,7 @@ func TestMemoryStoreListsArtifactObjectsNewestFirst(t *testing.T) {
 	if len(objects) != 1 || objects[0].ID != "obj_new" {
 		t.Fatalf("artifact objects did not list newest first: %#v", objects)
 	}
-	if !hasAuditType(st.ListAudit(""), "artifact.saved") || !hasEventType(st.EventsAfter("", ""), "artifact.saved") {
+	if !hasAuditType(mustListAudit(t, st, ""), "artifact.saved") || !hasEventType(mustEventsAfter(t, st, "", ""), "artifact.saved") {
 		t.Fatalf("artifact save was not audited")
 	}
 }

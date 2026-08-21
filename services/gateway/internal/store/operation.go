@@ -59,6 +59,9 @@ const (
 	OperationApprovalUpdatePending       StoreOperation = "approval.update_pending"
 	OperationApprovalResolve             StoreOperation = "approval.resolve"
 	OperationApprovalList                StoreOperation = "approval.list"
+	OperationAuditAdd                    StoreOperation = "audit.add"
+	OperationAuditList                   StoreOperation = "audit.list"
+	OperationAuditEventsAfter            StoreOperation = "audit.events_after"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -285,6 +288,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationApprovalList: {
 		ID: OperationApprovalList, Repository: "ApprovalRepository",
 		Method: "ListApprovals", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationAuditAdd: {
+		ID: OperationAuditAdd, Repository: "AuditRepository",
+		Method: "AddAudit", Mode: operationWrite, Timeout: timeoutWrite,
+	},
+	OperationAuditList: {
+		ID: OperationAuditList, Repository: "AuditRepository",
+		Method: "ListAudit", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationAuditEventsAfter: {
+		ID: OperationAuditEventsAfter, Repository: "AuditRepository",
+		Method: "EventsAfter", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

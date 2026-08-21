@@ -48,13 +48,14 @@ func (r Runtime) queueMCPWorkspaceDataApproval(ctx context.Context, run *app.Age
 	} else {
 		*run = saved
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "policy", Type: "policy.workspace_data_approval_requested",
 		Summary: "External MCP workspace data access is waiting for owner approval",
 		Fields: map[string]any{
 			"approval_id": approval.ID, "request_digest": args["request_digest"], "contract_revision": args["contract_revision"],
 		},
 	})
+
 	return call, *approval, true, nil
 }
 

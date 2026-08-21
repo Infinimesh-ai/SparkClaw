@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 
 type Repository interface {
 	store.ISCPOnboardingRepository
-	AddAudit(app.AuditEvent)
+	AddAudit(context.Context, app.AuditEvent) error
 }
 
 type Service struct {
@@ -142,7 +143,7 @@ func (s *Service) Start(ctx context.Context, ownerID, actorID string, input Star
 		return IssuedPairing{}, failureFromStore(err)
 	}
 	s.pending.receipt = saved
-	return s.completePending(saved)
+	return s.completePending(ctx, saved)
 }
 
 func (s *Service) List(ctx context.Context, ownerID string) ([]app.ISCPOnboarding, error) {
@@ -172,16 +173,18 @@ func (s *Service) reconcilePending(ctx context.Context) (IssuedPairing, error) {
 	if receipt.ID != pending.receipt.ID || receipt.OwnerID != pending.receipt.OwnerID || receipt.TicketID != pending.receipt.TicketID {
 		return IssuedPairing{}, &Failure{Code: FailureUnavailable, Public: ErrUnavailable}
 	}
-	return s.completePending(receipt)
+	return s.completePending(ctx, receipt)
 }
 
-func (s *Service) completePending(receipt app.ISCPOnboarding) (IssuedPairing, error) {
+func (s *Service) completePending(ctx context.Context, receipt app.ISCPOnboarding) (IssuedPairing, error) {
 	pending := s.pending
 	s.pending = nil
-	s.repository.AddAudit(app.AuditEvent{Actor: pending.actorID, Type: "iscp.onboarding.ticket_issued", Summary: "Requested a single-use ISCP Pairing Ticket", Fields: map[string]any{
+	if err := s.repository.AddAudit(context.WithoutCancel(ctx), app.AuditEvent{Actor: pending.actorID, Type: "iscp.onboarding.ticket_issued", Summary: "Requested a single-use ISCP Pairing Ticket", Fields: map[string]any{
 		"onboarding_id": receipt.ID, "authority_ref": receipt.AuthorityRef, "ticket_id": receipt.TicketID,
 		"domain_id": receipt.DomainID, "relay_id": receipt.RelayID, "expires_at": receipt.TicketExpiresAt,
-	}})
+	}}); err != nil {
+		slog.Warn("ISCP onboarding audit unavailable", "onboarding_id", receipt.ID, "code", store.StoreErrorCodeOf(err))
+	}
 	if !pending.ticket.ExpiresAt.After(s.currentTime()) {
 		pending.ticket.Signature = identity.Signature{}
 		return IssuedPairing{}, &Failure{Code: FailureExpired, Public: ErrTicketExpired}

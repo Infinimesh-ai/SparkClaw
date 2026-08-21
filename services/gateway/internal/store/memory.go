@@ -172,7 +172,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		BrowserLoginBlocks:   cloneMap(s.browserLoginBlocks),
 		Memories:             cloneMap(s.memories),
 		MemoryCandidates:     cloneMap(s.memoryCandidates),
-		AuditEvents:          append([]app.AuditEvent(nil), s.auditEvents...),
+		AuditEvents:          cloneAuditEventsBestEffort(s.auditEvents),
 		Events:               cloneClientLifecycleEvents(s.events),
 		EvalRuns:             cloneMap(s.evalRuns),
 		ArtifactObjects:      cloneMap(s.artifactObjects),
@@ -365,7 +365,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	}
 	s.memories = ensureMap(snapshot.Memories)
 	s.memoryCandidates = ensureMap(snapshot.MemoryCandidates)
-	s.auditEvents = append([]app.AuditEvent(nil), snapshot.AuditEvents...)
+	s.auditEvents = cloneAuditEventsBestEffort(snapshot.AuditEvents)
 	s.events = cloneClientLifecycleEvents(snapshot.Events)
 	s.evalRuns = ensureMap(snapshot.EvalRuns)
 	s.artifactObjects = ensureMap(snapshot.ArtifactObjects)
@@ -2854,36 +2854,66 @@ func (s *MemoryStore) PruneMemories(cutoff time.Time) []app.Memory {
 	return pruned
 }
 
-func (s *MemoryStore) AddAudit(event app.AuditEvent) {
+func (s *MemoryStore) AddAudit(ctx context.Context, event app.AuditEvent) error {
+	ctx, cancel := operationContext(ctx, OperationAuditAdd, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationAuditAdd, ctx); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if event.ID == "" {
-		event.ID = app.NewID("audit")
+	if err := operationContextError(OperationAuditAdd, ctx); err != nil {
+		return err
 	}
-	if event.Time.IsZero() {
-		event.Time = time.Now().UTC()
+	prepared, err := prepareAuditEvent(event, time.Now().UTC())
+	if err != nil {
+		return storeError(OperationAuditAdd, StoreErrorInvalid, err)
 	}
-	s.auditEvents = append(s.auditEvents, event)
+	s.auditEvents = append(s.auditEvents, prepared)
+	return nil
 }
 
-func (s *MemoryStore) ListAudit(sessionID string) []app.AuditEvent {
+func (s *MemoryStore) ListAudit(ctx context.Context, sessionID string) ([]app.AuditEvent, error) {
+	ctx, cancel := operationContext(ctx, OperationAuditList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationAuditList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationAuditList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.AuditEvent{}
 	for _, event := range s.auditEvents {
 		if sessionID == "" || event.SessionID == sessionID {
-			out = append(out, event)
+			cloned, err := cloneAuditEvent(event)
+			if err != nil {
+				return nil, storeError(OperationAuditList, StoreErrorCorrupt, err)
+			}
+			out = append(out, cloned)
 		}
 	}
 	slices.SortFunc(out, func(a, b app.AuditEvent) int {
-		return b.Time.Compare(a.Time)
+		if order := b.Time.Compare(a.Time); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) EventsAfter(sessionID, after string) []app.Event {
+func (s *MemoryStore) EventsAfter(ctx context.Context, sessionID, after string) ([]app.Event, error) {
+	ctx, cancel := operationContext(ctx, OperationAuditEventsAfter, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationAuditEventsAfter, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationAuditEventsAfter, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.Event{}
 	started := after == ""
 	for _, event := range s.events {
@@ -2897,7 +2927,7 @@ func (s *MemoryStore) EventsAfter(sessionID, after string) []app.Event {
 			out = append(out, cloneClientLifecycleEvent(event))
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *MemoryStore) MessageEventHead(ctx context.Context, sessionID string) (string, error) {
@@ -3141,6 +3171,10 @@ func (s *MemoryStore) appendAuditLocked(typ, sessionID, runID, actor, summary st
 }
 
 func (s *MemoryStore) appendAuditLockedAt(at time.Time, typ, sessionID, runID, actor, summary string, fields map[string]any) {
+	clonedFields, err := cloneAuditFields(fields)
+	if err != nil {
+		clonedFields = maps.Clone(fields)
+	}
 	s.auditEvents = append(s.auditEvents, app.AuditEvent{
 		ID:        app.NewID("audit"),
 		Time:      at,
@@ -3149,7 +3183,7 @@ func (s *MemoryStore) appendAuditLockedAt(at time.Time, typ, sessionID, runID, a
 		RunID:     runID,
 		Actor:     actor,
 		Summary:   summary,
-		Fields:    fields,
+		Fields:    clonedFields,
 	})
 }
 

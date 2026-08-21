@@ -425,7 +425,7 @@ func (s *Service) claimBinding(ctx context.Context, bindingID string, update Upd
 	if err != nil {
 		return app.NotificationBinding{}, false, false, err
 	}
-	s.store.AddAudit(app.AuditEvent{
+	recordAudit(ctx, s.store, app.AuditEvent{
 		Actor:   "telegram",
 		Type:    "telegram.binding.claimed",
 		Summary: "Claimed Telegram binding from a private chat",

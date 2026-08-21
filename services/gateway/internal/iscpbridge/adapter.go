@@ -461,10 +461,17 @@ func (a *GatewayAdapter) resumeEvents(ctx context.Context, req Request, principa
 	if limit <= 0 || limit > 200 {
 		limit = 200
 	}
-	stored := a.store.EventsAfter(req.SessionID, strings.TrimSpace(payload.Cursor))
+	stored, err := a.store.EventsAfter(ctx, req.SessionID, strings.TrimSpace(payload.Cursor))
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "events are temporarily unavailable", true), now)
+	}
 	if payload.Cursor != "" {
+		allEvents, err := a.store.EventsAfter(ctx, req.SessionID, "")
+		if err != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "events are temporarily unavailable", true), now)
+		}
 		found := false
-		for _, event := range a.store.EventsAfter(req.SessionID, "") {
+		for _, event := range allEvents {
 			if event.ID == payload.Cursor {
 				found = true
 				break

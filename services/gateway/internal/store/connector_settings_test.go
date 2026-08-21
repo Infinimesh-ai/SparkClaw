@@ -40,8 +40,8 @@ func TestMemoryStoreConnectorSettingUsesCASAndOwnerScope(t *testing.T) {
 	if len(settings) != 0 {
 		t.Fatalf("connector settings crossed owner scope: %#v", settings)
 	}
-	if !hasAuditType(st.ListAudit(""), "connector.enabled") || !hasAuditType(st.ListAudit(""), "connector.disabled") {
-		t.Fatalf("connector changes were not audited: %#v", st.ListAudit(""))
+	if !hasAuditType(mustListAudit(t, st, ""), "connector.enabled") || !hasAuditType(mustListAudit(t, st, ""), "connector.disabled") {
+		t.Fatalf("connector changes were not audited: %#v", mustListAudit(t, st, ""))
 	}
 }
 

@@ -79,11 +79,11 @@ func (r *controlledPairingRepository) ListISCPOnboardings(ctx context.Context, o
 	return r.memory.ListISCPOnboardings(ctx, ownerID)
 }
 
-func (r *controlledPairingRepository) AddAudit(event app.AuditEvent) {
+func (r *controlledPairingRepository) AddAudit(ctx context.Context, event app.AuditEvent) error {
 	r.mu.Lock()
 	r.operations = append(r.operations, "audit")
 	r.mu.Unlock()
-	r.memory.AddAudit(event)
+	return r.memory.AddAudit(ctx, event)
 }
 
 type countingPairingAuthority struct {
@@ -149,8 +149,8 @@ func TestPairingDefinitePersistenceFailureDoesNotDiscloseTicket(t *testing.T) {
 	if issued.Ticket.Signature.Value != "" || !errors.Is(err, ErrUnavailable) || strings.Contains(err.Error(), "/secret/") {
 		t.Fatalf("definite failure disclosed unsafe result: issued=%#v err=%v", issued, err)
 	}
-	if service.pending != nil || authority.calls != 1 || len(repository.memory.ListAudit("")) != 0 {
-		t.Fatalf("definite failure state pending=%v authority=%d audits=%d", service.pending, authority.calls, len(repository.memory.ListAudit("")))
+	if service.pending != nil || authority.calls != 1 || len(mustPairingListAudit(t, repository.memory, "")) != 0 {
+		t.Fatalf("definite failure state pending=%v authority=%d audits=%d", service.pending, authority.calls, len(mustPairingListAudit(t, repository.memory, "")))
 	}
 }
 
@@ -192,8 +192,8 @@ func TestPairingDoesNotDiscloseTicketThatExpiresDuringPersistence(t *testing.T) 
 		t.Fatalf("expired ticket disclosed after persistence: issued=%#v err=%v pending=%v", issued, err, service.pending)
 	}
 	onboardings, listErr := repository.memory.ListISCPOnboardings(context.Background(), app.DefaultOwnerID)
-	if listErr != nil || len(onboardings) != 1 || len(repository.memory.ListAudit("")) != 1 {
-		t.Fatalf("durable receipt/audit missing after expiry: onboardings=%#v list_err=%v audits=%d", onboardings, listErr, len(repository.memory.ListAudit("")))
+	if listErr != nil || len(onboardings) != 1 || len(mustPairingListAudit(t, repository.memory, "")) != 1 {
+		t.Fatalf("durable receipt/audit missing after expiry: onboardings=%#v list_err=%v audits=%d", onboardings, listErr, len(mustPairingListAudit(t, repository.memory, "")))
 	}
 }
 

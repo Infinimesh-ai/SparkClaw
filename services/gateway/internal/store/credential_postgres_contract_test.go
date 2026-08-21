@@ -307,7 +307,7 @@ func TestPostgresCredentialRealDatabaseContract(t *testing.T) {
 	if _, found, err := st.GetCredentialSecret(t.Context(), created.Ref); err != nil || found {
 		t.Fatalf("deleted found=%v err=%v", found, err)
 	}
-	audits := st.ListAudit("")
+	audits := mustListAudit(t, st, "")
 	counts := map[string]int{}
 	for _, audit := range audits {
 		counts[audit.Type]++

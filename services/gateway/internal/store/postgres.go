@@ -49,6 +49,7 @@ type PostgresStore struct {
 	runPostgres                       ownerPostgresOps
 	documentPostgres                  ownerPostgresOps
 	approvalPostgres                  ownerPostgresOps
+	auditPostgres                     ownerPostgresOps
 	approvalCommandGate               *semaphore.Weighted
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
@@ -125,6 +126,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		runPostgres:                       pgxOwnerPostgresOps{pool: pool},
 		documentPostgres:                  pgxOwnerPostgresOps{pool: pool},
 		approvalPostgres:                  pgxOwnerPostgresOps{pool: pool},
+		auditPostgres:                     pgxOwnerPostgresOps{pool: pool},
 		approvalCommandGate:               semaphore.NewWeighted(1),
 		passiveNotificationRevs:           map[string]uint64{},
 	}
@@ -606,7 +608,7 @@ func conversationBusinessError(ctx context.Context, operation StoreOperation, co
 }
 
 func classifyConversationPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
-	if errors.Is(cause, errMessageJSONDecode) {
+	if errors.Is(cause, errMessageJSONDecode) || errors.Is(cause, errEventPayloadJSONDecode) {
 		return storeError(operation, StoreErrorCorrupt, cause)
 	}
 	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
@@ -2811,49 +2813,109 @@ func (s *PostgresStore) PruneMemories(cutoff time.Time) []app.Memory {
 	return out
 }
 
-func (s *PostgresStore) AddAudit(event app.AuditEvent) {
-	if event.ID == "" {
-		event.ID = app.NewID("audit")
+func (s *PostgresStore) AddAudit(ctx context.Context, event app.AuditEvent) error {
+	ctx, cancel := operationContext(ctx, OperationAuditAdd, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationAuditAdd, ctx); err != nil {
+		return err
 	}
-	if event.Time.IsZero() {
-		event.Time = time.Now().UTC()
+	prepared, err := prepareAuditEvent(event, time.Now().UTC())
+	if err != nil {
+		return storeError(OperationAuditAdd, StoreErrorInvalid, err)
 	}
-	_, _ = s.db.Exec(context.Background(), `
+	_, err = s.auditPostgres.Exec(ctx, `
 		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
 		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6, $7, $8)
-	`, event.ID, event.Time, event.Type, event.SessionID, event.RunID, event.Actor, event.Summary, optionalJSON(event.Fields))
+	`, prepared.ID, prepared.Time, prepared.Type, prepared.SessionID, prepared.RunID, prepared.Actor, prepared.Summary, optionalJSON(prepared.Fields))
+	if err != nil {
+		return classifyAuditPostgresError(OperationAuditAdd, ctx, err)
+	}
+	return nil
 }
 
-func (s *PostgresStore) ListAudit(sessionID string) []app.AuditEvent {
-	rows, err := s.db.Query(context.Background(), `
+func (s *PostgresStore) ListAudit(ctx context.Context, sessionID string) ([]app.AuditEvent, error) {
+	ctx, cancel := operationContext(ctx, OperationAuditList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationAuditList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.auditPostgres.Query(ctx, `
 		SELECT id, happened_at, type, coalesce(session_id, ''), coalesce(run_id, ''), actor, summary, fields
 		FROM audit_events
 		WHERE $1 = '' OR session_id = $1
-		ORDER BY happened_at DESC
+		ORDER BY happened_at DESC, id ASC
 	`, sessionID)
 	if err != nil {
-		return []app.AuditEvent{}
+		return nil, classifyAuditPostgresError(OperationAuditList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanAuditEvent)
+	events := []app.AuditEvent{}
+	for rows.Next() {
+		event, err := scanAuditEvent(rows)
+		if err != nil {
+			return nil, classifyAuditPostgresError(OperationAuditList, ctx, err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyAuditPostgresError(OperationAuditList, ctx, err)
+	}
+	return events, nil
 }
 
-func (s *PostgresStore) EventsAfter(sessionID, after string) []app.Event {
+func (s *PostgresStore) EventsAfter(ctx context.Context, sessionID, after string) ([]app.Event, error) {
+	ctx, cancel := operationContext(ctx, OperationAuditEventsAfter, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationAuditEventsAfter, ctx); err != nil {
+		return nil, err
+	}
 	var afterSeq int64
 	if after != "" {
-		_ = s.db.QueryRow(context.Background(), `SELECT seq FROM events WHERE id = $1`, after).Scan(&afterSeq)
+		err := s.auditPostgres.QueryRow(ctx, `SELECT seq FROM events WHERE id = $1`, after).Scan(&afterSeq)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []app.Event{}, nil
+		}
+		if err != nil {
+			return nil, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+		}
 	}
-	rows, err := s.db.Query(context.Background(), `
+	rows, err := s.auditPostgres.Query(ctx, `
 		SELECT id, happened_at, type, coalesce(session_id, ''), coalesce(run_id, ''), payload
 		FROM events
 		WHERE seq > $1 AND ($2 = '' OR session_id = $2)
 		ORDER BY seq ASC
 	`, afterSeq, sessionID)
 	if err != nil {
-		return []app.Event{}
+		return nil, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanEvent)
+	events := []app.Event{}
+	for rows.Next() {
+		event, err := scanEvent(rows)
+		if err != nil {
+			return nil, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+	}
+	return events, nil
+}
+
+func classifyAuditPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
+	if errors.Is(cause, errAuditFieldsJSONDecode) || errors.Is(cause, errEventPayloadJSONDecode) {
+		return storeError(operation, StoreErrorCorrupt, cause)
+	}
+	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return contextStoreError(operation, ctx, cause)
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(cause, &postgresError) {
+		return storeError(operation, StoreErrorInternal, cause)
+	}
+	return storeError(operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) MessageEventHead(ctx context.Context, sessionID string) (string, error) {
@@ -3648,7 +3710,9 @@ func scanAuditEvent(row scanner) (app.AuditEvent, error) {
 	}
 	if len(fields) > 0 {
 		event.Fields = map[string]any{}
-		_ = json.Unmarshal(fields, &event.Fields)
+		if err := json.Unmarshal(fields, &event.Fields); err != nil {
+			return app.AuditEvent{}, fmt.Errorf("%w: %v", errAuditFieldsJSONDecode, err)
+		}
 	}
 	return event, nil
 }
@@ -3660,7 +3724,13 @@ func scanEvent(row scanner) (app.Event, error) {
 	if err != nil {
 		return app.Event{}, err
 	}
-	event.Payload = decodeJSON(payload)
+	if len(payload) == 0 {
+		return event, nil
+	}
+	event.Payload, err = decodeEventPayload(event.Type, payload)
+	if err != nil {
+		return app.Event{}, fmt.Errorf("%w: %v", errEventPayloadJSONDecode, err)
+	}
 	return event, nil
 }
 

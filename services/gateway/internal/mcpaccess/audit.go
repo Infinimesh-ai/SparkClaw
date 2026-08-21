@@ -1,42 +1,48 @@
 package mcpaccess
 
 import (
+	"context"
+	"log/slog"
+
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func (s *Service) audit(typ, sessionID, runID, actor, summary string, fields map[string]any) {
+func (s *Service) audit(ctx context.Context, typ, sessionID, runID, actor, summary string, fields map[string]any) {
 	if s == nil || s.store == nil {
 		return
 	}
-	s.store.AddAudit(app.AuditEvent{Type: typ, SessionID: sessionID, RunID: runID, Actor: actor, Summary: summary, Fields: fields})
+	if err := s.store.AddAudit(context.WithoutCancel(ctx), app.AuditEvent{Type: typ, SessionID: sessionID, RunID: runID, Actor: actor, Summary: summary, Fields: fields}); err != nil {
+		slog.Warn("MCP audit unavailable", "type", typ, "run_id", runID, "code", store.StoreErrorCodeOf(err))
+	}
 }
 
-func (s *Service) auditPeerDenied(peer app.MCPPeerIdentity, typ, summary string, fields map[string]any) {
+func (s *Service) auditPeerDenied(ctx context.Context, peer app.MCPPeerIdentity, typ, summary string, fields map[string]any) {
 	fields = cloneAuditFields(fields)
 	fields["domain_id"] = peer.DomainID
 	fields["requester_device_id"] = peer.DeviceID
 	fields["requester_key_thumbprint"] = peer.KeyThumbprint
 	fields["iscp_session_id"] = peer.ISCPSessionID
-	s.audit(typ, "", "", "mcp", summary, fields)
+	s.audit(ctx, typ, "", "", "mcp", summary, fields)
 }
 
-func (s *Service) auditToolDenied(peer app.MCPPeerIdentity, binding app.MCPBinding, toolName, reason string) {
-	s.audit("mcp.tool.denied", binding.LinkedSessionID, "", binding.ActorID, "Denied an MCP tool invocation", map[string]any{
+func (s *Service) auditToolDenied(ctx context.Context, peer app.MCPPeerIdentity, binding app.MCPBinding, toolName, reason string) {
+	s.audit(ctx, "mcp.tool.denied", binding.LinkedSessionID, "", binding.ActorID, "Denied an MCP tool invocation", map[string]any{
 		"binding_id": binding.ID, "binding_revision": binding.AuthorizationRevision,
 		"requester_device_id": peer.DeviceID, "tool_name": toolName, "reason": reason,
 	})
 }
 
-func (s *Service) auditOperation(typ string, operation app.MCPOperation, peer app.MCPPeerIdentity, summary string, extra map[string]any) {
+func (s *Service) auditOperation(ctx context.Context, typ string, operation app.MCPOperation, peer app.MCPPeerIdentity, summary string, extra map[string]any) {
 	fields := operationAuditFields(operation, peer)
 	for key, value := range extra {
 		fields[key] = value
 	}
-	s.audit(typ, operationSessionID(s.store, operation), operation.Invocation.RunID, operation.Invocation.ActorID, summary, fields)
+	s.audit(ctx, typ, operationSessionID(s.store, operation), operation.Invocation.RunID, operation.Invocation.ActorID, summary, fields)
 }
 
-func auditOperationStore(st interface {
-	AddAudit(app.AuditEvent)
+func auditOperationStore(ctx context.Context, st interface {
+	AddAudit(context.Context, app.AuditEvent) error
 	GetMCPBinding(string) (app.MCPBinding, bool)
 }, typ string, operation app.MCPOperation, summary string, extra map[string]any) {
 	fields := operationAuditFields(operation, app.MCPPeerIdentity{
@@ -46,10 +52,12 @@ func auditOperationStore(st interface {
 	for key, value := range extra {
 		fields[key] = value
 	}
-	st.AddAudit(app.AuditEvent{
+	if err := st.AddAudit(context.WithoutCancel(ctx), app.AuditEvent{
 		Type: typ, SessionID: operationSessionID(st, operation), RunID: operation.Invocation.RunID,
 		Actor: operation.Invocation.ActorID, Summary: summary, Fields: fields,
-	})
+	}); err != nil {
+		slog.Warn("MCP operation audit unavailable", "type", typ, "operation_id", operation.ID, "code", store.StoreErrorCodeOf(err))
+	}
 }
 
 func operationAuditFields(operation app.MCPOperation, peer app.MCPPeerIdentity) map[string]any {

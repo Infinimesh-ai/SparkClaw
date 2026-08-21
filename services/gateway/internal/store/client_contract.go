@@ -29,17 +29,11 @@ func clonePairingCode(code app.PairingCode) app.PairingCode {
 }
 
 func cloneClientLifecycleEvent(event app.Event) app.Event {
-	switch payload := event.Payload.(type) {
-	case app.Client:
-		event.Payload = cloneClient(payload)
-	case app.PairingCode:
-		event.Payload = clonePairingCode(payload)
-	case app.NotificationBinding:
-		event.Payload = cloneNotificationBinding(payload)
-	case app.Message:
-		event.Payload = cloneMessage(payload)
+	normalized, err := normalizeEventPayload(event)
+	if err != nil {
+		return event
 	}
-	return event
+	return normalized
 }
 
 func cloneClientLifecycleEvents(events []app.Event) []app.Event {

@@ -317,7 +317,7 @@ func TestDocumentContentMutationRoutesToEditR6ThenSelectsXLSXEditor(t *testing.T
 		t.Fatalf("XLSX content mutation exposed the wrong editor: %#v", visibleToolNames(dispatch.Tools))
 	}
 	if !hasModelCallOperation(testListModelCalls(st, session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) ||
-		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.decision_resolved") {
+		!hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.decision_resolved") {
 		t.Fatalf("XLSX editor was not selected through the explicit document decision node")
 	}
 }

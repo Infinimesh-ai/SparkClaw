@@ -33,10 +33,11 @@ func (r Runtime) blockLegacyExternalSendApproval(ctx context.Context, run app.Ag
 	if err != nil {
 		return Result{}, err
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "policy", Type: "policy.legacy_external_send_blocked",
 		Summary: "Blocked a legacy destination-based approval from resuming delivery",
 		Fields:  map[string]any{"approval_id": approval.ID},
 	})
+
 	return result, nil
 }

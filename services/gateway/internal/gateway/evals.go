@@ -529,7 +529,11 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 		if memories := st.SearchMemories("fresh-retention-marker"); len(memories) != 1 || memories[0].ID != freshMemory.ID {
 			return fmt.Errorf("fresh memory was pruned unexpectedly: %#v", memories)
 		}
-		for _, event := range st.ListAudit(session.ID) {
+		audits, err := st.ListAudit(ctx, session.ID)
+		if err != nil {
+			return err
+		}
+		for _, event := range audits {
 			if event.Type == "memory.pruned" {
 				return nil
 			}

@@ -80,12 +80,13 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 		return err
 	}
 	*run = saved
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.response_media_detected",
 		Summary: string(decision.Status), Fields: map[string]any{
 			"reason_code": decision.ReasonCode, "resource_count": len(decision.Resources), "locator_count": len(run.MessageContext.MediaLocators),
 		},
 	})
+
 	return nil
 }
 
@@ -208,10 +209,10 @@ func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentR
 		},
 	})
 	if err != nil {
-		r.auditResponseMediaLookup(run, mode, term, workspacefiles.SearchResult{}, err)
+		r.auditResponseMediaLookup(ctx, run, mode, term, workspacefiles.SearchResult{}, err)
 		return responseMediaCandidate{}, "file_lookup_failed", err
 	}
-	r.auditResponseMediaLookup(run, mode, term, result, nil)
+	r.auditResponseMediaLookup(ctx, run, mode, term, result, nil)
 	if !result.Complete {
 		return responseMediaCandidate{}, "file_lookup_incomplete", errors.New("workspace traversal did not complete")
 	}
@@ -225,10 +226,10 @@ func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentR
 			},
 		})
 		if err != nil {
-			r.auditResponseMediaLookup(run, workspacefiles.MatchFuzzy, exactName, workspacefiles.SearchResult{}, err)
+			r.auditResponseMediaLookup(ctx, run, workspacefiles.MatchFuzzy, exactName, workspacefiles.SearchResult{}, err)
 			return responseMediaCandidate{}, "file_lookup_failed", err
 		}
-		r.auditResponseMediaLookup(run, workspacefiles.MatchFuzzy, exactName, result, nil)
+		r.auditResponseMediaLookup(ctx, run, workspacefiles.MatchFuzzy, exactName, result, nil)
 		if !result.Complete {
 			return responseMediaCandidate{}, "file_lookup_incomplete", errors.New("workspace traversal did not complete")
 		}
@@ -239,7 +240,7 @@ func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentR
 	return responseMediaCandidate{relPath: result.Matches[0].RelPath, name: result.Matches[0].Name}, "", nil
 }
 
-func (r Runtime) auditResponseMediaLookup(run app.AgentRun, mode workspacefiles.MatchMode, term string, result workspacefiles.SearchResult, searchErr error) {
+func (r Runtime) auditResponseMediaLookup(ctx context.Context, run app.AgentRun, mode workspacefiles.MatchMode, term string, result workspacefiles.SearchResult, searchErr error) {
 	digest := sha256.Sum256([]byte(strings.TrimSpace(term)))
 	fields := map[string]any{
 		"query_digest": hex.EncodeToString(digest[:]), "stage": mode, "match_count": result.Total,
@@ -253,10 +254,11 @@ func (r Runtime) auditResponseMediaLookup(run app.AgentRun, mode workspacefiles.
 	if searchErr != nil {
 		fields["reason_code"] = "file_lookup_failed"
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.response_media_lookup",
 		Summary: string(mode), Fields: fields,
 	})
+
 }
 
 func governedResponseMediaRoot(root string) (string, error) {

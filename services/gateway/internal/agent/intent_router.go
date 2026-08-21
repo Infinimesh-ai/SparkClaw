@@ -74,7 +74,7 @@ func (r Runtime) routeIntent(ctx context.Context, sessionID, runID, content stri
 }
 
 func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, error) {
-	if routing, mediaOnly, err := r.routeMediaOnlyMessage(sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
+	if routing, mediaOnly, err := r.routeMediaOnlyMessage(ctx, sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
 		return routing, err
 	}
 	if r.semanticRouter == nil || r.semanticRouter.graph == nil {
@@ -155,7 +155,7 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if err := r.capabilities.ValidateDecision(route); err != nil {
 		return IntentRoutingOutput{}, err
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: runID, Actor: "semantic-router", Type: "capability.routed",
 		Summary: decision.ReasonCode,
 		Fields: map[string]any{
@@ -165,10 +165,11 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 			"capability_path": route.CapabilityPath, "explicit_external": delivery.ExplicitExternal,
 		},
 	})
+
 	return IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion}, nil
 }
 
-func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
+func (r Runtime) routeMediaOnlyMessage(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
 	if strings.TrimSpace(ownerText) != "" || (len(resources) == 0 && len(locators) == 0) {
 		return IntentRoutingOutput{}, false, nil
 	}
@@ -196,7 +197,7 @@ func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resou
 	if err := r.capabilities.ValidateDecision(route); err != nil {
 		return IntentRoutingOutput{}, true, err
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: runID, Actor: "message-router", Type: "capability.routed",
 		Summary: "media_only_message",
 		Fields: map[string]any{
@@ -204,6 +205,7 @@ func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resou
 			"route_status": route.Status, "capability_path": route.CapabilityPath, "route_source": "message_content",
 		},
 	})
+
 	return IntentRoutingOutput{Route: route}, true, nil
 }
 

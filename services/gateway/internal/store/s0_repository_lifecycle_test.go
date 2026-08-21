@@ -112,8 +112,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "memory_candidate.created", eventType: "memory_candidate.created",
 	},
 	"AuditRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.AddAudit(app.AuditEvent{ID: "audit-lifecycle", Type: "s0.audit.supplied", Time: time.Now().UTC()})
+		mutate: func(t *testing.T, st Store) {
+			mustAddAudit(t, st, app.AuditEvent{ID: "audit-lifecycle", Type: "s0.audit.supplied", Time: time.Now().UTC()})
 		},
 		auditType: "s0.audit.supplied",
 	},
@@ -139,17 +139,17 @@ func TestS0BackendNeutralRepositoryLifecycleEvidence(t *testing.T) {
 		t.Run(repository, func(t *testing.T) {
 			for _, backend := range newS0RepositoryBackends(t) {
 				t.Run(backend.name, func(t *testing.T) {
-					beforeAudits := len(backend.store.ListAudit(""))
-					beforeEvents := len(backend.store.EventsAfter("", ""))
+					beforeAudits := len(mustListAudit(t, backend.store, ""))
+					beforeEvents := len(mustEventsAfter(t, backend.store, "", ""))
 					lifecycle.mutate(t, backend.store)
 					if lifecycle.auditType != "" {
-						audits := backend.store.ListAudit("")
+						audits := mustListAudit(t, backend.store, "")
 						if len(audits) <= beforeAudits || !hasAuditType(audits, lifecycle.auditType) {
 							t.Fatalf("%s did not append audit %q: %#v", repository, lifecycle.auditType, audits)
 						}
 					}
 					if lifecycle.eventType != "" {
-						events := backend.store.EventsAfter("", "")
+						events := mustEventsAfter(t, backend.store, "", "")
 						if len(events) <= beforeEvents || !hasEventType(events, lifecycle.eventType) {
 							t.Fatalf("%s did not append event %q: %#v", repository, lifecycle.eventType, events)
 						}

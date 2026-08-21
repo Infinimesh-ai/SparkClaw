@@ -209,8 +209,8 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"pat
 	if result.ToolCalls[0].CompletedAt == nil || modelCalls[0].StartedAt.Before(*result.ToolCalls[0].CompletedAt) {
 		t.Fatalf("editor model call started before the fixed localization read completed: call=%#v models=%#v", result.ToolCalls[0], modelCalls)
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow.direct_tool_invoked") {
-		t.Fatalf("direct localization read was not audited: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.direct_tool_invoked") {
+		t.Fatalf("direct localization read was not audited: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 

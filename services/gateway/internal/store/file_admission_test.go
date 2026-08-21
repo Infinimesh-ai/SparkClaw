@@ -64,6 +64,7 @@ var migratedFileAdmissions = map[string]string{
 	"SaveDocumentRecord": "admitMigrated", "GetDocumentRecord": "admitMigrated", "ListDocumentRecords": "admitMigrated",
 	"SaveApproval": "admitMigrated", "GetApproval": "admitMigrated", "FindApprovalByExternalRef": "admitMigrated",
 	"UpdatePendingApproval": "admitMigrated", "ResolveApproval": "admitMigrated", "ListApprovals": "admitMigrated",
+	"AddAudit": "admitMigrated", "ListAudit": "admitMigrated", "EventsAfter": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

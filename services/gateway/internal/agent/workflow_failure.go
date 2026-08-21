@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -90,7 +91,7 @@ func publicWorkflowFailureMessage(code workflowFailureCode) string {
 	}
 }
 
-func (r Runtime) auditWorkflowExecutionFailure(sessionID, runID, eventType string, code workflowFailureCode, diagnostic string, fields map[string]any) {
+func (r Runtime) auditWorkflowExecutionFailure(ctx context.Context, sessionID, runID, eventType string, code workflowFailureCode, diagnostic string, fields map[string]any) {
 	if fields == nil {
 		fields = map[string]any{}
 	}
@@ -98,7 +99,7 @@ func (r Runtime) auditWorkflowExecutionFailure(sessionID, runID, eventType strin
 	if strings.TrimSpace(diagnostic) != "" {
 		fields["diagnostic"] = diagnostic
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     runID,
 		Actor:     "runtime",
@@ -106,4 +107,5 @@ func (r Runtime) auditWorkflowExecutionFailure(sessionID, runID, eventType strin
 		Summary:   "Workflow execution failed inside its runtime boundary",
 		Fields:    fields,
 	})
+
 }

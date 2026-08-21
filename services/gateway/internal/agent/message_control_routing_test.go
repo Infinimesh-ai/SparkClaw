@@ -222,8 +222,8 @@ func TestResolvedMessageControlCannotExecuteUnmatchedBusinessRoute(t *testing.T)
 	if result.Run.MessageContext == nil || result.Run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || result.Run.MessageContext.ReturnRoute.EndpointID != "endpoint_exact" {
 		t.Fatalf("resolved endpoint was not frozen in ReturnRoute: %#v", result.Run.MessageContext)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "message.control.routed", "status", TargetResolved) {
-		t.Fatalf("typed message control audit is missing: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "message.control.routed", "status", TargetResolved) {
+		t.Fatalf("typed message control audit is missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	if len(requests) != 1 || requests[0].SessionID != session.ID || requests[0].Directive != directive {
 		t.Fatalf("production handler did not pass the exact typed directive: %#v", requests)
@@ -354,14 +354,16 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
-	st.AddAudit(app.AuditEvent{
+	if err := st.AddAudit(t.Context(), app.AuditEvent{
 		SessionID: session.ID, RunID: run.ID, Actor: "message_control", Type: "message.control.routed", Summary: string(TargetResolved),
 		Fields: map[string]any{
 			"status": TargetResolved, "resolved_endpoint_id": "endpoint_document", "owner_id": session.OwnerID,
 			"actor_id": session.OwnerID, "envelope_id": "env_document", "idempotency_key": "message_document",
 			"correlation_id": session.ID, "causation_id": "cause_document",
 		},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	definition, ok := runtime.tools.Definition("docx.replace_paragraph")
 	if !ok {
 		t.Fatal("docx editor definition is unavailable")

@@ -152,14 +152,14 @@ func TestSessionRepositoryLifecycleRowsAreAtomic(t *testing.T) {
 	if !sessionsEqual(deleted, updated) {
 		t.Fatalf("deleted session = %#v, want %#v", deleted, updated)
 	}
-	if scoped := store.ListAudit(session.ID); len(scoped) != 0 {
+	if scoped := mustListAudit(t, store, session.ID); len(scoped) != 0 {
 		t.Fatalf("deleted session retained scoped audit: %#v", scoped)
 	}
-	if scoped := store.EventsAfter(session.ID, ""); len(scoped) != 0 {
+	if scoped := mustEventsAfter(t, store, session.ID, ""); len(scoped) != 0 {
 		t.Fatalf("deleted session retained scoped events: %#v", scoped)
 	}
-	audits := store.ListAudit("")
-	events := store.EventsAfter("", "")
+	audits := mustListAudit(t, store, "")
+	events := mustEventsAfter(t, store, "", "")
 	if len(audits) != 1 || audits[0].Type != "session.deleted" || audits[0].SessionID != "" ||
 		len(events) != 1 || events[0].Type != "session.deleted" || events[0].SessionID != "" {
 		t.Fatalf("replacement lifecycle audit=%#v events=%#v", audits, events)

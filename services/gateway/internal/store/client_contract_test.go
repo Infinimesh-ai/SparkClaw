@@ -345,11 +345,11 @@ func TestClientRepositoryOrderingLifecycleAndEventPointerIsolation(t *testing.T)
 				t.Fatal(err)
 			}
 
-			events := repository.EventsAfter("", "")
+			events := mustEventsAfter(t, repository, "", "")
 			if got := eventTypes(events); !slices.Equal(got, []string{"pairing_code.created", "client.saved", "pairing_code.claimed", "client.revoked"}) {
 				t.Fatalf("event order = %v", got)
 			}
-			audits := repository.ListAudit("")
+			audits := mustListAudit(t, repository, "")
 			auditTypes := make([]string, 0, len(audits))
 			for _, audit := range audits {
 				auditTypes = append(auditTypes, audit.Type)
@@ -374,7 +374,7 @@ func TestClientRepositoryOrderingLifecycleAndEventPointerIsolation(t *testing.T)
 			originalRevoked := *revokedPayload.RevokedAt
 			*claimedPayload.ClaimedAt = claimedPayload.ClaimedAt.Add(time.Hour)
 			*revokedPayload.RevokedAt = revokedPayload.RevokedAt.Add(time.Hour)
-			fresh := repository.EventsAfter("", "")
+			fresh := mustEventsAfter(t, repository, "", "")
 			freshClaimed := fresh[2].Payload.(app.PairingCode)
 			freshRevoked := fresh[3].Payload.(app.Client)
 			if !freshClaimed.ClaimedAt.Equal(originalClaimed) || !freshRevoked.RevokedAt.Equal(originalRevoked) || !revoked.RevokedAt.Equal(originalRevoked) {

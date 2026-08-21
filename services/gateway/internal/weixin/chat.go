@@ -170,7 +170,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		inbound.Binding.BaseURL,
 		notification.TypingStatusTyping,
 	); err != nil {
-		d.auditTypingFailure(chatSession, inbound, "start", err)
+		d.auditTypingFailure(ctx, chatSession, inbound, "start", err)
 	}
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -182,7 +182,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 			inbound.Binding.BaseURL,
 			notification.TypingStatusCancel,
 		); err != nil {
-			d.auditTypingFailure(chatSession, inbound, "cancel", err)
+			d.auditTypingFailure(ctx, chatSession, inbound, "cancel", err)
 		}
 	}()
 
@@ -370,7 +370,7 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 		chatSession.LastContextToken = inbound.ContextToken
 	}
 	chatSession = d.store.SaveExternalChatSession(chatSession)
-	d.store.AddAudit(app.AuditEvent{
+	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: session.ID,
 		Actor:     "gateway",
 		Type:      "weixin_chat.cleared",
@@ -587,8 +587,8 @@ func (d *Dispatcher) replyRecipient(inbound InboundMessage) string {
 	return strings.TrimSpace(inbound.Binding.ExternalUserID)
 }
 
-func (d *Dispatcher) auditTypingFailure(chatSession app.ExternalChatSession, inbound InboundMessage, phase string, err error) {
-	d.store.AddAudit(app.AuditEvent{
+func (d *Dispatcher) auditTypingFailure(ctx context.Context, chatSession app.ExternalChatSession, inbound InboundMessage, phase string, err error) {
+	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: chatSession.LinkedSessionID,
 		Actor:     "gateway",
 		Type:      "weixin_chat.typing_failed",

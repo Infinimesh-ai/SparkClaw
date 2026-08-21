@@ -1378,8 +1378,8 @@ func TestMemoryRetentionPrunesExpiredMemories(t *testing.T) {
 	if oldMatches := st.SearchMemories("old retention"); len(oldMatches) != 0 {
 		t.Fatalf("old memory remained in store: %#v", oldMatches)
 	}
-	if !hasGatewayAuditType(st.ListAudit(session.ID), "memory.pruned") {
-		t.Fatalf("retention prune was not audited: %#v", st.ListAudit(session.ID))
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, session.ID), "memory.pruned") {
+		t.Fatalf("retention prune was not audited: %#v", mustGatewayListAudit(t, st, session.ID))
 	}
 }
 
@@ -1445,8 +1445,8 @@ func TestRunFeedbackPersistsAndRefreshesTrace(t *testing.T) {
 	if len(refreshed.Feedback) != 1 || refreshed.Feedback[0].Correction != feedback.Correction {
 		t.Fatalf("trace did not include feedback: %#v", refreshed.Feedback)
 	}
-	if !hasGatewayAuditType(st.ListAudit(sessionID), "run_feedback.saved") {
-		t.Fatalf("feedback audit event missing: %#v", st.ListAudit(sessionID))
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, sessionID), "run_feedback.saved") {
+		t.Fatalf("feedback audit event missing: %#v", mustGatewayListAudit(t, st, sessionID))
 	}
 }
 
@@ -1489,8 +1489,8 @@ func TestManualToolInvokeRequiresApprovalForDangerousTool(t *testing.T) {
 	if verifier["lane"] != "deep" || verifier["required_user_confirmation"] != true {
 		t.Fatalf("manual verifier decision incomplete: %#v", verifier)
 	}
-	if !hasGatewayAuditType(st.ListAudit(sessionID), "verifier.deep_check") {
-		t.Fatalf("manual verifier audit event missing: %#v", st.ListAudit(sessionID))
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, sessionID), "verifier.deep_check") {
+		t.Fatalf("manual verifier audit event missing: %#v", mustGatewayListAudit(t, st, sessionID))
 	}
 }
 
@@ -2472,7 +2472,7 @@ func TestOwnerProfileEndpointUpdatesProfile(t *testing.T) {
 	if updated.ID != app.DefaultOwnerID || updated.DisplayName != "Local Owner" || updated.Email != "owner@example.test" || updated.Preferences["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("owner profile update mismatch: %#v", updated)
 	}
-	if !hasGatewayAuditType(st.ListAudit(""), "owner_profile.updated") {
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, ""), "owner_profile.updated") {
 		t.Fatalf("owner update was not audited")
 	}
 

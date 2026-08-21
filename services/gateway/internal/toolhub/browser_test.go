@@ -310,8 +310,8 @@ func TestBrowserReadAutonomousAuthChallengeStartsVisibleHandoff(t *testing.T) {
 	if adapter.callTool != "browser.open" || stringArg(adapter.callArgs, "browser_mode", "") != "collaborative" || !boolArg(adapter.callArgs, "surface_visible", false) {
 		t.Fatalf("handoff did not open visible browser page: tool=%s args=%#v", adapter.callTool, adapter.callArgs)
 	}
-	if !hasToolhubAuditType(st.ListAudit(""), "browser_auth.challenge_detected") || !hasToolhubAuditType(st.ListAudit(""), "browser_auth.handoff_started") {
-		t.Fatalf("missing browser auth audit events: %#v", st.ListAudit(""))
+	if !hasToolhubAuditType(mustToolHubListAudit(t, st, ""), "browser_auth.challenge_detected") || !hasToolhubAuditType(mustToolHubListAudit(t, st, ""), "browser_auth.handoff_started") {
+		t.Fatalf("missing browser auth audit events: %#v", mustToolHubListAudit(t, st, ""))
 	}
 }
 
@@ -435,8 +435,8 @@ func TestBrowserReadCompletedHandoffKeepsUnknownEvidenceInconclusive(t *testing.
 	if stringArg(out, "browser_auth_status", "") != "profile_inconclusive" || boolArg(out, "login_handoff_required", true) {
 		t.Fatalf("unknown evidence must remain inconclusive without reopening login: %#v", out)
 	}
-	if !hasToolhubAuditType(st.ListAudit(""), "browser_auth.evidence_inconclusive") {
-		t.Fatalf("missing inconclusive auth audit: %#v", st.ListAudit(""))
+	if !hasToolhubAuditType(mustToolHubListAudit(t, st, ""), "browser_auth.evidence_inconclusive") {
+		t.Fatalf("missing inconclusive auth audit: %#v", mustToolHubListAudit(t, st, ""))
 	}
 }
 

@@ -196,8 +196,8 @@ func TestServiceClaimsFirstFreshPrivateMessage(t *testing.T) {
 	if bot.sentCount() != 1 || runtime.callCount() != 0 {
 		t.Fatalf("another chat crossed claimed binding: replies=%d calls=%d", bot.sentCount(), runtime.callCount())
 	}
-	if !hasAuditType(st.ListAudit(""), "telegram.binding.claimed") {
-		t.Fatalf("binding claim was not audited: %#v", st.ListAudit(""))
+	if !hasAuditType(mustTelegramListAudit(t, st, ""), "telegram.binding.claimed") {
+		t.Fatalf("binding claim was not audited: %#v", mustTelegramListAudit(t, st, ""))
 	}
 }
 

@@ -175,7 +175,7 @@ func (r Runtime) runWorkflowMessageContentStep(ctx context.Context, run app.Agen
 	if run.Workflow == nil || run.Workflow.Route.Slots.Operation != app.RouteOperationPublish || run.MessageContext == nil {
 		result := workflowExecutionResult{Halted: true}
 		result.fail(workflowFailureMessageContentInvalid, errors.New("ordinary message workflow lost its normalized request content"))
-		r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	if run.Workflow.Plan.ProfileRevision == 3 {
@@ -185,7 +185,7 @@ func (r Runtime) runWorkflowMessageContentStep(ctx context.Context, run app.Agen
 	if err != nil {
 		result := workflowExecutionResult{Halted: true}
 		result.fail(workflowFailureMessageContentInvalid, err)
-		r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	run.MessageContext.RequestContent = content
@@ -194,11 +194,12 @@ func (r Runtime) runWorkflowMessageContentStep(ctx context.Context, run app.Agen
 		result.fail(workflowFailureStateInvalid, err)
 		return result
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.message_content_governed",
 		Summary: "Prepared normalized multipart message content for the shared result path",
 		Fields:  map[string]any{"part_count": len(content.Parts), "content_kinds": messageContentKinds(content)},
 	})
+
 	return workflowExecutionResult{FinalAnswer: publishedMessageSummary(content), Completed: true}
 }
 
@@ -300,14 +301,14 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 	if err != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
 		result.fail(workflowFailureModelUnavailable, err)
-		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.model_answer_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow.model_answer_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	answer, answerErr := workflowFinalAnswerContent(chat.Content)
 	if answerErr != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
 		result.fail(workflowFailureConversationOutputInvalid, answerErr)
-		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.model_answer_invalid", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow.model_answer_invalid", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	return workflowExecutionResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}

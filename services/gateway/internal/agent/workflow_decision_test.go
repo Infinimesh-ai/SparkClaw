@@ -30,7 +30,7 @@ func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 		t.Fatalf("invalid decision output did not retry on the document workflow lane: %#v", testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID))
 	}
 	projections := []app.AuditEvent{}
-	for _, event := range st.ListAudit(dispatch.Run.SessionID) {
+	for _, event := range mustAgentListAudit(t, st, dispatch.Run.SessionID) {
 		if event.RunID == dispatch.Run.ID && event.Type == "workflow.evidence_projection.created" &&
 			event.Fields["semantic_variable"] == "eligible_document_operation" {
 			projections = append(projections, event)

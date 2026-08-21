@@ -398,7 +398,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 					readCalls++
 				}
 			}
-			for _, event := range st.ListAudit(session.ID) {
+			for _, event := range mustAgentListAudit(t, st, session.ID) {
 				if event.RunID != run.ID {
 					continue
 				}

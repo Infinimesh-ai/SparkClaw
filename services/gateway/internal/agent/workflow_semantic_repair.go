@@ -72,7 +72,7 @@ func (r Runtime) prepareWorkflowSemanticPlan(ctx context.Context, runID string, 
 	}
 	effectiveMutationItems := pptxSemanticMutationItemCount(operation, prepared.Args)
 	if inputMutationItems > effectiveMutationItems {
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: run.SessionID, RunID: run.ID, Actor: "runtime",
 			Type: "workflow.semantic_output.normalized", Summary: "Removed non-mutating PPTX items before preflight",
 			Fields: map[string]any{
@@ -80,6 +80,7 @@ func (r Runtime) prepareWorkflowSemanticPlan(ctx context.Context, runID string, 
 				"effective_item_count": effectiveMutationItems, "dropped_item_count": inputMutationItems - effectiveMutationItems,
 			},
 		})
+
 	}
 	if err := r.tools.Validate(prepared.Name, prepared.Args); err != nil {
 		return prepared, nil, fmt.Errorf("PPTX mutation preflight validation failed: %w", err)

@@ -40,8 +40,8 @@ func TestWorkflowEvidenceProvisioningReadsPersistedNodeOutput(t *testing.T) {
 	if strings.Contains(provisioned.Text, "report.txt") || !strings.Contains(provisioned.Text, "first paragraph") {
 		t.Fatalf("persisted evidence was not provisioned: %s", provisioned.Text)
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.evidence_provisioned") {
-		t.Fatalf("provisioning audit is missing: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.evidence_provisioned") {
+		t.Fatalf("provisioning audit is missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 
 	call.ObservationRef = ""
@@ -298,14 +298,14 @@ func TestRollingObservationCompactionPreservesRecentEntries(t *testing.T) {
 	typedObservations := workflowObservationsFromText(observations)
 	lastTwo := append([]workflowObservation(nil), typedObservations[len(typedObservations)-2:]...)
 	budget := &workflowRunBudget{ObservationCompactionBytes: observationsBytes(typedObservations) - 1, MaxObservationBytes: observationsBytes(typedObservations) + 1}
-	compacted := runtime.compactWorkflowObservationsIfNeeded(session.ID, "run_compact", typedObservations, budget)
+	compacted := runtime.compactWorkflowObservationsIfNeeded(t.Context(), session.ID, "run_compact", typedObservations, budget)
 	if compacted[len(compacted)-2] != lastTwo[0] || compacted[len(compacted)-1] != lastTwo[1] {
 		t.Fatal("rolling compaction changed one of the newest two observations")
 	}
 	if observationsBytes(compacted) >= observationsBytes(typedObservations) || !compacted[0].Compacted || !strings.Contains(compacted[0].Text, "compacted=true") {
 		t.Fatalf("older observations were not compacted: before=%d after=%d first=%#v", observationsBytes(typedObservations), observationsBytes(compacted), compacted[0])
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.observations_compacted") {
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.observations_compacted") {
 		t.Fatal("rolling compaction audit is missing")
 	}
 }
@@ -320,7 +320,7 @@ func TestRollingObservationCompactionDoesNotTrustTextMarker(t *testing.T) {
 		{Text: "recent two"},
 	}
 	budget := &workflowRunBudget{ObservationCompactionBytes: observationsBytes(observations) - 1, MaxObservationBytes: observationsBytes(observations) + 1}
-	compacted := runtime.compactWorkflowObservationsIfNeeded(session.ID, "run_untrusted_marker", observations, budget)
+	compacted := runtime.compactWorkflowObservationsIfNeeded(t.Context(), session.ID, "run_untrusted_marker", observations, budget)
 	if !compacted[0].Compacted || compacted[0].Text == observations[0].Text {
 		t.Fatalf("untrusted marker controlled executor state: before=%#v after=%#v", observations[0], compacted[0])
 	}
@@ -387,8 +387,8 @@ func TestObservationReadStageQuotaExcludesBusinessRunAccounting(t *testing.T) {
 	if runBudget.ToolCalls != 0 || runBudget.RepeatedRun.Count != 0 {
 		t.Fatalf("support reads consumed business run accounting: %#v", runBudget)
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.observation_read_limited") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.support_assessed") {
-		t.Fatalf("support read quota/assessment audit is missing: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.observation_read_limited") || !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.support_assessed") {
+		t.Fatalf("support read quota/assessment audit is missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	if definitions := workflowDefinitionsWithoutSupport(run, nodeID, []app.ToolDefinition{primary, support}); !exactVisibleToolNames(definitions, primary.Name) {
 		t.Fatalf("support tool remained visible after quota exhaustion: %#v", visibleToolNames(definitions))
@@ -508,7 +508,7 @@ func TestWorkflowFinalizerRecordsActualEvidenceProjection(t *testing.T) {
 	}
 
 	var event *app.AuditEvent
-	for _, candidate := range st.ListAudit(session.ID) {
+	for _, candidate := range mustAgentListAudit(t, st, session.ID) {
 		if candidate.RunID == run.ID && candidate.Type == "workflow.evidence_projection.created" &&
 			candidate.Fields["semantic_variable"] == "final_answer_content" {
 			current := candidate
@@ -517,7 +517,7 @@ func TestWorkflowFinalizerRecordsActualEvidenceProjection(t *testing.T) {
 		}
 	}
 	if event == nil {
-		t.Fatalf("finalizer evidence projection audit is missing: %#v", st.ListAudit(session.ID))
+		t.Fatalf("finalizer evidence projection audit is missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	if event.Fields["claim_coverage"] != workflowCoverageComplete || event.Fields["complete_for_consumer"] != true ||
 		intLikeValue(event.Fields["model_payload_bytes"]) != len([]byte(projection.modelPayload())) ||

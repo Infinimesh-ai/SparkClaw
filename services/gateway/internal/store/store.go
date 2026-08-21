@@ -134,6 +134,12 @@ type ApprovalRepository interface {
 	ListApprovals(context.Context, string) ([]app.Approval, error)
 }
 
+type AuditRepository interface {
+	AddAudit(context.Context, app.AuditEvent) error
+	ListAudit(context.Context, string) ([]app.AuditEvent, error)
+	EventsAfter(context.Context, string, string) ([]app.Event, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -162,6 +168,7 @@ type Store interface {
 	RunRepository
 	DocumentRepository
 	ApprovalRepository
+	AuditRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -243,9 +250,6 @@ type Store interface {
 	UpdateMemory(id, kind, content string) (app.Memory, error)
 	DeleteMemory(id string) (app.Memory, error)
 	PruneMemories(cutoff time.Time) []app.Memory
-	AddAudit(event app.AuditEvent)
-	ListAudit(sessionID string) []app.AuditEvent
-	EventsAfter(sessionID, after string) []app.Event
 	SaveEvalRun(run app.EvalRun)
 	GetEvalRun(id string) (app.EvalRun, bool)
 	ListEvalRuns() []app.EvalRun
@@ -285,6 +289,9 @@ var (
 	_ ApprovalRepository       = (*MemoryStore)(nil)
 	_ ApprovalRepository       = (*FileStore)(nil)
 	_ ApprovalRepository       = (*PostgresStore)(nil)
+	_ AuditRepository          = (*MemoryStore)(nil)
+	_ AuditRepository          = (*FileStore)(nil)
+	_ AuditRepository          = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

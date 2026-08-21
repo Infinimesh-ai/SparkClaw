@@ -177,7 +177,7 @@ func (d *Dispatcher) transcribeVoice(ctx context.Context, chatSession app.Extern
 		return "", NewConnectorError(CodeVoiceUnavailable, false, err)
 	}
 	requestID := "tgvoice_" + strconv.FormatInt(messageID, 10)
-	d.store.AddAudit(app.AuditEvent{
+	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: chatSession.LinkedSessionID,
 		Actor:     "telegram",
 		Type:      "telegram.voice.transcription.started",
@@ -191,14 +191,14 @@ func (d *Dispatcher) transcribeVoice(ctx context.Context, chatSession app.Extern
 		DurationMS: durationMS,
 	})
 	if err != nil {
-		d.store.AddAudit(app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.failed", Summary: "Telegram voice transcription failed", Fields: map[string]any{"request_id": requestID}})
+		recordAudit(ctx, d.store, app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.failed", Summary: "Telegram voice transcription failed", Fields: map[string]any{"request_id": requestID}})
 		return "", NewConnectorError(CodeVoiceUnavailable, false, err)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return "", NewConnectorError(CodeVoiceUnavailable, false, errors.New("voice transcript is empty"))
 	}
-	d.store.AddAudit(app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.completed", Summary: "Telegram voice transcription completed", Fields: map[string]any{"request_id": requestID, "duration_ms": durationMS, "audio_retained": false}})
+	recordAudit(ctx, d.store, app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.completed", Summary: "Telegram voice transcription completed", Fields: map[string]any{"request_id": requestID, "duration_ms": durationMS, "audio_retained": false}})
 	return text, nil
 }
 

@@ -101,7 +101,7 @@ func TestWorkflowXLSXEvidenceUsesOwnerRequestAndAuditsSelectionCounts(t *testing
 		t.Fatalf("owner-request target was not provisioned: %s", provisioned.Text)
 	}
 	var fields map[string]any
-	for _, event := range st.ListAudit(session.ID) {
+	for _, event := range mustAgentListAudit(t, st, session.ID) {
 		if event.Type == "workflow_step.evidence_provisioned" {
 			fields = event.Fields
 		}

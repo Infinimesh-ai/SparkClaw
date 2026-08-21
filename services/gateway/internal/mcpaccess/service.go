@@ -62,7 +62,7 @@ func New(st store.Store, runtime Runtime, deliver ResultDeliverer) *Service {
 	return &Service{store: st, runtime: runtime, deliver: deliver, cancels: map[string]*operationExecution{}}
 }
 
-func (s *Service) IssueTicket(ownerID, actorID string, input IssueTicketRequest, now time.Time) (IssuedTicket, error) {
+func (s *Service) IssueTicket(ctx context.Context, ownerID, actorID string, input IssueTicketRequest, now time.Time) (IssuedTicket, error) {
 	if s == nil || s.store == nil || strings.TrimSpace(input.DomainID) == "" {
 		return IssuedTicket{}, errors.New("MCP ticket domain is required")
 	}
@@ -97,9 +97,10 @@ func (s *Service) IssueTicket(ownerID, actorID string, input IssueTicketRequest,
 	if err != nil {
 		return IssuedTicket{}, errors.New("MCP access ticket could not be persisted")
 	}
-	s.audit("mcp.access_ticket.issued", "", "", ownerID, "Issued a single-use MCP access ticket", map[string]any{
+	s.audit(ctx, "mcp.access_ticket.issued", "", "", ownerID, "Issued a single-use MCP access ticket", map[string]any{
 		"ticket_id": ticket.ID, "domain_id": ticket.DomainID, "scope": ticket.Scope, "expires_at": ticket.ExpiresAt,
 	})
+
 	public := ticket
 	public.SecretHash = ""
 	return IssuedTicket{Ticket: public, Secret: secret}, nil
@@ -159,7 +160,7 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		if strictParams(rpc.Params, &params) != nil || strings.TrimSpace(params.Ticket) == "" {
 			return nil, invalidParams("ticket is required")
 		}
-		binding, err := s.RedeemAccessTicket(params.Ticket, peer)
+		binding, err := s.RedeemAccessTicket(ctx, params.Ticket, peer)
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32002, Message: "MCP access ticket is invalid or unavailable"}
 		}
@@ -167,11 +168,11 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 	}
 	binding, ok := s.store.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
 	if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
-		s.auditPeerDenied(peer, "mcp.binding.denied", "Rejected an MCP request without an active binding", map[string]any{"reason": "active_binding_required"})
+		s.auditPeerDenied(ctx, peer, "mcp.binding.denied", "Rejected an MCP request without an active binding", map[string]any{"reason": "active_binding_required"})
 		return nil, &JSONRPCError{Code: -32003, Message: "active MCP binding is required"}
 	}
 	if !s.enabled(binding.OwnerID) {
-		s.auditToolDenied(peer, binding, rpc.Method, "connector_disabled")
+		s.auditToolDenied(ctx, peer, binding, rpc.Method, "connector_disabled")
 		return nil, &JSONRPCError{Code: -32003, Message: "MCP connector is disabled"}
 	}
 	previousISCPSessionID := binding.LatestISCPSessionID
@@ -179,18 +180,20 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		return nil, &JSONRPCError{Code: -32003, Message: "MCP binding is unavailable"}
 	}
 	if previousISCPSessionID != "" && previousISCPSessionID != peer.ISCPSessionID {
-		s.audit("mcp.binding.reconnected", binding.LinkedSessionID, "", binding.ActorID, "Observed an MCP binding on a new authenticated ISCP session", map[string]any{
+		s.audit(ctx, "mcp.binding.reconnected", binding.LinkedSessionID, "", binding.ActorID, "Observed an MCP binding on a new authenticated ISCP session", map[string]any{
 			"binding_id": binding.ID, "requester_device_id": peer.DeviceID, "iscp_session_id": peer.ISCPSessionID,
 			"binding_revision": binding.AuthorizationRevision,
 		})
+
 	}
 	switch rpc.Method {
 	case "tools/list":
 		tools := s.toolsForBinding(binding)
-		s.audit("mcp.tools.listed", binding.LinkedSessionID, "", binding.ActorID, "Listed the MCP tools currently authorized for a binding", map[string]any{
+		s.audit(ctx, "mcp.tools.listed", binding.LinkedSessionID, "", binding.ActorID, "Listed the MCP tools currently authorized for a binding", map[string]any{
 			"binding_id": binding.ID, "requester_device_id": peer.DeviceID, "binding_revision": binding.AuthorizationRevision,
 			"scope": binding.Scope, "tool_count": len(tools),
 		})
+
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
 		var params CallToolParams
@@ -206,7 +209,7 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 // RedeemAccessTicket atomically turns one copy-once secret into a binding for
 // an identity authenticated by the active transport. ISCP and the explicitly
 // enabled direct LAN transport provide that identity through different mechanisms.
-func (s *Service) RedeemAccessTicket(secret string, peer app.MCPPeerIdentity) (app.MCPBinding, error) {
+func (s *Service) RedeemAccessTicket(ctx context.Context, secret string, peer app.MCPPeerIdentity) (app.MCPBinding, error) {
 	if s == nil || s.store == nil || strings.TrimSpace(secret) == "" || peer.DomainID == "" || peer.DeviceID == "" ||
 		peer.KeyThumbprint == "" || peer.ISCPSessionID == "" {
 		return app.MCPBinding{}, store.ErrMCPAccessTicketInvalid
@@ -215,21 +218,23 @@ func (s *Service) RedeemAccessTicket(secret string, peer app.MCPPeerIdentity) (a
 	secretHash := hex.EncodeToString(hash[:])
 	ticket, found := s.store.FindMCPAccessTicketBySecretHash(secretHash)
 	if !found || !s.enabled(ticket.OwnerID) {
-		s.auditPeerDenied(peer, "mcp.access_ticket.redeem_denied", "MCP access ticket redemption was denied", map[string]any{"reason": "invalid_or_unavailable"})
+		s.auditPeerDenied(ctx, peer, "mcp.access_ticket.redeem_denied", "MCP access ticket redemption was denied", map[string]any{"reason": "invalid_or_unavailable"})
 		return app.MCPBinding{}, store.ErrMCPAccessTicketInvalid
 	}
 	binding, err := s.store.RedeemMCPAccessTicket(secretHash, peer, time.Now().UTC())
 	if err != nil {
-		s.auditPeerDenied(peer, "mcp.access_ticket.redeem_denied", "MCP access ticket redemption was denied", map[string]any{
+		s.auditPeerDenied(ctx, peer, "mcp.access_ticket.redeem_denied", "MCP access ticket redemption was denied", map[string]any{
 			"ticket_id": ticket.ID, "reason": "invalid_or_consumed",
 		})
+
 		return app.MCPBinding{}, store.ErrMCPAccessTicketInvalid
 	}
-	s.audit("mcp.binding.activated", binding.LinkedSessionID, "", binding.ActorID, "Activated an MCP binding for an authenticated external device", map[string]any{
+	s.audit(ctx, "mcp.binding.activated", binding.LinkedSessionID, "", binding.ActorID, "Activated an MCP binding for an authenticated external device", map[string]any{
 		"ticket_id": ticket.ID, "binding_id": binding.ID, "domain_id": peer.DomainID,
 		"requester_device_id": peer.DeviceID, "requester_key_thumbprint": peer.KeyThumbprint,
 		"iscp_session_id": peer.ISCPSessionID, "binding_revision": binding.AuthorizationRevision,
 	})
+
 	return binding, nil
 }
 
@@ -247,16 +252,16 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 		return s.operationTool(ctx, peer, binding, params)
 	}
 	if params.Name != conversationToolName || binding.Scope != app.MCPAccessConversation {
-		s.auditToolDenied(peer, binding, params.Name, "tool_not_available")
+		s.auditToolDenied(ctx, peer, binding, params.Name, "tool_not_available")
 		return nil, &JSONRPCError{Code: -32602, Message: "tool is not available to this MCP binding"}
 	}
 	request, err := conversationArguments(params.Arguments)
 	if err != nil {
-		s.auditToolDenied(peer, binding, params.Name, "invalid_arguments")
+		s.auditToolDenied(ctx, peer, binding, params.Name, "invalid_arguments")
 		return nil, invalidParams(err.Error())
 	}
 	if transport.IdempotencyKey == "" {
-		s.auditToolDenied(peer, binding, params.Name, "idempotency_key_required")
+		s.auditToolDenied(ctx, peer, binding, params.Name, "idempotency_key_required")
 		return nil, invalidParams("idempotency_key is required for tools/call")
 	}
 	argumentRaw, _ := json.Marshal(params.Arguments)
@@ -295,19 +300,20 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 	})
 	s.mu.Unlock()
 	if errors.Is(createErr, store.ErrMCPOperationConflict) {
-		s.auditToolDenied(peer, binding, params.Name, "idempotency_conflict")
+		s.auditToolDenied(ctx, peer, binding, params.Name, "idempotency_conflict")
 		return nil, &JSONRPCError{Code: -32004, Message: createErr.Error()}
 	}
 	if createErr != nil {
 		return nil, &JSONRPCError{Code: -32603, Message: "MCP operation could not be persisted"}
 	}
 	if !created {
-		s.auditOperation("mcp.operation.replayed", stored, peer, "Returned the durable result for an idempotent MCP invocation", map[string]any{"outcome": stored.State})
+		s.auditOperation(ctx, "mcp.operation.replayed", stored, peer, "Returned the durable result for an idempotent MCP invocation", map[string]any{"outcome": stored.State})
 		return operationCallResult(stored, true), nil
 	}
-	s.auditOperation("mcp.operation.created", stored, peer, "Created a durable MCP invocation", map[string]any{
+	s.auditOperation(ctx, "mcp.operation.created", stored, peer, "Created a durable MCP invocation", map[string]any{
 		"scope": binding.Scope,
 	})
+
 	ref := app.MCPInvocationRef{InvocationID: invocationID, OperationID: operationID, BindingRef: binding.ID, BindingRevision: binding.AuthorizationRevision, RequesterDeviceID: peer.DeviceID}
 	request.Invocation = ref
 	ingress := app.MessageIngressContext{
@@ -412,7 +418,7 @@ func (s *Service) operationTool(ctx context.Context, peer app.MCPPeerIdentity, b
 			}
 		}
 	}
-	s.auditOperation(operationAuditType(params.Name), operation, peer, "Processed a binding-scoped MCP operation request", map[string]any{"outcome": operation.State})
+	s.auditOperation(ctx, operationAuditType(params.Name), operation, peer, "Processed a binding-scoped MCP operation request", map[string]any{"outcome": operation.State})
 	if params.Name == "sparkclaw.operation.result" && !operationTerminal(operation.State) {
 		return callToolResult(map[string]any{"operation": operation, "ready": false}), nil
 	}
@@ -578,9 +584,10 @@ func finalizeRevokedOperations(ctx context.Context, st store.Store, operations [
 		if err := rejectPendingApprovals(ctx, st, operation); err != nil {
 			return err
 		}
-		auditOperationStore(st, "mcp.operation.revoked", operation, "Revoked an MCP operation with its binding", map[string]any{
+		auditOperationStore(ctx, st, "mcp.operation.revoked", operation, "Revoked an MCP operation with its binding", map[string]any{
 			"outcome": operation.State, "error_code": operation.ErrorCode,
 		})
+
 	}
 	return nil
 }
@@ -631,9 +638,10 @@ func (s *Service) syncOperationFromResultWithContent(ctx context.Context, id str
 	if !changed {
 		return nil
 	}
-	auditOperationStore(s.store, "mcp.operation.result_recorded", updated, "Recorded a Workflow result for an MCP operation", map[string]any{
+	auditOperationStore(ctx, s.store, "mcp.operation.result_recorded", updated, "Recorded a Workflow result for an MCP operation", map[string]any{
 		"outcome": updated.State, "error_code": updated.ErrorCode,
 	})
+
 	return nil
 }
 
@@ -721,7 +729,7 @@ func (s *Service) beginApprovalExecution(ctx context.Context, runID string) (app
 		return updated, errors.New("MCP operation is no longer available for approved execution")
 	}
 	if changed {
-		auditOperationStore(s.store, "mcp.operation.approval_resumed", updated, "Resumed an MCP operation after owner approval", map[string]any{"outcome": updated.State})
+		auditOperationStore(ctx, s.store, "mcp.operation.approval_resumed", updated, "Resumed an MCP operation after owner approval", map[string]any{"outcome": updated.State})
 	}
 	return updated, nil
 }
@@ -744,7 +752,7 @@ func (s *Service) RestoreApprovalRequired(ctx context.Context, runID string) err
 		return err
 	}
 	if changed {
-		auditOperationStore(s.store, "mcp.operation.approval_required", updated, "Parked an MCP operation for another owner approval", map[string]any{"outcome": updated.State})
+		auditOperationStore(ctx, s.store, "mcp.operation.approval_required", updated, "Parked an MCP operation for another owner approval", map[string]any{"outcome": updated.State})
 	}
 	return nil
 }
@@ -813,7 +821,7 @@ func (s *Service) finishOperationError(ctx context.Context, id, code, message st
 		if err := rejectPendingApprovals(ctx, s.store, updated); err != nil {
 			return err
 		}
-		auditOperationStore(s.store, "mcp.operation.failed", updated, "Marked an MCP operation as failed", map[string]any{"outcome": updated.State, "error_code": code})
+		auditOperationStore(ctx, s.store, "mcp.operation.failed", updated, "Marked an MCP operation as failed", map[string]any{"outcome": updated.State, "error_code": code})
 	}
 	return nil
 }
@@ -832,7 +840,7 @@ func (s *Service) finishOperationCancelled(ctx context.Context, id string) error
 		return err
 	}
 	if changed {
-		auditOperationStore(s.store, "mcp.operation.cancelled", updated, "Marked an MCP operation as cancelled", map[string]any{"outcome": updated.State})
+		auditOperationStore(ctx, s.store, "mcp.operation.cancelled", updated, "Marked an MCP operation as cancelled", map[string]any{"outcome": updated.State})
 	}
 	return nil
 }

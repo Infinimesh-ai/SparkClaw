@@ -229,16 +229,16 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0Tests("TestPostgresStoreExternalChatAndInboxParity@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
 	),
 	"DeliveryRecordRepository": s0EvidenceRow(
-		s0Tests("TestS0BackendNeutralRepositoryCharacterization/DeliveryRecordRepository/success@s0_repository_characterization_test.go", "TestMemoryStoreMessageLifecycleParity@message_lifecycle_test.go"),
+		s0Tests("TestS0BackendNeutralRepositoryCharacterization/DeliveryRecordRepository/success@s0_repository_characterization_test.go", "TestDeliveryRecordRepositoryReceiveContract@delivery_record_repository_contract_test.go", "TestDeliveryRecordRepositoryDeliveryContractAndIsolation@delivery_record_repository_contract_test.go", "TestDeliveryRecordRepositoryInboxContract@delivery_record_repository_contract_test.go"),
 		s0RepositoryTest("DeliveryRecordRepository", s0DimensionAbsence),
-		s0Tests("TestMemoryStoreMessageLifecycleParity@message_lifecycle_test.go", "TestMemoryStoreExternalChatAndInboxParity@external_chat_test.go"),
-		s0Tests("TestS0DefectEvidenceMutableAliases/DeliveryRecordRepository@s0_repository_characterization_test.go"),
-		s0Tests("TestMemoryStoreMessageLifecycleParity@message_lifecycle_test.go", "TestMemoryStoreExternalChatAndInboxParity@external_chat_test.go"),
-		s0NA("Delivery records expose lifecycle overwrite and idempotency lookup but no delete or caller-visible CAS command."),
-		s0LifecycleTest("DeliveryRecordRepository"),
-		s0Tests("TestFileStoreMessageLifecycleRoundTrip@message_lifecycle_test.go", "TestFileStoreExternalChatAndInboxParity@external_chat_test.go"),
-		s0NA("Delivery records expose no numeric revision; source/native and owner/actor/idempotency keys are the serialized dedupe boundary."),
-		s0Tests("TestPostgresStoreExternalChatAndInboxParity@postgres_test.go", s0PostgresRowsErrTest("DeliveryRecordRepository", "ListMessageReceives"), s0PostgresRowsErrTest("DeliveryRecordRepository", "ListMessageDeliveries"), s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestDeliveryRecordRepositoryReceiveContract@delivery_record_repository_contract_test.go", "TestDeliveryRecordRepositoryInboxContract@delivery_record_repository_contract_test.go"),
+		s0Tests("TestDeliveryRecordRepositoryDeliveryContractAndIsolation@delivery_record_repository_contract_test.go", "TestS0DeliveryRecordRepositoryMutableValuesAreIsolated@s0_repository_characterization_test.go"),
+		s0Tests("TestDeliveryRecordRepositoryReceiveContract@delivery_record_repository_contract_test.go", "TestDeliveryRecordRepositoryDeliveryContractAndIsolation@delivery_record_repository_contract_test.go", "TestDeliveryRecordRepositoryInboxContract@delivery_record_repository_contract_test.go"),
+		s0Tests("TestDeliveryRecordRepositoryRejectsCrossBoundIdentity@delivery_record_repository_contract_test.go"),
+		s0Tests("TestDeliveryRecordRepositoryWritesLifecycleAudit@delivery_record_repository_contract_test.go", "TestPostgresDeliveryRecordWritesUseOneTransactionAndBothIdentityLocks@delivery_record_postgres_contract_test.go"),
+		s0Tests("TestFileDeliveryRecordDefiniteFailuresRestoreCompleteState@delivery_record_file_durability_test.go", "TestFileDeliveryRecordUnknownOutcomesReconcileAndSurviveRestart@delivery_record_file_durability_test.go"),
+		s0Tests("TestDeliveryRecordRepositoryConcurrentIdempotency@delivery_record_repository_contract_test.go", "TestPostgresDeliveryRecordRepositoryConcurrentIdempotencyAndAuditAtomicity@delivery_record_postgres_contract_test.go"),
+		s0Tests("TestPostgresDeliveryRecordWritesUseOneTransactionAndBothIdentityLocks@delivery_record_postgres_contract_test.go", "TestPostgresDeliveryRecordStatementAndCommitFailureSemantics@delivery_record_postgres_contract_test.go", "TestPostgresDeliveryRecordRejectsCrossBoundIdentity@delivery_record_postgres_contract_test.go", "TestPostgresDeliveryRecordReadFailureClassification@delivery_record_postgres_contract_test.go", "TestPostgresDeliveryRecordRepositoryConcurrentIdempotencyAndAuditAtomicity@delivery_record_postgres_contract_test.go"),
 	),
 	"MCPRepository": s0EvidenceRow(
 		s0Tests("TestS0BackendNeutralRepositoryCharacterization/MCPRepository/success@s0_repository_characterization_test.go", "TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound@mcp_access_test.go"),
@@ -474,10 +474,6 @@ func addS0DynamicTestPaths(pathsByFile map[string]map[string]struct{}) {
 			repositoryPaths["TestS0BackendNeutralRepositoryCharacterization/"+repository+"/"+s0DimensionSubtestName(dimension)] = struct{}{}
 		}
 	}
-	for repository := range s0MutableAliasChecks {
-		repositoryPaths["TestS0DefectEvidenceMutableAliases/"+repository] = struct{}{}
-	}
-
 	lifecyclePaths := pathsByFile["s0_repository_lifecycle_test.go"]
 	for repository := range s0RepositoryLifecycleCases {
 		lifecyclePaths["TestS0BackendNeutralRepositoryLifecycleEvidence/"+repository] = struct{}{}

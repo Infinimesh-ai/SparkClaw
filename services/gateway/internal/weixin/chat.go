@@ -106,8 +106,14 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		if err != nil {
 			return err
 		}
-		receive, _ = receives.Begin(endpoint, externalID)
-		receive = receives.Advance(receive, "authorized", "", "")
+		receive, _, err = receives.Begin(ctx, endpoint, externalID)
+		if err != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", err)
+		}
+		receive, err = receives.Advance(ctx, receive, "authorized", "", "")
+		if err != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", err)
+		}
 	}
 	// A message whose previous dispatch failed may be delivered again by the
 	// provider (the cursor is only advanced after successful dispatch); reuse
@@ -130,20 +136,27 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if receivedAt.IsZero() {
 		receivedAt = time.Now().UTC()
 	}
-	receive = receives.Advance(receive, "normalized", "", "")
+	receive, err = receives.Advance(ctx, receive, "normalized", "", "")
+	if err != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", err)
+	}
 	if text != "" && len(inbound.Attachments) == 0 {
 		if handled, err := d.handleControlText(ctx, inbound, chatSession, externalID, retryID, text, receivedAt); handled {
 			status := "processed"
 			if err != nil {
 				status = "failed"
 			}
-			receives.Advance(receive, status, "", "")
+			if _, persistErr := receives.Advance(ctx, receive, status, "", ""); persistErr != nil {
+				return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+			}
 			return err
 		}
 	}
 	if text == "" && len(inbound.Attachments) > 0 {
 		inboundMsg, err := d.handleAttachmentOnlyInbound(ctx, inbound, chatSession, externalID, retryID, receivedAt)
-		receives.Advance(receive, inboundMsg.Status, inboundMsg.ID, "")
+		if _, persistErr := receives.Advance(ctx, receive, inboundMsg.Status, inboundMsg.ID, ""); persistErr != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+		}
 		return err
 	}
 	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
@@ -161,7 +174,10 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	processing := inboundMsg
 	processing.Status = "processing"
 	processing = d.store.SaveExternalChatMessage(processing)
-	receive = receives.Advance(receive, "routed", inboundMsg.ID, "")
+	receive, err = receives.Advance(ctx, receive, "routed", inboundMsg.ID, "")
+	if err != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", err)
+	}
 	recipient := d.replyRecipient(inbound)
 	if _, err := notification.SendWeixinTyping(ctx, d.store, d.credentials, d.cfg,
 		recipient,
@@ -199,7 +215,9 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		processing.Status = "failed"
 		processing.Error = err.Error()
 		d.store.SaveExternalChatMessage(processing)
-		receives.Advance(receive, "failed", inboundMsg.ID, "")
+		if _, persistErr := receives.Advance(ctx, receive, "failed", inboundMsg.ID, ""); persistErr != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+		}
 		return err
 	}
 	processing.LinkedRunID = result.Run.ID
@@ -210,7 +228,9 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	} else {
 		processing, deliveryErr = d.finishWorkflowReply(ctx, processing, result, ingress)
 	}
-	receives.Advance(receive, processing.Status, inboundMsg.ID, result.Run.ID)
+	if _, persistErr := receives.Advance(ctx, receive, processing.Status, inboundMsg.ID, result.Run.ID); persistErr != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+	}
 	return deliveryErr
 }
 
@@ -268,7 +288,9 @@ func (d *Dispatcher) retryPendingReply(ctx context.Context, inbound InboundMessa
 		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, msg.PendingReply, msg.LinkedRunID)
 	}
 	msg = d.recordReplyOutcome(msg, msg.PendingReplyKind, msg.PendingReply, retrySuccessStatus(msg.PendingReplyKind), deliveryErr)
-	receives.Advance(receive, msg.Status, msg.ID, msg.LinkedRunID)
+	if _, persistErr := receives.Advance(ctx, receive, msg.Status, msg.ID, msg.LinkedRunID); persistErr != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+	}
 	return deliveryErr
 }
 

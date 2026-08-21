@@ -34,7 +34,10 @@ func TestFileStoreExternalChatAndInboxParity(t *testing.T) {
 	if !ok || retained.PendingReplyKind != "control_text" || retained.PendingReply != "请确认" || retained.DispatchAttempts != 1 {
 		t.Fatalf("pending reply state did not survive reload: %#v ok=%v", retained, ok)
 	}
-	inbox, ok := reloaded.FindChannelInboxUpdate("bind_tg", "9001")
+	inbox, ok, err := reloaded.FindChannelInboxUpdate(t.Context(), "bind_tg", "9001")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var payload struct {
 		UpdateID int64 `json:"update_id"`
 	}
@@ -157,7 +160,7 @@ func testExternalChatAndInboxParity(t *testing.T, st Store) {
 		DispatchAttempts:  1,
 	})
 
-	first := st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{
+	first, err := st.SaveChannelInboxUpdate(t.Context(), app.ChannelInboxUpdate{
 		BindingID:  "bind_tg",
 		Channel:    "telegram",
 		ExternalID: "9001",
@@ -165,7 +168,10 @@ func testExternalChatAndInboxParity(t *testing.T, st Store) {
 		Payload:    json.RawMessage(`{"update_id":9001}`),
 		Status:     "pending",
 	})
-	duplicate := st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate, err := st.SaveChannelInboxUpdate(t.Context(), app.ChannelInboxUpdate{
 		BindingID:  "bind_tg",
 		Channel:    "telegram",
 		ExternalID: "9001",
@@ -173,20 +179,34 @@ func testExternalChatAndInboxParity(t *testing.T, st Store) {
 		Payload:    json.RawMessage(`{"update_id":9001,"duplicate":true}`),
 		Status:     "pending",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if duplicate.ID != first.ID || string(duplicate.Payload) != string(first.Payload) {
 		t.Fatalf("duplicate transport update replaced durable record: first=%#v duplicate=%#v", first, duplicate)
 	}
 	first.Status = "processing"
 	first.Attempts = 1
 	first.AvailableAt = time.Now().UTC().Add(time.Minute)
-	updated := st.SaveChannelInboxUpdate(first)
+	updated, err := st.SaveChannelInboxUpdate(t.Context(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if updated.Status != "processing" || updated.Attempts != 1 {
 		t.Fatalf("existing inbox status did not advance: %#v", updated)
 	}
-	if ready := st.ListChannelInboxUpdates("telegram", "processing", time.Now().UTC(), 10); len(ready) != 0 {
+	ready, err := st.ListChannelInboxUpdates(t.Context(), "telegram", "processing", time.Now().UTC(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ready) != 0 {
 		t.Fatalf("future inbox item listed as ready: %#v", ready)
 	}
-	if ready := st.ListChannelInboxUpdates("telegram", "processing", time.Now().UTC().Add(2*time.Minute), 10); len(ready) != 1 || ready[0].ID != first.ID {
+	ready, err = st.ListChannelInboxUpdates(t.Context(), "telegram", "processing", time.Now().UTC().Add(2*time.Minute), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ready) != 1 || ready[0].ID != first.ID {
 		t.Fatalf("ready inbox lookup failed: %#v", ready)
 	}
 }

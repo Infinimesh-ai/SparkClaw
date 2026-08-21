@@ -56,6 +56,7 @@ type PostgresStore struct {
 	memoryPostgres                    ownerPostgresOps
 	schedulePostgres                  ownerPostgresOps
 	passiveNotificationPostgres       ownerPostgresOps
+	deliveryRecordPostgres            ownerPostgresOps
 	approvalCommandGate               *semaphore.Weighted
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
@@ -139,6 +140,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		memoryPostgres:                    pgxOwnerPostgresOps{pool: pool},
 		schedulePostgres:                  pgxOwnerPostgresOps{pool: pool},
 		passiveNotificationPostgres:       pgxOwnerPostgresOps{pool: pool},
+		deliveryRecordPostgres:            pgxOwnerPostgresOps{pool: pool},
 		approvalCommandGate:               semaphore.NewWeighted(1),
 		passiveNotificationRevs:           map[string]uint64{},
 	}
@@ -2410,242 +2412,531 @@ func (s *PostgresStore) ListExternalChatMessages(chatSessionID string, limit int
 	return collectRows(rows, scanExternalChatMessage)
 }
 
-func (s *PostgresStore) SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord {
-	now := time.Now().UTC()
-	if record.ID == "" {
-		record.ID = app.NewID("recv")
+func (s *PostgresStore) SaveMessageReceive(ctx context.Context, record app.MessageReceiveRecord) (app.MessageReceiveRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationMessageReceiveSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMessageReceiveSave, ctx); err != nil {
+		return app.MessageReceiveRecord{}, err
 	}
-	if record.Direction == "" {
-		record.Direction = app.MessageDirectionReceive
+	candidate, err := prepareMessageReceive(record, app.MessageReceiveRecord{}, time.Now().UTC())
+	if err != nil {
+		return app.MessageReceiveRecord{}, storeError(OperationMessageReceiveSave, StoreErrorInvalid, err)
 	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = now
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMessageReceiveSave, s.deliveryRecordPostgres)
+	if err != nil {
+		return app.MessageReceiveRecord{}, err
 	}
-	record.UpdatedAt = now
-	if len(record.Transitions) == 0 || record.Transitions[len(record.Transitions)-1].Status != record.Status {
-		record.Transitions = append(record.Transitions, app.MessageLifecycleTransition{Status: record.Status, At: now})
+	defer releasePostgresSession(session, release)
+	if err := lockDeliveryRecordKeys(ctx, transaction, "receive", candidate.ID, string(candidate.SourceEndpointID)+"\x00"+candidate.NativeMessageID); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageReceiveSave, candidate, session, transaction, release, err)
 	}
-	if existing, ok := s.FindMessageReceive(record.SourceEndpointID, record.NativeMessageID); ok && existing.ID != record.ID {
-		record.ID = existing.ID
-		record.CreatedAt = existing.CreatedAt
-		record.Transitions = append(existing.Transitions, app.MessageLifecycleTransition{Status: record.Status, At: now})
+	byID, foundByID, err := queryMessageReceiveTransaction(ctx, transaction, `SELECT record FROM message_receive_records WHERE id = $1 FOR UPDATE`, candidate.ID)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageReceiveSave, candidate, session, transaction, release, err)
 	}
-	_, _ = s.db.Exec(context.Background(), `
+	byKey, foundByKey, err := queryMessageReceiveTransaction(ctx, transaction, `
+		SELECT record FROM message_receive_records
+		WHERE source_endpoint_id = $1 AND native_message_id = $2 FOR UPDATE
+	`, candidate.SourceEndpointID, candidate.NativeMessageID)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageReceiveSave, candidate, session, transaction, release, err)
+	}
+	if foundByID && foundByKey && byID.ID != byKey.ID {
+		return app.MessageReceiveRecord{}, deliveryRecordPostgresBusinessError(ctx, OperationMessageReceiveSave, StoreErrorConflict, session, transaction, release, ErrMessageReceiveConflict)
+	}
+	current := byKey
+	if !foundByKey {
+		current = byID
+	}
+	candidate, err = prepareMessageReceive(candidate, current, time.Now().UTC())
+	if err != nil {
+		code := StoreErrorInvalid
+		if errors.Is(err, ErrMessageReceiveConflict) {
+			code = StoreErrorConflict
+		}
+		return app.MessageReceiveRecord{}, deliveryRecordPostgresBusinessError(ctx, OperationMessageReceiveSave, code, session, transaction, release, err)
+	}
+	raw, err := json.Marshal(candidate)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageReceiveSave, candidate, session, transaction, release, err)
+	}
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO message_receive_records (id, owner_id, actor_id, source_endpoint_id, native_message_id, status, record, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (id) DO UPDATE SET
-			owner_id = EXCLUDED.owner_id,
-			actor_id = EXCLUDED.actor_id,
-			source_endpoint_id = EXCLUDED.source_endpoint_id,
-			native_message_id = EXCLUDED.native_message_id,
-			status = EXCLUDED.status,
-			record = EXCLUDED.record,
-			updated_at = EXCLUDED.updated_at
-	`, record.ID, record.OwnerID, record.ActorID, record.SourceEndpointID, record.NativeMessageID, record.Status, mustJSON(record), record.UpdatedAt)
-	return record
-}
-
-func (s *PostgresStore) GetMessageReceive(id string) (app.MessageReceiveRecord, bool) {
-	return s.queryMessageReceive(`SELECT record FROM message_receive_records WHERE id = $1`, id)
-}
-
-func (s *PostgresStore) FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool) {
-	return s.queryMessageReceive(`SELECT record FROM message_receive_records WHERE source_endpoint_id = $1 AND native_message_id = $2`, sourceEndpointID, nativeMessageID)
-}
-
-func (s *PostgresStore) queryMessageReceive(query string, args ...any) (app.MessageReceiveRecord, bool) {
-	var raw []byte
-	if err := s.db.QueryRow(context.Background(), query, args...).Scan(&raw); err != nil {
-		return app.MessageReceiveRecord{}, false
+			owner_id = EXCLUDED.owner_id, actor_id = EXCLUDED.actor_id,
+			source_endpoint_id = EXCLUDED.source_endpoint_id, native_message_id = EXCLUDED.native_message_id,
+			status = EXCLUDED.status, record = EXCLUDED.record, updated_at = EXCLUDED.updated_at
+	`, candidate.ID, candidate.OwnerID, candidate.ActorID, candidate.SourceEndpointID, candidate.NativeMessageID,
+		candidate.Status, raw, candidate.UpdatedAt); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageReceiveSave, candidate, session, transaction, release, err)
 	}
-	var record app.MessageReceiveRecord
-	if json.Unmarshal(raw, &record) != nil {
-		return app.MessageReceiveRecord{}, false
+	if err := appendDeliveryRecordAudit(transaction, ctx, "message.receive."+candidate.Status, "", candidate.LinkedRunID,
+		"gateway", candidate.ProviderKey, map[string]any{"receive_id": candidate.ID, "endpoint_id": candidate.SourceEndpointID}); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageReceiveSave, candidate, session, transaction, release, err)
 	}
-	return record, true
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return candidate, storeError(OperationMessageReceiveSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneMessageReceive(candidate), nil
 }
 
-func (s *PostgresStore) ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord {
-	if limit <= 0 {
-		limit = 100
+func (s *PostgresStore) GetMessageReceive(ctx context.Context, id string) (app.MessageReceiveRecord, bool, error) {
+	return s.queryMessageReceive(ctx, OperationMessageReceiveGet, `SELECT record FROM message_receive_records WHERE id = $1`, strings.TrimSpace(id))
+}
+
+func (s *PostgresStore) FindMessageReceive(ctx context.Context, sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool, error) {
+	return s.queryMessageReceive(ctx, OperationMessageReceiveFind,
+		`SELECT record FROM message_receive_records WHERE source_endpoint_id = $1 AND native_message_id = $2`,
+		app.EndpointID(strings.TrimSpace(string(sourceEndpointID))), strings.TrimSpace(nativeMessageID))
+}
+
+func (s *PostgresStore) queryMessageReceive(ctx context.Context, operation StoreOperation, query string, args ...any) (app.MessageReceiveRecord, bool, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.MessageReceiveRecord{}, false, err
 	}
-	rows, err := s.db.Query(context.Background(), `
+	record, err := scanMessageReceiveJSON(s.deliveryRecordPostgres.QueryRow(ctx, query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.MessageReceiveRecord{}, false, nil
+	}
+	if err != nil {
+		return app.MessageReceiveRecord{}, false, classifyDeliveryRecordPostgresError(operation, ctx, err)
+	}
+	return cloneMessageReceive(record), true, nil
+}
+
+func (s *PostgresStore) ListMessageReceives(ctx context.Context, ownerID, actorID string, limit int) ([]app.MessageReceiveRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationMessageReceiveList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMessageReceiveList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.deliveryRecordPostgres.Query(ctx, `
 		SELECT record FROM message_receive_records
 		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR actor_id = $2)
-		ORDER BY updated_at DESC LIMIT $3
-	`, ownerID, actorID, limit)
+		ORDER BY updated_at DESC, id ASC LIMIT $3
+	`, strings.TrimSpace(ownerID), strings.TrimSpace(actorID), normalizeDeliveryRecordLimit(limit))
 	if err != nil {
-		return []app.MessageReceiveRecord{}
+		return nil, classifyDeliveryRecordPostgresError(OperationMessageReceiveList, ctx, err)
 	}
 	defer rows.Close()
 	out := []app.MessageReceiveRecord{}
 	for rows.Next() {
-		var raw []byte
-		var record app.MessageReceiveRecord
-		if rows.Scan(&raw) == nil && json.Unmarshal(raw, &record) == nil {
-			out = append(out, record)
+		record, err := scanMessageReceiveJSON(rows)
+		if err != nil {
+			return nil, classifyDeliveryRecordPostgresError(OperationMessageReceiveList, ctx, err)
 		}
+		out = append(out, cloneMessageReceive(record))
 	}
-	return out
+	if err := rows.Err(); err != nil {
+		return nil, classifyDeliveryRecordPostgresError(OperationMessageReceiveList, ctx, err)
+	}
+	return out, nil
 }
 
-func (s *PostgresStore) SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord {
-	now := time.Now().UTC()
-	if record.ID == "" {
-		record.ID = app.DeliveryID(app.NewID("del"))
+func (s *PostgresStore) SaveMessageDelivery(ctx context.Context, record app.MessageDeliveryRecord) (app.MessageDeliveryRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationMessageDeliverySave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMessageDeliverySave, ctx); err != nil {
+		return app.MessageDeliveryRecord{}, err
 	}
-	if record.Direction == "" {
-		record.Direction = app.MessageDirectionSend
+	candidate, err := prepareMessageDelivery(record, app.MessageDeliveryRecord{}, time.Now().UTC())
+	if err != nil {
+		return app.MessageDeliveryRecord{}, storeError(OperationMessageDeliverySave, StoreErrorInvalid, err)
 	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = now
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMessageDeliverySave, s.deliveryRecordPostgres)
+	if err != nil {
+		return app.MessageDeliveryRecord{}, err
 	}
-	record.UpdatedAt = now
-	_, _ = s.db.Exec(context.Background(), `
+	defer releasePostgresSession(session, release)
+	key := candidate.OwnerID + "\x00" + candidate.ActorID + "\x00" + candidate.Request.IdempotencyKey
+	if err := lockDeliveryRecordKeys(ctx, transaction, "delivery", string(candidate.ID), key); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageDeliverySave, candidate, session, transaction, release, err)
+	}
+	byID, foundByID, err := queryMessageDeliveryTransaction(ctx, transaction, `SELECT record FROM message_delivery_records WHERE id = $1 FOR UPDATE`, candidate.ID)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageDeliverySave, candidate, session, transaction, release, err)
+	}
+	byKey, foundByKey, err := queryMessageDeliveryTransaction(ctx, transaction, `
+		SELECT record FROM message_delivery_records
+		WHERE owner_id = $1 AND actor_id = $2 AND idempotency_key = $3 FOR UPDATE
+	`, candidate.OwnerID, candidate.ActorID, candidate.Request.IdempotencyKey)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageDeliverySave, candidate, session, transaction, release, err)
+	}
+	if foundByID && foundByKey && byID.ID != byKey.ID {
+		return app.MessageDeliveryRecord{}, deliveryRecordPostgresBusinessError(ctx, OperationMessageDeliverySave, StoreErrorConflict, session, transaction, release, ErrMessageDeliveryConflict)
+	}
+	current := byKey
+	if !foundByKey {
+		current = byID
+	}
+	if current.ID != "" && current.ID != candidate.ID {
+		if !messageDeliveryIdentityEqual(current, candidate) {
+			return app.MessageDeliveryRecord{}, deliveryRecordPostgresBusinessError(ctx, OperationMessageDeliverySave, StoreErrorConflict, session, transaction, release, ErrMessageDeliveryConflict)
+		}
+		if err := rollbackPostgresTransaction(ctx, session, transaction, release, nil); err != nil {
+			return app.MessageDeliveryRecord{}, classifyDeliveryRecordPostgresError(OperationMessageDeliverySave, ctx, err)
+		}
+		return cloneMessageDelivery(current), nil
+	}
+	candidate, err = prepareMessageDelivery(candidate, current, time.Now().UTC())
+	if err != nil {
+		code := StoreErrorInvalid
+		if errors.Is(err, ErrMessageDeliveryConflict) {
+			code = StoreErrorConflict
+		}
+		return app.MessageDeliveryRecord{}, deliveryRecordPostgresBusinessError(ctx, OperationMessageDeliverySave, code, session, transaction, release, err)
+	}
+	raw, err := json.Marshal(candidate)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageDeliverySave, candidate, session, transaction, release, err)
+	}
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO message_delivery_records (id, owner_id, actor_id, idempotency_key, content_digest, status, record, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT (id) DO UPDATE SET
-			status = EXCLUDED.status,
-			record = EXCLUDED.record,
-			updated_at = EXCLUDED.updated_at
-	`, record.ID, record.OwnerID, record.ActorID, record.Request.IdempotencyKey, record.ContentDigest, record.Status, mustJSON(record), record.UpdatedAt)
-	return record
-}
-
-func (s *PostgresStore) GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool) {
-	return s.queryMessageDelivery(`SELECT record FROM message_delivery_records WHERE id = $1`, id)
-}
-
-func (s *PostgresStore) FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool) {
-	return s.queryMessageDelivery(`SELECT record FROM message_delivery_records WHERE owner_id = $1 AND actor_id = $2 AND idempotency_key = $3`, ownerID, actorID, idempotencyKey)
-}
-
-func (s *PostgresStore) queryMessageDelivery(query string, args ...any) (app.MessageDeliveryRecord, bool) {
-	var raw []byte
-	if err := s.db.QueryRow(context.Background(), query, args...).Scan(&raw); err != nil {
-		return app.MessageDeliveryRecord{}, false
+		ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, record = EXCLUDED.record, updated_at = EXCLUDED.updated_at
+	`, candidate.ID, candidate.OwnerID, candidate.ActorID, candidate.Request.IdempotencyKey,
+		candidate.ContentDigest, candidate.Status, raw, candidate.UpdatedAt); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageDeliverySave, candidate, session, transaction, release, err)
 	}
-	var record app.MessageDeliveryRecord
-	if json.Unmarshal(raw, &record) != nil {
-		return app.MessageDeliveryRecord{}, false
+	if err := appendDeliveryRecordAudit(transaction, ctx, "message.send."+string(candidate.Status), "", candidate.Request.RunID,
+		candidate.ActorID, candidate.SoftwareDisplayName, map[string]any{"delivery_id": candidate.ID, "endpoint_id": candidate.Request.Target, "origin": candidate.Origin}); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationMessageDeliverySave, candidate, session, transaction, release, err)
 	}
-	return record, true
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return candidate, storeError(OperationMessageDeliverySave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneMessageDelivery(candidate), nil
 }
 
-func (s *PostgresStore) ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord {
-	if limit <= 0 {
-		limit = 100
+func (s *PostgresStore) GetMessageDelivery(ctx context.Context, id app.DeliveryID) (app.MessageDeliveryRecord, bool, error) {
+	return s.queryMessageDelivery(ctx, OperationMessageDeliveryGet, `SELECT record FROM message_delivery_records WHERE id = $1`, strings.TrimSpace(string(id)))
+}
+
+func (s *PostgresStore) FindMessageDeliveryByIdempotency(ctx context.Context, ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool, error) {
+	return s.queryMessageDelivery(ctx, OperationMessageDeliveryFind,
+		`SELECT record FROM message_delivery_records WHERE owner_id = $1 AND actor_id = $2 AND idempotency_key = $3`,
+		strings.TrimSpace(ownerID), strings.TrimSpace(actorID), strings.TrimSpace(idempotencyKey))
+}
+
+func (s *PostgresStore) queryMessageDelivery(ctx context.Context, operation StoreOperation, query string, args ...any) (app.MessageDeliveryRecord, bool, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.MessageDeliveryRecord{}, false, err
 	}
-	rows, err := s.db.Query(context.Background(), `
+	record, err := scanMessageDeliveryJSON(s.deliveryRecordPostgres.QueryRow(ctx, query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.MessageDeliveryRecord{}, false, nil
+	}
+	if err != nil {
+		return app.MessageDeliveryRecord{}, false, classifyDeliveryRecordPostgresError(operation, ctx, err)
+	}
+	return cloneMessageDelivery(record), true, nil
+}
+
+func (s *PostgresStore) ListMessageDeliveries(ctx context.Context, ownerID, actorID string, limit int) ([]app.MessageDeliveryRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationMessageDeliveryList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationMessageDeliveryList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.deliveryRecordPostgres.Query(ctx, `
 		SELECT record FROM message_delivery_records
 		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR actor_id = $2)
-		ORDER BY updated_at DESC LIMIT $3
-	`, ownerID, actorID, limit)
+		ORDER BY updated_at DESC, id ASC LIMIT $3
+	`, strings.TrimSpace(ownerID), strings.TrimSpace(actorID), normalizeDeliveryRecordLimit(limit))
 	if err != nil {
-		return []app.MessageDeliveryRecord{}
+		return nil, classifyDeliveryRecordPostgresError(OperationMessageDeliveryList, ctx, err)
 	}
 	defer rows.Close()
 	out := []app.MessageDeliveryRecord{}
 	for rows.Next() {
-		var raw []byte
-		var record app.MessageDeliveryRecord
-		if rows.Scan(&raw) == nil && json.Unmarshal(raw, &record) == nil {
-			out = append(out, record)
+		record, err := scanMessageDeliveryJSON(rows)
+		if err != nil {
+			return nil, classifyDeliveryRecordPostgresError(OperationMessageDeliveryList, ctx, err)
 		}
+		out = append(out, cloneMessageDelivery(record))
 	}
-	return out
+	if err := rows.Err(); err != nil {
+		return nil, classifyDeliveryRecordPostgresError(OperationMessageDeliveryList, ctx, err)
+	}
+	return out, nil
 }
 
-func (s *PostgresStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
-	now := time.Now().UTC()
-	if update.ID == "" {
-		if existing, ok := s.FindChannelInboxUpdate(update.BindingID, update.ExternalID); ok {
-			return existing
+func (s *PostgresStore) SaveChannelInboxUpdate(ctx context.Context, update app.ChannelInboxUpdate) (app.ChannelInboxUpdate, error) {
+	ctx, cancel := operationContext(ctx, OperationChannelInboxUpdateSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationChannelInboxUpdateSave, ctx); err != nil {
+		return app.ChannelInboxUpdate{}, err
+	}
+	candidate, err := prepareChannelInboxUpdate(update, app.ChannelInboxUpdate{}, time.Now().UTC())
+	if err != nil {
+		return app.ChannelInboxUpdate{}, storeError(OperationChannelInboxUpdateSave, StoreErrorInvalid, err)
+	}
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationChannelInboxUpdateSave, s.deliveryRecordPostgres)
+	if err != nil {
+		return app.ChannelInboxUpdate{}, err
+	}
+	defer releasePostgresSession(session, release)
+	if err := lockDeliveryRecordKeys(ctx, transaction, "inbox", candidate.ID, candidate.BindingID+"\x00"+candidate.ExternalID); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationChannelInboxUpdateSave, candidate, session, transaction, release, err)
+	}
+	byID, foundByID, err := queryChannelInboxUpdateTransaction(ctx, transaction, `
+		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
+		       available_at, last_error, created_at, updated_at
+		FROM channel_inbox_updates WHERE id = $1 FOR UPDATE
+	`, candidate.ID)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationChannelInboxUpdateSave, candidate, session, transaction, release, err)
+	}
+	byKey, foundByKey, err := queryChannelInboxUpdateTransaction(ctx, transaction, `
+		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
+		       available_at, last_error, created_at, updated_at
+		FROM channel_inbox_updates WHERE binding_id = $1 AND external_id = $2 FOR UPDATE
+	`, candidate.BindingID, candidate.ExternalID)
+	if err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationChannelInboxUpdateSave, candidate, session, transaction, release, err)
+	}
+	if foundByID && foundByKey && byID.ID != byKey.ID {
+		return app.ChannelInboxUpdate{}, deliveryRecordPostgresBusinessError(ctx, OperationChannelInboxUpdateSave, StoreErrorConflict, session, transaction, release, ErrChannelInboxUpdateConflict)
+	}
+	current := byKey
+	if !foundByKey {
+		current = byID
+	}
+	if current.ID != "" && current.ID != candidate.ID {
+		if current.BindingID != candidate.BindingID || current.ExternalID != candidate.ExternalID || current.Channel != candidate.Channel {
+			return app.ChannelInboxUpdate{}, deliveryRecordPostgresBusinessError(ctx, OperationChannelInboxUpdateSave, StoreErrorConflict, session, transaction, release, ErrChannelInboxUpdateConflict)
 		}
+		if err := rollbackPostgresTransaction(ctx, session, transaction, release, nil); err != nil {
+			return app.ChannelInboxUpdate{}, classifyDeliveryRecordPostgresError(OperationChannelInboxUpdateSave, ctx, err)
+		}
+		return cloneChannelInboxUpdate(current), nil
 	}
-	if update.ID == "" {
-		update.ID = app.NewID("inbox")
+	candidate, err = prepareChannelInboxUpdate(candidate, current, time.Now().UTC())
+	if err != nil {
+		code := StoreErrorInvalid
+		if errors.Is(err, ErrChannelInboxUpdateConflict) {
+			code = StoreErrorConflict
+		}
+		return app.ChannelInboxUpdate{}, deliveryRecordPostgresBusinessError(ctx, OperationChannelInboxUpdateSave, code, session, transaction, release, err)
 	}
-	if update.Status == "" {
-		update.Status = "pending"
-	}
-	if update.AvailableAt.IsZero() {
-		update.AvailableAt = now
-	}
-	if update.CreatedAt.IsZero() {
-		update.CreatedAt = now
-	}
-	update.UpdatedAt = now
-	_, err := s.db.Exec(context.Background(), `
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO channel_inbox_updates (
 			id, binding_id, channel, external_id, chat_key, payload, status, attempts,
 			available_at, last_error, created_at, updated_at
-		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-		ON CONFLICT (binding_id, external_id) DO UPDATE SET
-			chat_key = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.chat_key ELSE channel_inbox_updates.chat_key END,
-			payload = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.payload ELSE channel_inbox_updates.payload END,
-			status = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.status ELSE channel_inbox_updates.status END,
-			attempts = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.attempts ELSE channel_inbox_updates.attempts END,
-			available_at = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.available_at ELSE channel_inbox_updates.available_at END,
-			last_error = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.last_error ELSE channel_inbox_updates.last_error END,
-			updated_at = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.updated_at ELSE channel_inbox_updates.updated_at END
-	`, update.ID, update.BindingID, update.Channel, update.ExternalID, update.ChatKey,
-		mustJSONRaw(update.Payload), update.Status, update.Attempts, update.AvailableAt,
-		update.LastError, update.CreatedAt, update.UpdatedAt)
-	if err == nil {
-		if saved, ok := s.FindChannelInboxUpdate(update.BindingID, update.ExternalID); ok {
-			return saved
-		}
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		ON CONFLICT (id) DO UPDATE SET
+			chat_key = EXCLUDED.chat_key, payload = EXCLUDED.payload, status = EXCLUDED.status,
+			attempts = EXCLUDED.attempts, available_at = EXCLUDED.available_at,
+			last_error = EXCLUDED.last_error, updated_at = EXCLUDED.updated_at
+	`, candidate.ID, candidate.BindingID, candidate.Channel, candidate.ExternalID, candidate.ChatKey,
+		mustJSONRaw(candidate.Payload), candidate.Status, candidate.Attempts, candidate.AvailableAt,
+		candidate.LastError, candidate.CreatedAt, candidate.UpdatedAt); err != nil {
+		return finishDeliveryRecordPostgresStatement(ctx, OperationChannelInboxUpdateSave, candidate, session, transaction, release, err)
 	}
-	return update
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return candidate, storeError(OperationChannelInboxUpdateSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneChannelInboxUpdate(candidate), nil
 }
 
-func (s *PostgresStore) GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool) {
-	row := s.db.QueryRow(context.Background(), `
+func (s *PostgresStore) GetChannelInboxUpdate(ctx context.Context, id string) (app.ChannelInboxUpdate, bool, error) {
+	return s.queryChannelInboxUpdate(ctx, OperationChannelInboxUpdateGet, `
 		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
 		       available_at, last_error, created_at, updated_at
 		FROM channel_inbox_updates WHERE id = $1
-	`, id)
-	update, err := scanChannelInboxUpdate(row)
-	return update, err == nil
+	`, strings.TrimSpace(id))
 }
 
-func (s *PostgresStore) FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool) {
-	row := s.db.QueryRow(context.Background(), `
+func (s *PostgresStore) FindChannelInboxUpdate(ctx context.Context, bindingID, externalID string) (app.ChannelInboxUpdate, bool, error) {
+	return s.queryChannelInboxUpdate(ctx, OperationChannelInboxUpdateFind, `
 		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
 		       available_at, last_error, created_at, updated_at
 		FROM channel_inbox_updates WHERE binding_id = $1 AND external_id = $2
-	`, bindingID, externalID)
-	update, err := scanChannelInboxUpdate(row)
-	return update, err == nil
+	`, strings.TrimSpace(bindingID), strings.TrimSpace(externalID))
 }
 
-func (s *PostgresStore) ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate {
-	if limit <= 0 {
-		limit = 100
+func (s *PostgresStore) queryChannelInboxUpdate(ctx context.Context, operation StoreOperation, query string, args ...any) (app.ChannelInboxUpdate, bool, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.ChannelInboxUpdate{}, false, err
+	}
+	update, err := scanChannelInboxUpdate(s.deliveryRecordPostgres.QueryRow(ctx, query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.ChannelInboxUpdate{}, false, nil
+	}
+	if err != nil {
+		return app.ChannelInboxUpdate{}, false, classifyDeliveryRecordPostgresError(operation, ctx, err)
+	}
+	return cloneChannelInboxUpdate(update), true, nil
+}
+
+func (s *PostgresStore) ListChannelInboxUpdates(ctx context.Context, channel, status string, readyBefore time.Time, limit int) ([]app.ChannelInboxUpdate, error) {
+	ctx, cancel := operationContext(ctx, OperationChannelInboxUpdateList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationChannelInboxUpdateList, ctx); err != nil {
+		return nil, err
 	}
 	query := `
 		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
 		       available_at, last_error, created_at, updated_at
 		FROM channel_inbox_updates
-		WHERE ($1 = '' OR channel = $1)
-		  AND ($2 = '' OR status = $2)
-	`
-	args := []any{channel, status}
+		WHERE ($1 = '' OR channel = $1) AND ($2 = '' OR status = $2)`
+	args := []any{strings.ToLower(strings.TrimSpace(channel)), strings.TrimSpace(status)}
 	if !readyBefore.IsZero() {
-		query += ` AND available_at <= $3 ORDER BY created_at ASC LIMIT $4`
-		args = append(args, readyBefore, limit)
+		query += ` AND available_at <= $3 ORDER BY created_at ASC, id ASC LIMIT $4`
+		args = append(args, postgresTime(readyBefore), normalizeDeliveryRecordLimit(limit))
 	} else {
-		query += ` ORDER BY created_at ASC LIMIT $3`
-		args = append(args, limit)
+		query += ` ORDER BY created_at ASC, id ASC LIMIT $3`
+		args = append(args, normalizeDeliveryRecordLimit(limit))
 	}
-	rows, err := s.db.Query(context.Background(), query, args...)
+	rows, err := s.deliveryRecordPostgres.Query(ctx, query, args...)
 	if err != nil {
-		return []app.ChannelInboxUpdate{}
+		return nil, classifyDeliveryRecordPostgresError(OperationChannelInboxUpdateList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanChannelInboxUpdate)
+	out := []app.ChannelInboxUpdate{}
+	for rows.Next() {
+		update, err := scanChannelInboxUpdate(rows)
+		if err != nil {
+			return nil, classifyDeliveryRecordPostgresError(OperationChannelInboxUpdateList, ctx, err)
+		}
+		out = append(out, cloneChannelInboxUpdate(update))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyDeliveryRecordPostgresError(OperationChannelInboxUpdateList, ctx, err)
+	}
+	return out, nil
+}
+
+func scanMessageReceiveJSON(row onboardingPostgresRow) (app.MessageReceiveRecord, error) {
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		return app.MessageReceiveRecord{}, err
+	}
+	var record app.MessageReceiveRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return app.MessageReceiveRecord{}, errors.Join(errMessageReceiveJSONDecode, err)
+	}
+	return cloneMessageReceive(record), nil
+}
+
+func queryMessageReceiveTransaction(ctx context.Context, transaction onboardingPostgresTx, query string, args ...any) (app.MessageReceiveRecord, bool, error) {
+	record, err := scanMessageReceiveJSON(transaction.QueryRow(ctx, query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.MessageReceiveRecord{}, false, nil
+	}
+	return record, err == nil, err
+}
+
+func scanMessageDeliveryJSON(row onboardingPostgresRow) (app.MessageDeliveryRecord, error) {
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		return app.MessageDeliveryRecord{}, err
+	}
+	var record app.MessageDeliveryRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return app.MessageDeliveryRecord{}, errors.Join(errMessageDeliveryJSONDecode, err)
+	}
+	return cloneMessageDelivery(record), nil
+}
+
+func queryMessageDeliveryTransaction(ctx context.Context, transaction onboardingPostgresTx, query string, args ...any) (app.MessageDeliveryRecord, bool, error) {
+	record, err := scanMessageDeliveryJSON(transaction.QueryRow(ctx, query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.MessageDeliveryRecord{}, false, nil
+	}
+	return record, err == nil, err
+}
+
+func queryChannelInboxUpdateTransaction(ctx context.Context, transaction onboardingPostgresTx, query string, args ...any) (app.ChannelInboxUpdate, bool, error) {
+	update, err := scanChannelInboxUpdate(transaction.QueryRow(ctx, query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.ChannelInboxUpdate{}, false, nil
+	}
+	return update, err == nil, err
+}
+
+func appendDeliveryRecordAudit(transaction onboardingPostgresTx, ctx context.Context, eventType, sessionID, runID, actor, summary string, fields map[string]any) error {
+	_, err := transaction.Exec(ctx, `
+		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8)
+	`, app.NewID("audit"), postgresTime(time.Now().UTC()), eventType, sessionID, runID, actor, summary, optionalJSON(fields))
+	return err
+}
+
+func lockDeliveryRecordKeys(ctx context.Context, transaction onboardingPostgresTx, domain string, values ...string) error {
+	keys := make([]int64, 0, len(values))
+	seen := map[int64]struct{}{}
+	for _, value := range values {
+		digest := sha256.Sum256([]byte("sparkclaw/store/delivery-record/v1\x00" + domain + "\x00" + value))
+		key := int64(binary.BigEndian.Uint64(digest[:8]))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func finishDeliveryRecordPostgresStatement[T any](ctx context.Context, operation StoreOperation, candidate T, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (T, error) {
+	var zero T
+	var postgresError *pgconn.PgError
+	definite := errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) ||
+		errors.Is(cause, errMessageReceiveJSONDecode) || errors.Is(cause, errMessageDeliveryJSONDecode) || errors.Is(cause, errChannelInboxPayloadDecode)
+	if definite {
+		cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
+		return zero, classifyDeliveryRecordPostgresError(operation, ctx, cause)
+	}
+	*release = false
+	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+}
+
+func deliveryRecordPostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+}
+
+func classifyDeliveryRecordPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
+	if errors.Is(cause, errMessageReceiveJSONDecode) || errors.Is(cause, errMessageDeliveryJSONDecode) || errors.Is(cause, errChannelInboxPayloadDecode) {
+		return storeError(operation, StoreErrorCorrupt, cause)
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(cause, &postgresError) {
+		if postgresError.Code == "23505" {
+			return storeError(operation, StoreErrorConflict, errors.Join(deliveryRecordConflictForOperation(operation), cause))
+		}
+		return storeError(operation, StoreErrorInternal, cause)
+	}
+	return classifyPostgresReadError(operation, ctx, cause)
+}
+
+func deliveryRecordConflictForOperation(operation StoreOperation) error {
+	switch operation {
+	case OperationMessageReceiveSave:
+		return ErrMessageReceiveConflict
+	case OperationMessageDeliverySave:
+		return ErrMessageDeliveryConflict
+	case OperationChannelInboxUpdateSave:
+		return ErrChannelInboxUpdateConflict
+	default:
+		return errors.New("delivery record conflicts with persisted state")
+	}
 }
 
 const browserAuthSelectSQL = `
@@ -4062,8 +4353,16 @@ func scanChannelInboxUpdate(row scanner) (app.ChannelInboxUpdate, error) {
 		&update.CreatedAt,
 		&update.UpdatedAt,
 	)
-	update.Payload = append([]byte(nil), payload...)
-	return update, err
+	if err != nil {
+		return app.ChannelInboxUpdate{}, err
+	}
+	if !json.Valid(payload) {
+		return app.ChannelInboxUpdate{}, errors.Join(errChannelInboxPayloadDecode, errors.New("persisted inbox payload is not valid JSON"))
+	}
+	if strings.TrimSpace(string(payload)) != "null" {
+		update.Payload = append([]byte(nil), payload...)
+	}
+	return update, nil
 }
 
 func scanPassiveNotification(row scanner) (app.PassiveNotification, error) {
@@ -4557,8 +4856,8 @@ func mustJSON(value any) []byte {
 }
 
 func mustJSONRaw(value json.RawMessage) []byte {
-	if len(value) == 0 || !json.Valid(value) {
-		return []byte(`{}`)
+	if len(value) == 0 {
+		return []byte(`null`)
 	}
 	return append([]byte(nil), value...)
 }

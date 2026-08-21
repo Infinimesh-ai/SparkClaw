@@ -1,14 +1,16 @@
 package messagecontrol
 
 import (
+	"context"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type receiveStore interface {
-	SaveMessageReceive(app.MessageReceiveRecord) app.MessageReceiveRecord
-	FindMessageReceive(app.EndpointID, string) (app.MessageReceiveRecord, bool)
+	SaveMessageReceive(context.Context, app.MessageReceiveRecord) (app.MessageReceiveRecord, error)
+	FindMessageReceive(context.Context, app.EndpointID, string) (app.MessageReceiveRecord, bool, error)
 }
 
 type ReceiveLifecycle struct {
@@ -19,18 +21,22 @@ func NewReceiveLifecycle(st receiveStore) ReceiveLifecycle {
 	return ReceiveLifecycle{store: st}
 }
 
-func (l ReceiveLifecycle) Begin(endpoint app.MessageEndpoint, nativeMessageID string) (app.MessageReceiveRecord, bool) {
+func (l ReceiveLifecycle) Begin(ctx context.Context, endpoint app.MessageEndpoint, nativeMessageID string) (app.MessageReceiveRecord, bool, error) {
 	nativeMessageID = strings.TrimSpace(nativeMessageID)
 	if l.store == nil || endpoint.ID == "" || nativeMessageID == "" {
-		return app.MessageReceiveRecord{}, false
+		return app.MessageReceiveRecord{}, false, nil
 	}
-	if existing, ok := l.store.FindMessageReceive(endpoint.ID, nativeMessageID); ok {
+	if existing, ok, err := l.store.FindMessageReceive(ctx, endpoint.ID, nativeMessageID); err != nil {
+		return app.MessageReceiveRecord{}, false, err
+	} else if ok {
 		if existing.Status == "failed" {
 			existing.Status = "received"
-			return l.store.SaveMessageReceive(existing), true
+			saved, err := l.save(ctx, existing)
+			return saved, true, err
 		}
 		existing.Status = "duplicate"
-		return l.store.SaveMessageReceive(existing), false
+		saved, err := l.save(ctx, existing)
+		return saved, false, err
 	}
 	record := app.MessageReceiveRecord{
 		Direction: app.MessageDirectionReceive, OwnerID: endpoint.OwnerID, ActorID: endpoint.ActorID,
@@ -38,12 +44,13 @@ func (l ReceiveLifecycle) Begin(endpoint app.MessageEndpoint, nativeMessageID st
 		Status: "received", SoftwareDisplayName: endpoint.SoftwareDisplayName,
 		RecipientDisplayName: endpoint.RecipientDisplayName, AccountDisplayName: endpoint.AccountDisplayName,
 	}
-	return l.store.SaveMessageReceive(record), true
+	saved, err := l.save(ctx, record)
+	return saved, true, err
 }
 
-func (l ReceiveLifecycle) Advance(record app.MessageReceiveRecord, status, linkedMessageID, linkedRunID string) app.MessageReceiveRecord {
+func (l ReceiveLifecycle) Advance(ctx context.Context, record app.MessageReceiveRecord, status, linkedMessageID, linkedRunID string) (app.MessageReceiveRecord, error) {
 	if l.store == nil || record.ID == "" {
-		return record
+		return record, nil
 	}
 	record.Status = strings.TrimSpace(status)
 	if linkedMessageID != "" {
@@ -52,5 +59,10 @@ func (l ReceiveLifecycle) Advance(record app.MessageReceiveRecord, status, linke
 	if linkedRunID != "" {
 		record.LinkedRunID = linkedRunID
 	}
-	return l.store.SaveMessageReceive(record)
+	return l.save(ctx, record)
+}
+
+func (l ReceiveLifecycle) save(ctx context.Context, record app.MessageReceiveRecord) (app.MessageReceiveRecord, error) {
+	saved, err := l.store.SaveMessageReceive(ctx, record)
+	return store.ReconcileMessageReceiveWrite(ctx, l.store, saved, err)
 }

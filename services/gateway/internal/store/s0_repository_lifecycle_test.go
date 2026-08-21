@@ -94,8 +94,10 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "external_chat_session.active", eventType: "external_chat_session.active",
 	},
 	"DeliveryRecordRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveMessageReceive(app.MessageReceiveRecord{ID: "receive-lifecycle", SourceEndpointID: "endpoint-lifecycle", NativeMessageID: "native-lifecycle", Status: "received"})
+		mutate: func(t *testing.T, st Store) {
+			if _, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{ID: "receive-lifecycle", SourceEndpointID: "endpoint-lifecycle", NativeMessageID: "native-lifecycle", Status: "received"}); err != nil {
+				t.Fatal(err)
+			}
 		},
 		auditType: "message.receive.received",
 	},

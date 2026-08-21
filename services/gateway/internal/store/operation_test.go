@@ -409,6 +409,54 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationPassiveNotificationRevision, Repository: "PassiveNotificationRepository",
 			Method: "PassiveNotificationRevision", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationMessageReceiveSave: {
+			ID: OperationMessageReceiveSave, Repository: "DeliveryRecordRepository",
+			Method: "SaveMessageReceive", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationMessageReceiveGet: {
+			ID: OperationMessageReceiveGet, Repository: "DeliveryRecordRepository",
+			Method: "GetMessageReceive", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMessageReceiveFind: {
+			ID: OperationMessageReceiveFind, Repository: "DeliveryRecordRepository",
+			Method: "FindMessageReceive", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMessageReceiveList: {
+			ID: OperationMessageReceiveList, Repository: "DeliveryRecordRepository",
+			Method: "ListMessageReceives", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMessageDeliverySave: {
+			ID: OperationMessageDeliverySave, Repository: "DeliveryRecordRepository",
+			Method: "SaveMessageDelivery", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationMessageDeliveryGet: {
+			ID: OperationMessageDeliveryGet, Repository: "DeliveryRecordRepository",
+			Method: "GetMessageDelivery", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMessageDeliveryFind: {
+			ID: OperationMessageDeliveryFind, Repository: "DeliveryRecordRepository",
+			Method: "FindMessageDeliveryByIdempotency", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationMessageDeliveryList: {
+			ID: OperationMessageDeliveryList, Repository: "DeliveryRecordRepository",
+			Method: "ListMessageDeliveries", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationChannelInboxUpdateSave: {
+			ID: OperationChannelInboxUpdateSave, Repository: "DeliveryRecordRepository",
+			Method: "SaveChannelInboxUpdate", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationChannelInboxUpdateGet: {
+			ID: OperationChannelInboxUpdateGet, Repository: "DeliveryRecordRepository",
+			Method: "GetChannelInboxUpdate", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationChannelInboxUpdateFind: {
+			ID: OperationChannelInboxUpdateFind, Repository: "DeliveryRecordRepository",
+			Method: "FindChannelInboxUpdate", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationChannelInboxUpdateList: {
+			ID: OperationChannelInboxUpdateList, Repository: "DeliveryRecordRepository",
+			Method: "ListChannelInboxUpdates", Mode: operationRead, Timeout: timeoutRead,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

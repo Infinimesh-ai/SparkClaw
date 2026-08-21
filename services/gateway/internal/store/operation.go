@@ -100,6 +100,18 @@ const (
 	OperationPassiveNotificationMarkAll  StoreOperation = "passive_notification.mark_all_read"
 	OperationPassiveNotificationPrune    StoreOperation = "passive_notification.prune"
 	OperationPassiveNotificationRevision StoreOperation = "passive_notification.revision"
+	OperationMessageReceiveSave          StoreOperation = "message_receive.save"
+	OperationMessageReceiveGet           StoreOperation = "message_receive.get"
+	OperationMessageReceiveFind          StoreOperation = "message_receive.find"
+	OperationMessageReceiveList          StoreOperation = "message_receive.list"
+	OperationMessageDeliverySave         StoreOperation = "message_delivery.save"
+	OperationMessageDeliveryGet          StoreOperation = "message_delivery.get"
+	OperationMessageDeliveryFind         StoreOperation = "message_delivery.find_idempotency"
+	OperationMessageDeliveryList         StoreOperation = "message_delivery.list"
+	OperationChannelInboxUpdateSave      StoreOperation = "channel_inbox_update.save"
+	OperationChannelInboxUpdateGet       StoreOperation = "channel_inbox_update.get"
+	OperationChannelInboxUpdateFind      StoreOperation = "channel_inbox_update.find"
+	OperationChannelInboxUpdateList      StoreOperation = "channel_inbox_update.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -490,6 +502,54 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationPassiveNotificationRevision: {
 		ID: OperationPassiveNotificationRevision, Repository: "PassiveNotificationRepository",
 		Method: "PassiveNotificationRevision", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMessageReceiveSave: {
+		ID: OperationMessageReceiveSave, Repository: "DeliveryRecordRepository",
+		Method: "SaveMessageReceive", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMessageReceiveGet: {
+		ID: OperationMessageReceiveGet, Repository: "DeliveryRecordRepository",
+		Method: "GetMessageReceive", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMessageReceiveFind: {
+		ID: OperationMessageReceiveFind, Repository: "DeliveryRecordRepository",
+		Method: "FindMessageReceive", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMessageReceiveList: {
+		ID: OperationMessageReceiveList, Repository: "DeliveryRecordRepository",
+		Method: "ListMessageReceives", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMessageDeliverySave: {
+		ID: OperationMessageDeliverySave, Repository: "DeliveryRecordRepository",
+		Method: "SaveMessageDelivery", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMessageDeliveryGet: {
+		ID: OperationMessageDeliveryGet, Repository: "DeliveryRecordRepository",
+		Method: "GetMessageDelivery", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMessageDeliveryFind: {
+		ID: OperationMessageDeliveryFind, Repository: "DeliveryRecordRepository",
+		Method: "FindMessageDeliveryByIdempotency", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMessageDeliveryList: {
+		ID: OperationMessageDeliveryList, Repository: "DeliveryRecordRepository",
+		Method: "ListMessageDeliveries", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationChannelInboxUpdateSave: {
+		ID: OperationChannelInboxUpdateSave, Repository: "DeliveryRecordRepository",
+		Method: "SaveChannelInboxUpdate", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationChannelInboxUpdateGet: {
+		ID: OperationChannelInboxUpdateGet, Repository: "DeliveryRecordRepository",
+		Method: "GetChannelInboxUpdate", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationChannelInboxUpdateFind: {
+		ID: OperationChannelInboxUpdateFind, Repository: "DeliveryRecordRepository",
+		Method: "FindChannelInboxUpdate", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationChannelInboxUpdateList: {
+		ID: OperationChannelInboxUpdateList, Repository: "DeliveryRecordRepository",
+		Method: "ListChannelInboxUpdates", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

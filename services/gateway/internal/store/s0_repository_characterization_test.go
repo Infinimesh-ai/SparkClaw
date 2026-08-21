@@ -534,13 +534,16 @@ func characterizeS0ExternalChatRepository(t *testing.T, st Store, dimension stri
 func characterizeS0DeliveryRecordRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		record := st.SaveMessageReceive(app.MessageReceiveRecord{ID: "receive-s0", OwnerID: "owner-s0", ActorID: "actor-s0", SourceEndpointID: "endpoint-s0", NativeMessageID: "native-s0", Status: "received"})
-		if got, ok := st.GetMessageReceive(record.ID); !ok || got.Direction != app.MessageDirectionReceive {
-			t.Fatalf("receive record save/get = %#v ok=%v", got, ok)
+		record, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{ID: "receive-s0", OwnerID: "owner-s0", ActorID: "actor-s0", SourceEndpointID: "endpoint-s0", NativeMessageID: "native-s0", Status: "received"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok, err := st.GetMessageReceive(t.Context(), record.ID); err != nil || !ok || got.Direction != app.MessageDirectionReceive {
+			t.Fatalf("receive record save/get = %#v ok=%v err=%v", got, ok, err)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetMessageReceive("missing"); ok {
-			t.Fatal("missing receive record was found")
+		if _, ok, err := st.GetMessageReceive(t.Context(), "missing"); err != nil || ok {
+			t.Fatalf("missing receive record lookup: ok=%v err=%v", ok, err)
 		}
 	default:
 		t.Fatalf("unexpected DeliveryRecordRepository dimension %q", dimension)
@@ -719,10 +722,6 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 	})
 }
 
-var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"DeliveryRecordRepository": s0DeliveryAliasSafe,
-}
-
 func TestS0AuditRepositoryMutableValuesAreIsolated(t *testing.T) {
 	for _, backend := range newS0RepositoryBackends(t) {
 		t.Run(backend.name, func(t *testing.T) {
@@ -823,15 +822,11 @@ func TestS0PassiveNotificationRepositoryMutableValuesAreIsolated(t *testing.T) {
 	}
 }
 
-func TestS0DefectEvidenceMutableAliases(t *testing.T) {
-	for repository, check := range s0MutableAliasChecks {
-		t.Run(repository, func(t *testing.T) {
-			for _, backend := range newS0RepositoryBackends(t) {
-				t.Run(backend.name, func(t *testing.T) {
-					if check(t, backend.store) {
-						t.Fatal("mutable record unexpectedly became alias-safe; replace this defect evidence with an isolation assertion")
-					}
-				})
+func TestS0DeliveryRecordRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0DeliveryAliasSafe(t, backend.store) {
+				t.Fatal("DeliveryRecordRepository exposed mutable transition state")
 			}
 		})
 	}
@@ -901,10 +896,18 @@ func s0PassiveAliasSafe(t *testing.T, st Store) bool {
 
 func s0DeliveryAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.SaveMessageReceive(app.MessageReceiveRecord{ID: "receive-alias", SourceEndpointID: "endpoint-alias", NativeMessageID: "native-alias", Status: "received"})
-	got, _ := st.GetMessageReceive("receive-alias")
+	if _, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{ID: "receive-alias", SourceEndpointID: "endpoint-alias", NativeMessageID: "native-alias", Status: "received"}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := st.GetMessageReceive(t.Context(), "receive-alias")
+	if err != nil || !ok {
+		t.Fatalf("receive alias lookup: ok=%v err=%v", ok, err)
+	}
 	got.Transitions[0].Status = "mutated"
-	again, _ := st.GetMessageReceive("receive-alias")
+	again, ok, err := st.GetMessageReceive(t.Context(), "receive-alias")
+	if err != nil || !ok {
+		t.Fatalf("receive alias reload: ok=%v err=%v", ok, err)
+	}
 	return again.Transitions[0].Status != "mutated"
 }
 

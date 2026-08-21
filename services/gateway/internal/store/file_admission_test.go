@@ -79,6 +79,12 @@ var migratedFileAdmissions = map[string]string{
 	"ListPassiveNotifications": "admitMigrated", "CountUnreadPassiveNotifications": "admitMigrated",
 	"MarkPassiveNotificationRead": "admitMigrated", "MarkAllPassiveNotificationsRead": "admitMigrated",
 	"PrunePassiveNotifications": "admitMigrated", "PassiveNotificationRevision": "admitMigrated",
+	"SaveMessageReceive": "admitMigrated", "GetMessageReceive": "admitMigrated",
+	"FindMessageReceive": "admitMigrated", "ListMessageReceives": "admitMigrated",
+	"SaveMessageDelivery": "admitMigrated", "GetMessageDelivery": "admitMigrated",
+	"FindMessageDeliveryByIdempotency": "admitMigrated", "ListMessageDeliveries": "admitMigrated",
+	"SaveChannelInboxUpdate": "admitMigrated", "GetChannelInboxUpdate": "admitMigrated",
+	"FindChannelInboxUpdate": "admitMigrated", "ListChannelInboxUpdates": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

@@ -28,6 +28,9 @@ func connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, curre
 
 var ErrPassiveNotificationConflict = errors.New("notification idempotency key was reused with a different payload")
 var ErrPassiveNotificationNotFound = errors.New("notification not found")
+var ErrMessageReceiveConflict = errors.New("message receive identity conflicts with the persisted record")
+var ErrMessageDeliveryConflict = errors.New("delivery idempotency key was reused with a different request")
+var ErrChannelInboxUpdateConflict = errors.New("channel inbox identity conflicts with the persisted update")
 var ErrApprovalConflict = errors.New("approval changed or was already resolved")
 var ErrApprovalNotFound = errors.New("approval not found")
 var ErrMCPAccessTicketInvalid = errors.New("MCP access ticket is invalid or unavailable")
@@ -207,6 +210,21 @@ type PassiveNotificationRepository interface {
 	PassiveNotificationRevision(context.Context, string) (uint64, error)
 }
 
+type DeliveryRecordRepository interface {
+	SaveMessageReceive(context.Context, app.MessageReceiveRecord) (app.MessageReceiveRecord, error)
+	GetMessageReceive(context.Context, string) (app.MessageReceiveRecord, bool, error)
+	FindMessageReceive(context.Context, app.EndpointID, string) (app.MessageReceiveRecord, bool, error)
+	ListMessageReceives(context.Context, string, string, int) ([]app.MessageReceiveRecord, error)
+	SaveMessageDelivery(context.Context, app.MessageDeliveryRecord) (app.MessageDeliveryRecord, error)
+	GetMessageDelivery(context.Context, app.DeliveryID) (app.MessageDeliveryRecord, bool, error)
+	FindMessageDeliveryByIdempotency(context.Context, string, string, string) (app.MessageDeliveryRecord, bool, error)
+	ListMessageDeliveries(context.Context, string, string, int) ([]app.MessageDeliveryRecord, error)
+	SaveChannelInboxUpdate(context.Context, app.ChannelInboxUpdate) (app.ChannelInboxUpdate, error)
+	GetChannelInboxUpdate(context.Context, string) (app.ChannelInboxUpdate, bool, error)
+	FindChannelInboxUpdate(context.Context, string, string) (app.ChannelInboxUpdate, bool, error)
+	ListChannelInboxUpdates(context.Context, string, string, time.Time, int) ([]app.ChannelInboxUpdate, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -242,6 +260,7 @@ type Store interface {
 	MemoryRepository
 	ScheduleRepository
 	PassiveNotificationRepository
+	DeliveryRecordRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -270,18 +289,6 @@ type Store interface {
 	GetExternalChatMessage(id string) (app.ExternalChatMessage, bool)
 	FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool)
 	ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage
-	SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord
-	GetMessageReceive(id string) (app.MessageReceiveRecord, bool)
-	FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool)
-	ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord
-	SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord
-	GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool)
-	FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool)
-	ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord
-	SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate
-	GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool)
-	FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool)
-	ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate
 }
 
 // Compile-time checks that every backend implements the full Store interface.
@@ -331,6 +338,9 @@ var (
 	_ ScheduleRepository         = (*MemoryStore)(nil)
 	_ ScheduleRepository         = (*FileStore)(nil)
 	_ ScheduleRepository         = (*PostgresStore)(nil)
+	_ DeliveryRecordRepository   = (*MemoryStore)(nil)
+	_ DeliveryRecordRepository   = (*FileStore)(nil)
+	_ DeliveryRecordRepository   = (*PostgresStore)(nil)
 	_ Store                      = (*MemoryStore)(nil)
 	_ Store                      = (*FileStore)(nil)
 	_ Store                      = (*PostgresStore)(nil)

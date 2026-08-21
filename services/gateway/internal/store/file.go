@@ -1189,70 +1189,118 @@ func (s *FileStore) ListExternalChatMessages(chatSessionID string, limit int) []
 	return s.inner.ListExternalChatMessages(chatSessionID, limit)
 }
 
-func (s *FileStore) SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveMessageReceive(record)
-	s.persist()
-	return out
+func (s *FileStore) SaveMessageReceive(ctx context.Context, record app.MessageReceiveRecord) (app.MessageReceiveRecord, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageReceiveSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.MessageReceiveRecord{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMessageReceiveSave, func(ctx context.Context) (app.MessageReceiveRecord, error) {
+		return s.inner.SaveMessageReceive(ctx, record)
+	})
 }
 
-func (s *FileStore) GetMessageReceive(id string) (app.MessageReceiveRecord, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetMessageReceive(id)
+func (s *FileStore) GetMessageReceive(ctx context.Context, id string) (app.MessageReceiveRecord, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageReceiveGet, 1)
+	if err != nil {
+		return app.MessageReceiveRecord{}, false, err
+	}
+	defer release()
+	return s.inner.GetMessageReceive(ctx, id)
 }
 
-func (s *FileStore) FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindMessageReceive(sourceEndpointID, nativeMessageID)
+func (s *FileStore) FindMessageReceive(ctx context.Context, sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageReceiveFind, 1)
+	if err != nil {
+		return app.MessageReceiveRecord{}, false, err
+	}
+	defer release()
+	return s.inner.FindMessageReceive(ctx, sourceEndpointID, nativeMessageID)
 }
 
-func (s *FileStore) ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord {
-	defer s.admitLegacyRead()()
-	return s.inner.ListMessageReceives(ownerID, actorID, limit)
+func (s *FileStore) ListMessageReceives(ctx context.Context, ownerID, actorID string, limit int) ([]app.MessageReceiveRecord, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageReceiveList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListMessageReceives(ctx, ownerID, actorID, limit)
 }
 
-func (s *FileStore) SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveMessageDelivery(record)
-	s.persist()
-	return out
+func (s *FileStore) SaveMessageDelivery(ctx context.Context, record app.MessageDeliveryRecord) (app.MessageDeliveryRecord, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageDeliverySave, fileAdmissionCapacity)
+	if err != nil {
+		return app.MessageDeliveryRecord{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMessageDeliverySave, func(ctx context.Context) (app.MessageDeliveryRecord, error) {
+		return s.inner.SaveMessageDelivery(ctx, record)
+	})
 }
 
-func (s *FileStore) GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetMessageDelivery(id)
+func (s *FileStore) GetMessageDelivery(ctx context.Context, id app.DeliveryID) (app.MessageDeliveryRecord, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageDeliveryGet, 1)
+	if err != nil {
+		return app.MessageDeliveryRecord{}, false, err
+	}
+	defer release()
+	return s.inner.GetMessageDelivery(ctx, id)
 }
 
-func (s *FileStore) FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey)
+func (s *FileStore) FindMessageDeliveryByIdempotency(ctx context.Context, ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageDeliveryFind, 1)
+	if err != nil {
+		return app.MessageDeliveryRecord{}, false, err
+	}
+	defer release()
+	return s.inner.FindMessageDeliveryByIdempotency(ctx, ownerID, actorID, idempotencyKey)
 }
 
-func (s *FileStore) ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord {
-	defer s.admitLegacyRead()()
-	return s.inner.ListMessageDeliveries(ownerID, actorID, limit)
+func (s *FileStore) ListMessageDeliveries(ctx context.Context, ownerID, actorID string, limit int) ([]app.MessageDeliveryRecord, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMessageDeliveryList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListMessageDeliveries(ctx, ownerID, actorID, limit)
 }
 
-func (s *FileStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveChannelInboxUpdate(update)
-	s.persist()
-	return out
+func (s *FileStore) SaveChannelInboxUpdate(ctx context.Context, update app.ChannelInboxUpdate) (app.ChannelInboxUpdate, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationChannelInboxUpdateSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.ChannelInboxUpdate{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationChannelInboxUpdateSave, func(ctx context.Context) (app.ChannelInboxUpdate, error) {
+		return s.inner.SaveChannelInboxUpdate(ctx, update)
+	})
 }
 
-func (s *FileStore) GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetChannelInboxUpdate(id)
+func (s *FileStore) GetChannelInboxUpdate(ctx context.Context, id string) (app.ChannelInboxUpdate, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationChannelInboxUpdateGet, 1)
+	if err != nil {
+		return app.ChannelInboxUpdate{}, false, err
+	}
+	defer release()
+	return s.inner.GetChannelInboxUpdate(ctx, id)
 }
 
-func (s *FileStore) FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindChannelInboxUpdate(bindingID, externalID)
+func (s *FileStore) FindChannelInboxUpdate(ctx context.Context, bindingID, externalID string) (app.ChannelInboxUpdate, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationChannelInboxUpdateFind, 1)
+	if err != nil {
+		return app.ChannelInboxUpdate{}, false, err
+	}
+	defer release()
+	return s.inner.FindChannelInboxUpdate(ctx, bindingID, externalID)
 }
 
-func (s *FileStore) ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate {
-	defer s.admitLegacyRead()()
-	return s.inner.ListChannelInboxUpdates(channel, status, readyBefore, limit)
+func (s *FileStore) ListChannelInboxUpdates(ctx context.Context, channel, status string, readyBefore time.Time, limit int) ([]app.ChannelInboxUpdate, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationChannelInboxUpdateList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListChannelInboxUpdates(ctx, channel, status, readyBefore, limit)
 }
 
 func (s *FileStore) SaveCredentialSecret(ctx context.Context, command CredentialSaveCommand) (app.CredentialSecret, error) {

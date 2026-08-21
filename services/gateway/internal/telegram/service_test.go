@@ -46,8 +46,8 @@ func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 			}
 			return []Update{{UpdateID: 42, Message: telegramTextMessage(7, 9, 9, "hello")}}, nil
 		}
-		if _, ok := st.FindChannelInboxUpdate(binding.ID, "42"); !ok {
-			t.Fatal("offset request happened before durable inbox insert")
+		if _, ok, err := st.FindChannelInboxUpdate(t.Context(), binding.ID, "42"); err != nil || !ok {
+			t.Fatalf("offset request happened before durable inbox insert: %v", err)
 		}
 		stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 		if stored.ProviderCursor != "43" || offset != 43 {
@@ -110,15 +110,25 @@ func TestServiceDeduplicatesTransportUpdates(t *testing.T) {
 	binding := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_dedupe", 9, 9))
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
 	update := Update{UpdateID: 55, Message: telegramTextMessage(8, 9, 9, "hello")}
-	if err := service.persistUpdate(binding, update); err != nil {
+	if err := service.persistUpdate(t.Context(), binding, update); err != nil {
 		t.Fatal(err)
 	}
-	first, _ := st.FindChannelInboxUpdate(binding.ID, "55")
-	if err := service.persistUpdate(binding, update); err != nil {
+	first, ok, err := st.FindChannelInboxUpdate(t.Context(), binding.ID, "55")
+	if err != nil || !ok {
+		t.Fatalf("first update lookup failed: ok=%v err=%v", ok, err)
+	}
+	if err := service.persistUpdate(t.Context(), binding, update); err != nil {
 		t.Fatal(err)
 	}
-	second, _ := st.FindChannelInboxUpdate(binding.ID, "55")
-	if first.ID != second.ID || len(st.ListChannelInboxUpdates("telegram", "", time.Time{}, 10)) != 1 {
+	second, ok, err := st.FindChannelInboxUpdate(t.Context(), binding.ID, "55")
+	if err != nil || !ok {
+		t.Fatalf("second update lookup failed: ok=%v err=%v", ok, err)
+	}
+	updates, err := st.ListChannelInboxUpdates(t.Context(), "telegram", "", time.Time{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || len(updates) != 1 {
 		t.Fatalf("duplicate update created another inbox record: first=%#v second=%#v", first, second)
 	}
 }
@@ -141,7 +151,10 @@ func TestServiceRejectsUnknownUserBeforeDownloadOrAgent(t *testing.T) {
 	update.Message.Document = &Document{FileID: "file", FileName: "secret.pdf", FileSize: 100}
 	inbox := saveInboxFixture(t, st, binding.ID, update)
 	service.processInbox(context.Background(), inbox)
-	stored, _ := st.GetChannelInboxUpdate(inbox.ID)
+	stored, _, err := st.GetChannelInboxUpdate(t.Context(), inbox.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if stored.Status != "completed" || runtime.callCount() != 0 || bot.fileCalls() != 0 {
 		t.Fatalf("unknown user crossed isolation boundary: inbox=%#v calls=%d files=%d", stored, runtime.callCount(), bot.fileCalls())
 	}
@@ -436,8 +449,8 @@ func TestServiceOwnerGateDrainsDispatchedWorkAndSuspendsPendingInbox(t *testing.
 	runtime.release <- struct{}{}
 	waitForInboxStatus(t, st, first.ID, "completed")
 	service.dispatchPending(context.Background(), scope)
-	if pending, _ := st.GetChannelInboxUpdate(second.ID); pending.Status != "pending" {
-		t.Fatalf("disabled owner's queued inbox was not suspended: %#v", pending)
+	if pending, _, err := st.GetChannelInboxUpdate(t.Context(), second.ID); err != nil || pending.Status != "pending" {
+		t.Fatalf("disabled owner's queued inbox was not suspended: %#v err=%v", pending, err)
 	}
 	select {
 	case started := <-runtime.started:
@@ -458,11 +471,25 @@ func TestServiceRecoversOnlyExpiredProcessingLeases(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
 	now := time.Now().UTC()
-	expired := st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{BindingID: "a", Channel: "telegram", ExternalID: "1", Status: "processing", AvailableAt: now.Add(-time.Second)})
-	current := st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{BindingID: "b", Channel: "telegram", ExternalID: "2", Status: "processing", AvailableAt: now.Add(time.Minute)})
-	service.recoverExpiredLeases(now)
-	expired, _ = st.GetChannelInboxUpdate(expired.ID)
-	current, _ = st.GetChannelInboxUpdate(current.ID)
+	expired, err := st.SaveChannelInboxUpdate(t.Context(), app.ChannelInboxUpdate{BindingID: "a", Channel: "telegram", ExternalID: "1", Status: "processing", AvailableAt: now.Add(-time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := st.SaveChannelInboxUpdate(t.Context(), app.ChannelInboxUpdate{BindingID: "b", Channel: "telegram", ExternalID: "2", Status: "processing", AvailableAt: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.recoverExpiredLeases(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	expired, _, err = st.GetChannelInboxUpdate(t.Context(), expired.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, _, err = st.GetChannelInboxUpdate(t.Context(), current.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if expired.Status != "pending" || current.Status != "processing" {
 		t.Fatalf("lease recovery mismatch: expired=%#v current=%#v", expired, current)
 	}
@@ -485,10 +512,36 @@ func TestServiceCancelBindingCancelsQueuedAndActiveUpdates(t *testing.T) {
 	waitForInboxStatus(t, st, active.ID, "canceled")
 	waitForInboxStatus(t, st, queued.ID, "canceled")
 	for _, id := range []string{active.ID, queued.ID} {
-		inbox, _ := st.GetChannelInboxUpdate(id)
+		inbox, _, err := st.GetChannelInboxUpdate(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(inbox.Payload) != 0 || inbox.LastError != CodeBindingUnavailable {
 			t.Fatalf("canceled inbox retained replayable data: %#v", inbox)
 		}
+	}
+}
+
+type failingInboxListStore struct {
+	store.Store
+	err error
+}
+
+func (s failingInboxListStore) ListChannelInboxUpdates(context.Context, string, string, time.Time, int) ([]app.ChannelInboxUpdate, error) {
+	return nil, s.err
+}
+
+func TestServiceCancelBindingStopsActiveUpdateWhenInboxStoreFails(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	base := store.NewMemoryStore()
+	service := NewService(failingInboxListStore{Store: base, err: errors.New("inbox unavailable")}, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(base, &recordingRuntime{}, cfg))
+	activeCtx, activeCancel := context.WithCancel(t.Context())
+	service.registerActive("binding-failure", "inbox-active", activeCancel)
+	service.CancelBinding("binding-failure")
+	select {
+	case <-activeCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("active Telegram update was not canceled after inbox Store failure")
 	}
 }
 
@@ -726,7 +779,11 @@ func saveInboxFixture(t *testing.T, st store.Store, bindingID string, update Upd
 		t.Fatal(err)
 	}
 	chatID, threadID := updateChat(update)
-	return st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{BindingID: bindingID, Channel: "telegram", ExternalID: stringID(update.UpdateID), ChatKey: bindingID + ":" + stringID(chatID) + ":" + stringID(threadID), Payload: raw, Status: "pending"})
+	stored, err := st.SaveChannelInboxUpdate(t.Context(), app.ChannelInboxUpdate{BindingID: bindingID, Channel: "telegram", ExternalID: stringID(update.UpdateID), ChatKey: bindingID + ":" + stringID(chatID) + ":" + stringID(threadID), Payload: raw, Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stored
 }
 
 func hasAuditType(events []app.AuditEvent, eventType string) bool {
@@ -742,13 +799,13 @@ func waitForInboxStatus(t *testing.T, st store.Store, id, status string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if inbox, ok := st.GetChannelInboxUpdate(id); ok && inbox.Status == status {
+		if inbox, ok, err := st.GetChannelInboxUpdate(t.Context(), id); err == nil && ok && inbox.Status == status {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	inbox, _ := st.GetChannelInboxUpdate(id)
-	t.Fatalf("inbox %s status = %q, want %q", id, inbox.Status, status)
+	inbox, _, err := st.GetChannelInboxUpdate(t.Context(), id)
+	t.Fatalf("inbox %s status = %q, want %q (err=%v)", id, inbox.Status, status, err)
 }
 
 func writeDownloadFixture(destination string, raw []byte) (int64, error) {

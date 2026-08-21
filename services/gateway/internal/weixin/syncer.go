@@ -350,14 +350,22 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 			continue
 		}
 		receives := messagecontrol.NewReceiveLifecycle(s.store)
-		receive, fresh := receives.Begin(endpoint, inbound.ExternalID)
+		receive, fresh, receiveErr := receives.Begin(ctx, endpoint, inbound.ExternalID)
+		if receiveErr != nil {
+			slog.Warn("weixin receive state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(receiveErr))
+			return
+		}
 		if !fresh {
 			existing, ok := s.store.FindExternalChatMessageByExternalID(chatSession.ID, inbound.ExternalID)
 			if !ok || (existing.Status != "failed" && existing.Status != "delivery_failed") {
 				continue
 			}
 		}
-		inbound.ReceiveRecord = receives.Advance(receive, "authorized", "", "")
+		inbound.ReceiveRecord, receiveErr = receives.Advance(ctx, receive, "authorized", "", "")
+		if receiveErr != nil {
+			slog.Warn("weixin receive state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(receiveErr))
+			return
+		}
 		inbound.Text = extractInboundText(msg.Items)
 		inbound.Attachments = s.downloadInboundAttachments(ctx, binding, msg.Items, chatSession.LinkedSessionID, msg.ExternalID)
 		if inbound.Text == "" && len(inbound.Attachments) == 0 {

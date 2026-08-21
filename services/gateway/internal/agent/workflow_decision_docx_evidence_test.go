@@ -130,7 +130,7 @@ func TestWorkflowDOCXDecisionEvidenceKeepsArchivedFallbackWithinBudget(t *testin
 	view, err := runtime.exposure.Search(context.Background(), app.ExposureRequest{
 		RunID: dispatch.Run.ID, WorkflowID: dispatch.Run.Workflow.Plan.ProfileID, NodeID: node.ID,
 		ScopeRevision: dispatch.Run.Workflow.Nodes[node.ID].ScopeRevision,
-		ActorRef:      runtime.workflowActorRef(dispatch.Run.SessionID), Limit: 32,
+		ActorRef:      runtime.workflowActorRef(dispatch.Run), Limit: 32,
 	})
 	if err != nil {
 		t.Fatal(err)

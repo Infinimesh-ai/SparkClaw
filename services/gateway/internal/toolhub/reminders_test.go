@@ -27,7 +27,7 @@ func TestRemindersCreateListCancel(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	hub := New(cfg, st)
-	session := st.CreateSession("Reminder test")
+	session := storetest.MustCreateSession(t, st, "Reminder test")
 
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text":     "带伞",
@@ -69,7 +69,7 @@ func TestRemindersCreateListCancel(t *testing.T) {
 
 func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Scheduled browser request")
+	session := storetest.MustCreateSession(t, st, "Scheduled browser request")
 	hub := New(config.Default(), st)
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text": "search tomorrow's weather", "due_time": "2026-07-18T09:00:00+08:00",
@@ -88,7 +88,7 @@ func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 
 func TestRemindersCreateKeepsOwnedContextThroughScheduleSave(t *testing.T) {
 	base := store.NewMemoryStore()
-	session := base.CreateSession("Canceled schedule")
+	session := storetest.MustCreateSession(t, base, "Canceled schedule")
 	storetest.MustCreateNotificationBinding(t, base, app.NotificationBinding{
 		ID: "binding-cancel-schedule", Channel: "alpha", Status: app.NotificationBindingActive,
 		ExternalUserID: "recipient", Scopes: []string{app.BindingScopeReminderSendSelf},
@@ -108,7 +108,7 @@ func TestRemindersCreateKeepsOwnedContextThroughScheduleSave(t *testing.T) {
 
 func TestRemindersListIgnoresRemovedLegacyScheduleSchema(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Schedule schema cutoff")
+	session := storetest.MustCreateSession(t, st, "Schedule schema cutoff")
 	now := time.Now().UTC()
 	st.SaveReminder(app.Reminder{
 		ID: "legacy-reminder", SessionID: session.ID, Text: "old literal payload", DueTime: now.Add(time.Hour),
@@ -128,7 +128,7 @@ func TestRemindersListIgnoresRemovedLegacyScheduleSchema(t *testing.T) {
 
 func TestRemindersUpdateRejectsStaleListVersion(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Schedule edit")
+	session := storetest.MustCreateSession(t, st, "Schedule edit")
 	hub := New(config.Default(), st)
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text": "first", "due_time": "2026-07-18T09:00:00+08:00",
@@ -226,7 +226,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
-	linked := st.CreateSession("微信会话")
+	linked := storetest.MustCreateSession(t, st, "微信会话")
 	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:            "bind_weixin",
 		Channel:       "weixin",
@@ -271,7 +271,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
-	linked := st.CreateSession("Telegram conversation")
+	linked := storetest.MustCreateSession(t, st, "Telegram conversation")
 	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api", Status: "active",
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",

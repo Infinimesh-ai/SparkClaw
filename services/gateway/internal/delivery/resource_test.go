@@ -8,14 +8,15 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestEndpointResourceResolverPrefersGovernedArtifactFromSourceWorkspace(t *testing.T) {
 	st := store.NewMemoryStore()
 	sourceRoot := t.TempDir()
 	targetRoot := t.TempDir()
-	source := st.CreateSessionWithScope("source", app.DefaultOwnerID, sourceRoot, "webchat", false)
-	target := st.CreateSessionWithScope("target", "external-owner", targetRoot, "weixin", true)
+	source := storetest.MustCreateSessionWithScope(t, st, "source", app.DefaultOwnerID, sourceRoot, "webchat", false)
+	target := storetest.MustCreateSessionWithScope(t, st, "target", "external-owner", targetRoot, "weixin", true)
 
 	relPath := filepath.Join("uploads", "result.docx")
 	sourcePath := filepath.Join(sourceRoot, relPath)

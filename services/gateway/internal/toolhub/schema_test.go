@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestValidateInputSupportsJSONDecodedSchemaForms(t *testing.T) {
@@ -69,8 +70,8 @@ func TestToolHubUsesSessionWorkspaceRoot(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = globalRoot
 	cfg.Workspaces.Allowlist = []string{globalRoot}
 	st := store.NewMemoryStore()
-	sessionA := st.CreateSessionWithScope("A", "owner-a", userA, "weixin", true)
-	sessionB := st.CreateSessionWithScope("B", "owner-b", userB, "weixin", true)
+	sessionA := storetest.MustCreateSessionWithScope(t, st, "A", "owner-a", userA, "weixin", true)
+	sessionB := storetest.MustCreateSessionWithScope(t, st, "B", "owner-b", userB, "weixin", true)
 	hub := New(cfg, st)
 
 	read := func(sessionID string) string {

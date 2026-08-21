@@ -371,7 +371,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 			profile := documentEditProfile{}
 			stageContext := profile.StageContext(run.Workflow)
 			visibleTools, err := runtime.materializeActiveWorkflowTools(
-				context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext,
+				context.Background(), run, runtime.workflowActorRef(run), &stageContext,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -431,7 +431,7 @@ func TestPPTXReplacementTextAliasIsCanonicalizedBeforeApproval(t *testing.T) {
 	defer closeRuntime()
 	stageContext := (documentEditProfile{}).StageContext(run.Workflow)
 	visibleTools, err := runtime.materializeActiveWorkflowTools(
-		context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext,
+		context.Background(), run, runtime.workflowActorRef(run), &stageContext,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -678,7 +678,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 		t.Fatalf("deterministic single-slide operation selection called the model %d times", calls)
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil || !exactVisibleToolNames(tools, "pptx.update_slide", "observation.read") {
 		t.Fatalf("single-slide scope exposed the wrong operation: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
@@ -905,7 +905,7 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		t.Fatalf("prepare real PPTX decision: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil || !exactVisibleToolNames(tools, selectedTool, "observation.read") {
 		closeRuntime()
 		t.Fatalf("prepare real PPTX tool: tools=%#v err=%v", visibleToolNames(tools), err)

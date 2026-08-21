@@ -17,7 +17,7 @@ type scheduleStore interface {
 	GetReminder(string) (app.Reminder, bool)
 	ListReminders(app.ReminderFilter) []app.Reminder
 	ClaimDueReminders(time.Time, time.Time, int) []app.Reminder
-	GetSession(string) (app.Session, bool)
+	GetSession(context.Context, string) (app.Session, bool, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(string, string) []app.ExternalChatSession

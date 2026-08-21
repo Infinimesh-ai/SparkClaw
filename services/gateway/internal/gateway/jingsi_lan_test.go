@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -61,7 +62,7 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 		t.Fatalf("unexpected head: %#v", head)
 	}
 
-	other := st.CreateSession("other")
+	other := storetest.MustCreateSession(t, st, "other")
 	st.AddMessage(app.Message{SessionID: other.ID, Role: "assistant", Content: "must stay hidden"})
 	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "idle update"})
 
@@ -105,7 +106,7 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 
 func TestJingSiLANRejectsWrongSessionCursor(t *testing.T) {
 	_, st, _, ts := newJingSiTestServer(t)
-	other := st.CreateSession("other")
+	other := storetest.MustCreateSession(t, st, "other")
 	st.AddMessage(app.Message{SessionID: other.ID, Role: "user", Content: "other"})
 	cursor, err := st.MessageEventHead(other.ID)
 	if err != nil {
@@ -155,7 +156,7 @@ func TestJingSiLANEmptyHeadCursorIsBoundToConfiguredSession(t *testing.T) {
 		t.Fatalf("empty head cursor is not opaque: %q", head.Cursor)
 	}
 
-	other := st.CreateSessionWithScope("other", app.DefaultOwnerID, server.cfg.Workspaces.DefaultRoot, "webchat", false)
+	other := storetest.MustCreateSessionWithScope(t, st, "other", app.DefaultOwnerID, server.cfg.Workspaces.DefaultRoot, "webchat", false)
 	server.cfg.JingSiLAN.SessionID = other.ID
 	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + head.Cursor)
 	if err != nil {
@@ -360,7 +361,7 @@ func TestJingSiLANRequiresVisibleDefaultOwnerWebChatSession(t *testing.T) {
 			cfg := testConfig(t.TempDir())
 			st := store.NewMemoryStore()
 			if session.ID == "" {
-				created := st.CreateSessionWithScope("invalid", session.OwnerID, "", session.Source, session.Hidden)
+				created := storetest.MustCreateSessionWithScope(t, st, "invalid", session.OwnerID, "", session.Source, session.Hidden)
 				session.ID = created.ID
 			}
 			cfg.JingSiLAN = config.JingSiLANConfig{Enabled: true, SessionID: session.ID, MaxMessageBytes: 1024}
@@ -385,7 +386,7 @@ func newJingSiTestServer(t *testing.T) (*Server, *store.MemoryStore, app.Session
 	t.Helper()
 	cfg := testConfig(t.TempDir())
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("JingSi LAN", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "JingSi LAN", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "webchat", false)
 	cfg.JingSiLAN = config.JingSiLANConfig{Enabled: true, SessionID: session.ID, MaxMessageBytes: 64 << 10}
 	tools := toolhub.New(cfg, st)
 	t.Cleanup(func() { _ = tools.Close() })

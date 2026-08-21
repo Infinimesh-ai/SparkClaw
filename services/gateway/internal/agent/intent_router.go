@@ -93,10 +93,19 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if hasRun && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
 		documents = resolveExternalMCPDocumentContext(groundingContent, resources)
 	} else {
-		documents = r.resolveDocumentContext(sessionID, runID, groundingContent, resources)
+		documents, err = r.resolveDocumentContext(ctx, sessionID, runID, groundingContent, resources)
+		if err != nil {
+			return IntentRoutingOutput{}, err
+		}
 	}
-	grounding := r.projectIntentGrounding(sessionID, runID, groundingContent, documents)
-	routingContext := r.semanticRoutingContext(sessionID, runID, ownerText, resources, documents)
+	grounding, err := r.projectIntentGrounding(ctx, sessionID, runID, groundingContent, documents)
+	if err != nil {
+		return IntentRoutingOutput{}, err
+	}
+	routingContext, err := r.semanticRoutingContext(ctx, sessionID, runID, ownerText, resources, documents)
+	if err != nil {
+		return IntentRoutingOutput{}, err
+	}
 	channelInputs := newSemanticChannelInputs(businessContent, routingContext)
 	eligible := r.semanticRouter.graph.EligibleCandidates(sourceKind)
 	if len(eligible) == 0 {
@@ -134,7 +143,7 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	}
 	decision = enforceDeliveryFusionBoundary(decision, delivery)
 	fusion := persistedIntentFusion(r.semanticRouter, channels, decision)
-	route, err := r.routeFromFusionDecision(content, grounding, decision, clientTimezone)
+	route, err := r.routeFromFusionDecision(ctx, content, grounding, decision, clientTimezone)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
@@ -498,7 +507,7 @@ func deliveryBusinessProjection(content string, evidence externalSendEvidence) s
 	return content
 }
 
-func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText string, resources []app.MessagePart, documents ...documentContextResolution) string {
+func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, currentOwnerText string, resources []app.MessagePart, documents ...documentContextResolution) (string, error) {
 	snapshot := r.buildAgentContextSnapshot(sessionID, runID, currentOwnerText)
 	snapshot.Messages = withoutCurrentOwnerMessage(snapshot.Messages, currentOwnerText)
 	sections := make([]string, 0, 3)
@@ -509,7 +518,11 @@ func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText strin
 	if len(documents) > 0 {
 		documentResolution = documents[0]
 	} else {
-		documentResolution = r.resolveDocumentContext(sessionID, runID, currentOwnerText, resources)
+		var err error
+		documentResolution, err = r.resolveDocumentContext(ctx, sessionID, runID, currentOwnerText, resources)
+		if err != nil {
+			return "", err
+		}
 	}
 	if documentContext := formatDocumentRoutingContext(documentResolution); documentContext != "" {
 		sections = append(sections, "Resolved governed document context:\n"+documentContext)
@@ -517,7 +530,7 @@ func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText strin
 	if context := snapshot.ForIntentRouting(); context != "" {
 		sections = append(sections, "Recent Agent context:\n"+trimForEpisode(context, 12000))
 	}
-	return strings.Join(sections, "\n\n")
+	return strings.Join(sections, "\n\n"), nil
 }
 
 func withoutCurrentOwnerMessage(messages []app.Message, currentOwnerText string) []app.Message {

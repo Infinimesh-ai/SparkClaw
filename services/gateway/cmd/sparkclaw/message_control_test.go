@@ -17,7 +17,7 @@ import (
 
 func TestEndpointMessageControlRouterMapsTypedDirectivesToCanonicalResolution(t *testing.T) {
 	st := store.NewMemoryStore()
-	web := st.CreateSessionWithScope("Web", "owner-a", t.TempDir(), "webchat", false)
+	web := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
 	saveMessageControlEndpoint(t, st, "bind-source", "chat-source", "owner-a", "actor-a", "telegram", "Source", "source-user", "source-chat")
 	saveMessageControlEndpoint(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1")
 	saveMessageControlEndpoint(t, st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2")
@@ -87,7 +87,7 @@ func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
-	session := st.CreateSessionWithScope("Web", "owner-a", t.TempDir(), "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
 	saveMessageControlEndpoint(t, st, "bind-c", "chat-c", "owner-a", "owner-a", "weixin", "Chen", "user-3", "chat-3")
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil).

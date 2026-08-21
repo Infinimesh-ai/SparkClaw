@@ -17,7 +17,7 @@ type artifactStore interface {
 
 type endpointResourceStore interface {
 	artifactStore
-	GetSession(string) (app.Session, bool)
+	GetSession(context.Context, string) (app.Session, bool, error)
 }
 
 type ResourceResolver interface {
@@ -41,7 +41,10 @@ func (r EndpointResourceResolver) Resolve(ctx context.Context, part app.MessageP
 		if r.store == nil || strings.TrimSpace(r.endpoint.SessionID) == "" {
 			return "", errors.New("workspace delivery endpoint has no linked session")
 		}
-		session, ok := r.store.GetSession(r.endpoint.SessionID)
+		session, ok, err := r.store.GetSession(ctx, r.endpoint.SessionID)
+		if err != nil {
+			return "", fmt.Errorf("read workspace delivery session: %w", err)
+		}
 		if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
 			return "", errors.New("workspace delivery session is unavailable")
 		}

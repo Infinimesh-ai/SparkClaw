@@ -30,7 +30,10 @@ func (h *ToolHub) browserRead(ctx context.Context, args map[string]any, sessionI
 		return Result{}, err
 	}
 	metadata := browserModeMetadataFromArgs(args, "autonomous")
-	authState := h.prepareBrowserAuth(parsed, args, metadata, sessionID, runID)
+	authState, err := h.prepareBrowserAuth(ctx, parsed, args, metadata, sessionID, runID)
+	if err != nil {
+		return Result{}, err
+	}
 	requireBrowserSession := boolArg(args, "require_browser_session", false)
 	if requireBrowserSession && !h.shouldUseBrowserSessionRead() {
 		return Result{}, &app.CodedToolError{Code: app.ToolErrorBrowserSessionRequired, Err: errors.New("browser.read requires an available managed browser session")}
@@ -148,17 +151,24 @@ func browserModeMetadataFromArgs(args map[string]any, fallbackMode string) brows
 	}
 }
 
-func (h *ToolHub) prepareBrowserAuth(parsed *url.URL, args map[string]any, metadata browserModeMetadata, sessionID, runID string) *browserAuthRunState {
-	state := h.newBrowserAuthRunState(parsed, args, sessionID)
+func (h *ToolHub) prepareBrowserAuth(ctx context.Context, parsed *url.URL, args map[string]any, metadata browserModeMetadata, sessionID, runID string) (*browserAuthRunState, error) {
+	state, err := h.newBrowserAuthRunState(ctx, parsed, args, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	state.AuthStrategy = "managed_shared_chromium_profile"
 	h.addBrowserAuthAudit("browser_auth.profile_selected", sessionID, runID, metadata, state, map[string]any{"shared_profile": true})
-	return state
+	return state, nil
 }
 
-func (h *ToolHub) newBrowserAuthRunState(parsed *url.URL, args map[string]any, sessionID string) *browserAuthRunState {
+func (h *ToolHub) newBrowserAuthRunState(ctx context.Context, parsed *url.URL, args map[string]any, sessionID string) (*browserAuthRunState, error) {
 	ownerID := strings.TrimSpace(stringArg(args, "owner_id", ""))
 	if ownerID == "" && h.store != nil && strings.TrimSpace(sessionID) != "" {
-		if session, ok := h.store.GetSession(sessionID); ok {
+		session, ok, err := h.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve browser session owner: %w", err)
+		}
+		if ok {
 			ownerID = session.OwnerID
 		}
 	}
@@ -180,7 +190,7 @@ func (h *ToolHub) newBrowserAuthRunState(parsed *url.URL, args map[string]any, s
 		SiteRealm:        strings.TrimSpace(stringArg(args, "site_realm", "")),
 		AccountHint:      strings.ToLower(strings.TrimSpace(stringArg(args, "account_hint", ""))),
 		AuthStrategy:     "managed_shared_chromium_profile",
-	}
+	}, nil
 }
 
 func browserAuthOrigin(parsed *url.URL) string {

@@ -90,7 +90,7 @@ func (r Runtime) detectConversationResponseMedia(ctx context.Context, run app.Ag
 			}
 		}
 		if len(media) > 0 {
-			return r.governResponseMediaParts(run, media, "current_turn_attachment")
+			return r.governResponseMediaParts(ctx, run, media, "current_turn_attachment")
 		}
 		if len(locators) == 0 {
 			if locator, ok := implicitResponseMediaLocator(run.Workflow.Route.Slots.Query); ok {
@@ -121,10 +121,10 @@ func (r Runtime) detectConversationResponseMedia(ctx context.Context, run app.Ag
 		part := responseMediaPart(index, candidate.relPath, locator.Caption)
 		parts = append(parts, part)
 	}
-	return r.governResponseMediaParts(run, parts, "media_locator")
+	return r.governResponseMediaParts(ctx, run, parts, "media_locator")
 }
 
-func (r Runtime) governResponseMediaParts(run app.AgentRun, parts []app.MessagePart, provenance string) (app.ResponseMediaDecision, app.MessageContent) {
+func (r Runtime) governResponseMediaParts(ctx context.Context, run app.AgentRun, parts []app.MessagePart, provenance string) (app.ResponseMediaDecision, app.MessageContent) {
 	if len(parts) == 0 {
 		return app.ResponseMediaDecision{Status: app.ResponseMediaNone}, app.MessageContent{}
 	}
@@ -140,7 +140,7 @@ func (r Runtime) governResponseMediaParts(run app.AgentRun, parts []app.MessageP
 	}
 	totalBytes := 0
 	for _, source := range parts {
-		part, err := r.governWorkflowRequestPart(run, source)
+		part, err := r.governWorkflowRequestPart(ctx, run, source)
 		if err != nil {
 			return app.ResponseMediaDecision{Status: app.ResponseMediaBlocked, ReasonCode: "response_media_invalid"}, app.MessageContent{}
 		}
@@ -163,7 +163,11 @@ func (r Runtime) governResponseMediaParts(run app.AgentRun, parts []app.MessageP
 }
 
 func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentRun, locator app.MessageMediaLocator) (responseMediaCandidate, string, error) {
-	root, err := governedResponseMediaRoot(r.workspaceRootForSession(run.SessionID))
+	workspaceRoot, err := r.workspaceRootForSession(ctx, run.SessionID)
+	if err != nil {
+		return responseMediaCandidate{}, "file_lookup_failed", err
+	}
+	root, err := governedResponseMediaRoot(workspaceRoot)
 	if err != nil {
 		return responseMediaCandidate{}, "file_lookup_failed", err
 	}
@@ -328,7 +332,7 @@ func responseMediaPart(index int, relPath, caption string) app.MessagePart {
 	}
 }
 
-func (r Runtime) runConversationResponseContentStep(run app.AgentRun) workflowExecutionResult {
+func (r Runtime) runConversationResponseContentStep(ctx context.Context, run app.AgentRun) workflowExecutionResult {
 	if run.MessageContext == nil || run.MessageContext.ResponseMedia == nil {
 		return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: the response-media decision is unavailable."}
 	}
@@ -346,7 +350,7 @@ func (r Runtime) runConversationResponseContentStep(run app.AgentRun) workflowEx
 		r.store.SaveRun(run)
 		return workflowExecutionResult{FinalAnswer: publishedMessageSummary(content), Completed: true}
 	case app.ResponseMediaSelected:
-		if err := r.revalidateFrozenResponseMedia(&run); err != nil {
+		if err := r.revalidateFrozenResponseMedia(ctx, &run); err != nil {
 			return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: response media changed after it was selected."}
 		}
 		return workflowExecutionResult{FinalAnswer: publishedMessageSummary(run.MessageContext.ResponseContent), Completed: true}
@@ -355,12 +359,12 @@ func (r Runtime) runConversationResponseContentStep(run app.AgentRun) workflowEx
 	}
 }
 
-func (r Runtime) revalidateFrozenResponseMedia(run *app.AgentRun) error {
+func (r Runtime) revalidateFrozenResponseMedia(ctx context.Context, run *app.AgentRun) error {
 	if run == nil || run.MessageContext == nil || run.MessageContext.ResponseMedia == nil ||
 		run.MessageContext.ResponseMedia.Status != app.ResponseMediaSelected {
 		return errors.New("selected response media is unavailable")
 	}
-	decision, content := r.governResponseMediaParts(*run, run.MessageContext.ResponseContent.Parts, "response_media_frozen")
+	decision, content := r.governResponseMediaParts(ctx, *run, run.MessageContext.ResponseContent.Parts, "response_media_frozen")
 	if decision.Status != app.ResponseMediaSelected || !sameFrozenResponseMedia(*run.MessageContext.ResponseMedia, decision) {
 		return errors.New("selected response media changed")
 	}

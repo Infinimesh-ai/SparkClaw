@@ -11,6 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestBrowserAutomationToolsRegisterOnlyWhenEnabled(t *testing.T) {
@@ -124,7 +125,7 @@ func TestBrowserOpenPassesCollaborativeMetadata(t *testing.T) {
 	cfg.Tools.BrowserAutomation.Enabled = true
 	callArgs := map[string]any{}
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("browser owner", "owner-a", "", "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "browser owner", "owner-a", "", "webchat", false)
 	hub := New(cfg, st).WithBrowserAutomationAdapter(fakePageReadAdapter{callArgs: &callArgs})
 
 	result, err := hub.Execute(context.Background(), "browser.open", map[string]any{
@@ -156,7 +157,7 @@ func TestBrowserStatusPassesPresentationAndProfileIdentity(t *testing.T) {
 	cfg.Tools.BrowserAutomation.Enabled = true
 	healthArgs := map[string]any{}
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("browser owner", "owner-health", "", "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "browser owner", "owner-health", "", "webchat", false)
 	hub := New(cfg, st).WithBrowserAutomationAdapter(fakePageReadAdapter{healthArgs: &healthArgs})
 
 	result, err := hub.Execute(context.Background(), "browser.status", map[string]any{

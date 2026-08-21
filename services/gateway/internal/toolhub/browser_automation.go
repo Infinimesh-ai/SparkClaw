@@ -14,7 +14,10 @@ import (
 )
 
 func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
-	callArgs, metadata := h.browserAutomationCallArgs("browser.status", args, sessionID)
+	callArgs, metadata, err := h.browserAutomationCallArgs(ctx, "browser.status", args, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	result, err := h.browser.Health(ctx, callArgs)
 	if err != nil {
 		return Result{}, err
@@ -31,7 +34,10 @@ func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]a
 }
 
 func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args map[string]any, sessionID string) (Result, error) {
-	callArgs, metadata := h.browserAutomationCallArgs(name, args, sessionID)
+	callArgs, metadata, err := h.browserAutomationCallArgs(ctx, name, args, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	result, err := h.browser.Call(ctx, name, callArgs)
 	if err != nil {
 		return Result{}, err
@@ -50,12 +56,16 @@ func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args m
 	return Result{Output: result}, nil
 }
 
-func (h *ToolHub) browserAutomationCallArgs(name string, args map[string]any, sessionID string) (map[string]any, browserModeMetadata) {
+func (h *ToolHub) browserAutomationCallArgs(ctx context.Context, name string, args map[string]any, sessionID string) (map[string]any, browserModeMetadata, error) {
 	callArgs, metadata := browserAutomationArgsWithMode(name, args)
 	if strings.TrimSpace(stringArg(callArgs, "owner_id", "")) == "" {
 		ownerID := ""
 		if h.store != nil && strings.TrimSpace(sessionID) != "" {
-			if session, ok := h.store.GetSession(sessionID); ok {
+			session, ok, err := h.store.GetSession(ctx, sessionID)
+			if err != nil {
+				return nil, browserModeMetadata{}, fmt.Errorf("resolve browser automation session owner: %w", err)
+			}
+			if ok {
 				ownerID = strings.TrimSpace(session.OwnerID)
 			}
 		}
@@ -64,7 +74,7 @@ func (h *ToolHub) browserAutomationCallArgs(name string, args map[string]any, se
 	if strings.TrimSpace(stringArg(callArgs, "browser_profile_id", "")) == "" {
 		callArgs["browser_profile_id"] = firstNonEmptyString(strings.TrimSpace(h.cfg.Tools.BrowserAutomation.Profile), "default")
 	}
-	return callArgs, metadata
+	return callArgs, metadata, nil
 }
 
 func nonNilBrowserPages(pages []any) []any {

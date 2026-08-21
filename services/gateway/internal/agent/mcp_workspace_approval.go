@@ -267,25 +267,25 @@ func (r Runtime) resumeMCPWorkspaceDataApproval(ctx context.Context, run app.Age
 		return Result{}, false, nil
 	}
 	if call.Status != "completed_after_approval" {
-		result := r.blockPersistedWorkflowResume(ctx, run, content, errors.New("workspace data approval did not complete safely"))
-		return result, true, nil
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, errors.New("workspace data approval did not complete safely"))
+		return result, true, resultErr
 	}
 	if err := r.validateWorkspaceDataAccessApproval(*call, approval); err != nil {
-		result := r.blockPersistedWorkflowResume(ctx, run, content, err)
-		return result, true, nil
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, err)
+		return result, true, resultErr
 	}
 	var completeErr error
 	switch strings.TrimSpace(stringValue(call.Arguments["contract_revision"])) {
 	case responseMediaAccessContractRevision:
 		completeErr = r.completeConversationMediaDetection(ctx, &run)
 	case documentPathAccessContractRevision:
-		completeErr = r.completeMCPDocumentPreflight(&run)
+		completeErr = r.completeMCPDocumentPreflight(ctx, &run)
 	default:
 		completeErr = errors.New("workspace data approval contract revision is unsupported")
 	}
 	if completeErr != nil {
-		result := r.blockPersistedWorkflowResume(ctx, run, content, completeErr)
-		return result, true, nil
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, completeErr)
+		return result, true, resultErr
 	}
 	if refreshed, ok := r.store.GetRun(run.ID); ok {
 		run = refreshed
@@ -293,13 +293,17 @@ func (r Runtime) resumeMCPWorkspaceDataApproval(ctx context.Context, run app.Age
 	return r.resumeMatchedWorkflow(ctx, run, content, nil, "workflow.resumed_after_workspace_data_approval")
 }
 
-func (r Runtime) completeMCPDocumentPreflight(run *app.AgentRun) error {
+func (r Runtime) completeMCPDocumentPreflight(ctx context.Context, run *app.AgentRun) error {
 	required, err := mcpDocumentAccessRequest(run)
 	if err != nil || !required {
 		return errors.New("external MCP document access request is no longer active")
 	}
 	edit := run.Workflow.Route.Slots.Operation == app.RouteOperationEdit || run.Workflow.Route.Slots.Operation == app.RouteOperationTransform
-	preflight, err := preflightDocumentPath(r.workspaceRootForSession(run.SessionID), run.Workflow.Route.Slots.TargetRef, edit)
+	workspaceRoot, err := r.workspaceRootForSession(ctx, run.SessionID)
+	if err != nil {
+		return err
+	}
+	preflight, err := preflightDocumentPath(workspaceRoot, run.Workflow.Route.Slots.TargetRef, edit)
 	if err != nil {
 		return err
 	}
@@ -312,7 +316,10 @@ func (r Runtime) completeMCPDocumentPreflight(run *app.AgentRun) error {
 	reference := documentContextReference{
 		Ref: preflight.InputRef, Format: preflight.Format, Provenance: documentProvenanceExplicitCurrent,
 	}
-	record := r.confirmDocumentRecord(run.SessionID, run.ID, reference, preflight)
+	record, err := r.confirmDocumentRecord(ctx, run.SessionID, run.ID, reference, preflight)
+	if err != nil {
+		return err
+	}
 	facts := cloneFacts(run.Workflow.Route.Facts)
 	if facts == nil {
 		facts = map[string]string{}

@@ -171,7 +171,7 @@ func (conversationAnswerProfile) TransitionInstruction(app.ToolOutcome, app.Node
 	return ""
 }
 
-func (r Runtime) runWorkflowMessageContentStep(run app.AgentRun) workflowExecutionResult {
+func (r Runtime) runWorkflowMessageContentStep(ctx context.Context, run app.AgentRun) workflowExecutionResult {
 	if run.Workflow == nil || run.Workflow.Route.Slots.Operation != app.RouteOperationPublish || run.MessageContext == nil {
 		result := workflowExecutionResult{Halted: true}
 		result.fail(workflowFailureMessageContentInvalid, errors.New("ordinary message workflow lost its normalized request content"))
@@ -179,9 +179,9 @@ func (r Runtime) runWorkflowMessageContentStep(run app.AgentRun) workflowExecuti
 		return result
 	}
 	if run.Workflow.Plan.ProfileRevision == 3 {
-		return r.runConversationResponseContentStep(run)
+		return r.runConversationResponseContentStep(ctx, run)
 	}
-	content, err := r.governWorkflowRequestContent(run)
+	content, err := r.governWorkflowRequestContent(ctx, run)
 	if err != nil {
 		result := workflowExecutionResult{Halted: true}
 		result.fail(workflowFailureMessageContentInvalid, err)
@@ -256,7 +256,7 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 		case app.ResponseMediaBlocked:
 			return workflowExecutionResult{FinalAnswer: responseMediaBlockedMessage(run.MessageContext.ResponseMedia.ReasonCode), Completed: true}
 		case app.ResponseMediaSelected:
-			if err := r.revalidateFrozenResponseMedia(&run); err != nil {
+			if err := r.revalidateFrozenResponseMedia(ctx, &run); err != nil {
 				return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: response media changed after it was selected."}
 			}
 		}

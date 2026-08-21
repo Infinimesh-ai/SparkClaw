@@ -364,7 +364,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	if !ok || chatSession.LinkedSessionID == "" {
 		t.Fatalf("weixin chat session not saved: %#v", chatSession)
 	}
-	linkedSession, ok := st.GetSession(chatSession.LinkedSessionID)
+	linkedSession, ok := storetest.MustGetSession(t, st, chatSession.LinkedSessionID)
 	if !ok || linkedSession.Source != "weixin" || !linkedSession.Hidden {
 		t.Fatalf("linked session should be hidden weixin session: %#v", linkedSession)
 	}
@@ -372,7 +372,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	if len(runs) != 1 || runs[0].MessageContext == nil || runs[0].MessageContext.OwnerID != chatSession.OwnerID || runs[0].MessageContext.ReturnRoute.SourceEndpointID != app.EndpointID(chatSession.ID) || runs[0].MessageContext.Route.Status != app.RouteMatched || len(runs[0].MessageContext.Route.CapabilityPath) != 2 || runs[0].MessageContext.Route.CapabilityPath[1] != app.CapabilityConversationAnswer || runs[0].Workflow == nil || runs[0].Workflow.Plan.ProfileID != app.WorkflowConversationAnswer {
 		t.Fatalf("weixin run did not persist the external endpoint route context: %#v", runs)
 	}
-	for _, session := range st.ListSessions() {
+	for _, session := range storetest.MustListSessions(t, st) {
 		if session.ID == chatSession.LinkedSessionID {
 			t.Fatalf("weixin linked session should not appear in normal session list: %#v", session)
 		}
@@ -492,7 +492,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	if sessionA.WorkspaceRoot == "" || sessionB.WorkspaceRoot == "" || sessionA.WorkspaceRoot == sessionB.WorkspaceRoot {
 		t.Fatalf("weixin users should have isolated workspaces: %#v %#v", sessionA, sessionB)
 	}
-	linkedA, ok := st.GetSession(sessionA.LinkedSessionID)
+	linkedA, ok := storetest.MustGetSession(t, st, sessionA.LinkedSessionID)
 	if !ok || linkedA.OwnerID != sessionA.OwnerID || linkedA.WorkspaceRoot != sessionA.WorkspaceRoot {
 		t.Fatalf("linked session should carry weixin owner/workspace scope: %#v ok=%v chat=%#v", linkedA, ok, sessionA)
 	}

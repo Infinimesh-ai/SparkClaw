@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -525,7 +526,7 @@ func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 
 func TestWorkspaceApprovalPresentationUsesFrozenContextAndManagedSessionTitle(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("AI · device-a", app.DefaultOwnerID, "", "mcp", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "AI · device-a", app.DefaultOwnerID, "", "mcp", false)
 	server := &Server{store: st}
 	approval := app.Approval{
 		SessionID: session.ID,
@@ -542,7 +543,10 @@ func TestWorkspaceApprovalPresentationUsesFrozenContextAndManagedSessionTitle(t 
 			ReturnRoute:    app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "mcp:binding-a"},
 		},
 	}
-	presentation := server.approvalPresentation(approval)
+	presentation, err := server.approvalPresentation(t.Context(), approval)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if presentation == nil || presentation.Requester != session.Title || presentation.Requester == "untrusted-display-override" ||
 		presentation.LocatorStatus != "unverified" || len(presentation.Locators) != 1 || presentation.Locators[0].Query != "quarterly report" ||
 		presentation.AccessClass != app.PolicyAccessWorkspaceDerivativeDisclosure || presentation.OutputClass != "response_media" ||

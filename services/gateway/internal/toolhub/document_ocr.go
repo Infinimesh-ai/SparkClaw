@@ -149,6 +149,15 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 		}
 		tasks = append(tasks, representative[hash])
 	}
+	if len(tasks) > 0 {
+		ownerID, err := e.hub.ownerIDForSession(ctx, execution.SessionID)
+		if err != nil {
+			return document.EnrichmentResult{}, err
+		}
+		for index := range tasks {
+			tasks[index].metadata.OwnerID = ownerID
+		}
+	}
 
 	for _, result := range e.parseImages(ctx, tasks) {
 		invocation := result.invocation

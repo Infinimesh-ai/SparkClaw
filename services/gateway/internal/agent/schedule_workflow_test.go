@@ -110,7 +110,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	}
 	st.SaveRun(storedRun)
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -473,7 +473,7 @@ func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run 
 }
 
 func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
-	actorRef := r.workflowActorRef(sessionID)
+	actorRef := r.workflowActorRef(run)
 	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
 	allObservations := workflowObservationsFromText(seedObservations)
@@ -503,7 +503,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		allObservations = r.compactWorkflowObservationsIfNeeded(sessionID, run.ID, allObservations, runBudget)
 		stageResult := workflowExecutionResult{}
 		if activeWorkflowNodeUsesMessageContent(run.Workflow) {
-			stageResult = r.runWorkflowMessageContentStep(run)
+			stageResult = r.runWorkflowMessageContentStep(ctx, run)
 		} else if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {

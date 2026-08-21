@@ -24,6 +24,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -564,11 +565,11 @@ func TestWorkflowOutputResourceRefUsesDefaultWorkspaceForUnscopedWebSession(t *t
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("web session without explicit workspace")
+	session := storetest.MustCreateSession(t, st, "web session without explicit workspace")
 	hub := toolhub.New(cfg, st)
 	runtime := Runtime{store: st, tools: hub}
 
-	ref, ok := runtime.workflowOutputResourceRef(session.ID, app.ResourceRef{
+	ref, ok := mustWorkflowOutputResourceRef(t, runtime, session.ID, app.ResourceRef{
 		Kind: "path", Ref: filepath.Join(root, "media", "weather.png"), Provenance: "tc_weather",
 	})
 	if !ok || ref.Kind != "workspace_file" || ref.Ref != "media/weather.png" || ref.Provenance != "tc_weather" {
@@ -878,7 +879,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	writeTestOfficePackage(t, filepath.Join(session.WorkspaceRoot, "note-sparkclaw-edit.docx"), "word/document.xml")
 	dispatch.Run.State = "completed"
-	result := runtime.workflowResultForRun(dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
+	result := mustWorkflowResultForRun(t, runtime, dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
 	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 1 {
 		t.Fatalf("document edit did not return its output copy: %#v", result)
 	}
@@ -942,7 +943,10 @@ func TestWorkflowImageOutputIsInlineAndProjectsWithoutAttachmentText(t *testing.
 	run := app.AgentRun{ID: call.RunID, SessionID: session.ID, Workflow: &app.WorkflowState{Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
 		"render_weather_card": {OutcomeRefs: []app.ResourceRef{{Kind: "path", Ref: filepath.Join(session.WorkspaceRoot, "media", "weather.png"), Provenance: call.ID}}},
 	}}}
-	content := runtime.workflowResultContent(run, "图片已保存到 media/weather.png")
+	content, err := runtime.workflowResultContent(t.Context(), run, "图片已保存到 media/weather.png")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(content.Parts) != 1 || content.Parts[0].Kind != app.MessagePartImage || content.Parts[0].Disposition != app.MessageDispositionInline ||
 		content.Parts[0].Resource == nil || content.Parts[0].Resource.Ref != "media/weather.png" || content.Parts[0].Width != 1400 || content.Parts[0].Height != 900 ||
 		content.Parts[0].Caption != "" {
@@ -995,7 +999,7 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 			SchemaVersion: app.RouteDecisionSchemaVersion, Status: test.status, CatalogRevision: runtime.capabilities.Revision(),
 			CapabilityPath: []app.CapabilityID{"browser"}, Reason: "more routing information is required",
 		}
-		result := runtime.completeTerminalRoute(context.Background(), run, "ambiguous request", app.ReturnRoute{Mode: app.ReturnToSource}, route)
+		result := mustCompleteTerminalRoute(t, runtime, context.Background(), run, "ambiguous request", app.ReturnRoute{Mode: app.ReturnToSource}, route)
 		closeRuntime()
 		if result.WorkflowResult == nil || result.WorkflowResult.Status != test.want || len(result.ToolCalls) != 0 {
 			t.Fatalf("terminal route %q returned the wrong result: %#v", test.status, result)
@@ -1062,7 +1066,7 @@ func TestExistingTerminalRouteKeepsItsWorkflowIdentity(t *testing.T) {
 				ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)}, Route: route,
 			},
 		}
-		result := runtime.resultForExistingRun(run)
+		result := mustResultForExistingRun(t, runtime, run)
 		if result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != test.want {
 			t.Fatalf("existing %q route changed identity: %#v", test.status, result.WorkflowResult)
 		}
@@ -1088,7 +1092,7 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 		customize(&testCfg)
 	}
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("workflow e2e", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "workflow e2e", app.DefaultOwnerID, root, "web", false)
 	tools := toolhub.New(testCfg.config, st)
 	if testCfg.browserAdapter != nil {
 		tools = tools.WithBrowserAutomationAdapter(testCfg.browserAdapter)

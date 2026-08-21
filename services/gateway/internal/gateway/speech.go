@@ -80,7 +80,11 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		writeSpeechError(w, http.StatusBadRequest, speech.NewError(speech.CodeInvalidRequest, "session_id is required", false, nil))
 		return
 	}
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSpeechError(w, http.StatusServiceUnavailable, speech.NewError(speech.CodeUnavailable, "session service is unavailable", true, nil))
+		return
+	}
 	if !ok || sessionOwnerID(session) != principalForRequest(r).OwnerID {
 		writeSpeechError(w, http.StatusNotFound, speech.NewError(speech.CodeInvalidRequest, "session not found", false, nil))
 		return

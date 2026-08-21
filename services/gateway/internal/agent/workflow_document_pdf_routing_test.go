@@ -152,7 +152,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		t.Fatalf("extract_pages operation selection failed: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil || !exactVisibleToolNames(tools, "pdf.transform", "observation.read") {
 		t.Fatalf("PDF transform did not materialize: tools=%#v err=%v", visibleToolNames(tools), err)
 	}

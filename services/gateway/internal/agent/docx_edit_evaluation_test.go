@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -169,7 +170,7 @@ func TestRealFastDOCXSectionImprovementSelection(t *testing.T) {
 	state := dispatch.Run.Workflow.Nodes[node.ID]
 	view, err := runtime.exposure.Search(t.Context(), app.ExposureRequest{
 		RunID: dispatch.Run.ID, WorkflowID: dispatch.Run.Workflow.Plan.ProfileID, NodeID: node.ID,
-		ScopeRevision: state.ScopeRevision, ActorRef: runtime.workflowActorRef(dispatch.Run.SessionID), Limit: 32,
+		ScopeRevision: state.ScopeRevision, ActorRef: runtime.workflowActorRef(dispatch.Run), Limit: 32,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +260,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSessionWithScope("file-backed DOCX evaluation", app.DefaultOwnerID, workspace, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "file-backed DOCX evaluation", app.DefaultOwnerID, workspace, "web", false)
 	hub := toolhub.New(cfg, st)
 	defer func() { _ = hub.Close() }()
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -308,7 +309,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		t.Fatalf("real DOCX operation selection failed: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil || !exactVisibleToolNames(editTools, "docx.set_text_style", "observation.read") {
 		t.Fatalf("selected DOCX style editor did not materialize: tools=%#v err=%v", visibleToolNames(editTools), err)
 	}

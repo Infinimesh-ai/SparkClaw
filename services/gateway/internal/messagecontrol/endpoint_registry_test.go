@@ -12,7 +12,7 @@ import (
 
 func TestEndpointRegistryResolvesWebAndProviderNeutralBinding(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Web")
+	session := storetest.MustCreateSession(t, st, "Web")
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:       "bind_future",
 		OwnerID:  app.DefaultOwnerID,
@@ -56,7 +56,7 @@ func TestEndpointRegistryListsOnlyActorScopedExactSendEndpoints(t *testing.T) {
 
 func TestEndpointRegistryDeterministicTargetResolution(t *testing.T) {
 	st := store.NewMemoryStore()
-	web := st.CreateSessionWithScope("Web", "owner-a", t.TempDir(), "webchat", false)
+	web := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
 	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
 	saveEndpointFixture(t, st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
 	saveEndpointFixture(t, st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3", []string{app.BindingScopeMessageSendSelf})

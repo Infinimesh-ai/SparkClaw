@@ -103,7 +103,7 @@ func (a *MediaAdapter) DownloadInboundImage(ctx context.Context, binding app.Not
 	if !supportedWeixinImageType(contentType) {
 		return app.MessageAttachment{}, fmt.Errorf("unsupported weixin image content type %q", contentType)
 	}
-	relPath, absPath, err := a.writeUpload(content, contentType, sessionID, nameSeed)
+	relPath, absPath, err := a.writeUpload(ctx, content, contentType, sessionID, nameSeed)
 	if err != nil {
 		return app.MessageAttachment{}, err
 	}
@@ -178,7 +178,7 @@ func (a *MediaAdapter) DownloadInboundFile(ctx context.Context, binding app.Noti
 		return app.MessageAttachment{}, fmt.Errorf("weixin file exceeds current upload limit: %d bytes", len(content))
 	}
 	contentType := fileContentType(file.FileName, content)
-	relPath, absPath, err := a.writeWorkspaceUpload(content, contentType, sessionID, nameSeed, file.FileName)
+	relPath, absPath, err := a.writeWorkspaceUpload(ctx, content, contentType, sessionID, nameSeed, file.FileName)
 	if err != nil {
 		return app.MessageAttachment{}, err
 	}
@@ -268,8 +268,11 @@ func (a *MediaAdapter) downloadCDNBytesWithLimit(ctx context.Context, binding ap
 	return buf.Bytes(), nil
 }
 
-func (a *MediaAdapter) writeUpload(content []byte, contentType, sessionID, nameSeed string) (string, string, error) {
-	root := a.workspaceRootForSession(sessionID)
+func (a *MediaAdapter) writeUpload(ctx context.Context, content []byte, contentType, sessionID, nameSeed string) (string, string, error) {
+	root, err := a.workspaceRootForSession(ctx, sessionID)
+	if err != nil {
+		return "", "", err
+	}
 	if root == "" {
 		return "", "", errors.New("workspace root is not configured")
 	}
@@ -290,8 +293,11 @@ func (a *MediaAdapter) writeUpload(content []byte, contentType, sessionID, nameS
 	return filepath.ToSlash(relPath), absPath, nil
 }
 
-func (a *MediaAdapter) writeWorkspaceUpload(content []byte, contentType, sessionID, nameSeed, originalName string) (string, string, error) {
-	root := a.workspaceRootForSession(sessionID)
+func (a *MediaAdapter) writeWorkspaceUpload(ctx context.Context, content []byte, contentType, sessionID, nameSeed, originalName string) (string, string, error) {
+	root, err := a.workspaceRootForSession(ctx, sessionID)
+	if err != nil {
+		return "", "", err
+	}
 	if root == "" {
 		return "", "", errors.New("workspace root is not configured")
 	}
@@ -315,13 +321,17 @@ func (a *MediaAdapter) writeWorkspaceUpload(content []byte, contentType, session
 	return filepath.ToSlash(relPath), absPath, nil
 }
 
-func (a *MediaAdapter) workspaceRootForSession(sessionID string) string {
+func (a *MediaAdapter) workspaceRootForSession(ctx context.Context, sessionID string) (string, error) {
 	if a.store != nil && strings.TrimSpace(sessionID) != "" {
-		if session, ok := a.store.GetSession(sessionID); ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
-			return strings.TrimSpace(session.WorkspaceRoot)
+		session, ok, err := a.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", fmt.Errorf("resolve Weixin media session: %w", err)
+		}
+		if ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
+			return strings.TrimSpace(session.WorkspaceRoot), nil
 		}
 	}
-	return strings.TrimSpace(a.cfg.Workspaces.DefaultRoot)
+	return strings.TrimSpace(a.cfg.Workspaces.DefaultRoot), nil
 }
 
 func fileContentType(name string, content []byte) string {

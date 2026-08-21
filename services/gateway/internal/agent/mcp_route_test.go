@@ -81,9 +81,9 @@ func TestWorkflowResultFailurePathsPreserveMCPInvocation(t *testing.T) {
 	terminal := app.RouteDecision{Status: app.RouteBlocked}
 
 	results := []*app.WorkflowResult{
-		runtime.workflowResultForDispatchFailure(run, matched, app.ReturnRoute{Mode: app.ReturnToSource}, "dispatch failed"),
-		runtime.workflowResultForTerminalRoute(run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "blocked"),
-		runtime.workflowResultForUnmatched(run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "unmatched"),
+		mustWorkflowResultForDispatchFailure(t, runtime, run, matched, app.ReturnRoute{Mode: app.ReturnToSource}, "dispatch failed"),
+		mustWorkflowResultForTerminalRoute(t, runtime, run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "blocked"),
+		mustWorkflowResultForUnmatched(t, runtime, run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "unmatched"),
 	}
 	for index, result := range results {
 		if result == nil || result.MCP != invocation {

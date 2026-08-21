@@ -12,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -24,7 +25,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("registered browser login redirect")
+	session := storetest.MustCreateSession(t, st, "registered browser login redirect")
 	adapter := &loginBlockBrowserAdapter{
 		openAuthChallenge: true,
 		selectedTabURL:    "https://example.com/unrelated",
@@ -124,7 +125,7 @@ func TestBrowserLoginResumeRejectsUnrelatedVisiblePageBeforeHiddenRead(t *testin
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("reject unrelated post-login page")
+	session := storetest.MustCreateSession(t, st, "reject unrelated post-login page")
 	adapter := &loginBlockBrowserAdapter{
 		openAuthChallenge: true,
 		selectedTabURL:    "https://other.example/",
@@ -466,7 +467,7 @@ func newBrowserLoginStateMachineTest(t *testing.T, title string) (Runtime, *stor
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession(title)
+	session := storetest.MustCreateSession(t, st, title)
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	t.Cleanup(func() { _ = tools.Close() })
@@ -500,7 +501,7 @@ func browserLoginTestVisibleEvidence(block app.BrowserLoginBlock) *app.BrowserRe
 
 func TestFinishBrowserLoginBlockTerminalRetriesOnCASConflict(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("terminal retry")
+	session := storetest.MustCreateSession(t, st, "terminal retry")
 	runtime := Runtime{store: st}
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: "run-terminal",
@@ -526,7 +527,7 @@ func TestFinishBrowserLoginBlockTerminalRetriesOnCASConflict(t *testing.T) {
 
 func TestFinishBrowserLoginBlockTerminalKeepsExistingTerminalState(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("terminal keep")
+	session := storetest.MustCreateSession(t, st, "terminal keep")
 	runtime := Runtime{store: st}
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: "run-keep",

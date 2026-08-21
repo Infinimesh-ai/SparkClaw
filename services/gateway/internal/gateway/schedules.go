@@ -85,7 +85,13 @@ func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSch
 	if endpoint.Kind == app.EndpointKindWeb {
 		projection.Channel = "web"
 		projection.SoftwareDisplayName = "WebChat"
-		if session, ok := s.store.GetSession(endpoint.SessionID); ok {
+		session, ok, err := s.store.GetSession(r.Context(), endpoint.SessionID)
+		if err != nil {
+			slog.Warn("schedule session projection unavailable", "session_id", endpoint.SessionID, "code", store.StoreErrorCodeOf(err))
+			projection.Status = "unavailable"
+			return projection
+		}
+		if ok {
 			projection.ConversationLabel = session.Title
 		}
 	}
@@ -96,7 +102,12 @@ func (s *Server) unavailableScheduleEndpoint(ctx context.Context, endpointID app
 	value := strings.TrimSpace(string(endpointID))
 	if strings.HasPrefix(value, "session:") {
 		projection := publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", Status: "unavailable"}
-		if session, ok := s.store.GetSession(strings.TrimPrefix(value, "session:")); ok {
+		session, ok, err := s.store.GetSession(ctx, strings.TrimPrefix(value, "session:"))
+		if err != nil {
+			slog.Warn("schedule session projection unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+			return projection
+		}
+		if ok {
 			projection.ConversationLabel = session.Title
 		}
 		return projection
@@ -120,7 +131,12 @@ func (s *Server) unavailableScheduleEndpoint(ctx context.Context, endpointID app
 			AccountDisplayName: binding.DisplayName, Status: "unavailable",
 		}
 	}
-	if session, ok := s.store.GetSession(sessionID); ok {
+	session, ok, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		slog.Warn("schedule session projection unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+		return publicScheduleEndpoint{Status: "unavailable"}
+	}
+	if ok {
 		return publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", ConversationLabel: session.Title, Status: "unavailable"}
 	}
 	return publicScheduleEndpoint{Status: "unavailable"}

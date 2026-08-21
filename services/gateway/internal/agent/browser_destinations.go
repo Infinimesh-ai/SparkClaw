@@ -83,4 +83,3 @@ func browserTargetMatchesURL(targetURL, destinationID, candidateURL string) bool
 	}
 	return destinationID != "" && registeredBrowserDestinationMatchesURL(destinationID, candidateURL)
 }
-

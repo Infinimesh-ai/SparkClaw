@@ -7,11 +7,12 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestPersistentWebDeliveryProjectsAndPersistsMessageOnce(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Web delivery")
+	session := storetest.MustCreateSession(t, st, "Web delivery")
 	endpointID := messagecontrol.WebEndpointID(session.ID)
 	request := app.DeliveryRequest{
 		SchemaVersion: app.DeliveryRequestSchemaVersion,
@@ -59,7 +60,7 @@ func TestPersistentWebDeliveryProjectsAndPersistsMessageOnce(t *testing.T) {
 
 func TestPersistentWebDeliveryRejectsIdempotencyConflict(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Web conflict")
+	session := storetest.MustCreateSession(t, st, "Web conflict")
 	endpointID := messagecontrol.WebEndpointID(session.ID)
 	request := webTextRequest(endpointID, "delivery-web-1", "same-key", "first")
 	gateway := NewGateway(messagecontrol.NewEndpointRegistry(st), nil, NewPersistentWebDelivery(st))
@@ -76,7 +77,7 @@ func TestPersistentWebDeliveryRejectsIdempotencyConflict(t *testing.T) {
 
 func TestPersistentWebDeliveryReusesMatchingRuntimeMessage(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Runtime result")
+	session := storetest.MustCreateSession(t, st, "Runtime result")
 	endpointID := messagecontrol.WebEndpointID(session.ID)
 	request := webTextRequest(endpointID, "delivery-web-runtime", "runtime-key", "already persisted")
 	request.RunID = "run-runtime"

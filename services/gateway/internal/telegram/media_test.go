@@ -12,12 +12,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestVoiceUsesNeutralTranscriberAndCleansTemporaryFiles(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
 	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
@@ -52,7 +53,7 @@ func TestVoiceUsesNeutralTranscriberAndCleansTemporaryFiles(t *testing.T) {
 func TestVoiceUnavailableStopsBeforeTelegramDownload(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
 	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
@@ -71,7 +72,7 @@ func TestVoiceUnavailableStopsBeforeTelegramDownload(t *testing.T) {
 func TestAttachmentLimitsPathCleaningAndExecutableRejection(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
 	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
@@ -116,7 +117,7 @@ func TestAttachmentLimitsPathCleaningAndExecutableRejection(t *testing.T) {
 func TestOutboundResolutionRejectsUploadsAndUnregisteredAbsolutePaths(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
 	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	dispatcher := NewDispatcher(st, &recordingRuntime{}, cfg)
 	uploadPath, _ := workspacePath(chat.WorkspaceRoot, "uploads/source.pdf")
@@ -146,7 +147,7 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	binding := activeTelegramBinding("bind_approval", 1, 1)
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
 	st.SaveExternalChatSession(app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
 	run := app.AgentRun{ID: "run_approval", SessionID: linked.ID, State: "approval_pending"}
 	st.SaveRun(run)

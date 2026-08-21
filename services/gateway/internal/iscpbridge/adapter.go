@@ -159,23 +159,23 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 	case TypeCapabilitiesDescribe:
 		return newResponse(req, "ok", a.manifest, nil, nil, now)
 	case TypeSessionList:
-		return a.listSessions(req, principal, now)
+		return a.listSessions(ctx, req, principal, now)
 	case TypeSessionCreate:
 		return a.createSession(ctx, req, principal, now)
 	case TypeMessageSend:
-		return a.sendMessage(req, principal, now)
+		return a.sendMessage(ctx, req, principal, now)
 	case TypeMessageCancel:
-		return a.cancelMessage(req, principal, now)
+		return a.cancelMessage(ctx, req, principal, now)
 	case TypeNotificationDeliver:
 		return a.deliverNotification(req, principal, now)
 	case TypeEventResume:
-		return a.resumeEvents(req, principal, now)
+		return a.resumeEvents(ctx, req, principal, now)
 	case TypeApprovalList:
-		return a.listApprovals(req, principal, now)
+		return a.listApprovals(ctx, req, principal, now)
 	case TypeApprovalResolve:
 		return a.resolveApproval(ctx, req, principal, now)
 	case TypeOperationStatus:
-		return a.operationStatus(req, principal, now)
+		return a.operationStatus(ctx, req, principal, now)
 	default:
 		return newResponse(req, "error", nil, nil, bridgeError(CodeUnsupportedCapability, "unsupported request type", false), now)
 	}
@@ -248,9 +248,13 @@ func (a *GatewayAdapter) prunePassiveNotifications(now time.Time) {
 	a.store.PrunePassiveNotifications(cutoff, a.notificationMaxPerOwner)
 }
 
-func (a *GatewayAdapter) listSessions(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) listSessions(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	sessions := make([]app.Session, 0)
-	for _, session := range a.store.ListSessions() {
+	listed, err := a.store.ListSessions(ctx)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "sessions are temporarily unavailable", true), now)
+	}
+	for _, session := range listed {
 		if ownerIDForSession(session) == principal.OwnerID && !session.Hidden {
 			sessions = append(sessions, session)
 		}
@@ -282,14 +286,17 @@ func (a *GatewayAdapter) createSession(ctx context.Context, req Request, princip
 	if !ok {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "owner profile not found", false), now)
 	}
-	session := a.store.CreateSessionWithScope(title, profile.ID, profile.WorkspaceRoot, "iscp", false)
+	session, err := a.store.CreateSessionWithScope(ctx, title, profile.ID, profile.WorkspaceRoot, "iscp", false)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "session creation is temporarily unavailable", true), now)
+	}
 	response := newResponse(req, "ok", map[string]any{"session": session}, nil, nil, now)
 	a.rememberMutation(req, response)
 	return response
 }
 
-func (a *GatewayAdapter) sendMessage(req Request, principal Principal, now time.Time) Response {
-	if err := a.requireSession(req.SessionID, principal); err != nil {
+func (a *GatewayAdapter) sendMessage(ctx context.Context, req Request, principal Principal, now time.Time) Response {
+	if err := a.requireSession(ctx, req.SessionID, principal); err != nil {
 		return newResponse(req, "error", nil, nil, err, now)
 	}
 	var payload MessageSendPayload
@@ -392,7 +399,7 @@ func (a *GatewayAdapter) executeMessage(ctx context.Context, record *operationRe
 	current.operation.Result = result
 }
 
-func (a *GatewayAdapter) cancelMessage(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) cancelMessage(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	a.mutationMu.Lock()
 	defer a.mutationMu.Unlock()
 	if cached, ok := a.cachedMutation(req); ok {
@@ -413,7 +420,7 @@ func (a *GatewayAdapter) cancelMessage(req Request, principal Principal, now tim
 		a.mu.Unlock()
 		return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
 	}
-	if err := a.requireSession(record.operation.SessionID, principal); err != nil {
+	if err := a.requireSession(ctx, record.operation.SessionID, principal); err != nil {
 		a.mu.Unlock()
 		return newResponse(req, "error", nil, nil, err, now)
 	}
@@ -430,8 +437,8 @@ func (a *GatewayAdapter) cancelMessage(req Request, principal Principal, now tim
 	return response
 }
 
-func (a *GatewayAdapter) resumeEvents(req Request, principal Principal, now time.Time) Response {
-	if err := a.requireSession(req.SessionID, principal); err != nil {
+func (a *GatewayAdapter) resumeEvents(ctx context.Context, req Request, principal Principal, now time.Time) Response {
+	if err := a.requireSession(ctx, req.SessionID, principal); err != nil {
 		return newResponse(req, "error", nil, nil, err, now)
 	}
 	var payload EventResumePayload
@@ -478,9 +485,9 @@ func (a *GatewayAdapter) resumeEvents(req Request, principal Principal, now time
 	return newResponse(req, "ok", map[string]any{"events": events}, nil, nil, now)
 }
 
-func (a *GatewayAdapter) listApprovals(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) listApprovals(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	if req.SessionID != "" {
-		if err := a.requireSession(req.SessionID, principal); err != nil {
+		if err := a.requireSession(ctx, req.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
 	}
@@ -497,7 +504,7 @@ func (a *GatewayAdapter) listApprovals(req Request, principal Principal, now tim
 		if req.SessionID != "" && approval.SessionID != req.SessionID {
 			continue
 		}
-		if a.requireSession(approval.SessionID, principal) == nil {
+		if a.requireSession(ctx, approval.SessionID, principal) == nil {
 			views = append(views, ApprovalView{Approval: approval, PreviewHash: ApprovalPreviewHash(approval)})
 		}
 	}
@@ -531,7 +538,7 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	if req.SessionID != "" && approval.SessionID != req.SessionID {
 		return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "approval session mismatch", false), now)
 	}
-	if err := a.requireSession(approval.SessionID, principal); err != nil {
+	if err := a.requireSession(ctx, approval.SessionID, principal); err != nil {
 		return newResponse(req, "error", nil, nil, err, now)
 	}
 	if payload.PreviewHash != ApprovalPreviewHash(approval) {
@@ -581,7 +588,7 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	return response
 }
 
-func (a *GatewayAdapter) operationStatus(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) operationStatus(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	var payload OperationStatusPayload
 	if err := DecodePayload(req.Payload, &payload); err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, err.Error(), false), now)
@@ -598,7 +605,7 @@ func (a *GatewayAdapter) operationStatus(req Request, principal Principal, now t
 		if req.SessionID != "" && req.SessionID != operation.SessionID {
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation session mismatch", false), now)
 		}
-		if err := a.requireSession(operation.SessionID, principal); err != nil {
+		if err := a.requireSession(ctx, operation.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
 		return newResponse(req, "ok", nil, &operation, nil, now)
@@ -611,7 +618,7 @@ func (a *GatewayAdapter) operationStatus(req Request, principal Principal, now t
 		if req.SessionID != "" && req.SessionID != run.SessionID {
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation session mismatch", false), now)
 		}
-		if err := a.requireSession(run.SessionID, principal); err != nil {
+		if err := a.requireSession(ctx, run.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
 		operation := a.operationFromRun(run, req.RequestID)
@@ -651,12 +658,15 @@ func (a *GatewayAdapter) updateOperation(id string, update func(*Operation)) {
 	}
 }
 
-func (a *GatewayAdapter) requireSession(sessionID string, principal Principal) *BridgeError {
+func (a *GatewayAdapter) requireSession(ctx context.Context, sessionID string, principal Principal) *BridgeError {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return bridgeError(CodeInvalidRequest, "session_id is required", false)
 	}
-	session, ok := a.store.GetSession(sessionID)
+	session, ok, err := a.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return bridgeError(CodeTemporarilyUnavailable, "session is temporarily unavailable", true)
+	}
 	if !ok {
 		return bridgeError(CodeNotFound, "session not found", false)
 	}

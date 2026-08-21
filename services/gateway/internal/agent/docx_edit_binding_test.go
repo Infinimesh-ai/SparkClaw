@@ -83,7 +83,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("DOCX paragraph operation was not selected: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func prepareDOCXMutationRun(t *testing.T, root, selectedTool, selectedOperation 
 		t.Fatalf("DOCX operation selection failed: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil || !exactVisibleToolNames(tools, selectedTool, "observation.read") {
 		closeRuntime()
 		t.Fatalf("DOCX editor did not materialize: tools=%#v err=%v", visibleToolNames(tools), err)

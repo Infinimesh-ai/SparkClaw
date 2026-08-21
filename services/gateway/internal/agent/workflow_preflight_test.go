@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -438,7 +439,7 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 		t.Fatalf("document operation decision did not resolve: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run.SessionID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +507,7 @@ func newDocumentDispatchRuntime(t *testing.T, root string) (Runtime, *store.Memo
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("document dispatch", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "document dispatch", app.DefaultOwnerID, root, "web", false)
 	hub := toolhub.New(cfg, st)
 	return NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil), st, session, func() { _ = hub.Close() }
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -256,7 +257,7 @@ func newToolPolicyTestRuntime(t *testing.T) (Runtime, *store.MemoryStore, app.Se
 	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_test"
 	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_test.test-key"
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("policy test", app.DefaultOwnerID, root, "web", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "policy test", app.DefaultOwnerID, root, "web", true)
 	hub := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
 	return runtime, st, session, func() { _ = hub.Close() }

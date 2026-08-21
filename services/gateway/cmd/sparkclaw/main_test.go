@@ -130,7 +130,7 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 			defer tools.Close()
 			runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 
-			localSession := st.CreateSession("Local failure isolation")
+			localSession := storetest.MustCreateSession(t, st, "Local failure isolation")
 			localResult, err := runtime.HandleMessage(context.Background(), localSession.ID, "confirm local chat still works")
 			if err != nil || localResult.Message.Content == "" {
 				t.Fatalf("local chat failed after Infinimesh error: result=%#v err=%v", localResult, err)
@@ -344,7 +344,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Scheduled Web message")
+	session := storetest.MustCreateSession(t, st, "Scheduled Web message")
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	traces := trace.NewWriter(cfg.Storage.TraceDir)
@@ -418,7 +418,7 @@ func TestDefaultFileBackendProductionEntryReadsStructuredDocument(t *testing.T) 
 	if closer, ok := st.(interface{ Close() }); ok {
 		defer closer.Close()
 	}
-	session := st.CreateSessionWithScope("document production entry", app.DefaultOwnerID, workspace, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "document production entry", app.DefaultOwnerID, workspace, "web", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	result, err := tools.Execute(context.Background(), "files.read", map[string]any{"path": "note.txt"}, session.ID, "run_document")

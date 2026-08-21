@@ -148,7 +148,7 @@ func weatherRenderRegistration() toolRegistration {
 
 func scheduleListRegistration() toolRegistration {
 	registration := workflowRegistration(
-		toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)},
+		toolRegistration{enabled: remindersEnabled, run: argsSessionContext((*ToolHub).remindersList)},
 		app.ToolCapabilityScheduleManage, map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationRead)}, app.OutcomeAdapterScheduleList,
 		"List scheduled tasks visible to the current session owner.",
 		"Use for schedule.manage reads and as the required discovery stage before edit or delete.",
@@ -250,7 +250,7 @@ var toolRegistry = func() map[string]toolRegistration {
 		"media.render_weather_card":      weatherRenderRegistration(),
 		"files.write_draft":              legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 		"file.delete":                    documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
-		"memory.search":                  {run: argsSession((*ToolHub).memorySearch)},
+		"memory.search":                  {run: argsSessionContext((*ToolHub).memorySearch)},
 		"memory.write_candidate":         {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 		"memory.propose":                 {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 		"memory.write_sensitive":         {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},

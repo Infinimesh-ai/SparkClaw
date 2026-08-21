@@ -294,7 +294,10 @@ func telegramIngress(binding app.NotificationBinding, chatSession app.ExternalCh
 func (d *Dispatcher) resetConversation(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, message *Message) error {
 	externalID := inboundMessageExternalID(message)
 	d.saveInbound(chatSession, binding, externalID, message.Text, "received", "")
-	session := d.store.CreateSessionWithScope("Telegram conversation", chatSession.OwnerID, chatSession.WorkspaceRoot, "telegram", true)
+	session, err := d.store.CreateSessionWithScope(ctx, "Telegram conversation", chatSession.OwnerID, chatSession.WorkspaceRoot, "telegram", true)
+	if err != nil {
+		return err
+	}
 	chatSession.LinkedSessionID = session.ID
 	chatSession.Status = "active"
 	chatSession.AuthorizedOwnerID = binding.OwnerID
@@ -406,7 +409,10 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.Notifica
 	if workspaceRoot == "" {
 		workspaceRoot = strings.TrimSpace(d.cfg.Workspaces.DefaultRoot)
 	}
-	session := d.store.CreateSessionWithScope("Telegram conversation", profile.ID, workspaceRoot, "telegram", true)
+	session, err := d.store.CreateSessionWithScope(ctx, "Telegram conversation", profile.ID, workspaceRoot, "telegram", true)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
 	return d.store.SaveExternalChatSession(app.ExternalChatSession{
 		OwnerID:           profile.ID,
 		AuthorizedOwnerID: binding.OwnerID,

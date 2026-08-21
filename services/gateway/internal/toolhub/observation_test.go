@@ -11,14 +11,15 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestObservationReadIsSessionScopedAndWindowed(t *testing.T) {
 	cfg := config.Default()
 	cfg.Storage.ArtifactDir = filepath.Join(t.TempDir(), "artifacts")
 	st := store.NewMemoryStore()
-	ownerSession := st.CreateSession("owner")
-	otherSession := st.CreateSession("other")
+	ownerSession := storetest.MustCreateSession(t, st, "owner")
+	otherSession := storetest.MustCreateSession(t, st, "other")
 	artifacts := artifact.NewStore(cfg.Storage)
 	hub := New(cfg, st).WithArtifactStore(artifacts)
 	now := time.Now().UTC()
@@ -80,7 +81,7 @@ func TestObservationReadTrimsTrailingPartialRune(t *testing.T) {
 	cfg := config.Default()
 	cfg.Storage.ArtifactDir = filepath.Join(t.TempDir(), "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("owner")
+	session := storetest.MustCreateSession(t, st, "owner")
 	artifacts := artifact.NewStore(cfg.Storage)
 	hub := New(cfg, st).WithArtifactStore(artifacts)
 	now := time.Now().UTC()
@@ -133,7 +134,7 @@ func TestObservationReadReportsBinaryContentWithNextOffset(t *testing.T) {
 	cfg := config.Default()
 	cfg.Storage.ArtifactDir = filepath.Join(t.TempDir(), "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("owner")
+	session := storetest.MustCreateSession(t, st, "owner")
 	artifacts := artifact.NewStore(cfg.Storage)
 	hub := New(cfg, st).WithArtifactStore(artifacts)
 

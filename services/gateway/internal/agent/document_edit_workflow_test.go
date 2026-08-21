@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T) {
@@ -18,7 +19,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	}
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	session = st.CreateSession("document edit without an explicit session workspace")
+	session = storetest.MustCreateSession(t, st, "document edit without an explicit session workspace")
 
 	goal := "Replace Original reflection in notes.md"
 	started := time.Now().UTC()
@@ -67,7 +68,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		t.Fatalf("single-candidate text edit made an unnecessary operation-selection model call")
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	}
 	outputRecord := documentRecords[0]
 	followUp := "继续修改刚才编辑好的文件，把 Improved reflection 改为 Final reflection"
-	resolution := runtime.resolveDocumentContext(session.ID, "run_follow_up", followUp, nil)
+	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_follow_up", followUp, nil)
 	if len(resolution.References) != 1 || resolution.References[0].DocumentID != outputRecord.ID ||
 		resolution.References[0].ParentDocumentID != outputRecord.ParentDocumentID ||
 		resolution.References[0].Ref != outputRecord.GovernedPath ||

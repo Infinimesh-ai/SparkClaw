@@ -75,7 +75,7 @@ func TestListCurrentSchedulesIsReadOnlyOwnerScopedProjection(t *testing.T) {
 
 func TestScheduleEndpointProjectionNamesWebAndThirdPartyReminderEndpoints(t *testing.T) {
 	st := store.NewMemoryStore()
-	webSession := st.CreateSession("Web schedule chat")
+	webSession := storetest.MustCreateSession(t, st, "Web schedule chat")
 	now := time.Now().UTC()
 	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "binding-telegram", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,

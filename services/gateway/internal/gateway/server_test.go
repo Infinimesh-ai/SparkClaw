@@ -146,7 +146,7 @@ func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, root, "mcp", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, root, "mcp", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -166,7 +166,7 @@ func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
 	if deleteResponse.Code != http.StatusConflict {
 		t.Fatalf("MCP conversation delete returned %d, want %d", deleteResponse.Code, http.StatusConflict)
 	}
-	if current, ok := st.GetSession(session.ID); !ok || current.Title != session.Title {
+	if current, ok := storetest.MustGetSession(t, st, session.ID); !ok || current.Title != session.Title {
 		t.Fatalf("MCP conversation changed through the ordinary session API: %#v ok=%v", current, ok)
 	}
 
@@ -191,7 +191,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, root, "mcp", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, root, "mcp", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -325,7 +325,7 @@ func TestUploadImageSavesUnderMedia(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	userRoot := filepath.Join(root, "users", "owner-a")
-	session := st.CreateSessionWithScope("user upload", "owner-a", userRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "user upload", "owner-a", userRoot, "webchat", false)
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)
@@ -400,7 +400,7 @@ func TestDocumentFileUsesAuthenticatedSessionWorkspace(t *testing.T) {
 	cfg.Gateway.APIToken = "secret-token"
 	st := store.NewMemoryStore()
 	userRoot := filepath.Join(root, "users", "owner-a")
-	session := st.CreateSessionWithScope("weather", "owner-a", userRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "weather", "owner-a", userRoot, "webchat", false)
 	mediaPath := filepath.Join(userRoot, "media", "weather-card.png")
 	if err := os.MkdirAll(filepath.Dir(mediaPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -730,7 +730,7 @@ func TestChatEndpointSupportsManualModelProfileWithoutTools(t *testing.T) {
 	if decoded.Model.Lane != "deep" || decoded.Model.Profile != cfg.Model.Deep.Name || !decoded.Model.Mock || decoded.Message == "" {
 		t.Fatalf("unexpected chat response: %#v", decoded)
 	}
-	if len(st.ListSessions()) != 0 || len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(storetest.MustListSessions(t, st)) != 0 || len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
 		t.Fatalf("direct chat should not mutate agent state")
 	}
 	calls := st.ListModelCalls("", "")
@@ -912,7 +912,7 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-stream-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
@@ -983,7 +983,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
 	if err := os.MkdirAll(filepath.Join(root, "uploads"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1097,7 +1097,7 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	cfg := testConfig(root)
 
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Memory editor")
+	session := storetest.MustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
@@ -1197,7 +1197,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	cfg := testConfig(root)
 
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Memory export")
+	session := storetest.MustCreateSession(t, st, "Memory export")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	profile, err := st.GetOwnerProfile(context.Background())
@@ -1304,8 +1304,8 @@ func TestMemoryRetentionPrunesExpiredMemories(t *testing.T) {
 	cfg := testConfig(root)
 	cfg.Memory.RetentionDays = 7
 
-	now := time.Now().UTC()
-	session := app.Session{ID: "s_retention", Title: "Memory retention", CreatedAt: now, UpdatedAt: now}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	session := app.Session{ID: "s_retention", OwnerID: app.DefaultOwnerID, Title: "Memory retention", Source: "webchat", CreatedAt: now, UpdatedAt: now}
 	run := app.AgentRun{ID: "run_retention", SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: now}
 	old := app.Memory{
 		ID:        "mem_old_retention",
@@ -1573,7 +1573,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("context approval", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "context approval", app.DefaultOwnerID, root, "web", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -1851,7 +1851,7 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 	cfg := testConfig(root)
 
 	st := store.NewMemoryStore()
-	ownerSession := st.CreateSession("Owner Memory")
+	ownerSession := storetest.MustCreateSession(t, st, "Owner Memory")
 	ownerRun := app.AgentRun{
 		ID:        "run_owner_memory",
 		SessionID: ownerSession.ID,

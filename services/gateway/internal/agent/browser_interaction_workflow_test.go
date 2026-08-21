@@ -10,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing.T) {
@@ -440,7 +441,7 @@ func TestBrowserAfterActionProjectionCarriesValidatedTransitionAndActionSemantic
 
 func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("QQ Mail login handoff")
+	session := storetest.MustCreateSession(t, st, "QQ Mail login handoff")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	runtime := Runtime{store: st}

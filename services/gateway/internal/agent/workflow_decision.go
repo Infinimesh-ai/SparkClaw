@@ -78,7 +78,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 
 	view, err := r.exposure.Search(ctx, app.ExposureRequest{
 		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: node.ID,
-		ScopeRevision: state.ScopeRevision, ActorRef: r.workflowActorRef(run.SessionID), Limit: workflowProfileDirectoryLimit(profile),
+		ScopeRevision: state.ScopeRevision, ActorRef: r.workflowActorRef(*run), Limit: workflowProfileDirectoryLimit(profile),
 	})
 	if err != nil {
 		return "", false, err

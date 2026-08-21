@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -43,7 +44,7 @@ type jingSiClientEvent struct {
 }
 
 func (s *Server) readyJingSiLAN(w http.ResponseWriter, r *http.Request) {
-	session, err := s.jingSiSession()
+	session, err := s.jingSiSession(r.Context())
 	if errors.Is(err, errJingSiLANDisabled) {
 		http.NotFound(w, nil)
 		return
@@ -64,7 +65,7 @@ func (s *Server) readyJingSiLAN(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) headJingSiEvents(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -84,7 +85,7 @@ func (s *Server) headJingSiEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -130,7 +131,7 @@ func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -174,7 +175,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	send := func() bool {
-		if _, err := s.jingSiSession(); err != nil {
+		if _, err := s.jingSiSession(r.Context()); err != nil {
 			return false
 		}
 		for {
@@ -227,7 +228,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postJingSiMessageStream(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -337,19 +338,22 @@ func readJingSiSendInput(w http.ResponseWriter, r *http.Request, maxBytes int) (
 	return input, true
 }
 
-func (s *Server) jingSiSession() (app.Session, error) {
+func (s *Server) jingSiSession(ctx context.Context) (app.Session, error) {
 	if !s.cfg.JingSiLAN.Enabled {
 		return app.Session{}, errJingSiLANDisabled
 	}
-	session, ok := s.store.GetSession(strings.TrimSpace(s.cfg.JingSiLAN.SessionID))
+	session, ok, err := s.store.GetSession(ctx, strings.TrimSpace(s.cfg.JingSiLAN.SessionID))
+	if err != nil {
+		return app.Session{}, errJingSiSessionUnavailable
+	}
 	if !ok || session.Hidden || sessionOwnerID(session) != app.DefaultOwnerID || strings.TrimSpace(session.Source) != "webchat" {
 		return app.Session{}, errJingSiSessionUnavailable
 	}
 	return session, nil
 }
 
-func (s *Server) requireJingSiSession(w http.ResponseWriter) (app.Session, bool) {
-	session, err := s.jingSiSession()
+func (s *Server) requireJingSiSession(ctx context.Context, w http.ResponseWriter) (app.Session, bool) {
+	session, err := s.jingSiSession(ctx)
 	if errors.Is(err, errJingSiLANDisabled) {
 		http.NotFound(w, nil)
 		return app.Session{}, false

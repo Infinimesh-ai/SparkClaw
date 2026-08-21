@@ -27,6 +27,7 @@ const (
 
 type documentOCRCallMetadata struct {
 	SessionID            string
+	OwnerID              string
 	RunID                string
 	PageIndex            int
 	ClassifierVersion    string
@@ -176,7 +177,14 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 	if h == nil || h.ocrRuntime == nil || h.ocr == nil || !h.ocr.Enabled() {
 		return h.recordDocumentOCRBypass(metadata, "disabled", "ocr_adapter_disabled")
 	}
-	ownerID := h.ownerIDForSession(metadata.SessionID)
+	ownerID := strings.TrimSpace(metadata.OwnerID)
+	if ownerID == "" {
+		var err error
+		ownerID, err = h.ownerIDForSession(ctx, metadata.SessionID)
+		if err != nil {
+			return documentOCRInvocation{Err: err, Status: "failed", ReasonCode: "session_store_failed"}
+		}
+	}
 	logicalKey, preparedSHA := documentOCRLogicalKey(
 		input.Content,
 		h.ocrRuntime.cfg.Provider,

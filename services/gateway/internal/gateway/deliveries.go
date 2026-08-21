@@ -122,7 +122,7 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	content, err = delivery.ResolveBrowserContent(s.store, principal.OwnerID, s.cfg.Workspaces.DefaultRoot, content)
+	content, err = delivery.ResolveBrowserContent(r.Context(), s.store, principal.OwnerID, s.cfg.Workspaces.DefaultRoot, content)
 	if err != nil {
 		writeError(w, deliveryHTTPStatus(delivery.ErrorCode(err)), err)
 		return

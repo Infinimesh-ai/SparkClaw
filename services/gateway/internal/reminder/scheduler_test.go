@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type blockingPublisher struct {
@@ -34,7 +35,7 @@ func (retryablePublishError) RetryState() string { return "retryable" }
 
 func saveTestSchedule(t *testing.T, st store.Store, id string, due time.Time, recurrence string) app.MessageSchedule {
 	t.Helper()
-	session := st.CreateSession("Scheduled message")
+	session := storetest.MustCreateSession(t, st, "Scheduled message")
 	schedule := app.MessageSchedule{
 		ID: app.ScheduleID(id), SessionID: session.ID, DueTime: due.UTC(), Timezone: "UTC", Recurrence: recurrence,
 		DedupeKey: id, Status: "pending", CreatedAt: due.Add(-time.Hour), UpdatedAt: due.Add(-time.Hour),

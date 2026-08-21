@@ -77,7 +77,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		t.Fatalf("XLSX update_row operation was not selected: changed=%t err=%v", changed, resolveErr)
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}

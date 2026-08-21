@@ -287,7 +287,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	root := t.TempDir()
-	oldSession := st.CreateSessionWithScope("wx", "owner", root, "weixin", true)
+	oldSession := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", root, "weixin", true)
 	st.AddMessage(app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
 	st.SaveEpisodeSummary(app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
 	st.SaveToolCall(app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
@@ -363,7 +363,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", t.TempDir(), "weixin", true)
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
@@ -428,7 +428,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", t.TempDir(), "weixin", true)
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
@@ -482,7 +482,7 @@ func TestWorkspaceFilePathOnlyReturnsLikelyOutputFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("wx", "owner", root, "weixin", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", root, "weixin", true)
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
 		BindingID:       "bind_1",
 		ExternalUserID:  "wx-user",
@@ -492,14 +492,20 @@ func TestWorkspaceFilePathOnlyReturnsLikelyOutputFiles(t *testing.T) {
 	})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{})
 	inbound := InboundMessage{Binding: app.NotificationBinding{ID: chatSession.BindingID}, FromUserID: chatSession.ExternalUserID}
-	if _, _, ok := dispatcher.workspaceFilePath("已读取 uploads/source.docx，内容如下。", inbound); ok {
+	if _, _, ok, err := dispatcher.workspaceFilePath(t.Context(), "已读取 uploads/source.docx，内容如下。", inbound); err != nil || ok {
 		t.Fatal("read-only uploads path should not be treated as a file reply")
 	}
-	path, name, ok := dispatcher.workspaceFilePath("输出文件：outputs/edited.docx", inbound)
+	path, name, ok, err := dispatcher.workspaceFilePath(t.Context(), "输出文件：outputs/edited.docx", inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || name != "edited.docx" || !strings.HasSuffix(path, filepath.Join("outputs", "edited.docx")) {
 		t.Fatalf("expected output file path, got path=%q name=%q ok=%v", path, name, ok)
 	}
-	path, name, ok = dispatcher.workspaceFilePath("修改好的文件：outputs/edited.docx", inbound)
+	path, name, ok, err = dispatcher.workspaceFilePath(t.Context(), "修改好的文件：outputs/edited.docx", inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || name != "edited.docx" || !strings.HasSuffix(path, filepath.Join("outputs", "edited.docx")) {
 		t.Fatalf("expected modified file path, got path=%q name=%q ok=%v", path, name, ok)
 	}

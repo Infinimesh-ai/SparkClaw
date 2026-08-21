@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type adapterRuntime struct {
@@ -54,8 +55,8 @@ func TestGatewayAdapterSessionCreateIsIdempotent(t *testing.T) {
 	if first.Status != "ok" || second.Status != "ok" {
 		t.Fatalf("session create failed: first=%#v second=%#v", first, second)
 	}
-	if len(st.ListSessions()) != 1 {
-		t.Fatalf("idempotent replay created %d sessions", len(st.ListSessions()))
+	if len(storetest.MustListSessions(t, st)) != 1 {
+		t.Fatalf("idempotent replay created %d sessions", len(storetest.MustListSessions(t, st)))
 	}
 	firstRaw, _ := json.Marshal(first.Result)
 	secondRaw, _ := json.Marshal(second.Result)
@@ -98,7 +99,7 @@ func TestGatewayAdapterPassiveNotificationPersistsWithoutAgentActivity(t *testin
 	if got := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10); len(got) != 1 {
 		t.Fatalf("persisted notifications = %#v", got)
 	}
-	if len(st.ListSessions()) != 0 || len(st.ListRuns("")) != 0 || len(st.ListModelCalls("", "")) != 0 ||
+	if len(storetest.MustListSessions(t, st)) != 0 || len(st.ListRuns("")) != 0 || len(st.ListModelCalls("", "")) != 0 ||
 		len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
 		t.Fatal("passive notification created Agent activity")
 	}
@@ -187,7 +188,7 @@ func TestGatewayAdapterPassiveNotificationRejectsUnsafePayloads(t *testing.T) {
 
 func TestGatewayAdapterMessageCancelAndIdempotencyConflict(t *testing.T) {
 	st := store.NewMemoryStore()
-	sessionRecord := st.CreateSession("Bridge")
+	sessionRecord := storetest.MustCreateSession(t, st, "Bridge")
 	runtime := &adapterRuntime{started: make(chan struct{}, 1)}
 	adapter := NewGatewayAdapter(st, func() AgentRuntime { return runtime })
 	principal := Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}
@@ -221,7 +222,7 @@ func TestGatewayAdapterMessageCancelAndIdempotencyConflict(t *testing.T) {
 
 func TestGatewayAdapterMessageReplayAfterRestartChecksOriginalInput(t *testing.T) {
 	st := store.NewMemoryStore()
-	sessionRecord := st.CreateSession("Bridge")
+	sessionRecord := storetest.MustCreateSession(t, st, "Bridge")
 	endpointID := "endpoint-app"
 	idempotencyKey := "message-persisted"
 	runID := stableID("run_iscp", endpointID, idempotencyKey)
@@ -249,7 +250,7 @@ func TestGatewayAdapterMessageReplayAfterRestartChecksOriginalInput(t *testing.T
 
 func TestGatewayAdapterApprovalRequiresCurrentPreview(t *testing.T) {
 	st := store.NewMemoryStore()
-	sessionRecord := st.CreateSession("Approval")
+	sessionRecord := storetest.MustCreateSession(t, st, "Approval")
 	approval := app.Approval{
 		ID: "approval-1", SessionID: sessionRecord.ID, RunID: "run-1", ToolCallID: "call-1",
 		Tool: "files.write", Risk: app.RiskReversible, Status: "pending", Summary: "Write output",

@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type weatherInfoStub struct {
@@ -106,7 +107,7 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "weather", app.DefaultOwnerID, root, "web", false)
 	runID := "run_weather"
 	st.SaveRun(app.AgentRun{
 		ID: runID, SessionID: session.ID,
@@ -156,7 +157,7 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 
 func TestRenderWeatherCardRejectsIncompleteOrLegacyPayloadReferences(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
 	st.SaveToolCall(app.ToolCall{
 		ID: "tc_incomplete", SessionID: session.ID, RunID: "run", Tool: "weather.lookup", Status: "completed",
 		Result: weatherPayload{Status: "completed", SchemaVersion: WeatherPayloadSchemaVersion, RequestID: "request", Location: "杭州"},

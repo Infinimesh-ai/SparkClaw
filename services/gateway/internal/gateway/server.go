@@ -436,7 +436,11 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	s.applyMemoryRetention()
-	sessions := s.store.ListSessions()
+	sessions, err := s.store.ListSessions(r.Context())
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	messages := 0
 	runs := 0
 	allModelCalls := s.store.ListModelCalls("", "")
@@ -1229,7 +1233,12 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	ownerID := queryOwnerID(r)
 	sessions := []app.Session{}
-	for _, session := range s.store.ListSessions() {
+	listed, err := s.store.ListSessions(r.Context())
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	for _, session := range listed {
 		if sessionOwnerID(session) == ownerID {
 			sessions = append(sessions, session)
 		}
@@ -1259,12 +1268,20 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("profile not found"))
 		return
 	}
-	session := s.store.CreateSessionWithScope(input.Title, profile.ID, profile.WorkspaceRoot, "webchat", false)
+	session, err := s.store.CreateSessionWithScope(r.Context(), input.Title, profile.ID, profile.WorkspaceRoot, "webchat", false)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, session)
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.store.GetSession(r.PathValue("id"))
+	session, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
@@ -1280,34 +1297,36 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if session, ok := s.store.GetSession(r.PathValue("id")); ok && session.Source == "mcp" {
+	current, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if ok && current.Source == "mcp" {
 		writeError(w, http.StatusConflict, errors.New("MCP conversation titles are managed by the MCP binding"))
 		return
 	}
-	session, err := s.store.UpdateSessionTitle(r.PathValue("id"), input.Title)
+	session, err := s.store.UpdateSessionTitle(r.Context(), r.PathValue("id"), input.Title)
 	if err != nil {
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err)
+		writeSessionStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if session, ok := s.store.GetSession(r.PathValue("id")); ok && session.Source == "mcp" {
+	current, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if ok && current.Source == "mcp" {
 		writeError(w, http.StatusConflict, errors.New("MCP conversations are managed by the MCP binding"))
 		return
 	}
-	session, err := s.store.DeleteSession(r.PathValue("id"))
+	session, err := s.store.DeleteSession(r.Context(), r.PathValue("id"))
 	if err != nil {
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err)
+		writeSessionStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
@@ -1319,7 +1338,11 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
@@ -1338,7 +1361,6 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var result agent.Result
-	var err error
 	if input.Schedule != nil {
 		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, "", input.ClientTimezone)
 		if ingressErr != nil {
@@ -1388,7 +1410,11 @@ func (input scheduleActionInput) agentAction() agent.ScheduleAction {
 
 func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
@@ -1549,7 +1575,12 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	if _, ok := s.store.GetSession(sessionID); !ok {
+	_, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
@@ -1710,31 +1741,40 @@ func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 	approvals := s.store.ListApprovals(r.URL.Query().Get("status"))
 	for index := range approvals {
-		approvals[index].Presentation = s.approvalPresentation(approvals[index])
+		presentation, err := s.approvalPresentation(r.Context(), approvals[index])
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		approvals[index].Presentation = presentation
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"approvals": approvals})
 }
 
-func (s *Server) approvalPresentation(approval app.Approval) *app.ApprovalPresentation {
+func (s *Server) approvalPresentation(ctx context.Context, approval app.Approval) (*app.ApprovalPresentation, error) {
 	if approval.Tool != app.ToolWorkspaceDataAccess || approval.PolicyContext == nil ||
 		approval.PolicyContext.PrincipalClass != app.PolicyPrincipalExternalMCPAI ||
 		approval.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
-		return nil
+		return nil, nil
 	}
 	locatorsRaw, ok := approval.Arguments["locators"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	raw, err := json.Marshal(locatorsRaw)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	var locators []app.MessageMediaLocator
 	if err := json.Unmarshal(raw, &locators); err != nil || len(locators) == 0 {
-		return nil
+		return nil, nil
 	}
 	requester := "AI"
-	if session, ok := s.store.GetSession(approval.SessionID); ok && strings.TrimSpace(session.Title) != "" {
+	session, ok, err := s.store.GetSession(ctx, approval.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if ok && strings.TrimSpace(session.Title) != "" {
 		requester = session.Title
 	}
 	return &app.ApprovalPresentation{
@@ -1747,7 +1787,7 @@ func (s *Server) approvalPresentation(approval app.Approval) *app.ApprovalPresen
 		OutputClass:   approval.PolicyContext.OutputClass,
 		ReturnRoute:   approval.PolicyContext.ReturnRoute,
 		Scope:         "single_operation",
-	}
+	}, nil
 }
 
 func (s *Server) approveApproval(w http.ResponseWriter, r *http.Request) {
@@ -2279,7 +2319,12 @@ func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 	ownerID := queryOwnerID(r)
 	candidates := []app.MemoryCandidate{}
 	for _, candidate := range s.store.ListMemoryCandidates(r.URL.Query().Get("status")) {
-		if s.sessionIDVisibleToOwner(candidate.SessionID, ownerID) {
+		visible, err := s.sessionIDVisibleToOwner(r.Context(), candidate.SessionID, ownerID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		if visible {
 			candidates = append(candidates, candidate)
 		}
 	}
@@ -2374,7 +2419,12 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	ownerID := queryOwnerID(r)
 	objects := []app.ArtifactObject{}
 	for _, object := range s.store.ListArtifactObjects(0) {
-		if s.artifactVisibleToOwner(object, ownerID) {
+		visible, err := s.artifactVisibleToOwner(r.Context(), object, ownerID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		if visible {
 			objects = append(objects, object)
 		}
 		if limit > 0 && len(objects) >= limit {
@@ -2421,7 +2471,11 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	name = ensureUploadFilenameExtension(name, contentType, detectedContentType)
 	sessionID := strings.TrimSpace(r.FormValue("session_id"))
-	workspaceRoot := s.workspaceRootForSession(sessionID)
+	workspaceRoot, err := s.workspaceRootForSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	now := time.Now().UTC()
 	isImage := isImageContentType(contentType)
 	rootName := "uploads"
@@ -2495,7 +2549,11 @@ func (s *Server) listAvailableDocuments(w http.ResponseWriter, r *http.Request) 
 	}
 	out := []app.ArtifactObject{}
 	seen := map[string]bool{}
-	workspaceRoot := s.workspaceRootForSession(strings.TrimSpace(r.URL.Query().Get("session_id")))
+	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	for _, rootName := range []string{"uploads", "media"} {
 		if len(out) >= limit {
 			break
@@ -2607,7 +2665,11 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid document path"))
 		return
 	}
-	workspaceRoot := s.workspaceRootForSession(strings.TrimSpace(r.URL.Query().Get("session_id")))
+	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	path := filepath.Join(workspaceRoot, clean)
 	if !pathWithinRoot(workspaceRoot, path) {
 		writeError(w, http.StatusBadRequest, errors.New("document path escapes workspace"))
@@ -2617,13 +2679,17 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-func (s *Server) workspaceRootForSession(sessionID string) string {
+func (s *Server) workspaceRootForSession(ctx context.Context, sessionID string) (string, error) {
 	if strings.TrimSpace(sessionID) != "" {
-		if session, ok := s.store.GetSession(sessionID); ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
-			return strings.TrimSpace(session.WorkspaceRoot)
+		session, ok, err := s.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
+		if ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
+			return strings.TrimSpace(session.WorkspaceRoot), nil
 		}
 	}
-	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot)
+	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), nil
 }
 
 func (s *Server) getWorkspaceScreenshot(w http.ResponseWriter, r *http.Request) {
@@ -3038,24 +3104,27 @@ func sessionOwnerID(session app.Session) string {
 	return strings.TrimSpace(session.OwnerID)
 }
 
-func (s *Server) sessionIDVisibleToOwner(sessionID, ownerID string) bool {
+func (s *Server) sessionIDVisibleToOwner(ctx context.Context, sessionID, ownerID string) (bool, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return ownerID == app.DefaultOwnerID
+		return ownerID == app.DefaultOwnerID, nil
 	}
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
 	if !ok {
-		return ownerID == app.DefaultOwnerID
+		return ownerID == app.DefaultOwnerID, nil
 	}
-	return sessionOwnerID(session) == ownerID
+	return sessionOwnerID(session) == ownerID, nil
 }
 
-func (s *Server) artifactVisibleToOwner(object app.ArtifactObject, ownerID string) bool {
-	return s.sessionIDVisibleToOwner(object.SessionID, ownerID)
+func (s *Server) artifactVisibleToOwner(ctx context.Context, object app.ArtifactObject, ownerID string) (bool, error) {
+	return s.sessionIDVisibleToOwner(ctx, object.SessionID, ownerID)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -3208,6 +3277,23 @@ func writeConnectorError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, &binding.BindingError{Code: binding.CodeConnectorUnavailable})
 	default:
 		writeError(w, connectorStartStatus(errorCode(err)), err)
+	}
+}
+
+func writeSessionStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("session request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("session cannot be changed"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("session request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("session operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("session service is unavailable"))
 	}
 }
 

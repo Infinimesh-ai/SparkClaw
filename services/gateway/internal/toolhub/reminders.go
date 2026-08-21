@@ -59,7 +59,10 @@ func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sess
 		baseURL = resolved.BaseURL
 		endpointID = resolved.EndpointID
 	}
-	ownerID := h.ownerIDForSession(sessionID)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	now := time.Now().UTC()
 	reminder := app.Reminder{
 		ID:               app.NewID("rem"),
@@ -137,7 +140,7 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func (h *ToolHub) remindersList(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) remindersList(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	filter := app.ReminderFilter{
 		Status: strings.TrimSpace(stringArg(args, "status", "")),
 		Limit:  intArg(args, "limit", 20),
@@ -157,13 +160,20 @@ func (h *ToolHub) remindersList(args map[string]any, sessionID string) (Result, 
 		filter.To = &t
 	}
 	reminders := h.store.ListReminders(filter)
-	ownerID := h.ownerIDForSession(sessionID)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	items := make([]map[string]any, 0, len(reminders))
 	for _, reminder := range reminders {
 		if reminder.ScheduleSpec == nil || reminder.ScheduleSpec.SchemaVersion != app.ScheduleSpecSchemaVersion {
 			continue
 		}
-		if !h.sessionVisibleToOwner(reminder.SessionID, ownerID) {
+		visible, err := h.sessionVisibleToOwner(ctx, reminder.SessionID, ownerID)
+		if err != nil {
+			return Result{}, err
+		}
+		if !visible {
 			continue
 		}
 		items = append(items, reminderToolOutput(reminder))
@@ -242,7 +252,10 @@ func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sess
 		recurrence = normalizeReminderRecurrence(recurrence)
 		patch.Recurrence = &recurrence
 	}
-	ownerID := h.ownerIDForSession(sessionID)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	updated, err := registry.UpdatePending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt, patch)
 	if err != nil {
 		return Result{}, err
@@ -260,7 +273,10 @@ func (h *ToolHub) remindersCancel(ctx context.Context, args map[string]any, sess
 	if err != nil {
 		return Result{}, err
 	}
-	ownerID := h.ownerIDForSession(sessionID)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	canceled, err := messagecontrol.NewScheduleRegistry(h.store).CancelPending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
 	if err != nil {
 		return Result{}, err

@@ -337,7 +337,7 @@ func TestBrowserFormDraftMaterializesCurrentSnapshotBindings(t *testing.T) {
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, Workflow: state, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	stageContext := (browserFormDraftProfile{}).StageContext(state)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}

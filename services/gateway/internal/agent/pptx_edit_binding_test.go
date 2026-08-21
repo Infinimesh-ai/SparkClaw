@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestPPTXSlideOperationContextExposesExactShapeEvidence(t *testing.T) {
@@ -62,7 +63,7 @@ func TestExplicitSlideIndex(t *testing.T) {
 
 func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("pptx binding")
+	session := storetest.MustCreateSession(t, st, "pptx binding")
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
 		SessionID: session.ID,

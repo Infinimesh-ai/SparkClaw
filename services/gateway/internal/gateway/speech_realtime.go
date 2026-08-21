@@ -65,7 +65,11 @@ func (s *Server) postSpeechRealtimeSession(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	principal := principalForRequest(r)
-	sessionRecord, ok := s.store.GetSession(input.SessionID)
+	sessionRecord, ok, err := s.store.GetSession(r.Context(), input.SessionID)
+	if err != nil {
+		writeSpeechError(w, http.StatusServiceUnavailable, speech.NewError(speech.CodeUnavailable, "session service is unavailable", true, nil))
+		return
+	}
 	if !ok || sessionOwnerID(sessionRecord) != principal.OwnerID {
 		writeSpeechError(w, http.StatusNotFound, speech.NewError(speech.CodeInvalidRequest, "session not found", false, nil))
 		return

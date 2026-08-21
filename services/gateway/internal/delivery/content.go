@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,10 +18,10 @@ import (
 
 type governedArtifactStore interface {
 	ListArtifactObjects(int) []app.ArtifactObject
-	GetSession(string) (app.Session, bool)
+	GetSession(context.Context, string) (app.Session, bool, error)
 }
 
-func ResolveBrowserContent(st governedArtifactStore, ownerID, defaultWorkspaceRoot string, content app.MessageContent) (app.MessageContent, error) {
+func ResolveBrowserContent(ctx context.Context, st governedArtifactStore, ownerID, defaultWorkspaceRoot string, content app.MessageContent) (app.MessageContent, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if st == nil || ownerID == "" {
 		return app.MessageContent{}, NewError(CodeArtifactInvalid, "artifact authorization is unavailable", "blocked")
@@ -40,7 +41,10 @@ func ResolveBrowserContent(st governedArtifactStore, ownerID, defaultWorkspaceRo
 		if !ok || strings.TrimSpace(object.SessionID) == "" {
 			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("artifact for part %q is unavailable", part.ID), "blocked")
 		}
-		session, ok := st.GetSession(object.SessionID)
+		session, ok, err := st.GetSession(ctx, object.SessionID)
+		if err != nil {
+			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("artifact for part %q cannot resolve its session", part.ID), "blocked")
+		}
 		if !ok || normalizedOwnerID(session.OwnerID) != ownerID {
 			return app.MessageContent{}, NewError(CodeCrossUserDenied, "artifact is outside the actor owner scope", "blocked")
 		}

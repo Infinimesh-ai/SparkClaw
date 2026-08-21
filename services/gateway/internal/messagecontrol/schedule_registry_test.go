@@ -16,7 +16,7 @@ func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Timer")
+	session := storetest.MustCreateSession(t, st, "Timer")
 	now := time.Now().UTC()
 	schedule := app.MessageSchedule{
 		ID: "sched_request", SessionID: session.ID, DueTime: now.Add(time.Hour), Timezone: "UTC", DedupeKey: "request", Status: "pending", CreatedAt: now, UpdatedAt: now,
@@ -42,7 +42,7 @@ func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
 
 func TestScheduleRegistryRejectsCrossOwnerReturnEndpoint(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Owner A", "owner-a", t.TempDir(), "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Owner A", "owner-a", t.TempDir(), "webchat", false)
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_owner_b", OwnerID: "owner-b", Channel: "future", Status: "active"})
 	now := time.Now().UTC()
 	schedule := app.MessageSchedule{

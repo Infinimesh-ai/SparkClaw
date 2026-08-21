@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -531,7 +532,7 @@ func newObservationManagementRuntime(t *testing.T) (Runtime, *store.MemoryStore,
 	cfg := agentTestConfig()
 	cfg.Storage.ArtifactDir = filepath.Join(t.TempDir(), "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("observation management")
+	session := storetest.MustCreateSession(t, st, "observation management")
 	hub := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
 	return runtime, st, session, func() { _ = hub.Close() }

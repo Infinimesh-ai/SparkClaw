@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -115,7 +116,7 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice input")
+	session := storetest.MustCreateSession(t, st, "Voice input")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{
@@ -188,7 +189,7 @@ func TestSpeechTranscriptionRejectsNonCanonicalWAV(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice input")
+	session := storetest.MustCreateSession(t, st, "Voice input")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{status: speech.Status{
@@ -224,7 +225,7 @@ func TestSpeechTranscriptionRejectsUnexpectedFileField(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice input")
+	session := storetest.MustCreateSession(t, st, "Voice input")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{status: speech.Status{
@@ -251,7 +252,7 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice cancellation")
+	session := storetest.MustCreateSession(t, st, "Voice cancellation")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{
@@ -292,7 +293,7 @@ func TestSpeechTranscriptionUsesInferenceAsReadinessAuthority(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice readiness")
+	session := storetest.MustCreateSession(t, st, "Voice readiness")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{
@@ -322,7 +323,7 @@ func TestSpeechTranscriptionRejectsSessionOwnedByAnotherPrincipal(t *testing.T) 
 	cfg.Speech.Backend = "openai-http"
 	cfg.Gateway.APIToken = "default-owner-token"
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Other owner voice", "owner-other", cfg.Workspaces.DefaultRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Other owner voice", "owner-other", cfg.Workspaces.DefaultRoot, "webchat", false)
 	pairing, err := st.SavePairingCode(t.Context(), app.PairingCode{
 		ID: "client-requester-pair", CodeHash: "client-requester-pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour),
 	})
@@ -367,7 +368,7 @@ func TestSpeechTranscriptionAppliesEndToEndDeadline(t *testing.T) {
 	cfg.Speech.Backend = "openai-http"
 	cfg.Speech.TimeoutSeconds = 1
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice deadline")
+	session := storetest.MustCreateSession(t, st, "Voice deadline")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{transcribe: func(ctx context.Context, _ speech.Request) (speech.Result, error) {

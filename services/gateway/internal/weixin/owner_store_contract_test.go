@@ -42,7 +42,7 @@ func TestHandleInboundPropagatesContextAndReturnsOwnerFailure(t *testing.T) {
 	if wrapper.seen == nil || wrapper.seen.Value(contextKey{}) != marker {
 		t.Fatal("Weixin did not pass its worker context to OwnerRepository")
 	}
-	if len(wrapper.ListSessions()) != 0 {
+	if len(storetest.MustListSessions(t, wrapper)) != 0 {
 		t.Fatal("Weixin created a session after owner lookup failure")
 	}
 }

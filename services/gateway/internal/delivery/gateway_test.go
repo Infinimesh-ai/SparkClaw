@@ -205,7 +205,7 @@ func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 
 func TestWorkflowAndExplicitSendShareDeliveryRequest(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Web")
+	session := storetest.MustCreateSession(t, st, "Web")
 	routes := messagecontrol.NewReturnRouteResolver(messagecontrol.NewEndpointRegistry(st))
 	content := app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "done"}}}
 	route := app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: messagecontrol.WebEndpointID(session.ID)}

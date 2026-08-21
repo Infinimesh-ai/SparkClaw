@@ -159,7 +159,7 @@ func TestDeliveryAPIRetriesOnlyFailedPartsAndRechecksRevocation(t *testing.T) {
 func TestDeliveryAPIRejectsCrossOwnerArtifactBeforeProvider(t *testing.T) {
 	ts, st, provider, endpointID, _ := newDeliveryTestServer(t, 0)
 	otherRoot := t.TempDir()
-	other := st.CreateSessionWithScope("Other", "other-owner", otherRoot, "webchat", false)
+	other := storetest.MustCreateSessionWithScope(t, st, "Other", "other-owner", otherRoot, "webchat", false)
 	path := filepath.Join(otherRoot, "private.txt")
 	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *stor
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-direct", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "testchat", Status: "active",
 		DisplayName: "Personal account", Scopes: []string{app.BindingScopeMessageSendSelf},
@@ -264,7 +264,7 @@ func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-delivery-failed", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},

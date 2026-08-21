@@ -573,9 +573,9 @@ func (r Runtime) auditWorkflowStageExposure(run app.AgentRun, nodeID app.Workflo
 	}})
 }
 
-func (r Runtime) workflowActorRef(sessionID string) string {
-	if session, ok := r.store.GetSession(sessionID); ok && session.OwnerID != "" {
-		return session.OwnerID
+func (r Runtime) workflowActorRef(run app.AgentRun) string {
+	if run.MessageContext != nil && strings.TrimSpace(run.MessageContext.OwnerID) != "" {
+		return strings.TrimSpace(run.MessageContext.OwnerID)
 	}
 	return "owner"
 }

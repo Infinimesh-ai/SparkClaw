@@ -26,7 +26,7 @@ func TestResolverUsesProviderNeutralBindingFields(t *testing.T) {
 
 func TestResolverUsesCurrentExternalSession(t *testing.T) {
 	st := store.NewMemoryStore()
-	linked := st.CreateSession("linked")
+	linked := storetest.MustCreateSession(t, st, "linked")
 	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_alpha", Channel: "alpha", Status: "active", ExternalUserID: "binding-user", CredentialRef: "credential",
 	})

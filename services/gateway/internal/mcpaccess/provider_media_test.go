@@ -14,12 +14,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 	st := store.NewMemoryStore()
 	root := t.TempDir()
-	session := st.CreateSessionWithScope("MCP", app.DefaultOwnerID, root, "mcp", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "MCP", app.DefaultOwnerID, root, "mcp", true)
 	operation, ref := createProviderMediaOperation(t, st, session.ID, "operation-media")
 	parts := []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "Here are the files."}}
 	fixtures := []struct {
@@ -79,7 +80,7 @@ func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 func TestProviderMediaFailureDoesNotPersistPartialResult(t *testing.T) {
 	st := store.NewMemoryStore()
 	root := t.TempDir()
-	session := st.CreateSessionWithScope("MCP", app.DefaultOwnerID, root, "mcp", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "MCP", app.DefaultOwnerID, root, "mcp", true)
 	operation, ref := createProviderMediaOperation(t, st, session.ID, "operation-atomic")
 	path := filepath.Join(root, "changed.pdf")
 	if err := os.WriteFile(path, []byte("changed"), 0o644); err != nil {

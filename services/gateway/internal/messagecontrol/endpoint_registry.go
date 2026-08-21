@@ -12,7 +12,7 @@ import (
 )
 
 type endpointStore interface {
-	GetSession(string) (app.Session, bool)
+	GetSession(context.Context, string) (app.Session, bool, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(string, string) []app.ExternalChatSession
@@ -65,7 +65,10 @@ func (r *EndpointRegistry) get(ctx context.Context, id app.EndpointID, admittedS
 	}
 	if strings.HasPrefix(value, "session:") {
 		sessionID := strings.TrimSpace(strings.TrimPrefix(value, "session:"))
-		session, ok := r.store.GetSession(sessionID)
+		session, ok, err := r.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return app.MessageEndpoint{}, fmt.Errorf("read web endpoint %q: %w", value, err)
+		}
 		if !ok {
 			return app.MessageEndpoint{}, fmt.Errorf("web endpoint %q is unavailable", value)
 		}

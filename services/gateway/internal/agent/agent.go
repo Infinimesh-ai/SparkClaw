@@ -145,7 +145,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string, ingress *app.MessageIngressContext, scheduleAction *ScheduleAction, mediaLocators []app.MessageMediaLocator, invocation *app.MCPInvocationRef) (Result, error) {
 	if requestedRunID != "" {
 		if existing, ok := r.store.GetRun(requestedRunID); ok && existing.SessionID == sessionID && existing.State != "received" {
-			return r.resultForExistingRun(existing), nil
+			return r.resultForExistingRun(ctx, existing)
 		}
 	}
 	if messageID == "" {
@@ -160,7 +160,10 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		RequestedMedia: append([]app.MessageMediaLocator(nil), mediaLocators...),
 		CreatedAt:      time.Now().UTC(),
 	}
-	session, ok := r.store.GetSession(sessionID)
+	session, ok, err := r.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, fmt.Errorf("load message session: %w", err)
+	}
 	if !ok {
 		session = app.Session{ID: sessionID, OwnerID: app.DefaultOwnerID, Source: "web"}
 	}
@@ -251,9 +254,13 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: guard.Reason}
 		run.MessageContext.Route = route
 		r.store.SaveRun(run)
+		workflowResult, err := r.workflowResultForTerminalRoute(ctx, run, route, envelope.ReturnRoute, run.Summary)
+		if err != nil {
+			return Result{}, err
+		}
 		return Result{
 			Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}, RouteDecision: &route,
-			WorkflowResult: r.workflowResultForTerminalRoute(run, route, envelope.ReturnRoute, run.Summary),
+			WorkflowResult: workflowResult,
 		}, nil
 	}
 
@@ -271,7 +278,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
 		run.MessageContext.Route = route
 		r.store.SaveRun(run)
-		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route)
 	}
 	route := routing.Route
 	deliverySelection, returnRoute, controlErr := r.resolveMessageControl(ctx, sessionID, routing.Delivery, envelope)
@@ -287,7 +294,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 				"recipient_present": strings.TrimSpace(routing.Delivery.RequestedRecipientText) != "", "reason": controlErr.Error(),
 			},
 		})
-		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, blocked), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, blocked)
 	}
 	run.MessageContext.ReturnRoute = returnRoute
 	r.store.AddAudit(app.AuditEvent{
@@ -305,23 +312,29 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if controlRoute, terminal := messageControlTerminalRoute(deliverySelection, r.capabilities.Revision()); terminal {
 		run.MessageContext.Route = controlRoute
 		r.store.SaveRun(run)
-		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, controlRoute), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, controlRoute)
 	}
 	run.MessageContext.Route = route
 	r.store.SaveRun(run)
 	if route.Status != app.RouteMatched {
-		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route)
 	}
 	dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, returnRoute, userMessage.ID)
 	if err != nil {
 		result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content, workflowFailureSetup)
+		result.WorkflowResult, err = r.workflowResultForDispatchFailure(ctx, result.Run, route, returnRoute, result.Message.Content, workflowFailureSetup)
+		if err != nil {
+			return Result{}, err
+		}
 		return result, nil
 	}
 	run = dispatch.Run
 	if run.State == "approval_pending" {
-		result := r.resultForExistingRun(run)
+		result, err := r.resultForExistingRun(ctx, run)
+		if err != nil {
+			return Result{}, err
+		}
 		result.Approvals = approvalsForRun(r.store.ListApprovals("pending"), run.ID)
 		return result, nil
 	}
@@ -384,7 +397,10 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	episode := summarizeEpisode(visibleContent, run, allToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 
-	workflowResult := r.workflowResultForRun(run, route, returnRoute, run.Summary, execution.FailureCode)
+	workflowResult, err := r.workflowResultForRun(ctx, run, route, returnRoute, run.Summary, execution.FailureCode)
+	if err != nil {
+		return Result{}, err
+	}
 	assistant := r.persistWorkflowAssistantMessage(run, workflowResult, now)
 	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
@@ -417,7 +433,7 @@ func finalizeWorkflowRunState(run *app.AgentRun, execution workflowExecutionResu
 	}
 }
 
-func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
+func (r Runtime) resultForExistingRun(ctx context.Context, run app.AgentRun) (Result, error) {
 	suppressAssistant := isEndpointMediaPublication(run)
 	message := app.Message{}
 	if !suppressAssistant {
@@ -439,21 +455,33 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
+		var err error
+		result.WorkflowResult, err = r.workflowResultForRun(ctx, run, route, run.Workflow.ReturnRoute, run.Summary)
+		if err != nil {
+			return Result{}, err
+		}
 	} else if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
 		switch route.Status {
 		case app.RouteUnmatched, app.RouteClarify, app.RouteBlocked:
-			result.WorkflowResult = r.workflowResultForTerminalRoute(run, route, run.MessageContext.ReturnRoute, message.Content)
+			var err error
+			result.WorkflowResult, err = r.workflowResultForTerminalRoute(ctx, run, route, run.MessageContext.ReturnRoute, message.Content)
+			if err != nil {
+				return Result{}, err
+			}
 		default:
-			result.WorkflowResult = r.workflowResultForDispatchFailure(run, route, run.MessageContext.ReturnRoute, message.Content)
+			var err error
+			result.WorkflowResult, err = r.workflowResultForDispatchFailure(ctx, run, route, run.MessageContext.ReturnRoute, message.Content)
+			if err != nil {
+				return Result{}, err
+			}
 		}
 	}
 	if !suppressAssistant {
 		result.Message = r.messageWithWorkflowResult(result.Message, result.WorkflowResult)
 	}
-	return result
+	return result, nil
 }
 
 func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID string) (Result, bool, error) {
@@ -465,8 +493,8 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		return Result{}, false, nil
 	}
 	if legacy := r.legacyExternalSendApprovalForRun(runID); legacy != nil {
-		result := r.blockLegacyExternalSendApproval(ctx, run, *legacy)
-		return result, true, nil
+		result, err := r.blockLegacyExternalSendApproval(ctx, run, *legacy)
+		return result, true, err
 	}
 	content := requestContentForRun(r.store.ListMessages(sessionID), run)
 	if result, handled, err := r.resumeMCPWorkspaceDataApproval(ctx, run, content); handled || err != nil {
@@ -483,17 +511,18 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if run.Workflow != nil {
 		return r.resumeMatchedWorkflowAfterApproval(ctx, run, content, seedCalls)
 	}
-	if result, ok := r.completeRunAfterTerminalApprovedAction(ctx, sessionID, run, content, seedCalls); ok {
-		return result, true, nil
+	if result, ok, err := r.completeRunAfterTerminalApprovedAction(ctx, sessionID, run, content, seedCalls); ok || err != nil {
+		return result, ok, err
 	}
-	return r.completeRetiredLegacyRun(ctx, run, content, "workflow.legacy_resume_retired",
-		"Rejected an approval resume for a run without a persisted workflow plan"), true, nil
+	result, err := r.completeRetiredLegacyRun(ctx, run, content, "workflow.legacy_resume_retired",
+		"Rejected an approval resume for a run without a persisted workflow plan")
+	return result, true, err
 }
 
 // completeRetiredLegacyRun terminally closes a persisted run that predates the
 // workflow runtime. The generic model/tool loop those runs relied on has been
 // removed, so the only safe continuation is a fresh, workflow-routed request.
-func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun, goal, auditType, auditSummary string) Result {
+func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun, goal, auditType, auditSummary string) (Result, error) {
 	now := time.Now().UTC()
 	run.State = "blocked"
 	run.CompletedAt = &now
@@ -514,7 +543,11 @@ func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun,
 	var workflowResult *app.WorkflowResult
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
-		workflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+		var err error
+		workflowResult, err = r.workflowResultForUnmatched(ctx, run, route, run.MessageContext.ReturnRoute, run.Summary)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	presentationResult := workflowResult
 	if presentationResult == nil {
@@ -534,21 +567,21 @@ func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun,
 		result.RouteDecision = &route
 		result.WorkflowResult = workflowResult
 	}
-	return result
+	return result, nil
 }
 
-func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, sessionID string, run app.AgentRun, content string, seedCalls []app.ToolCall) (Result, bool) {
+func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, sessionID string, run app.AgentRun, content string, seedCalls []app.ToolCall) (Result, bool, error) {
 	if len(seedCalls) == 0 {
-		return Result{}, false
+		return Result{}, false, nil
 	}
 	last := seedCalls[len(seedCalls)-1]
 	if !toolCallCompleted(last) || !isTerminalApprovedActionTool(last.Tool) {
-		return Result{}, false
+		return Result{}, false, nil
 	}
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 	summary := r.applyGroundedSummary(sessionID, run.ID, content, "", currentToolCalls)
 	if strings.TrimSpace(summary) == "" {
-		return Result{}, false
+		return Result{}, false, nil
 	}
 	now := time.Now().UTC()
 	run.State = "completed"
@@ -562,11 +595,19 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	var workflowResult *app.WorkflowResult
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
-		workflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+		var err error
+		workflowResult, err = r.workflowResultForUnmatched(ctx, run, route, run.MessageContext.ReturnRoute, run.Summary)
+		if err != nil {
+			return Result{}, false, err
+		}
 	}
 	presentationResult := workflowResult
 	if presentationResult == nil {
-		presentationResult = &app.WorkflowResult{Content: r.workflowResultContentFromToolCalls(run, run.Summary)}
+		resultContent, err := r.workflowResultContentFromToolCalls(ctx, run, run.Summary)
+		if err != nil {
+			return Result{}, false, err
+		}
+		presentationResult = &app.WorkflowResult{Content: resultContent}
 	}
 	assistantMessage := r.messageWithWorkflowResult(app.Message{
 		SessionID: sessionID,
@@ -593,7 +634,7 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 		result.RouteDecision = &route
 		result.WorkflowResult = workflowResult
 	}
-	return result, true
+	return result, true, nil
 }
 
 func (r Runtime) chatWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, operation, lane, system, user string, emit StreamHandler) (modelrouter.ChatResult, error) {
@@ -1131,7 +1172,13 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, OwnerRequest: ownerRequest, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
 	r.store.SaveToolCall(call)
-	r.recordDocumentToolActivity(call)
+	if err := r.recordDocumentToolActivity(ctx, call); err != nil {
+		call.Status = "failed"
+		call.Error = err.Error()
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+		r.store.SaveToolCall(call)
+		return call, nil, call.ObservationSummary
+	}
 	return call, nil, call.ObservationSummary
 }
 

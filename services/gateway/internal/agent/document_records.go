@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -44,17 +45,29 @@ func (r Runtime) recordMessageDocuments(session app.Session, message app.Message
 		record.LastActivity = app.DocumentActivityAttached
 		record.LastActivityID = message.ID
 		record.LastActivityAt = message.CreatedAt
-		record = enrichDocumentRecordFromWorkspace(record, r.workspaceRootForSession(session.ID))
+		workspaceRoot := strings.TrimSpace(session.WorkspaceRoot)
+		if workspaceRoot == "" && r.tools != nil {
+			workspaceRoot = r.tools.Config().Workspaces.DefaultRoot
+		}
+		record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
 		r.store.SaveDocumentRecord(record)
 	}
 }
 
-func (r Runtime) confirmDocumentRecord(sessionID, runID string, reference documentContextReference, preflight documentPreflight) app.DocumentRecord {
+func (r Runtime) confirmDocumentRecord(ctx context.Context, sessionID, runID string, reference documentContextReference, preflight documentPreflight) (app.DocumentRecord, error) {
+	ownerID, err := r.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return app.DocumentRecord{}, err
+	}
+	workspaceRoot, err := r.workspaceRootForSession(ctx, sessionID)
+	if err != nil {
+		return app.DocumentRecord{}, err
+	}
 	record, ok := r.documentRecordByIDOrPath(reference.DocumentID, sessionID, preflight.InputRef)
 	if !ok {
 		record = app.DocumentRecord{
 			ID:           app.NewID("doc"),
-			OwnerID:      r.ownerIDForSession(sessionID),
+			OwnerID:      ownerID,
 			SessionID:    sessionID,
 			GovernedPath: preflight.InputRef,
 			Source:       app.DocumentSourceWorkspace,
@@ -72,31 +85,38 @@ func (r Runtime) confirmDocumentRecord(sessionID, runID string, reference docume
 	record.LastActivity = app.DocumentActivityConfirmed
 	record.LastActivityID = runID
 	record.LastActivityAt = time.Now().UTC()
-	record = enrichDocumentRecordFromWorkspace(record, r.workspaceRootForSession(sessionID))
-	return r.store.SaveDocumentRecord(record)
+	record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
+	return r.store.SaveDocumentRecord(record), nil
 }
 
-func (r Runtime) recordDocumentToolActivity(call app.ToolCall) {
+func (r Runtime) recordDocumentToolActivity(ctx context.Context, call app.ToolCall) error {
 	if r.store == nil || !toolCallCompleted(call) || !isDocumentContextCall(call) {
-		return
+		return nil
 	}
-	workspaceRoot := r.workspaceRootForSession(call.SessionID)
+	ownerID, err := r.ownerIDForSession(ctx, call.SessionID)
+	if err != nil {
+		return err
+	}
+	workspaceRoot, err := r.workspaceRootForSession(ctx, call.SessionID)
+	if err != nil {
+		return err
+	}
 	if call.Capability == app.ToolCapabilityDocumentEdit || toolCallProducesDocumentOutput(call, workspaceRoot) {
-		r.recordDocumentEditOutputs(call)
-		return
+		r.recordDocumentEditOutputs(call, ownerID, workspaceRoot)
+		return nil
 	}
 	path := normalizeGovernedDocumentPath(firstNonEmptyString(
 		strings.TrimSpace(stringValue(call.Arguments["path"])),
 		toolResultDocumentPath(call.Result),
 	))
 	if path == "" {
-		return
+		return nil
 	}
 	record, ok := r.documentRecordByPath(call.SessionID, path)
 	if !ok {
 		record = app.DocumentRecord{
 			ID:           app.NewID("doc"),
-			OwnerID:      r.ownerIDForSession(call.SessionID),
+			OwnerID:      ownerID,
 			SessionID:    call.SessionID,
 			GovernedPath: path,
 			Name:         filepath.Base(filepath.FromSlash(path)),
@@ -109,19 +129,20 @@ func (r Runtime) recordDocumentToolActivity(call app.ToolCall) {
 	record.LastActivityID = call.ID
 	record.LastActivityAt = completedToolCallTime(call)
 	record.Status = app.DocumentStatusAvailable
-	record = enrichDocumentRecordFromWorkspace(record, r.workspaceRootForSession(call.SessionID))
+	record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
 	r.store.SaveDocumentRecord(record)
+	return nil
 }
 
-func (r Runtime) recordDocumentEditOutputs(call app.ToolCall) {
+func (r Runtime) recordDocumentEditOutputs(call app.ToolCall, ownerID, workspaceRoot string) {
 	inputPath := normalizeGovernedDocumentPath(strings.TrimSpace(stringValue(call.Arguments["path"])))
 	parent, _ := r.documentRecordByPath(call.SessionID, inputPath)
-	for _, outputPath := range documentOutputPaths(call, r.workspaceRootForSession(call.SessionID)) {
+	for _, outputPath := range documentOutputPaths(call, workspaceRoot) {
 		record, ok := r.documentRecordByPath(call.SessionID, outputPath)
 		if !ok {
 			record = app.DocumentRecord{
 				ID:           app.NewID("doc"),
-				OwnerID:      r.ownerIDForSession(call.SessionID),
+				OwnerID:      ownerID,
 				SessionID:    call.SessionID,
 				GovernedPath: outputPath,
 				Name:         filepath.Base(filepath.FromSlash(outputPath)),
@@ -136,7 +157,7 @@ func (r Runtime) recordDocumentEditOutputs(call app.ToolCall) {
 		record.LastActivityID = call.ID
 		record.LastActivityAt = completedToolCallTime(call)
 		record.Status = app.DocumentStatusAvailable
-		record = enrichDocumentRecordFromWorkspace(record, r.workspaceRootForSession(call.SessionID))
+		record = enrichDocumentRecordFromWorkspace(record, workspaceRoot)
 		r.store.SaveDocumentRecord(record)
 	}
 }
@@ -163,25 +184,33 @@ func (r Runtime) documentRecordByPath(sessionID, path string) (app.DocumentRecor
 	return app.DocumentRecord{}, false
 }
 
-func (r Runtime) ownerIDForSession(sessionID string) string {
+func (r Runtime) ownerIDForSession(ctx context.Context, sessionID string) (string, error) {
 	if r.store != nil {
-		if session, ok := r.store.GetSession(sessionID); ok {
-			return firstNonEmptyString(strings.TrimSpace(session.OwnerID), app.DefaultOwnerID)
+		session, ok, err := r.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return firstNonEmptyString(strings.TrimSpace(session.OwnerID), app.DefaultOwnerID), nil
 		}
 	}
-	return app.DefaultOwnerID
+	return app.DefaultOwnerID, nil
 }
 
-func (r Runtime) workspaceRootForSession(sessionID string) string {
+func (r Runtime) workspaceRootForSession(ctx context.Context, sessionID string) (string, error) {
 	if r.store != nil {
-		if session, ok := r.store.GetSession(sessionID); ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
-			return session.WorkspaceRoot
+		session, ok, err := r.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
+		if ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
+			return session.WorkspaceRoot, nil
 		}
 	}
 	if r.tools != nil {
-		return r.tools.Config().Workspaces.DefaultRoot
+		return r.tools.Config().Workspaces.DefaultRoot, nil
 	}
-	return ""
+	return "", nil
 }
 
 func enrichDocumentRecordFromWorkspace(record app.DocumentRecord, workspaceRoot string) app.DocumentRecord {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func resolveExternalMCPDocumentContext(content string, resources []app.MessagePa
 	return documentContextResolution{References: documentReferencesFromMessageParts(resources)}
 }
 
-func (r Runtime) resolveDocumentContext(sessionID, runID, content string, resources []app.MessagePart) documentContextResolution {
+func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, content string, resources []app.MessagePart) (documentContextResolution, error) {
 	if paths := documentRoutePaths(content); len(paths) > 0 {
 		references := make([]documentContextReference, 0, len(paths))
 		for _, path := range paths {
@@ -62,7 +63,7 @@ func (r Runtime) resolveDocumentContext(sessionID, runID, content string, resour
 			}
 			references = append(references, reference)
 		}
-		return documentContextResolution{References: dedupeDocumentReferences(references)}
+		return documentContextResolution{References: dedupeDocumentReferences(references)}, nil
 	}
 	if references := documentReferencesFromMessageParts(resources); len(references) > 0 {
 		for index := range references {
@@ -70,30 +71,34 @@ func (r Runtime) resolveDocumentContext(sessionID, runID, content string, resour
 				references[index] = documentReferenceFromRecord(record, documentProvenanceCurrentResource)
 			}
 		}
-		return documentContextResolution{References: references}
+		return documentContextResolution{References: references}, nil
 	}
 	if r.store == nil {
-		return documentContextResolution{}
+		return documentContextResolution{}, nil
+	}
+	workspaceRoot, err := r.workspaceRootForSession(ctx, sessionID)
+	if err != nil {
+		return documentContextResolution{}, err
 	}
 	if references := recentDocumentRecordReferences(
 		r.store.ListDocumentRecords("", sessionID, 100),
-		r.workspaceRootForSession(sessionID),
+		workspaceRoot,
 	); len(references) > 0 {
-		return documentContextResolution{References: references}
+		return documentContextResolution{References: references}, nil
 	}
 
 	snapshot := r.buildAgentContextSnapshot(sessionID, runID, content)
-	toolReferences := recentDocumentToolReferences(r.store.ListToolCalls(sessionID), r.workspaceRootForSession(sessionID))
+	toolReferences := recentDocumentToolReferences(r.store.ListToolCalls(sessionID), workspaceRoot)
 	messageReferences := recentDocumentMessageReferences(snapshot.Messages)
 	switch {
 	case len(toolReferences) == 0:
-		return documentContextResolution{References: messageReferences}
+		return documentContextResolution{References: messageReferences}, nil
 	case len(messageReferences) == 0:
-		return documentContextResolution{References: toolReferences}
+		return documentContextResolution{References: toolReferences}, nil
 	case documentReferencesObservedAt(messageReferences).After(documentReferencesObservedAt(toolReferences)):
-		return documentContextResolution{References: messageReferences}
+		return documentContextResolution{References: messageReferences}, nil
 	default:
-		return documentContextResolution{References: toolReferences}
+		return documentContextResolution{References: toolReferences}, nil
 	}
 }
 

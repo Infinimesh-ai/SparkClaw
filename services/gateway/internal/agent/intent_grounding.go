@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -26,10 +27,14 @@ type intentGroundingProjection struct {
 	ExternalMCP   bool
 }
 
-func (r Runtime) projectIntentGrounding(sessionID, runID, content string, documents documentContextResolution) intentGroundingProjection {
+func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, content string, documents documentContextResolution) (intentGroundingProjection, error) {
 	projection := intentGroundingProjection{SessionID: sessionID, RunID: runID}
 	if r.store != nil {
-		if session, ok := r.store.GetSession(sessionID); ok {
+		session, ok, err := r.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return intentGroundingProjection{}, fmt.Errorf("resolve intent session: %w", err)
+		}
+		if ok {
 			projection.WorkspaceRoot = session.WorkspaceRoot
 		}
 		if run, ok := r.store.GetRun(runID); ok && run.MessageContext != nil {
@@ -70,7 +75,7 @@ func (r Runtime) projectIntentGrounding(sessionID, runID, content string, docume
 		})
 	}
 	projection.Targets = dedupeGroundedTargets(projection.Targets)
-	return projection
+	return projection, nil
 }
 
 func dedupeGroundedTargets(targets []groundedTarget) []groundedTarget {
@@ -87,7 +92,7 @@ func dedupeGroundedTargets(targets []groundedTarget) []groundedTarget {
 	return out
 }
 
-func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundingProjection, decision semanticrouting.Decision, clientTimezone string) (app.RouteDecision, error) {
+func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, grounding intentGroundingProjection, decision semanticrouting.Decision, clientTimezone string) (app.RouteDecision, error) {
 	base := app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, CatalogRevision: r.capabilities.Revision(),
 		Confidence: decision.Confidence, Reason: decision.ReasonCode,
@@ -174,7 +179,10 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 			target.Facts["path"] = preflight.InputRef
 			target.Facts["document_format"] = preflight.Format
 			if r.store != nil && !grounding.ExternalMCP {
-				record := r.confirmDocumentRecord(grounding.SessionID, grounding.RunID, target.Document, preflight)
+				record, err := r.confirmDocumentRecord(ctx, grounding.SessionID, grounding.RunID, target.Document, preflight)
+				if err != nil {
+					return app.RouteDecision{}, err
+				}
 				target.Facts["document_id"] = record.ID
 				target.Facts["document_source"] = record.Source
 				target.Facts["document_source_id"] = firstNonEmptyString(

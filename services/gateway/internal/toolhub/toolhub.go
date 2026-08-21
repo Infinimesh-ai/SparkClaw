@@ -314,17 +314,20 @@ func (h *ToolHub) Config() config.Config {
 	return h.cfg
 }
 
-func (h *ToolHub) forSession(sessionID string) *ToolHub {
+func (h *ToolHub) forSession(ctx context.Context, sessionID string) (*ToolHub, error) {
 	if strings.TrimSpace(sessionID) == "" || h.store == nil {
-		return h
+		return h, nil
 	}
-	session, ok := h.store.GetSession(sessionID)
+	session, ok, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tool session: %w", err)
+	}
 	if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
-		return h
+		return h, nil
 	}
 	root, err := filepath.Abs(session.WorkspaceRoot)
 	if err != nil {
-		return h
+		return h, nil
 	}
 	clone := *h
 	clone.cfg = h.cfg
@@ -333,7 +336,7 @@ func (h *ToolHub) forSession(sessionID string) *ToolHub {
 		clone.cfg.Workspaces.Allowlist = append(append([]string{}, clone.cfg.Workspaces.Allowlist...), root)
 	}
 	_ = os.MkdirAll(root, 0o755)
-	return &clone
+	return &clone, nil
 }
 
 func containsPathRoot(roots []string, root string) bool {
@@ -366,7 +369,14 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	if err := validateInput(def, args); err != nil {
 		return Result{}, err
 	}
-	h = h.forSession(sessionID)
+	var err error
+	h, err = h.forSession(ctx, sessionID)
+	if err != nil {
+		if strings.HasPrefix(name, "pptx.") {
+			return Result{}, wrapPPTXToolError(ctx, err)
+		}
+		return Result{}, err
+	}
 	h.registry.mu.RLock()
 	executor, ok := h.registry.executors[name]
 	h.registry.mu.RUnlock()
@@ -1741,14 +1751,21 @@ func (h *ToolHub) filesWriteDraft(ctx context.Context, args map[string]any) (Res
 	return Result{Output: map[string]any{"path": path, "bytes": len(content), "status": "draft_written"}}, nil
 }
 
-func (h *ToolHub) memorySearch(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) memorySearch(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	h.applyMemoryRetention()
 	query := stringArg(args, "query", "")
 	memories := h.store.SearchMemories(query)
-	ownerID := h.ownerIDForSession(sessionID)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	filtered := memories[:0]
 	for _, memory := range memories {
-		if h.memoryVisibleToOwner(memory, ownerID) {
+		visible, err := h.memoryVisibleToOwner(ctx, memory, ownerID)
+		if err != nil {
+			return Result{}, err
+		}
+		if visible {
 			filtered = append(filtered, memory)
 		}
 	}
@@ -1756,23 +1773,30 @@ func (h *ToolHub) memorySearch(args map[string]any, sessionID string) (Result, e
 	return Result{Output: map[string]any{"query": query, "results": memories, "count": len(memories)}}, nil
 }
 
-func (h *ToolHub) ownerIDForSession(sessionID string) string {
+func (h *ToolHub) ownerIDForSession(ctx context.Context, sessionID string) (string, error) {
 	if strings.TrimSpace(sessionID) == "" || h.store == nil {
-		return app.DefaultOwnerID
+		return app.DefaultOwnerID, nil
 	}
-	if session, ok := h.store.GetSession(sessionID); ok && strings.TrimSpace(session.OwnerID) != "" {
-		return strings.TrimSpace(session.OwnerID)
+	session, ok, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve session owner: %w", err)
 	}
-	return app.DefaultOwnerID
+	if ok && strings.TrimSpace(session.OwnerID) != "" {
+		return strings.TrimSpace(session.OwnerID), nil
+	}
+	return app.DefaultOwnerID, nil
 }
 
-func (h *ToolHub) sessionVisibleToOwner(sessionID, ownerID string) bool {
+func (h *ToolHub) sessionVisibleToOwner(ctx context.Context, sessionID, ownerID string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
-		return ownerID == "" || ownerID == app.DefaultOwnerID
+		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
-	session, ok := h.store.GetSession(sessionID)
+	session, ok, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, fmt.Errorf("resolve visible session: %w", err)
+	}
 	if !ok {
-		return ownerID == app.DefaultOwnerID
+		return ownerID == app.DefaultOwnerID, nil
 	}
 	sessionOwner := strings.TrimSpace(session.OwnerID)
 	if sessionOwner == "" {
@@ -1781,18 +1805,18 @@ func (h *ToolHub) sessionVisibleToOwner(sessionID, ownerID string) bool {
 	if strings.TrimSpace(ownerID) == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	return sessionOwner == ownerID
+	return sessionOwner == ownerID, nil
 }
 
-func (h *ToolHub) memoryVisibleToOwner(memory app.Memory, ownerID string) bool {
+func (h *ToolHub) memoryVisibleToOwner(ctx context.Context, memory app.Memory, ownerID string) (bool, error) {
 	if strings.TrimSpace(memory.SourceID) == "" {
-		return ownerID == "" || ownerID == app.DefaultOwnerID
+		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
 	run, ok := h.store.GetRun(memory.SourceID)
 	if !ok {
-		return ownerID == "" || ownerID == app.DefaultOwnerID
+		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
-	return h.sessionVisibleToOwner(run.SessionID, ownerID)
+	return h.sessionVisibleToOwner(ctx, run.SessionID, ownerID)
 }
 
 func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID string) (Result, error) {

@@ -175,7 +175,7 @@ func TestRecentAttachedDocumentRoutesFollowUpWithoutPriorToolCall(t *testing.T) 
 	current := "对于23级的选课有什么注意事项"
 	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: current})
 
-	routingContext := runtime.semanticRoutingContext(session.ID, "run_current", current, nil)
+	routingContext := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
 	if !strings.Contains(routingContext, "student-notice.docx") ||
 		!strings.Contains(routingContext, "关于通识选修课模块的特别提醒.docx") {
 		t.Fatalf("routing context omitted the recent governed document:\n%s", routingContext)
@@ -205,7 +205,7 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 	current := "作为23级学生要注意什么"
 	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: current})
 
-	context := runtime.semanticRoutingContext(session.ID, "run_current", current, nil)
+	context := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
 	if !strings.Contains(context, "student-notice.docx") || !strings.Contains(context, "已读取说明文档") ||
 		strings.Contains(context, current) {
 		t.Fatalf("Fast routing context did not preserve prior evidence or exclude the duplicated current message:\n%s", context)
@@ -242,7 +242,7 @@ func TestRecentDocumentResolverPrefersDurableRecordMetadata(t *testing.T) {
 		Attachments: []app.MessageAttachment{{Name: "旧报告.pdf", RelPath: "old.pdf"}},
 	})
 
-	resolution := runtime.resolveDocumentContext(session.ID, "run_current", "继续检查修改后的内容", nil)
+	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_current", "继续检查修改后的内容", nil)
 	if len(resolution.References) != 1 {
 		t.Fatalf("durable record did not become the recent document: %#v", resolution)
 	}
@@ -295,7 +295,7 @@ func TestRecentDocumentResolverPrefersNewestSource(t *testing.T) {
 		},
 	})
 
-	resolution := runtime.resolveDocumentContext(session.ID, "run_current", "请比较这两份文档", nil)
+	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_current", "请比较这两份文档", nil)
 	if len(resolution.References) != 2 {
 		t.Fatalf("latest multi-document message was not preserved as ambiguous: %#v", resolution)
 	}
@@ -323,7 +323,7 @@ func TestRecentDocumentResolverPrefersNewerToolOutput(t *testing.T) {
 		ObservationSummary: "Wrote input-sparkclaw-edit.docx.",
 	})
 
-	resolution := runtime.resolveDocumentContext(session.ID, "run_current", "继续检查修改后的内容", nil)
+	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_current", "继续检查修改后的内容", nil)
 	if len(resolution.References) != 1 ||
 		resolution.References[0].Ref != "input-sparkclaw-edit.docx" ||
 		resolution.References[0].Provenance != documentProvenanceRecentTool {
@@ -339,7 +339,7 @@ func TestRecentDocumentResolverKeepsCurrentExplicitPathAuthoritative(t *testing.
 		Attachments: []app.MessageAttachment{{Name: "old.docx", RelPath: "old.docx"}},
 	})
 
-	resolution := runtime.resolveDocumentContext(session.ID, "run_current", "总结 current.pdf", nil)
+	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_current", "总结 current.pdf", nil)
 	if len(resolution.References) != 1 ||
 		resolution.References[0].Ref != "current.pdf" ||
 		resolution.References[0].Provenance != documentProvenanceExplicitCurrent {
@@ -364,14 +364,16 @@ func TestDocumentEditOutputsShareOneTraceableRecentActivity(t *testing.T) {
 		Result:    map[string]any{"outputs": []any{"split-1.pdf", "split-2.pdf"}},
 		StartedAt: completedAt.Add(-time.Second), CompletedAt: &completedAt,
 	}
-	runtime.recordDocumentToolActivity(call)
+	if err := runtime.recordDocumentToolActivity(t.Context(), call); err != nil {
+		t.Fatal(err)
+	}
 
 	records := st.ListDocumentRecords(session.OwnerID, session.ID, 10)
 	if len(records) < 3 || records[0].LastActivityID != call.ID || records[1].LastActivityID != call.ID ||
 		records[0].ParentDocumentID != parent.ID || records[1].ParentDocumentID != parent.ID {
 		t.Fatalf("multi-output edit did not preserve one traceable activity and lineage: %#v", records)
 	}
-	resolution := runtime.resolveDocumentContext(session.ID, "run_follow_up", "比较刚才拆分的结果", nil)
+	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_follow_up", "比较刚才拆分的结果", nil)
 	if len(resolution.References) != 2 {
 		t.Fatalf("latest multi-output activity was not preserved as ambiguous: %#v", resolution)
 	}

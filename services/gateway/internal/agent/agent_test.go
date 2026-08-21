@@ -22,6 +22,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
@@ -35,7 +36,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	session := st.CreateSession("Telegram idempotency")
+	session := storetest.MustCreateSession(t, st, "Telegram idempotency")
 
 	first, err := runtime.HandleMessageWithAttachmentsIdempotent(context.Background(), session.ID, "tg_message_42", "tg_run_42", "hello", nil)
 	if err != nil {
@@ -115,7 +116,7 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("guard classification")
+	session := storetest.MustCreateSession(t, st, "guard classification")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -187,7 +188,7 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("grounded file read")
+	session := storetest.MustCreateSession(t, st, "grounded file read")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -243,7 +244,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("grounded file search")
+	session := storetest.MustCreateSession(t, st, "grounded file search")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -272,7 +273,7 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("truncated file read")
+	session := storetest.MustCreateSession(t, st, "truncated file read")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -308,7 +309,7 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("file prompt injection")
+	session := storetest.MustCreateSession(t, st, "file prompt injection")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -411,7 +412,7 @@ func TestRuntimeRoutesExplicitURLReadWithoutLegacyHTTPFallback(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("browser grounded answer")
+	session := storetest.MustCreateSession(t, st, "browser grounded answer")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -440,7 +441,7 @@ func TestPageReadAuthenticationCreatesManagedWorkflowHandoff(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("authoritative URL auth block")
+	session := storetest.MustCreateSession(t, st, "authoritative URL auth block")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true, selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -467,7 +468,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("visible browser login block")
+	session := storetest.MustCreateSession(t, st, "visible browser login block")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true, selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -519,7 +520,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleAuthGateText(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("visible browser auth gate text")
+	session := storetest.MustCreateSession(t, st, "visible browser auth gate text")
 	adapter := &loginBlockBrowserAdapter{openAuthGateText: "本资源仅限内网访问，请您使用校园网或登录 SSLVPN 后访问。", selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -536,7 +537,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleAuthGateText(t *testing.T) {
 func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("snapshot auth gate previous url")
+	session := storetest.MustCreateSession(t, st, "snapshot auth gate previous url")
 	now := time.Now().UTC()
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -594,7 +595,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("authenticated snapshot with login wording")
+	session := storetest.MustCreateSession(t, st, "authenticated snapshot with login wording")
 	now := time.Now().UTC()
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -732,7 +733,7 @@ func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("browser login wrong page")
+	session := storetest.MustCreateSession(t, st, "browser login wrong page")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true, selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -809,7 +810,7 @@ func TestRuntimeComparesBrowserSourcesWithCitations(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("browser comparison")
+	session := storetest.MustCreateSession(t, st, "browser comparison")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -1882,7 +1883,7 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	cfg.Model.Deep.ContextTokens = 4096
 	cfg.Model.Deep.MaxTokens = 512
 	st := store.NewMemoryStore()
-	session := st.CreateSession("admit workflow prompt")
+	session := storetest.MustCreateSession(t, st, "admit workflow prompt")
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	stageContext := workflowStageContext{
 		WorkflowID: "document.edit", ModelLaneHint: "deep", SemanticVariables: []string{"document.edit.new_text"},
@@ -2057,7 +2058,7 @@ func TestToolResultAdapterReportsFailures(t *testing.T) {
 func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("document follow up")
+	session := storetest.MustCreateSession(t, st, "document follow up")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	previous := app.ToolCall{
@@ -2121,7 +2122,7 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("document improve follow up")
+	session := storetest.MustCreateSession(t, st, "document improve follow up")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	previous := app.ToolCall{
@@ -2347,7 +2348,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("compressed observation")
+	session := storetest.MustCreateSession(t, st, "compressed observation")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -2389,7 +2390,7 @@ func TestRuntimeKeepsCompleteDocumentRecoverableUnderUniformObservationCap(t *te
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("small document full observation")
+	session := storetest.MustCreateSession(t, st, "small document full observation")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -2436,7 +2437,7 @@ func TestRuntimeReadsMultipleLocalFilesForCrossFileAnswer(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("cross file answer")
+	session := storetest.MustCreateSession(t, st, "cross file answer")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -2463,7 +2464,7 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("code workspace")
+	session := storetest.MustCreateSession(t, st, "code workspace")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -2529,7 +2530,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 	st := store.NewMemoryStore()
 	hub := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
-	session := st.CreateSession("docx approval terminal")
+	session := storetest.MustCreateSession(t, st, "docx approval terminal")
 	now := time.Now().UTC()
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -3050,7 +3051,7 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("verifier test")
+	session := storetest.MustCreateSession(t, st, "verifier test")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -3129,7 +3130,7 @@ func TestRuntimeRecoversPersonalAccountRefusalIntoBrowserOpen(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("owner account browser recovery")
+	session := storetest.MustCreateSession(t, st, "owner account browser recovery")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -3480,7 +3481,7 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	session := st.CreateSession("fixed automation exposure")
+	session := storetest.MustCreateSession(t, st, "fixed automation exposure")
 	route := mustRouteIntent(t, runtime, "打开https://www.apple.com.cn/")
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{ID: "run_fixed_automation", SessionID: session.ID}, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 	if err != nil {

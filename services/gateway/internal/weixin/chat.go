@@ -356,7 +356,10 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
-	session := d.store.CreateSessionWithScope("微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
+	session, err := d.store.CreateSessionWithScope(ctx, "微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
+	if err != nil {
+		return err
+	}
 	chatSession.LinkedSessionID = session.ID
 	chatSession.Status = "active"
 	chatSession.AuthorizedOwnerID = inbound.Binding.OwnerID
@@ -387,7 +390,11 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMessage, answer, runID string) (notification.Result, error) {
 	recipient := d.replyRecipient(inbound)
 	if mediaPath, ok := singleMediaMarkdownPath(answer); ok {
-		if imagePath, ok := d.workspaceMediaPath(mediaPath, inbound); ok {
+		imagePath, ok, err := d.workspaceMediaPath(ctx, mediaPath, inbound)
+		if err != nil {
+			return notification.Result{}, err
+		}
+		if ok {
 			return notification.SendWeixinImage(ctx, d.store, d.credentials, d.cfg,
 				recipient,
 				inbound.ContextToken,
@@ -399,7 +406,11 @@ func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMes
 			)
 		}
 	}
-	if filePath, fileName, ok := d.workspaceFilePath(answer, inbound); ok {
+	filePath, fileName, ok, err := d.workspaceFilePath(ctx, answer, inbound)
+	if err != nil {
+		return notification.Result{}, err
+	}
+	if ok {
 		return notification.SendWeixinFile(ctx, d.store, d.credentials, d.cfg,
 			recipient,
 			inbound.ContextToken,
@@ -628,7 +639,10 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 		}
 		return existing, nil
 	}
-	session := d.store.CreateSessionWithScope("微信会话", ownerID, workspaceRoot, "weixin", true)
+	session, err := d.store.CreateSessionWithScope(ctx, "微信会话", ownerID, workspaceRoot, "weixin", true)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
 	return d.store.SaveExternalChatSession(app.ExternalChatSession{
 		OwnerID:           ownerID,
 		AuthorizedOwnerID: inbound.Binding.OwnerID,

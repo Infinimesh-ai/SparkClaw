@@ -105,7 +105,7 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 	if err := png.Encode(&buf, img); err != nil {
 		return Result{}, err
 	}
-	relPath, absPath, err := h.writeMediaPNG(buf.Bytes(), sessionID, "weather_card")
+	relPath, absPath, err := h.writeMediaPNG(ctx, buf.Bytes(), sessionID, "weather_card")
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,10 +166,14 @@ func loadWeatherCardLocation(value string) (*time.Location, bool) {
 	return location, err == nil
 }
 
-func (h *ToolHub) writeMediaPNG(raw []byte, sessionID, prefix string) (string, string, error) {
+func (h *ToolHub) writeMediaPNG(ctx context.Context, raw []byte, sessionID, prefix string) (string, string, error) {
 	root := strings.TrimSpace(h.cfg.Workspaces.DefaultRoot)
 	if strings.TrimSpace(sessionID) != "" && h.store != nil {
-		if session, ok := h.store.GetSession(sessionID); ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
+		session, ok, err := h.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve media session workspace: %w", err)
+		}
+		if ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
 			root = strings.TrimSpace(session.WorkspaceRoot)
 		}
 	}

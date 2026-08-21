@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -415,7 +416,7 @@ func defaultWorkflowRuntime(t *testing.T) (Runtime, *store.MemoryStore, app.Sess
 	t.Helper()
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("message control")
+	session := storetest.MustCreateSession(t, st, "message control")
 	hub := toolhub.New(cfg, st)
 	t.Cleanup(func() { _ = hub.Close() })
 	return NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil), st, session

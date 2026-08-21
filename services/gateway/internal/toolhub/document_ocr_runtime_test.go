@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type runtimeOCRAdapter struct {
@@ -24,6 +25,15 @@ type runtimeOCRAdapter struct {
 	started chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+type documentOCRSessionFailureStore struct {
+	store.Store
+	err error
+}
+
+func (s *documentOCRSessionFailureStore) GetSession(context.Context, string) (app.Session, bool, error) {
+	return app.Session{}, false, s.err
 }
 
 func (*runtimeOCRAdapter) Enabled() bool { return true }
@@ -47,9 +57,9 @@ func (*runtimeOCRAdapter) Close() error { return nil }
 
 func TestDocumentOCRCacheIsOwnerScopedAndPersistsOnlyFreshModelCalls(t *testing.T) {
 	state := store.NewMemoryStore()
-	ownerAFirst := state.CreateSessionWithScope("owner A first", "owner-a", "", "webchat", false)
-	ownerASecond := state.CreateSessionWithScope("owner A second", "owner-a", "", "webchat", false)
-	ownerB := state.CreateSessionWithScope("owner B", "owner-b", "", "webchat", false)
+	ownerAFirst := storetest.MustCreateSessionWithScope(t, state, "owner A first", "owner-a", "", "webchat", false)
+	ownerASecond := storetest.MustCreateSessionWithScope(t, state, "owner A second", "owner-a", "", "webchat", false)
+	ownerB := storetest.MustCreateSessionWithScope(t, state, "owner B", "owner-b", "", "webchat", false)
 	adapter := &runtimeOCRAdapter{result: documentocr.Result{Markdown: "sensitive OCR marker", Model: "ATH-MaaS/OvisOCR2", InferenceMS: 7}}
 	hub := newDocumentOCRRuntimeTestHub(state, adapter)
 	input := documentocr.Request{Content: []byte("prepared-page"), ContentType: "image/jpeg"}
@@ -103,9 +113,26 @@ func TestDocumentOCRCacheIsOwnerScopedAndPersistsOnlyFreshModelCalls(t *testing.
 	}
 }
 
+func TestDocumentOCRSessionStoreFailureStopsBeforeAdapterExecution(t *testing.T) {
+	base := store.NewMemoryStore()
+	session := storetest.MustCreateSession(t, base, "OCR session failure")
+	rawCause := errors.New("session backend unavailable")
+	failing := &documentOCRSessionFailureStore{Store: base, err: &store.StoreError{
+		Code: store.StoreErrorUnavailable, Operation: store.OperationSessionGet, Err: rawCause,
+	}}
+	adapter := &runtimeOCRAdapter{result: documentocr.Result{Markdown: "must not execute"}}
+	hub := newDocumentOCRRuntimeTestHub(failing, adapter)
+	invocation := hub.parseDocumentOCR(t.Context(), documentocr.Request{Content: []byte("page"), ContentType: "image/jpeg"}, documentOCRCallMetadata{
+		SessionID: session.ID, RunID: "run", PreprocessingVersion: "pdf_page_render_v1",
+	})
+	if invocation.ReasonCode != "session_store_failed" || !errors.Is(invocation.Err, rawCause) || adapter.calls.Load() != 0 {
+		t.Fatalf("invocation=%#v adapter calls=%d", invocation, adapter.calls.Load())
+	}
+}
+
 func TestDocumentOCRSingleflightCoalescesConcurrentOwnerMisses(t *testing.T) {
 	state := store.NewMemoryStore()
-	session := state.CreateSessionWithScope("owner", "owner-a", "", "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, state, "owner", "owner-a", "", "webchat", false)
 	adapter := &runtimeOCRAdapter{
 		result:  documentocr.Result{Markdown: "coalesced", Model: "ATH-MaaS/OvisOCR2"},
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -135,7 +162,7 @@ func TestDocumentOCRSingleflightCoalescesConcurrentOwnerMisses(t *testing.T) {
 func TestDocumentOCRCacheValidationAndVersionInvalidation(t *testing.T) {
 	t.Run("transient failures are not cached", func(t *testing.T) {
 		state := store.NewMemoryStore()
-		session := state.CreateSessionWithScope("owner", "owner-a", "", "webchat", false)
+		session := storetest.MustCreateSessionWithScope(t, state, "owner", "owner-a", "", "webchat", false)
 		adapter := &runtimeOCRAdapter{err: errors.New("document OCR inference timed out")}
 		hub := newDocumentOCRRuntimeTestHub(state, adapter)
 		metadata := documentOCRCallMetadata{SessionID: session.ID, RunID: "run", PreprocessingVersion: "pdf_page_render_v1"}
@@ -155,7 +182,7 @@ func TestDocumentOCRCacheValidationAndVersionInvalidation(t *testing.T) {
 
 	t.Run("busy responses are explicit and uncached", func(t *testing.T) {
 		state := store.NewMemoryStore()
-		session := state.CreateSessionWithScope("owner", "owner-a", "", "webchat", false)
+		session := storetest.MustCreateSessionWithScope(t, state, "owner", "owner-a", "", "webchat", false)
 		adapter := &runtimeOCRAdapter{err: errors.New("document OCR service is busy")}
 		hub := newDocumentOCRRuntimeTestHub(state, adapter)
 		metadata := documentOCRCallMetadata{SessionID: session.ID, RunID: "run", PreprocessingVersion: "pdf_page_render_v1"}
@@ -172,7 +199,7 @@ func TestDocumentOCRCacheValidationAndVersionInvalidation(t *testing.T) {
 
 	t.Run("validated no-text and preprocessing versions", func(t *testing.T) {
 		state := store.NewMemoryStore()
-		session := state.CreateSessionWithScope("owner", "owner-a", "", "webchat", false)
+		session := storetest.MustCreateSessionWithScope(t, state, "owner", "owner-a", "", "webchat", false)
 		adapter := &runtimeOCRAdapter{result: documentocr.Result{Model: "ATH-MaaS/OvisOCR2"}}
 		hub := newDocumentOCRRuntimeTestHub(state, adapter)
 		input := documentocr.Request{Content: []byte("page"), ContentType: "image/jpeg"}
@@ -205,7 +232,7 @@ func TestDocumentOCRCacheValidationAndVersionInvalidation(t *testing.T) {
 
 func TestDocumentOCRCacheIsBounded(t *testing.T) {
 	state := store.NewMemoryStore()
-	session := state.CreateSessionWithScope("owner", "owner-a", "", "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, state, "owner", "owner-a", "", "webchat", false)
 	adapter := &runtimeOCRAdapter{result: documentocr.Result{Markdown: "bounded", Model: "ATH-MaaS/OvisOCR2"}}
 	hub := newDocumentOCRRuntimeTestHub(state, adapter)
 	metadata := documentOCRCallMetadata{SessionID: session.ID, RunID: "run", PreprocessingVersion: "pdf_page_render_v1"}

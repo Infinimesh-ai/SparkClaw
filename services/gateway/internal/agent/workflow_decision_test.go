@@ -154,9 +154,9 @@ func mockWorkflowDecisionNoMatchResponse() string {
 
 func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
 	t.Run("decision node is never materialized", func(t *testing.T) {
-		runtime, _, session, dispatch := newDocumentDecisionFixture(t, "Improve report.docx")
+		runtime, _, _, dispatch := newDocumentDecisionFixture(t, "Improve report.docx")
 		stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
-		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(session.ID), &stageContext); err == nil ||
+		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run), &stageContext); err == nil ||
 			!strings.Contains(err.Error(), "decision node must be resolved") {
 			t.Fatalf("active decision node did not fail materialization closed: %v", err)
 		}
@@ -174,7 +174,7 @@ func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
 		st.SaveRun(dispatch.Run)
 
 		stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
-		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(session.ID), &stageContext); err == nil ||
+		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run), &stageContext); err == nil ||
 			!strings.Contains(err.Error(), "decision reference") {
 			t.Fatalf("editor materialized without a persisted decision reference: %v", err)
 		}

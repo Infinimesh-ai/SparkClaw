@@ -1,6 +1,7 @@
 package weixin
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -59,10 +60,10 @@ func cleanMediaMarkdownTarget(path string) (string, bool) {
 	return cleaned, true
 }
 
-func (d *Dispatcher) workspaceMediaPath(mediaPath string, inbound InboundMessage) (string, bool) {
+func (d *Dispatcher) workspaceMediaPath(ctx context.Context, mediaPath string, inbound InboundMessage) (string, bool, error) {
 	mediaPath = strings.TrimSpace(mediaPath)
 	if mediaPath == "" {
-		return "", false
+		return "", false, nil
 	}
 	relPath := ""
 	if !filepath.IsAbs(mediaPath) {
@@ -72,7 +73,7 @@ func (d *Dispatcher) workspaceMediaPath(mediaPath string, inbound InboundMessage
 	if filepath.IsAbs(mediaPath) {
 		cleaned, err := filepath.Abs(mediaPath)
 		if err != nil {
-			return "", false
+			return "", false, nil
 		}
 		absPath = filepath.Clean(cleaned)
 	}
@@ -83,25 +84,29 @@ func (d *Dispatcher) workspaceMediaPath(mediaPath string, inbound InboundMessage
 			continue
 		}
 		if relPath != "" && key == relPath {
-			return object.Path, true
+			return object.Path, true, nil
 		}
 		if absPath != "" {
 			if objectAbs, err := filepath.Abs(objectPath); err == nil && filepath.Clean(objectAbs) == absPath {
-				return object.Path, true
+				return object.Path, true, nil
 			}
 		}
 	}
 	if relPath != "" {
-		if path, ok := d.workspaceSessionPath(relPath, inbound); ok {
-			return path, true
+		path, ok, err := d.workspaceSessionPath(ctx, relPath, inbound)
+		if err != nil {
+			return "", false, err
+		}
+		if ok {
+			return path, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
 var workspaceFilePathPattern = regexp.MustCompile(`(?:workspace://)?((?:outputs|uploads)/[A-Za-z0-9._~!$&'()*+,;=:@%/\-]+\.(?:docx|xlsx|pptx|pdf|txt|md|csv|tsv))`)
 
-func (d *Dispatcher) workspaceFilePath(answer string, inbound InboundMessage) (string, string, bool) {
+func (d *Dispatcher) workspaceFilePath(ctx context.Context, answer string, inbound InboundMessage) (string, string, bool, error) {
 	matches := workspaceFilePathPattern.FindAllStringSubmatch(answer, -1)
 	for _, match := range matches {
 		if len(match) < 2 {
@@ -115,13 +120,17 @@ func (d *Dispatcher) workspaceFilePath(answer string, inbound InboundMessage) (s
 			continue
 		}
 		if absPath, ok := d.workspaceObjectPath(relPath); ok {
-			return absPath, filepath.Base(relPath), true
+			return absPath, filepath.Base(relPath), true, nil
 		}
-		if absPath, ok := d.workspaceSessionPath(relPath, inbound); ok {
-			return absPath, filepath.Base(relPath), true
+		absPath, ok, err := d.workspaceSessionPath(ctx, relPath, inbound)
+		if err != nil {
+			return "", "", false, err
+		}
+		if ok {
+			return absPath, filepath.Base(relPath), true, nil
 		}
 	}
-	return "", "", false
+	return "", "", false, nil
 }
 
 func isLikelyOutputFileAnswer(answer string) bool {
@@ -144,10 +153,10 @@ func (d *Dispatcher) workspaceObjectPath(relPath string) (string, bool) {
 	return "", false
 }
 
-func (d *Dispatcher) workspaceSessionPath(relPath string, inbound InboundMessage) (string, bool) {
+func (d *Dispatcher) workspaceSessionPath(ctx context.Context, relPath string, inbound InboundMessage) (string, bool, error) {
 	relPath = filepath.ToSlash(strings.TrimSpace(relPath))
 	if relPath == "" || strings.HasPrefix(relPath, "../") {
-		return "", false
+		return "", false, nil
 	}
 	externalUserID := strings.TrimSpace(inbound.FromUserID)
 	if externalUserID == "" {
@@ -157,25 +166,29 @@ func (d *Dispatcher) workspaceSessionPath(relPath string, inbound InboundMessage
 	if chatSession, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
 		root = strings.TrimSpace(chatSession.WorkspaceRoot)
 		if root == "" {
-			if session, ok := d.store.GetSession(chatSession.LinkedSessionID); ok {
+			session, ok, err := d.store.GetSession(ctx, chatSession.LinkedSessionID)
+			if err != nil {
+				return "", false, err
+			}
+			if ok {
 				root = strings.TrimSpace(session.WorkspaceRoot)
 			}
 		}
 	}
 	if root == "" {
-		return "", false
+		return "", false, nil
 	}
 	absPath := filepath.Join(root, relPath)
 	cleanRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", false
+		return "", false, nil
 	}
 	cleanPath, err := filepath.Abs(absPath)
 	if err != nil || !strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator)) {
-		return "", false
+		return "", false, nil
 	}
 	if info, err := os.Stat(cleanPath); err == nil && !info.IsDir() {
-		return cleanPath, true
+		return cleanPath, true, nil
 	}
-	return "", false
+	return "", false, nil
 }

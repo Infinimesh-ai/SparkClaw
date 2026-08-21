@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -55,7 +56,7 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 	cfg.Adapters.DocumentOCR.MaxPending = 0
 
 	state := store.NewMemoryStore()
-	session := state.CreateSessionWithScope("live OvisOCR2 PDF", "live-ocr-owner", root, "test", false)
+	session := storetest.MustCreateSessionWithScope(t, state, "live OvisOCR2 PDF", "live-ocr-owner", root, "test", false)
 	hub := toolhub.New(cfg, state)
 	t.Cleanup(func() { _ = hub.Close() })
 	runtime := NewRuntime(state, hub, policy.New(cfg), modelrouter.New(cfg), trace.NewWriterFromConfig(cfg))

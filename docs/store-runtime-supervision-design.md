@@ -120,7 +120,8 @@ repositories. `Close(ctx)` is idempotent and bounded, rejects new operations,
 waits for admitted operations within the deadline, closes backend resources,
 and joins relevant errors. Gateway shutdown owns the close context.
 
-Runtime accessors reject use after close. Shutdown stops the recovery
+Once close starts, the shared operation boundary rejects new work even through
+repository interfaces already handed to consumers. Shutdown stops the recovery
 coordinator before closing the backend, and PostgreSQL pool closure remains
 owned in exactly one place.
 

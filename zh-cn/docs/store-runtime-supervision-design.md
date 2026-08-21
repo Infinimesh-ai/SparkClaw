@@ -106,8 +106,9 @@ Runtime 构造失败时返回 error，不发布部分 repository。`Close(ctx)` 
 且有界：拒绝新操作，在 deadline 内等待已 admission 操作，关闭 backend
 resource，并 join 相关错误。Gateway shutdown 提供 close context。
 
-Runtime accessor 在 close 后拒绝使用。shutdown 先停止 recovery coordinator，再
-关闭 backend，PostgreSQL pool 只在一个位置拥有 close ownership。
+close 开始后，共享 operation boundary 会拒绝新工作，包括已经交给 consumer 的
+repository interface。shutdown 先停止 recovery coordinator，再关闭 backend，
+PostgreSQL pool 只在一个位置拥有 close ownership。
 
 ## 验证
 

@@ -181,6 +181,46 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationArtifactMetadataFindByURI, Repository: "ArtifactMetadataRepository",
 			Method: "FindArtifactObjectByURI", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationBrowserAuthSave: {
+			ID: OperationBrowserAuthSave, Repository: "BrowserStateRepository",
+			Method: "SaveBrowserAuthRecord", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationBrowserAuthGet: {
+			ID: OperationBrowserAuthGet, Repository: "BrowserStateRepository",
+			Method: "GetBrowserAuthRecord", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationBrowserAuthFind: {
+			ID: OperationBrowserAuthFind, Repository: "BrowserStateRepository",
+			Method: "FindBrowserAuthRecord", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationBrowserAuthList: {
+			ID: OperationBrowserAuthList, Repository: "BrowserStateRepository",
+			Method: "ListBrowserAuthRecords", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationBrowserAuthRevoke: {
+			ID: OperationBrowserAuthRevoke, Repository: "BrowserStateRepository",
+			Method: "RevokeBrowserAuthRecord", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationBrowserLoginBlockSave: {
+			ID: OperationBrowserLoginBlockSave, Repository: "BrowserStateRepository",
+			Method: "SaveBrowserLoginBlock", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationBrowserLoginBlockUpdate: {
+			ID: OperationBrowserLoginBlockUpdate, Repository: "BrowserStateRepository",
+			Method: "UpdateBrowserLoginBlock", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationBrowserLoginBlockGet: {
+			ID: OperationBrowserLoginBlockGet, Repository: "BrowserStateRepository",
+			Method: "GetBrowserLoginBlock", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationBrowserLoginBlockFindActive: {
+			ID: OperationBrowserLoginBlockFindActive, Repository: "BrowserStateRepository",
+			Method: "FindActiveBrowserLoginBlock", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationBrowserLoginBlockList: {
+			ID: OperationBrowserLoginBlockList, Repository: "BrowserStateRepository",
+			Method: "ListBrowserLoginBlocks", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

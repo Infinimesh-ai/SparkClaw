@@ -218,7 +218,7 @@ func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 
 func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) {
 	st := NewMemoryStore()
-	record := st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
+	record := mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{
 		OwnerID:          "owner-a",
 		BrowserProfileID: "work",
 		SiteOrigin:       "https://Example.COM/",
@@ -229,7 +229,7 @@ func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) 
 	if record.ID == "" || record.Status != app.BrowserAuthStatusActive || record.SiteOrigin != "https://example.com" || record.AccountHint != "ada@example.com" {
 		t.Fatalf("browser auth record was not normalized: %#v", record)
 	}
-	if found, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); !ok || found.ID != record.ID {
+	if found, ok := mustFindBrowserAuthRecord(t, st, "owner-a", "work", "https://example.com", "", "ada@example.com"); !ok || found.ID != record.ID {
 		t.Fatalf("expected scoped browser auth record, got %#v ok=%v", found, ok)
 	}
 	for _, tc := range []struct {
@@ -242,18 +242,18 @@ func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) 
 		{name: "other profile", ownerID: "owner-a", browserProfileID: "personal", accountHint: "ada@example.com"},
 		{name: "other account", ownerID: "owner-a", browserProfileID: "work", accountHint: "other@example.com"},
 	} {
-		if found, ok := st.FindBrowserAuthRecord(tc.ownerID, tc.browserProfileID, "https://example.com", "", tc.accountHint); ok {
+		if found, ok := mustFindBrowserAuthRecord(t, st, tc.ownerID, tc.browserProfileID, "https://example.com", "", tc.accountHint); ok {
 			t.Fatalf("%s should not match browser auth record: %#v", tc.name, found)
 		}
 	}
-	revoked, err := st.RevokeBrowserAuthRecord(record.ID, "owner requested")
+	revoked, err := st.RevokeBrowserAuthRecord(t.Context(), record.ID, "owner requested")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if revoked.Status != app.BrowserAuthStatusRevoked || revoked.RevokedAt == nil {
 		t.Fatalf("record was not revoked: %#v", revoked)
 	}
-	if _, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); ok {
+	if _, ok := mustFindBrowserAuthRecord(t, st, "owner-a", "work", "https://example.com", "", "ada@example.com"); ok {
 		t.Fatalf("revoked browser auth record should not be active")
 	}
 	if !hasAuditType(mustListAudit(t, st, ""), "browser_auth.record_saved") || !hasAuditType(mustListAudit(t, st, ""), "browser_auth.record_revoked") {
@@ -266,7 +266,7 @@ func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	session := mustCreateSession(t, st, "login block")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:          session.ID,
 		RunID:              run.ID,
 		OriginalGoal:       "Read https://example.com/protected",
@@ -282,17 +282,17 @@ func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	if block.ID == "" || block.Status != app.BrowserLoginBlockStatusWaiting || block.SiteOrigin != "https://example.com" || block.LastVisiblePageID != "page-2" {
 		t.Fatalf("browser login block was not normalized: %#v", block)
 	}
-	if found, ok := st.FindActiveBrowserLoginBlock(session.ID); !ok || found.ID != block.ID {
+	if found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID); !ok || found.ID != block.ID {
 		t.Fatalf("expected active browser login block, got %#v ok=%v", found, ok)
 	}
 	now := time.Now().UTC()
 	block.Status = app.BrowserLoginBlockStatusResolved
 	block.ResolvedAt = &now
-	st.SaveBrowserLoginBlock(block)
-	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
+	mustSaveBrowserLoginBlock(t, st, block)
+	if _, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID); ok {
 		t.Fatalf("resolved browser login block should not remain active")
 	}
-	if blocks := st.ListBrowserLoginBlocks(session.ID, app.BrowserLoginBlockStatusResolved); len(blocks) != 1 || blocks[0].ID != block.ID {
+	if blocks := mustListBrowserLoginBlocks(t, st, session.ID, app.BrowserLoginBlockStatusResolved); len(blocks) != 1 || blocks[0].ID != block.ID {
 		t.Fatalf("resolved browser login block should be listed: %#v", blocks)
 	}
 }
@@ -306,7 +306,7 @@ func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	}
 	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
 		WorkflowID: app.WorkflowBrowserAutomation, WorkflowRevision: app.BrowserWorkflowRevision2,
 		WorkflowNodeID: "browser_result", SessionGeneration: 7,
@@ -327,7 +327,7 @@ func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	}
 	update := block
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := st.UpdateBrowserLoginBlock(update, block.Version)
+	updated, err := st.UpdateBrowserLoginBlock(t.Context(), update, block.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,10 +338,10 @@ func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	}
 	stale := block
 	stale.LastError = "stale overwrite"
-	if _, err := st.UpdateBrowserLoginBlock(stale, block.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), stale, block.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
 		t.Fatalf("stale browser handoff update error = %v", err)
 	}
-	current, _ := st.GetBrowserLoginBlock(block.ID)
+	current, _ := mustGetBrowserLoginBlock(t, st, block.ID)
 	if current.Version != updated.Version || current.LastError == "stale overwrite" {
 		t.Fatalf("stale browser handoff update changed current state: %#v", current)
 	}
@@ -358,10 +358,10 @@ func TestMemoryStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *t
 		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 		testSaveRun(st, run)
-		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
 		})
-		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 		if want := app.BrowserHandoffStatusActive(status); ok != want {
 			t.Fatalf("status %q: FindActiveBrowserLoginBlock ok=%v, shared predicate active=%v", status, ok, want)
 		} else if ok && found.ID != block.ID {
@@ -375,25 +375,25 @@ func TestMemoryStoreBrowserLoginBlockReadsDoNotMutateStoredState(t *testing.T) {
 	session := mustCreateSession(t, st, "read stability")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	saved := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
 	})
 	time.Sleep(2 * time.Millisecond)
 	for i := 0; i < 3; i++ {
-		listed := st.ListBrowserLoginBlocks(session.ID, "")
+		listed := mustListBrowserLoginBlocks(t, st, session.ID, "")
 		if len(listed) != 1 || listed[0].Version != saved.Version ||
 			listed[0].SchemaVersion != saved.SchemaVersion || !listed[0].UpdatedAt.Equal(saved.UpdatedAt) {
 			t.Fatalf("list read did not return stored values: %#v want %#v", listed, saved)
 		}
-		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 		if !ok || found.Version != saved.Version || !found.UpdatedAt.Equal(saved.UpdatedAt) {
 			t.Fatalf("find-active read did not return stored values: %#v ok=%v want %#v", found, ok, saved)
 		}
 	}
-	found, _ := st.FindActiveBrowserLoginBlock(session.ID)
+	found, _ := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 	update := found
 	update.Status = app.BrowserHandoffStatusValidatingVisible
-	if _, err := st.UpdateBrowserLoginBlock(update, found.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), update, found.Version); err != nil {
 		t.Fatalf("version observed on a read path failed CAS: %v", err)
 	}
 }
@@ -436,12 +436,12 @@ func TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate(t *testin
 		},
 	})
 	for i := 0; i < 5; i++ {
-		active, ok := st.FindActiveBrowserLoginBlock("s1")
+		active, ok := mustFindActiveBrowserLoginBlock(t, st, "s1")
 		if !ok || active.ID != "blogin-new" || active.Version != 4 ||
 			!active.UpdatedAt.Equal(base.Add(2*time.Minute)) {
 			t.Fatalf("find-active did not pick newest stored active block: %#v ok=%v", active, ok)
 		}
-		tie, ok := st.FindActiveBrowserLoginBlock("s2")
+		tie, ok := mustFindActiveBrowserLoginBlock(t, st, "s2")
 		if !ok || tie.ID != "blogin-tie-b" {
 			t.Fatalf("find-active tie-break is not deterministic: %#v ok=%v", tie, ok)
 		}
@@ -453,33 +453,33 @@ func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
 	session := mustCreateSession(t, st, "trim id")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	saved := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		ID: "  blogin-trim  ", SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
 	})
 	if saved.ID != "blogin-trim" {
 		t.Fatalf("save did not trim block ID: %q", saved.ID)
 	}
-	if _, ok := st.GetBrowserLoginBlock("blogin-trim"); !ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, "blogin-trim"); !ok {
 		t.Fatal("block is not stored under the trimmed ID")
 	}
-	resaved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	resaved := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		ID: " blogin-trim ", SessionID: session.ID, RunID: run.ID,
 		Status: app.BrowserHandoffStatusValidatingVisible, SiteOrigin: "https://example.com",
 	})
 	if resaved.Version != saved.Version+1 {
 		t.Fatalf("padded-ID save forked a new record instead of updating: %#v", resaved)
 	}
-	if blocks := st.ListBrowserLoginBlocks(session.ID, ""); len(blocks) != 1 {
+	if blocks := mustListBrowserLoginBlocks(t, st, session.ID, ""); len(blocks) != 1 {
 		t.Fatalf("padded-ID writes produced duplicate records: %#v", blocks)
 	}
 	update := resaved
 	update.ID = "  blogin-trim "
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := st.UpdateBrowserLoginBlock(update, resaved.Version)
+	updated, err := st.UpdateBrowserLoginBlock(t.Context(), update, resaved.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, ok := st.GetBrowserLoginBlock("blogin-trim")
+	current, ok := mustGetBrowserLoginBlock(t, st, "blogin-trim")
 	if !ok || updated.ID != "blogin-trim" || current.Version != updated.Version ||
 		current.Status != app.BrowserHandoffStatusTransferring {
 		t.Fatalf("padded-ID CAS update wrote back under the wrong key: %#v ok=%v", current, ok)
@@ -491,7 +491,7 @@ func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		SiteOrigin: "https://example.com",
@@ -500,7 +500,7 @@ func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, block.ID); ok {
 		t.Fatal("session deletion retained browser login block")
 	}
 	if _, ok := testGetRun(st, run.ID); ok {

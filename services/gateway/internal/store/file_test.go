@@ -139,7 +139,7 @@ func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	}
 	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
 		WorkflowID: app.WorkflowBrowserInteraction, WorkflowRevision: app.BrowserWorkflowRevision2,
 		WorkflowNodeID: "browser_result", SessionGeneration: 11,
@@ -159,7 +159,7 @@ func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := reloaded.GetBrowserLoginBlock(block.ID)
+	got, ok := mustGetBrowserLoginBlock(t, reloaded, block.ID)
 	if !ok || got.Version != block.Version || got.WorkflowID != app.WorkflowBrowserInteraction ||
 		got.WorkflowRevision != app.BrowserWorkflowRevision2 || got.Target.DestinationID != "qq_mail" ||
 		got.VisibleEvidence == nil || got.VisibleEvidence.VisibleSnapshotID != "snapshot-file" ||
@@ -169,20 +169,20 @@ func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	}
 	update := got
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := reloaded.UpdateBrowserLoginBlock(update, got.Version)
+	updated, err := reloaded.UpdateBrowserLoginBlock(t.Context(), update, got.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stale := got
 	stale.LastError = "stale"
-	if _, err := reloaded.UpdateBrowserLoginBlock(stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+	if _, err := reloaded.UpdateBrowserLoginBlock(t.Context(), stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
 		t.Fatalf("stale file handoff update error = %v", err)
 	}
 	afterReload, err := NewFileStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, ok := afterReload.GetBrowserLoginBlock(block.ID)
+	current, ok := mustGetBrowserLoginBlock(t, afterReload, block.ID)
 	if !ok || current.Version != updated.Version || current.Status != app.BrowserHandoffStatusTransferring ||
 		current.LastError == "stale" {
 		t.Fatalf("file CAS result did not persist: %#v ok=%v", current, ok)
@@ -220,24 +220,24 @@ func TestFileStoreMigratesLegacyBrowserLoginBlocksAtLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waiting, ok := st.GetBrowserLoginBlock("blogin-legacy-waiting")
+	waiting, ok := mustGetBrowserLoginBlock(t, st, "blogin-legacy-waiting")
 	if !ok || waiting.Status != app.BrowserHandoffStatusWaitingOwner ||
 		waiting.SchemaVersion != app.BrowserHandoffSchemaVersion || waiting.Version != 1 ||
 		!waiting.CreatedAt.Equal(created) || !waiting.UpdatedAt.Equal(updatedWaiting) {
 		t.Fatalf("legacy waiting block was not migrated at load: %#v ok=%v", waiting, ok)
 	}
-	resuming, ok := st.GetBrowserLoginBlock("blogin-legacy-resuming")
+	resuming, ok := mustGetBrowserLoginBlock(t, st, "blogin-legacy-resuming")
 	if !ok || resuming.Status != app.BrowserHandoffStatusValidatingVisible ||
 		resuming.SchemaVersion != app.BrowserHandoffSchemaVersion || resuming.Version != 1 ||
 		!resuming.UpdatedAt.Equal(updatedResuming) {
 		t.Fatalf("legacy resuming block was not migrated at load: %#v ok=%v", resuming, ok)
 	}
-	if active, ok := st.FindActiveBrowserLoginBlock("session-legacy"); !ok || active.ID != "blogin-legacy-waiting" {
+	if active, ok := mustFindActiveBrowserLoginBlock(t, st, "session-legacy"); !ok || active.ID != "blogin-legacy-waiting" {
 		t.Fatalf("migrated legacy block is not active: %#v ok=%v", active, ok)
 	}
 	update := waiting
 	update.Status = app.BrowserHandoffStatusValidatingVisible
-	if _, err := st.UpdateBrowserLoginBlock(update, waiting.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), update, waiting.Version); err != nil {
 		t.Fatalf("migrated legacy block rejected CAS update: %v", err)
 	}
 }
@@ -251,7 +251,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		SiteOrigin: "https://example.com",
@@ -264,7 +264,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := reloaded.GetBrowserLoginBlock(block.ID); ok {
+	if _, ok := mustGetBrowserLoginBlock(t, reloaded, block.ID); ok {
 		t.Fatal("session deletion retained persisted browser login block")
 	}
 	if _, ok := testGetRun(reloaded, run.ID); ok {
@@ -368,7 +368,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Correction: "Persistent correction.",
 	})
 
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:          session.ID,
 		RunID:              run.ID,
 		OriginalGoal:       "Read https://example.com/protected",
@@ -447,7 +447,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(feedback) != 1 || feedback[0].Rating != "corrected" || feedback[0].Correction != "Persistent correction." {
 		t.Fatalf("run feedback did not reload: %#v", feedback)
 	}
-	if active, ok := reloaded.FindActiveBrowserLoginBlock(session.ID); !ok || active.ID != block.ID || active.ResumeArgs["url"] != "https://example.com/protected" || active.LoginHandoffPageID != "page-1" || active.LastVisiblePageID != "page-2" {
+	if active, ok := mustFindActiveBrowserLoginBlock(t, reloaded, session.ID); !ok || active.ID != block.ID || active.ResumeArgs["url"] != "https://example.com/protected" || active.LoginHandoffPageID != "page-1" || active.LastVisiblePageID != "page-2" {
 		t.Fatalf("browser login block did not reload: %#v ok=%v", active, ok)
 	}
 }
@@ -660,7 +660,7 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	})); err != nil {
 		t.Fatal(err)
 	}
-	st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
+	mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{
 		OwnerID:          app.DefaultOwnerID,
 		BrowserProfileID: "default",
 		SiteOrigin:       "https://example.com",
@@ -685,7 +685,7 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	if memories := reloaded.SearchMemories("encrypted memory"); len(memories) != 1 {
 		t.Fatalf("encrypted memory did not reload: %#v", memories)
 	}
-	if record, ok := reloaded.FindBrowserAuthRecord(app.DefaultOwnerID, "default", "https://example.com", "", ""); !ok || record.CredentialRef != "browser-auth:test" {
+	if record, ok := mustFindBrowserAuthRecord(t, reloaded, app.DefaultOwnerID, "default", "https://example.com", "", ""); !ok || record.CredentialRef != "browser-auth:test" {
 		t.Fatalf("browser auth record did not reload from encrypted state: %#v ok=%v", record, ok)
 	}
 	if secret, ok, err := reloaded.GetCredentialSecret(context.Background(), "browser-auth:test"); err != nil || !ok || !strings.Contains(secret.Value, "browser-cookie") {

@@ -100,8 +100,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "message.receive.received",
 	},
 	"BrowserStateRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveBrowserAuthRecord(app.BrowserAuthRecord{ID: "browser-lifecycle", OwnerID: "owner-lifecycle", BrowserProfileID: "profile-lifecycle", SiteOrigin: "https://example.com"})
+		mutate: func(t *testing.T, st Store) {
+			mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{ID: "browser-lifecycle", OwnerID: "owner-lifecycle", BrowserProfileID: "profile-lifecycle", SiteOrigin: "https://example.com"})
 		},
 		auditType: "browser_auth.record_saved", eventType: "browser_auth.record_saved",
 	},

@@ -168,8 +168,8 @@ func (s *MemoryStore) snapshot() Snapshot {
 		MessageDeliveries:    cloneMap(s.messageDeliveries),
 		ChannelInboxUpdates:  cloneMap(s.channelInboxUpdates),
 		CredentialSecrets:    cloneMap(s.credentialSecrets),
-		BrowserAuthRecords:   cloneMap(s.browserAuthRecords),
-		BrowserLoginBlocks:   cloneMap(s.browserLoginBlocks),
+		BrowserAuthRecords:   cloneBrowserAuthRecordMap(s.browserAuthRecords),
+		BrowserLoginBlocks:   cloneBrowserLoginBlockMap(s.browserLoginBlocks),
 		Memories:             cloneMap(s.memories),
 		MemoryCandidates:     cloneMap(s.memoryCandidates),
 		AuditEvents:          cloneAuditEventsBestEffort(s.auditEvents),
@@ -359,6 +359,9 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		}
 	}
 	s.browserAuthRecords = ensureMap(snapshot.BrowserAuthRecords)
+	for id, record := range s.browserAuthRecords {
+		s.browserAuthRecords[id] = migrateLegacyBrowserAuthRecord(record)
+	}
 	s.browserLoginBlocks = ensureMap(snapshot.BrowserLoginBlocks)
 	for id, block := range s.browserLoginBlocks {
 		s.browserLoginBlocks[id] = migrateLegacyBrowserLoginBlock(block)
@@ -2549,34 +2552,58 @@ func (s *MemoryStore) DeleteCredentialSecret(ctx context.Context, condition Cred
 	return secret, nil
 }
 
-func (s *MemoryStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
+func (s *MemoryStore) SaveBrowserAuthRecord(ctx context.Context, record app.BrowserAuthRecord) (app.BrowserAuthRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserAuthSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserAuthSave, ctx); err != nil {
+		return app.BrowserAuthRecord{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationBrowserAuthSave, ctx); err != nil {
+		return app.BrowserAuthRecord{}, err
+	}
+	record.ID = strings.TrimSpace(record.ID)
 	record = normalizeBrowserAuthRecord(record, s.browserAuthRecords[record.ID])
-	s.browserAuthRecords[record.ID] = record
+	s.browserAuthRecords[record.ID] = cloneBrowserAuthRecord(record)
 	s.appendAuditLocked("browser_auth.record_saved", "", "", "gateway", record.SiteOrigin, browserAuthAuditFields(record, nil))
 	s.appendEventLocked("browser_auth.record_saved", "", "", record)
-	return record
+	return cloneBrowserAuthRecord(record), nil
 }
 
-func (s *MemoryStore) GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool) {
+func (s *MemoryStore) GetBrowserAuthRecord(ctx context.Context, id string) (app.BrowserAuthRecord, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserAuthGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserAuthGet, ctx); err != nil {
+		return app.BrowserAuthRecord{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationBrowserAuthGet, ctx); err != nil {
+		return app.BrowserAuthRecord{}, false, err
+	}
 	record, ok := s.browserAuthRecords[strings.TrimSpace(id)]
 	if !ok {
-		return app.BrowserAuthRecord{}, false
+		return app.BrowserAuthRecord{}, false, nil
 	}
-	return record, true
+	return cloneBrowserAuthRecord(record), true, nil
 }
 
-func (s *MemoryStore) FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool) {
+func (s *MemoryStore) FindBrowserAuthRecord(ctx context.Context, ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserAuthFind, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserAuthFind, ctx); err != nil {
+		return app.BrowserAuthRecord{}, false, err
+	}
 	ownerID, browserProfileID, siteOrigin, siteRealm, accountHint = normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationBrowserAuthFind, ctx); err != nil {
+		return app.BrowserAuthRecord{}, false, err
+	}
 	matches := []app.BrowserAuthRecord{}
 	now := time.Now().UTC()
 	for _, record := range s.browserAuthRecords {
-		record = normalizeBrowserAuthRecord(record, app.BrowserAuthRecord{})
 		if record.OwnerID != ownerID || record.BrowserProfileID != browserProfileID || record.SiteOrigin != siteOrigin || record.SiteRealm != siteRealm || record.AccountHint != accountHint {
 			continue
 		}
@@ -2589,15 +2616,23 @@ func (s *MemoryStore) FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigi
 		matches = append(matches, record)
 	}
 	if len(matches) == 0 {
-		return app.BrowserAuthRecord{}, false
+		return app.BrowserAuthRecord{}, false, nil
 	}
 	slices.SortFunc(matches, func(a, b app.BrowserAuthRecord) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
+		if order := b.UpdatedAt.Compare(a.UpdatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return matches[0], true
+	return cloneBrowserAuthRecord(matches[0]), true, nil
 }
 
-func (s *MemoryStore) ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord {
+func (s *MemoryStore) ListBrowserAuthRecords(ctx context.Context, ownerID, browserProfileID string) ([]app.BrowserAuthRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserAuthList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserAuthList, ctx); err != nil {
+		return nil, err
+	}
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID != "" {
 		ownerID = normalizeBrowserAuthOwnerID(ownerID)
@@ -2608,93 +2643,152 @@ func (s *MemoryStore) ListBrowserAuthRecords(ownerID, browserProfileID string) [
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationBrowserAuthList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.BrowserAuthRecord{}
 	for _, record := range s.browserAuthRecords {
-		record = normalizeBrowserAuthRecord(record, app.BrowserAuthRecord{})
 		if ownerID != "" && record.OwnerID != ownerID {
 			continue
 		}
 		if browserProfileID != "" && record.BrowserProfileID != browserProfileID {
 			continue
 		}
-		out = append(out, record)
+		out = append(out, cloneBrowserAuthRecord(record))
 	}
 	slices.SortFunc(out, func(a, b app.BrowserAuthRecord) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
+		if order := b.UpdatedAt.Compare(a.UpdatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error) {
+func (s *MemoryStore) RevokeBrowserAuthRecord(ctx context.Context, id, reason string) (app.BrowserAuthRecord, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserAuthRevoke, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserAuthRevoke, ctx); err != nil {
+		return app.BrowserAuthRecord{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationBrowserAuthRevoke, ctx); err != nil {
+		return app.BrowserAuthRecord{}, err
+	}
 	id = strings.TrimSpace(id)
 	record, ok := s.browserAuthRecords[id]
 	if !ok {
-		return app.BrowserAuthRecord{}, errors.New("browser auth record not found")
+		return app.BrowserAuthRecord{}, storeError(OperationBrowserAuthRevoke, StoreErrorNotFound, errors.New("browser auth record not found"))
 	}
-	now := time.Now().UTC()
+	now := postgresTime(time.Now().UTC())
 	record.Status = app.BrowserAuthStatusRevoked
 	record.RevokedAt = &now
 	record.UpdatedAt = now
 	record.LastError = strings.TrimSpace(reason)
-	s.browserAuthRecords[id] = record
+	s.browserAuthRecords[id] = cloneBrowserAuthRecord(record)
 	s.appendAuditLocked("browser_auth.record_revoked", "", "", "owner", record.SiteOrigin, browserAuthAuditFields(record, map[string]any{"reason": record.LastError}))
 	s.appendEventLocked("browser_auth.record_revoked", "", "", record)
-	return record, nil
+	return cloneBrowserAuthRecord(record), nil
 }
 
-func (s *MemoryStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+func (s *MemoryStore) SaveBrowserLoginBlock(ctx context.Context, block app.BrowserLoginBlock) (app.BrowserLoginBlock, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserLoginBlockSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserLoginBlockSave, ctx); err != nil {
+		return app.BrowserLoginBlock{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationBrowserLoginBlockSave, ctx); err != nil {
+		return app.BrowserLoginBlock{}, err
+	}
 	block.ID = strings.TrimSpace(block.ID)
 	block = normalizeBrowserLoginBlock(block, s.browserLoginBlocks[block.ID])
-	s.browserLoginBlocks[block.ID] = block
+	s.browserLoginBlocks[block.ID] = cloneBrowserLoginBlock(block)
 	s.appendAuditLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
 	s.appendEventLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, block)
-	return block
+	return cloneBrowserLoginBlock(block), nil
 }
 
-func (s *MemoryStore) UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error) {
+func (s *MemoryStore) UpdateBrowserLoginBlock(ctx context.Context, block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserLoginBlockUpdate, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserLoginBlockUpdate, ctx); err != nil {
+		return app.BrowserLoginBlock{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationBrowserLoginBlockUpdate, ctx); err != nil {
+		return app.BrowserLoginBlock{}, err
+	}
 	current, ok := s.browserLoginBlocks[strings.TrimSpace(block.ID)]
 	if !ok || current.Version != expectedVersion {
-		return app.BrowserLoginBlock{}, ErrBrowserHandoffConflict
+		return app.BrowserLoginBlock{}, storeError(OperationBrowserLoginBlockUpdate, StoreErrorConflict, ErrBrowserHandoffConflict)
 	}
 	block.Version = expectedVersion + 1
 	block = normalizeBrowserLoginBlock(block, current)
-	s.browserLoginBlocks[block.ID] = block
+	s.browserLoginBlocks[block.ID] = cloneBrowserLoginBlock(block)
 	s.appendAuditLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
 	s.appendEventLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, block)
-	return block, nil
+	return cloneBrowserLoginBlock(block), nil
 }
 
-func (s *MemoryStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
+func (s *MemoryStore) GetBrowserLoginBlock(ctx context.Context, id string) (app.BrowserLoginBlock, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserLoginBlockGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserLoginBlockGet, ctx); err != nil {
+		return app.BrowserLoginBlock{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationBrowserLoginBlockGet, ctx); err != nil {
+		return app.BrowserLoginBlock{}, false, err
+	}
 	block, ok := s.browserLoginBlocks[strings.TrimSpace(id)]
 	if !ok {
-		return app.BrowserLoginBlock{}, false
+		return app.BrowserLoginBlock{}, false, nil
 	}
-	return block, true
+	return cloneBrowserLoginBlock(block), true, nil
 }
 
-func (s *MemoryStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
-	blocks := s.ListBrowserLoginBlocks(sessionID, "")
-	for _, block := range blocks {
-		if app.BrowserHandoffStatusActive(block.Status) {
-			return block, true
-		}
+func (s *MemoryStore) FindActiveBrowserLoginBlock(ctx context.Context, sessionID string) (app.BrowserLoginBlock, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserLoginBlockFindActive, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserLoginBlockFindActive, ctx); err != nil {
+		return app.BrowserLoginBlock{}, false, err
 	}
-	return app.BrowserLoginBlock{}, false
-}
-
-func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
-	sessionID = strings.TrimSpace(sessionID)
-	status = strings.TrimSpace(status)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationBrowserLoginBlockFindActive, ctx); err != nil {
+		return app.BrowserLoginBlock{}, false, err
+	}
+	blocks := s.listBrowserLoginBlocksLocked(sessionID, "")
+	for _, block := range blocks {
+		if app.BrowserHandoffStatusActive(block.Status) {
+			return block, true, nil
+		}
+	}
+	return app.BrowserLoginBlock{}, false, nil
+}
+
+func (s *MemoryStore) ListBrowserLoginBlocks(ctx context.Context, sessionID, status string) ([]app.BrowserLoginBlock, error) {
+	ctx, cancel := operationContext(ctx, OperationBrowserLoginBlockList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationBrowserLoginBlockList, ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationBrowserLoginBlockList, ctx); err != nil {
+		return nil, err
+	}
+	return s.listBrowserLoginBlocksLocked(sessionID, status), nil
+}
+
+func (s *MemoryStore) listBrowserLoginBlocksLocked(sessionID, status string) []app.BrowserLoginBlock {
+	sessionID = strings.TrimSpace(sessionID)
+	status = strings.TrimSpace(status)
 	out := []app.BrowserLoginBlock{}
 	// Read path: return stored values verbatim. Normalization that stamps
 	// SchemaVersion/Version/UpdatedAt happens only on write (and once at
@@ -2707,7 +2801,7 @@ func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.Bro
 		if status != "" && block.Status != status {
 			continue
 		}
-		out = append(out, block)
+		out = append(out, cloneBrowserLoginBlock(block))
 	}
 	slices.SortFunc(out, func(a, b app.BrowserLoginBlock) int {
 		if c := b.UpdatedAt.Compare(a.UpdatedAt); c != 0 {
@@ -3424,7 +3518,25 @@ func cloneOwnerProfileMap(in map[string]app.OwnerProfile) map[string]app.OwnerPr
 }
 
 func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.BrowserAuthRecord) app.BrowserAuthRecord {
-	now := time.Now().UTC()
+	now := postgresTime(time.Now().UTC())
+	record = migrateLegacyBrowserAuthRecord(record)
+	record.ID = strings.TrimSpace(record.ID)
+	if record.ID == "" {
+		record.ID = app.NewID("bauth")
+	}
+	if !current.CreatedAt.IsZero() {
+		record.CreatedAt = current.CreatedAt
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.CreatedAt = postgresTime(record.CreatedAt)
+	record.UpdatedAt = now
+	return cloneBrowserAuthRecord(record)
+}
+
+func migrateLegacyBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
+	record.ID = strings.TrimSpace(record.ID)
 	record.OwnerID = normalizeBrowserAuthOwnerID(record.OwnerID)
 	record.BrowserProfileID = normalizeBrowserProfileID(record.BrowserProfileID)
 	record.SiteOrigin = normalizeSiteOrigin(record.SiteOrigin)
@@ -3438,17 +3550,18 @@ func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.Browse
 	if record.Status == "" {
 		record.Status = app.BrowserAuthStatusActive
 	}
-	if record.ID == "" {
-		record.ID = app.NewID("bauth")
+	if !record.LastVerifiedAt.IsZero() {
+		record.LastVerifiedAt = postgresTime(record.LastVerifiedAt)
 	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = current.CreatedAt
+	if !record.CreatedAt.IsZero() {
+		record.CreatedAt = postgresTime(record.CreatedAt)
 	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = now
+	if !record.UpdatedAt.IsZero() {
+		record.UpdatedAt = postgresTime(record.UpdatedAt)
 	}
-	record.UpdatedAt = now
-	return record
+	record.ExpiresAt = normalizeBrowserTimePointer(record.ExpiresAt)
+	record.RevokedAt = normalizeBrowserTimePointer(record.RevokedAt)
+	return cloneBrowserAuthRecord(record)
 }
 
 // Legacy schema-v1 browser login block status strings, kept only so
@@ -3460,10 +3573,11 @@ const (
 
 // migrateLegacyBrowserLoginBlock upgrades a schema-v1 block persisted by an
 // older build to the v2 shape. It runs once at snapshot load — never on read
-// paths — and deliberately leaves CreatedAt/UpdatedAt untouched so stored
-// ordering and migration evidence survive. The postgres schema performs the
-// same status mapping in SQL; keep the two in sync.
+// paths — and preserves the stored time points while canonicalizing their UTC
+// microsecond representation. The postgres schema performs the same status
+// mapping in SQL; keep the two in sync.
 func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	block = cloneBrowserLoginBlock(block)
 	switch strings.TrimSpace(block.Status) {
 	case legacyBrowserHandoffStatusWaiting:
 		block.Status = app.BrowserHandoffStatusWaitingOwner
@@ -3484,7 +3598,15 @@ func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLogi
 	if block.ResumeArgs == nil {
 		block.ResumeArgs = map[string]any{}
 	}
-	return block
+	if !block.CreatedAt.IsZero() {
+		block.CreatedAt = postgresTime(block.CreatedAt)
+	}
+	if !block.UpdatedAt.IsZero() {
+		block.UpdatedAt = postgresTime(block.UpdatedAt)
+	}
+	block.TransitionLeaseUntil = normalizeBrowserTimePointer(block.TransitionLeaseUntil)
+	block.ResolvedAt = normalizeBrowserTimePointer(block.ResolvedAt)
+	return cloneBrowserLoginBlock(block)
 }
 
 // normalizeBrowserLoginBlock is a WRITE-path helper (Save/Update in every
@@ -3492,7 +3614,8 @@ func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLogi
 // UpdatedAt to now. It must never run on read paths — see
 // migrateLegacyBrowserLoginBlock for the one-time snapshot-load fix-up.
 func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.BrowserLoginBlock) app.BrowserLoginBlock {
-	now := time.Now().UTC()
+	now := postgresTime(time.Now().UTC())
+	block = cloneBrowserLoginBlock(block)
 	if block.SchemaVersion <= 0 {
 		block.SchemaVersion = app.BrowserHandoffSchemaVersion
 	}
@@ -3537,17 +3660,28 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	if block.ID == "" {
 		block.ID = app.NewID("blogin")
 	}
-	if block.CreatedAt.IsZero() {
+	if !current.CreatedAt.IsZero() {
 		block.CreatedAt = current.CreatedAt
 	}
 	if block.CreatedAt.IsZero() {
 		block.CreatedAt = now
 	}
+	block.CreatedAt = postgresTime(block.CreatedAt)
+	block.TransitionLeaseUntil = normalizeBrowserTimePointer(block.TransitionLeaseUntil)
+	block.ResolvedAt = normalizeBrowserTimePointer(block.ResolvedAt)
 	if !app.BrowserHandoffStatusActive(block.Status) && block.ResolvedAt == nil {
-		block.ResolvedAt = current.ResolvedAt
+		block.ResolvedAt = normalizeBrowserTimePointer(current.ResolvedAt)
 	}
 	block.UpdatedAt = now
-	return block
+	return cloneBrowserLoginBlock(block)
+}
+
+func normalizeBrowserTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	normalized := postgresTime(*value)
+	return &normalized
 }
 
 func normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (string, string, string, string, string) {

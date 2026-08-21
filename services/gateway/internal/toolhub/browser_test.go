@@ -354,7 +354,11 @@ func TestBrowserReadCompletedHandoffUsesSharedProfileWithoutCredentialCopy(t *te
 	if stringArg(out, "browser_auth_status", "") != "profile_verified" || stringArg(out, "browser_auth_strategy", "") != "managed_shared_chromium_profile" {
 		t.Fatalf("expected shared profile verification output, got %#v", out)
 	}
-	if records := st.ListBrowserAuthRecords("", ""); len(records) != 0 {
+	records, err := st.ListBrowserAuthRecords(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
 		t.Fatalf("shared profile must not create browser auth records: %#v", records)
 	}
 }

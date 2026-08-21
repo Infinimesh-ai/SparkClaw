@@ -70,7 +70,10 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(ctx context.Context, sessio
 	if firstNonEmptyString(output["auth_site_origin"]) == "" {
 		output["auth_site_origin"] = browserLoginURLOrigin(targetURL)
 	}
-	existing, hasExisting := r.store.FindActiveBrowserLoginBlock(sessionID)
+	existing, hasExisting, err := r.store.FindActiveBrowserLoginBlock(ctx, sessionID)
+	if err != nil {
+		return app.BrowserLoginBlock{}, false, err
+	}
 	revalidatingHidden := hasExisting && existing.RunID == runID &&
 		existing.Status == app.BrowserHandoffStatusValidatingHidden
 	block := app.BrowserLoginBlock{}
@@ -115,12 +118,15 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(ctx context.Context, sessio
 	block.ResolvedAt = nil
 	if hasExisting && existing.RunID == runID {
 		var err error
-		block, err = r.store.UpdateBrowserLoginBlock(block, existing.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, existing.Version)
 		if err != nil {
 			return app.BrowserLoginBlock{}, false, err
 		}
 	} else {
-		block = r.store.SaveBrowserLoginBlock(block)
+		block, err = r.store.SaveBrowserLoginBlock(ctx, block)
+		if err != nil {
+			return app.BrowserLoginBlock{}, false, err
+		}
 	}
 	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
@@ -390,7 +396,10 @@ func browserLoginBlockedMessage(block app.BrowserLoginBlock) string {
 }
 
 func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userReply string, emit StreamHandler) (Result, bool, error) {
-	block, ok := r.store.FindActiveBrowserLoginBlock(sessionID)
+	block, ok, err := r.store.FindActiveBrowserLoginBlock(ctx, sessionID)
+	if err != nil {
+		return Result{}, false, err
+	}
 	if !ok {
 		return Result{}, false, nil
 	}
@@ -432,7 +441,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	case app.BrowserHandoffStatusReopeningVisible:
 		var claimed bool
 		var claimErr error
-		block, claimed, claimErr = r.claimBrowserHandoffTransition(block)
+		block, claimed, claimErr = r.claimBrowserHandoffTransition(ctx, block)
 		if claimErr != nil {
 			return r.browserHandoffConflictResult(ctx, run, claimErr)
 		}
@@ -447,7 +456,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	case app.BrowserHandoffStatusValidatingVisible:
 		var claimed bool
 		var claimErr error
-		block, claimed, claimErr = r.claimBrowserHandoffTransition(block)
+		block, claimed, claimErr = r.claimBrowserHandoffTransition(ctx, block)
 		if claimErr != nil {
 			return r.browserHandoffConflictResult(ctx, run, claimErr)
 		}
@@ -462,7 +471,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		app.BrowserHandoffStatusResumingWorkflow:
 		var claimed bool
 		var claimErr error
-		block, claimed, claimErr = r.claimBrowserHandoffTransition(block)
+		block, claimed, claimErr = r.claimBrowserHandoffTransition(ctx, block)
 		if claimErr != nil {
 			return r.browserHandoffConflictResult(ctx, run, claimErr)
 		}
@@ -486,7 +495,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		block.LastUserReply = userReply
 		block.LastError = "browser_login_explicit_confirmation_required"
 		var err error
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return r.browserHandoffConflictResult(ctx, run, err)
 		}
@@ -501,7 +510,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		block.LastError = "browser_login_canceled_by_owner"
 		block.ResolvedAt = &now
 		var err error
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return r.browserHandoffConflictResult(ctx, run, err)
 		}
@@ -514,7 +523,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		block.LastError = "user_reported_wrong_page"
 		beginBrowserHandoffTransition(&block, r.instanceID)
 		var err error
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return r.browserHandoffConflictResult(ctx, run, err)
 		}
@@ -526,7 +535,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		block.LastUserReply = userReply
 		block.LastError = ""
 		beginBrowserHandoffTransition(&block, r.instanceID)
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return r.browserHandoffConflictResult(ctx, run, err)
 		}
@@ -592,7 +601,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	if !targetSelected {
 		block.Status = app.BrowserHandoffStatusWaitingOwner
 		block.LastError = "browser_login_post_login_target_unavailable"
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return Result{}, true, err
 		}
@@ -641,7 +650,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		if !matchesTarget {
 			block.Status = app.BrowserHandoffStatusWaitingOwner
 			block.LastError = "browser_login_post_login_target_mismatch"
-			block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+			block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 			if err != nil {
 				return Result{}, true, err
 			}
@@ -689,7 +698,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	resumeArgs := clonePlanArgs(block.ResumeArgs)
 	resumeArgs["url"] = safeTargetURL
 	block.ResumeArgs = resumeArgs
-	block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+	block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 	if err != nil {
 		return Result{}, true, err
 	}
@@ -752,7 +761,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 				block.LastError = "browser_login_block_still_unauthenticated"
 			}
 		}
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return Result{}, true, err
 		}
@@ -775,7 +784,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	block.SessionGeneration = visibleEvidence.VisibleSession.Generation
 	block.LastToolCallID = snapshotCall.ID
 	block.LastError = ""
-	block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+	block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 	if err != nil {
 		return Result{}, true, err
 	}
@@ -810,7 +819,7 @@ func (r Runtime) finishRetiredBrowserLoginHandoff(ctx context.Context, run app.A
 	block.ResolvedAt = &now
 	block.TransitionOwnerID = ""
 	block.TransitionLeaseUntil = nil
-	if _, err := r.store.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+	if _, err := r.store.UpdateBrowserLoginBlock(ctx, block, block.Version); err != nil {
 		return Result{}, true, err
 	}
 	run.Workflow.Status = app.WorkflowStatusBlocked
@@ -832,7 +841,7 @@ func (r Runtime) finishUnexpectedBrowserLoginHandoff(ctx context.Context, run ap
 	block.ResolvedAt = &now
 	block.TransitionOwnerID = ""
 	block.TransitionLeaseUntil = nil
-	if _, err := r.store.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+	if _, err := r.store.UpdateBrowserLoginBlock(ctx, block, block.Version); err != nil {
 		return Result{}, true, err
 	}
 	run.Workflow.Status = app.WorkflowStatusBlocked
@@ -880,7 +889,7 @@ func (r Runtime) reopenBrowserLoginBlock(ctx context.Context, sessionID string, 
 	block.LastUserReply = userReply
 	block.LastError = reason
 	var err error
-	block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+	block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 	if err != nil {
 		return Result{}, true, err
 	}
@@ -1113,7 +1122,7 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 		}
 		block.Status = app.BrowserHandoffStatusValidatingHidden
 		var err error
-		block, err = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		block, err = r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 		if err != nil {
 			return Result{}, err
 		}
@@ -1139,7 +1148,10 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 	if resumeErr != nil {
 		return Result{}, resumeErr
 	}
-	current, ok := r.store.GetBrowserLoginBlock(block.ID)
+	current, ok, err := r.store.GetBrowserLoginBlock(ctx, block.ID)
+	if err != nil {
+		return Result{}, err
+	}
 	if !ok {
 		return Result{}, errors.New("browser handoff disappeared during hidden validation")
 	}
@@ -1164,7 +1176,7 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 	}
 	current.Status = app.BrowserHandoffStatusResumingWorkflow
 	current.LastError = ""
-	current, err = r.store.UpdateBrowserLoginBlock(current, current.Version)
+	current, err = r.store.UpdateBrowserLoginBlock(ctx, current, current.Version)
 	if err != nil {
 		return Result{}, err
 	}
@@ -1217,7 +1229,7 @@ func (r Runtime) resolveBrowserHandoffResult(ctx context.Context, result Result,
 	block.Status = app.BrowserHandoffStatusResolved
 	block.LastError = ""
 	block.ResolvedAt = &now
-	block, err := r.store.UpdateBrowserLoginBlock(block, block.Version)
+	block, err := r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 	if err != nil {
 		return Result{}, err
 	}
@@ -1247,14 +1259,15 @@ func (r Runtime) finishBrowserLoginBlockTerminal(ctx context.Context, block app.
 		target.ResolvedAt = &now
 		return target
 	}
-	_, err := r.store.UpdateBrowserLoginBlock(apply(block), block.Version)
+	_, err := r.store.UpdateBrowserLoginBlock(ctx, apply(block), block.Version)
 	if errors.Is(err, store.ErrBrowserHandoffConflict) {
-		current, ok := r.store.GetBrowserLoginBlock(block.ID)
-		if ok && !app.BrowserHandoffStatusActive(current.Status) {
+		current, ok, getErr := r.store.GetBrowserLoginBlock(ctx, block.ID)
+		if getErr != nil {
+			err = getErr
+		} else if ok && !app.BrowserHandoffStatusActive(current.Status) {
 			return
-		}
-		if ok {
-			_, err = r.store.UpdateBrowserLoginBlock(apply(current), current.Version)
+		} else if ok {
+			_, err = r.store.UpdateBrowserLoginBlock(ctx, apply(current), current.Version)
 		}
 	}
 	if err != nil {
@@ -1278,14 +1291,14 @@ func beginBrowserHandoffTransition(block *app.BrowserLoginBlock, runtimeID strin
 	block.TransitionLeaseUntil = &leaseUntil
 }
 
-func (r Runtime) claimBrowserHandoffTransition(block app.BrowserLoginBlock) (app.BrowserLoginBlock, bool, error) {
+func (r Runtime) claimBrowserHandoffTransition(ctx context.Context, block app.BrowserLoginBlock) (app.BrowserLoginBlock, bool, error) {
 	now := time.Now().UTC()
 	if block.TransitionOwnerID == firstNonEmptyString(r.instanceID, "runtime") &&
 		block.TransitionLeaseUntil != nil && block.TransitionLeaseUntil.After(now) {
 		return block, false, nil
 	}
 	beginBrowserHandoffTransition(&block, r.instanceID)
-	updated, err := r.store.UpdateBrowserLoginBlock(block, block.Version)
+	updated, err := r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
 	if err != nil {
 		return app.BrowserLoginBlock{}, false, err
 	}

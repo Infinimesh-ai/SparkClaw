@@ -569,12 +569,12 @@ func characterizeS0MCPRepository(t *testing.T, st Store, dimension string) {
 func characterizeS0BrowserStateRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		record := st.SaveBrowserAuthRecord(app.BrowserAuthRecord{ID: "browser-auth-s0", OwnerID: "owner-s0", BrowserProfileID: "profile-s0", SiteOrigin: "https://example.com"})
-		if got, ok := st.GetBrowserAuthRecord(record.ID); !ok || got.SiteOrigin != record.SiteOrigin {
+		record := mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{ID: "browser-auth-s0", OwnerID: "owner-s0", BrowserProfileID: "profile-s0", SiteOrigin: "https://example.com"})
+		if got, ok := mustGetBrowserAuthRecord(t, st, record.ID); !ok || got.SiteOrigin != record.SiteOrigin {
 			t.Fatalf("browser auth record save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetBrowserAuthRecord("missing"); ok {
+		if _, ok := mustGetBrowserAuthRecord(t, st, "missing"); ok {
 			t.Fatal("missing browser auth record was found")
 		}
 	default:
@@ -723,7 +723,6 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"ScheduleRepository":            s0ScheduleAliasSafe,
 	"PassiveNotificationRepository": s0PassiveAliasSafe,
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
-	"BrowserStateRepository":        s0BrowserAliasSafe,
 	"MemoryRepository":              s0MemoryAliasSafe,
 }
 
@@ -782,6 +781,16 @@ func TestS0ConnectorRepositoryMutableValuesAreIsolated(t *testing.T) {
 		t.Run(backend.name, func(t *testing.T) {
 			if !s0ConnectorAliasSafe(t, backend.store) {
 				t.Fatal("ConnectorRepository exposed a mutable binding alias")
+			}
+		})
+	}
+}
+
+func TestS0BrowserStateRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0BrowserAliasSafe(t, backend.store) {
+				t.Fatal("BrowserStateRepository exposed mutable login-block state")
 			}
 		})
 	}
@@ -874,10 +883,10 @@ func s0DeliveryAliasSafe(t *testing.T, st Store) bool {
 
 func s0BrowserAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.SaveBrowserLoginBlock(app.BrowserLoginBlock{ID: "browser-alias", ResumeArgs: map[string]any{"value": "original"}})
-	got, _ := st.GetBrowserLoginBlock("browser-alias")
+	mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{ID: "browser-alias", ResumeArgs: map[string]any{"value": "original"}})
+	got, _ := mustGetBrowserLoginBlock(t, st, "browser-alias")
 	got.ResumeArgs["value"] = "mutated"
-	again, _ := st.GetBrowserLoginBlock("browser-alias")
+	again, _ := mustGetBrowserLoginBlock(t, st, "browser-alias")
 	return again.ResumeArgs["value"] != "mutated"
 }
 

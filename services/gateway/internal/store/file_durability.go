@@ -354,11 +354,15 @@ func (s *FileStore) captureFileRollback() fileRollbackState {
 
 func (s *FileStore) restoreFileRollback(state fileRollbackState) {
 	approvals := cloneMap(state.snapshot.Approvals)
+	browserAuthRecords := cloneBrowserAuthRecordMap(state.snapshot.BrowserAuthRecords)
+	browserLoginBlocks := cloneBrowserLoginBlockMap(state.snapshot.BrowserLoginBlocks)
 	s.inner.loadSnapshot(state.snapshot)
 	s.inner.mu.Lock()
 	// Rollback restores the exact pre-command memory image. Startup-only
 	// compatibility normalization must not rewrite unrelated records here.
 	s.inner.approvals = approvals
+	s.inner.browserAuthRecords = browserAuthRecords
+	s.inner.browserLoginBlocks = browserLoginBlocks
 	s.inner.passiveNotificationRevs = cloneMap(state.passiveNotificationRevs)
 	s.inner.mu.Unlock()
 }

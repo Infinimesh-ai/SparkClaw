@@ -68,6 +68,16 @@ const (
 	OperationArtifactMetadataSave        StoreOperation = "artifact_metadata.save"
 	OperationArtifactMetadataList        StoreOperation = "artifact_metadata.list"
 	OperationArtifactMetadataFindByURI   StoreOperation = "artifact_metadata.find_by_uri"
+	OperationBrowserAuthSave             StoreOperation = "browser_auth.save"
+	OperationBrowserAuthGet              StoreOperation = "browser_auth.get"
+	OperationBrowserAuthFind             StoreOperation = "browser_auth.find"
+	OperationBrowserAuthList             StoreOperation = "browser_auth.list"
+	OperationBrowserAuthRevoke           StoreOperation = "browser_auth.revoke"
+	OperationBrowserLoginBlockSave       StoreOperation = "browser_login_block.save"
+	OperationBrowserLoginBlockUpdate     StoreOperation = "browser_login_block.update"
+	OperationBrowserLoginBlockGet        StoreOperation = "browser_login_block.get"
+	OperationBrowserLoginBlockFindActive StoreOperation = "browser_login_block.find_active"
+	OperationBrowserLoginBlockList       StoreOperation = "browser_login_block.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -330,6 +340,46 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationArtifactMetadataFindByURI: {
 		ID: OperationArtifactMetadataFindByURI, Repository: "ArtifactMetadataRepository",
 		Method: "FindArtifactObjectByURI", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationBrowserAuthSave: {
+		ID: OperationBrowserAuthSave, Repository: "BrowserStateRepository",
+		Method: "SaveBrowserAuthRecord", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationBrowserAuthGet: {
+		ID: OperationBrowserAuthGet, Repository: "BrowserStateRepository",
+		Method: "GetBrowserAuthRecord", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationBrowserAuthFind: {
+		ID: OperationBrowserAuthFind, Repository: "BrowserStateRepository",
+		Method: "FindBrowserAuthRecord", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationBrowserAuthList: {
+		ID: OperationBrowserAuthList, Repository: "BrowserStateRepository",
+		Method: "ListBrowserAuthRecords", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationBrowserAuthRevoke: {
+		ID: OperationBrowserAuthRevoke, Repository: "BrowserStateRepository",
+		Method: "RevokeBrowserAuthRecord", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationBrowserLoginBlockSave: {
+		ID: OperationBrowserLoginBlockSave, Repository: "BrowserStateRepository",
+		Method: "SaveBrowserLoginBlock", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationBrowserLoginBlockUpdate: {
+		ID: OperationBrowserLoginBlockUpdate, Repository: "BrowserStateRepository",
+		Method: "UpdateBrowserLoginBlock", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationBrowserLoginBlockGet: {
+		ID: OperationBrowserLoginBlockGet, Repository: "BrowserStateRepository",
+		Method: "GetBrowserLoginBlock", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationBrowserLoginBlockFindActive: {
+		ID: OperationBrowserLoginBlockFindActive, Repository: "BrowserStateRepository",
+		Method: "FindActiveBrowserLoginBlock", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationBrowserLoginBlockList: {
+		ID: OperationBrowserLoginBlockList, Repository: "BrowserStateRepository",
+		Method: "ListBrowserLoginBlocks", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

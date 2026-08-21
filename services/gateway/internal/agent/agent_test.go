@@ -454,7 +454,7 @@ func TestPageReadAuthenticationCreatesManagedWorkflowHandoff(t *testing.T) {
 		result.Run.Workflow == nil || result.Run.State != "browser_login_blocked" {
 		t.Fatalf("authenticated URL read did not pause its managed page-read Workflow: route=%#v run=%#v", result.RouteDecision, result.Run)
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID)
 	if !ok || block.WorkflowID != app.WorkflowBrowserPageRead || block.WorkflowRevision != browserPageReadRevision1 {
 		t.Fatalf("page-read login handoff was not bound to its persisted Profile: %#v", block)
 	}
@@ -485,7 +485,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	}
 	frozenRoute := first.Run.Workflow.Route
 	frozenPlanDigest := first.Run.Workflow.PlanDigest
-	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID)
 	if !ok {
 		t.Fatalf("expected active browser login block from browser.open result")
 	}
@@ -3156,7 +3156,7 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"I cannot access personal accounts."
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("unsupported personal-account work must fail closed outside a matched workflow: %#v", result)
 	}
-	if _, blocked := st.FindActiveBrowserLoginBlock(session.ID); blocked || adapter.openCalls != 0 {
+	if _, blocked := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID); blocked || adapter.openCalls != 0 {
 		t.Fatalf("unsupported account work must not open a page or create a login block: %#v", adapter)
 	}
 }

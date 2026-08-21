@@ -567,19 +567,19 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		SiteOrigin: "https://example.com",
 	})
-	if _, ok := st.GetBrowserLoginBlock(block.ID); !ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, block.ID); !ok {
 		t.Fatal("browser login block was not saved")
 	}
 
 	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, block.ID); ok {
 		t.Fatal("session deletion retained browser login block")
 	}
 	if _, ok := testGetRun(st, run.ID); ok {
@@ -609,7 +609,7 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	}
 	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
 		WorkflowID: app.WorkflowBrowserAutomation, WorkflowRevision: app.BrowserWorkflowRevision2,
 		WorkflowNodeID: "browser_result", SessionGeneration: 17,
@@ -625,7 +625,7 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 			VisiblePageID: "page-postgres", VisibleSnapshotID: "snapshot-postgres",
 		},
 	})
-	got, ok := st.GetBrowserLoginBlock(block.ID)
+	got, ok := mustGetBrowserLoginBlock(t, st, block.ID)
 	if !ok || got.Version != block.Version || got.Target.DestinationID != "qq_mail" ||
 		got.VisibleEvidence == nil || got.VisibleEvidence.VisibleSnapshotID != "snapshot-postgres" ||
 		got.TransitionOwnerID != "runtime-postgres" || got.TransitionLeaseUntil == nil ||
@@ -634,16 +634,16 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	}
 	update := got
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := st.UpdateBrowserLoginBlock(update, got.Version)
+	updated, err := st.UpdateBrowserLoginBlock(t.Context(), update, got.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stale := got
 	stale.LastError = "stale"
-	if _, err := st.UpdateBrowserLoginBlock(stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
 		t.Fatalf("stale PostgreSQL handoff update error = %v", err)
 	}
-	current, ok := st.GetBrowserLoginBlock(block.ID)
+	current, ok := mustGetBrowserLoginBlock(t, st, block.ID)
 	if !ok || current.Version != updated.Version || current.Status != app.BrowserHandoffStatusTransferring ||
 		current.LastError == "stale" {
 		t.Fatalf("PostgreSQL CAS result mismatch: %#v ok=%v", current, ok)
@@ -671,10 +671,10 @@ func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t 
 		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 		testSaveRun(st, run)
-		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
 		})
-		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 		if want := app.BrowserHandoffStatusActive(status); ok != want {
 			t.Fatalf("status %q: FindActiveBrowserLoginBlock ok=%v, shared predicate active=%v", status, ok, want)
 		} else if ok && found.ID != block.ID {

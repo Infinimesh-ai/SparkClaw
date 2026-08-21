@@ -88,7 +88,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 		"post_login_url", "https://wx.mail.qq.com/home/index#/list/1/1") {
 		t.Fatalf("validated post-login target was not audited: %#v", mustAgentListAudit(t, st, session.ID))
 	}
-	blocks := st.ListBrowserLoginBlocks(session.ID, app.BrowserHandoffStatusResolved)
+	blocks := storetest.MustListBrowserLoginBlocks(t, st, session.ID, app.BrowserHandoffStatusResolved)
 	if len(blocks) != 1 || strings.Contains(blocks[0].LoginHandoffURL, "sid=") ||
 		blocks[0].VisibleEvidence == nil || blocks[0].VisibleEvidence.VisibleSession.Generation != 2 {
 		t.Fatalf("resolved handoff persisted volatile query data or lost visible evidence: %#v", blocks)
@@ -101,7 +101,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	for label, value := range map[string]any{
 		"tool calls": testListToolCalls(st, session.ID),
 		"audits":     mustAgentListAudit(t, st, session.ID),
-		"handoffs":   st.ListBrowserLoginBlocks(session.ID, ""),
+		"handoffs":   storetest.MustListBrowserLoginBlocks(t, st, session.ID, ""),
 		"episodes":   testListEpisodeSummaries(st, session.ID),
 		"result":     second,
 	} {
@@ -161,7 +161,7 @@ func TestBrowserLoginResumeRejectsUnrelatedVisiblePageBeforeHiddenRead(t *testin
 			t.Fatalf("target mismatch message lost %q:\n%s", expected, second.Message.Content)
 		}
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID)
 	if !ok || block.ResumeArgs["url"] != "https://example.com/protected" ||
 		block.LastError != "browser_login_post_login_target_mismatch" {
 		t.Fatalf("target mismatch overwrote the authorized resume target: %#v", block)
@@ -195,7 +195,7 @@ func TestBrowserLoginAmbiguousReplyDoesNotCallBrowser(t *testing.T) {
 	if got := browserLoginAdapterCallCounts(adapter); got != before {
 		t.Fatalf("ambiguous reply called browser tools: before=%#v after=%#v", before, got)
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(sessionID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	if !ok || block.Status != app.BrowserHandoffStatusWaitingOwner ||
 		block.LastError != "browser_login_explicit_confirmation_required" {
 		t.Fatalf("ambiguous reply did not remain waiting: %#v ok=%v", block, ok)
@@ -217,10 +217,10 @@ func TestBrowserLoginCancelKeepsVisiblePageOpen(t *testing.T) {
 	if got := browserLoginAdapterCallCounts(adapter); got != before || adapter.closeCalls != 0 {
 		t.Fatalf("cancel changed the visible browser page: before=%#v after=%#v closes=%d", before, got, adapter.closeCalls)
 	}
-	if _, ok := st.FindActiveBrowserLoginBlock(sessionID); ok {
+	if _, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID); ok {
 		t.Fatal("canceled handoff remained active")
 	}
-	blocks := st.ListBrowserLoginBlocks(sessionID, app.BrowserHandoffStatusCanceled)
+	blocks := storetest.MustListBrowserLoginBlocks(t, st, sessionID, app.BrowserHandoffStatusCanceled)
 	if len(blocks) != 1 || blocks[0].ResolvedAt == nil {
 		t.Fatalf("canceled handoff was not persisted terminally: %#v", blocks)
 	}
@@ -245,7 +245,7 @@ func TestBrowserLoginVisibleAuthenticationRejectReturnsToWaiting(t *testing.T) {
 		after.waits != before.waits || adapter.closeCalls != 0 {
 		t.Fatalf("visible rejection crossed the profile-transfer boundary: before=%#v after=%#v", before, after)
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(sessionID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	if !ok || block.Status != app.BrowserHandoffStatusWaitingOwner || block.VisibleEvidence != nil ||
 		block.LastError != "browser_login_block_still_unauthenticated" {
 		t.Fatalf("visible authentication rejection state mismatch: %#v ok=%v", block, ok)
@@ -255,14 +255,14 @@ func TestBrowserLoginVisibleAuthenticationRejectReturnsToWaiting(t *testing.T) {
 func TestBrowserLoginDuplicateReplyDoesNotReenterOwnedTransition(t *testing.T) {
 	runtime, st, sessionID, adapter := newBrowserLoginStateMachineTest(t, "duplicate browser login reply")
 	first := startBrowserLoginStateMachineTest(t, runtime, sessionID)
-	block, ok := st.FindActiveBrowserLoginBlock(sessionID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	if !ok {
 		t.Fatal("active handoff missing")
 	}
 	block.Status = app.BrowserHandoffStatusValidatingVisible
 	block.LastUserReply = "登录完成"
 	beginBrowserHandoffTransition(&block, runtime.instanceID)
-	block, err := st.UpdateBrowserLoginBlock(block, block.Version)
+	block, err := st.UpdateBrowserLoginBlock(t.Context(), block, block.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestBrowserLoginDuplicateReplyDoesNotReenterOwnedTransition(t *testing.T) {
 	if got := browserLoginAdapterCallCounts(adapter); got != before {
 		t.Fatalf("duplicate reply reentered browser transition: before=%#v after=%#v", before, got)
 	}
-	current, _ := st.GetBrowserLoginBlock(block.ID)
+	current, _ := storetest.MustGetBrowserLoginBlock(t, st, block.ID)
 	if current.Version != block.Version || current.Status != app.BrowserHandoffStatusValidatingVisible {
 		t.Fatalf("duplicate reply changed owned handoff: before=%#v after=%#v", block, current)
 	}
@@ -288,11 +288,11 @@ func TestBrowserLoginRestartRecoversValidatingVisible(t *testing.T) {
 	runtime, st, sessionID, adapter := newBrowserLoginStateMachineTest(t, "restart visible validation")
 	first := startBrowserLoginStateMachineTest(t, runtime, sessionID)
 	adapter.selectedTabURL = "https://example.com/protected"
-	block, _ := st.FindActiveBrowserLoginBlock(sessionID)
+	block, _ := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	block.Status = app.BrowserHandoffStatusValidatingVisible
 	block.LastUserReply = "登录完成"
 	beginBrowserHandoffTransition(&block, "retired-runtime")
-	if _, err := st.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), block, block.Version); err != nil {
 		t.Fatal(err)
 	}
 
@@ -311,12 +311,12 @@ func TestBrowserLoginRestartRecoversProfileTransfer(t *testing.T) {
 	first := startBrowserLoginStateMachineTest(t, runtime, sessionID)
 	adapter.selectedTabURL = "https://example.com/protected"
 	adapter.visibleValidated = true
-	block, _ := st.FindActiveBrowserLoginBlock(sessionID)
+	block, _ := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	block.Status = app.BrowserHandoffStatusTransferring
 	block.SessionGeneration = 2
 	block.VisibleEvidence = browserLoginTestVisibleEvidence(block)
 	beginBrowserHandoffTransition(&block, "retired-runtime")
-	if _, err := st.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), block, block.Version); err != nil {
 		t.Fatal(err)
 	}
 
@@ -335,7 +335,7 @@ func TestBrowserLoginRestartRecoversHiddenValidation(t *testing.T) {
 	first := startBrowserLoginStateMachineTest(t, runtime, sessionID)
 	adapter.selectedTabURL = "https://example.com/protected"
 	adapter.visibleValidated = true
-	block, _ := st.FindActiveBrowserLoginBlock(sessionID)
+	block, _ := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	run, _ := testGetRun(st, first.Run.ID)
 	if err := resetBrowserRevision2AfterHandoff(&run, block.WorkflowNodeID); err != nil {
 		t.Fatal(err)
@@ -346,7 +346,7 @@ func TestBrowserLoginRestartRecoversHiddenValidation(t *testing.T) {
 	block.SessionGeneration = 2
 	block.VisibleEvidence = browserLoginTestVisibleEvidence(block)
 	beginBrowserHandoffTransition(&block, "retired-runtime")
-	if _, err := st.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), block, block.Version); err != nil {
 		t.Fatal(err)
 	}
 
@@ -374,7 +374,7 @@ func TestBrowserLoginHiddenContinuityLossReturnsToVisibleWaiting(t *testing.T) {
 		!strings.Contains(second.Message.Content, "登录状态没有从可见浏览器连续传递") {
 		t.Fatalf("hidden continuity loss did not return an explicit waiting result: run=%#v message=%q", second.Run, second.Message.Content)
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(sessionID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 	if !ok || block.Status != app.BrowserHandoffStatusWaitingOwner ||
 		block.LastError != "browser_login_profile_continuity_lost" {
 		t.Fatalf("hidden continuity loss state mismatch: %#v ok=%v", block, ok)
@@ -399,13 +399,13 @@ func TestPersistedBrowserRevision1LoginHandoffsRetireBeforeBrowserAccess(t *test
 			run.Workflow.Status = app.WorkflowStatusRunning
 			testSaveRun(st, run)
 
-			block, ok := st.FindActiveBrowserLoginBlock(sessionID)
+			block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID)
 			if !ok {
 				t.Fatal("persisted browser handoff fixture is missing")
 			}
 			block.WorkflowID = workflowID
 			block.WorkflowRevision = 1
-			if _, err := st.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+			if _, err := st.UpdateBrowserLoginBlock(t.Context(), block, block.Version); err != nil {
 				t.Fatal(err)
 			}
 			before := browserLoginAdapterCallCounts(adapter)
@@ -424,10 +424,10 @@ func TestPersistedBrowserRevision1LoginHandoffsRetireBeforeBrowserAccess(t *test
 			if got := browserLoginAdapterCallCounts(adapter); got != before {
 				t.Fatalf("retired r1 handoff accessed the browser: before=%#v after=%#v", before, got)
 			}
-			if _, ok := st.FindActiveBrowserLoginBlock(sessionID); ok {
+			if _, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, sessionID); ok {
 				t.Fatal("retired r1 handoff remained active")
 			}
-			blocks := st.ListBrowserLoginBlocks(sessionID, app.BrowserHandoffStatusResolved)
+			blocks := storetest.MustListBrowserLoginBlocks(t, st, sessionID, app.BrowserHandoffStatusResolved)
 			if len(blocks) != 1 || blocks[0].LastError != "browser_login_workflow_revision_retired" ||
 				blocks[0].ResolvedAt == nil {
 				t.Fatalf("retired r1 handoff was not resolved explicitly: %#v", blocks)
@@ -503,24 +503,24 @@ func TestFinishBrowserLoginBlockTerminalRetriesOnCASConflict(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "terminal retry")
 	runtime := Runtime{store: st}
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := storetest.MustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: "run-terminal",
 		Status: app.BrowserHandoffStatusWaitingOwner, SiteOrigin: "https://example.com",
 	})
 	stale := block
 	concurrent := block
 	concurrent.LastUserReply = "concurrent writer"
-	if _, err := st.UpdateBrowserLoginBlock(concurrent, block.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), concurrent, block.Version); err != nil {
 		t.Fatal(err)
 	}
 	runtime.finishBrowserLoginBlockTerminal(t.Context(), stale, app.BrowserLoginBlockStatusFailed,
 		"original run for browser login block was not found", "done?")
-	current, ok := st.GetBrowserLoginBlock(block.ID)
+	current, ok := storetest.MustGetBrowserLoginBlock(t, st, block.ID)
 	if !ok || current.Status != app.BrowserLoginBlockStatusFailed || current.ResolvedAt == nil ||
 		current.LastError != "original run for browser login block was not found" {
 		t.Fatalf("terminal transition was not retried after CAS conflict: %#v ok=%v", current, ok)
 	}
-	if _, found := st.FindActiveBrowserLoginBlock(session.ID); found {
+	if _, found := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID); found {
 		t.Fatal("block remained active after terminal transition")
 	}
 }
@@ -529,7 +529,7 @@ func TestFinishBrowserLoginBlockTerminalKeepsExistingTerminalState(t *testing.T)
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "terminal keep")
 	runtime := Runtime{store: st}
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := storetest.MustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: "run-keep",
 		Status: app.BrowserHandoffStatusWaitingOwner, SiteOrigin: "https://example.com",
 	})
@@ -538,11 +538,11 @@ func TestFinishBrowserLoginBlockTerminalKeepsExistingTerminalState(t *testing.T)
 	resolved.Status = app.BrowserHandoffStatusResolved
 	now := time.Now().UTC()
 	resolved.ResolvedAt = &now
-	if _, err := st.UpdateBrowserLoginBlock(resolved, block.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), resolved, block.Version); err != nil {
 		t.Fatal(err)
 	}
 	runtime.finishBrowserLoginBlockTerminal(t.Context(), stale, app.BrowserLoginBlockStatusFailed, "should not stomp", "")
-	current, _ := st.GetBrowserLoginBlock(block.ID)
+	current, _ := storetest.MustGetBrowserLoginBlock(t, st, block.ID)
 	if current.Status != app.BrowserHandoffStatusResolved || current.LastError == "should not stomp" {
 		t.Fatalf("terminal helper stomped an already-terminal block: %#v", current)
 	}

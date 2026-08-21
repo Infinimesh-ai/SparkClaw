@@ -154,6 +154,19 @@ type ArtifactMetadataRepository interface {
 	FindArtifactObjectByURI(context.Context, string, string, string) (app.ArtifactObject, bool, error)
 }
 
+type BrowserStateRepository interface {
+	SaveBrowserAuthRecord(context.Context, app.BrowserAuthRecord) (app.BrowserAuthRecord, error)
+	GetBrowserAuthRecord(context.Context, string) (app.BrowserAuthRecord, bool, error)
+	FindBrowserAuthRecord(context.Context, string, string, string, string, string) (app.BrowserAuthRecord, bool, error)
+	ListBrowserAuthRecords(context.Context, string, string) ([]app.BrowserAuthRecord, error)
+	RevokeBrowserAuthRecord(context.Context, string, string) (app.BrowserAuthRecord, error)
+	SaveBrowserLoginBlock(context.Context, app.BrowserLoginBlock) (app.BrowserLoginBlock, error)
+	UpdateBrowserLoginBlock(context.Context, app.BrowserLoginBlock, int64) (app.BrowserLoginBlock, error)
+	GetBrowserLoginBlock(context.Context, string) (app.BrowserLoginBlock, bool, error)
+	FindActiveBrowserLoginBlock(context.Context, string) (app.BrowserLoginBlock, bool, error)
+	ListBrowserLoginBlocks(context.Context, string, string) ([]app.BrowserLoginBlock, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -185,6 +198,7 @@ type Store interface {
 	AuditRepository
 	EvaluationRepository
 	ArtifactMetadataRepository
+	BrowserStateRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -249,16 +263,6 @@ type Store interface {
 	GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool)
 	FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool)
 	ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate
-	SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord
-	GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool)
-	FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool)
-	ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord
-	RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error)
-	SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock
-	UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error)
-	GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool)
-	FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool)
-	ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock
 	AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate
 	ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error)
 	ListMemoryCandidates(status string) []app.MemoryCandidate
@@ -306,6 +310,9 @@ var (
 	_ ArtifactMetadataRepository = (*MemoryStore)(nil)
 	_ ArtifactMetadataRepository = (*FileStore)(nil)
 	_ ArtifactMetadataRepository = (*PostgresStore)(nil)
+	_ BrowserStateRepository     = (*MemoryStore)(nil)
+	_ BrowserStateRepository     = (*FileStore)(nil)
+	_ BrowserStateRepository     = (*PostgresStore)(nil)
 	_ Store                      = (*MemoryStore)(nil)
 	_ Store                      = (*FileStore)(nil)
 	_ Store                      = (*PostgresStore)(nil)

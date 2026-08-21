@@ -2008,7 +2008,10 @@ func (s *Server) validateMCPApproval(ctx context.Context, approval app.Approval)
 	if !ok || run.MessageContext == nil || run.MessageContext.MCP == nil {
 		return nil
 	}
-	operation, ok := s.store.GetMCPOperation(run.MessageContext.MCP.OperationID)
+	operation, ok, err := s.store.GetMCPOperation(ctx, run.MessageContext.MCP.OperationID)
+	if err != nil {
+		return err
+	}
 	if !ok || operation.Invocation.RunID != run.ID {
 		return errors.New("MCP operation is unavailable for this approval")
 	}

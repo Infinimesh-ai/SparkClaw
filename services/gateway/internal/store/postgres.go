@@ -58,6 +58,7 @@ type PostgresStore struct {
 	passiveNotificationPostgres       ownerPostgresOps
 	deliveryRecordPostgres            ownerPostgresOps
 	externalChatPostgres              ownerPostgresOps
+	mcpPostgres                       ownerPostgresOps
 	approvalCommandGate               *semaphore.Weighted
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
@@ -143,6 +144,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		passiveNotificationPostgres:       pgxOwnerPostgresOps{pool: pool},
 		deliveryRecordPostgres:            pgxOwnerPostgresOps{pool: pool},
 		externalChatPostgres:              pgxOwnerPostgresOps{pool: pool},
+		mcpPostgres:                       pgxOwnerPostgresOps{pool: pool},
 		approvalCommandGate:               semaphore.NewWeighted(1),
 		passiveNotificationRevs:           map[string]uint64{},
 	}

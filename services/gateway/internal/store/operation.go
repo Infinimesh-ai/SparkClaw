@@ -121,6 +121,25 @@ const (
 	OperationExternalChatMessageGet      StoreOperation = "external_chat_message.get"
 	OperationExternalChatMessageFind     StoreOperation = "external_chat_message.find_external_id"
 	OperationExternalChatMessageList     StoreOperation = "external_chat_message.list"
+	OperationMCPAccessTicketSave         StoreOperation = "mcp_access_ticket.save"
+	OperationMCPAccessTicketGet          StoreOperation = "mcp_access_ticket.get"
+	OperationMCPAccessTicketFindHash     StoreOperation = "mcp_access_ticket.find_secret_hash"
+	OperationMCPAccessTicketList         StoreOperation = "mcp_access_ticket.list"
+	OperationMCPAccessTicketRedeem       StoreOperation = "mcp_access_ticket.redeem"
+	OperationMCPAccessTicketRevoke       StoreOperation = "mcp_access_ticket.revoke"
+	OperationMCPAccessTicketDelete       StoreOperation = "mcp_access_ticket.delete"
+	OperationMCPBindingGet               StoreOperation = "mcp_binding.get"
+	OperationMCPBindingFindPeer          StoreOperation = "mcp_binding.find_peer"
+	OperationMCPBindingList              StoreOperation = "mcp_binding.list"
+	OperationMCPBindingRevoke            StoreOperation = "mcp_binding.revoke"
+	OperationMCPBindingDelete            StoreOperation = "mcp_binding.delete"
+	OperationMCPAccessRecordsDelete      StoreOperation = "mcp_access_records.delete"
+	OperationMCPBindingTouch             StoreOperation = "mcp_binding.touch"
+	OperationMCPOperationCreate          StoreOperation = "mcp_operation.create"
+	OperationMCPOperationGet             StoreOperation = "mcp_operation.get"
+	OperationMCPOperationFindIdempotency StoreOperation = "mcp_operation.find_idempotency"
+	OperationMCPOperationList            StoreOperation = "mcp_operation.list"
+	OperationMCPOperationUpdate          StoreOperation = "mcp_operation.update"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -695,6 +714,63 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationExternalChatMessageList: {
 		ID: OperationExternalChatMessageList, Repository: "ExternalChatRepository",
 		Method: "ListExternalChatMessages", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPAccessTicketSave: {
+		ID: OperationMCPAccessTicketSave, Repository: "MCPRepository", Method: "SaveMCPAccessTicket", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPAccessTicketGet: {
+		ID: OperationMCPAccessTicketGet, Repository: "MCPRepository", Method: "GetMCPAccessTicket", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPAccessTicketFindHash: {
+		ID: OperationMCPAccessTicketFindHash, Repository: "MCPRepository", Method: "FindMCPAccessTicketBySecretHash", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPAccessTicketList: {
+		ID: OperationMCPAccessTicketList, Repository: "MCPRepository", Method: "ListMCPAccessTickets", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPAccessTicketRedeem: {
+		ID: OperationMCPAccessTicketRedeem, Repository: "MCPRepository", Method: "RedeemMCPAccessTicket", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPAccessTicketRevoke: {
+		ID: OperationMCPAccessTicketRevoke, Repository: "MCPRepository", Method: "RevokeMCPAccessTicket", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPAccessTicketDelete: {
+		ID: OperationMCPAccessTicketDelete, Repository: "MCPRepository", Method: "DeleteMCPAccessTicket", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPBindingGet: {
+		ID: OperationMCPBindingGet, Repository: "MCPRepository", Method: "GetMCPBinding", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPBindingFindPeer: {
+		ID: OperationMCPBindingFindPeer, Repository: "MCPRepository", Method: "FindMCPBindingForPeer", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPBindingList: {
+		ID: OperationMCPBindingList, Repository: "MCPRepository", Method: "ListMCPBindings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPBindingRevoke: {
+		ID: OperationMCPBindingRevoke, Repository: "MCPRepository", Method: "RevokeMCPBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPBindingDelete: {
+		ID: OperationMCPBindingDelete, Repository: "MCPRepository", Method: "DeleteMCPBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPAccessRecordsDelete: {
+		ID: OperationMCPAccessRecordsDelete, Repository: "MCPRepository", Method: "DeleteMCPAccessRecords", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPBindingTouch: {
+		ID: OperationMCPBindingTouch, Repository: "MCPRepository", Method: "TouchMCPBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPOperationCreate: {
+		ID: OperationMCPOperationCreate, Repository: "MCPRepository", Method: "CreateMCPOperation", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPOperationGet: {
+		ID: OperationMCPOperationGet, Repository: "MCPRepository", Method: "GetMCPOperation", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPOperationFindIdempotency: {
+		ID: OperationMCPOperationFindIdempotency, Repository: "MCPRepository", Method: "FindMCPOperationByIdempotency", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPOperationList: {
+		ID: OperationMCPOperationList, Repository: "MCPRepository", Method: "ListMCPOperations", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationMCPOperationUpdate: {
+		ID: OperationMCPOperationUpdate, Repository: "MCPRepository", Method: "UpdateMCPOperation", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 }
 

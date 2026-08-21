@@ -114,7 +114,11 @@ func (s *Server) updateMCPTransports(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listMCPAccessTickets(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	tickets := s.store.ListMCPAccessTickets(principal.OwnerID)
+	tickets, err := s.store.ListMCPAccessTickets(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeMCPStoreError(w, err)
+		return
+	}
 	for index := range tickets {
 		tickets[index].SecretHash = ""
 	}
@@ -123,14 +127,20 @@ func (s *Server) listMCPAccessTickets(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) revokeMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	ticket, ok := s.store.GetMCPAccessTicket(r.PathValue("id"))
+	ticket, ok, err := s.store.GetMCPAccessTicket(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeMCPStoreError(w, err)
+		return
+	}
 	if !ok || ticket.OwnerID != principal.OwnerID {
 		writeError(w, http.StatusNotFound, errors.New("MCP access ticket not found"))
 		return
 	}
-	ticket, err := s.store.RevokeMCPAccessTicket(ticket.ID, time.Now().UTC())
+	revokedAt := time.Now().UTC()
+	ticket, err = s.store.RevokeMCPAccessTicket(r.Context(), ticket.ID, revokedAt)
+	ticket, err = store.ReconcileMCPAccessTicketRevoke(r.Context(), s.store, ticket, err)
 	if err != nil {
-		writeError(w, http.StatusConflict, err)
+		writeMCPStoreError(w, err)
 		return
 	}
 	s.addAudit(r.Context(), app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.revoked", Summary: "Revoked a pending MCP access ticket", Fields: map[string]any{
@@ -143,9 +153,10 @@ func (s *Server) revokeMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	ticket, err := s.store.DeleteMCPAccessTicket(principal.OwnerID, r.PathValue("id"))
+	ticket, err := s.store.DeleteMCPAccessTicket(r.Context(), principal.OwnerID, r.PathValue("id"))
+	ticket, err = store.ReconcileMCPAccessTicketDelete(r.Context(), s.store, ticket, err)
 	if err != nil {
-		writeError(w, http.StatusNotFound, errors.New("MCP access ticket not found"))
+		writeMCPStoreError(w, err)
 		return
 	}
 	s.addAudit(r.Context(), app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.deleted", Summary: "Deleted an MCP access ticket record", Fields: map[string]any{
@@ -158,12 +169,21 @@ func (s *Server) deleteMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listMCPBindings(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	writeJSON(w, http.StatusOK, map[string]any{"bindings": s.store.ListMCPBindings(principal.OwnerID)})
+	bindings, err := s.store.ListMCPBindings(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeMCPStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"bindings": bindings})
 }
 
 func (s *Server) revokeMCPBinding(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	binding, ok := s.store.GetMCPBinding(r.PathValue("id"))
+	binding, ok, err := s.store.GetMCPBinding(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeMCPStoreError(w, err)
+		return
+	}
 	if !ok || binding.OwnerID != principal.OwnerID {
 		writeError(w, http.StatusNotFound, errors.New("MCP binding not found"))
 		return
@@ -172,9 +192,9 @@ func (s *Server) revokeMCPBinding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
-	binding, err := s.mcpAccess.RevokeBinding(r.Context(), binding.ID, time.Now().UTC())
+	binding, err = s.mcpAccess.RevokeBinding(r.Context(), binding.ID, time.Now().UTC())
 	if err != nil {
-		writeError(w, http.StatusConflict, err)
+		writeMCPStoreError(w, err)
 		return
 	}
 	s.addAudit(r.Context(), app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.revoked", Summary: "Revoked an MCP binding", Fields: map[string]any{
@@ -193,7 +213,7 @@ func (s *Server) deleteMCPBinding(w http.ResponseWriter, r *http.Request) {
 	}
 	binding, err := s.mcpAccess.DeleteBinding(r.Context(), principal.OwnerID, r.PathValue("id"), time.Now().UTC())
 	if err != nil {
-		writeError(w, http.StatusNotFound, errors.New("MCP binding not found"))
+		writeMCPStoreError(w, err)
 		return
 	}
 	s.addAudit(r.Context(), app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.deleted", Summary: "Deleted an MCP binding record", Fields: map[string]any{
@@ -212,7 +232,7 @@ func (s *Server) deleteMCPAccessRecords(w http.ResponseWriter, r *http.Request) 
 	}
 	deleted, err := s.mcpAccess.DeleteAccessRecords(r.Context(), principal.OwnerID, time.Now().UTC())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeMCPStoreError(w, err)
 		return
 	}
 	if deleted.DeletedTickets > 0 || deleted.DeletedBindings > 0 {
@@ -222,6 +242,27 @@ func (s *Server) deleteMCPAccessRecords(w http.ResponseWriter, r *http.Request) 
 
 	}
 	writeJSON(w, http.StatusOK, deleted)
+}
+
+func writeMCPStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrMCPBindingUnavailable) {
+		writeError(w, http.StatusNotFound, errors.New("MCP record was not found"))
+		return
+	}
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("MCP request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("MCP record was not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("MCP record conflicts with existing state"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("MCP request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("MCP operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("MCP state is temporarily unavailable"))
+	}
 }
 
 func (s *Server) dispatchMCPBridgeRequest(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +406,7 @@ func (s *Server) dispatchLANDirectMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer := lanDirectPeer(s.mcpAccessDomainID(), sessionSecret)
-	if _, ok := s.mcpAccess.ActiveBindingForPeer(peer); !ok {
+	if _, ok := s.mcpAccess.ActiveBindingForPeer(r.Context(), peer); !ok {
 		writeMCPJSONRPCError(w, http.StatusUnauthorized, rpc.ID, -32003, "active MCP session is required")
 		return
 	}

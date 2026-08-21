@@ -38,12 +38,12 @@ func (s *Service) auditOperation(ctx context.Context, typ string, operation app.
 	for key, value := range extra {
 		fields[key] = value
 	}
-	s.audit(ctx, typ, operationSessionID(s.store, operation), operation.Invocation.RunID, operation.Invocation.ActorID, summary, fields)
+	s.audit(ctx, typ, operationSessionID(ctx, s.store, operation), operation.Invocation.RunID, operation.Invocation.ActorID, summary, fields)
 }
 
 func auditOperationStore(ctx context.Context, st interface {
 	AddAudit(context.Context, app.AuditEvent) error
-	GetMCPBinding(string) (app.MCPBinding, bool)
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
 }, typ string, operation app.MCPOperation, summary string, extra map[string]any) {
 	fields := operationAuditFields(operation, app.MCPPeerIdentity{
 		DeviceID: operation.Invocation.RequesterDeviceID, KeyThumbprint: operation.Invocation.RequesterKeyThumbprint,
@@ -53,7 +53,7 @@ func auditOperationStore(ctx context.Context, st interface {
 		fields[key] = value
 	}
 	if err := st.AddAudit(context.WithoutCancel(ctx), app.AuditEvent{
-		Type: typ, SessionID: operationSessionID(st, operation), RunID: operation.Invocation.RunID,
+		Type: typ, SessionID: operationSessionID(context.WithoutCancel(ctx), st, operation), RunID: operation.Invocation.RunID,
 		Actor: operation.Invocation.ActorID, Summary: summary, Fields: fields,
 	}); err != nil {
 		slog.Warn("MCP operation audit unavailable", "type", typ, "operation_id", operation.ID, "code", store.StoreErrorCodeOf(err))
@@ -70,10 +70,10 @@ func operationAuditFields(operation app.MCPOperation, peer app.MCPPeerIdentity) 
 	}
 }
 
-func operationSessionID(st interface {
-	GetMCPBinding(string) (app.MCPBinding, bool)
+func operationSessionID(ctx context.Context, st interface {
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
 }, operation app.MCPOperation) string {
-	if binding, ok := st.GetMCPBinding(operation.BindingID); ok {
+	if binding, ok, err := st.GetMCPBinding(ctx, operation.BindingID); err == nil && ok {
 		return binding.LinkedSessionID
 	}
 	return ""

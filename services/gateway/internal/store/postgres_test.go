@@ -381,7 +381,7 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	}
 	truncatePostgresStore(t, st)
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "postgres-ticket-hash-only"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "postgres-ticket-hash-only"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, redeemErr := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second))
+			_, redeemErr := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, peer, now.Add(time.Second))
 			results <- redeemErr
 		}()
 	}
@@ -413,37 +413,37 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	if succeeded != 1 {
 		t.Fatalf("successful PostgreSQL redemptions = %d, want 1", succeeded)
 	}
-	binding, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	binding, ok := mustFindMCPBindingForPeer(t, st, peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
 	if !ok || binding.ActorID != ticket.OwnerID || binding.RequesterDeviceID == binding.ActorID {
 		t.Fatalf("PostgreSQL binding identity mismatch: %#v ok=%v", binding, ok)
 	}
-	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "mcp_operation_postgres", BindingID: binding.ID, IdempotencyKey: "postgres-idempotency", Fingerprint: "postgres-fingerprint",
 		Invocation: app.MCPInvocationContext{ID: "postgres-invocation", BindingRef: binding.ID, RunID: "postgres-run"},
 	})
 	if err != nil || !created {
 		t.Fatalf("create PostgreSQL MCP operation: created=%v err=%v", created, err)
 	}
-	replayed, created, err := st.CreateMCPOperation(app.MCPOperation{
+	replayed, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: operation.IdempotencyKey, Fingerprint: operation.Fingerprint,
 	})
 	if err != nil || created || replayed.ID != operation.ID {
 		t.Fatalf("PostgreSQL idempotent replay mismatch: %#v created=%v err=%v", replayed, created, err)
 	}
-	if _, _, err := st.CreateMCPOperation(app.MCPOperation{
+	if _, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: operation.IdempotencyKey, Fingerprint: "changed-fingerprint",
 	}); !errors.Is(err, ErrMCPOperationConflict) {
 		t.Fatalf("PostgreSQL changed replay error = %v", err)
 	}
 	first := operation
 	first.State = app.MCPOperationSucceeded
-	first, err = st.UpdateMCPOperation(first, operation.Version)
+	first, err = st.UpdateMCPOperation(t.Context(), first, operation.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stale := operation
 	stale.State = app.MCPOperationCancelled
-	if _, err := st.UpdateMCPOperation(stale, operation.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
+	if _, err := st.UpdateMCPOperation(t.Context(), stale, operation.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
 		t.Fatalf("PostgreSQL stale operation update error = %v", err)
 	}
 	if _, err := st.db.Exec(context.Background(), `UPDATE sessions SET title='External MCP', hidden=true WHERE id=$1`, binding.LinkedSessionID); err != nil {
@@ -456,49 +456,49 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	storedTicket, ok := restarted.FindMCPAccessTicketBySecretHash(ticket.SecretHash)
+	storedTicket, ok := mustFindMCPAccessTicketBySecretHash(t, restarted, ticket.SecretHash)
 	if !ok || storedTicket.Status != app.MCPAccessConsumed || storedTicket.SecretHash != "postgres-ticket-hash-only" {
 		t.Fatalf("PostgreSQL ticket did not recover hash-only state: %#v ok=%v", storedTicket, ok)
 	}
-	storedBinding, ok := restarted.GetMCPBinding(binding.ID)
+	storedBinding, ok := mustGetMCPBinding(t, restarted, binding.ID)
 	if !ok || storedBinding.RequesterDeviceID != peer.DeviceID || storedBinding.LinkedSessionID == "" {
 		t.Fatalf("PostgreSQL binding did not recover: %#v ok=%v", storedBinding, ok)
 	}
 	if linked, ok := mustGetSession(t, restarted, storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
 		t.Fatalf("PostgreSQL legacy MCP conversation was not normalized on restart: %#v ok=%v", linked, ok)
 	}
-	storedOperation, ok := restarted.GetMCPOperation(operation.ID)
+	storedOperation, ok := mustGetMCPOperation(t, restarted, operation.ID)
 	if !ok || storedOperation.State != app.MCPOperationSucceeded || storedOperation.Version != first.Version {
 		t.Fatalf("PostgreSQL operation did not recover its CAS winner: %#v ok=%v", storedOperation, ok)
 	}
-	if deleted, err := restarted.DeleteMCPAccessTicket(app.DefaultOwnerID, ticket.ID); err != nil || deleted.ID != ticket.ID {
+	if deleted, err := restarted.DeleteMCPAccessTicket(t.Context(), app.DefaultOwnerID, ticket.ID); err != nil || deleted.ID != ticket.ID {
 		t.Fatalf("delete PostgreSQL consumed ticket: ticket=%#v err=%v", deleted, err)
 	}
-	if deleted, err := restarted.DeleteMCPBinding(app.DefaultOwnerID, binding.ID); err != nil || deleted.ID != binding.ID {
+	if deleted, err := restarted.DeleteMCPBinding(t.Context(), app.DefaultOwnerID, binding.ID); err != nil || deleted.ID != binding.ID {
 		t.Fatalf("delete PostgreSQL binding: binding=%#v err=%v", deleted, err)
 	}
-	if _, ok := restarted.GetMCPOperation(operation.ID); ok {
+	if _, ok := mustGetMCPOperation(t, restarted, operation.ID); ok {
 		t.Fatal("PostgreSQL binding deletion retained its operation")
 	}
-	defaultTicket, err := restarted.SaveMCPAccessTicket(testMCPAccessTicket(now, "postgres-bulk-default"))
+	defaultTicket, err := restarted.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "postgres-bulk-default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restarted.RedeemMCPAccessTicket(defaultTicket.SecretHash, app.MCPPeerIdentity{
+	if _, err := restarted.RedeemMCPAccessTicket(t.Context(), defaultTicket.SecretHash, app.MCPPeerIdentity{
 		DomainID: defaultTicket.DomainID, DeviceID: "postgres-bulk-device", KeyThumbprint: "postgres-bulk-thumb", ISCPSessionID: "postgres-bulk-iscp",
 	}, now); err != nil {
 		t.Fatal(err)
 	}
 	otherTicket := testMCPAccessTicket(now, "postgres-bulk-other")
 	otherTicket.OwnerID, otherTicket.ActorID = "owner-other", "owner-other"
-	otherTicket, err = restarted.SaveMCPAccessTicket(otherTicket)
+	otherTicket, err = restarted.SaveMCPAccessTicket(t.Context(), otherTicket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deleted, err := restarted.DeleteMCPAccessRecords(app.DefaultOwnerID); err != nil || deleted.DeletedTickets != 1 || deleted.DeletedBindings != 1 {
+	if deleted, err := restarted.DeleteMCPAccessRecords(t.Context(), app.DefaultOwnerID); err != nil || deleted.DeletedTickets != 1 || deleted.DeletedBindings != 1 {
 		t.Fatalf("delete PostgreSQL owner records: deleted=%#v err=%v", deleted, err)
 	}
-	if _, ok := restarted.GetMCPAccessTicket(otherTicket.ID); !ok {
+	if _, ok := mustGetMCPAccessTicket(t, restarted, otherTicket.ID); !ok {
 		t.Fatal("PostgreSQL owner-scoped deletion removed another owner's ticket")
 	}
 }

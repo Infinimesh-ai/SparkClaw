@@ -90,6 +90,13 @@ var migratedFileAdmissions = map[string]string{
 	"FindExternalChatSessionByLinkedSessionID": "admitMigrated",
 	"SaveExternalChatMessage":                  "admitMigrated", "GetExternalChatMessage": "admitMigrated",
 	"FindExternalChatMessageByExternalID": "admitMigrated", "ListExternalChatMessages": "admitMigrated",
+	"SaveMCPAccessTicket": "admitMigrated", "GetMCPAccessTicket": "admitMigrated",
+	"FindMCPAccessTicketBySecretHash": "admitMigrated", "ListMCPAccessTickets": "admitMigrated",
+	"RedeemMCPAccessTicket": "admitMigrated", "RevokeMCPAccessTicket": "admitMigrated", "DeleteMCPAccessTicket": "admitMigrated",
+	"GetMCPBinding": "admitMigrated", "FindMCPBindingForPeer": "admitMigrated", "ListMCPBindings": "admitMigrated",
+	"RevokeMCPBinding": "admitMigrated", "DeleteMCPBinding": "admitMigrated", "DeleteMCPAccessRecords": "admitMigrated",
+	"TouchMCPBinding": "admitMigrated", "CreateMCPOperation": "admitMigrated", "GetMCPOperation": "admitMigrated",
+	"FindMCPOperationByIdempotency": "admitMigrated", "ListMCPOperations": "admitMigrated", "UpdateMCPOperation": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

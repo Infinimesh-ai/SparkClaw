@@ -105,7 +105,7 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
 		SchemaVersion: app.MCPAccessTicketSchemaVersion,
 		SecretHash:    "mcp-delivery-secret", OwnerID: "owner-a", ActorID: "owner-a", DomainID: "domain-a",
 		Scope:  app.MCPAccessConversation,
@@ -114,7 +114,7 @@ func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "session-a"}, now)
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "session-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

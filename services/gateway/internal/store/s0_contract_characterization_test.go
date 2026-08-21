@@ -506,32 +506,32 @@ func characterizeIdempotencyCASAndAliasSafety(t *testing.T, st Store) {
 		Invocation: app.MCPInvocationContext{Arguments: map[string]any{"nested": map[string]any{"value": "original"}}},
 		Result:     json.RawMessage(`{"value":"original"}`),
 	}
-	created, wasCreated, err := st.CreateMCPOperation(operation)
+	created, wasCreated, err := st.CreateMCPOperation(t.Context(), operation)
 	if err != nil || !wasCreated {
 		t.Fatalf("create operation: created=%v err=%v", wasCreated, err)
 	}
-	replayed, wasCreated, err := st.CreateMCPOperation(operation)
+	replayed, wasCreated, err := st.CreateMCPOperation(t.Context(), operation)
 	if err != nil || wasCreated || replayed.ID != created.ID {
 		t.Fatalf("idempotent replay = %#v created=%v err=%v", replayed, wasCreated, err)
 	}
 	changed := operation
 	changed.Fingerprint = "fingerprint-b"
-	if _, _, err := st.CreateMCPOperation(changed); !errors.Is(err, ErrMCPOperationConflict) {
+	if _, _, err := st.CreateMCPOperation(t.Context(), changed); !errors.Is(err, ErrMCPOperationConflict) {
 		t.Fatalf("changed idempotency replay error = %v", err)
 	}
 
 	created.Invocation.Arguments["nested"].(map[string]any)["value"] = "mutated-output"
 	created.Result[0] = '['
-	stored, ok := st.GetMCPOperation(created.ID)
+	stored, ok := mustGetMCPOperation(t, st, created.ID)
 	if !ok || stored.Invocation.Arguments["nested"].(map[string]any)["value"] != "original" || string(stored.Result) != `{"value":"original"}` {
 		t.Fatalf("MCP operation alias escaped Store: %#v ok=%v", stored, ok)
 	}
 	stored.State = app.MCPOperationSucceeded
-	updated, err := st.UpdateMCPOperation(stored, stored.Version)
+	updated, err := st.UpdateMCPOperation(t.Context(), stored, stored.Version)
 	if err != nil || updated.Version != stored.Version+1 {
 		t.Fatalf("CAS update = %#v err=%v", updated, err)
 	}
-	if _, err := st.UpdateMCPOperation(stored, stored.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
+	if _, err := st.UpdateMCPOperation(t.Context(), stored, stored.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
 		t.Fatalf("stale CAS error = %v", err)
 	}
 }
@@ -563,7 +563,7 @@ func characterizeConcurrentIdempotency(t *testing.T, st Store) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			operation, wasCreated, err := st.CreateMCPOperation(app.MCPOperation{
+			operation, wasCreated, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 				BindingID: "binding-concurrent", IdempotencyKey: "idem-concurrent", Fingerprint: "same",
 			})
 			results <- operation
@@ -607,7 +607,7 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	if err != nil || eventHead == "" {
 		t.Fatalf("message event head before restart = %q err=%v", eventHead, err)
 	}
-	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: "binding-restart", IdempotencyKey: "idem-restart", Fingerprint: "restart",
 		Invocation: app.MCPInvocationContext{Arguments: map[string]any{"nested": map[string]any{"value": "durable"}}},
 		Result:     json.RawMessage(`{"value":"durable"}`),
@@ -629,13 +629,13 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	if err != nil || len(page.Events) != 1 || page.NextCursor != eventHead || messageFromEvent(t, page.Events[0]).ID != message.ID {
 		t.Fatalf("message events did not survive restart: %#v err=%v", page, err)
 	}
-	gotOperation, ok := reloaded.GetMCPOperation(operation.ID)
+	gotOperation, ok := mustGetMCPOperation(t, reloaded, operation.ID)
 	if !ok || gotOperation.Invocation.Arguments["nested"].(map[string]any)["value"] != "durable" || s0JSONValue(t, gotOperation.Result, "value") != "durable" {
 		t.Fatalf("MCP operation did not survive restart: %#v ok=%v", gotOperation, ok)
 	}
 	gotOperation.Invocation.Arguments["nested"].(map[string]any)["value"] = "mutated-output"
 	gotOperation.Result[0] = '['
-	again, ok := reloaded.GetMCPOperation(operation.ID)
+	again, ok := mustGetMCPOperation(t, reloaded, operation.ID)
 	if !ok || again.Invocation.Arguments["nested"].(map[string]any)["value"] != "durable" || s0JSONValue(t, again.Result, "value") != "durable" {
 		t.Fatalf("reloaded MCP operation exposed backend aliases: %#v ok=%v", again, ok)
 	}
@@ -665,9 +665,6 @@ type s0PostgresRowsErrCase struct {
 }
 
 var s0PostgresRowsErrCases = []s0PostgresRowsErrCase{
-	{"MCPRepository", "mcp_access_postgres.go", "ListMCPAccessTickets", 1},
-	{"MCPRepository", "mcp_access_postgres.go", "ListMCPBindings", 1},
-	{"MCPRepository", "mcp_access_postgres.go", "ListMCPOperations", 1},
 	{"shared", "postgres.go", "collectRows", 1},
 }
 
@@ -685,8 +682,8 @@ func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
 			loopCount += strings.Count(body, ".Next()")
 		})
 	}
-	if loopCount != 4 {
-		t.Fatalf("unchecked PostgreSQL row loop count = %d, want remaining S0 defect baseline 4", loopCount)
+	if loopCount != 1 {
+		t.Fatalf("unchecked PostgreSQL row loop count = %d, want remaining S0 defect baseline 1", loopCount)
 	}
 }
 

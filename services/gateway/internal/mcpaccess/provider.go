@@ -44,7 +44,10 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 	if endpoint.ProviderKey != "mcp" || endpoint.BindingRef != request.MCP.BindingRef || endpoint.RequesterDeviceID != request.MCP.RequesterDeviceID {
 		return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeCrossUserDenied, "MCP source endpoint does not match the invocation", "blocked")
 	}
-	operation, ok := p.store.GetMCPOperation(request.MCP.OperationID)
+	operation, ok, err := p.store.GetMCPOperation(ctx, request.MCP.OperationID)
+	if err != nil {
+		return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeProviderRetryable, "MCP operation state is unavailable", "retryable")
+	}
 	if !ok || operation.BindingID != endpoint.BindingRef || operation.Invocation.ID != request.MCP.InvocationID {
 		return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeCrossUserDenied, "MCP operation does not match the invocation", "blocked")
 	}

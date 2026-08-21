@@ -562,15 +562,15 @@ func characterizeS0DeliveryRecordRepository(t *testing.T, st Store, dimension st
 func characterizeS0MCPRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(time.Now().UTC(), "mcp-s0-hash"))
+		ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(time.Now().UTC(), "mcp-s0-hash"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, ok := st.GetMCPAccessTicket(ticket.ID); !ok || got.SecretHash != ticket.SecretHash {
+		if got, ok := mustGetMCPAccessTicket(t, st, ticket.ID); !ok || got.SecretHash != ticket.SecretHash {
 			t.Fatalf("MCP ticket save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetMCPAccessTicket("missing"); ok {
+		if _, ok := mustGetMCPAccessTicket(t, st, "missing"); ok {
 			t.Fatal("missing MCP ticket was found")
 		}
 	default:

@@ -237,6 +237,28 @@ type ExternalChatRepository interface {
 	ListExternalChatMessages(context.Context, string, int) ([]app.ExternalChatMessage, error)
 }
 
+type MCPRepository interface {
+	SaveMCPAccessTicket(context.Context, app.MCPAccessTicket) (app.MCPAccessTicket, error)
+	GetMCPAccessTicket(context.Context, string) (app.MCPAccessTicket, bool, error)
+	FindMCPAccessTicketBySecretHash(context.Context, string) (app.MCPAccessTicket, bool, error)
+	ListMCPAccessTickets(context.Context, string) ([]app.MCPAccessTicket, error)
+	RedeemMCPAccessTicket(context.Context, string, app.MCPPeerIdentity, time.Time) (app.MCPBinding, error)
+	RevokeMCPAccessTicket(context.Context, string, time.Time) (app.MCPAccessTicket, error)
+	DeleteMCPAccessTicket(context.Context, string, string) (app.MCPAccessTicket, error)
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
+	FindMCPBindingForPeer(context.Context, string, string, string) (app.MCPBinding, bool, error)
+	ListMCPBindings(context.Context, string) ([]app.MCPBinding, error)
+	RevokeMCPBinding(context.Context, string, time.Time) (app.MCPBinding, error)
+	DeleteMCPBinding(context.Context, string, string) (app.MCPBinding, error)
+	DeleteMCPAccessRecords(context.Context, string) (MCPAccessRecordDeletion, error)
+	TouchMCPBinding(context.Context, string, string, time.Time) error
+	CreateMCPOperation(context.Context, app.MCPOperation) (app.MCPOperation, bool, error)
+	GetMCPOperation(context.Context, string) (app.MCPOperation, bool, error)
+	FindMCPOperationByIdempotency(context.Context, string, string) (app.MCPOperation, bool, error)
+	ListMCPOperations(context.Context, string) ([]app.MCPOperation, error)
+	UpdateMCPOperation(context.Context, app.MCPOperation, int64) (app.MCPOperation, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -274,25 +296,7 @@ type Store interface {
 	PassiveNotificationRepository
 	DeliveryRecordRepository
 	ExternalChatRepository
-	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
-	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
-	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
-	ListMCPAccessTickets(ownerID string) []app.MCPAccessTicket
-	RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error)
-	RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAccessTicket, error)
-	DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error)
-	GetMCPBinding(id string) (app.MCPBinding, bool)
-	FindMCPBindingForPeer(domainID, deviceID, thumbprint string) (app.MCPBinding, bool)
-	ListMCPBindings(ownerID string) []app.MCPBinding
-	RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, error)
-	DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error)
-	DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error)
-	TouchMCPBinding(id, iscpSessionID string, now time.Time) error
-	CreateMCPOperation(operation app.MCPOperation) (app.MCPOperation, bool, error)
-	GetMCPOperation(id string) (app.MCPOperation, bool)
-	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
-	ListMCPOperations(bindingID string) []app.MCPOperation
-	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
+	MCPRepository
 }
 
 // Compile-time checks that every backend implements the full Store interface.
@@ -348,6 +352,9 @@ var (
 	_ ExternalChatRepository     = (*MemoryStore)(nil)
 	_ ExternalChatRepository     = (*FileStore)(nil)
 	_ ExternalChatRepository     = (*PostgresStore)(nil)
+	_ MCPRepository              = (*MemoryStore)(nil)
+	_ MCPRepository              = (*FileStore)(nil)
+	_ MCPRepository              = (*PostgresStore)(nil)
 	_ Store                      = (*MemoryStore)(nil)
 	_ Store                      = (*FileStore)(nil)
 	_ Store                      = (*PostgresStore)(nil)

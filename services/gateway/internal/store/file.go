@@ -226,6 +226,9 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		if err := normalizePersistedISCPOnboardings(snapshot.ISCPOnboardings); err != nil {
 			return nil, err
 		}
+		if err := normalizeAndValidatePersistedMCPState(&snapshot); err != nil {
+			return nil, fmt.Errorf("validate MCP state: %w", err)
+		}
 		snapshot.CredentialSecrets = ensureMap(snapshot.CredentialSecrets)
 		if err := normalizeAndValidatePersistedCredentialSecrets(snapshot.CredentialSecrets); err != nil {
 			return nil, fmt.Errorf("validate credential state: %w", err)
@@ -278,6 +281,55 @@ func normalizePersistedOwnerProfiles(snapshot *Snapshot) error {
 	}
 	snapshot.OwnerProfile = cloneOwnerProfile(defaultProfile)
 	snapshot.OwnerProfiles = cloneOwnerProfileMap(snapshot.OwnerProfiles)
+	return nil
+}
+
+func normalizeAndValidatePersistedMCPState(snapshot *Snapshot) error {
+	if snapshot == nil {
+		return errors.New("file MCP snapshot is missing")
+	}
+	snapshot.MCPAccessTickets = ensureMap(snapshot.MCPAccessTickets)
+	secretOwners := make(map[string]string, len(snapshot.MCPAccessTickets))
+	for id, ticket := range snapshot.MCPAccessTickets {
+		if strings.TrimSpace(id) == "" || ticket.ID != id {
+			return fmt.Errorf("access ticket key %q does not match embedded ID %q", id, ticket.ID)
+		}
+		if ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation || strings.TrimSpace(ticket.SecretHash) == "" {
+			return fmt.Errorf("access ticket %q has an invalid durable contract", id)
+		}
+		if existingID, exists := secretOwners[ticket.SecretHash]; exists && existingID != id {
+			return fmt.Errorf("access tickets %q and %q share a secret hash", existingID, id)
+		}
+		secretOwners[ticket.SecretHash] = id
+		ticket.IssuedAt = normalizeMCPTime(ticket.IssuedAt)
+		ticket.ExpiresAt = normalizeMCPTime(ticket.ExpiresAt)
+		ticket.ConsumedAt = normalizeMCPTimePointer(ticket.ConsumedAt)
+		ticket.RevokedAt = normalizeMCPTimePointer(ticket.RevokedAt)
+		snapshot.MCPAccessTickets[id] = ticket
+	}
+	snapshot.MCPBindings = ensureMap(snapshot.MCPBindings)
+	for id, binding := range snapshot.MCPBindings {
+		if strings.TrimSpace(id) == "" || binding.ID != id {
+			return fmt.Errorf("binding key %q does not match embedded ID %q", id, binding.ID)
+		}
+		binding.CreatedAt = normalizeMCPTime(binding.CreatedAt)
+		binding.UpdatedAt = normalizeMCPTime(binding.UpdatedAt)
+		binding.LastUsedAt = normalizeMCPTimePointer(binding.LastUsedAt)
+		binding.RevokedAt = normalizeMCPTimePointer(binding.RevokedAt)
+		snapshot.MCPBindings[id] = binding
+	}
+	snapshot.MCPOperations = ensureMap(snapshot.MCPOperations)
+	for id, operation := range snapshot.MCPOperations {
+		if strings.TrimSpace(id) == "" || operation.ID != id {
+			return fmt.Errorf("operation key %q does not match embedded ID %q", id, operation.ID)
+		}
+		operation.CreatedAt = normalizeMCPTime(operation.CreatedAt)
+		operation.UpdatedAt = normalizeMCPTime(operation.UpdatedAt)
+		operation.CompletedAt = normalizeMCPTimePointer(operation.CompletedAt)
+		operation.Invocation.Deadline = normalizeMCPTime(operation.Invocation.Deadline)
+		operation.Invocation.CreatedAt = normalizeMCPTime(operation.Invocation.CreatedAt)
+		snapshot.MCPOperations[id] = cloneMCPOperation(operation)
+	}
 	return nil
 }
 
@@ -554,226 +606,196 @@ func (s *FileStore) ListISCPOnboardings(ctx context.Context, ownerID string) ([]
 	return s.listISCPOnboardings(ctx, ownerID)
 }
 
-func (s *FileStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
-	defer s.admitLegacyCommand()()
-	previous, existed := s.inner.GetMCPAccessTicket(ticket.ID)
-	out, err := s.inner.SaveMCPAccessTicket(ticket)
+func (s *FileStore) SaveMCPAccessTicket(ctx context.Context, ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketSave, fileAdmissionCapacity)
 	if err != nil {
 		return app.MCPAccessTicket{}, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		if existed {
-			s.inner.mcpAccessTickets[out.ID] = previous
-		} else {
-			delete(s.inner.mcpAccessTickets, out.ID)
-		}
-		s.inner.mu.Unlock()
-		return app.MCPAccessTicket{}, err
-	}
-	return out, nil
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPAccessTicketSave, func(ctx context.Context) (app.MCPAccessTicket, error) {
+		return s.inner.SaveMCPAccessTicket(ctx, ticket)
+	})
 }
 
-func (s *FileStore) GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetMCPAccessTicket(id)
-}
-
-func (s *FileStore) FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindMCPAccessTicketBySecretHash(secretHash)
-}
-
-func (s *FileStore) ListMCPAccessTickets(ownerID string) []app.MCPAccessTicket {
-	defer s.admitLegacyRead()()
-	return s.inner.ListMCPAccessTickets(ownerID)
-}
-
-func (s *FileStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error) {
-	defer s.admitLegacyCommand()()
-	previous, existed := s.inner.FindMCPAccessTicketBySecretHash(secretHash)
-	out, err := s.inner.RedeemMCPAccessTicket(secretHash, peer, now)
+func (s *FileStore) GetMCPAccessTicket(ctx context.Context, id string) (app.MCPAccessTicket, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketGet, 1)
 	if err != nil {
-		return out, err
+		return app.MCPAccessTicket{}, false, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		if existed {
-			s.inner.mcpAccessTickets[previous.ID] = previous
-		}
-		delete(s.inner.mcpBindings, out.ID)
-		delete(s.inner.sessions, out.LinkedSessionID)
-		s.inner.mu.Unlock()
-		return app.MCPBinding{}, err
-	}
-	return out, nil
+	defer release()
+	return s.inner.GetMCPAccessTicket(ctx, id)
 }
 
-func (s *FileStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAccessTicket, error) {
-	defer s.admitLegacyCommand()()
-	previous, existed := s.inner.GetMCPAccessTicket(id)
-	out, err := s.inner.RevokeMCPAccessTicket(id, now)
+func (s *FileStore) FindMCPAccessTicketBySecretHash(ctx context.Context, secretHash string) (app.MCPAccessTicket, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketFindHash, 1)
 	if err != nil {
-		return out, err
+		return app.MCPAccessTicket{}, false, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		if existed {
-			s.inner.mu.Lock()
-			s.inner.mcpAccessTickets[id] = previous
-			s.inner.mu.Unlock()
-		}
-		return app.MCPAccessTicket{}, err
-	}
-	return out, nil
+	defer release()
+	return s.inner.FindMCPAccessTicketBySecretHash(ctx, secretHash)
 }
 
-func (s *FileStore) DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.DeleteMCPAccessTicket(ownerID, id)
+func (s *FileStore) ListMCPAccessTickets(ctx context.Context, ownerID string) ([]app.MCPAccessTicket, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketList, 1)
 	if err != nil {
-		return app.MCPAccessTicket{}, err
+		return nil, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		s.inner.mcpAccessTickets[id] = out
-		s.inner.mu.Unlock()
-		return app.MCPAccessTicket{}, err
-	}
-	return out, nil
+	defer release()
+	return s.inner.ListMCPAccessTickets(ctx, ownerID)
 }
 
-func (s *FileStore) GetMCPBinding(id string) (app.MCPBinding, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetMCPBinding(id)
-}
-func (s *FileStore) FindMCPBindingForPeer(domainID, deviceID, thumbprint string) (app.MCPBinding, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindMCPBindingForPeer(domainID, deviceID, thumbprint)
-}
-func (s *FileStore) ListMCPBindings(ownerID string) []app.MCPBinding {
-	defer s.admitLegacyRead()()
-	return s.inner.ListMCPBindings(ownerID)
-}
-func (s *FileStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, error) {
-	defer s.admitLegacyCommand()()
-	previous, existed := s.inner.GetMCPBinding(id)
-	previousOperations := s.inner.ListMCPOperations(id)
-	out, err := s.inner.RevokeMCPBinding(id, now)
-	if err != nil {
-		return out, err
-	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		if existed {
-			s.inner.mu.Lock()
-			s.inner.mcpBindings[id] = previous
-			for _, operation := range previousOperations {
-				s.inner.mcpOperations[operation.ID] = operation
-			}
-			s.inner.mu.Unlock()
-		}
-		return app.MCPBinding{}, err
-	}
-	return out, nil
-}
-
-func (s *FileStore) DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error) {
-	defer s.admitLegacyCommand()()
-	previousOperations := s.inner.ListMCPOperations(id)
-	out, err := s.inner.DeleteMCPBinding(ownerID, id)
+func (s *FileStore) RedeemMCPAccessTicket(ctx context.Context, secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketRedeem, fileAdmissionCapacity)
 	if err != nil {
 		return app.MCPBinding{}, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		s.inner.mcpBindings[id] = out
-		for _, operation := range previousOperations {
-			s.inner.mcpOperations[operation.ID] = operation
-		}
-		s.inner.mu.Unlock()
-		return app.MCPBinding{}, err
-	}
-	return out, nil
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPAccessTicketRedeem, func(ctx context.Context) (app.MCPBinding, error) {
+		return s.inner.RedeemMCPAccessTicket(ctx, secretHash, peer, now)
+	})
 }
 
-func (s *FileStore) DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error) {
-	defer s.admitLegacyCommand()()
-	previousTickets := cloneMCPAccessTicketMap(s.inner.mcpAccessTickets)
-	previousBindings := cloneMCPBindingMap(s.inner.mcpBindings)
-	previousOperations := cloneMCPOperationMap(s.inner.mcpOperations)
-	out, err := s.inner.DeleteMCPAccessRecords(ownerID)
+func (s *FileStore) RevokeMCPAccessTicket(ctx context.Context, id string, now time.Time) (app.MCPAccessTicket, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketRevoke, fileAdmissionCapacity)
+	if err != nil {
+		return app.MCPAccessTicket{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPAccessTicketRevoke, func(ctx context.Context) (app.MCPAccessTicket, error) {
+		return s.inner.RevokeMCPAccessTicket(ctx, id, now)
+	})
+}
+
+func (s *FileStore) DeleteMCPAccessTicket(ctx context.Context, ownerID, id string) (app.MCPAccessTicket, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessTicketDelete, fileAdmissionCapacity)
+	if err != nil {
+		return app.MCPAccessTicket{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPAccessTicketDelete, func(ctx context.Context) (app.MCPAccessTicket, error) {
+		return s.inner.DeleteMCPAccessTicket(ctx, ownerID, id)
+	})
+}
+
+func (s *FileStore) GetMCPBinding(ctx context.Context, id string) (app.MCPBinding, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPBindingGet, 1)
+	if err != nil {
+		return app.MCPBinding{}, false, err
+	}
+	defer release()
+	return s.inner.GetMCPBinding(ctx, id)
+}
+
+func (s *FileStore) FindMCPBindingForPeer(ctx context.Context, domainID, deviceID, thumbprint string) (app.MCPBinding, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPBindingFindPeer, 1)
+	if err != nil {
+		return app.MCPBinding{}, false, err
+	}
+	defer release()
+	return s.inner.FindMCPBindingForPeer(ctx, domainID, deviceID, thumbprint)
+}
+
+func (s *FileStore) ListMCPBindings(ctx context.Context, ownerID string) ([]app.MCPBinding, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPBindingList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListMCPBindings(ctx, ownerID)
+}
+
+func (s *FileStore) RevokeMCPBinding(ctx context.Context, id string, now time.Time) (app.MCPBinding, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPBindingRevoke, fileAdmissionCapacity)
+	if err != nil {
+		return app.MCPBinding{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPBindingRevoke, func(ctx context.Context) (app.MCPBinding, error) {
+		return s.inner.RevokeMCPBinding(ctx, id, now)
+	})
+}
+
+func (s *FileStore) DeleteMCPBinding(ctx context.Context, ownerID, id string) (app.MCPBinding, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPBindingDelete, fileAdmissionCapacity)
+	if err != nil {
+		return app.MCPBinding{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPBindingDelete, func(ctx context.Context) (app.MCPBinding, error) {
+		return s.inner.DeleteMCPBinding(ctx, ownerID, id)
+	})
+}
+
+func (s *FileStore) DeleteMCPAccessRecords(ctx context.Context, ownerID string) (MCPAccessRecordDeletion, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPAccessRecordsDelete, fileAdmissionCapacity)
 	if err != nil {
 		return MCPAccessRecordDeletion{}, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		s.inner.mcpAccessTickets = previousTickets
-		s.inner.mcpBindings = previousBindings
-		s.inner.mcpOperations = previousOperations
-		s.inner.mu.Unlock()
-		return MCPAccessRecordDeletion{}, err
-	}
-	return out, nil
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPAccessRecordsDelete, func(ctx context.Context) (MCPAccessRecordDeletion, error) {
+		return s.inner.DeleteMCPAccessRecords(ctx, ownerID)
+	})
 }
 
-func (s *FileStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) error {
-	defer s.admitLegacyCommand()()
-	previous, existed := s.inner.GetMCPBinding(id)
-	err := s.inner.TouchMCPBinding(id, iscpSessionID, now)
+func (s *FileStore) TouchMCPBinding(ctx context.Context, id, iscpSessionID string, now time.Time) error {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPBindingTouch, fileAdmissionCapacity)
 	if err != nil {
 		return err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		if existed {
-			s.inner.mu.Lock()
-			s.inner.mcpBindings[id] = previous
-			s.inner.mu.Unlock()
-		}
-		return err
-	}
-	return nil
+	defer release()
+	_, err = runFileCommand(s, ctx, OperationMCPBindingTouch, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.inner.TouchMCPBinding(ctx, id, iscpSessionID, now)
+	})
+	return err
 }
-func (s *FileStore) CreateMCPOperation(operation app.MCPOperation) (app.MCPOperation, bool, error) {
-	defer s.admitLegacyCommand()()
-	out, created, err := s.inner.CreateMCPOperation(operation)
-	if err != nil || !created {
-		return out, created, err
-	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		delete(s.inner.mcpOperations, out.ID)
-		s.inner.mu.Unlock()
+
+func (s *FileStore) CreateMCPOperation(ctx context.Context, operation app.MCPOperation) (app.MCPOperation, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPOperationCreate, fileAdmissionCapacity)
+	if err != nil {
 		return app.MCPOperation{}, false, err
 	}
-	return out, true, nil
+	defer release()
+	return runFileOptionalCommand(s, ctx, OperationMCPOperationCreate, func(ctx context.Context) (app.MCPOperation, bool, error) {
+		return s.inner.CreateMCPOperation(ctx, operation)
+	})
 }
-func (s *FileStore) GetMCPOperation(id string) (app.MCPOperation, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetMCPOperation(id)
-}
-func (s *FileStore) FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindMCPOperationByIdempotency(bindingID, idempotencyKey)
-}
-func (s *FileStore) ListMCPOperations(bindingID string) []app.MCPOperation {
-	defer s.admitLegacyRead()()
-	return s.inner.ListMCPOperations(bindingID)
-}
-func (s *FileStore) UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
-	defer s.admitLegacyCommand()()
-	previous, existed := s.inner.GetMCPOperation(operation.ID)
-	out, err := s.inner.UpdateMCPOperation(operation, expectedVersion)
+
+func (s *FileStore) GetMCPOperation(ctx context.Context, id string) (app.MCPOperation, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPOperationGet, 1)
 	if err != nil {
-		return out, err
+		return app.MCPOperation{}, false, err
 	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		if existed {
-			s.inner.mu.Lock()
-			s.inner.mcpOperations[operation.ID] = previous
-			s.inner.mu.Unlock()
-		}
+	defer release()
+	return s.inner.GetMCPOperation(ctx, id)
+}
+
+func (s *FileStore) FindMCPOperationByIdempotency(ctx context.Context, bindingID, idempotencyKey string) (app.MCPOperation, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPOperationFindIdempotency, 1)
+	if err != nil {
+		return app.MCPOperation{}, false, err
+	}
+	defer release()
+	return s.inner.FindMCPOperationByIdempotency(ctx, bindingID, idempotencyKey)
+}
+
+func (s *FileStore) ListMCPOperations(ctx context.Context, bindingID string) ([]app.MCPOperation, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPOperationList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListMCPOperations(ctx, bindingID)
+}
+
+func (s *FileStore) UpdateMCPOperation(ctx context.Context, operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPOperationUpdate, fileAdmissionCapacity)
+	if err != nil {
 		return app.MCPOperation{}, err
 	}
-	return out, nil
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPOperationUpdate, func(ctx context.Context) (app.MCPOperation, error) {
+		return s.inner.UpdateMCPOperation(ctx, operation, expectedVersion)
+	})
 }
 
 func (s *FileStore) AddMessage(ctx context.Context, message app.Message) (app.Message, error) {

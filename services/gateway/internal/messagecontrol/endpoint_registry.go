@@ -19,7 +19,7 @@ type endpointStore interface {
 }
 
 type mcpEndpointStore interface {
-	GetMCPBinding(string) (app.MCPBinding, bool)
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
 }
 
 type EndpointRegistry struct {
@@ -93,7 +93,10 @@ func (r *EndpointRegistry) get(ctx context.Context, id app.EndpointID, admittedS
 		if !supported {
 			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
 		}
-		binding, ok := mcpStore.GetMCPBinding(bindingID)
+		binding, ok, err := mcpStore.GetMCPBinding(ctx, bindingID)
+		if err != nil {
+			return app.MessageEndpoint{}, fmt.Errorf("read MCP endpoint %q: %w", value, err)
+		}
 		if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
 			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
 		}

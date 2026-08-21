@@ -117,6 +117,7 @@ type fakeConnectorPostgresTx struct {
 	execErrors  map[int]error
 	execTags    map[int]pgconn.CommandTag
 	execSQL     []string
+	execArgs    [][]any
 	rowQueue    []onboardingPostgresRow
 	rowSQL      []string
 	rowsQueue   []fakeConnectorRowsResult
@@ -127,9 +128,10 @@ type fakeConnectorPostgresTx struct {
 	rollbacks   int
 }
 
-func (t *fakeConnectorPostgresTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (t *fakeConnectorPostgresTx) Exec(_ context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 	index := len(t.execSQL)
 	t.execSQL = append(t.execSQL, sql)
+	t.execArgs = append(t.execArgs, append([]any(nil), arguments...))
 	if err := t.execErrors[index]; err != nil {
 		return pgconn.CommandTag{}, err
 	}

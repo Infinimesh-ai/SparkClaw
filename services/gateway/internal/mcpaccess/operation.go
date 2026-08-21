@@ -45,14 +45,18 @@ func updateOperationRecord(ctx context.Context, st store.Store, id string, mutat
 		if err := ctx.Err(); err != nil {
 			return app.MCPOperation{}, false, err
 		}
-		operation, ok := st.GetMCPOperation(id)
+		operation, ok, err := st.GetMCPOperation(ctx, id)
+		if err != nil {
+			return app.MCPOperation{}, false, err
+		}
 		if !ok {
 			return app.MCPOperation{}, false, errors.New("MCP operation not found")
 		}
 		if !mutate(&operation) {
 			return operation, false, nil
 		}
-		updated, err := st.UpdateMCPOperation(operation, operation.Version)
+		updated, err := st.UpdateMCPOperation(ctx, operation, operation.Version)
+		updated, err = store.ReconcileMCPOperationUpdate(ctx, st, updated, err)
 		if err == nil {
 			return updated, true, nil
 		}
@@ -63,7 +67,10 @@ func updateOperationRecord(ctx context.Context, st store.Store, id string, mutat
 	if err := ctx.Err(); err != nil {
 		return app.MCPOperation{}, false, err
 	}
-	operation, ok := st.GetMCPOperation(id)
+	operation, ok, err := st.GetMCPOperation(ctx, id)
+	if err != nil {
+		return app.MCPOperation{}, false, err
+	}
 	if !ok {
 		return app.MCPOperation{}, false, errors.New("MCP operation not found after version conflict")
 	}

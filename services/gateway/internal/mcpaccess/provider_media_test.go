@@ -59,7 +59,7 @@ func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	var result CallToolResult
 	if stored.State != app.MCPOperationSucceeded || json.Unmarshal(stored.Result, &result) != nil || len(result.Content) != 4 {
 		t.Fatalf("MCP media result was not persisted as CallToolResult: operation=%#v result=%#v", stored, result)
@@ -104,7 +104,7 @@ func TestProviderMediaFailureDoesNotPersistPartialResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("changed MCP media was delivered")
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationRunning || len(stored.Result) != 0 {
 		t.Fatalf("failed multipart delivery persisted a partial result: %#v", stored)
 	}
@@ -138,7 +138,7 @@ func TestProviderRawBinaryLimitReservesEncodedEnvelopeHeadroom(t *testing.T) {
 func createProviderMediaOperation(t *testing.T, st *store.MemoryStore, sessionID, id string) (app.MCPOperation, app.MCPInvocationRef) {
 	t.Helper()
 	ref := app.MCPInvocationRef{InvocationID: "inv-" + id, OperationID: id, BindingRef: "binding-media", BindingRevision: 1, RequesterDeviceID: "device-media"}
-	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: id, BindingID: ref.BindingRef, IdempotencyKey: id, Fingerprint: id,
 		Invocation: app.MCPInvocationContext{ID: ref.InvocationID, OperationID: id, BindingRef: ref.BindingRef, RequesterDeviceID: ref.RequesterDeviceID, RunID: "run-media"},
 		State:      app.MCPOperationRunning,

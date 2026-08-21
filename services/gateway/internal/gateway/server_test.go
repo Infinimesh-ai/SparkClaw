@@ -219,7 +219,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 		Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
 		CreatedAt: time.Now().UTC(),
 	})
-	if _, _, err := st.CreateMCPOperation(app.MCPOperation{
+	if _, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "async-approval", Fingerprint: "async-approval",
 		State: app.MCPOperationApprovalRequired,
 		Invocation: app.MCPInvocationContext{
@@ -252,7 +252,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 		t.Fatal(err)
 	}
 	storedApproval, _ := storetest.MustGetApproval(t, st, call.ApprovalID)
-	operation, _ := st.GetMCPOperation(ref.OperationID)
+	operation, _, _ := st.GetMCPOperation(t.Context(), ref.OperationID)
 	if storedApproval.Status != "approved" || operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_resume_unavailable" {
 		t.Fatalf("background failure was conflated with the durable approval: approval=%#v operation=%#v", storedApproval, operation)
 	}

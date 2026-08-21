@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +25,34 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/provisioning"
 )
+
+func TestWriteMCPStoreErrorUsesStableRedactedResponses(t *testing.T) {
+	privateCause := errors.New("postgres password=private transport failure")
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "not found", err: &store.StoreError{Code: store.StoreErrorNotFound, Operation: store.OperationMCPBindingGet, Err: privateCause}, status: http.StatusNotFound},
+		{name: "binding unavailable", err: store.ErrMCPBindingUnavailable, status: http.StatusNotFound},
+		{name: "conflict", err: &store.StoreError{Code: store.StoreErrorConflict, Operation: store.OperationMCPAccessTicketRevoke, Err: privateCause}, status: http.StatusConflict},
+		{name: "canceled", err: &store.StoreError{Code: store.StoreErrorCanceled, Operation: store.OperationMCPBindingList, Err: privateCause}, status: http.StatusRequestTimeout},
+		{name: "timeout", err: &store.StoreError{Code: store.StoreErrorTimeout, Operation: store.OperationMCPOperationGet, Err: privateCause}, status: http.StatusGatewayTimeout},
+		{name: "unavailable", err: &store.StoreError{Code: store.StoreErrorUnavailable, Operation: store.OperationMCPAccessTicketList, Err: privateCause}, status: http.StatusServiceUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			writeMCPStoreError(response, test.err)
+			if response.Code != test.status {
+				t.Fatalf("status=%d, want %d", response.Code, test.status)
+			}
+			if strings.Contains(response.Body.String(), privateCause.Error()) || strings.Contains(response.Body.String(), "password") {
+				t.Fatalf("response leaked private cause: %s", response.Body.String())
+			}
+		})
+	}
+}
 
 type gatewayPairingAuthority struct {
 	result iscppairing.AuthorityResult
@@ -114,7 +143,11 @@ func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 
 	ticketBody := `{"domain_id":"domain-a"}`
 	disabled := ownerRequest(t, server.Handler(), http.MethodPost, "/api/mcp-access/tickets", ticketBody)
-	if disabled.Code != http.StatusBadRequest || !strings.Contains(disabled.Body.String(), "disabled") || len(st.ListMCPAccessTickets("")) != 0 {
+	tickets, err := st.ListMCPAccessTickets(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Code != http.StatusBadRequest || !strings.Contains(disabled.Body.String(), "disabled") || len(tickets) != 0 {
 		t.Fatalf("disabled MCP connector issued a ticket: status=%d body=%s", disabled.Code, disabled.Body.String())
 	}
 	if _, err := registry.SetEnabled(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, "mcp", true, 0); err != nil {
@@ -128,7 +161,7 @@ func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &issued); err != nil || issued.Secret == "" || issued.Ticket.ID == "" {
 		t.Fatalf("invalid issued ticket: %#v err=%v", issued, err)
 	}
-	stored, ok := st.GetMCPAccessTicket(issued.Ticket.ID)
+	stored, ok, _ := st.GetMCPAccessTicket(t.Context(), issued.Ticket.ID)
 	if !ok || stored.SecretHash == "" || stored.SecretHash == issued.Secret {
 		t.Fatalf("ticket was not stored hash-only: %#v ok=%v", stored, ok)
 	}
@@ -180,7 +213,7 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
 	server := New(cfg, st, tools, runtime)
 	now := time.Now().UTC()
 	saveTicket := func(ownerID, hash string, status app.MCPAccessStatus) app.MCPAccessTicket {
-		ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+		ticket, err := st.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
 			SchemaVersion: app.MCPAccessTicketSchemaVersion, OwnerID: ownerID, ActorID: ownerID, SecretHash: hash,
 			DomainID: "domain-a", Scope: app.MCPAccessConversation, Status: status, MaxUses: 1,
 			IssuedAt: now, ExpiresAt: now.Add(time.Hour),
@@ -196,18 +229,18 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
 	if deletedTicket.Code != http.StatusOK || strings.Contains(deletedTicket.Body.String(), "expired-record-hash") {
 		t.Fatalf("expired ticket deletion failed or leaked its hash: status=%d body=%s", deletedTicket.Code, deletedTicket.Body.String())
 	}
-	if _, ok := st.GetMCPAccessTicket(expired.ID); ok {
+	if _, ok, _ := st.GetMCPAccessTicket(t.Context(), expired.ID); ok {
 		t.Fatal("expired ticket remained after DELETE")
 	}
 
 	consumed := saveTicket(app.DefaultOwnerID, "individual-binding-hash", app.MCPAccessPending)
-	binding, err := st.RedeemMCPAccessTicket(consumed.SecretHash, app.MCPPeerIdentity{
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), consumed.SecretHash, app.MCPPeerIdentity{
 		DomainID: consumed.DomainID, DeviceID: "individual-device", KeyThumbprint: "individual-thumb", ISCPSessionID: "individual-iscp",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "individual-delete", Fingerprint: "individual-delete"})
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "individual-delete", Fingerprint: "individual-delete"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,10 +248,10 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
 	if deletedBinding.Code != http.StatusOK {
 		t.Fatalf("binding deletion returned %d: %s", deletedBinding.Code, deletedBinding.Body.String())
 	}
-	if _, ok := st.GetMCPBinding(binding.ID); ok {
+	if _, ok, _ := st.GetMCPBinding(t.Context(), binding.ID); ok {
 		t.Fatal("binding remained after DELETE")
 	}
-	if _, ok := st.GetMCPOperation(operation.ID); ok {
+	if _, ok, _ := st.GetMCPOperation(t.Context(), operation.ID); ok {
 		t.Fatal("binding DELETE retained its operation")
 	}
 
@@ -228,13 +261,13 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
 		t.Fatalf("cross-owner ticket deletion returned %d: %s", forbidden.Code, forbidden.Body.String())
 	}
 	bulkTicket := saveTicket(app.DefaultOwnerID, "bulk-binding-hash", app.MCPAccessPending)
-	bulkBinding, err := st.RedeemMCPAccessTicket(bulkTicket.SecretHash, app.MCPPeerIdentity{
+	bulkBinding, err := st.RedeemMCPAccessTicket(t.Context(), bulkTicket.SecretHash, app.MCPPeerIdentity{
 		DomainID: bulkTicket.DomainID, DeviceID: "bulk-device", KeyThumbprint: "bulk-thumb", ISCPSessionID: "bulk-iscp",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bulkOperation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: bulkBinding.ID, IdempotencyKey: "bulk-delete", Fingerprint: "bulk-delete"})
+	bulkOperation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: bulkBinding.ID, IdempotencyKey: "bulk-delete", Fingerprint: "bulk-delete"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,13 +275,21 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
 	if deletedAll.Code != http.StatusOK || !strings.Contains(deletedAll.Body.String(), `"deleted_tickets":2`) || !strings.Contains(deletedAll.Body.String(), `"deleted_bindings":1`) {
 		t.Fatalf("bulk access-record deletion returned %d: %s", deletedAll.Code, deletedAll.Body.String())
 	}
-	if len(st.ListMCPAccessTickets(app.DefaultOwnerID)) != 0 || len(st.ListMCPBindings(app.DefaultOwnerID)) != 0 {
+	remainingTickets, err := st.ListMCPAccessTickets(t.Context(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remainingBindings, err := st.ListMCPBindings(t.Context(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remainingTickets) != 0 || len(remainingBindings) != 0 {
 		t.Fatal("owner records remained after bulk DELETE")
 	}
-	if _, ok := st.GetMCPOperation(bulkOperation.ID); ok {
+	if _, ok, _ := st.GetMCPOperation(t.Context(), bulkOperation.ID); ok {
 		t.Fatal("bulk DELETE retained an operation")
 	}
-	if _, ok := st.GetMCPAccessTicket(other.ID); !ok {
+	if _, ok, _ := st.GetMCPAccessTicket(t.Context(), other.ID); !ok {
 		t.Fatal("bulk DELETE removed another owner's record")
 	}
 	audits, _ := json.Marshal(mustGatewayListAudit(t, st, ""))
@@ -299,11 +340,14 @@ func TestGatewayPortMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	if initResponse.Code != http.StatusOK || sessionID == "" || sessionID == issued.Secret || !strings.Contains(initResponse.Body.String(), `"name":"sparkclaw-conversation-mcp"`) {
 		t.Fatalf("LAN MCP initialize failed: status=%d headers=%v body=%s", initResponse.Code, initResponse.Header(), initResponse.Body.String())
 	}
-	stored, ok := st.GetMCPAccessTicket(issued.Ticket.ID)
+	stored, ok, _ := st.GetMCPAccessTicket(t.Context(), issued.Ticket.ID)
 	if !ok || stored.Status != app.MCPAccessConsumed || stored.UseCount != 1 {
 		t.Fatalf("LAN MCP ticket was not consumed exactly once: %#v", stored)
 	}
-	bindings := st.ListMCPBindings(app.DefaultOwnerID)
+	bindings, err := st.ListMCPBindings(t.Context(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(bindings) != 1 || bindings[0].DomainID != "sparkclaw-local" || bindings[0].RequesterDeviceID == "" {
 		t.Fatalf("LAN MCP binding was not activated: %#v", bindings)
 	}
@@ -325,8 +369,16 @@ func TestGatewayPortMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	if unknown.Code != http.StatusUnauthorized {
 		t.Fatalf("unknown LAN MCP session was accepted: status=%d body=%s", unknown.Code, unknown.Body.String())
 	}
-	listedTickets, _ := json.Marshal(st.ListMCPAccessTickets(""))
-	listedBindings, _ := json.Marshal(st.ListMCPBindings(""))
+	allTickets, err := st.ListMCPAccessTickets(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allBindings, err := st.ListMCPBindings(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedTickets, _ := json.Marshal(allTickets)
+	listedBindings, _ := json.Marshal(allBindings)
 	if strings.Contains(string(listedTickets), issued.Secret) || strings.Contains(string(listedBindings), sessionID) {
 		t.Fatal("LAN MCP persisted a plaintext ticket or session credential")
 	}
@@ -469,7 +521,7 @@ func TestSuppressedCrossTargetResultStillUpdatesMCPApprovalState(t *testing.T) {
 		InvocationID: "inv-cross-target", OperationID: "op-cross-target", BindingRef: "binding-cross-target",
 		BindingRevision: 1, RequesterDeviceID: "device-cross-target",
 	}
-	_, created, err := st.CreateMCPOperation(app.MCPOperation{
+	_, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "cross-target", Fingerprint: "cross-target",
 		Invocation: app.MCPInvocationContext{
 			ID: ref.InvocationID, OperationID: ref.OperationID, BindingRef: ref.BindingRef,
@@ -492,7 +544,7 @@ func TestSuppressedCrossTargetResultStillUpdatesMCPApprovalState(t *testing.T) {
 	if err != nil || receipt != nil {
 		t.Fatalf("suppressed result delivery = %#v, err=%v", receipt, err)
 	}
-	operation, _ := st.GetMCPOperation(ref.OperationID)
+	operation, _, _ := st.GetMCPOperation(t.Context(), ref.OperationID)
 	if operation.State != app.MCPOperationApprovalRequired || operation.CompletedAt != nil ||
 		strings.Contains(string(operation.Result), "private workspace content") {
 		t.Fatalf("suppressed result did not safely update MCP approval state: %#v", operation)
@@ -504,7 +556,7 @@ func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 	server := &Server{store: st}
 	ref := &app.MCPInvocationRef{OperationID: "operation-approval"}
 	testSaveRun(st, app.AgentRun{ID: "run-approval", MessageContext: &app.MessageRunContext{MCP: ref}})
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: "binding-a", IdempotencyKey: "approval", Fingerprint: "approval",
 		Invocation: app.MCPInvocationContext{RunID: "run-approval"}, State: app.MCPOperationApprovalRequired,
 	})
@@ -516,7 +568,7 @@ func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 		t.Fatalf("live local approval was rejected: %v", err)
 	}
 	operation.State = app.MCPOperationCancelled
-	if _, err := st.UpdateMCPOperation(operation, operation.Version); err != nil {
+	if _, err := st.UpdateMCPOperation(t.Context(), operation, operation.Version); err != nil {
 		t.Fatal(err)
 	}
 	if err := server.validateMCPApproval(t.Context(), approval); err == nil {

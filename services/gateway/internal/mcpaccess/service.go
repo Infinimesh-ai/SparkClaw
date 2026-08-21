@@ -88,12 +88,13 @@ func (s *Service) IssueTicket(ctx context.Context, ownerID, actorID string, inpu
 	if actorID = strings.TrimSpace(actorID); actorID == "" {
 		actorID = ownerID
 	}
-	ticket, err := s.store.SaveMCPAccessTicket(app.MCPAccessTicket{
+	ticket, err := s.store.SaveMCPAccessTicket(ctx, app.MCPAccessTicket{
 		SchemaVersion: app.MCPAccessTicketSchemaVersion, ID: app.NewID("mcp_ticket"), SecretHash: hex.EncodeToString(hash[:]),
 		OwnerID: ownerID, ActorID: actorID, DomainID: strings.TrimSpace(input.DomainID), AuthorizationRevision: 1,
 		Scope: app.MCPAccessConversation, Status: app.MCPAccessPending, MaxUses: 1,
 		IssuedAt: now, ExpiresAt: now.Add(ttl),
 	})
+	ticket, err = store.ReconcileMCPAccessTicketWrite(ctx, s.store, ticket, err)
 	if err != nil {
 		return IssuedTicket{}, errors.New("MCP access ticket could not be persisted")
 	}
@@ -166,7 +167,10 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		}
 		return map[string]any{"binding": binding}, nil
 	}
-	binding, ok := s.store.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	binding, ok, err := s.store.FindMCPBindingForPeer(ctx, peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32603, Message: "MCP binding state is temporarily unavailable"}
+	}
 	if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
 		s.auditPeerDenied(ctx, peer, "mcp.binding.denied", "Rejected an MCP request without an active binding", map[string]any{"reason": "active_binding_required"})
 		return nil, &JSONRPCError{Code: -32003, Message: "active MCP binding is required"}
@@ -176,7 +180,9 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		return nil, &JSONRPCError{Code: -32003, Message: "MCP connector is disabled"}
 	}
 	previousISCPSessionID := binding.LatestISCPSessionID
-	if err := s.store.TouchMCPBinding(binding.ID, peer.ISCPSessionID, time.Now().UTC()); err != nil {
+	touchedAt := time.Now().UTC()
+	touchErr := s.store.TouchMCPBinding(ctx, binding.ID, peer.ISCPSessionID, touchedAt)
+	if _, touchErr = store.ReconcileMCPBindingTouch(ctx, s.store, binding, peer.ISCPSessionID, touchedAt, touchErr); touchErr != nil {
 		return nil, &JSONRPCError{Code: -32003, Message: "MCP binding is unavailable"}
 	}
 	if previousISCPSessionID != "" && previousISCPSessionID != peer.ISCPSessionID {
@@ -216,12 +222,16 @@ func (s *Service) RedeemAccessTicket(ctx context.Context, secret string, peer ap
 	}
 	hash := sha256.Sum256([]byte(secret))
 	secretHash := hex.EncodeToString(hash[:])
-	ticket, found := s.store.FindMCPAccessTicketBySecretHash(secretHash)
+	ticket, found, err := s.store.FindMCPAccessTicketBySecretHash(ctx, secretHash)
+	if err != nil {
+		return app.MCPBinding{}, err
+	}
 	if !found || !s.enabled(ticket.OwnerID) {
 		s.auditPeerDenied(ctx, peer, "mcp.access_ticket.redeem_denied", "MCP access ticket redemption was denied", map[string]any{"reason": "invalid_or_unavailable"})
 		return app.MCPBinding{}, store.ErrMCPAccessTicketInvalid
 	}
-	binding, err := s.store.RedeemMCPAccessTicket(secretHash, peer, time.Now().UTC())
+	binding, err := s.store.RedeemMCPAccessTicket(ctx, secretHash, peer, time.Now().UTC())
+	binding, err = store.ReconcileMCPAccessTicketRedemption(ctx, s.store, ticket.ID, secretHash, peer, binding, err)
 	if err != nil {
 		s.auditPeerDenied(ctx, peer, "mcp.access_ticket.redeem_denied", "MCP access ticket redemption was denied", map[string]any{
 			"ticket_id": ticket.ID, "reason": "invalid_or_consumed",
@@ -238,11 +248,14 @@ func (s *Service) RedeemAccessTicket(ctx context.Context, secret string, peer ap
 	return binding, nil
 }
 
-func (s *Service) ActiveBindingForPeer(peer app.MCPPeerIdentity) (app.MCPBinding, bool) {
+func (s *Service) ActiveBindingForPeer(ctx context.Context, peer app.MCPPeerIdentity) (app.MCPBinding, bool) {
 	if s == nil || s.store == nil {
 		return app.MCPBinding{}, false
 	}
-	binding, ok := s.store.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	binding, ok, err := s.store.FindMCPBindingForPeer(ctx, peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	if err != nil {
+		return app.MCPBinding{}, false
+	}
 	return binding, ok && binding.SchemaVersion == app.MCPBindingSchemaVersion && binding.Scope == app.MCPAccessConversation &&
 		binding.Status == app.MCPBindingActive && s.enabled(binding.OwnerID)
 }
@@ -288,16 +301,21 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 		IdempotencyKey: transport.IdempotencyKey, Deadline: deadline, MessageID: messageID, RunID: runID, CreatedAt: now,
 	}
 	s.mu.Lock()
-	currentBinding, bindingActive := s.store.GetMCPBinding(binding.ID)
+	currentBinding, bindingActive, bindingErr := s.store.GetMCPBinding(ctx, binding.ID)
+	if bindingErr != nil {
+		s.mu.Unlock()
+		return nil, &JSONRPCError{Code: -32603, Message: "MCP binding state is temporarily unavailable"}
+	}
 	if !bindingActive || currentBinding.Status != app.MCPBindingActive || currentBinding.AuthorizationRevision != binding.AuthorizationRevision ||
 		currentBinding.RequesterDeviceID != peer.DeviceID || currentBinding.RequesterKeyThumbprint != peer.KeyThumbprint {
 		s.mu.Unlock()
 		return nil, &JSONRPCError{Code: -32003, Message: "active MCP binding is required"}
 	}
-	stored, created, createErr := s.store.CreateMCPOperation(app.MCPOperation{
+	stored, created, createErr := s.store.CreateMCPOperation(ctx, app.MCPOperation{
 		SchemaVersion: app.MCPOperationSchemaVersion, ID: operationID, BindingID: binding.ID, IdempotencyKey: transport.IdempotencyKey,
 		Fingerprint: hex.EncodeToString(fingerprintHash[:]), Invocation: invocation, State: app.MCPOperationRunning,
 	})
+	stored, created, createErr = store.ReconcileMCPOperationCreate(ctx, s.store, stored, created, createErr)
 	s.mu.Unlock()
 	if errors.Is(createErr, store.ErrMCPOperationConflict) {
 		s.auditToolDenied(ctx, peer, binding, params.Name, "idempotency_conflict")
@@ -336,8 +354,8 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 		case <-ctx.Done():
 		}
 	}
-	operationRecord, ok := s.store.GetMCPOperation(operationID)
-	if !ok {
+	operationRecord, ok, err := s.store.GetMCPOperation(ctx, operationID)
+	if err != nil || !ok {
 		return nil, &JSONRPCError{Code: -32603, Message: "MCP operation could not be read after execution"}
 	}
 	return operationCallResult(operationRecord, true), nil
@@ -346,8 +364,8 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 func (s *Service) executeOperation(ctx context.Context, deadline time.Time, sessionID, messageID, runID, operationID string, request app.MCPConversationRequest, ingress app.MessageIngressContext, done chan<- struct{}) {
 	defer close(done)
 	s.mu.Lock()
-	operation, ok := s.store.GetMCPOperation(operationID)
-	if !ok || operationTerminal(operation.State) {
+	operation, ok, err := s.store.GetMCPOperation(ctx, operationID)
+	if err != nil || !ok || operationTerminal(operation.State) {
 		s.mu.Unlock()
 		return
 	}
@@ -385,11 +403,14 @@ func (s *Service) operationTool(ctx context.Context, peer app.MCPPeerIdentity, b
 	if strictParams(raw, &input) != nil || input.OperationID == "" {
 		return nil, invalidParams("operation_id is required")
 	}
-	operation, ok := s.store.GetMCPOperation(input.OperationID)
+	operation, ok, err := s.store.GetMCPOperation(ctx, input.OperationID)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32603, Message: "MCP operation state is temporarily unavailable"}
+	}
 	if !ok || operation.BindingID != binding.ID {
 		return nil, &JSONRPCError{Code: -32005, Message: "operation not found"}
 	}
-	operation, err := s.reconcileOperation(ctx, operation)
+	operation, err = s.reconcileOperation(ctx, operation)
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32603, Message: "approval state is temporarily unavailable"}
 	}
@@ -451,7 +472,7 @@ func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOpera
 		if err == nil {
 			return updated, nil
 		}
-		if current, found := s.store.GetMCPOperation(operation.ID); found {
+		if current, found, readErr := s.store.GetMCPOperation(ctx, operation.ID); readErr == nil && found {
 			return current, nil
 		}
 		return operation, nil
@@ -461,12 +482,17 @@ func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOpera
 
 func (s *Service) RevokeBinding(ctx context.Context, id string, now time.Time) (app.MCPBinding, error) {
 	s.mu.Lock()
-	binding, err := s.store.RevokeMCPBinding(id, now)
+	binding, err := s.store.RevokeMCPBinding(ctx, id, now)
+	binding, err = store.ReconcileMCPBindingRevoke(ctx, s.store, binding, err)
 	if err != nil {
 		s.mu.Unlock()
 		return app.MCPBinding{}, err
 	}
-	operations := s.store.ListMCPOperations(id)
+	operations, err := s.store.ListMCPOperations(ctx, id)
+	if err != nil {
+		s.mu.Unlock()
+		return binding, err
+	}
 	s.cancelRevokedOperationsLocked(operations)
 	s.mu.Unlock()
 	if err := finalizeRevokedOperations(ctx, s.store, operations); err != nil {
@@ -480,26 +506,36 @@ func (s *Service) DeleteBinding(ctx context.Context, ownerID, id string, now tim
 		return app.MCPBinding{}, store.ErrMCPBindingUnavailable
 	}
 	s.mu.Lock()
-	binding, ok := s.store.GetMCPBinding(id)
+	binding, ok, err := s.store.GetMCPBinding(ctx, id)
+	if err != nil {
+		s.mu.Unlock()
+		return app.MCPBinding{}, err
+	}
 	if !ok || binding.OwnerID != ownerID {
 		s.mu.Unlock()
 		return app.MCPBinding{}, store.ErrMCPBindingUnavailable
 	}
 	if binding.Status != app.MCPBindingRevoked {
 		var err error
-		binding, err = s.store.RevokeMCPBinding(id, now)
+		binding, err = s.store.RevokeMCPBinding(ctx, id, now)
+		binding, err = store.ReconcileMCPBindingRevoke(ctx, s.store, binding, err)
 		if err != nil {
 			s.mu.Unlock()
 			return app.MCPBinding{}, err
 		}
 	}
-	operations := s.store.ListMCPOperations(id)
+	operations, err := s.store.ListMCPOperations(ctx, id)
+	if err != nil {
+		s.mu.Unlock()
+		return binding, err
+	}
 	s.cancelRevokedOperationsLocked(operations)
 	if err := finalizeRevokedOperations(ctx, s.store, operations); err != nil {
 		s.mu.Unlock()
 		return binding, err
 	}
-	deleted, err := s.store.DeleteMCPBinding(ownerID, id)
+	deleted, err := s.store.DeleteMCPBinding(ctx, ownerID, id)
+	deleted, err = store.ReconcileMCPBindingDelete(ctx, s.store, deleted, err)
 	s.mu.Unlock()
 	if err != nil {
 		return app.MCPBinding{}, err
@@ -512,21 +548,32 @@ func (s *Service) DeleteAccessRecords(ctx context.Context, ownerID string, now t
 		return store.MCPAccessRecordDeletion{}, store.ErrMCPBindingUnavailable
 	}
 	s.mu.Lock()
-	for _, binding := range s.store.ListMCPBindings(ownerID) {
+	bindings, err := s.store.ListMCPBindings(ctx, ownerID)
+	if err != nil {
+		s.mu.Unlock()
+		return store.MCPAccessRecordDeletion{}, err
+	}
+	for _, binding := range bindings {
 		if binding.Status != app.MCPBindingRevoked {
-			if _, err := s.store.RevokeMCPBinding(binding.ID, now); err != nil {
+			revoked, revokeErr := s.store.RevokeMCPBinding(ctx, binding.ID, now)
+			if _, revokeErr = store.ReconcileMCPBindingRevoke(ctx, s.store, revoked, revokeErr); revokeErr != nil {
 				s.mu.Unlock()
-				return store.MCPAccessRecordDeletion{}, err
+				return store.MCPAccessRecordDeletion{}, revokeErr
 			}
 		}
-		operations := s.store.ListMCPOperations(binding.ID)
+		operations, err := s.store.ListMCPOperations(ctx, binding.ID)
+		if err != nil {
+			s.mu.Unlock()
+			return store.MCPAccessRecordDeletion{}, err
+		}
 		s.cancelRevokedOperationsLocked(operations)
 		if err := finalizeRevokedOperations(ctx, s.store, operations); err != nil {
 			s.mu.Unlock()
 			return store.MCPAccessRecordDeletion{}, err
 		}
 	}
-	deleted, err := s.store.DeleteMCPAccessRecords(ownerID)
+	deleted, err := s.store.DeleteMCPAccessRecords(ctx, ownerID)
+	deleted, err = store.ReconcileMCPAccessRecordDeletion(ctx, s.store, ownerID, deleted, err)
 	s.mu.Unlock()
 	return deleted, err
 }
@@ -695,7 +742,7 @@ func (s *Service) StartApprovalExecution(ctx context.Context, runID string) (app
 	if err := executionCtx.Err(); err != nil {
 		finishExecution()
 		_ = s.finishOperationError(ctx, operation.ID, "approval_execution_expired", "The MCP operation deadline expired before approved execution could start")
-		if current, ok := s.store.GetMCPOperation(operation.ID); ok {
+		if current, ok, readErr := s.store.GetMCPOperation(ctx, operation.ID); readErr == nil && ok {
 			operation = current
 		}
 		return operation, nil, nil, errors.New("MCP operation deadline expired before approved execution could start")
@@ -777,7 +824,10 @@ func (s *Service) operationForRun(ctx context.Context, runID string) (app.MCPOpe
 		return app.MCPOperation{}, errors.New("MCP run is unavailable")
 	}
 	ref := run.MessageContext.MCP
-	operation, ok := s.store.GetMCPOperation(ref.OperationID)
+	operation, ok, err := s.store.GetMCPOperation(ctx, ref.OperationID)
+	if err != nil {
+		return app.MCPOperation{}, err
+	}
 	if !ok || operation.Invocation.RunID != run.ID || operation.Invocation.ID != ref.InvocationID ||
 		operation.BindingID != ref.BindingRef || operation.Invocation.BindingRevision != ref.BindingRevision ||
 		operation.Invocation.RequesterDeviceID != ref.RequesterDeviceID {
@@ -794,7 +844,10 @@ func (s *Service) RecordWorkflowResult(ctx context.Context, result agent.Result)
 		return nil
 	}
 	ref := result.WorkflowResult.MCP
-	operation, ok := s.store.GetMCPOperation(ref.OperationID)
+	operation, ok, err := s.store.GetMCPOperation(ctx, ref.OperationID)
+	if err != nil {
+		return err
+	}
 	if !ok || operation.Invocation.ID != ref.InvocationID || operation.BindingID != ref.BindingRef ||
 		operation.Invocation.BindingRevision != ref.BindingRevision || operation.Invocation.RequesterDeviceID != ref.RequesterDeviceID ||
 		operation.Invocation.RunID != result.Run.ID || operation.Invocation.RunID != result.WorkflowResult.RunID {

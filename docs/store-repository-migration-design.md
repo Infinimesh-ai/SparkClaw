@@ -7,7 +7,9 @@
 > contract revision 8 received `GO` at `b0884f6` after reviews 1-7 returned
 > `REVISE`. The GO authorizes a live Credential foundation checkpoint, then a complete
 > ConnectorRepository lifecycle migration, then the final integrated Credential
-> gate.
+> gate. On 2026-08-21 the owner replaced the uniform maximum-strength S3 gate
+> with the risk-tiered policy below. Accepted and already implemented waves are
+> not reopened by that policy.
 
 ## Objective And Stage Boundary
 
@@ -33,14 +35,68 @@ commit. A completed stage must:
    shape requires it;
 5. update every caller to pass its request, operation, worker, startup, or
    shutdown context;
-6. add shared contract, File failure, PostgreSQL classification, timeout,
-   cancellation, and race tests as applicable;
+6. add only the contract and validation evidence required by the operation's
+   risk tier below;
 7. remove the old signatures for that repository; and
 8. receive implementation review before another repository begins.
 
 No compatibility adapter, optional type assertion, duplicate method, dynamic
 repository map, string-based dispatch, or `context.Background()` may survive in
 a completed repository path.
+
+## Risk Tier And Aggregate Boundary
+
+Risk is assigned to an operation and its durable aggregate, not automatically
+to every method in the same repository. The repository wave uses the highest
+tier of any mutation it contains, but lower-risk methods do not inherit
+transaction, reconciliation, fault-matrix, or race machinery that they do not
+need. Completed Owner, Client, ISCP onboarding, Credential, Connector, and
+Session work is grandfathered and is not simplified or rewritten.
+
+| Tier | Operations in scope | Required implementation and evidence |
+|---|---|---|
+| P0 | Run/ToolCall state, Delivery records, MCP access/bindings/operations, Credential, Connector, Approval, and `SessionRepository.DeleteSession` | Explicit transaction for the complete aggregate, stable idempotency/CAS identity, unknown-outcome reconciliation, deterministic failure injection, configured real PostgreSQL evidence, and focused race tests |
+| P1 | Document, Schedule, External Chat, and Passive Notification | Context and explicit errors across Memory/File/PostgreSQL; use an explicit transaction only when one command changes multiple records or indexes |
+| P2 | Conversation reads/simple appends, Browser State, Memory, Audit, Evaluation, Artifact Metadata, ordinary configuration/display metadata, and other low-risk queries | Small typed repository, backend-error propagation, and basic all-backend contract tests; no repository-specific recovery protocol |
+
+`SessionRepository` is already implemented at its accepted strength. For the
+policy above only deletion is intrinsically P0; create, list, get, and rename
+would not justify a new P0 protocol if designed today. They remain unchanged.
+Connector's accepted wave includes notification bindings; the remaining
+"Notification" entry means `PassiveNotificationRepository`.
+
+An operation is promoted, not its entire repository. For example, a message
+append that atomically updates session activity and emits an event is a P1
+cross-record command even though ordinary Conversation reads are P2. Resolving
+a memory candidate into both candidate state and an accepted memory is likewise
+P1, while search and single-record memory metadata changes remain P2. A
+single-row PostgreSQL insert/update does not gain an explicit transaction merely
+because another method in the repository is P0 or P1.
+
+Every tier retains the common reliability floor:
+
+- backend-capable methods accept caller-owned context and return errors;
+- backend failure is never converted to absence, a default owner, or a
+  successful empty result;
+- Memory, File, and PostgreSQL implement the same public contract;
+- File uses the already completed shared admission/durability machinery; and
+- public callers map internal Store causes to stable, redacted outcomes.
+
+P0 commands additionally prove every aggregate boundary, idempotency key, and
+ambiguous submission path. P1 tests cover success, absence, error propagation,
+cancellation, three-backend parity, and atomicity only for actual cross-record
+commands. P2 tests cover the basic success/absence/order contract and one
+representative backend-error path; they do not add advisory locks, per-statement
+failure matrices, dedicated reconciliation coordinators, mandatory per-wave
+configured PostgreSQL runs, or focused race suites.
+
+Shared File or PostgreSQL infrastructure may still report `unknown_outcome` to
+P1/P2 callers when that is the truthful backend result. Those tiers propagate
+it safely and may retry only through an already existing idempotency/CAS key;
+they do not invent a repository-specific recovery protocol. Configured
+PostgreSQL and race remain part of the final integrated gate, and become a
+per-wave gate only for P0 or when a P1/P2 wave changes PostgreSQL schema or
+concurrency semantics that cannot be proved otherwise.
 
 ## S2 Pilot Contract
 

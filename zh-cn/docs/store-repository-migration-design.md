@@ -7,6 +7,8 @@
 > 获得接受。CredentialRepository 合同修订 8 在审查 1-7 返回 `REVISE` 后，于
 > `b0884f6` 获得 `GO`。该 GO 授权 live Credential foundation checkpoint，随后完成
 > ConnectorRepository lifecycle migration，最后执行 integrated Credential gate。
+> 2026-08-21，owner 用下述风险分级策略替代 S3 统一最高规格门禁。已经接受和
+> 实现的波次不因该策略重新返工。
 
 ## 目标与阶段边界
 
@@ -29,14 +31,60 @@ S2 不按职责拆分 `file.go`、`memory.go`、`postgres.go` 或其他大型 St
 4. 仅在 record shape 需要时更新 Memory、File、PostgreSQL 与 File `Snapshot`；
 5. 更新每个 caller，使其传递 request、operation、worker、startup 或 shutdown
    context；
-6. 按需新增 shared contract、File failure、PostgreSQL classification、timeout、
-   cancellation 与 race test；
+6. 只新增该 operation 风险等级要求的 contract 和验证证据；
 7. 删除该 repository 的旧签名；
 8. 在开始下一个 repository 前获得实现审查。
 
 完成的 repository path 不得保留 compatibility adapter、optional type assertion、
 duplicate method、dynamic repository map、string-based dispatch 或
 `context.Background()`。
+
+## 风险等级与聚合边界
+
+风险分配给 operation 及其 durable aggregate，不自动分配给同一 repository 的
+每个方法。repository 波次采用其中 mutation 的最高等级，但低风险方法不继承
+自己并不需要的 transaction、reconciliation、fault matrix 或 race 机制。已经
+完成的 Owner、Client、ISCP onboarding、Credential、Connector 和 Session 工作
+保持原样，不做简化或重写。
+
+| 等级 | 范围内 operation | 必须实现和验证 |
+|---|---|---|
+| P0 | Run/ToolCall 状态、Delivery record、MCP access/binding/operation、Credential、Connector、Approval，以及 `SessionRepository.DeleteSession` | 完整 aggregate 的显式事务、稳定 idempotency/CAS identity、未知结果恢复、确定性故障注入、配置真实 PostgreSQL 证据和 focused race test |
+| P1 | Document、Schedule、External Chat 和 Passive Notification | Memory/File/PostgreSQL 三后端的 context 与显式错误；只有一个 command 修改多个 record 或 index 时才使用显式事务 |
+| P2 | Conversation 查询/简单 append、Browser State、Memory、Audit、Evaluation、Artifact Metadata、普通配置/展示元数据及其他低风险查询 | 小型 typed repository、backend error 传播和基础三后端 contract test；不设计 repository 专属恢复协议 |
+
+`SessionRepository` 已按接受的强度实现。按上述策略，只有删除天然属于 P0；如果
+今天重新设计，create、list、get 和 rename 不需要新建 P0 协议，但现有实现保持
+不变。Connector 已接受的波次包含 notification binding；剩余的
+“Notification”指 `PassiveNotificationRepository`。
+
+升级的是 operation，而不是整个 repository。例如，一个 message append 同时
+原子更新 session activity 并发出 event 时，它是 P1 跨记录 command，普通
+Conversation read 仍是 P2。把 memory candidate 同时变为 resolved 并写入 accepted
+memory 也属于 P1；search 和单记录 memory metadata 变更仍属于 P2。PostgreSQL
+单行 insert/update 不会仅仅因为同 repository 的另一个方法是 P0/P1 就增加显式
+事务。
+
+所有等级保留共同可靠性底线：
+
+- 可能访问 backend 的方法接收 caller-owned context 并返回 error；
+- backend failure 不得变成 absence、default owner 或成功空结果；
+- Memory、File、PostgreSQL 实现相同 public contract；
+- File 复用已经完成的 admission/durability 公共机制；
+- public caller 把 Store 内部 cause 映射为稳定、脱敏的 outcome。
+
+P0 command 还必须证明全部 aggregate boundary、idempotency key 和 ambiguous
+submission path。P1 test 覆盖 success、absence、error propagation、cancellation、
+三后端一致性，并且只为真实跨记录 command 验证 atomicity。P2 test 覆盖基础
+success/absence/order contract 和一个代表性 backend-error path；不新增 advisory
+lock、逐 statement failure matrix、专用 reconciliation coordinator、每波次强制
+configured PostgreSQL run 或 focused race suite。
+
+当 shared File/PostgreSQL infrastructure 的真实结果只能是 `unknown_outcome` 时，
+P1/P2 caller 仍安全传播它，并且只能通过已有 idempotency/CAS key 重试；不得新建
+repository 专属恢复协议。configured PostgreSQL 和 race 仍属于最终 integrated
+gate；只有 P0，或 P1/P2 波次修改了无法以其他方式证明的 PostgreSQL schema/
+concurrency semantics 时，它们才成为单波次门禁。
 
 ## S2 Pilot Contract
 

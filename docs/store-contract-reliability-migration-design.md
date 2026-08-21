@@ -7,7 +7,8 @@
 > revision 8 received `GO` at `b0884f6` after reviews 1-7 returned `REVISE`.
 > The GO authorizes a live Credential foundation checkpoint,
 > then complete ConnectorRepository lifecycle migration, then the final
-> integrated Credential gate.
+> integrated Credential gate. On 2026-08-21 the owner adopted the risk-tiered
+> S3 policy in the Repository migration design; completed waves remain final.
 
 ## Purpose
 
@@ -47,6 +48,10 @@ Every Store stage has two mandatory decisions:
 2. **Implementation review**: inspect the diff and evidence against the
    accepted design. The next stage starts only after a recorded `GO`.
 
+The amount of mandatory evidence is set by the P0/P1/P2 operation tier in the
+Repository migration design. A P2 review must not require P0 recovery,
+fault-injection, configured-PostgreSQL, or race evidence merely for uniformity.
+
 A review result is one of:
 
 - `GO`: all mandatory evidence is present and no unresolved correctness issue
@@ -72,10 +77,10 @@ decision returns to the owner before then.
 | S0 | Contract foundation | Roadmap reviewed | Repository catalog and command matrix accepted; characterization evidence green |
 | S1 | PostgreSQL schema/state foundation | S0 implementation `GO` | One migration authority, strict Store config, fresh/current database evidence |
 | S2 | File transaction isolation and pilot repository | S1 implementation `GO` | All File methods use one transaction gate; one accepted low-risk repository proves commit/rollback and all-backend migration |
-| S3 | Remaining repository waves | S2 implementation `GO` | Every remaining domain repository migrated across Memory, File, PostgreSQL, and callers |
+| S3 | Risk-tiered remaining repository waves | S2 implementation `GO` | Every remaining domain repository migrated across Memory, File, PostgreSQL, and callers with its P0/P1/P2 gate |
 | S4 | Broad Store removal | Final S3 repository `GO` | `store.Store` deleted; consumers use minimum repositories or local composites |
 | S5 | Runtime/Supervisor | S4 implementation `GO` | Assembly-only Runtime, bounded supervision, health, metrics, probes, and close are accepted |
-| S6 | Store closeout | S5 implementation `GO` | Durable rules merged into current guides; temporary plans removed |
+| S6 | Responsibility split and Store closeout | S5 implementation `GO` | Complex Store modules split by accepted responsibility boundaries; durable rules merged into current guides; temporary plans removed |
 
 Stage labels are dependencies, not permission to combine commits. Behavior
 fixes, interface migrations, schema changes, and mechanical moves remain
@@ -88,13 +93,15 @@ separate topics.
 - A File read never observes a mutation that may still roll back.
 - A successful durable command means the authoritative state and its required
   lifecycle records are durable.
-- Unknown outcomes are reconciled before retry; they are never reported as
-  success or confirmed rollback.
+- P0 unknown outcomes are reconciled before retry. P1/P2 propagate a truthful
+  unknown outcome and may retry only through an existing idempotency/CAS key;
+  they do not add bespoke recovery protocols.
 - Production consumers do not discover repositories by type assertion or retain
   `*store.Runtime`.
 - PostgreSQL CI configuration and `SPARKCLAW_TEST_POSTGRES_DSN` skip behavior
-  remain unchanged. A stage requiring PostgreSQL evidence stays unapproved
-  until an actual configured run is recorded.
+  remain unchanged. P0 requires a configured run. P1/P2 require one per wave
+  only when changing PostgreSQL schema or concurrency semantics; all tiers still
+  run the configured final integration gate.
 - Store behavior repair completes before any responsibility-based large-file
   split is designed or implemented.
 
@@ -107,10 +114,10 @@ Included:
   readiness, and Store lifecycle;
 - artifact metadata records currently owned by Store.
 
-Excluded until separately designed:
+Excluded until S6 or separately designed:
 
-- splitting `memory.go`, `file.go`, `postgres.go`, Gateway handlers,
-  `useVoiceInput.ts`, or general config files;
+- splitting `memory.go`, `file.go`, and `postgres.go` before S6;
+- splitting Gateway handlers, `useVoiceInput.ts`, or general config files;
 - global replacement of every permissive environment parser;
 - artifact object backend construction outside Store metadata;
 - ORM, event sourcing, distributed transactions, dependency-injection
@@ -134,8 +141,9 @@ Store work is complete only after S6. At that point the durable rules move into
 guide. These temporary Store design documents and their Chinese mirrors are
 then deleted together.
 
-Only after that closeout may a new file-size and responsibility inventory decide
-whether any module split is justified.
+S6 begins with a fresh file-size and responsibility inventory. It splits only
+Store modules whose ownership boundaries are already stable after S4/S5; pure
+moves and behavior changes remain separate commits.
 
 ## Current Review Record
 
@@ -159,3 +167,4 @@ whether any module split is justified.
 | S3 Credential contract review 6 | `3c86739` | `REVISE` | Foundation called AbortSeal without the required exact Connector proof, so concurrent stale compensation could delete an active credential; the repository order also duplicated Connector | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 7 | `8ef063f` | `REVISE` | The migration roadmap still authorized foundation AbortSeal; legacy revoke could delete a credential without durable transition proof, and deferral would leave public Vault Delete without a legal caller | Context-isolated gatekeepers / 2026-08-20 |
 | S3 Credential contract review 8 | `b0884f6` | `GO` | Foundation has no public cleanup dead code; private reconciliation remains live; ambiguous legacy start/revoke retains credentials; Connector owns Delete/AbortSeal with exact durable barriers | Context-isolated gatekeeper / 2026-08-20 |
+| S3 validation policy | owner instruction | `GO` | Future waves use P0/P1/P2 operation risk plus aggregate boundaries; completed waves are not reopened and P1/P2 no longer inherit maximum-strength recovery and evidence | User / 2026-08-21 |

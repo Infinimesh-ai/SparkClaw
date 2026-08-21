@@ -7,6 +7,8 @@
 > CredentialRepository 合同修订 8 在审查 1-7 返回 `REVISE` 后，于 `b0884f6`
 > 获得 `GO`。该 GO 授权 live Credential foundation checkpoint，随后完成
 > ConnectorRepository lifecycle migration，最后执行 integrated Credential gate。
+> 2026-08-21，owner 采用 Repository 迁移设计中的 S3 风险分级策略；已完成波次
+> 保持最终状态。
 
 ## 目的
 
@@ -41,6 +43,10 @@ PostgreSQL schema/配置是 Store 的前置工作。
 2. **实现审查**：根据已接受设计检查 diff 和证据。只有记录为 `GO` 后，
    才开始下一阶段。
 
+强制证据的数量由 Repository 迁移设计中的 P0/P1/P2 operation 等级决定。P2
+审查不得仅为形式统一而要求 P0 的恢复、故障注入、configured PostgreSQL 或 race
+证据。
+
 审查结果只能是：
 
 - `GO`：所有强制证据齐全，且没有跨越下一阶段边界的未解决正确性问题；
@@ -62,10 +68,10 @@ gatekeeper 审查。跨阶段风险继续保留记录，并在完整计划收口
 | S0 | 契约基础 | 路线图已审查 | repository 目录和命令矩阵已接受；行为刻画证据为绿色 |
 | S1 | PostgreSQL schema/状态基础 | S0 实现 `GO` | 唯一迁移权威、严格 Store 配置、全新/当前数据库证据 |
 | S2 | File 事务隔离和 pilot repository | S1 实现 `GO` | 所有 File 方法经过同一事务 gate；一个已接受的低风险 repository 证明提交/回滚和三后端迁移 |
-| S3 | 剩余 Repository 波次 | S2 实现 `GO` | 每个剩余领域 repository 已同步迁移 Memory、File、PostgreSQL 和调用者 |
+| S3 | 风险分级的剩余 Repository 波次 | S2 实现 `GO` | 每个剩余领域 repository 已按自身 P0/P1/P2 门禁同步迁移 Memory、File、PostgreSQL 和调用者 |
 | S4 | 删除宽泛 Store | 最后一个 S3 repository `GO` | 删除 `store.Store`；消费者只使用最小 repository 或本地组合接口 |
 | S5 | Runtime/Supervisor | S4 实现 `GO` | 组装层专用 Runtime、有界监管、健康、指标、探针和关闭逻辑已接受 |
-| S6 | Store 收尾 | S5 实现 `GO` | 长期规则已并入当前手册；临时计划已删除 |
+| S6 | 职责拆分与 Store 收尾 | S5 实现 `GO` | 复杂 Store module 已按接受的职责边界拆分；长期规则已并入当前手册；临时计划已删除 |
 
 阶段标签表示依赖，不表示可以合并 commit。行为修复、接口迁移、schema 变更
 和机械移动仍然是不同主题。
@@ -76,11 +82,14 @@ gatekeeper 审查。跨阶段风险继续保留记录，并在完整计划收口
 - 已迁移查询不得把后端失败转换为缺失或空列表。
 - File 读取不得观察到仍可能回滚的 mutation。
 - 持久命令成功意味着权威状态及其必需生命周期记录已经持久化。
-- 未知结果必须先 reconciliation 再重试，不能报告为成功或确认回滚。
+- P0 未知结果必须先 reconciliation 再重试。P1/P2 传播真实的 unknown outcome，
+  且只能通过已有 idempotency/CAS key 重试；不增加专属恢复协议。
 - 生产消费者不得通过类型断言发现 repository，也不得持有
   `*store.Runtime`。
-- PostgreSQL CI 配置和 `SPARKCLAW_TEST_POSTGRES_DSN` skip 行为保持不变。
-  需要 PostgreSQL 证据的阶段在记录真实配置运行前不得通过审查。
+- PostgreSQL CI 配置和 `SPARKCLAW_TEST_POSTGRES_DSN` skip 行为保持不变。P0
+  必须运行 configured PostgreSQL；P1/P2 只有修改 PostgreSQL schema 或 concurrency
+  semantics 时才要求单波次 configured run；所有等级仍执行最终 configured
+  integration gate。
 - Store 行为修复完成前，不设计也不实现按职责的大型文件拆分。
 
 ## 范围边界
@@ -91,10 +100,10 @@ gatekeeper 审查。跨阶段风险继续保留记录，并在完整计划收口
   migrations、Store 专属配置、操作监管、readiness 和 Store 生命周期；
 - 当前由 Store 管理的 artifact metadata 记录。
 
-完成后另行设计的范围：
+S6 前或需要另行设计的范围：
 
-- 拆分 `memory.go`、`file.go`、`postgres.go`、Gateway handlers、
-  `useVoiceInput.ts` 或通用配置文件；
+- S6 前拆分 `memory.go`、`file.go`、`postgres.go`；
+- 拆分 Gateway handlers、`useVoiceInput.ts` 或通用配置文件；
 - 全局替换所有宽松环境变量解析器；
 - Store metadata 之外的 artifact 对象后端构造；
 - ORM、event sourcing、分布式事务、依赖注入框架或通用 repository 生成器；
@@ -114,7 +123,8 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 `development.md`、部署文档和 Store 专项手册，再同时删除这些临时 Store
 设计及中文镜像。
 
-只有完成上述收尾后，新的文件尺寸和职责盘点才能决定是否需要拆分模块。
+S6 首先重新进行文件尺寸与职责盘点，只拆分在 S4/S5 后 ownership boundary 已经
+稳定的 Store module；pure move 与 behavior change 仍使用独立 commit。
 
 ## 当前审查记录
 
@@ -138,3 +148,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S3 Credential contract 审查 6 | `3c86739` | `REVISE` | foundation 在没有所需 exact Connector proof 时调用 AbortSeal，因此 concurrent stale compensation 可能删除 active credential；repository 顺序也重复安排了 Connector | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 7 | `8ef063f` | `REVISE` | migration roadmap 仍授权 foundation AbortSeal；legacy revoke 可在没有 durable transition proof 时删除 credential，推迟后 public Vault Delete 又没有合法 caller | Context-isolated gatekeepers / 2026-08-20 |
 | S3 Credential contract 审查 8 | `b0884f6` | `GO` | foundation 没有 public cleanup dead code，private reconciliation 保持 live；ambiguous legacy start/revoke 保留 credential；Connector 以 exact durable barrier 拥有 Delete/AbortSeal | Context-isolated gatekeeper / 2026-08-20 |
+| S3 验证策略 | owner 指示 | `GO` | 后续波次使用 P0/P1/P2 operation 风险和 aggregate boundary；已完成波次不重开，P1/P2 不再继承最高规格恢复与证据 | 用户 / 2026-08-21 |

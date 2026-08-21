@@ -80,7 +80,8 @@ S0 冻结 20 个 repository。归属由事务范围决定，而不是组装便�
 
 当前全部 140 个方法都有 Memory、File 和 PostgreSQL 实现。File 方法全部位于
 `file.go`。普通 Memory/PostgreSQL 方法位于 `memory.go`/`postgres.go`，已迁移的
-Client PostgreSQL 方法位于 `client_postgres.go`；方法 21-23 使用
+Client PostgreSQL 方法位于 `client_postgres.go`，已迁移的 Approval PostgreSQL
+方法位于 `approval_postgres.go`；方法 21-23 使用
 `iscp_onboarding.go` 和 `iscp_onboarding_postgres.go`；方法 24-42 使用
 `mcp_access.go` 和 `mcp_access_postgres.go`。`store.go` 的全局
 编译断言和方法目录测试共同证明后端完整性。
@@ -123,7 +124,7 @@ PostgreSQL 对象。分号用于分隔兼容/派生状态与主要记录。
 
 | Repository | 成功 | 正常缺失 | 排序/过滤/作用域 | 克隆/别名 | 重复/幂等 | CAS/冲突/删除 | 事件/审计/序列 | File 重启/snapshot | 并发/revision | PostgreSQL row/`rows.Err()` |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `ApprovalRepository` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/normal_absence@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/ordering_filtering_scope@s0_repository_characterization_test.go` | `TestS0DefectEvidenceMutableAliases/ApprovalRepository@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/duplicate_idempotency@s0_repository_characterization_test.go` | `TestMemoryStoreFindsExternalApprovalByStableReference@memory_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/ApprovalRepository@s0_repository_lifecycle_test.go` | `TestFileStorePersistsExternalApprovalContext@file_test.go`<br>`TestFileStorePersistsPolicyExecutionContext@file_test.go` | N/A: Approval 使用 pending 状态冲突而非数字 revision，不暴露并发 winner。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
+| `ApprovalRepository` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/normal_absence@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/ordering_filtering_scope@s0_repository_characterization_test.go` | `TestS0ApprovalRepositoryMutableValuesAreIsolated@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/duplicate_idempotency@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ApprovalRepository/CAS_conflict_deletion@s0_repository_characterization_test.go` | `TestApprovalRepositoryContract@approval_repository_contract_test.go` | `TestFileApprovalDefiniteFailureRestoresRecordAndLifecycle@approval_repository_contract_test.go`<br>`TestFileApprovalUnknownOutcomeReconcilesAndSurvivesRestart@approval_repository_contract_test.go` | `TestPostgresApprovalConcurrentExternalRefAndPendingCAS@approval_repository_contract_test.go` | `TestPostgresApprovalWritesAreAtomicLifecycleTransactions@approval_postgres_contract_test.go`<br>`TestPostgresApprovalUnknownOutcomesReturnCandidateAndTerminate@approval_postgres_contract_test.go`<br>`TestPostgresApprovalReadsClassifyQueryScanRowsAndCorruptJSON@approval_postgres_contract_test.go` |
 | `ArtifactMetadataRepository` | `TestS0BackendNeutralRepositoryCharacterization/ArtifactMetadataRepository/success@s0_repository_characterization_test.go`<br>`TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ArtifactMetadataRepository/normal_absence@s0_repository_characterization_test.go`<br>`TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestMemoryStoreListsArtifactObjectsNewestFirst@memory_test.go`<br>`TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | N/A: ArtifactObject 只有 scalar/time 成员，不会跨 Store 边界泄漏可变别名。 | `TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/ArtifactMetadataRepository@s0_repository_lifecycle_test.go` | `TestFileStorePersistsAndReloadsState@file_test.go` | N/A: metadata 没有 revision；ID overwrite 会原子替换 URI index。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `AuditRepository` | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/normal_absence@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/ordering_filtering_scope@s0_repository_characterization_test.go` | `TestS0DefectEvidenceMutableAliases/AuditRepository@s0_repository_characterization_test.go` | N/A: AddAudit 是 append-only 且缺失时生成 ID，没有调用方幂等键。 | N/A: Audit 仅 append，不提供 update、delete、CAS 或 conflict 命令。 | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/event_audit_sequence@s0_repository_characterization_test.go` | `TestFileStorePersistsMemoryRetentionPrune@file_test.go` | N/A: audit append 没有 revision；event cursor sequence 是其排序 token。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `BrowserStateRepository` | `TestS0BackendNeutralRepositoryCharacterization/BrowserStateRepository/success@s0_repository_characterization_test.go`<br>`TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite@memory_test.go`<br>`TestMemoryStoreTracksActiveBrowserLoginBlock@memory_test.go` | `TestS0BackendNeutralRepositoryCharacterization/BrowserStateRepository/normal_absence@s0_repository_characterization_test.go` | `TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite@memory_test.go`<br>`TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate@memory_test.go` | `TestS0DefectEvidenceMutableAliases/BrowserStateRepository@s0_repository_characterization_test.go` | `TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite@memory_test.go` | `TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields@memory_test.go`<br>`TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks@memory_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/BrowserStateRepository@s0_repository_lifecycle_test.go` | `TestFileStoreBrowserHandoffCASRoundTrip@file_test.go`<br>`TestFileStorePersistsAndReloadsState@file_test.go` | `TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields@memory_test.go` | `TestPostgresStoreBrowserHandoffCASRoundTrip@postgres_test.go`<br>`TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
@@ -148,11 +149,11 @@ PostgreSQL 对象。分号用于分隔兼容/派生状态与主要记录。
 [`services/gateway/internal/store`](../../services/gateway/internal/store) 解析。
 PostgreSQL 测试继续受 DSN gate；未设置 DSN 时不能计为通过。
 
-`ALIAS` 证据当前记录 Client、Conversation、Run、Approval、Schedule、
+`ALIAS` 证据当前记录 Client、Conversation、Run、Schedule、
 Connector、PassiveNotification、DeliveryRecord、BrowserState、Memory、Audit
 和 Evaluation 记录在 Memory 以及运行中的 File decorator 中存在可变别名逃逸。
-S0 不修复这些生产契约。每个负责的 repository wave 必须用隔离断言替换相应
-defect-evidence 单元格。
+S0 不修复这些生产契约。Approval 现在已有正向隔离断言；其余每个负责的
+repository wave 必须用隔离断言替换相应 defect-evidence 单元格。
 
 ## 生产消费者矩阵
 
@@ -183,8 +184,6 @@ helper，以及每个具名或匿名局部 Store-compatible 接口的展开 Stor
 | `mcpaccess.updateOperationRecord` | helper | MCP |
 | `mcpaccess.rejectPendingApprovals` | helper | Run + Approval |
 | `mcpaccess.finalizeRevokedOperations` | helper | MCP + Run + Approval + Audit |
-| `mcpaccess.runHasApprovedApproval` | helper | Approval |
-| `mcpaccess.runHasPendingApproval` | helper | Approval |
 | `notification.SendWeixinText/Image/File/Typing` | helper 入口 | Credential；这些入口只调用 `Send`、`SendImage`、`SendFile` 或 `SendTyping`，不调用 `Deliver` |
 | `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential + Session + ExternalChat + ArtifactMetadata |
 | `reminder.Scheduler`, `NewMessageScheduler` | worker + field | Schedule |
@@ -256,9 +255,9 @@ submission point；当前 27 个 PostgreSQL `Exec` 结果被显式丢弃。未�
 | Run `SaveModelCall` / `SaveToolCall` | call record | status audit + event | call + lifecycle；M lock / F rename / P Exec | ID overwrite | model/tool list 或 `GetToolCall` |
 | Run `SaveEpisodeSummary` | episode summary | saved audit + event | summary + lifecycle；M lock / F rename / P Exec | ID overwrite | `ListEpisodeSummaries` |
 | Document `SaveDocumentRecord` | document record | `document.saved` audit + event | record + lifecycle；M lock / F rename / P Exec | ID overwrite；保留 created time | `GetDocumentRecord` |
-| Approval `SaveApproval` | approval 和 external-ref lookup | status audit + event | approval + lifecycle；M lock / F rename / P Exec | P 中部分唯一 external ref | ID/external-ref lookup |
-| Approval `UpdatePendingApproval` | pending approval body | `approval.pending` event | approval + event；M lock / F rename / P CAS-like Exec | 目标必须保持 pending | `GetApproval` |
-| Approval `ResolveApproval` | terminal status、note、time | terminal audit + event | approval + lifecycle；M lock / F rename / P Exec | pending-state 前置条件 | `GetApproval` |
+| Approval `SaveApproval` | approval 和 external-ref lookup | status audit + event | approval + lifecycle；M lock / 带 rollback 或 unknown-outcome fence 的 F rename / P Commit | 精确 ID replay 成功；ID payload 变化或 external-ref 冲突会失败 | `GetApproval`、external-ref lookup、`ReconcileApprovalWrite` |
+| Approval `UpdatePendingApproval` | pending approval body | `approval.modified` audit + `approval.pending` event | approval + lifecycle；M lock / 带 rollback 或 unknown-outcome fence 的 F rename / P Commit | 精确 expected-record CAS；authority 字段不可变 | `GetApproval`、`ReconcileApprovalWrite` |
+| Approval `ResolveApproval` | terminal status、note、time | terminal audit + event | approval + lifecycle；M lock / 带 rollback 或 unknown-outcome fence 的 F rename / P Commit | 相同 terminal status/note 可 replay；不同决策冲突 | `GetApproval`、`ReconcileApprovalWrite` |
 | Schedule `SaveReminder` / `UpdatePendingReminder` | reminder | status audit + event | reminder + lifecycle；M lock / F rename / P Exec | update 使用精确 `UpdatedAt` CAS | `GetReminder` |
 | Schedule `ClaimDueReminders` | 有序 due/stale reminder -> sending | 无 | claimed 集；M lock / F rename / P atomic claim query | status/time lease | `GetReminder`、过滤列表 |
 | Schedule `SaveReminderDelivery` | delivery 加 reminder status/attempt/error/last delivery | delivery audit + event | delivery + reminder + lifecycle；M lock / F rename / P 要求事务 | delivery ID overwrite | delivery list + `GetReminder` |

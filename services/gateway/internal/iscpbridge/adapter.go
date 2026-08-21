@@ -511,8 +511,12 @@ func (a *GatewayAdapter) listApprovals(ctx context.Context, req Request, princip
 	if status == "" {
 		status = "pending"
 	}
+	approvals, err := a.store.ListApprovals(ctx, status)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "approval state is temporarily unavailable", true), now)
+	}
 	views := make([]ApprovalView, 0)
-	for _, approval := range a.store.ListApprovals(status) {
+	for _, approval := range approvals {
 		if req.SessionID != "" && approval.SessionID != req.SessionID {
 			continue
 		}
@@ -543,7 +547,10 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	if strings.TrimSpace(payload.PreviewHash) == "" {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "preview_hash is required", false), now)
 	}
-	approval, ok := a.findApproval(strings.TrimSpace(payload.ApprovalID))
+	approval, ok, err := a.findApproval(ctx, strings.TrimSpace(payload.ApprovalID))
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "approval state is temporarily unavailable", true), now)
+	}
 	if !ok {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "approval not found", false), now)
 	}
@@ -565,7 +572,8 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 		return newResponse(req, "error", nil, nil, bridgeError(CodeStaleState, "approval is no longer pending", false), now)
 	}
 
-	resolved, err := a.store.ResolveApproval(approval.ID, decision, payload.Note)
+	candidate, err := a.store.ResolveApproval(ctx, approval.ID, decision, payload.Note)
+	resolved, err := store.ReconcileApprovalWrite(ctx, a.store, candidate, err)
 	if err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeStaleState, "approval could not be resolved", false), now)
 	}
@@ -657,10 +665,14 @@ func (a *GatewayAdapter) operationFromRun(ctx context.Context, run app.AgentRun,
 	if err != nil {
 		return Operation{}, err
 	}
+	approvals, err := a.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Operation{}, err
+	}
 	result := map[string]any{
 		"run":        run,
 		"tool_calls": toolCallsForRun(toolCalls, run.ID),
-		"approvals":  approvalsForRun(a.store.ListApprovals(""), run.ID),
+		"approvals":  approvalsForRun(approvals, run.ID),
 	}
 	messages, err := a.store.ListMessages(ctx, run.SessionID)
 	if err != nil {
@@ -759,13 +771,8 @@ func (a *GatewayAdapter) pruneOperationsLocked() {
 	}
 }
 
-func (a *GatewayAdapter) findApproval(id string) (app.Approval, bool) {
-	for _, approval := range a.store.ListApprovals("") {
-		if approval.ID == id {
-			return approval, true
-		}
-	}
-	return app.Approval{}, false
+func (a *GatewayAdapter) findApproval(ctx context.Context, id string) (app.Approval, bool, error) {
+	return a.store.GetApproval(ctx, id)
 }
 
 func (a *GatewayAdapter) storedMessageMatches(ctx context.Context, sessionID, messageID, content string) (bool, error) {

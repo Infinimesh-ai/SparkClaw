@@ -516,7 +516,7 @@ func TestPPTXWorkflowBlocksStaleAndGroupedTargetsBeforeApproval(t *testing.T) {
 			if approval != nil || call.Status != "blocked" {
 				t.Fatalf("invalid PPTX target reached approval: call=%#v approval=%#v", call, approval)
 			}
-			if approvals := st.ListApprovals(""); len(approvals) != 0 {
+			if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 				t.Fatalf("invalid PPTX target created approval records: %#v", approvals)
 			}
 			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
@@ -551,7 +551,7 @@ func TestPPTXWorkflowBlocksStaleInsertionRefsBeforeApproval(t *testing.T) {
 			if approval != nil || call.Status != "blocked" {
 				t.Fatalf("stale insertion reference reached approval: call=%#v approval=%#v", call, approval)
 			}
-			if approvals := st.ListApprovals(""); len(approvals) != 0 {
+			if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 				t.Fatalf("stale insertion reference created approval records: %#v", approvals)
 			}
 			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
@@ -577,7 +577,7 @@ func TestPPTXWorkflowBlocksStaleExactTextBeforeApproval(t *testing.T) {
 	if approval != nil || call.Status != "blocked" {
 		t.Fatalf("stale exact-text target reached approval: call=%#v approval=%#v", call, approval)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("stale exact-text target created approval records: %#v", approvals)
 	}
 	if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
@@ -612,7 +612,7 @@ func TestPPTXWorkflowBlocksOversizedUpdatesBeforeApproval(t *testing.T) {
 				},
 				WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 			})
-			if approval != nil || call.Status != "blocked" || len(st.ListApprovals("")) != 0 {
+			if approval != nil || call.Status != "blocked" || len(storetest.MustListApprovals(t, st, "")) != 0 {
 				t.Fatalf("oversized PPTX update reached approval: call=%#v approval=%#v", call, approval)
 			}
 			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
@@ -756,7 +756,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 		Operation: "workflow_step_1", Status: "completed", StartedAt: time.Now().UTC(),
 	})
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved PPTX copy")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "owner approved PPTX copy")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +797,7 @@ func TestApprovedPPTXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 		t.Fatalf("PPTX edit did not wait for approval: call=%#v approval=%#v", call, approval)
 	}
 	writeAgentPPTXFixtureWithThirdTitle(t, root, "Changed while approval was pending")
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "approve stale PPTX regression")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approve stale PPTX regression")
 	if err != nil {
 		t.Fatal(err)
 	}

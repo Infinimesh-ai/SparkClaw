@@ -3,13 +3,43 @@ package happyapproval
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
+
+type approvalRepositoryFaultStore struct {
+	store.Store
+	listErr      error
+	saveErr      error
+	contextKey   any
+	contextValue any
+}
+
+func (s *approvalRepositoryFaultStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+	if s.contextKey != nil {
+		s.contextValue = ctx.Value(s.contextKey)
+	}
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.Store.ListApprovals(ctx, status)
+}
+
+func (s *approvalRepositoryFaultStore) SaveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
+	if s.contextKey != nil {
+		s.contextValue = ctx.Value(s.contextKey)
+	}
+	if s.saveErr != nil {
+		return app.Approval{}, s.saveErr
+	}
+	return s.Store.SaveApproval(ctx, approval)
+}
 
 type recordedCall struct {
 	Server string
@@ -58,7 +88,7 @@ func TestSyncCreatesAndDeduplicatesWaitingPlanApproval(t *testing.T) {
 	if err != nil || changed != 0 {
 		t.Fatalf("second sync changed=%d err=%v", changed, err)
 	}
-	approvals := st.ListApprovals("pending")
+	approvals := storetest.MustListApprovals(t, st, "pending")
 	if len(approvals) != 1 || approvals[0].Source != app.ApprovalSourceHappyTeamPlan || approvals[0].ExternalID != "task-1" ||
 		approvals[0].ExternalContext == nil || approvals[0].ExternalContext.GoalPrompt != "Implement feature safely" ||
 		approvals[0].ExternalContext.Plan != "# Plan\n\n1. Inspect\n2. Implement" || approvals[0].ExternalContext.PlanAvailability != app.ExternalPlanAvailable {
@@ -66,6 +96,63 @@ func TestSyncCreatesAndDeduplicatesWaitingPlanApproval(t *testing.T) {
 	}
 	if planCalls != 1 {
 		t.Fatalf("duplicate task triggered %d plan calls", planCalls)
+	}
+}
+
+func TestSyncPropagatesApprovalRepositoryFailuresAndCallerContext(t *testing.T) {
+	privateCause := errors.New("private approval database failure")
+	key := struct{ name string }{"approval-context"}
+	t.Run("list", func(t *testing.T) {
+		fault := &approvalRepositoryFaultStore{
+			Store: store.NewMemoryStore(), listErr: &store.StoreError{
+				Code: store.StoreErrorUnavailable, Operation: store.OperationApprovalList, Err: privateCause,
+			}, contextKey: key,
+		}
+		caller := &fakeCaller{handler: func(tool string, _ map[string]any) (mcpclient.ToolResult, error) {
+			if tool != "list_tasks" {
+				t.Fatalf("unexpected tool %q", tool)
+			}
+			return jsonResult(map[string]any{"tasks": []any{}}), nil
+		}}
+		ctx := context.WithValue(t.Context(), key, "caller-value")
+		if _, err := New(fault, caller, time.Minute).Sync(ctx); !errors.Is(err, privateCause) || fault.contextValue != "caller-value" {
+			t.Fatalf("Sync list err=%v context=%#v", err, fault.contextValue)
+		}
+	})
+	t.Run("save", func(t *testing.T) {
+		fault := &approvalRepositoryFaultStore{
+			Store: store.NewMemoryStore(), saveErr: &store.StoreError{
+				Code: store.StoreErrorUnavailable, Operation: store.OperationApprovalSave, Err: privateCause,
+			}, contextKey: key,
+		}
+		caller := &fakeCaller{handler: func(tool string, _ map[string]any) (mcpclient.ToolResult, error) {
+			switch tool {
+			case "list_tasks":
+				return jsonResult(map[string]any{"tasks": []any{map[string]any{"id": "task-fault", "status": "WAITING_APPROVAL"}}}), nil
+			case "get_task":
+				return jsonResult(map[string]any{"task": map[string]any{"id": "task-fault", "status": "WAITING_APPROVAL"}}), nil
+			case "get_task_plan":
+				return mcpclient.ToolResult{IsError: true}, nil
+			default:
+				t.Fatalf("unexpected tool %q", tool)
+				return mcpclient.ToolResult{}, nil
+			}
+		}}
+		ctx := context.WithValue(t.Context(), key, "caller-value")
+		if _, err := New(fault, caller, time.Minute).Sync(ctx); !errors.Is(err, privateCause) || fault.contextValue != "caller-value" {
+			t.Fatalf("Sync save err=%v context=%#v", err, fault.contextValue)
+		}
+	})
+}
+
+func TestResolveRejectsNonHappyApprovalBeforeCallingIntegration(t *testing.T) {
+	caller := &fakeCaller{handler: func(tool string, _ map[string]any) (mcpclient.ToolResult, error) {
+		t.Fatalf("unexpected integration call %q", tool)
+		return mcpclient.ToolResult{}, nil
+	}}
+	approval := app.Approval{ID: "approval-tool", Source: app.ApprovalSourceTool, ExternalID: "task"}
+	if _, err := New(store.NewMemoryStore(), caller, time.Minute).Resolve(t.Context(), approval, "approved"); err == nil {
+		t.Fatal("non-Happy approval reached the Happy integration")
 	}
 }
 
@@ -92,7 +179,7 @@ func TestSyncRetriesPlanAfterMemberMachineReconnects(t *testing.T) {
 	if _, err := service.Sync(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	approval, _ := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-offline")
+	approval, _ := storetest.MustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-offline")
 	if approval.ExternalContext == nil || approval.ExternalContext.PlanAvailability != app.ExternalPlanTemporarilyUnavailable {
 		t.Fatalf("offline plan state = %#v", approval.ExternalContext)
 	}
@@ -100,7 +187,7 @@ func TestSyncRetriesPlanAfterMemberMachineReconnects(t *testing.T) {
 	if _, err := service.Sync(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	approval, _ = st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-offline")
+	approval, _ = storetest.MustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-offline")
 	if approval.ExternalContext.PlanAvailability != app.ExternalPlanAvailable || approval.ExternalContext.Plan != "Machine is back" {
 		t.Fatalf("retried plan state = %#v", approval.ExternalContext)
 	}
@@ -125,7 +212,7 @@ func TestSyncDoesNotPersistOversizedPlan(t *testing.T) {
 	if _, err := service.Sync(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	approval, ok := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-large")
+	approval, ok := storetest.MustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-large")
 	if !ok || approval.ExternalContext == nil || approval.ExternalContext.Plan != "" ||
 		approval.ExternalContext.PlanAvailability != app.ExternalPlanTemporarilyUnavailable {
 		t.Fatalf("oversized plan was not bounded: %#v ok=%v", approval, ok)
@@ -134,7 +221,7 @@ func TestSyncDoesNotPersistOversizedPlan(t *testing.T) {
 
 func TestSyncReconcilesTaskThatLeftWaitingApproval(t *testing.T) {
 	st := store.NewMemoryStore()
-	st.SaveApproval(newApproval(task{ID: "task-resolved", Title: "Resolved", Status: "WAITING_APPROVAL"}))
+	storetest.MustSaveApproval(t, st, newApproval(task{ID: "task-resolved", Title: "Resolved", Status: "WAITING_APPROVAL"}))
 	caller := &fakeCaller{handler: func(tool string, _ map[string]any) (mcpclient.ToolResult, error) {
 		switch tool {
 		case "list_tasks":
@@ -150,7 +237,7 @@ func TestSyncReconcilesTaskThatLeftWaitingApproval(t *testing.T) {
 	if changed, err := service.Sync(t.Context()); err != nil || changed != 1 {
 		t.Fatalf("reconcile changed=%d err=%v", changed, err)
 	}
-	approval, _ := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-resolved")
+	approval, _ := storetest.MustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-resolved")
 	if approval.Status != "resolved_elsewhere" || approval.ResolvedAt == nil {
 		t.Fatalf("reconciled approval = %#v", approval)
 	}

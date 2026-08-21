@@ -121,6 +121,30 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationDocumentRecordList, Repository: "DocumentRepository",
 			Method: "ListDocumentRecords", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationApprovalSave: {
+			ID: OperationApprovalSave, Repository: "ApprovalRepository",
+			Method: "SaveApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationApprovalGet: {
+			ID: OperationApprovalGet, Repository: "ApprovalRepository",
+			Method: "GetApproval", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationApprovalFindExternalRef: {
+			ID: OperationApprovalFindExternalRef, Repository: "ApprovalRepository",
+			Method: "FindApprovalByExternalRef", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationApprovalUpdatePending: {
+			ID: OperationApprovalUpdatePending, Repository: "ApprovalRepository",
+			Method: "UpdatePendingApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationApprovalResolve: {
+			ID: OperationApprovalResolve, Repository: "ApprovalRepository",
+			Method: "ResolveApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationApprovalList: {
+			ID: OperationApprovalList, Repository: "ApprovalRepository",
+			Method: "ListApprovals", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

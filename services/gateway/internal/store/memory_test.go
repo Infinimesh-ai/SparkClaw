@@ -42,28 +42,28 @@ func TestMemoryStoreFindsExternalApprovalByStableReference(t *testing.T) {
 			Plan: "# Plan\n\nDo one.", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
-	found, ok := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-one")
+	mustSaveApproval(t, st, approval)
+	found, ok := mustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-one")
 	if !ok || found.ID != approval.ID || found.ExternalContext == nil || found.ExternalContext.Plan != approval.ExternalContext.Plan {
 		t.Fatalf("external approval lookup mismatch: %#v ok=%v", found, ok)
 	}
-	byID, ok := st.GetApproval(approval.ID)
+	byID, ok := mustGetApproval(t, st, approval.ID)
 	if !ok || byID.Source != app.ApprovalSourceHappyTeamPlan {
 		t.Fatalf("external approval id lookup mismatch: %#v ok=%v", byID, ok)
 	}
 	found.ExternalContext.Plan = "caller-only mutation"
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := mustGetApproval(t, st, approval.ID)
 	if stored.ExternalContext.Plan != approval.ExternalContext.Plan {
 		t.Fatalf("approval lookup leaked mutable external context: %#v", stored.ExternalContext)
 	}
-	if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "done"); err != nil {
 		t.Fatal(err)
 	}
 	approval.ExternalContext.Plan = "stale background update"
-	if _, err := st.UpdatePendingApproval(approval); err == nil {
+	if _, err := st.UpdatePendingApproval(t.Context(), NewApprovalUpdate(approval, approval)); err == nil {
 		t.Fatal("stale pending update reopened a resolved approval")
 	}
-	stored, _ = st.GetApproval(approval.ID)
+	stored, _ = mustGetApproval(t, st, approval.ID)
 	if stored.Status != "approved" || stored.ExternalContext.Plan != "# Plan\n\nDo one." {
 		t.Fatalf("resolved approval changed after stale update: %#v", stored)
 	}

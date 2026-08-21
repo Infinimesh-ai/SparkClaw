@@ -141,7 +141,11 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, true, err
 	}
-	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, true, err
+	}
+	allApprovals := approvalsForRun(storedApprovals, run.ID)
 	feedback, err := r.store.ListRunFeedback(ctx, run.ID)
 	if err != nil {
 		return Result{}, true, err

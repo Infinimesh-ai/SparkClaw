@@ -284,7 +284,10 @@ func (r Runtime) resumeMCPWorkspaceDataApproval(ctx context.Context, run app.Age
 	if call == nil {
 		return Result{}, false, nil
 	}
-	approval, ok := r.store.GetApproval(call.ApprovalID)
+	approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+	if err != nil {
+		return Result{}, false, err
+	}
 	if !ok || approval.Status != "approved" {
 		return Result{}, false, nil
 	}

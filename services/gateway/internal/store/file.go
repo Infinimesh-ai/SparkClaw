@@ -923,43 +923,64 @@ func (s *FileStore) ListToolCalls(ctx context.Context, sessionID string) ([]app.
 	return s.inner.ListToolCalls(ctx, sessionID)
 }
 
-func (s *FileStore) SaveApproval(approval app.Approval) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveApproval(approval)
-	s.persist()
-}
-
-func (s *FileStore) GetApproval(id string) (app.Approval, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetApproval(id)
-}
-
-func (s *FileStore) FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindApprovalByExternalRef(source, externalID)
-}
-
-func (s *FileStore) UpdatePendingApproval(approval app.Approval) (app.Approval, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.UpdatePendingApproval(approval)
-	if err == nil {
-		s.persist()
+func (s *FileStore) SaveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.Approval{}, err
 	}
-	return out, err
+	defer release()
+	return runFileCommand(s, ctx, OperationApprovalSave, func(ctx context.Context) (app.Approval, error) {
+		return s.inner.SaveApproval(ctx, approval)
+	})
 }
 
-func (s *FileStore) ResolveApproval(id, status, note string) (app.Approval, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.ResolveApproval(id, status, note)
-	if err == nil {
-		s.persist()
+func (s *FileStore) GetApproval(ctx context.Context, id string) (app.Approval, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalGet, 1)
+	if err != nil {
+		return app.Approval{}, false, err
 	}
-	return out, err
+	defer release()
+	return s.inner.GetApproval(ctx, id)
 }
 
-func (s *FileStore) ListApprovals(status string) []app.Approval {
-	defer s.admitLegacyRead()()
-	return s.inner.ListApprovals(status)
+func (s *FileStore) FindApprovalByExternalRef(ctx context.Context, source app.ApprovalSource, externalID string) (app.Approval, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalFindExternalRef, 1)
+	if err != nil {
+		return app.Approval{}, false, err
+	}
+	defer release()
+	return s.inner.FindApprovalByExternalRef(ctx, source, externalID)
+}
+
+func (s *FileStore) UpdatePendingApproval(ctx context.Context, command ApprovalUpdateCommand) (app.Approval, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalUpdatePending, fileAdmissionCapacity)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationApprovalUpdatePending, func(ctx context.Context) (app.Approval, error) {
+		return s.inner.UpdatePendingApproval(ctx, command)
+	})
+}
+
+func (s *FileStore) ResolveApproval(ctx context.Context, id, status, note string) (app.Approval, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalResolve, fileAdmissionCapacity)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationApprovalResolve, func(ctx context.Context) (app.Approval, error) {
+		return s.inner.ResolveApproval(ctx, id, status, note)
+	})
+}
+
+func (s *FileStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListApprovals(ctx, status)
 }
 
 func (s *FileStore) SaveReminder(reminder app.Reminder) app.Reminder {

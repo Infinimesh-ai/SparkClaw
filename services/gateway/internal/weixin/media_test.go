@@ -372,7 +372,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval", Risk: app.RiskReversible, Status: "approval_pending", ApprovalID: approvalID, StartedAt: time.Now().UTC()}
 	testSaveToolCall(st, call)
 	approval := app.Approval{ID: approvalID, SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve notify", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	cfg := config.Default()
 	cfg.Model.Mock = true
@@ -392,9 +392,9 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	}
 	resolved, _ := testGetToolCall(st, call.ID)
 	if resolved.Status != "completed_after_approval" {
-		t.Fatalf("expected approved call to execute, got %#v sent=%q approvals=%#v", resolved, sentText, st.ListApprovals(""))
+		t.Fatalf("expected approved call to execute, got %#v sent=%q approvals=%#v", resolved, sentText, storetest.MustListApprovals(t, st, ""))
 	}
-	approvals := st.ListApprovals("")
+	approvals := storetest.MustListApprovals(t, st, "")
 	if len(approvals) != 1 || approvals[0].Status != "approved" {
 		t.Fatalf("expected approved approval, got %#v", approvals)
 	}
@@ -436,7 +436,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "docx.replace_paragraph", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}
 	testSaveToolCall(st, call)
 	approval := app.Approval{ID: app.NewID("ap"), SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve docx", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	cfg := config.Default()
 	cfg.Model.Mock = true
@@ -458,7 +458,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	if rejected.Status != "rejected" {
 		t.Fatalf("expected call rejection, got %#v", rejected)
 	}
-	approvals := st.ListApprovals("")
+	approvals := storetest.MustListApprovals(t, st, "")
 	if len(approvals) != 1 || approvals[0].Status != "rejected" {
 		t.Fatalf("expected rejected approval, got %#v", approvals)
 	}

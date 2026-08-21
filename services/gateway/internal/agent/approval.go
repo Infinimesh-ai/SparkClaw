@@ -22,7 +22,10 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("approved tool call not found")
 	}
-	persistedApproval, ok := r.store.GetApproval(call.ApprovalID)
+	persistedApproval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+	if err != nil {
+		return app.ToolCall{}, fmt.Errorf("load persisted approval: %w", err)
+	}
 	if !ok || persistedApproval.ID != approval.ID || persistedApproval.ToolCallID != call.ID ||
 		persistedApproval.SessionID != call.SessionID || persistedApproval.RunID != call.RunID ||
 		persistedApproval.Tool != call.Tool {
@@ -159,13 +162,20 @@ func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID strin
 	if !ok || run.State != "approval_pending" {
 		return nil
 	}
-	for _, approval := range r.store.ListApprovals("pending") {
+	approvals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return fmt.Errorf("load run approvals: %w", err)
+	}
+	for _, approval := range approvals {
+		if approval.Status != "pending" {
+			continue
+		}
 		if approval.RunID == runID {
 			return nil
 		}
 	}
 	now := time.Now().UTC()
-	for _, approval := range approvalsForRun(r.store.ListApprovals(""), runID) {
+	for _, approval := range approvalsForRun(approvals, runID) {
 		if approval.Status != "rejected" && !isLegacyExternalSendApproval(approval) {
 			continue
 		}
@@ -178,6 +188,11 @@ func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID strin
 	run.CompletedAt = &now
 	_, err = r.saveRun(ctx, run)
 	return err
+}
+
+func (r Runtime) saveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
+	candidate, err := r.store.SaveApproval(ctx, approval)
+	return store.ReconcileApprovalWrite(ctx, r.store, candidate, err)
 }
 
 func (r Runtime) observationSummaryLimit() int {

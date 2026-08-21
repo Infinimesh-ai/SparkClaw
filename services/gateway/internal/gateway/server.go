@@ -487,7 +487,11 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	if modelCalls > 0 {
 		modelLatencyAverage = float64(modelLatencyTotal) / float64(modelCalls)
 	}
-	approvals := s.store.ListApprovals("")
+	approvals, err := s.store.ListApprovals(r.Context(), "")
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	pendingApprovals := 0
 	rateLimited := 0
 	for _, approval := range approvals {
@@ -1802,7 +1806,11 @@ func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	approvals := s.store.ListApprovals(r.URL.Query().Get("status"))
+	approvals, err := s.store.ListApprovals(r.Context(), r.URL.Query().Get("status"))
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	for index := range approvals {
 		presentation, err := s.approvalPresentation(r.Context(), approvals[index])
 		if err != nil {
@@ -1878,7 +1886,11 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	if newArgs == nil {
 		newArgs = input.Args
 	}
-	approval, ok := s.findApproval(r.PathValue("id"))
+	approval, ok, err := s.findApproval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
@@ -1891,6 +1903,7 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		s.modifyHappyPlanApproval(w, r, approval, input.Plan, newArgs, input.Note)
 		return
 	}
+	expectedApproval := approval
 	if len(newArgs) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("modify requires args or arguments"))
 		return
@@ -1934,18 +1947,12 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	call = persistedCall
-	s.store.SaveApproval(approval)
-	s.store.AddAudit(app.AuditEvent{
-		SessionID: approval.SessionID,
-		RunID:     approval.RunID,
-		Actor:     "owner",
-		Type:      "approval.modified",
-		Summary:   approval.Summary,
-		Fields: map[string]any{
-			"tool": approval.Tool,
-			"note": input.Note,
-		},
-	})
+	approvalCandidate, approvalErr := s.store.UpdatePendingApproval(r.Context(), store.NewApprovalUpdateWithNote(expectedApproval, approval, input.Note))
+	approval, approvalErr = store.ReconcileApprovalWrite(r.Context(), s.store, approvalCandidate, approvalErr)
+	if approvalErr != nil {
+		writeApprovalStoreError(w, approvalErr)
+		return
+	}
 	s.refreshTrace(r.Context(), approval.RunID)
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
 }
@@ -1983,19 +1990,17 @@ func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusConflict, errors.New("Happy task plan is temporarily unavailable; retry after the member machine reconnects"))
 		return
 	}
+	expectedApproval := approval
 	contextCopy := *approval.ExternalContext
 	contextCopy.Plan = *plan
 	contextCopy.PlanEdited = true
 	approval.ExternalContext = &contextCopy
-	approval, err := s.store.UpdatePendingApproval(approval)
+	candidate, err := s.store.UpdatePendingApproval(r.Context(), store.NewApprovalUpdateWithNote(expectedApproval, approval, note))
+	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
-		writeError(w, http.StatusConflict, err)
+		writeApprovalStoreError(w, err)
 		return
 	}
-	s.store.AddAudit(app.AuditEvent{
-		Actor: "owner", Type: "approval.modified", Summary: approval.Summary,
-		Fields: map[string]any{"source": approval.Source, "external_id": approval.ExternalID, "note": note},
-	})
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": nil})
 }
 
@@ -2006,7 +2011,11 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	_ = readJSON(r, &input)
 	unlock := s.lockApproval(r.PathValue("id"))
 	defer unlock()
-	approval, ok := s.findApproval(r.PathValue("id"))
+	approval, ok, err := s.findApproval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
@@ -2032,9 +2041,10 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		s.resolveHappyPlanApproval(w, r, approval, status, input.Note)
 		return
 	}
-	approval, err := s.store.ResolveApproval(approval.ID, status, input.Note)
+	candidate, err := s.store.ResolveApproval(r.Context(), approval.ID, status, input.Note)
+	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeApprovalStoreError(w, err)
 		return
 	}
 	if status == "approved" && mcpRun && s.mcpAccess != nil {
@@ -2157,7 +2167,15 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 			return
 		}
 		if !resumed {
-			if runHasPendingApproval(s.store, approval.RunID) {
+			pending, pendingErr := runHasPendingApproval(executionCtx, s.store, approval.RunID)
+			if pendingErr != nil {
+				slog.Error("failed to load pending MCP approvals", "run_id", approval.RunID, "code", store.StoreErrorCodeOf(pendingErr))
+				if err := s.mcpAccess.RestoreApprovalRequired(executionCtx, approval.RunID); err != nil {
+					slog.Error("failed to restore MCP approval-required state", "run_id", approval.RunID, "error", err)
+				}
+				return
+			}
+			if pending {
 				if err := s.mcpAccess.RestoreApprovalRequired(executionCtx, approval.RunID); err != nil {
 					slog.Error("failed to restore MCP approval-required state", "run_id", approval.RunID, "error", err)
 				}
@@ -2203,13 +2221,17 @@ func (s *Server) recordMCPApprovalExecutionFailure(ctx context.Context, runID, c
 	}
 }
 
-func runHasPendingApproval(st store.Store, runID string) bool {
-	for _, approval := range st.ListApprovals("pending") {
+func runHasPendingApproval(ctx context.Context, st store.Store, runID string) (bool, error) {
+	approvals, err := st.ListApprovals(ctx, "pending")
+	if err != nil {
+		return false, err
+	}
+	for _, approval := range approvals {
 		if approval.RunID == runID {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, status, note string) {
@@ -2229,9 +2251,10 @@ func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request
 			note = "Happy task was already resolved elsewhere"
 		}
 	}
-	resolved, err := s.store.ResolveApproval(approval.ID, localStatus, note)
+	candidate, err := s.store.ResolveApproval(r.Context(), approval.ID, localStatus, note)
+	resolved, err := store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
-		writeError(w, http.StatusConflict, err)
+		writeApprovalStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -2239,8 +2262,8 @@ func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (s *Server) findApproval(id string) (app.Approval, bool) {
-	return s.store.GetApproval(id)
+func (s *Server) findApproval(ctx context.Context, id string) (app.Approval, bool, error) {
+	return s.store.GetApproval(ctx, id)
 }
 
 func (s *Server) lockApproval(id string) func() {
@@ -2481,6 +2504,11 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 		writeSessionStoreError(w, err)
 		return
 	}
+	storedApprovals, err := s.store.ListApprovals(r.Context(), "")
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	out := make([]app.TraceMetadata, 0, min(limit, len(runs)))
 	for _, run := range runs {
 		if len(out) >= limit {
@@ -2492,7 +2520,7 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		toolCalls := toolCallsForRun(storedToolCalls, run.ID)
-		approvals := approvalsForRun(s.store.ListApprovals(""), run.ID)
+		approvals := approvalsForRun(storedApprovals, run.ID)
 		modelCalls, err := s.store.ListModelCalls(r.Context(), run.SessionID, run.ID)
 		if err != nil {
 			writeSessionStoreError(w, err)
@@ -2942,7 +2970,12 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		return
 	}
 	current.ToolCalls = toolCallsForRun(storedToolCalls, run.ID)
-	current.Approvals = approvalsForRun(s.store.ListApprovals(""), run.ID)
+	storedApprovals, err := s.store.ListApprovals(ctx, "")
+	if err != nil {
+		slog.Warn("trace approval refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	current.Approvals = approvalsForRun(storedApprovals, run.ID)
 	current.Feedback, err = s.store.ListRunFeedback(ctx, run.ID)
 	if err != nil {
 		slog.Warn("trace feedback refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
@@ -3448,6 +3481,23 @@ func writeSessionStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusGatewayTimeout, errors.New("session operation timed out"))
 	default:
 		writeError(w, http.StatusServiceUnavailable, errors.New("session service is unavailable"))
+	}
+}
+
+func writeApprovalStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("approval request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("approval not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("approval changed or was already resolved"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("approval request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("approval operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("approval service is unavailable"))
 	}
 }
 

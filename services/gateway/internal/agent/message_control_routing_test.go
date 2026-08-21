@@ -373,7 +373,7 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
 	testSaveToolCall(st, call)
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID: "ap_document_edit", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: definition.Name,
 		Risk: app.RiskReversible, Status: "approved", Summary: "Approve document edit", CreatedAt: dispatch.Run.StartedAt, ResolvedAt: &completedAt,
 	})

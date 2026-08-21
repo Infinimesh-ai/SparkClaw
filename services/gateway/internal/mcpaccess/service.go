@@ -383,7 +383,10 @@ func (s *Service) operationTool(ctx context.Context, peer app.MCPPeerIdentity, b
 	if !ok || operation.BindingID != binding.ID {
 		return nil, &JSONRPCError{Code: -32005, Message: "operation not found"}
 	}
-	operation = s.reconcileOperation(ctx, operation)
+	operation, err := s.reconcileOperation(ctx, operation)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32603, Message: "approval state is temporarily unavailable"}
+	}
 	if params.Name == "sparkclaw.operation.cancel" {
 		s.mu.Lock()
 		updated, _, err := updateOperationRecord(ctx, s.store, operation.ID, func(current *app.MCPOperation) bool {
@@ -416,11 +419,15 @@ func (s *Service) operationTool(ctx context.Context, peer app.MCPPeerIdentity, b
 	return operationCallResult(operation, params.Name == "sparkclaw.operation.result"), nil
 }
 
-func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOperation) app.MCPOperation {
+func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOperation) (app.MCPOperation, error) {
 	if operation.State != app.MCPOperationApprovalRequired {
-		return operation
+		return operation, nil
 	}
-	for _, approval := range s.store.ListApprovals("") {
+	approvals, err := s.store.ListApprovals(ctx, "")
+	if err != nil {
+		return operation, err
+	}
+	for _, approval := range approvals {
 		if approval.RunID != operation.Invocation.RunID || approval.Status != "rejected" {
 			continue
 		}
@@ -436,14 +443,14 @@ func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOpera
 			return true
 		})
 		if err == nil {
-			return updated
+			return updated, nil
 		}
 		if current, found := s.store.GetMCPOperation(operation.ID); found {
-			return current
+			return current, nil
 		}
-		return operation
+		return operation, nil
 	}
-	return operation
+	return operation, nil
 }
 
 func (s *Service) RevokeBinding(ctx context.Context, id string, now time.Time) (app.MCPBinding, error) {
@@ -592,11 +599,19 @@ func (s *Service) syncOperationFromResult(ctx context.Context, id string, result
 }
 
 func (s *Service) syncOperationFromResultWithContent(ctx context.Context, id string, result agent.Result, includeContent bool) error {
+	approvals := []app.Approval(nil)
+	if result.WorkflowResult != nil && result.WorkflowResult.Status == app.WorkflowResultWaiting {
+		var err error
+		approvals, err = s.store.ListApprovals(ctx, "")
+		if err != nil {
+			return err
+		}
+	}
 	updated, changed, err := updateOperationRecord(ctx, s.store, id, func(operation *app.MCPOperation) bool {
 		if operationTerminal(operation.State) || result.WorkflowResult == nil {
 			return false
 		}
-		if result.WorkflowResult.Status == app.WorkflowResultWaiting && runHasApprovedApproval(s.store, result.Run.ID) && !runHasPendingApproval(s.store, result.Run.ID) {
+		if result.WorkflowResult.Status == app.WorkflowResultWaiting && runHasApprovedApproval(approvals, result.Run.ID) && !runHasPendingApproval(approvals, result.Run.ID) {
 			return false
 		}
 		payload := map[string]any{"run_id": result.Run.ID}
@@ -622,8 +637,11 @@ func (s *Service) syncOperationFromResultWithContent(ctx context.Context, id str
 	return nil
 }
 
-func runHasApprovedApproval(st store.Store, runID string) bool {
-	for _, approval := range st.ListApprovals("approved") {
+func runHasApprovedApproval(approvals []app.Approval, runID string) bool {
+	for _, approval := range approvals {
+		if approval.Status != "approved" {
+			continue
+		}
 		if approval.RunID == runID {
 			return true
 		}
@@ -631,8 +649,11 @@ func runHasApprovedApproval(st store.Store, runID string) bool {
 	return false
 }
 
-func runHasPendingApproval(st store.Store, runID string) bool {
-	for _, approval := range st.ListApprovals("pending") {
+func runHasPendingApproval(approvals []app.Approval, runID string) bool {
+	for _, approval := range approvals {
+		if approval.Status != "pending" {
+			continue
+		}
 		if approval.RunID == runID {
 			return true
 		}

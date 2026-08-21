@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
@@ -130,7 +131,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		!strings.Contains(conflictingCall.Error, "source_row_hash conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting XLSX row evidence was not blocked before approval: call=%#v approval=%#v", conflictingCall, conflictingApproval)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("conflicting XLSX evidence created an owner approval: %#v", approvals)
 	}
 
@@ -157,7 +158,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		t.Fatalf("XLSX output existed before approval: %v", statErr)
 	}
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "approved synthetic XLSX regression edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "approved synthetic XLSX regression edit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing
 	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "tables") {
 		t.Fatalf("unverified XLSX table feature reached approval: call=%#v approval=%#v", call, approval)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("unverified XLSX package created an owner approval: %#v", approvals)
 	}
 	if _, statErr := os.Stat(filepath.Join(root, outputRef)); !os.IsNotExist(statErr) {
@@ -259,7 +260,7 @@ func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationThroughPipeline(
 	if approval == nil || call.Status != "approval_pending" {
 		t.Fatalf("evidence-bound XLSX edit did not reach approval: call=%#v approval=%#v", call, approval)
 	}
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "approve stale-source regression")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approve stale-source regression")
 	if err != nil {
 		t.Fatal(err)
 	}

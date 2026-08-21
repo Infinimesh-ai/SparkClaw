@@ -47,7 +47,11 @@ func (h *ToolHub) notifyAskApproval(ctx context.Context, args map[string]any, se
 	if _, err = store.ReconcileToolCallWrite(ctx, h.store, candidate, err); err != nil {
 		return Result{}, fmt.Errorf("persist approval tool call: %w", err)
 	}
-	h.store.SaveApproval(approval)
+	approvalCandidate, err := h.store.SaveApproval(ctx, approval)
+	approval, err = store.ReconcileApprovalWrite(ctx, h.store, approvalCandidate, err)
+	if err != nil {
+		return Result{}, fmt.Errorf("persist approval request: %w", err)
+	}
 	return Result{Output: map[string]any{
 		"status":      "approval_requested",
 		"approval_id": approval.ID,

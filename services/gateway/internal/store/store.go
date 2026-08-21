@@ -28,6 +28,8 @@ func connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, curre
 
 var ErrPassiveNotificationConflict = errors.New("notification idempotency key was reused with a different payload")
 var ErrPassiveNotificationNotFound = errors.New("notification not found")
+var ErrApprovalConflict = errors.New("approval changed or was already resolved")
+var ErrApprovalNotFound = errors.New("approval not found")
 var ErrMCPAccessTicketInvalid = errors.New("MCP access ticket is invalid or unavailable")
 var ErrISCPOnboardingConflict = errors.New("ISCP onboarding already exists")
 var ErrMCPBindingUnavailable = errors.New("MCP binding is unavailable")
@@ -123,6 +125,15 @@ type DocumentRepository interface {
 	ListDocumentRecords(context.Context, string, string, int) ([]app.DocumentRecord, error)
 }
 
+type ApprovalRepository interface {
+	SaveApproval(context.Context, app.Approval) (app.Approval, error)
+	GetApproval(context.Context, string) (app.Approval, bool, error)
+	FindApprovalByExternalRef(context.Context, app.ApprovalSource, string) (app.Approval, bool, error)
+	UpdatePendingApproval(context.Context, ApprovalUpdateCommand) (app.Approval, error)
+	ResolveApproval(context.Context, string, string, string) (app.Approval, error)
+	ListApprovals(context.Context, string) ([]app.Approval, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -150,6 +161,7 @@ type Store interface {
 	ConversationRepository
 	RunRepository
 	DocumentRepository
+	ApprovalRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -169,12 +181,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	SaveApproval(approval app.Approval)
-	GetApproval(id string) (app.Approval, bool)
-	FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool)
-	UpdatePendingApproval(approval app.Approval) (app.Approval, error)
-	ResolveApproval(id, status, note string) (app.Approval, error)
-	ListApprovals(status string) []app.Approval
 	SaveReminder(reminder app.Reminder) app.Reminder
 	UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error)
 	GetReminder(id string) (app.Reminder, bool)
@@ -276,6 +282,9 @@ var (
 	_ DocumentRepository       = (*MemoryStore)(nil)
 	_ DocumentRepository       = (*FileStore)(nil)
 	_ DocumentRepository       = (*PostgresStore)(nil)
+	_ ApprovalRepository       = (*MemoryStore)(nil)
+	_ ApprovalRepository       = (*FileStore)(nil)
+	_ ApprovalRepository       = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

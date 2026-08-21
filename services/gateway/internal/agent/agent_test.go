@@ -134,7 +134,7 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("guard-blocked request should not execute tools: %#v", calls)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("guard-blocked request should not create approvals: %#v", approvals)
 	}
 	modelCalls := testListModelCalls(st, session.ID, result.Run.ID)
@@ -321,7 +321,7 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("file content should not trigger extra tools: %#v", calls)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("file content should not create approvals: %#v", approvals)
 	}
 	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
@@ -2490,8 +2490,8 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 			t.Fatalf("unregistered code task entered ReAct for %q", goal)
 		}
 	}
-	if len(testListToolCalls(st, session.ID)) != 0 || len(st.ListApprovals("")) != 0 {
-		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", testListToolCalls(st, session.ID), st.ListApprovals(""))
+	if len(testListToolCalls(st, session.ID)) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
+		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", testListToolCalls(st, session.ID), storetest.MustListApprovals(t, st, ""))
 	}
 }
 
@@ -2594,7 +2594,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		CompletedAt: &mutationDone,
 	})
 
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:         app.NewID("ap"),
 		SessionID:  session.ID,
 		RunID:      run.ID,
@@ -3078,8 +3078,8 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	if result.Run.State != "blocked" || result.Run.CompletedAt == nil || result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
 		t.Fatalf("unregistered dangerous run did not fail closed: %#v", result)
 	}
-	if len(st.ListApprovals("")) != 0 || len(testListToolCalls(st, session.ID)) != 0 || hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
-		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", st.ListApprovals(""), testListToolCalls(st, session.ID))
+	if len(storetest.MustListApprovals(t, st, "")) != 0 || len(testListToolCalls(st, session.ID)) != 0 || hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", storetest.MustListApprovals(t, st, ""), testListToolCalls(st, session.ID))
 	}
 }
 

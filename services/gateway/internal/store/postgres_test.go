@@ -174,8 +174,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		PolicyContext: policyContext,
 		CreatedAt:     time.Now().UTC(),
 	}
-	st.SaveApproval(approval)
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "ok")
+	mustSaveApproval(t, st, approval)
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	}
 	defer restarted.Close()
 	restartedCall, callOK := testGetToolCall(restarted, call.ID)
-	restartedApproval, approvalOK := restarted.GetApproval(approval.ID)
+	restartedApproval, approvalOK := mustGetApproval(t, restarted, approval.ID)
 	if !callOK || !approvalOK || restartedCall.PolicyContext == nil || restartedApproval.PolicyContext == nil ||
 		restartedCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
 		restartedApproval.PolicyContext.ContractDigest != policyContext.ContractDigest {
@@ -204,20 +204,20 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 			Plan: "Database-backed plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(externalApproval)
-	storedExternal, ok := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-postgres")
+	mustSaveApproval(t, st, externalApproval)
+	storedExternal, ok := mustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-postgres")
 	if !ok || storedExternal.SessionID != "" || storedExternal.RunID != "" || storedExternal.ToolCallID != "" ||
 		storedExternal.ExternalContext == nil || storedExternal.ExternalContext.Plan != "Database-backed plan" {
 		t.Fatalf("external approval did not round trip without agent references: %#v ok=%v", storedExternal, ok)
 	}
-	if _, err := st.ResolveApproval(externalApproval.ID, "approved", "done"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), externalApproval.ID, "approved", "done"); err != nil {
 		t.Fatal(err)
 	}
 	externalApproval.ExternalContext.Plan = "stale update"
-	if _, err := st.UpdatePendingApproval(externalApproval); err == nil {
+	if _, err := st.UpdatePendingApproval(t.Context(), NewApprovalUpdate(externalApproval, externalApproval)); err == nil {
 		t.Fatal("stale PostgreSQL update reopened a resolved approval")
 	}
-	storedExternal, _ = st.GetApproval(externalApproval.ID)
+	storedExternal, _ = mustGetApproval(t, st, externalApproval.ID)
 	if storedExternal.Status != "approved" || storedExternal.ExternalContext.Plan != "Database-backed plan" {
 		t.Fatalf("resolved PostgreSQL approval changed after stale update: %#v", storedExternal)
 	}

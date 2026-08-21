@@ -148,8 +148,8 @@ func TestDOCXUnsupportedTargetsBlockWithoutApproval(t *testing.T) {
 				len(decision.OutcomeRefs) != 0 {
 				t.Fatalf("unsupported target did not fail closed: %#v", decision)
 			}
-			if len(st.ListApprovals("")) != 0 || len(toolCallsForRun(testListToolCalls(st, session.ID), dispatch.Run.ID)) != 1 {
-				t.Fatalf("unsupported target created mutation state: approvals=%#v calls=%#v", st.ListApprovals(""), testListToolCalls(st, session.ID))
+			if len(storetest.MustListApprovals(t, st, "")) != 0 || len(toolCallsForRun(testListToolCalls(st, session.ID), dispatch.Run.ID)) != 1 {
+				t.Fatalf("unsupported target created mutation state: approvals=%#v calls=%#v", storetest.MustListApprovals(t, st, ""), testListToolCalls(st, session.ID))
 			}
 		})
 	}
@@ -338,7 +338,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC(),
 	})
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved file-backed DOCX style edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "owner approved file-backed DOCX style edit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,9 +396,9 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	}
 	persistedRun, ok := testGetRun(reloaded, run.ID)
 	documentRecords := mustListAgentDocumentRecords(t, reloaded, session.OwnerID, session.ID, 10)
-	if !ok || persistedRun.State != "completed" || len(reloaded.ListApprovals("approved")) != 1 ||
+	if !ok || persistedRun.State != "completed" || len(storetest.MustListApprovals(t, reloaded, "approved")) != 1 ||
 		len(documentRecords) < 2 {
-		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, reloaded.ListApprovals("approved"), documentRecords)
+		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, storetest.MustListApprovals(t, reloaded, "approved"), documentRecords)
 	}
 }
 

@@ -48,6 +48,8 @@ type PostgresStore struct {
 	conversationPostgres              ownerPostgresOps
 	runPostgres                       ownerPostgresOps
 	documentPostgres                  ownerPostgresOps
+	approvalPostgres                  ownerPostgresOps
+	approvalCommandGate               *semaphore.Weighted
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -122,6 +124,8 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		conversationPostgres:              pgxOwnerPostgresOps{pool: pool},
 		runPostgres:                       pgxOwnerPostgresOps{pool: pool},
 		documentPostgres:                  pgxOwnerPostgresOps{pool: pool},
+		approvalPostgres:                  pgxOwnerPostgresOps{pool: pool},
+		approvalCommandGate:               semaphore.NewWeighted(1),
 		passiveNotificationRevs:           map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
@@ -1187,159 +1191,225 @@ func classifyDocumentPostgresError(operation StoreOperation, ctx context.Context
 	return storeError(operation, StoreErrorUnavailable, cause)
 }
 
-func (s *PostgresStore) SaveApproval(approval app.Approval) {
-	ctx := context.Background()
-	approval = normalizeApproval(approval)
-	if approval.CreatedAt.IsZero() {
-		approval.CreatedAt = time.Now().UTC()
+func (s *PostgresStore) SaveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
+	ctx, cancel := operationContext(ctx, OperationApprovalSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationApprovalSave, ctx); err != nil {
+		return app.Approval{}, err
 	}
-	_, _ = s.db.Exec(ctx, `
+	releaseGate, err := s.acquireApprovalCommand(ctx, OperationApprovalSave)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer releaseGate()
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationApprovalSave, s.approvalPostgres)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer releasePostgresSession(session, release)
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, approvalAdvisoryKey(approval.ID)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, app.Approval{}, session, transaction, release, err)
+	}
+	var existing *app.Approval
+	current, err := scanApproval(transaction.QueryRow(ctx, approvalSelectSQL+` WHERE id = $1 FOR UPDATE`, approval.ID))
+	if err == nil {
+		existing = &current
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, app.Approval{}, session, transaction, release, err)
+	}
+	approval, err = prepareApproval(approval, existing, time.Now())
+	if err != nil {
+		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalSave, StoreErrorInvalid, session, transaction, release, err)
+	}
+	if existing != nil {
+		if approvalsEqual(*existing, approval) {
+			if err := rollbackPostgresTransaction(ctx, session, transaction, release, nil); err != nil {
+				return app.Approval{}, classifyApprovalPostgresError(OperationApprovalSave, ctx, err)
+			}
+			return approval, nil
+		}
+		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalSave, StoreErrorConflict, session, transaction, release, ErrApprovalConflict)
+	}
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO approvals (
 			id, source, external_id, external_context, session_id, run_id, tool_call_id,
 			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, resolution_note, policy_context
+			resolved_at, resolution_note, policy_context, presentation
 		)
 		VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), nullif($7, ''), $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''), $18)
-		ON CONFLICT (id) DO UPDATE SET
-			source = EXCLUDED.source,
-			external_id = EXCLUDED.external_id,
-			external_context = EXCLUDED.external_context,
-			status = EXCLUDED.status,
-			summary = EXCLUDED.summary,
-			reason = EXCLUDED.reason,
-			resources = EXCLUDED.resources,
-			arguments = EXCLUDED.arguments,
-			resolved_at = EXCLUDED.resolved_at,
-			resolution_note = EXCLUDED.resolution_note,
-			policy_context = EXCLUDED.policy_context
-	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID, approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt, approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext))
-	actor := "policy"
-	if approval.Source != app.ApprovalSourceTool {
-		actor = "integration"
+			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''), $18, $19)
+	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID,
+		approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary,
+		approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt,
+		approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext), optionalJSON(approval.Presentation)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, approval, session, transaction, release, err)
 	}
-	s.appendAudit(ctx, "approval."+approval.Status, approval.SessionID, approval.RunID, actor, approval.Summary, map[string]any{
-		"tool": approval.Tool,
-		"risk": approval.Risk,
-	})
-	s.appendEvent(ctx, "approval."+approval.Status, approval.SessionID, approval.RunID, approval)
+	if err := appendApprovalLifecycle(transaction, ctx, approval, approvalActor(approval)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, approval, session, transaction, release, err)
+	}
+	return commitApprovalPostgres(ctx, OperationApprovalSave, approval, session, transaction, release)
 }
 
-func (s *PostgresStore) GetApproval(id string) (app.Approval, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, source, external_id, external_context,
-			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
-			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, ''), policy_context
-		FROM approvals
-		WHERE id = $1
-	`, id)
-	approval, err := scanApproval(row)
-	return approval, err == nil
+func (s *PostgresStore) GetApproval(ctx context.Context, id string) (app.Approval, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationApprovalGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationApprovalGet, ctx); err != nil {
+		return app.Approval{}, false, err
+	}
+	approval, err := scanApproval(s.approvalPostgres.QueryRow(ctx, approvalSelectSQL+` WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Approval{}, false, nil
+	}
+	if err != nil {
+		return app.Approval{}, false, classifyApprovalPostgresError(OperationApprovalGet, ctx, err)
+	}
+	return approval, true, nil
 }
 
-func (s *PostgresStore) FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, source, external_id, external_context,
-			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
-			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, ''), policy_context
-		FROM approvals
+func (s *PostgresStore) FindApprovalByExternalRef(ctx context.Context, source app.ApprovalSource, externalID string) (app.Approval, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationApprovalFindExternalRef, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationApprovalFindExternalRef, ctx); err != nil {
+		return app.Approval{}, false, err
+	}
+	approval, err := scanApproval(s.approvalPostgres.QueryRow(ctx, approvalSelectSQL+`
 		WHERE source = $1 AND external_id = $2
-	`, source, externalID)
-	approval, err := scanApproval(row)
-	return approval, err == nil
+		ORDER BY created_at DESC, id ASC
+		LIMIT 1
+	`, source, externalID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Approval{}, false, nil
+	}
+	if err != nil {
+		return app.Approval{}, false, classifyApprovalPostgresError(OperationApprovalFindExternalRef, ctx, err)
+	}
+	return approval, true, nil
 }
 
-func (s *PostgresStore) UpdatePendingApproval(approval app.Approval) (app.Approval, error) {
-	approval = normalizeApproval(approval)
-	approval.Status = "pending"
-	approval.ResolvedAt = nil
-	approval.ResolutionNote = ""
-	command, err := s.db.Exec(context.Background(), `
-		UPDATE approvals SET
-			source = $2, external_id = $3, external_context = $4, summary = $5,
-			reason = $6, resources = $7, arguments = $8
+func (s *PostgresStore) UpdatePendingApproval(ctx context.Context, command ApprovalUpdateCommand) (app.Approval, error) {
+	ctx, cancel := operationContext(ctx, OperationApprovalUpdatePending, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationApprovalUpdatePending, ctx); err != nil {
+		return app.Approval{}, err
+	}
+	releaseGate, err := s.acquireApprovalCommand(ctx, OperationApprovalUpdatePending)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer releaseGate()
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationApprovalUpdatePending, s.approvalPostgres)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer releasePostgresSession(session, release)
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, approvalAdvisoryKey(command.Candidate.ID)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalUpdatePending, app.Approval{}, session, transaction, release, err)
+	}
+	current, err := scanApproval(transaction.QueryRow(ctx, approvalSelectSQL+` WHERE id = $1 FOR UPDATE`, command.Candidate.ID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalUpdatePending, StoreErrorNotFound, session, transaction, release, ErrApprovalNotFound)
+	}
+	if err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalUpdatePending, app.Approval{}, session, transaction, release, err)
+	}
+	approval, err := preparePendingApprovalUpdate(command, current)
+	if err != nil {
+		code := StoreErrorInvalid
+		if errors.Is(err, ErrApprovalConflict) {
+			code = StoreErrorConflict
+		}
+		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalUpdatePending, code, session, transaction, release, err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		UPDATE approvals SET external_context = $2, summary = $3, reason = $4, resources = $5, arguments = $6
 		WHERE id = $1 AND status = 'pending'
-	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext),
-		approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments))
-	if err != nil {
-		return app.Approval{}, err
+	`, approval.ID, mustJSON(approval.ExternalContext), approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalUpdatePending, approval, session, transaction, release, err)
 	}
-	if command.RowsAffected() == 0 {
-		if _, ok := s.GetApproval(approval.ID); !ok {
-			return app.Approval{}, errors.New("approval not found")
-		}
-		return app.Approval{}, errors.New("approval already resolved")
+	if err := appendApprovalUpdateLifecycle(transaction, ctx, approval, command.Note); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalUpdatePending, approval, session, transaction, release, err)
 	}
-	s.appendEvent(context.Background(), "approval.pending", approval.SessionID, approval.RunID, approval)
-	return approval, nil
+	return commitApprovalPostgres(ctx, OperationApprovalUpdatePending, approval, session, transaction, release)
 }
 
-func (s *PostgresStore) ResolveApproval(id, status, note string) (app.Approval, error) {
-	ctx := context.Background()
-	tx, err := s.db.Begin(ctx)
+func (s *PostgresStore) ResolveApproval(ctx context.Context, id, status, note string) (app.Approval, error) {
+	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
+		return app.Approval{}, err
+	}
+	releaseGate, err := s.acquireApprovalCommand(ctx, OperationApprovalResolve)
 	if err != nil {
 		return app.Approval{}, err
 	}
-	defer rollbackTx(ctx, tx)
-	row := tx.QueryRow(ctx, `
-		SELECT id, source, external_id, external_context,
-			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
-			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, ''), policy_context
-		FROM approvals
-		WHERE id = $1
-		FOR UPDATE
-	`, id)
-	approval, err := scanApproval(row)
+	defer releaseGate()
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationApprovalResolve, s.approvalPostgres)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.Approval{}, errors.New("approval not found")
+		return app.Approval{}, err
+	}
+	defer releasePostgresSession(session, release)
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, approvalAdvisoryKey(id)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, app.Approval{}, session, transaction, release, err)
+	}
+	current, err := scanApproval(transaction.QueryRow(ctx, approvalSelectSQL+` WHERE id = $1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalResolve, StoreErrorNotFound, session, transaction, release, ErrApprovalNotFound)
+	}
+	if err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, app.Approval{}, session, transaction, release, err)
+	}
+	approval, replay, err := prepareApprovalResolution(current, status, note, time.Now())
+	if err != nil {
+		code := StoreErrorInvalid
+		if errors.Is(err, ErrApprovalConflict) {
+			code = StoreErrorConflict
 		}
-		return app.Approval{}, err
+		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalResolve, code, session, transaction, release, err)
 	}
-	if approval.Status != "pending" {
-		return app.Approval{}, errors.New("approval already resolved")
+	if replay {
+		if err := rollbackPostgresTransaction(ctx, session, transaction, release, nil); err != nil {
+			return app.Approval{}, classifyApprovalPostgresError(OperationApprovalResolve, ctx, err)
+		}
+		return approval, nil
 	}
-	now := time.Now().UTC()
-	approval.Status = status
-	approval.ResolvedAt = &now
-	approval.ResolutionNote = note
-	if _, err := tx.Exec(ctx, `
-		UPDATE approvals
-		SET status = $2, resolved_at = $3, resolution_note = nullif($4, '')
-		WHERE id = $1
+	if _, err := transaction.Exec(ctx, `
+		UPDATE approvals SET status = $2, resolved_at = $3, resolution_note = nullif($4, '')
+		WHERE id = $1 AND status = 'pending'
 	`, approval.ID, approval.Status, approval.ResolvedAt, approval.ResolutionNote); err != nil {
-		return app.Approval{}, err
+		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, approval, session, transaction, release, err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.Approval{}, err
+	if err := appendApprovalLifecycle(transaction, ctx, approval, approvalResolutionActor(approval.Status)); err != nil {
+		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, approval, session, transaction, release, err)
 	}
-	actor := "owner"
-	if status == "resolved_elsewhere" {
-		actor = "integration"
-	}
-	s.appendAudit(ctx, "approval."+status, approval.SessionID, approval.RunID, actor, approval.Summary, map[string]any{"note": note})
-	s.appendEvent(ctx, "approval."+status, approval.SessionID, approval.RunID, approval)
-	return approval, nil
+	return commitApprovalPostgres(ctx, OperationApprovalResolve, approval, session, transaction, release)
 }
 
-func (s *PostgresStore) ListApprovals(status string) []app.Approval {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT id, source, external_id, external_context,
-			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
-			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, ''), policy_context
-		FROM approvals
+func (s *PostgresStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+	ctx, cancel := operationContext(ctx, OperationApprovalList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationApprovalList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.approvalPostgres.Query(ctx, approvalSelectSQL+`
 		WHERE $1 = '' OR status = $1
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id ASC
 	`, status)
 	if err != nil {
-		return []app.Approval{}
+		return nil, classifyApprovalPostgresError(OperationApprovalList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanApproval)
+	out := make([]app.Approval, 0)
+	for rows.Next() {
+		approval, err := scanApproval(rows)
+		if err != nil {
+			return nil, classifyApprovalPostgresError(OperationApprovalList, ctx, err)
+		}
+		out = append(out, approval)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyApprovalPostgresError(OperationApprovalList, ctx, err)
+	}
+	return out, nil
 }
 
 func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
@@ -3375,10 +3445,11 @@ func scanApproval(row scanner) (app.Approval, error) {
 	var resources []byte
 	var args []byte
 	var policyContext []byte
+	var presentation []byte
 	err := row.Scan(&approval.ID, &source, &approval.ExternalID, &externalContext,
 		&approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk,
 		&approval.Status, &approval.Summary, &approval.Reason, &resources, &args,
-		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext)
+		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext, &presentation)
 	if err != nil {
 		return app.Approval{}, err
 	}
@@ -3386,17 +3457,31 @@ func scanApproval(row scanner) (app.Approval, error) {
 	approval.Risk = app.RiskLevel(risk)
 	if len(externalContext) > 0 && string(externalContext) != "null" {
 		approval.ExternalContext = &app.ExternalApprovalContext{}
-		_ = json.Unmarshal(externalContext, approval.ExternalContext)
+		if err := json.Unmarshal(externalContext, approval.ExternalContext); err != nil {
+			return app.Approval{}, fmt.Errorf("%w: external context: %v", errApprovalJSONDecode, err)
+		}
 	}
 	approval.Resources = []string{}
-	_ = json.Unmarshal(resources, &approval.Resources)
+	if err := json.Unmarshal(resources, &approval.Resources); err != nil {
+		return app.Approval{}, fmt.Errorf("%w: resources: %v", errApprovalJSONDecode, err)
+	}
 	approval.Arguments = map[string]any{}
-	_ = json.Unmarshal(args, &approval.Arguments)
+	if err := json.Unmarshal(args, &approval.Arguments); err != nil {
+		return app.Approval{}, fmt.Errorf("%w: arguments: %v", errApprovalJSONDecode, err)
+	}
 	if len(policyContext) > 0 && string(policyContext) != "null" {
 		approval.PolicyContext = &app.PolicyExecutionContext{}
-		_ = json.Unmarshal(policyContext, approval.PolicyContext)
+		if err := json.Unmarshal(policyContext, approval.PolicyContext); err != nil {
+			return app.Approval{}, fmt.Errorf("%w: policy context: %v", errApprovalJSONDecode, err)
+		}
 	}
-	return normalizeApproval(approval), nil
+	if len(presentation) > 0 && string(presentation) != "null" {
+		approval.Presentation = &app.ApprovalPresentation{}
+		if err := json.Unmarshal(presentation, approval.Presentation); err != nil {
+			return app.Approval{}, fmt.Errorf("%w: presentation: %v", errApprovalJSONDecode, err)
+		}
+	}
+	return normalizePersistedApproval(approval)
 }
 
 func scanReminder(row scanner) (app.Reminder, error) {

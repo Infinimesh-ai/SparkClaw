@@ -695,7 +695,7 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
 			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
 		})
-	if len(result.Approvals) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(result.Approvals) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
 		t.Fatalf("bounded browser.interaction click unexpectedly requested approval: %#v", result.Approvals)
 	}
 	if adapter.clicks != 1 || adapter.snapshots != 3 {

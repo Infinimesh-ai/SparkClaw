@@ -903,7 +903,11 @@ func (r Runtime) finishBrowserLoginBlockedRun(ctx context.Context, run app.Agent
 		return Result{}, fmt.Errorf("load browser login tool calls: %w", err)
 	}
 	allToolCalls := toolCallsForRun(storedToolCalls, run.ID)
-	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, fmt.Errorf("load browser login approvals: %w", err)
+	}
+	allApprovals := approvalsForRun(storedApprovals, run.ID)
 	feedback, err := r.store.ListRunFeedback(ctx, run.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("load browser login feedback: %w", err)
@@ -962,7 +966,11 @@ func (r Runtime) finishBrowserLoginCanceledRun(ctx context.Context, run app.Agen
 		return Result{}, fmt.Errorf("load canceled browser tool calls: %w", err)
 	}
 	toolCalls := toolCallsForRun(storedToolCalls, run.ID)
-	approvals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, fmt.Errorf("load canceled browser approvals: %w", err)
+	}
+	approvals := approvalsForRun(storedApprovals, run.ID)
 	episode := summarizeEpisode(block.OriginalGoal, run, toolCalls, approvals, run.Summary, now)
 	if _, err := r.store.SaveEpisodeSummary(ctx, episode); err != nil {
 		return Result{}, fmt.Errorf("persist canceled browser episode: %w", err)

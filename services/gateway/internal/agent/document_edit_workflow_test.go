@@ -99,7 +99,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	testSaveRun(st, storedRun)
 	testSaveModelCall(st, app.ModelCall{ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC()})
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved document copy")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "owner approved document copy")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -188,7 +188,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC(),
 	})
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "fixture owner approved PDF page export")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "fixture owner approved PDF page export")
 	if err != nil {
 		t.Fatal(err)
 	}

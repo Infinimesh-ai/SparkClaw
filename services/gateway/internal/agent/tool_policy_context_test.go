@@ -161,7 +161,7 @@ func TestContextBoundApprovalRejectsChangedMCPIdentity(t *testing.T) {
 	if pending == nil {
 		t.Fatal("external MCP workspace search did not queue approval")
 	}
-	approved, err := st.ResolveApproval(pending.ID, "approved", "owner approved")
+	approved, err := st.ResolveApproval(t.Context(), pending.ID, "approved", "owner approved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestContextBoundApprovalRejectsChangedAuthorizationPrincipal(t *testing.T) 
 	if pending == nil {
 		t.Fatal("external MCP workspace search did not queue approval")
 	}
-	approved, err := st.ResolveApproval(pending.ID, "approved", "owner approved")
+	approved, err := st.ResolveApproval(t.Context(), pending.ID, "approved", "owner approved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,8 +244,8 @@ func TestLegacyExternalSendApprovalCannotResumeDelivery(t *testing.T) {
 	}
 	call.ApprovalID = approval.ID
 	testSaveToolCall(st, call)
-	st.SaveApproval(approval)
-	approved, err := st.ResolveApproval(approval.ID, "approved", "old approval")
+	storetest.MustSaveApproval(t, st, approval)
+	approved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "old approval")
 	if err != nil {
 		t.Fatal(err)
 	}

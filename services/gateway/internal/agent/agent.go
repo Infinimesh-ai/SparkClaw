@@ -271,7 +271,11 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			return Result{}, fmt.Errorf("load blocked run tool calls: %w", err)
 		}
 		allToolCalls := toolCallsForRun(storedToolCalls, run.ID)
-		allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+		storedApprovals, err := r.store.ListApprovals(ctx, "")
+		if err != nil {
+			return Result{}, fmt.Errorf("load blocked run approvals: %w", err)
+		}
+		allApprovals := approvalsForRun(storedApprovals, run.ID)
 		feedback, err := r.store.ListRunFeedback(ctx, run.ID)
 		if err != nil {
 			return Result{}, fmt.Errorf("load blocked run feedback: %w", err)
@@ -378,7 +382,11 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		if err != nil {
 			return Result{}, err
 		}
-		result.Approvals = approvalsForRun(r.store.ListApprovals("pending"), run.ID)
+		storedApprovals, err := r.store.ListApprovals(ctx, "pending")
+		if err != nil {
+			return Result{}, fmt.Errorf("load pending run approvals: %w", err)
+		}
+		result.Approvals = approvalsForRun(storedApprovals, run.ID)
 		return result, nil
 	}
 	run.State = "executing"
@@ -445,7 +453,11 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		return Result{}, fmt.Errorf("persist completed run: %w", err)
 	}
 	allToolCalls := currentToolCalls
-	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, fmt.Errorf("load completed run approvals: %w", err)
+	}
+	allApprovals := approvalsForRun(storedApprovals, run.ID)
 	feedback, err := r.store.ListRunFeedback(ctx, run.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("load completed run feedback: %w", err)
@@ -514,11 +526,15 @@ func (r Runtime) resultForExistingRun(ctx context.Context, run app.AgentRun) (Re
 	if err != nil {
 		return Result{}, fmt.Errorf("load existing run tool calls: %w", err)
 	}
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, fmt.Errorf("load existing run approvals: %w", err)
+	}
 	result := Result{
 		Run:       run,
 		Message:   message,
 		ToolCalls: toolCallsForRun(storedToolCalls, run.ID),
-		Approvals: approvalsForRun(r.store.ListApprovals(""), run.ID),
+		Approvals: approvalsForRun(storedApprovals, run.ID),
 	}
 	if run.Workflow != nil {
 		route := run.Workflow.Route
@@ -560,10 +576,14 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if !ok || run.SessionID != sessionID || run.State != "approval_pending" {
 		return Result{}, false, nil
 	}
-	if approvalsStillPending(r.store.ListApprovals("pending"), runID) {
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, false, fmt.Errorf("load approval resume state: %w", err)
+	}
+	if approvalsStillPending(storedApprovals, runID) {
 		return Result{}, false, nil
 	}
-	if legacy := r.legacyExternalSendApprovalForRun(runID); legacy != nil {
+	if legacy := legacyExternalSendApprovalForRun(storedApprovals, runID); legacy != nil {
 		result, err := r.blockLegacyExternalSendApproval(ctx, run, *legacy)
 		return result, true, err
 	}
@@ -621,7 +641,11 @@ func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun,
 		Type:      auditType,
 		Summary:   auditSummary,
 	})
-	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, fmt.Errorf("load retired workflow approvals: %w", err)
+	}
+	allApprovals := approvalsForRun(storedApprovals, run.ID)
 	storedToolCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
 	if err != nil {
 		return Result{}, fmt.Errorf("load retired workflow tool calls: %w", err)
@@ -692,7 +716,11 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, false, fmt.Errorf("persist approved workflow run: %w", err)
 	}
-	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, false, fmt.Errorf("load approved workflow approvals: %w", err)
+	}
+	allApprovals := approvalsForRun(storedApprovals, run.ID)
 	feedback, err := r.store.ListRunFeedback(ctx, run.ID)
 	if err != nil {
 		return Result{}, false, fmt.Errorf("load approved workflow feedback: %w", err)
@@ -974,7 +1002,7 @@ func approvalsForRun(approvals []app.Approval, runID string) []app.Approval {
 
 func approvalsStillPending(approvals []app.Approval, runID string) bool {
 	for _, approval := range approvals {
-		if approval.RunID == runID {
+		if approval.RunID == runID && approval.Status == "pending" {
 			return true
 		}
 	}
@@ -1276,7 +1304,9 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		if _, err := r.saveToolCall(ctx, call); err != nil {
 			return call, nil, call.ObservationSummary, fmt.Errorf("persist approval-pending tool call: %w", err)
 		}
-		r.store.SaveApproval(approval)
+		if approval, err = r.saveApproval(ctx, approval); err != nil {
+			return call, nil, call.ObservationSummary, fmt.Errorf("persist tool approval: %w", err)
+		}
 		return call, &approval, call.ObservationSummary, nil
 	}
 	timeout := time.Duration(def.TimeoutMS) * time.Millisecond

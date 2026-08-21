@@ -100,7 +100,7 @@ func TestGatewayAdapterPassiveNotificationPersistsWithoutAgentActivity(t *testin
 		t.Fatalf("persisted notifications = %#v", got)
 	}
 	if len(storetest.MustListSessions(t, st)) != 0 || len(testListRuns(st, "")) != 0 || len(testListModelCalls(st, "", "")) != 0 ||
-		len(testListToolCalls(st, "")) != 0 || len(st.ListApprovals("")) != 0 {
+		len(testListToolCalls(st, "")) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
 		t.Fatal("passive notification created Agent activity")
 	}
 
@@ -257,7 +257,7 @@ func TestGatewayAdapterApprovalRequiresCurrentPreview(t *testing.T) {
 		Tool: "files.write", Risk: app.RiskReversible, Status: "pending", Summary: "Write output",
 		Arguments: map[string]any{"path": "out.txt"}, CreatedAt: time.Now().UTC(),
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 	runtime := &adapterRuntime{started: make(chan struct{}, 1)}
 	adapter := NewGatewayAdapter(st, func() AgentRuntime { return runtime })
 	principal := Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}

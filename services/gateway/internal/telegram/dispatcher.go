@@ -90,7 +90,11 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			return d.resetConversation(ctx, binding, chatSession, message)
 		case "status":
 			pending := 0
-			for _, approval := range d.store.ListApprovals("pending") {
+			approvals, err := d.store.ListApprovals(ctx, "pending")
+			if err != nil {
+				return NewConnectorError("approval_store_unavailable", true, err)
+			}
+			for _, approval := range approvals {
 				if approval.SessionID == chatSession.LinkedSessionID {
 					pending++
 				}
@@ -122,7 +126,11 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			return nil
 		}
 	}
-	if approval, ok := d.pendingApproval(chatSession.LinkedSessionID); ok {
+	approval, ok, err := d.pendingApproval(ctx, chatSession.LinkedSessionID)
+	if err != nil {
+		return NewConnectorError("approval_store_unavailable", true, err)
+	}
+	if ok {
 		if decision, parsed := parseApprovalDecision(text); parsed {
 			inbound := d.saveInbound(chatSession, binding, externalID, text, "received", approval.RunID)
 			receives.Advance(receive, "processed", inbound.ID, approval.RunID)
@@ -210,7 +218,10 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 	if err != nil {
 		return NewConnectorError(CodeBindingUnavailable, true, err)
 	}
-	approval, ok := d.approvalByID(parts[1])
+	approval, ok, err := d.approvalByID(ctx, parts[1])
+	if err != nil {
+		return NewConnectorError("approval_store_unavailable", true, err)
+	}
 	if !ok || approval.Status != "pending" || approval.SessionID != chatSession.LinkedSessionID {
 		_ = d.client.AnswerCallbackQuery(ctx, query.ID, "This approval is no longer pending")
 		return nil
@@ -224,7 +235,8 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 
 func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, chatID, threadID int64, approval app.Approval, approved bool, actor string) error {
 	if approved {
-		resolved, err := d.store.ResolveApproval(approval.ID, "approved", "approved from "+actor)
+		candidate, err := d.store.ResolveApproval(ctx, approval.ID, "approved", "approved from "+actor)
+		resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 		if err != nil {
 			if approval.Status != "pending" {
 				return nil
@@ -249,7 +261,8 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 		}
 		return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Approved and executed.", "approval:"+approval.ID, approval.RunID, nil)
 	}
-	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from "+actor)
+	candidate, err := d.store.ResolveApproval(ctx, approval.ID, "rejected", "rejected from "+actor)
+	resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 	if err != nil {
 		if approval.Status != "pending" {
 			return nil
@@ -444,23 +457,30 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.Notifica
 	}), nil
 }
 
-func (d *Dispatcher) pendingApproval(sessionID string) (app.Approval, bool) {
-	approvals := d.store.ListApprovals("pending")
+func (d *Dispatcher) pendingApproval(ctx context.Context, sessionID string) (app.Approval, bool, error) {
+	approvals, err := d.store.ListApprovals(ctx, "pending")
+	if err != nil {
+		return app.Approval{}, false, err
+	}
 	for index := len(approvals) - 1; index >= 0; index-- {
 		if approvals[index].SessionID == sessionID {
-			return approvals[index], true
+			return approvals[index], true, nil
 		}
 	}
-	return app.Approval{}, false
+	return app.Approval{}, false, nil
 }
 
-func (d *Dispatcher) approvalByID(id string) (app.Approval, bool) {
-	for _, approval := range d.store.ListApprovals("") {
+func (d *Dispatcher) approvalByID(ctx context.Context, id string) (app.Approval, bool, error) {
+	approval, found, err := d.store.GetApproval(ctx, id)
+	if err != nil {
+		return app.Approval{}, false, err
+	}
+	if found {
 		if approval.ID == id {
-			return approval, true
+			return approval, true, nil
 		}
 	}
-	return app.Approval{}, false
+	return app.Approval{}, false, nil
 }
 
 func telegramCommand(text string) (string, bool) {

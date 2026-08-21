@@ -154,7 +154,7 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	call := app.ToolCall{ID: "call_approval", SessionID: linked.ID, RunID: run.ID, Status: "approval_pending"}
 	testSaveToolCall(st, call)
 	approval := app.Approval{ID: "approval_opaque_id", SessionID: linked.ID, RunID: run.ID, ToolCallID: call.ID, Status: "pending", Tool: "file.delete"}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 	runtime := &approvalRuntime{}
 	bot := &fakeBotAPI{}
 	dispatcher := NewDispatcher(st, runtime, cfg).WithClient(bot)
@@ -165,7 +165,7 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	if err := dispatcher.HandleUpdate(context.Background(), binding, update); err != nil {
 		t.Fatal(err)
 	}
-	resolved := st.ListApprovals("approved")
+	resolved := storetest.MustListApprovals(t, st, "approved")
 	if len(resolved) != 1 || runtime.executeCount() != 1 || bot.callbacks() != 2 {
 		t.Fatalf("approval callback was not idempotent: approvals=%#v executes=%d callbacks=%d", resolved, runtime.executeCount(), bot.callbacks())
 	}

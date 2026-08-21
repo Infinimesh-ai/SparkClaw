@@ -448,7 +448,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"rep
 	if result.Run.State != "completed" || result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("approved external MCP document read did not complete: %#v", result)
 	}
-	approvals := approvalsForRun(st.ListApprovals(""), result.Run.ID)
+	approvals := approvalsForRun(storetest.MustListApprovals(t, st, ""), result.Run.ID)
 	calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID)
 	if len(approvals) != 1 || len(calls) != 2 || calls[0].Tool != app.ToolWorkspaceDataAccess || calls[1].Tool != "files.read" || calls[1].Status != "completed" {
 		t.Fatalf("approved document operation did not reuse its single data-boundary approval: approvals=%#v calls=%#v", approvals, calls)
@@ -503,7 +503,7 @@ func TestRejectedMCPWorkspaceApprovalExposesNoResourceFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPendingMCPWorkspaceApproval(t, st, pending)
-	if _, err := st.ResolveApproval(pending.Approvals[0].ID, "rejected", "not authorized"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, "rejected", "not authorized"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), pending.Run.ID); err != nil {
@@ -547,7 +547,7 @@ func TestMCPWorkspaceApprovalCannotBeReusedAfterLocatorOrTargetChange(t *testing
 				t.Fatal(err)
 			}
 			assertPendingMCPWorkspaceApproval(t, st, pending)
-			approved, err := st.ResolveApproval(pending.Approvals[0].ID, "approved", "owner approved original contract")
+			approved, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, "approved", "owner approved original contract")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -589,7 +589,7 @@ func assertPendingMCPWorkspaceApproval(t *testing.T, st *store.MemoryStore, resu
 
 func approveMCPWorkspaceAccess(t *testing.T, runtime Runtime, st *store.MemoryStore, pending Result) Result {
 	t.Helper()
-	approval, err := st.ResolveApproval(pending.Approvals[0].ID, "approved", "owner approved exact workspace request")
+	approval, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, "approved", "owner approved exact workspace request")
 	if err != nil {
 		t.Fatal(err)
 	}

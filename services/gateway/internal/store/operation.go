@@ -53,6 +53,12 @@ const (
 	OperationDocumentRecordSave          StoreOperation = "document_record.save"
 	OperationDocumentRecordGet           StoreOperation = "document_record.get"
 	OperationDocumentRecordList          StoreOperation = "document_record.list"
+	OperationApprovalSave                StoreOperation = "approval.save"
+	OperationApprovalGet                 StoreOperation = "approval.get"
+	OperationApprovalFindExternalRef     StoreOperation = "approval.find_external_ref"
+	OperationApprovalUpdatePending       StoreOperation = "approval.update_pending"
+	OperationApprovalResolve             StoreOperation = "approval.resolve"
+	OperationApprovalList                StoreOperation = "approval.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -255,6 +261,30 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationDocumentRecordList: {
 		ID: OperationDocumentRecordList, Repository: "DocumentRepository",
 		Method: "ListDocumentRecords", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationApprovalSave: {
+		ID: OperationApprovalSave, Repository: "ApprovalRepository",
+		Method: "SaveApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationApprovalGet: {
+		ID: OperationApprovalGet, Repository: "ApprovalRepository",
+		Method: "GetApproval", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationApprovalFindExternalRef: {
+		ID: OperationApprovalFindExternalRef, Repository: "ApprovalRepository",
+		Method: "FindApprovalByExternalRef", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationApprovalUpdatePending: {
+		ID: OperationApprovalUpdatePending, Repository: "ApprovalRepository",
+		Method: "UpdatePendingApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationApprovalResolve: {
+		ID: OperationApprovalResolve, Repository: "ApprovalRepository",
+		Method: "ResolveApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationApprovalList: {
+		ID: OperationApprovalList, Repository: "ApprovalRepository",
+		Method: "ListApprovals", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

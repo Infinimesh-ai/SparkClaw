@@ -388,36 +388,40 @@ func characterizeS0ApprovalRepository(t *testing.T, st Store, dimension string) 
 	switch dimension {
 	case s0DimensionSuccess:
 		approval := app.Approval{ID: "approval-s0", Source: app.ApprovalSourceHappyTeamPlan, ExternalID: "external-s0", Status: "pending", Summary: "first", CreatedAt: base}
-		st.SaveApproval(approval)
-		if got, ok := st.FindApprovalByExternalRef(approval.Source, approval.ExternalID); !ok || got.ID != approval.ID {
+		mustSaveApproval(t, st, approval)
+		if got, ok := mustFindApprovalByExternalRef(t, st, approval.Source, approval.ExternalID); !ok || got.ID != approval.ID {
 			t.Fatalf("approval save/lookup = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetApproval("missing"); ok {
+		if _, ok := mustGetApproval(t, st, "missing"); ok {
 			t.Fatal("missing approval was found")
 		}
 	case s0DimensionOrderScope:
-		st.SaveApproval(app.Approval{ID: "approval-rejected", Status: "rejected", CreatedAt: base.Add(2 * time.Minute)})
-		st.SaveApproval(app.Approval{ID: "approval-old", Status: "pending", CreatedAt: base})
-		st.SaveApproval(app.Approval{ID: "approval-new", Status: "pending", CreatedAt: base.Add(time.Minute)})
-		if got := st.ListApprovals("pending"); len(got) != 2 || got[0].ID != "approval-new" || got[1].ID != "approval-old" {
+		mustSaveApproval(t, st, app.Approval{ID: "approval-rejected", Status: "rejected", CreatedAt: base.Add(2 * time.Minute)})
+		mustSaveApproval(t, st, app.Approval{ID: "approval-old", Status: "pending", CreatedAt: base})
+		mustSaveApproval(t, st, app.Approval{ID: "approval-new", Status: "pending", CreatedAt: base.Add(time.Minute)})
+		if got := mustListApprovals(t, st, "pending"); len(got) != 2 || got[0].ID != "approval-new" || got[1].ID != "approval-old" {
 			t.Fatalf("approval order/filter = %#v", got)
 		}
 	case s0DimensionDuplicate:
 		approval := app.Approval{ID: "approval-s0", Status: "pending", Summary: "first", CreatedAt: base}
-		st.SaveApproval(approval)
-		approval.Summary = "updated"
-		st.SaveApproval(approval)
-		if got := st.ListApprovals("pending"); len(got) != 1 || got[0].Summary != "updated" {
-			t.Fatalf("approval overwrite created duplicates: %#v", got)
+		mustSaveApproval(t, st, approval)
+		mustSaveApproval(t, st, approval)
+		changed := approval
+		changed.Summary = "updated"
+		if _, err := st.SaveApproval(t.Context(), changed); StoreErrorCodeOf(err) != StoreErrorConflict {
+			t.Fatalf("approval idempotency conflict code = %q, err=%v", StoreErrorCodeOf(err), err)
+		}
+		if got := mustListApprovals(t, st, "pending"); len(got) != 1 || got[0].Summary != "first" {
+			t.Fatalf("approval replay changed durable state: %#v", got)
 		}
 	case s0DimensionConflictDeletion:
 		approval := app.Approval{ID: "approval-s0", Status: "pending", CreatedAt: base}
-		st.SaveApproval(approval)
-		if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
+		mustSaveApproval(t, st, approval)
+		if _, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "done"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.UpdatePendingApproval(approval); err == nil {
+		if _, err := st.UpdatePendingApproval(t.Context(), NewApprovalUpdate(approval, approval)); err == nil {
 			t.Fatal("resolved approval accepted pending update")
 		}
 	default:
@@ -716,7 +720,6 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 }
 
 var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"ApprovalRepository":            s0ApprovalAliasSafe,
 	"ScheduleRepository":            s0ScheduleAliasSafe,
 	"PassiveNotificationRepository": s0PassiveAliasSafe,
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
@@ -724,6 +727,16 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"MemoryRepository":              s0MemoryAliasSafe,
 	"AuditRepository":               s0AuditAliasSafe,
 	"EvaluationRepository":          s0EvaluationAliasSafe,
+}
+
+func TestS0ApprovalRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0ApprovalAliasSafe(t, backend.store) {
+				t.Fatal("ApprovalRepository exposed a mutable argument alias")
+			}
+		})
+	}
 }
 
 func TestS0RunRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -790,10 +803,10 @@ func s0RunAliasSafe(t *testing.T, st Store) bool {
 
 func s0ApprovalAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.SaveApproval(app.Approval{ID: "approval-alias", Status: "pending", Arguments: map[string]any{"value": "original"}})
-	got, _ := st.GetApproval("approval-alias")
+	mustSaveApproval(t, st, app.Approval{ID: "approval-alias", Status: "pending", Arguments: map[string]any{"value": "original"}})
+	got, _ := mustGetApproval(t, st, "approval-alias")
 	got.Arguments["value"] = "mutated"
-	again, _ := st.GetApproval("approval-alias")
+	again, _ := mustGetApproval(t, st, "approval-alias")
 	return again.Arguments["value"] != "mutated"
 }
 

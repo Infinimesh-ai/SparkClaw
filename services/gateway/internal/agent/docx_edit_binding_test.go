@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.T) {
@@ -130,7 +131,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		!strings.Contains(conflictingCall.Error, "source_hash conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting model source_hash was not blocked before approval: call=%#v approval=%#v", conflictingCall, conflictingApproval)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("conflicting model source_hash created an owner approval: %#v", approvals)
 	}
 	conflictingDocumentCall, conflictingDocumentApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
@@ -170,7 +171,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("runtime did not bind the current DOCX document hash: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, boundEvidence)
 	}
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "approved synthetic DOCX regression edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "approved synthetic DOCX regression edit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 	if call.Arguments["path"] != "report.docx" || call.Arguments["output_path"] != "report-sparkclaw-edit.docx" {
 		t.Fatalf("failed evidence binding changed frozen paths: %#v", call.Arguments)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("invalid DOCX evidence created an owner approval: %#v", approvals)
 	}
 	if _, err := os.Stat(filepath.Join(runtime.tools.Config().Workspaces.DefaultRoot, "report-sparkclaw-edit.docx")); !os.IsNotExist(err) {
@@ -336,7 +337,7 @@ func TestDocumentEditBindsEveryDOCXMutationToCurrentReadEvidence(t *testing.T) {
 			if tc.check != nil {
 				tc.check(t, call.Arguments)
 			}
-			if len(st.ListApprovals("pending")) != 1 {
+			if len(storetest.MustListApprovals(t, st, "pending")) != 1 {
 				t.Fatalf("%s did not create exactly one approval", tc.operation)
 			}
 		})
@@ -361,8 +362,8 @@ func TestDocumentEditRejectsCrossRunDOCXEvidenceBeforeApproval(t *testing.T) {
 	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "source_evidence conflicts") {
 		t.Fatalf("cross-run evidence was not rejected before approval: call=%#v approval=%#v", call, approval)
 	}
-	if len(st.ListApprovals("")) != 0 {
-		t.Fatalf("cross-run evidence created an approval: %#v", st.ListApprovals(""))
+	if len(storetest.MustListApprovals(t, st, "")) != 0 {
+		t.Fatalf("cross-run evidence created an approval: %#v", storetest.MustListApprovals(t, st, ""))
 	}
 }
 
@@ -383,7 +384,7 @@ func TestApprovedDOCXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 		t.Fatalf("DOCX edit did not wait for approval: call=%#v approval=%#v", call, approval)
 	}
 	writeDOCXParagraphFixture(t, inputPath, []string{"Changed while approval was pending"})
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "approve stale-source regression")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approve stale-source regression")
 	if err != nil {
 		t.Fatal(err)
 	}

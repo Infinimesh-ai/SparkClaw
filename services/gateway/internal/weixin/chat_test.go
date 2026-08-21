@@ -409,7 +409,7 @@ func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:         "appr_1",
 		SessionID:  chatSession.LinkedSessionID,
 		RunID:      "run_appr",
@@ -422,7 +422,7 @@ func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
 		t.Fatal("expected the failed confirmation send to surface an error")
 	}
-	if approval, ok := st.GetApproval("appr_1"); !ok || approval.Status != "approved" {
+	if approval, ok := storetest.MustGetApproval(t, st, "appr_1"); !ok || approval.Status != "approved" {
 		t.Fatalf("approval should be resolved on the first dispatch: %#v ok=%v", approval, ok)
 	}
 	if got := runtime.executedCount(); got != 1 {

@@ -56,7 +56,7 @@ func TestCodingAgentChatUsesNamespacedMCPReadTools(t *testing.T) {
 				result.Run.Workflow.Plan.ProfileID != app.WorkflowCodingAgentManage || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 				t.Fatalf("coding MCP chat did not complete through its workflow: route=%#v workflow=%#v", result.RouteDecision, result.Run.Workflow)
 			}
-			if approvals := st.ListApprovals(""); len(approvals) != 0 {
+			if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 				t.Fatalf("untrusted MCP output created approvals: %#v", approvals)
 			}
 			if strings.Contains(result.Message.Content, "approve_plan") || strings.Contains(result.Message.Content, "ignore previous") {
@@ -98,7 +98,7 @@ func TestCodingAgentMutationsStopForApprovalBeforeRemoteExecution(t *testing.T) 
 				t.Fatal(err)
 			}
 			calls := testListToolCalls(st, session.ID)
-			approvals := st.ListApprovals("pending")
+			approvals := storetest.MustListApprovals(t, st, "pending")
 			if executions != 0 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "approval_pending" || len(approvals) != 1 {
 				t.Fatalf("mutation did not stop at approval: executions=%d calls=%#v approvals=%#v result=%#v", executions, calls, approvals, result)
 			}

@@ -175,7 +175,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	if approval == nil || pending.Status != "approval_pending" {
 		t.Fatalf("mutation did not enter approval: %#v %#v", pending, approval)
 	}
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "approved dynamic write")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approved dynamic write")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	if approval == nil {
 		t.Fatal("error fixture mutation did not enter approval")
 	}
-	resolved, err = st.ResolveApproval(approval.ID, "approved", "approved failing dynamic write")
+	resolved, err = st.ResolveApproval(t.Context(), approval.ID, "approved", "approved failing dynamic write")
 	if err != nil {
 		t.Fatal(err)
 	}

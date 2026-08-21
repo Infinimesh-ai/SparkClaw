@@ -92,7 +92,7 @@ func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveApproval(app.Approval{
+	mustSaveApproval(t, st, app.Approval{
 		ID: "ap_happy_task_file", Source: app.ApprovalSourceHappyTeamPlan,
 		ExternalID: "task-file", Tool: "mcp.happy-tasks.approve_plan",
 		Risk: app.RiskDangerous, Status: "pending", Summary: "Review file-backed plan",
@@ -105,22 +105,22 @@ func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := reloaded.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-file")
+	got, ok := mustFindApprovalByExternalRef(t, reloaded, app.ApprovalSourceHappyTeamPlan, "task-file")
 	if !ok || got.ExternalContext == nil || got.ExternalContext.Plan != "Persisted plan" || !got.ExternalContext.PlanEdited {
 		t.Fatalf("external approval context did not survive file reload: %#v ok=%v", got, ok)
 	}
-	if _, err := reloaded.ResolveApproval(got.ID, "approved", "done"); err != nil {
+	if _, err := reloaded.ResolveApproval(t.Context(), got.ID, "approved", "done"); err != nil {
 		t.Fatal(err)
 	}
 	got.ExternalContext.Plan = "stale update"
-	if _, err := reloaded.UpdatePendingApproval(got); err == nil {
+	if _, err := reloaded.UpdatePendingApproval(t.Context(), NewApprovalUpdate(got, got)); err == nil {
 		t.Fatal("stale file-backed update reopened a resolved approval")
 	}
 	finalStore, err := NewFileStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	finalApproval, _ := finalStore.GetApproval(got.ID)
+	finalApproval, _ := mustGetApproval(t, finalStore, got.ID)
 	if finalApproval.Status != "approved" || finalApproval.ExternalContext.Plan != "Persisted plan" {
 		t.Fatalf("resolved file-backed approval changed after stale update: %#v", finalApproval)
 	}
@@ -576,14 +576,14 @@ func TestFileStorePersistsPolicyExecutionContext(t *testing.T) {
 	}
 	call.ApprovalID = approval.ID
 	testSaveToolCall(st, call)
-	st.SaveApproval(approval)
+	mustSaveApproval(t, st, approval)
 
 	reloaded, err := NewFileStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	gotCall, callOK := testGetToolCall(reloaded, call.ID)
-	gotApproval, approvalOK := reloaded.GetApproval(approval.ID)
+	gotApproval, approvalOK := mustGetApproval(t, reloaded, approval.ID)
 	if !callOK || !approvalOK || gotCall.PolicyContext == nil || gotApproval.PolicyContext == nil ||
 		gotCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
 		gotApproval.PolicyContext.MCP == nil || gotApproval.PolicyContext.MCP.RequesterDeviceID != "device-file" {

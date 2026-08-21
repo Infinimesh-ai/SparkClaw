@@ -353,8 +353,12 @@ func (s *FileStore) captureFileRollback() fileRollbackState {
 }
 
 func (s *FileStore) restoreFileRollback(state fileRollbackState) {
+	approvals := cloneMap(state.snapshot.Approvals)
 	s.inner.loadSnapshot(state.snapshot)
 	s.inner.mu.Lock()
+	// Rollback restores the exact pre-command memory image. Startup-only
+	// compatibility normalization must not rewrite unrelated records here.
+	s.inner.approvals = approvals
 	s.inner.passiveNotificationRevs = cloneMap(state.passiveNotificationRevs)
 	s.inner.mu.Unlock()
 }

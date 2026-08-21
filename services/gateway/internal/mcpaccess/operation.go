@@ -71,9 +71,14 @@ func updateOperationRecord(ctx context.Context, st store.Store, id string, mutat
 }
 
 func rejectPendingApprovals(ctx context.Context, st store.Store, operation app.MCPOperation) error {
-	for _, approval := range st.ListApprovals("pending") {
+	approvals, err := st.ListApprovals(ctx, "pending")
+	if err != nil {
+		return err
+	}
+	for _, approval := range approvals {
 		if approval.RunID == operation.Invocation.RunID {
-			if _, err := st.ResolveApproval(approval.ID, "rejected", "MCP operation cannot continue approval-backed execution"); err != nil {
+			candidate, err := st.ResolveApproval(ctx, approval.ID, "rejected", "MCP operation cannot continue approval-backed execution")
+			if _, err = store.ReconcileApprovalWrite(ctx, st, candidate, err); err != nil {
 				return err
 			}
 			if call, ok, err := st.GetToolCall(ctx, approval.ToolCallID); err != nil {

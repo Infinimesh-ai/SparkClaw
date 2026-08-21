@@ -93,7 +93,10 @@ func (r Runtime) approvedWorkspaceContractCoversTool(ctx context.Context, run ap
 	if call == nil || call.Status != "completed_after_approval" {
 		return false, nil
 	}
-	approval, ok := r.store.GetApproval(call.ApprovalID)
+	approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+	if err != nil {
+		return false, err
+	}
 	return ok && approval.Status == "approved" && r.validateWorkspaceDataAccessApproval(ctx, *call, approval) == nil, nil
 }
 

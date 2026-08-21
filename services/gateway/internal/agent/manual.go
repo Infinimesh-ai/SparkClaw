@@ -128,7 +128,11 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		if _, err := r.saveToolCall(ctx, call); err != nil {
 			return ManualInvocation{}, fmt.Errorf("persist manual approval tool call: %w", err)
 		}
-		r.store.SaveApproval(approval)
+		persistedApproval, saveErr := r.saveApproval(ctx, approval)
+		if saveErr != nil {
+			return ManualInvocation{}, fmt.Errorf("persist manual approval: %w", saveErr)
+		}
+		approval = persistedApproval
 		return ManualInvocation{
 			Call:     call,
 			Approval: &approval,
@@ -207,7 +211,11 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		if _, err := r.saveToolCall(ctx, call); err != nil {
 			return ManualInvocation{}, fmt.Errorf("persist pending manual tool call: %w", err)
 		}
-		r.store.SaveApproval(approval)
+		persistedApproval, saveErr := r.saveApproval(ctx, approval)
+		if saveErr != nil {
+			return ManualInvocation{}, fmt.Errorf("persist pending manual approval: %w", saveErr)
+		}
+		approval = persistedApproval
 		return ManualInvocation{Call: call, Approval: &approval}, nil
 	}
 	output, err := r.tools.Execute(ctx, name, args, sessionID, runID)

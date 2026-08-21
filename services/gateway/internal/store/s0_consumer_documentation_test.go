@@ -22,8 +22,6 @@ var s0ProductionConsumerComposites = map[string]string{
 	"mcpaccess.updateOperationRecord":               "MCP",
 	"mcpaccess.rejectPendingApprovals":              "Run + Approval",
 	"mcpaccess.finalizeRevokedOperations":           "MCP + Run + Approval + Audit",
-	"mcpaccess.runHasApprovedApproval":              "Approval",
-	"mcpaccess.runHasPendingApproval":               "Approval",
 	"notification.SendWeixinText/Image/File/Typing": "Credential",
 	"notification.WeixinAdapter":                    "Connector + Schedule + Credential + Session + ExternalChat + ArtifactMetadata",
 	"reminder.Scheduler":                            "Schedule",

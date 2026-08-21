@@ -214,7 +214,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 		ApprovalID: "approval-async",
 	}
 	testSaveToolCall(st, call)
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID: call.ApprovalID, Source: app.ApprovalSourceTool, SessionID: session.ID, RunID: runID, ToolCallID: call.ID,
 		Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
 		CreatedAt: time.Now().UTC(),
@@ -251,7 +251,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 	if err := server.WaitForBackgroundWork(waitCtx); err != nil {
 		t.Fatal(err)
 	}
-	storedApproval, _ := st.GetApproval(call.ApprovalID)
+	storedApproval, _ := storetest.MustGetApproval(t, st, call.ApprovalID)
 	operation, _ := st.GetMCPOperation(ref.OperationID)
 	if storedApproval.Status != "approved" || operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_resume_unavailable" {
 		t.Fatalf("background failure was conflated with the durable approval: approval=%#v operation=%#v", storedApproval, operation)
@@ -545,7 +545,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	}
 	testSaveRun(st, run)
 	created := time.Now().UTC()
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:        "ap_one",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
@@ -555,7 +555,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		Summary:   "Write sensitive memory",
 		CreatedAt: created,
 	})
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:        "ap_two",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
@@ -569,7 +569,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	cfg.Model.Mock = true
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 
-	if _, err := st.ResolveApproval("ap_one", "approved", "ok"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "ap_one", "approved", "ok"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
@@ -582,7 +582,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	if pendingRun.State != "approval_pending" || pendingRun.CompletedAt != nil {
 		t.Fatalf("run completed before all approvals resolved: %#v", pendingRun)
 	}
-	if _, err := st.ResolveApproval("ap_two", "rejected", "no"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "ap_two", "rejected", "no"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
@@ -735,7 +735,7 @@ func TestChatEndpointSupportsManualModelProfileWithoutTools(t *testing.T) {
 	if decoded.Model.Lane != "deep" || decoded.Model.Profile != cfg.Model.Deep.Name || !decoded.Model.Mock || decoded.Message == "" {
 		t.Fatalf("unexpected chat response: %#v", decoded)
 	}
-	if len(storetest.MustListSessions(t, st)) != 0 || len(testListToolCalls(st, "")) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(storetest.MustListSessions(t, st)) != 0 || len(testListToolCalls(st, "")) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
 		t.Fatalf("direct chat should not mutate agent state")
 	}
 	calls := testListModelCalls(st, "", "")
@@ -1050,7 +1050,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 			t.Fatalf("provider received command text or the wrong media part: index=%d part=%#v", index, part)
 		}
 	}
-	if approvals := st.ListApprovals("pending"); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, "pending"); len(approvals) != 0 {
 		t.Fatalf("external media publication unexpectedly requested approval: %#v", approvals)
 	}
 	messagesResponse, err := http.Get(ts.URL + "/api/sessions/" + session.ID + "/messages")
@@ -1604,7 +1604,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	}
 	call.ApprovalID = approval.ID
 	testSaveToolCall(st, call)
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"arguments":{"request_digest":"changed"}}`))
 	if err != nil {
@@ -1614,7 +1614,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("context-bound approval modify returned %d", resp.StatusCode)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.Arguments["request_digest"] != "frozen" {
 		t.Fatalf("context-bound approval was modified: %#v", stored)
 	}
@@ -1640,7 +1640,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 			Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	modified, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"plan":"Owner-edited plan"}`))
 	if err != nil {
@@ -1650,7 +1650,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	if modified.StatusCode != http.StatusOK {
 		t.Fatalf("Happy plan modify returned %d", modified.StatusCode)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.ExternalContext == nil || stored.ExternalContext.Plan != "Owner-edited plan" || !stored.ExternalContext.PlanEdited {
 		t.Fatalf("edited Happy plan was not persisted: %#v", stored)
 	}
@@ -1663,7 +1663,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	if approved.StatusCode != http.StatusOK {
 		t.Fatalf("Happy plan approval returned %d", approved.StatusCode)
 	}
-	stored, _ = st.GetApproval(approval.ID)
+	stored, _ = storetest.MustGetApproval(t, st, approval.ID)
 	if resolver.status != "approved" || resolver.approval.ExternalContext == nil || resolver.approval.ExternalContext.Plan != "Owner-edited plan" || stored.Status != "approved" {
 		t.Fatalf("remote-first approval mismatch resolver=%#v stored=%#v", resolver, stored)
 	}
@@ -1691,7 +1691,7 @@ func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
 			Provider: "happy-team", Plan: "Plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/approve", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
@@ -1701,7 +1701,7 @@ func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("remote failure returned %d", resp.StatusCode)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.Status != "pending" || stored.ResolvedAt != nil {
 		t.Fatalf("remote failure resolved local approval: %#v", stored)
 	}
@@ -1726,7 +1726,7 @@ func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
 			Provider: "happy-team", Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	approved := make(chan int, 1)
 	go func() {
@@ -1761,7 +1761,7 @@ func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
 	if status := <-modified; status != http.StatusBadRequest {
 		t.Fatalf("late plan edit returned %d", status)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if resolver.approval.ExternalContext.Plan != "Original plan" || stored.ExternalContext.Plan != "Original plan" || stored.Status != "approved" {
 		t.Fatalf("racing edit changed approved plan: resolver=%#v stored=%#v", resolver.approval, stored)
 	}

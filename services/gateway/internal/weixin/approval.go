@@ -12,7 +12,10 @@ import (
 )
 
 func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) (bool, error) {
-	approval, ok := d.pendingApprovalForChatSession(chatSession)
+	approval, ok, err := d.pendingApprovalForChatSession(ctx, chatSession)
+	if err != nil {
+		return true, fmt.Errorf("load pending approval: %w", err)
+	}
 	if !ok {
 		return false, nil
 	}
@@ -40,7 +43,8 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		return true, err
 	}
 	if decision {
-		resolved, err := d.store.ResolveApproval(approval.ID, "approved", "confirmed from vx")
+		candidate, err := d.store.ResolveApproval(ctx, approval.ID, "approved", "confirmed from vx")
+		resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 		if err != nil {
 			return true, err
 		}
@@ -73,7 +77,8 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已确认并执行。", approval.RunID, "processed")
 		return true, sendErr
 	}
-	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from vx")
+	candidate, err := d.store.ResolveApproval(ctx, approval.ID, "rejected", "rejected from vx")
+	resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 	if err != nil {
 		return true, err
 	}
@@ -96,18 +101,21 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 	return true, sendErr
 }
 
-func (d *Dispatcher) pendingApprovalForChatSession(chatSession app.ExternalChatSession) (app.Approval, bool) {
+func (d *Dispatcher) pendingApprovalForChatSession(ctx context.Context, chatSession app.ExternalChatSession) (app.Approval, bool, error) {
 	if strings.TrimSpace(chatSession.LinkedSessionID) == "" {
-		return app.Approval{}, false
+		return app.Approval{}, false, nil
 	}
-	approvals := d.store.ListApprovals("pending")
+	approvals, err := d.store.ListApprovals(ctx, "pending")
+	if err != nil {
+		return app.Approval{}, false, err
+	}
 	for i := len(approvals) - 1; i >= 0; i-- {
 		approval := approvals[i]
 		if approval.SessionID == chatSession.LinkedSessionID {
-			return approval, true
+			return approval, true, nil
 		}
 	}
-	return app.Approval{}, false
+	return app.Approval{}, false, nil
 }
 
 func parseApprovalReply(text string) (bool, bool) {

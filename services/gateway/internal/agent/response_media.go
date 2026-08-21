@@ -46,7 +46,10 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 		if call == nil || call.Status != "completed_after_approval" {
 			return errors.New("external MCP workspace data access requires owner approval")
 		}
-		approval, ok := r.store.GetApproval(call.ApprovalID)
+		approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+		if err != nil {
+			return err
+		}
 		if !ok || approval.Status != "approved" {
 			return errors.New("external MCP workspace data access approval is unavailable")
 		}

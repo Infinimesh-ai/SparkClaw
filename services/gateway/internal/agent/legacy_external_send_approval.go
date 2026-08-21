@@ -13,8 +13,8 @@ func isLegacyExternalSendApproval(approval app.Approval) bool {
 	return cleanOptionalString(approval.Arguments["message_control_action"]) == legacyExternalSendApprovalAction
 }
 
-func (r Runtime) legacyExternalSendApprovalForRun(runID string) *app.Approval {
-	for _, approval := range approvalsForRun(r.store.ListApprovals(""), runID) {
+func legacyExternalSendApprovalForRun(approvals []app.Approval, runID string) *app.Approval {
+	for _, approval := range approvalsForRun(approvals, runID) {
 		if isLegacyExternalSendApproval(approval) {
 			copy := approval
 			return &copy

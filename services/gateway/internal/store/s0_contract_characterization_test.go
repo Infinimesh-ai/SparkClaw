@@ -148,8 +148,6 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/mcpaccess/provider.go:type Provider":                   1,
 		"internal/mcpaccess/service.go:func New":                         1,
 		"internal/mcpaccess/service.go:func finalizeRevokedOperations":   1,
-		"internal/mcpaccess/service.go:func runHasApprovedApproval":      1,
-		"internal/mcpaccess/service.go:func runHasPendingApproval":       1,
 		"internal/mcpaccess/service.go:type Service":                     1,
 		"internal/notification/notification.go:func NewWeixinAdapter":    1,
 		"internal/notification/notification.go:func SendWeixinFile":      1,
@@ -654,8 +652,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 25 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 25", got)
+	if got := strings.Count(source, "s.persist()"); got != 22 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 22", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -706,8 +704,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 17 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 17", count)
+	if count != 16 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 16", count)
 	}
 }
 

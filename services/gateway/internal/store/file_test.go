@@ -322,7 +322,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Email:       "owner@example.test",
 		Preferences: map[string]string{"timezone": "Asia/Shanghai", "style": "direct"},
 	})
-	st.SaveEvalRun(app.EvalRun{
+	mustSaveEvalRun(t, st, app.EvalRun{
 		ID:      "eval_test",
 		Profile: "smoke",
 		Status:  "failed",
@@ -425,10 +425,10 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if owner.DisplayName != "Persistent Owner" || owner.Email != "owner@example.test" || owner.Preferences["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("owner profile did not reload: %#v", owner)
 	}
-	if evalRun, ok := reloaded.GetEvalRun("eval_test"); !ok || evalRun.Status != "failed" || len(evalRun.FailureArchives) != 1 {
+	if evalRun, ok := mustGetEvalRun(t, reloaded, "eval_test"); !ok || evalRun.Status != "failed" || len(evalRun.FailureArchives) != 1 {
 		t.Fatalf("eval run did not reload: %#v ok=%v", evalRun, ok)
 	}
-	evalRuns := reloaded.ListEvalRuns()
+	evalRuns := mustListEvalRuns(t, reloaded)
 	if len(evalRuns) != 1 || evalRuns[0].ID != "eval_test" || len(evalRuns[0].FailureArchives) != 1 {
 		t.Fatalf("eval runs did not list from persisted state: %#v", evalRuns)
 	}

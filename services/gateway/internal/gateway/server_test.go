@@ -1950,8 +1950,8 @@ func TestFailedEvalArchivesFailureArtifact(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"eval_id"`)) || !bytes.Contains(raw, []byte(archive.CaseName)) {
 		t.Fatalf("archive file missing failure context: %s", raw)
 	}
-	if fetched, ok := st.GetEvalRun(run.ID); !ok || len(fetched.FailureArchives) != len(run.FailureArchives) {
-		t.Fatalf("persisted eval did not retain archives: %#v ok=%v", fetched, ok)
+	if fetched, ok, err := st.GetEvalRun(t.Context(), run.ID); err != nil || !ok || len(fetched.FailureArchives) != len(run.FailureArchives) {
+		t.Fatalf("persisted eval did not retain archives: %#v ok=%v err=%v", fetched, ok, err)
 	}
 
 	listResp, err := http.Get(ts.URL + "/api/evals")

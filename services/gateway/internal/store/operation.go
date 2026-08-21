@@ -62,6 +62,9 @@ const (
 	OperationAuditAdd                    StoreOperation = "audit.add"
 	OperationAuditList                   StoreOperation = "audit.list"
 	OperationAuditEventsAfter            StoreOperation = "audit.events_after"
+	OperationEvaluationSave              StoreOperation = "evaluation.save"
+	OperationEvaluationGet               StoreOperation = "evaluation.get"
+	OperationEvaluationList              StoreOperation = "evaluation.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -300,6 +303,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationAuditEventsAfter: {
 		ID: OperationAuditEventsAfter, Repository: "AuditRepository",
 		Method: "EventsAfter", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEvaluationSave: {
+		ID: OperationEvaluationSave, Repository: "EvaluationRepository",
+		Method: "SaveEvalRun", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationEvaluationGet: {
+		ID: OperationEvaluationGet, Repository: "EvaluationRepository",
+		Method: "GetEvalRun", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEvaluationList: {
+		ID: OperationEvaluationList, Repository: "EvaluationRepository",
+		Method: "ListEvalRuns", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

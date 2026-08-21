@@ -637,27 +637,27 @@ func characterizeS0EvaluationRepository(t *testing.T, st Store, dimension string
 	switch dimension {
 	case s0DimensionSuccess:
 		run := app.EvalRun{ID: "eval-s0", Status: "passed", Summary: "saved", StartedAt: base}
-		st.SaveEvalRun(run)
-		if got, ok := st.GetEvalRun(run.ID); !ok || got.Summary != run.Summary {
+		mustSaveEvalRun(t, st, run)
+		if got, ok := mustGetEvalRun(t, st, run.ID); !ok || got.Summary != run.Summary {
 			t.Fatalf("evaluation save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetEvalRun("missing"); ok {
+		if _, ok := mustGetEvalRun(t, st, "missing"); ok {
 			t.Fatal("missing evaluation run was found")
 		}
 	case s0DimensionOrderScope:
-		st.SaveEvalRun(app.EvalRun{ID: "eval-old", Status: "passed", StartedAt: base})
-		st.SaveEvalRun(app.EvalRun{ID: "eval-new", Status: "passed", StartedAt: base.Add(time.Minute)})
-		if got := st.ListEvalRuns(); len(got) != 2 || got[0].ID != "eval-new" || got[1].ID != "eval-old" {
+		mustSaveEvalRun(t, st, app.EvalRun{ID: "eval-old", Status: "passed", StartedAt: base})
+		mustSaveEvalRun(t, st, app.EvalRun{ID: "eval-new", Status: "passed", StartedAt: base.Add(time.Minute)})
+		if got := mustListEvalRuns(t, st); len(got) != 2 || got[0].ID != "eval-new" || got[1].ID != "eval-old" {
 			t.Fatalf("evaluation order = %#v", got)
 		}
 	case s0DimensionDuplicate:
 		run := app.EvalRun{ID: "eval-s0", Status: "failed", Summary: "first", StartedAt: base}
-		st.SaveEvalRun(run)
+		mustSaveEvalRun(t, st, run)
 		run.Status = "passed"
 		run.Summary = "updated"
-		st.SaveEvalRun(run)
-		if got := st.ListEvalRuns(); len(got) != 1 || got[0].Summary != "updated" {
+		mustSaveEvalRun(t, st, run)
+		if got := mustListEvalRuns(t, st); len(got) != 1 || got[0].Summary != "updated" {
 			t.Fatalf("evaluation overwrite created duplicates: %#v", got)
 		}
 	default:
@@ -725,7 +725,6 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
 	"BrowserStateRepository":        s0BrowserAliasSafe,
 	"MemoryRepository":              s0MemoryAliasSafe,
-	"EvaluationRepository":          s0EvaluationAliasSafe,
 }
 
 func TestS0AuditRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -753,6 +752,16 @@ func TestS0RunRepositoryMutableValuesAreIsolated(t *testing.T) {
 		t.Run(backend.name, func(t *testing.T) {
 			if !s0RunAliasSafe(t, backend.store) {
 				t.Fatal("RunRepository exposed a mutable tool call alias")
+			}
+		})
+	}
+}
+
+func TestS0EvaluationRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0EvaluationAliasSafe(t, backend.store) {
+				t.Fatal("EvaluationRepository exposed mutable cases")
 			}
 		})
 	}
@@ -892,9 +901,9 @@ func s0AuditAliasSafe(t *testing.T, st Store) bool {
 
 func s0EvaluationAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.SaveEvalRun(app.EvalRun{ID: "eval-alias", Cases: []app.EvalCase{{Name: "original"}}})
-	got, _ := st.GetEvalRun("eval-alias")
+	mustSaveEvalRun(t, st, app.EvalRun{ID: "eval-alias", Cases: []app.EvalCase{{Name: "original"}}})
+	got, _ := mustGetEvalRun(t, st, "eval-alias")
 	got.Cases[0].Name = "mutated"
-	again, _ := st.GetEvalRun("eval-alias")
+	again, _ := mustGetEvalRun(t, st, "eval-alias")
 	return again.Cases[0].Name != "mutated"
 }

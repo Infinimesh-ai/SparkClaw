@@ -37,21 +37,45 @@ func (s *Server) runEval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := s.runEvalProfile(r.Context(), profile)
-	s.store.SaveEvalRun(run)
-	writeJSON(w, http.StatusCreated, run)
+	stored, err := s.store.SaveEvalRun(r.Context(), run)
+	if err != nil {
+		writeEvaluationStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, stored)
 }
 
 func (s *Server) listEvals(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"eval_runs": s.store.ListEvalRuns()})
+	runs, err := s.store.ListEvalRuns(r.Context())
+	if err != nil {
+		writeEvaluationStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"eval_runs": runs})
 }
 
 func (s *Server) getEval(w http.ResponseWriter, r *http.Request) {
-	run, ok := s.store.GetEvalRun(r.PathValue("id"))
+	run, ok, err := s.store.GetEvalRun(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeEvaluationStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("eval run not found"))
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+func writeEvaluationStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("evaluation request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("evaluation operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("evaluation service is unavailable"))
+	}
 }
 
 func (s *Server) runEvalProfile(ctx context.Context, profile string) app.EvalRun {

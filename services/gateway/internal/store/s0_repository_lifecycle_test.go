@@ -118,8 +118,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "s0.audit.supplied",
 	},
 	"EvaluationRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveEvalRun(app.EvalRun{ID: "evaluation-lifecycle", Status: "passed"})
+		mutate: func(t *testing.T, st Store) {
+			mustSaveEvalRun(t, st, app.EvalRun{ID: "evaluation-lifecycle", Status: "passed"})
 		},
 		auditType: "eval.passed", eventType: "eval.passed",
 	},

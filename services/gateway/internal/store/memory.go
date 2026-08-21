@@ -3003,42 +3003,65 @@ func (s *MemoryStore) MessageEventsAfter(ctx context.Context, sessionID, after s
 	return MessageEventPage{Events: matching, NextCursor: next, HasMore: hasMore}, nil
 }
 
-func (s *MemoryStore) SaveEvalRun(run app.EvalRun) {
+func (s *MemoryStore) SaveEvalRun(ctx context.Context, run app.EvalRun) (app.EvalRun, error) {
+	ctx, cancel := operationContext(ctx, OperationEvaluationSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEvaluationSave, ctx); err != nil {
+		return app.EvalRun{}, err
+	}
+	prepared := prepareEvalRun(run, time.Now().UTC())
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if run.ID == "" {
-		run.ID = app.NewID("eval")
+	if err := operationContextError(OperationEvaluationSave, ctx); err != nil {
+		return app.EvalRun{}, err
 	}
-	if run.StartedAt.IsZero() {
-		run.StartedAt = time.Now().UTC()
-	}
-	s.evalRuns[run.ID] = run
-	s.appendAuditLocked("eval."+run.Status, "", "", "evaluator", run.Summary, map[string]any{
-		"profile":          run.Profile,
-		"id":               run.ID,
-		"failure_archives": len(run.FailureArchives),
+	s.evalRuns[prepared.ID] = cloneEvalRun(prepared)
+	s.appendAuditLocked("eval."+prepared.Status, "", "", "evaluator", prepared.Summary, map[string]any{
+		"profile":          prepared.Profile,
+		"id":               prepared.ID,
+		"failure_archives": len(prepared.FailureArchives),
 	})
-	s.appendEventLocked("eval."+run.Status, "", run.ID, run)
+	s.appendEventLocked("eval."+prepared.Status, "", prepared.ID, prepared)
+	return cloneEvalRun(prepared), nil
 }
 
-func (s *MemoryStore) GetEvalRun(id string) (app.EvalRun, bool) {
+func (s *MemoryStore) GetEvalRun(ctx context.Context, id string) (app.EvalRun, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationEvaluationGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEvaluationGet, ctx); err != nil {
+		return app.EvalRun{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationEvaluationGet, ctx); err != nil {
+		return app.EvalRun{}, false, err
+	}
 	run, ok := s.evalRuns[id]
-	return run, ok
+	return cloneEvalRun(run), ok, nil
 }
 
-func (s *MemoryStore) ListEvalRuns() []app.EvalRun {
+func (s *MemoryStore) ListEvalRuns(ctx context.Context) ([]app.EvalRun, error) {
+	ctx, cancel := operationContext(ctx, OperationEvaluationList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEvaluationList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationEvaluationList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.EvalRun{}
 	for _, run := range s.evalRuns {
-		out = append(out, run)
+		out = append(out, cloneEvalRun(run))
 	}
 	slices.SortFunc(out, func(a, b app.EvalRun) int {
-		return b.StartedAt.Compare(a.StartedAt)
+		if order := b.StartedAt.Compare(a.StartedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
 func (s *MemoryStore) SaveArtifactObject(object app.ArtifactObject) {

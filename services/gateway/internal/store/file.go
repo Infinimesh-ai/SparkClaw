@@ -1399,20 +1399,33 @@ func (s *FileStore) MessageEventsAfter(ctx context.Context, sessionID, after str
 	return s.inner.MessageEventsAfter(ctx, sessionID, after, limit)
 }
 
-func (s *FileStore) SaveEvalRun(run app.EvalRun) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveEvalRun(run)
-	s.persist()
+func (s *FileStore) SaveEvalRun(ctx context.Context, run app.EvalRun) (app.EvalRun, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEvaluationSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.EvalRun{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationEvaluationSave, func(ctx context.Context) (app.EvalRun, error) {
+		return s.inner.SaveEvalRun(ctx, run)
+	})
 }
 
-func (s *FileStore) GetEvalRun(id string) (app.EvalRun, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetEvalRun(id)
+func (s *FileStore) GetEvalRun(ctx context.Context, id string) (app.EvalRun, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEvaluationGet, 1)
+	if err != nil {
+		return app.EvalRun{}, false, err
+	}
+	defer release()
+	return s.inner.GetEvalRun(ctx, id)
 }
 
-func (s *FileStore) ListEvalRuns() []app.EvalRun {
-	defer s.admitLegacyRead()()
-	return s.inner.ListEvalRuns()
+func (s *FileStore) ListEvalRuns(ctx context.Context) ([]app.EvalRun, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEvaluationList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListEvalRuns(ctx)
 }
 
 func (s *FileStore) SaveArtifactObject(object app.ArtifactObject) {

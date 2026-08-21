@@ -288,7 +288,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if audit := mustListAudit(t, st, session.ID); len(audit) == 0 {
 		t.Fatalf("expected audit entries")
 	}
-	st.SaveEvalRun(app.EvalRun{
+	mustSaveEvalRun(t, st, app.EvalRun{
 		ID:      "eval_pg",
 		Profile: "smoke",
 		Status:  "failed",
@@ -302,10 +302,10 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 			Bytes:       128,
 		}},
 	})
-	if evalRun, ok := st.GetEvalRun("eval_pg"); !ok || evalRun.Status != "failed" || len(evalRun.FailureArchives) != 1 {
+	if evalRun, ok := mustGetEvalRun(t, st, "eval_pg"); !ok || evalRun.Status != "failed" || len(evalRun.FailureArchives) != 1 {
 		t.Fatalf("eval run did not round trip: %#v ok=%v", evalRun, ok)
 	}
-	evalRuns := st.ListEvalRuns()
+	evalRuns := mustListEvalRuns(t, st)
 	if len(evalRuns) != 1 || evalRuns[0].ID != "eval_pg" || len(evalRuns[0].FailureArchives) != 1 {
 		t.Fatalf("eval runs did not list: %#v", evalRuns)
 	}

@@ -157,6 +157,18 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationAuditEventsAfter, Repository: "AuditRepository",
 			Method: "EventsAfter", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationEvaluationSave: {
+			ID: OperationEvaluationSave, Repository: "EvaluationRepository",
+			Method: "SaveEvalRun", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationEvaluationGet: {
+			ID: OperationEvaluationGet, Repository: "EvaluationRepository",
+			Method: "GetEvalRun", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationEvaluationList: {
+			ID: OperationEvaluationList, Repository: "EvaluationRepository",
+			Method: "ListEvalRuns", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

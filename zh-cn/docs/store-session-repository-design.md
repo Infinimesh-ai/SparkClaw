@@ -53,9 +53,11 @@ List 只返回 `Hidden == false`，按 UpdatedAt 降序、ID 升序稳定排序�
 可以返回 hidden session。只有 Get 的正常缺失为 `(zero, false, nil)`；backend、scan、
 validation、context 或 row iteration 失败不得变成缺失或空列表。
 
-File 启动先执行已发布的 linked MCP/external-chat 兼容规范化；只允许旧空 owner 变为
-default owner、旧空 source 变为 `webchat`，其他损坏不得修复，map key 必须等于内嵌
-ID。PostgreSQL 在已有 adoption normalizer 后验证全部 session row 才 ready。
+File 启动先执行已发布的 linked MCP/external-chat 兼容规范化；允许旧空 owner 变为
+default owner、旧空 source 变为 `webchat`，并把旧 File 表示中的非零 session
+纳秒时间规范化为 UTC 微秒精度。零值/倒序时间及其他损坏字段不得修复，map key
+必须等于内嵌 ID。PostgreSQL 在已有 adoption normalizer 后验证全部 session row
+才 ready。
 
 ## 受保护 Session
 

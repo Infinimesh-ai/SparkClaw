@@ -179,7 +179,7 @@ func TestFileSessionDeleteFailureRestoresCompleteClosure(t *testing.T) {
 	assertSessionFileRollbackEqual(t, store.captureFileRollback(), before)
 }
 
-func TestFileSessionStartupRepairsOnlyBlankLegacyOwnerAndSource(t *testing.T) {
+func TestFileSessionStartupRepairsLegacyDefaultsAndTimestampPrecision(t *testing.T) {
 	path := t.TempDir() + "/state.json"
 	store, err := NewFileStore(path)
 	if err != nil {
@@ -192,6 +192,8 @@ func TestFileSessionStartupRepairsOnlyBlankLegacyOwnerAndSource(t *testing.T) {
 	rewriteFileSessionSnapshot(t, path, session.ID, func(value app.Session) app.Session {
 		value.OwnerID = "  "
 		value.Source = ""
+		value.CreatedAt = time.Date(2026, 8, 20, 12, 0, 0, 123456789, time.UTC)
+		value.UpdatedAt = value.CreatedAt.Add(987654321 * time.Nanosecond)
 		return value
 	})
 	restarted, err := NewFileStore(path)
@@ -199,7 +201,8 @@ func TestFileSessionStartupRepairsOnlyBlankLegacyOwnerAndSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, found, err := restarted.GetSession(t.Context(), session.ID)
-	if err != nil || !found || got.OwnerID != app.DefaultOwnerID || got.Source != "webchat" {
+	if err != nil || !found || got.OwnerID != app.DefaultOwnerID || got.Source != "webchat" ||
+		got.CreatedAt.Nanosecond() != 123456000 || got.UpdatedAt.Nanosecond() != 111111000 {
 		t.Fatalf("legacy repair got=%#v found=%v err=%v", got, found, err)
 	}
 
@@ -211,6 +214,11 @@ func TestFileSessionStartupRepairsOnlyBlankLegacyOwnerAndSource(t *testing.T) {
 		{name: "nonblank source whitespace", mutate: func(value app.Session) app.Session { value.Source = " webchat "; return value }},
 		{name: "workspace whitespace", mutate: func(value app.Session) app.Session { value.WorkspaceRoot = " /workspace "; return value }},
 		{name: "key mismatch", mutate: func(value app.Session) app.Session { value.ID = "different"; return value }},
+		{name: "submicrosecond reversed timestamps", mutate: func(value app.Session) app.Session {
+			value.CreatedAt = time.Date(2026, 8, 20, 12, 0, 0, 123456789, time.UTC)
+			value.UpdatedAt = time.Date(2026, 8, 20, 12, 0, 0, 123456700, time.UTC)
+			return value
+		}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			casePath := t.TempDir() + "/state.json"

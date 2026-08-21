@@ -194,6 +194,10 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		if strings.TrimSpace(session.Source) == "" {
 			session.Source = "webchat"
 		}
+		if !session.CreatedAt.IsZero() && !session.UpdatedAt.IsZero() && !session.UpdatedAt.Before(session.CreatedAt) {
+			session.CreatedAt = normalizeSessionTime(session.CreatedAt)
+			session.UpdatedAt = normalizeSessionTime(session.UpdatedAt)
+		}
 		s.sessions[id] = session
 		if session.UpdatedAt.After(s.sessionWriteHighWater[id]) {
 			s.sessionWriteHighWater[id] = session.UpdatedAt

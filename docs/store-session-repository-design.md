@@ -67,10 +67,11 @@ context, and row-iteration failures are never absence or an empty list.
 
 File startup first applies the already shipped linked-MCP and linked-external-
 chat compatibility normalization. It may normalize a blank legacy owner to the
-default owner and a blank legacy source to `webchat`; no other malformed
-session is repaired. Snapshot keys must equal embedded IDs. PostgreSQL runs its
-existing adoption normalizers before validating every session row for
-readiness.
+default owner, a blank legacy source to `webchat`, and nonzero legacy session
+timestamps from the former nanosecond File representation to UTC microsecond
+precision. It does not repair zero/reversed timestamps or any other malformed
+field. Snapshot keys must equal embedded IDs. PostgreSQL runs its existing
+adoption normalizers before validating every session row for readiness.
 
 ## Protected Sessions
 

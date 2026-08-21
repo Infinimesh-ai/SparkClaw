@@ -29,6 +29,36 @@ func (fn publisherFunc) Publish(ctx context.Context, envelope app.MessageEnvelop
 	return fn(ctx, envelope)
 }
 
+func mustSchedulerTick(t testing.TB, scheduler *Scheduler, ctx context.Context) []app.ReminderDelivery {
+	t.Helper()
+	deliveries, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deliveries
+}
+
+func mustSchedulerReminder(t testing.TB, repository store.ScheduleRepository, id string) app.Reminder {
+	t.Helper()
+	reminder, found, err := repository.GetReminder(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatalf("reminder %q was not found", id)
+	}
+	return reminder
+}
+
+func mustSchedulerDeliveries(t testing.TB, repository store.ScheduleRepository, reminderID string) []app.ReminderDelivery {
+	t.Helper()
+	deliveries, err := repository.ListReminderDeliveries(t.Context(), reminderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deliveries
+}
+
 type retryablePublishError struct{ error }
 
 func (retryablePublishError) RetryState() string { return "retryable" }
@@ -77,7 +107,7 @@ func TestTimerRunKeepsPollingWhileScheduledMessagesAreSlow(t *testing.T) {
 	saveTestSchedule(t, st, "sched_claimed_while_busy", now.Add(-time.Minute), "")
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if reminder, ok := st.GetReminder("sched_claimed_while_busy"); ok && reminder.Status == "sending" {
+		if reminder, ok, err := st.GetReminder(t.Context(), "sched_claimed_while_busy"); err == nil && ok && reminder.Status == "sending" {
 			cancel()
 			<-done
 			return
@@ -100,20 +130,20 @@ func TestSchedulerPublishesEveryDueScheduleThroughMessageRuntime(t *testing.T) {
 	}), 0)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
-	deliveries := scheduler.Tick(t.Context())
+	deliveries := mustSchedulerTick(t, scheduler, t.Context())
 	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "message-runtime" {
 		t.Fatalf("unexpected runtime publication: %#v", deliveries)
 	}
 	if got.Source.Kind != app.MessageSourceTimer || got.Source.ScheduleID != schedule.ID || got.Content.Parts[0].Text != "search later" {
 		t.Fatalf("unexpected scheduled envelope: %#v", got)
 	}
-	updated, _ := st.GetReminder(string(schedule.ID))
+	updated := mustSchedulerReminder(t, st, string(schedule.ID))
 	if updated.Status != "sent" {
 		t.Fatalf("expected schedule marked sent, got %#v", updated)
 	}
 }
 
-func TestCanceledPublicationRemainsLeasedForRecovery(t *testing.T) {
+func TestCanceledTickDoesNotClaimSchedule(t *testing.T) {
 	st := store.NewMemoryStore()
 	due := time.Now().UTC().Add(-time.Minute)
 	saveTestSchedule(t, st, "sched_canceled", due, "")
@@ -122,10 +152,12 @@ func TestCanceledPublicationRemainsLeasedForRecovery(t *testing.T) {
 	}), 0)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	scheduler.Tick(ctx)
-	reminder, _ := st.GetReminder("sched_canceled")
-	if reminder.Status != "sending" || len(st.ListReminderDeliveries(reminder.ID)) != 0 {
-		t.Fatalf("canceled work should remain leased without a terminal delivery: %#v", reminder)
+	if _, err := scheduler.Tick(ctx); store.StoreErrorCodeOf(err) != store.StoreErrorCanceled {
+		t.Fatalf("canceled tick code=%q err=%v", store.StoreErrorCodeOf(err), err)
+	}
+	reminder := mustSchedulerReminder(t, st, "sched_canceled")
+	if reminder.Status != "pending" || len(mustSchedulerDeliveries(t, st, reminder.ID)) != 0 {
+		t.Fatalf("canceled tick changed durable schedule state: %#v", reminder)
 	}
 }
 
@@ -138,11 +170,11 @@ func TestSchedulerKeepsRetryableRuntimeFailurePending(t *testing.T) {
 	}), 0)
 	now := due.Add(time.Minute)
 	scheduler.now = func() time.Time { return now }
-	deliveries := scheduler.Tick(t.Context())
+	deliveries := mustSchedulerTick(t, scheduler, t.Context())
 	if len(deliveries) != 1 || deliveries[0].RetryState != "retryable" {
 		t.Fatalf("expected retryable publication failure, got %#v", deliveries)
 	}
-	updated, _ := st.GetReminder("sched_retry")
+	updated := mustSchedulerReminder(t, st, "sched_retry")
 	if updated.Status != "pending" || !updated.DueTime.Equal(now.Add(time.Minute)) {
 		t.Fatalf("expected pending schedule with backoff, got %#v", updated)
 	}
@@ -161,19 +193,19 @@ func TestSchedulerFailsTerminallyAfterMaxDeliveryAttempts(t *testing.T) {
 	scheduler.now = func() time.Time { return now }
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		deliveries := scheduler.Tick(t.Context())
+		deliveries := mustSchedulerTick(t, scheduler, t.Context())
 		if len(deliveries) != 1 || deliveries[0].Attempt != attempt || deliveries[0].RetryState != "retryable" {
 			t.Fatalf("attempt %d: unexpected deliveries %#v", attempt, deliveries)
 		}
 		now = now.Add(retryMaxDelay + time.Minute)
 	}
-	exhausted, _ := st.GetReminder("sched_exhausted")
+	exhausted := mustSchedulerReminder(t, st, "sched_exhausted")
 	if exhausted.Status != "failed" || exhausted.DeliveryAttempt != 3 || exhausted.LastError == "" {
 		t.Fatalf("expected terminal failed reminder after exhausting retries, got %#v", exhausted)
 	}
 
 	now = now.Add(24 * time.Hour)
-	if deliveries := scheduler.Tick(t.Context()); len(deliveries) != 0 || publishes != 3 {
+	if deliveries := mustSchedulerTick(t, scheduler, t.Context()); len(deliveries) != 0 || publishes != 3 {
 		t.Fatalf("exhausted reminder was claimed again: deliveries=%#v publishes=%d", deliveries, publishes)
 	}
 }
@@ -185,11 +217,11 @@ func TestSchedulerReschedulesRecurringMessage(t *testing.T) {
 	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(context.Context, app.MessageEnvelope) error { return nil }), 0)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
-	deliveries := scheduler.Tick(t.Context())
+	deliveries := mustSchedulerTick(t, scheduler, t.Context())
 	if len(deliveries) != 1 || deliveries[0].Status != "sent" {
 		t.Fatalf("expected successful runtime publication, got %#v", deliveries)
 	}
-	updated, _ := st.GetReminder("sched_daily")
+	updated := mustSchedulerReminder(t, st, "sched_daily")
 	if updated.Status != "pending" || !updated.DueTime.Equal(due.Add(24*time.Hour)) || updated.DeliveryAttempt != 0 || updated.SentAt == nil {
 		t.Fatalf("recurring schedule was not re-armed: %#v", updated)
 	}
@@ -201,7 +233,7 @@ func TestSchedulerWithoutMessagePublisherFailsClosed(t *testing.T) {
 	saveTestSchedule(t, st, "sched_no_publisher", due, "")
 	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), nil, 0)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
-	deliveries := scheduler.Tick(t.Context())
+	deliveries := mustSchedulerTick(t, scheduler, t.Context())
 	if len(deliveries) != 1 || deliveries[0].Status != "failed" || deliveries[0].RetryState != "blocked" {
 		t.Fatalf("expected blocked failure, got %#v", deliveries)
 	}

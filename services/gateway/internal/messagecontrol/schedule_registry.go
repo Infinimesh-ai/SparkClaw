@@ -12,11 +12,11 @@ import (
 )
 
 type scheduleStore interface {
-	SaveReminder(app.Reminder) app.Reminder
-	UpdatePendingReminder(app.Reminder, time.Time) (app.Reminder, error)
-	GetReminder(string) (app.Reminder, bool)
-	ListReminders(app.ReminderFilter) []app.Reminder
-	ClaimDueReminders(time.Time, time.Time, int) []app.Reminder
+	SaveReminder(context.Context, app.Reminder) (app.Reminder, error)
+	UpdatePendingReminder(context.Context, app.Reminder, time.Time) (app.Reminder, error)
+	GetReminder(context.Context, string) (app.Reminder, bool, error)
+	ListReminders(context.Context, app.ReminderFilter) ([]app.Reminder, error)
+	ClaimDueReminders(context.Context, time.Time, time.Time, int) ([]app.Reminder, error)
 	GetSession(context.Context, string) (app.Session, bool, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
@@ -47,7 +47,11 @@ func (r *ScheduleRegistry) Save(ctx context.Context, schedule app.MessageSchedul
 	if err != nil {
 		return app.MessageSchedule{}, err
 	}
-	saved, ok := r.fromReminder(r.store.SaveReminder(reminder))
+	stored, err := r.store.SaveReminder(ctx, reminder)
+	if err != nil {
+		return app.MessageSchedule{}, err
+	}
+	saved, ok := r.fromReminder(stored)
 	if !ok {
 		return app.MessageSchedule{}, errors.New("saved schedule spec is unavailable")
 	}
@@ -79,7 +83,7 @@ func (r *ScheduleRegistry) UpdatePending(ctx context.Context, id app.ScheduleID,
 	if err != nil {
 		return app.MessageSchedule{}, err
 	}
-	updated, err := r.store.UpdatePendingReminder(reminder, expectedUpdatedAt.UTC())
+	updated, err := r.store.UpdatePendingReminder(ctx, reminder, expectedUpdatedAt.UTC())
 	if err != nil {
 		if errors.Is(err, store.ErrReminderConflict) {
 			return app.MessageSchedule{}, store.ErrReminderConflict
@@ -106,7 +110,7 @@ func (r *ScheduleRegistry) CancelPending(ctx context.Context, id app.ScheduleID,
 	if err != nil {
 		return app.MessageSchedule{}, err
 	}
-	updated, err := r.store.UpdatePendingReminder(reminder, expectedUpdatedAt.UTC())
+	updated, err := r.store.UpdatePendingReminder(ctx, reminder, expectedUpdatedAt.UTC())
 	if err != nil {
 		if errors.Is(err, store.ErrReminderConflict) {
 			return app.MessageSchedule{}, store.ErrReminderConflict
@@ -124,14 +128,17 @@ func (r *ScheduleRegistry) pendingOwned(ctx context.Context, id app.ScheduleID, 
 	if r == nil || r.store == nil {
 		return app.MessageSchedule{}, errors.New("schedule registry is unavailable")
 	}
-	schedule, ok := r.Get(ctx, id)
+	schedule, ok, err := r.Get(ctx, id)
+	if err != nil {
+		return app.MessageSchedule{}, err
+	}
 	if !ok || schedule.Spec.OwnerID != strings.TrimSpace(ownerID) || schedule.Spec.ActorID != strings.TrimSpace(actorID) {
 		return app.MessageSchedule{}, errors.New("schedule not found")
 	}
 	if schedule.Status != "pending" {
 		return app.MessageSchedule{}, fmt.Errorf("only pending schedules can be changed, current status is %q", schedule.Status)
 	}
-	if expectedUpdatedAt.IsZero() || !schedule.UpdatedAt.Equal(expectedUpdatedAt.UTC()) {
+	if expectedUpdatedAt.IsZero() || !schedule.UpdatedAt.Equal(expectedUpdatedAt.UTC().Truncate(time.Microsecond)) {
 		return app.MessageSchedule{}, store.ErrReminderConflict
 	}
 	return schedule, nil
@@ -151,7 +158,9 @@ func (r *ScheduleRegistry) reminderForSchedule(ctx context.Context, schedule app
 		}
 	}
 	reminder := app.Reminder{}
-	if existing, ok := r.store.GetReminder(string(schedule.ID)); ok {
+	if existing, ok, err := r.store.GetReminder(ctx, string(schedule.ID)); err != nil {
+		return app.Reminder{}, err
+	} else if ok {
 		reminder = existing
 	}
 	reminder.ID = string(schedule.ID)
@@ -177,43 +186,53 @@ func (r *ScheduleRegistry) reminderForSchedule(ctx context.Context, schedule app
 	return reminder, nil
 }
 
-func (r *ScheduleRegistry) Get(_ context.Context, id app.ScheduleID) (app.MessageSchedule, bool) {
+func (r *ScheduleRegistry) Get(ctx context.Context, id app.ScheduleID) (app.MessageSchedule, bool, error) {
 	if r == nil || r.store == nil {
-		return app.MessageSchedule{}, false
+		return app.MessageSchedule{}, false, errors.New("schedule registry is unavailable")
 	}
-	reminder, ok := r.store.GetReminder(string(id))
+	reminder, ok, err := r.store.GetReminder(ctx, string(id))
+	if err != nil {
+		return app.MessageSchedule{}, false, err
+	}
 	if !ok {
-		return app.MessageSchedule{}, false
+		return app.MessageSchedule{}, false, nil
 	}
-	return r.fromReminder(reminder)
+	schedule, converted := r.fromReminder(reminder)
+	return schedule, converted, nil
 }
 
-func (r *ScheduleRegistry) List(_ context.Context, filter app.ReminderFilter) []app.MessageSchedule {
+func (r *ScheduleRegistry) List(ctx context.Context, filter app.ReminderFilter) ([]app.MessageSchedule, error) {
 	if r == nil || r.store == nil {
-		return nil
+		return nil, errors.New("schedule registry is unavailable")
 	}
-	reminders := r.store.ListReminders(filter)
+	reminders, err := r.store.ListReminders(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]app.MessageSchedule, 0, len(reminders))
 	for _, reminder := range reminders {
 		if schedule, ok := r.fromReminder(reminder); ok {
 			out = append(out, schedule)
 		}
 	}
-	return out
+	return out, nil
 }
 
-func (r *ScheduleRegistry) ClaimDue(_ context.Context, now, staleBefore time.Time, limit int) []app.MessageSchedule {
+func (r *ScheduleRegistry) ClaimDue(ctx context.Context, now, staleBefore time.Time, limit int) ([]app.MessageSchedule, error) {
 	if r == nil || r.store == nil {
-		return nil
+		return nil, errors.New("schedule registry is unavailable")
 	}
-	reminders := r.store.ClaimDueReminders(now.UTC(), staleBefore.UTC(), limit)
+	reminders, err := r.store.ClaimDueReminders(ctx, now.UTC(), staleBefore.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]app.MessageSchedule, 0, len(reminders))
 	for _, reminder := range reminders {
 		if schedule, ok := r.fromReminder(reminder); ok {
 			out = append(out, schedule)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (r *ScheduleRegistry) fromReminder(reminder app.Reminder) (app.MessageSchedule, bool) {
@@ -330,9 +349,10 @@ func firstValue(values ...string) string {
 }
 
 func nextUpdateTime(expected time.Time) time.Time {
-	now := time.Now().UTC()
-	if !now.After(expected.UTC()) {
-		return expected.UTC().Add(time.Nanosecond)
+	expected = expected.UTC().Truncate(time.Microsecond)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if !now.After(expected) {
+		return expected.Add(time.Microsecond)
 	}
 	return now
 }

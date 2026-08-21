@@ -77,7 +77,7 @@ func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, created.Output.(map[string]any)["reminder_id"].(string))
 	if !ok || reminder.ScheduleSpec == nil {
 		t.Fatalf("runtime schedule was not persisted: %#v", reminder)
 	}
@@ -101,7 +101,7 @@ func TestRemindersCreateKeepsOwnedContextThroughScheduleSave(t *testing.T) {
 	}, session.ID, "run_canceled_schedule"); err == nil {
 		t.Fatal("canceled reminder schedule was persisted")
 	}
-	if reminders := base.ListReminders(app.ReminderFilter{}); len(reminders) != 0 {
+	if reminders := mustToolhubListReminders(t, base, app.ReminderFilter{}); len(reminders) != 0 {
 		t.Fatalf("canceled reminder persisted: %#v", reminders)
 	}
 }
@@ -110,7 +110,7 @@ func TestRemindersListIgnoresRemovedLegacyScheduleSchema(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "Schedule schema cutoff")
 	now := time.Now().UTC()
-	st.SaveReminder(app.Reminder{
+	mustToolhubSaveReminder(t, st, app.Reminder{
 		ID: "legacy-reminder", SessionID: session.ID, Text: "old literal payload", DueTime: now.Add(time.Hour),
 		Status: "pending", CreatedAt: now, UpdatedAt: now,
 		ScheduleSpec: &app.ScheduleSpec{SchemaVersion: app.ScheduleSpecSchemaVersion - 1},
@@ -214,7 +214,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 		t.Fatal(err)
 	}
 	out := created.Output.(map[string]any)
-	reminder, ok := st.GetReminder(out["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, out["reminder_id"].(string))
 	if !ok {
 		t.Fatal("reminder missing")
 	}
@@ -259,7 +259,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := created.Output.(map[string]any)
-	reminder, ok := st.GetReminder(out["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, out["reminder_id"].(string))
 	if !ok {
 		t.Fatal("reminder missing")
 	}
@@ -289,7 +289,7 @@ func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, created.Output.(map[string]any)["reminder_id"].(string))
 	if !ok {
 		t.Fatal("reminder missing")
 	}

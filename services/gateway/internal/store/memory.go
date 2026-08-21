@@ -157,7 +157,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		ToolCalls:            cloneMap(s.toolCalls),
 		DocumentRecords:      cloneMap(s.documentRecords),
 		Approvals:            cloneMap(s.approvals),
-		Reminders:            cloneMap(s.reminders),
+		Reminders:            cloneReminderMap(s.reminders),
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
 		ConnectorSettings:    cloneMap(s.connectorSettings),
 		NotificationBindings: cloneNotificationBindingMap(s.notificationBindings),
@@ -269,7 +269,13 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		}
 	}
 	s.reminders = ensureMap(snapshot.Reminders)
+	for id, reminder := range s.reminders {
+		s.reminders[id] = cloneReminder(normalizeReminder(reminder))
+	}
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
+	for id, delivery := range s.reminderDelivery {
+		s.reminderDelivery[id] = normalizeReminderDelivery(delivery)
+	}
 	s.connectorSettings = ensureMap(snapshot.ConnectorSettings)
 	s.notificationBindings = cloneNotificationBindingMap(ensureMap(snapshot.NotificationBindings))
 	if s.connectorSettingWriteHighWater == nil {
@@ -1655,71 +1661,80 @@ func (s *MemoryStore) ListApprovals(ctx context.Context, status string) ([]app.A
 	return out, nil
 }
 
-func (s *MemoryStore) SaveReminder(reminder app.Reminder) app.Reminder {
+func (s *MemoryStore) SaveReminder(ctx context.Context, reminder app.Reminder) (app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderSave, ctx); err != nil {
+		return app.Reminder{}, err
+	}
+	reminder = prepareReminder(reminder, time.Now().UTC())
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if reminder.ID == "" {
-		reminder.ID = app.NewID("rem")
+	if err := operationContextError(OperationReminderSave, ctx); err != nil {
+		return app.Reminder{}, err
 	}
-	if reminder.CreatedAt.IsZero() {
-		reminder.CreatedAt = now
-	}
-	if reminder.UpdatedAt.IsZero() {
-		reminder.UpdatedAt = now
-	}
-	if reminder.Status == "" {
-		reminder.Status = "pending"
-	}
-	if reminder.TextSummary == "" {
-		reminder.TextSummary = summarizeReminderText(reminder.Text)
-	}
-	s.reminders[reminder.ID] = reminder
+	s.reminders[reminder.ID] = cloneReminder(reminder)
 	s.appendAuditLocked("reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
 		"reminder_id": reminder.ID,
 		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
 		"channel":     reminder.Channel,
 	})
 	s.appendEventLocked("reminder."+reminder.Status, reminder.SessionID, reminder.RunID, reminder)
-	return reminder
+	return cloneReminder(reminder), nil
 }
 
-func (s *MemoryStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+func (s *MemoryStore) UpdatePendingReminder(ctx context.Context, reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderUpdatePending, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderUpdatePending, ctx); err != nil {
+		return app.Reminder{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationReminderUpdatePending, ctx); err != nil {
+		return app.Reminder{}, err
+	}
 	current, ok := s.reminders[reminder.ID]
-	if !ok || current.Status != "pending" || !current.UpdatedAt.Equal(expectedUpdatedAt.UTC()) {
-		return app.Reminder{}, ErrReminderConflict
+	if !ok || current.Status != "pending" || !current.UpdatedAt.Equal(postgresTime(expectedUpdatedAt)) {
+		return app.Reminder{}, storeError(OperationReminderUpdatePending, StoreErrorConflict, ErrReminderConflict)
 	}
-	if reminder.CreatedAt.IsZero() {
-		reminder.CreatedAt = current.CreatedAt
-	}
-	if reminder.UpdatedAt.IsZero() {
-		reminder.UpdatedAt = time.Now().UTC()
-	}
-	if reminder.TextSummary == "" {
-		reminder.TextSummary = summarizeReminderText(reminder.Text)
-	}
-	s.reminders[reminder.ID] = reminder
+	reminder = prepareReminderUpdate(reminder, current, time.Now().UTC())
+	s.reminders[reminder.ID] = cloneReminder(reminder)
 	s.appendAuditLocked("reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
 		"reminder_id": reminder.ID,
 		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
 		"channel":     reminder.Channel,
 	})
 	s.appendEventLocked("reminder."+reminder.Status, reminder.SessionID, reminder.RunID, reminder)
-	return reminder, nil
+	return cloneReminder(reminder), nil
 }
 
-func (s *MemoryStore) GetReminder(id string) (app.Reminder, bool) {
+func (s *MemoryStore) GetReminder(ctx context.Context, id string) (app.Reminder, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderGet, ctx); err != nil {
+		return app.Reminder{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationReminderGet, ctx); err != nil {
+		return app.Reminder{}, false, err
+	}
 	reminder, ok := s.reminders[id]
-	return reminder, ok
+	return cloneReminder(reminder), ok, nil
 }
 
-func (s *MemoryStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
+func (s *MemoryStore) ListReminders(ctx context.Context, filter app.ReminderFilter) ([]app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationReminderList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.Reminder{}
 	for _, reminder := range s.reminders {
 		if filter.Status != "" && reminder.Status != filter.Status {
@@ -1731,25 +1746,33 @@ func (s *MemoryStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
 		if filter.To != nil && reminder.DueTime.After(filter.To.UTC()) {
 			continue
 		}
-		out = append(out, reminder)
+		out = append(out, cloneReminder(reminder))
 	}
-	slices.SortFunc(out, func(a, b app.Reminder) int {
-		return a.DueTime.Compare(b.DueTime)
-	})
-	if filter.Limit > 0 && len(out) > filter.Limit {
-		return out[:filter.Limit]
+	sortReminders(out)
+	limit := normalizeReminderQueryLimit(filter.Limit)
+	if len(out) > limit {
+		out = out[:limit]
 	}
-	return out
+	return out, nil
 }
 
 // ClaimDueReminders atomically flips due pending reminders to "sending" and
 // returns them, so overlapping ticks cannot deliver the same reminder twice.
 // Reminders left in "sending" since before staleBefore (a crashed or hung
 // delivery) are reclaimed.
-func (s *MemoryStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder {
+func (s *MemoryStore) ClaimDueReminders(ctx context.Context, now, staleBefore time.Time, limit int) ([]app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderClaimDue, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderClaimDue, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now = now.UTC()
+	if err := operationContextError(OperationReminderClaimDue, ctx); err != nil {
+		return nil, err
+	}
+	now = postgresTime(now)
+	staleBefore = postgresTime(staleBefore)
 	claimed := []app.Reminder{}
 	for _, reminder := range s.reminders {
 		switch reminder.Status {
@@ -1758,57 +1781,57 @@ func (s *MemoryStore) ClaimDueReminders(now, staleBefore time.Time, limit int) [
 				continue
 			}
 		case "sending":
-			if reminder.UpdatedAt.After(staleBefore.UTC()) {
+			if reminder.UpdatedAt.After(staleBefore) {
 				continue
 			}
 		default:
 			continue
 		}
-		claimed = append(claimed, reminder)
+		claimed = append(claimed, cloneReminder(reminder))
 	}
-	slices.SortFunc(claimed, func(a, b app.Reminder) int {
-		return a.DueTime.Compare(b.DueTime)
-	})
-	if limit > 0 && len(claimed) > limit {
+	sortReminders(claimed)
+	limit = normalizeReminderQueryLimit(limit)
+	if len(claimed) > limit {
 		claimed = claimed[:limit]
 	}
 	for i, reminder := range claimed {
 		reminder.Status = "sending"
 		reminder.UpdatedAt = now
-		s.reminders[reminder.ID] = reminder
-		claimed[i] = reminder
+		s.reminders[reminder.ID] = cloneReminder(reminder)
+		claimed[i] = cloneReminder(reminder)
 	}
-	return claimed
+	return claimed, nil
 }
 
-func (s *MemoryStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
+func (s *MemoryStore) SaveReminderDelivery(ctx context.Context, delivery app.ReminderDelivery) (app.ReminderDelivery, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderDeliverySave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderDeliverySave, ctx); err != nil {
+		return app.ReminderDelivery{}, err
+	}
+	now := postgresTime(time.Now().UTC())
+	delivery = prepareReminderDelivery(delivery, now)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if delivery.ID == "" {
-		delivery.ID = app.NewID("rdel")
+	if err := operationContextError(OperationReminderDeliverySave, ctx); err != nil {
+		return app.ReminderDelivery{}, err
 	}
-	if delivery.CreatedAt.IsZero() {
-		delivery.CreatedAt = now
+	reminder, ok := s.reminders[delivery.ReminderID]
+	if !ok {
+		return app.ReminderDelivery{}, storeError(OperationReminderDeliverySave, StoreErrorNotFound, errors.New("reminder not found"))
 	}
 	s.reminderDelivery[delivery.ID] = delivery
-	if reminder, ok := s.reminders[delivery.ReminderID]; ok {
-		reminder.LastDeliveryID = delivery.ID
-		reminder.LastError = delivery.Error
-		reminder.DeliveryAttempt = delivery.Attempt
-		if delivery.Status == "sent" {
-			sentAt := delivery.SentAt
-			if sentAt.IsZero() {
-				sentAt = now
-			}
-			reminder.SentAt = &sentAt
-			reminder.Status = "sent"
-		} else if delivery.Status == "failed" {
-			reminder.Status = "failed"
-		}
-		reminder.UpdatedAt = now
-		s.reminders[reminder.ID] = reminder
+	reminder.LastDeliveryID = delivery.ID
+	reminder.LastError = delivery.Error
+	reminder.DeliveryAttempt = delivery.Attempt
+	if delivery.Status == "sent" {
+		reminder.SentAt = cloneTimePointer(&delivery.SentAt)
+		reminder.Status = "sent"
+	} else if delivery.Status == "failed" {
+		reminder.Status = "failed"
 	}
+	reminder.UpdatedAt = nextRepositoryTime(now, reminder.UpdatedAt)
+	s.reminders[reminder.ID] = cloneReminder(reminder)
 	s.appendAuditLocked("reminder_delivery."+delivery.Status, "", "", "scheduler", delivery.ProviderStatus, map[string]any{
 		"delivery_id": delivery.ID,
 		"reminder_id": delivery.ReminderID,
@@ -1817,22 +1840,28 @@ func (s *MemoryStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.Re
 		"attempt":     delivery.Attempt,
 	})
 	s.appendEventLocked("reminder_delivery."+delivery.Status, "", delivery.ReminderID, delivery)
-	return delivery
+	return delivery, nil
 }
 
-func (s *MemoryStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
+func (s *MemoryStore) ListReminderDeliveries(ctx context.Context, reminderID string) ([]app.ReminderDelivery, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderDeliveryList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderDeliveryList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationReminderDeliveryList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.ReminderDelivery{}
 	for _, delivery := range s.reminderDelivery {
 		if reminderID == "" || delivery.ReminderID == reminderID {
 			out = append(out, delivery)
 		}
 	}
-	slices.SortFunc(out, func(a, b app.ReminderDelivery) int {
-		return a.CreatedAt.Compare(b.CreatedAt)
-	})
-	return out
+	sortReminderDeliveries(out)
+	return out, nil
 }
 
 func normalizeConnectorOwner(ownerID string) string {

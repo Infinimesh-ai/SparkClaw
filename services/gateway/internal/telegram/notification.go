@@ -146,7 +146,10 @@ func (a *NotificationAdapter) deliveryBinding(ctx context.Context, endpoint app.
 	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 	}
-	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
+	reminder, ok, err := a.store.GetReminder(ctx, strings.TrimSpace(request.ResultID))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram reminder binding could not be read", "retryable")
+	}
 	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), a.Key()) {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 	}

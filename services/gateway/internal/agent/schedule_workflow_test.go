@@ -150,7 +150,10 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if _, err := applyWorkflowOutcome(&storedRun, outcome, assessment); err != nil || storedRun.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("schedule workflow did not complete: status=%q err=%v", storedRun.Workflow.Status, err)
 	}
-	reminder, _ := st.GetReminder(createdOutput["reminder_id"].(string))
+	reminder, found, err := st.GetReminder(t.Context(), createdOutput["reminder_id"].(string))
+	if err != nil || !found {
+		t.Fatalf("load created reminder found=%v err=%v", found, err)
+	}
 	if reminder.Text != newText || reminder.Recurrence != recurrence || reminder.DueTime.Format(time.RFC3339) != "2026-08-02T02:30:00Z" {
 		t.Fatalf("schedule update mismatch: %#v", reminder)
 	}

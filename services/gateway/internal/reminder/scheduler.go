@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -64,14 +65,21 @@ func (s *Scheduler) Run(ctx context.Context) {
 			defer workers.Done()
 			for schedule := range jobs {
 				jobCtx, cancel := context.WithTimeout(ctx, jobTimeout)
-				s.process(jobCtx, schedule)
+				if _, err := s.process(jobCtx, schedule); err != nil {
+					slog.Warn("scheduled message persistence unavailable", "schedule_id", schedule.ID, "code", store.StoreErrorCodeOf(err))
+				}
 				cancel()
 			}
 		}()
 	}
 	poll := func() bool {
 		now := s.now().UTC()
-		for _, schedule := range s.schedules.ClaimDue(ctx, now, now.Add(-sendingLease), tickBatchLimit) {
+		schedules, err := s.schedules.ClaimDue(ctx, now, now.Add(-sendingLease), tickBatchLimit)
+		if err != nil {
+			slog.Warn("scheduled message claim unavailable", "code", store.StoreErrorCodeOf(err))
+			return ctx.Err() == nil
+		}
+		for _, schedule := range schedules {
 			select {
 			case jobs <- schedule:
 			case <-ctx.Done():
@@ -101,17 +109,24 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // Tick remains a synchronous compatibility API for deterministic tests and
 // explicit administrative calls. The production ticker never calls it.
-func (s *Scheduler) Tick(ctx context.Context) []app.ReminderDelivery {
+func (s *Scheduler) Tick(ctx context.Context) ([]app.ReminderDelivery, error) {
 	now := s.now().UTC()
-	due := s.schedules.ClaimDue(ctx, now, now.Add(-sendingLease), tickBatchLimit)
+	due, err := s.schedules.ClaimDue(ctx, now, now.Add(-sendingLease), tickBatchLimit)
+	if err != nil {
+		return nil, err
+	}
 	deliveries := make([]app.ReminderDelivery, 0, len(due))
 	for _, schedule := range due {
-		deliveries = append(deliveries, s.process(ctx, schedule))
+		delivery, err := s.process(ctx, schedule)
+		if err != nil {
+			return deliveries, err
+		}
+		deliveries = append(deliveries, delivery)
 	}
-	return deliveries
+	return deliveries, nil
 }
 
-func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) app.ReminderDelivery {
+func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) (app.ReminderDelivery, error) {
 	attempt := schedule.DeliveryAttempt + 1
 	dedupeKey := schedule.DedupeKey
 	if strings.TrimSpace(schedule.Recurrence) != "" && dedupeKey != "" {
@@ -134,11 +149,16 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) a
 		// Process shutdown or job timeout leaves the claim recoverable after the
 		// lease instead of turning infrastructure cancellation into a terminal
 		// business failure.
-		return deliveryRecord
+		return deliveryRecord, nil
 	}
-	deliveryRecord = s.store.SaveReminderDelivery(deliveryRecord)
-	s.rearm(string(schedule.ID), deliveryRecord)
-	return deliveryRecord
+	deliveryRecord, err := s.store.SaveReminderDelivery(ctx, deliveryRecord)
+	if err != nil {
+		return deliveryRecord, err
+	}
+	if err := s.rearm(ctx, string(schedule.ID), deliveryRecord); err != nil {
+		return deliveryRecord, err
+	}
+	return deliveryRecord, nil
 }
 
 func scheduledEnvelope(schedule app.MessageSchedule, dedupeKey string, createdAt time.Time) app.MessageEnvelope {
@@ -152,32 +172,36 @@ func scheduledEnvelope(schedule app.MessageSchedule, dedupeKey string, createdAt
 	}
 }
 
-func (s *Scheduler) rearm(reminderID string, deliveryRecord app.ReminderDelivery) {
-	reminder, ok := s.store.GetReminder(reminderID)
+func (s *Scheduler) rearm(ctx context.Context, reminderID string, deliveryRecord app.ReminderDelivery) error {
+	reminder, ok, err := s.store.GetReminder(ctx, reminderID)
+	if err != nil {
+		return err
+	}
 	if !ok {
-		return
+		return nil
 	}
 	now := s.now().UTC()
 	switch {
 	case deliveryRecord.Status == "sent" && strings.TrimSpace(reminder.Recurrence) != "":
 		next, ok := nextOccurrence(reminder, now)
 		if !ok {
-			return
+			return nil
 		}
 		reminder.Status, reminder.DueTime, reminder.DeliveryAttempt, reminder.LastError = "pending", next, 0, ""
 	case deliveryRecord.Status == "failed" && deliveryRecord.RetryState == "retryable":
 		if deliveryRecord.Attempt >= s.maxDeliveryAttempts {
 			// Retries are exhausted: keep the terminal "failed" status the
 			// delivery write already recorded instead of re-arming forever.
-			return
+			return nil
 		}
 		reminder.Status = "pending"
 		reminder.DueTime = now.Add(retryBackoff(deliveryRecord.Attempt))
 	default:
-		return
+		return nil
 	}
 	reminder.UpdatedAt = now
-	s.store.SaveReminder(reminder)
+	_, err = s.store.SaveReminder(ctx, reminder)
+	return err
 }
 
 func retryBackoff(attempt int) time.Duration {

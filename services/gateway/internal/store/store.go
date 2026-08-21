@@ -177,6 +177,16 @@ type MemoryRepository interface {
 	PruneMemories(context.Context, time.Time) ([]app.Memory, error)
 }
 
+type ScheduleRepository interface {
+	SaveReminder(context.Context, app.Reminder) (app.Reminder, error)
+	UpdatePendingReminder(context.Context, app.Reminder, time.Time) (app.Reminder, error)
+	GetReminder(context.Context, string) (app.Reminder, bool, error)
+	ListReminders(context.Context, app.ReminderFilter) ([]app.Reminder, error)
+	ClaimDueReminders(context.Context, time.Time, time.Time, int) ([]app.Reminder, error)
+	SaveReminderDelivery(context.Context, app.ReminderDelivery) (app.ReminderDelivery, error)
+	ListReminderDeliveries(context.Context, string) ([]app.ReminderDelivery, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -210,6 +220,7 @@ type Store interface {
 	ArtifactMetadataRepository
 	BrowserStateRepository
 	MemoryRepository
+	ScheduleRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -229,13 +240,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	SaveReminder(reminder app.Reminder) app.Reminder
-	UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error)
-	GetReminder(id string) (app.Reminder, bool)
-	ListReminders(filter app.ReminderFilter) []app.Reminder
-	ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder
-	SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery
-	ListReminderDeliveries(reminderID string) []app.ReminderDelivery
 	CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error)
 	GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool)
 	ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification
@@ -320,6 +324,9 @@ var (
 	_ MemoryRepository           = (*MemoryStore)(nil)
 	_ MemoryRepository           = (*FileStore)(nil)
 	_ MemoryRepository           = (*PostgresStore)(nil)
+	_ ScheduleRepository         = (*MemoryStore)(nil)
+	_ ScheduleRepository         = (*FileStore)(nil)
+	_ ScheduleRepository         = (*PostgresStore)(nil)
 	_ Store                      = (*MemoryStore)(nil)
 	_ Store                      = (*FileStore)(nil)
 	_ Store                      = (*PostgresStore)(nil)

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -39,7 +40,11 @@ type publicScheduleEndpoint struct {
 
 func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	schedules := messagecontrol.NewScheduleRegistry(s.store).List(r.Context(), app.ReminderFilter{})
+	schedules, err := messagecontrol.NewScheduleRegistry(s.store).List(r.Context(), app.ReminderFilter{})
+	if err != nil {
+		writeScheduleStoreError(w, err)
+		return
+	}
 	out := make([]publicSchedule, 0, len(schedules))
 	for _, schedule := range schedules {
 		if schedule.Status != "pending" && schedule.Status != "sending" {
@@ -62,6 +67,23 @@ func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"schedules": out})
+}
+
+func writeScheduleStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("schedule request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("schedule record not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("schedule changed or is no longer available"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("schedule request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("schedule operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("schedule service is unavailable"))
+	}
 }
 
 func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSchedule) publicScheduleEndpoint {

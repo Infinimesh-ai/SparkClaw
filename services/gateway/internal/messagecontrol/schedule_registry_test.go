@@ -34,7 +34,10 @@ func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := NewScheduleRegistry(reloaded).Get(t.Context(), schedule.ID)
+	got, ok, err := NewScheduleRegistry(reloaded).Get(t.Context(), schedule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || got.Spec.Payload.Content.Parts[0].Text != "search the web tomorrow" {
 		t.Fatalf("schedule did not round trip: %#v", got)
 	}

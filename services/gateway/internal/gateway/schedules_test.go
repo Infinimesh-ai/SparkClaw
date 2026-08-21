@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,30 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
+func TestScheduleStoreErrorProjection(t *testing.T) {
+	privateCause := errors.New("private schedule backend path")
+	tests := []struct {
+		code       store.StoreErrorCode
+		wantStatus int
+		wantCopy   string
+	}{
+		{code: store.StoreErrorInvalid, wantStatus: http.StatusBadRequest, wantCopy: "schedule request is invalid"},
+		{code: store.StoreErrorNotFound, wantStatus: http.StatusNotFound, wantCopy: "schedule record not found"},
+		{code: store.StoreErrorConflict, wantStatus: http.StatusConflict, wantCopy: "schedule changed or is no longer available"},
+		{code: store.StoreErrorCanceled, wantStatus: http.StatusRequestTimeout, wantCopy: "schedule request was canceled"},
+		{code: store.StoreErrorTimeout, wantStatus: http.StatusGatewayTimeout, wantCopy: "schedule operation timed out"},
+		{code: store.StoreErrorUnavailable, wantStatus: http.StatusServiceUnavailable, wantCopy: "schedule service is unavailable"},
+		{code: store.StoreErrorCorrupt, wantStatus: http.StatusServiceUnavailable, wantCopy: "schedule service is unavailable"},
+	}
+	for _, test := range tests {
+		response := httptest.NewRecorder()
+		writeScheduleStoreError(response, &store.StoreError{Code: test.code, Operation: store.OperationReminderList, Err: privateCause})
+		if response.Code != test.wantStatus || !strings.Contains(response.Body.String(), test.wantCopy) || strings.Contains(response.Body.String(), privateCause.Error()) {
+			t.Fatalf("code=%q response=%d body=%s", test.code, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestListCurrentSchedulesIsReadOnlyOwnerScopedProjection(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	st := store.NewMemoryStore()
@@ -31,7 +56,9 @@ func TestListCurrentSchedulesIsReadOnlyOwnerScopedProjection(t *testing.T) {
 		testScheduleReminder("owner-hidden", "other-owner", "other-owner", "pending", now.Add(3*time.Hour), "Private task"),
 		testScheduleReminder("actor-hidden", app.DefaultOwnerID, "other-actor", "pending", now.Add(4*time.Hour), "Other actor task"),
 	} {
-		st.SaveReminder(reminder)
+		if _, err := st.SaveReminder(t.Context(), reminder); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	tools := toolhub.New(cfg, st)

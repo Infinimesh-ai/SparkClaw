@@ -65,8 +65,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "approval.pending", eventType: "approval.pending",
 	},
 	"ScheduleRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveReminder(app.Reminder{ID: "reminder-lifecycle", Status: "pending", DueTime: time.Now().UTC()})
+		mutate: func(t *testing.T, st Store) {
+			mustSaveReminder(t, st, app.Reminder{ID: "reminder-lifecycle", Status: "pending", DueTime: time.Now().UTC()})
 		},
 		auditType: "reminder.pending", eventType: "reminder.pending",
 	},

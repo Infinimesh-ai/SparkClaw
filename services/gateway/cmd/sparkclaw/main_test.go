@@ -375,7 +375,10 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deliveries := services.reminderScheduler.Tick(t.Context())
+	deliveries, err := services.reminderScheduler.Tick(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "message-runtime" {
 		t.Fatalf("scheduled Web delivery did not complete: %#v", deliveries)
 	}
@@ -383,7 +386,10 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	if len(messages) != 2 || messages[0].Role != "user" || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
 		t.Fatalf("scheduled Web delivery did not enter the conversation: %#v", messages)
 	}
-	stored, ok := st.GetReminder(string(schedule.ID))
+	stored, ok, err := st.GetReminder(t.Context(), string(schedule.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || stored.Status != "sent" || stored.LastDeliveryID != deliveries[0].ID {
 		t.Fatalf("scheduled Web delivery state was not completed: %#v", stored)
 	}

@@ -433,27 +433,27 @@ func characterizeS0ScheduleRepository(t *testing.T, st Store, dimension string) 
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
-		reminder := st.SaveReminder(app.Reminder{ID: "reminder-s0", Text: "reminder", DueTime: base, Status: "pending"})
-		st.SaveReminderDelivery(app.ReminderDelivery{ID: "delivery-s0", ReminderID: reminder.ID, Status: "sent", Attempt: 1})
-		if got := st.ListReminderDeliveries(reminder.ID); len(got) != 1 || got[0].ID != "delivery-s0" {
+		reminder := mustSaveReminder(t, st, app.Reminder{ID: "reminder-s0", Text: "reminder", DueTime: base, Status: "pending"})
+		mustSaveReminderDelivery(t, st, app.ReminderDelivery{ID: "delivery-s0", ReminderID: reminder.ID, Status: "sent", Attempt: 1})
+		if got := mustListReminderDeliveries(t, st, reminder.ID); len(got) != 1 || got[0].ID != "delivery-s0" {
 			t.Fatalf("reminder delivery save/list = %#v", got)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetReminder("missing"); ok {
+		if _, ok := mustGetReminder(t, st, "missing"); ok {
 			t.Fatal("missing reminder was found")
 		}
 	case s0DimensionOrderScope:
-		st.SaveReminder(app.Reminder{ID: "reminder-late", DueTime: base.Add(time.Hour), Status: "pending"})
-		st.SaveReminder(app.Reminder{ID: "reminder-early", DueTime: base, Status: "pending"})
-		st.SaveReminder(app.Reminder{ID: "reminder-done", DueTime: base.Add(-time.Hour), Status: "sent"})
-		if got := st.ListReminders(app.ReminderFilter{Status: "pending"}); len(got) != 2 || got[0].ID != "reminder-early" || got[1].ID != "reminder-late" {
+		mustSaveReminder(t, st, app.Reminder{ID: "reminder-late", DueTime: base.Add(time.Hour), Status: "pending"})
+		mustSaveReminder(t, st, app.Reminder{ID: "reminder-early", DueTime: base, Status: "pending"})
+		mustSaveReminder(t, st, app.Reminder{ID: "reminder-done", DueTime: base.Add(-time.Hour), Status: "sent"})
+		if got := mustListReminders(t, st, app.ReminderFilter{Status: "pending"}); len(got) != 2 || got[0].ID != "reminder-early" || got[1].ID != "reminder-late" {
 			t.Fatalf("reminder order/filter = %#v", got)
 		}
 	case s0DimensionDuplicate:
-		reminder := st.SaveReminder(app.Reminder{ID: "reminder-s0", Text: "first", DueTime: base, Status: "pending"})
+		reminder := mustSaveReminder(t, st, app.Reminder{ID: "reminder-s0", Text: "first", DueTime: base, Status: "pending"})
 		reminder.Text = "updated"
-		st.SaveReminder(reminder)
-		if got := st.ListReminders(app.ReminderFilter{Status: "pending"}); len(got) != 1 || got[0].Text != "updated" {
+		mustSaveReminder(t, st, reminder)
+		if got := mustListReminders(t, st, app.ReminderFilter{Status: "pending"}); len(got) != 1 || got[0].Text != "updated" {
 			t.Fatalf("reminder overwrite created duplicates: %#v", got)
 		}
 	default:
@@ -689,16 +689,16 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reminder := st.SaveReminder(app.Reminder{ID: "reminder-restart", Text: "restart", DueTime: time.Now().UTC(), Status: "pending"})
-		st.SaveReminderDelivery(app.ReminderDelivery{ID: "delivery-restart", ReminderID: reminder.ID, Status: "sent", Attempt: 1})
+		reminder := mustSaveReminder(t, st, app.Reminder{ID: "reminder-restart", Text: "restart", DueTime: time.Now().UTC(), Status: "pending"})
+		mustSaveReminderDelivery(t, st, app.ReminderDelivery{ID: "delivery-restart", ReminderID: reminder.ID, Status: "sent", Attempt: 1})
 		reloaded, err := NewFileStore(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, ok := reloaded.GetReminder(reminder.ID); !ok || got.LastDeliveryID != "delivery-restart" || got.Status != "sent" {
+		if got, ok := mustGetReminder(t, reloaded, reminder.ID); !ok || got.LastDeliveryID != "delivery-restart" || got.Status != "sent" {
 			t.Fatalf("reminder did not survive restart: %#v ok=%v", got, ok)
 		}
-		if got := reloaded.ListReminderDeliveries(reminder.ID); len(got) != 1 || got[0].ID != "delivery-restart" {
+		if got := mustListReminderDeliveries(t, reloaded, reminder.ID); len(got) != 1 || got[0].ID != "delivery-restart" {
 			t.Fatalf("reminder delivery did not survive restart: %#v", got)
 		}
 	})
@@ -720,7 +720,6 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 }
 
 var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"ScheduleRepository":            s0ScheduleAliasSafe,
 	"PassiveNotificationRepository": s0PassiveAliasSafe,
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
 }
@@ -805,6 +804,16 @@ func TestS0MemoryRepositoryMutableValuesAreIsolated(t *testing.T) {
 	}
 }
 
+func TestS0ScheduleRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0ScheduleAliasSafe(t, backend.store) {
+				t.Fatal("ScheduleRepository exposed a mutable reminder alias")
+			}
+		})
+	}
+}
+
 func TestS0DefectEvidenceMutableAliases(t *testing.T) {
 	for repository, check := range s0MutableAliasChecks {
 		t.Run(repository, func(t *testing.T) {
@@ -849,10 +858,10 @@ func s0ApprovalAliasSafe(t *testing.T, st Store) bool {
 func s0ScheduleAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
 	sentAt := time.Now().UTC()
-	st.SaveReminder(app.Reminder{ID: "reminder-alias", Status: "sent", SentAt: &sentAt})
-	got, _ := st.GetReminder("reminder-alias")
+	mustSaveReminder(t, st, app.Reminder{ID: "reminder-alias", Status: "sent", SentAt: &sentAt})
+	got, _ := mustGetReminder(t, st, "reminder-alias")
 	*got.SentAt = got.SentAt.Add(time.Hour)
-	again, _ := st.GetReminder("reminder-alias")
+	again, _ := mustGetReminder(t, st, "reminder-alias")
 	return !again.SentAt.Equal(*got.SentAt)
 }
 

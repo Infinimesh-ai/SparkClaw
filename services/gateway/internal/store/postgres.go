@@ -54,6 +54,7 @@ type PostgresStore struct {
 	artifactMetadataPostgres          ownerPostgresOps
 	browserStatePostgres              ownerPostgresOps
 	memoryPostgres                    ownerPostgresOps
+	schedulePostgres                  ownerPostgresOps
 	approvalCommandGate               *semaphore.Weighted
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
@@ -135,6 +136,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		artifactMetadataPostgres:          pgxOwnerPostgresOps{pool: pool},
 		browserStatePostgres:              pgxOwnerPostgresOps{pool: pool},
 		memoryPostgres:                    pgxOwnerPostgresOps{pool: pool},
+		schedulePostgres:                  pgxOwnerPostgresOps{pool: pool},
 		approvalCommandGate:               semaphore.NewWeighted(1),
 		passiveNotificationRevs:           map[string]uint64{},
 	}
@@ -1422,25 +1424,19 @@ func (s *PostgresStore) ListApprovals(ctx context.Context, status string) ([]app
 	return out, nil
 }
 
-func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
-	now := time.Now().UTC()
-	if reminder.ID == "" {
-		reminder.ID = app.NewID("rem")
+func (s *PostgresStore) SaveReminder(ctx context.Context, reminder app.Reminder) (app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderSave, ctx); err != nil {
+		return app.Reminder{}, err
 	}
-	if reminder.CreatedAt.IsZero() {
-		reminder.CreatedAt = now
+	reminder = prepareReminder(reminder, time.Now().UTC())
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationReminderSave, s.schedulePostgres)
+	if err != nil {
+		return app.Reminder{}, err
 	}
-	if reminder.UpdatedAt.IsZero() {
-		reminder.UpdatedAt = now
-	}
-	if reminder.Status == "" {
-		reminder.Status = "pending"
-	}
-	if reminder.TextSummary == "" {
-		reminder.TextSummary = summarizeReminderText(reminder.Text)
-	}
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
+	defer releasePostgresSession(session, release)
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO reminders (
 			id, session_id, run_id, text, text_summary, due_time, timezone, channel, recipient,
 			recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status,
@@ -1448,6 +1444,8 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 		)
 		VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		ON CONFLICT (id) DO UPDATE SET
+			session_id = EXCLUDED.session_id,
+			run_id = EXCLUDED.run_id,
 			text = EXCLUDED.text,
 			text_summary = EXCLUDED.text_summary,
 			due_time = EXCLUDED.due_time,
@@ -1463,6 +1461,7 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 			status = EXCLUDED.status,
 			last_delivery_id = EXCLUDED.last_delivery_id,
 			last_error = EXCLUDED.last_error,
+			created_at = EXCLUDED.created_at,
 			updated_at = EXCLUDED.updated_at,
 			sent_at = EXCLUDED.sent_at,
 			canceled_at = EXCLUDED.canceled_at,
@@ -1470,25 +1469,39 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 			schedule_spec = EXCLUDED.schedule_spec
 	`, reminder.ID, reminder.SessionID, reminder.RunID, reminder.Text, reminder.TextSummary, reminder.DueTime, reminder.Timezone, reminder.Channel, reminder.Recipient,
 		reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL, reminder.Recurrence, reminder.DedupeKey, reminder.Status, reminder.LastDeliveryID, reminder.LastError, reminder.CreatedAt, reminder.UpdatedAt,
-		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec))
-	s.appendAudit(ctx, "reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
-		"reminder_id": reminder.ID,
-		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
-		"channel":     reminder.Channel,
-	})
-	s.appendEvent(ctx, "reminder."+reminder.Status, reminder.SessionID, reminder.RunID, reminder)
-	return reminder
+		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec)); err != nil {
+		return app.Reminder{}, finishSchedulePostgresStatement(ctx, OperationReminderSave, session, transaction, release, err)
+	}
+	if err := appendReminderLifecycle(transaction, ctx, reminder); err != nil {
+		return app.Reminder{}, finishSchedulePostgresStatement(ctx, OperationReminderSave, session, transaction, release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return reminder, storeError(OperationReminderSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneReminder(reminder), nil
 }
 
-func (s *PostgresStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+func (s *PostgresStore) UpdatePendingReminder(ctx context.Context, reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderUpdatePending, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderUpdatePending, ctx); err != nil {
+		return app.Reminder{}, err
+	}
 	if reminder.UpdatedAt.IsZero() {
 		reminder.UpdatedAt = time.Now().UTC()
 	}
+	reminder.UpdatedAt = nextRepositoryTime(reminder.UpdatedAt, postgresTime(expectedUpdatedAt))
 	if reminder.TextSummary == "" {
 		reminder.TextSummary = summarizeReminderText(reminder.Text)
 	}
-	ctx := context.Background()
-	row := s.db.QueryRow(ctx, `
+	reminder = normalizeReminder(reminder)
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationReminderUpdatePending, s.schedulePostgres)
+	if err != nil {
+		return app.Reminder{}, err
+	}
+	defer releasePostgresSession(session, release)
+	row := transaction.QueryRow(ctx, `
 		UPDATE reminders SET
 			session_id = nullif($2, ''), run_id = nullif($3, ''), text = $4, text_summary = $5,
 			due_time = $6, timezone = $7, channel = $8, recipient = $9,
@@ -1505,25 +1518,32 @@ func (s *PostgresStore) UpdatePendingReminder(reminder app.Reminder, expectedUpd
 		reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL,
 		reminder.Recurrence, reminder.DedupeKey, reminder.Status, reminder.LastDeliveryID,
 		reminder.LastError, reminder.UpdatedAt, reminder.SentAt, reminder.CanceledAt,
-		reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec), expectedUpdatedAt.UTC())
+		reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec), postgresTime(expectedUpdatedAt))
 	updated, err := scanReminder(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.Reminder{}, ErrReminderConflict
+		return app.Reminder{}, schedulePostgresBusinessError(ctx, OperationReminderUpdatePending, StoreErrorConflict, session, transaction, release, ErrReminderConflict)
 	}
 	if err != nil {
-		return app.Reminder{}, err
+		return app.Reminder{}, finishSchedulePostgresStatement(ctx, OperationReminderUpdatePending, session, transaction, release, err)
 	}
-	s.appendAudit(ctx, "reminder."+updated.Status, updated.SessionID, updated.RunID, "toolhub", updated.TextSummary, map[string]any{
-		"reminder_id": updated.ID,
-		"due_time":    updated.DueTime.UTC().Format(time.RFC3339),
-		"channel":     updated.Channel,
-	})
-	s.appendEvent(ctx, "reminder."+updated.Status, updated.SessionID, updated.RunID, updated)
-	return updated, nil
+	updated = normalizeReminder(updated)
+	if err := appendReminderLifecycle(transaction, ctx, updated); err != nil {
+		return app.Reminder{}, finishSchedulePostgresStatement(ctx, OperationReminderUpdatePending, session, transaction, release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return updated, storeError(OperationReminderUpdatePending, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneReminder(updated), nil
 }
 
-func (s *PostgresStore) GetReminder(id string) (app.Reminder, bool) {
-	row := s.db.QueryRow(context.Background(), `
+func (s *PostgresStore) GetReminder(ctx context.Context, id string) (app.Reminder, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderGet, ctx); err != nil {
+		return app.Reminder{}, false, err
+	}
+	row := s.schedulePostgres.QueryRow(ctx, `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
 			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
@@ -1531,22 +1551,30 @@ func (s *PostgresStore) GetReminder(id string) (app.Reminder, bool) {
 		WHERE id = $1
 	`, id)
 	reminder, err := scanReminder(row)
-	return reminder, err == nil
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Reminder{}, false, nil
+	}
+	if err != nil {
+		return app.Reminder{}, false, classifySchedulePostgresError(OperationReminderGet, ctx, err)
+	}
+	return cloneReminder(normalizeReminder(reminder)), true, nil
 }
 
-func (s *PostgresStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = 50
+func (s *PostgresStore) ListReminders(ctx context.Context, filter app.ReminderFilter) ([]app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderList, ctx); err != nil {
+		return nil, err
 	}
+	limit := normalizeReminderQueryLimit(filter.Limit)
 	var from, to any
 	if filter.From != nil {
-		from = *filter.From
+		from = postgresTime(*filter.From)
 	}
 	if filter.To != nil {
-		to = *filter.To
+		to = postgresTime(*filter.To)
 	}
-	rows, err := s.db.Query(context.Background(), `
+	rows, err := s.schedulePostgres.Query(ctx, `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
 			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
@@ -1554,58 +1582,107 @@ func (s *PostgresStore) ListReminders(filter app.ReminderFilter) []app.Reminder 
 		WHERE ($1 = '' OR status = $1)
 			AND ($2::timestamptz IS NULL OR due_time >= $2::timestamptz)
 			AND ($3::timestamptz IS NULL OR due_time <= $3::timestamptz)
-		ORDER BY due_time ASC
+		ORDER BY due_time ASC, id ASC
 		LIMIT $4
 	`, filter.Status, from, to, limit)
 	if err != nil {
-		return []app.Reminder{}
+		return nil, classifySchedulePostgresError(OperationReminderList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanReminder)
+	out := []app.Reminder{}
+	for rows.Next() {
+		reminder, err := scanReminder(rows)
+		if err != nil {
+			return nil, classifySchedulePostgresError(OperationReminderList, ctx, err)
+		}
+		out = append(out, cloneReminder(normalizeReminder(reminder)))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifySchedulePostgresError(OperationReminderList, ctx, err)
+	}
+	return out, nil
 }
 
-func (s *PostgresStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder {
-	if limit <= 0 {
-		limit = 50
+func (s *PostgresStore) ClaimDueReminders(ctx context.Context, now, staleBefore time.Time, limit int) ([]app.Reminder, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderClaimDue, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderClaimDue, ctx); err != nil {
+		return nil, err
 	}
-	rows, err := s.db.Query(context.Background(), `
+	limit = normalizeReminderQueryLimit(limit)
+	now = postgresTime(now)
+	staleBefore = postgresTime(staleBefore)
+	rows, err := s.schedulePostgres.Query(ctx, `
 		UPDATE reminders
 		SET status = 'sending', updated_at = $1
 		WHERE id IN (
 			SELECT id FROM reminders
 			WHERE (status = 'pending' AND due_time <= $1)
 				OR (status = 'sending' AND updated_at <= $2)
-			ORDER BY due_time ASC
+			ORDER BY due_time ASC, id ASC
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
 			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
-	`, now.UTC(), staleBefore.UTC(), limit)
+	`, now, staleBefore, limit)
 	if err != nil {
-		return []app.Reminder{}
+		return nil, classifySchedulePostgresError(OperationReminderClaimDue, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanReminder)
+	out := []app.Reminder{}
+	for rows.Next() {
+		reminder, err := scanReminder(rows)
+		if err != nil {
+			return nil, classifySchedulePostgresError(OperationReminderClaimDue, ctx, err)
+		}
+		out = append(out, cloneReminder(normalizeReminder(reminder)))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifySchedulePostgresError(OperationReminderClaimDue, ctx, err)
+	}
+	sortReminders(out)
+	return out, nil
 }
 
-func (s *PostgresStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
-	now := time.Now().UTC()
-	if delivery.ID == "" {
-		delivery.ID = app.NewID("rdel")
+func (s *PostgresStore) SaveReminderDelivery(ctx context.Context, delivery app.ReminderDelivery) (app.ReminderDelivery, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderDeliverySave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderDeliverySave, ctx); err != nil {
+		return app.ReminderDelivery{}, err
 	}
-	if delivery.CreatedAt.IsZero() {
-		delivery.CreatedAt = now
+	now := postgresTime(time.Now().UTC())
+	delivery = prepareReminderDelivery(delivery, now)
+	session, transaction, release, err := beginPostgresTransaction(ctx, OperationReminderDeliverySave, s.schedulePostgres)
+	if err != nil {
+		return app.ReminderDelivery{}, err
 	}
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
+	defer releasePostgresSession(session, release)
+	result, err := transaction.Exec(ctx, `
+		UPDATE reminders
+		SET last_delivery_id = $1,
+			last_error = $2,
+			status = CASE WHEN $3 = 'sent' THEN 'sent' WHEN $3 = 'failed' THEN 'failed' ELSE status END,
+			sent_at = CASE WHEN $3 = 'sent' THEN $4 ELSE sent_at END,
+			delivery_attempt = $5,
+			updated_at = GREATEST($6, updated_at + interval '1 microsecond')
+		WHERE id = $7
+	`, delivery.ID, delivery.Error, delivery.Status, zeroTimeToNil(delivery.SentAt), delivery.Attempt, now, delivery.ReminderID)
+	if err != nil {
+		return app.ReminderDelivery{}, finishSchedulePostgresStatement(ctx, OperationReminderDeliverySave, session, transaction, release, err)
+	}
+	if result.RowsAffected() != 1 {
+		return app.ReminderDelivery{}, schedulePostgresBusinessError(ctx, OperationReminderDeliverySave, StoreErrorNotFound, session, transaction, release, errors.New("reminder not found"))
+	}
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO reminder_deliveries (
 			id, reminder_id, channel, provider, recipient, status, provider_status, error,
 			retry_state, attempt, sent_at, created_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (id) DO UPDATE SET
+			reminder_id = EXCLUDED.reminder_id,
 			channel = EXCLUDED.channel,
 			provider = EXCLUDED.provider,
 			recipient = EXCLUDED.recipient,
@@ -1617,41 +1694,101 @@ func (s *PostgresStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.
 			sent_at = EXCLUDED.sent_at,
 			created_at = EXCLUDED.created_at
 	`, delivery.ID, delivery.ReminderID, delivery.Channel, delivery.Provider, delivery.Recipient, delivery.Status, delivery.ProviderStatus, delivery.Error,
-		delivery.RetryState, delivery.Attempt, zeroTimeToNil(delivery.SentAt), delivery.CreatedAt)
-	_, _ = s.db.Exec(ctx, `
-		UPDATE reminders
-		SET last_delivery_id = $1,
-			last_error = $2,
-			status = CASE WHEN $3 = 'sent' THEN 'sent' WHEN $3 = 'failed' THEN 'failed' ELSE status END,
-			sent_at = CASE WHEN $3 = 'sent' THEN $4 ELSE sent_at END,
-			delivery_attempt = $5,
-			updated_at = $6
-		WHERE id = $7
-	`, delivery.ID, delivery.Error, delivery.Status, zeroTimeToNil(delivery.SentAt), delivery.Attempt, now, delivery.ReminderID)
-	s.appendAudit(ctx, "reminder_delivery."+delivery.Status, "", delivery.ReminderID, "scheduler", delivery.ProviderStatus, map[string]any{
-		"delivery_id": delivery.ID,
-		"reminder_id": delivery.ReminderID,
-		"channel":     delivery.Channel,
-		"provider":    delivery.Provider,
-		"attempt":     delivery.Attempt,
-	})
-	s.appendEvent(ctx, "reminder_delivery."+delivery.Status, "", delivery.ReminderID, delivery)
-	return delivery
+		delivery.RetryState, delivery.Attempt, zeroTimeToNil(delivery.SentAt), delivery.CreatedAt); err != nil {
+		return app.ReminderDelivery{}, finishSchedulePostgresStatement(ctx, OperationReminderDeliverySave, session, transaction, release, err)
+	}
+	if err := appendReminderDeliveryLifecycle(transaction, ctx, delivery); err != nil {
+		return app.ReminderDelivery{}, finishSchedulePostgresStatement(ctx, OperationReminderDeliverySave, session, transaction, release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return delivery, storeError(OperationReminderDeliverySave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return delivery, nil
 }
 
-func (s *PostgresStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
-	rows, err := s.db.Query(context.Background(), `
+func (s *PostgresStore) ListReminderDeliveries(ctx context.Context, reminderID string) ([]app.ReminderDelivery, error) {
+	ctx, cancel := operationContext(ctx, OperationReminderDeliveryList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationReminderDeliveryList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.schedulePostgres.Query(ctx, `
 		SELECT id, reminder_id, channel, provider, recipient, status, provider_status, error,
 			retry_state, attempt, sent_at, created_at
 		FROM reminder_deliveries
 		WHERE $1 = '' OR reminder_id = $1
-		ORDER BY created_at ASC
+		ORDER BY created_at ASC, id ASC
 	`, reminderID)
 	if err != nil {
-		return []app.ReminderDelivery{}
+		return nil, classifySchedulePostgresError(OperationReminderDeliveryList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanReminderDelivery)
+	out := []app.ReminderDelivery{}
+	for rows.Next() {
+		delivery, err := scanReminderDelivery(rows)
+		if err != nil {
+			return nil, classifySchedulePostgresError(OperationReminderDeliveryList, ctx, err)
+		}
+		out = append(out, normalizeReminderDelivery(delivery))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifySchedulePostgresError(OperationReminderDeliveryList, ctx, err)
+	}
+	return out, nil
+}
+
+func appendReminderLifecycle(transaction onboardingPostgresTx, ctx context.Context, reminder app.Reminder) error {
+	eventType := "reminder." + reminder.Status
+	at := postgresTime(time.Now().UTC())
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
+		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6, $7, $8)
+	`, app.NewID("audit"), at, eventType, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, optionalJSON(map[string]any{
+		"reminder_id": reminder.ID, "due_time": reminder.DueTime.Format(time.RFC3339), "channel": reminder.Channel,
+	})); err != nil {
+		return err
+	}
+	_, err := transaction.Exec(ctx, `
+		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
+		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6)
+	`, app.NewID("evt"), at, eventType, reminder.SessionID, reminder.RunID, mustJSON(reminder))
+	return err
+}
+
+func appendReminderDeliveryLifecycle(transaction onboardingPostgresTx, ctx context.Context, delivery app.ReminderDelivery) error {
+	eventType := "reminder_delivery." + delivery.Status
+	at := postgresTime(time.Now().UTC())
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
+		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6, $7, $8)
+	`, app.NewID("audit"), at, eventType, "", delivery.ReminderID, "scheduler", delivery.ProviderStatus, optionalJSON(map[string]any{
+		"delivery_id": delivery.ID, "reminder_id": delivery.ReminderID, "channel": delivery.Channel,
+		"provider": delivery.Provider, "attempt": delivery.Attempt,
+	})); err != nil {
+		return err
+	}
+	_, err := transaction.Exec(ctx, `
+		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
+		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6)
+	`, app.NewID("evt"), at, eventType, "", delivery.ReminderID, mustJSON(delivery))
+	return err
+}
+
+func finishSchedulePostgresStatement(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
+	return classifySchedulePostgresError(operation, ctx, cause)
+}
+
+func schedulePostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+}
+
+func classifySchedulePostgresError(operation StoreOperation, ctx context.Context, cause error) error {
+	if errors.Is(cause, errReminderScheduleSpecJSONDecode) {
+		return storeError(operation, StoreErrorCorrupt, cause)
+	}
+	return classifyPostgresReadError(operation, ctx, cause)
 }
 
 func (s *PostgresStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
@@ -3985,20 +4122,28 @@ func scanReminder(row scanner) (app.Reminder, error) {
 		&reminder.BindingID, &reminder.CredentialRef, &reminder.BaseURL, &reminder.Recurrence,
 		&reminder.DedupeKey, &reminder.Status, &reminder.LastDeliveryID, &reminder.LastError,
 		&reminder.CreatedAt, &reminder.UpdatedAt, &reminder.SentAt, &reminder.CanceledAt, &reminder.DeliveryAttempt, &scheduleSpec)
-	if err == nil && len(scheduleSpec) > 0 && string(scheduleSpec) != "null" {
-		var spec app.ScheduleSpec
-		if json.Unmarshal(scheduleSpec, &spec) == nil && spec.SchemaVersion != 0 {
-			reminder.ScheduleSpec = &spec
-		}
+	if err != nil {
+		return app.Reminder{}, err
 	}
-	return reminder, err
+	if len(scheduleSpec) > 0 && string(scheduleSpec) != "null" {
+		var spec app.ScheduleSpec
+		if err := json.Unmarshal(scheduleSpec, &spec); err != nil {
+			return app.Reminder{}, errors.Join(errReminderScheduleSpecJSONDecode, err)
+		}
+		reminder.ScheduleSpec = &spec
+	}
+	return reminder, nil
 }
 
 func scanReminderDelivery(row scanner) (app.ReminderDelivery, error) {
 	var delivery app.ReminderDelivery
+	var sentAt *time.Time
 	err := row.Scan(&delivery.ID, &delivery.ReminderID, &delivery.Channel, &delivery.Provider, &delivery.Recipient,
 		&delivery.Status, &delivery.ProviderStatus, &delivery.Error, &delivery.RetryState, &delivery.Attempt,
-		&delivery.SentAt, &delivery.CreatedAt)
+		&sentAt, &delivery.CreatedAt)
+	if sentAt != nil {
+		delivery.SentAt = *sentAt
+	}
 	return delivery, err
 }
 

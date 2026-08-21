@@ -297,7 +297,10 @@ func (a *WeixinAdapter) deliveryBinding(ctx context.Context, endpoint app.Messag
 	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 	}
-	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
+	reminder, ok, err := a.store.GetReminder(ctx, strings.TrimSpace(request.ResultID))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin reminder binding could not be read", "retryable")
+	}
 	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), strings.TrimSpace(a.channel)) {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 	}

@@ -349,6 +349,34 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationMemoryPrune, Repository: "MemoryRepository",
 			Method: "PruneMemories", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationReminderSave: {
+			ID: OperationReminderSave, Repository: "ScheduleRepository",
+			Method: "SaveReminder", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationReminderUpdatePending: {
+			ID: OperationReminderUpdatePending, Repository: "ScheduleRepository",
+			Method: "UpdatePendingReminder", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationReminderGet: {
+			ID: OperationReminderGet, Repository: "ScheduleRepository",
+			Method: "GetReminder", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationReminderList: {
+			ID: OperationReminderList, Repository: "ScheduleRepository",
+			Method: "ListReminders", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationReminderClaimDue: {
+			ID: OperationReminderClaimDue, Repository: "ScheduleRepository",
+			Method: "ClaimDueReminders", Mode: operationWrite, Timeout: timeoutWrite,
+		},
+		OperationReminderDeliverySave: {
+			ID: OperationReminderDeliverySave, Repository: "ScheduleRepository",
+			Method: "SaveReminderDelivery", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationReminderDeliveryList: {
+			ID: OperationReminderDeliveryList, Repository: "ScheduleRepository",
+			Method: "ListReminderDeliveries", Mode: operationRead, Timeout: timeoutRead,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

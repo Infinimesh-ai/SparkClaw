@@ -105,7 +105,13 @@ func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sess
 	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(ctx, schedule); err != nil {
 		return Result{}, err
 	}
-	reminder, _ = h.store.GetReminder(reminder.ID)
+	reminder, ok, err := h.store.GetReminder(ctx, reminder.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, errors.New("saved reminder is unavailable")
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
@@ -159,7 +165,10 @@ func (h *ToolHub) remindersList(ctx context.Context, args map[string]any, sessio
 		}
 		filter.To = &t
 	}
-	reminders := h.store.ListReminders(filter)
+	reminders, err := h.store.ListReminders(ctx, filter)
+	if err != nil {
+		return Result{}, err
+	}
 	ownerID, err := h.ownerIDForSession(ctx, sessionID)
 	if err != nil {
 		return Result{}, err
@@ -194,7 +203,10 @@ func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sess
 		return Result{}, err
 	}
 	registry := messagecontrol.NewScheduleRegistry(h.store)
-	schedule, ok := registry.Get(ctx, app.ScheduleID(id))
+	schedule, ok, err := registry.Get(ctx, app.ScheduleID(id))
+	if err != nil {
+		return Result{}, err
+	}
 	if !ok {
 		return Result{}, errors.New("reminder not found")
 	}
@@ -224,7 +236,10 @@ func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sess
 	channelValue, channelChanged := optionalStringArg(args, "channel")
 	recipientValue, recipientChanged := optionalStringArg(args, "recipient")
 	if channelChanged || recipientChanged {
-		reminder, reminderOK := h.store.GetReminder(id)
+		reminder, reminderOK, err := h.store.GetReminder(ctx, id)
+		if err != nil {
+			return Result{}, err
+		}
 		if !reminderOK {
 			return Result{}, errors.New("reminder not found")
 		}
@@ -260,7 +275,13 @@ func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sess
 	if err != nil {
 		return Result{}, err
 	}
-	reminder, _ := h.store.GetReminder(string(updated.ID))
+	reminder, ok, err := h.store.GetReminder(ctx, string(updated.ID))
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, errors.New("updated reminder is unavailable")
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
@@ -281,7 +302,13 @@ func (h *ToolHub) remindersCancel(ctx context.Context, args map[string]any, sess
 	if err != nil {
 		return Result{}, err
 	}
-	reminder, _ := h.store.GetReminder(string(canceled.ID))
+	reminder, ok, err := h.store.GetReminder(ctx, string(canceled.ID))
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, errors.New("canceled reminder is unavailable")
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 

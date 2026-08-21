@@ -222,6 +222,33 @@ func TestBindingLifecycleCleanupFailureRetainsRecoveryState(t *testing.T) {
 	}
 }
 
+func TestBindingLifecycleRejectsMismatchedLegacyCredentialOwnership(t *testing.T) {
+	st := store.NewMemoryStore()
+	ref := "provider:openclaw-weixin-qr:another-binding"
+	if _, err := st.SaveCredentialSecret(t.Context(), store.NewCredentialCreate(app.CredentialSecret{
+		Ref: ref, Kind: "openclaw-weixin-bot-token", Value: "legacy-raw-token",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	active := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-legacy-mismatch", OwnerID: "owner", ActorID: "actor", Channel: "alpha", Provider: "alpha-provider",
+		Status: app.NotificationBindingActive, CredentialRef: ref,
+	})
+	vault := credential.New(st, credential.Options{Key: strings.Repeat("m", 32)})
+	registry := NewRegistry(lifecycleTestConfig(), st).WithCredentialLifecycle(vault)
+	registerLifecycleTestConnector(t, registry, &lifecycleTestAdapter{}, nil, "alpha-token")
+	if _, err := registry.RevokeNotificationBinding(t.Context(), active.ID); err == nil {
+		t.Fatal("mismatched legacy credential ownership was accepted")
+	}
+	retained, found := storetest.MustGetNotificationBinding(t, st, active.ID)
+	if !found || retained.Status != app.NotificationBindingRevoking || retained.CredentialRef != ref {
+		t.Fatalf("retained binding=%#v found=%v", retained, found)
+	}
+	if _, found, err := st.GetCredentialSecret(t.Context(), ref); err != nil || !found {
+		t.Fatalf("mismatched legacy credential was deleted: found=%v err=%v", found, err)
+	}
+}
+
 func TestBindingLifecycleStartupRecoveryCompletesBeforeWorkers(t *testing.T) {
 	st := store.NewMemoryStore()
 	starting := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
@@ -330,6 +357,20 @@ func TestBindingLifecycleFileRestartRetainsCleanupProofAndTerminalIDs(t *testing
 	revoking.Status = app.NotificationBindingRevoking
 	revoking = storetest.MustUpdateNotificationBinding(t, st, active, revoking)
 
+	legacyRef := "provider:openclaw-weixin-qr:binding-file-legacy-revoking"
+	if _, err := st.SaveCredentialSecret(t.Context(), store.NewCredentialCreate(app.CredentialSecret{
+		Ref: legacyRef, Kind: "openclaw-weixin-bot-token", Value: "legacy-raw-token",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	legacyActive := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-file-legacy-revoking", OwnerID: "owner", ActorID: "actor", Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: app.NotificationBindingActive, CredentialRef: legacyRef,
+	})
+	legacyRevoking := legacyActive
+	legacyRevoking.Status = app.NotificationBindingRevoking
+	legacyRevoking = storetest.MustUpdateNotificationBinding(t, st, legacyActive, legacyRevoking)
+
 	reloaded, err := store.NewFileStore(path)
 	if err != nil {
 		t.Fatal(err)
@@ -351,12 +392,16 @@ func TestBindingLifecycleFileRestartRetainsCleanupProofAndTerminalIDs(t *testing
 	if !found || revoked.Status != app.NotificationBindingRevoked || revoked.RevokedAt == nil {
 		t.Fatalf("revoking recovery=%#v found=%v", revoked, found)
 	}
-	for _, ref := range []string{pendingRef, revokingRef} {
+	legacyRevoked, found := storetest.MustGetNotificationBinding(t, reloaded, legacyRevoking.ID)
+	if !found || legacyRevoked.Status != app.NotificationBindingRevoked || legacyRevoked.RevokedAt == nil {
+		t.Fatalf("legacy revoking recovery=%#v found=%v", legacyRevoked, found)
+	}
+	for _, ref := range []string{pendingRef, revokingRef, legacyRef} {
 		if secret, found, err := reloaded.GetCredentialSecret(t.Context(), ref); err != nil || found || secret.Ref != "" {
 			t.Fatalf("credential %q survived recovery: %#v found=%v err=%v", ref, secret, found, err)
 		}
 	}
-	for _, terminal := range []app.NotificationBinding{failed, revoked} {
+	for _, terminal := range []app.NotificationBinding{failed, revoked, legacyRevoked} {
 		candidate, err := reloaded.CreateNotificationBinding(t.Context(), app.NotificationBinding{
 			ID: terminal.ID, OwnerID: terminal.OwnerID, ActorID: terminal.ActorID,
 			Channel: terminal.Channel, Provider: terminal.Provider, Status: app.NotificationBindingStarting,

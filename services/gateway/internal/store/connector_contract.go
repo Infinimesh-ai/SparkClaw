@@ -125,15 +125,15 @@ func normalizeAndValidatePersistedConnectorState(settings map[string]app.Connect
 
 func normalizeNotificationBindingCreate(binding app.NotificationBinding) (app.NotificationBinding, error) {
 	binding = cloneNotificationBinding(binding)
+	if binding.Version != 0 || !binding.CreatedAt.IsZero() || !binding.UpdatedAt.IsZero() {
+		return app.NotificationBinding{}, errors.New("starting notification binding carries repository lifecycle fields")
+	}
 	binding.ID = strings.TrimSpace(binding.ID)
 	binding.OwnerID = strings.TrimSpace(binding.OwnerID)
 	binding.ActorID = strings.TrimSpace(binding.ActorID)
 	binding.Channel = normalizeConnectorChannel(binding.Channel)
 	binding.Provider = strings.TrimSpace(binding.Provider)
 	binding.CredentialKind = strings.TrimSpace(binding.CredentialKind)
-	binding.Version = 0
-	binding.CreatedAt = time.Time{}
-	binding.UpdatedAt = time.Time{}
 	if binding.ID == "" || len(binding.ID) > 256 || binding.OwnerID == "" || binding.ActorID == "" ||
 		binding.Channel == "" || binding.Provider == "" || binding.Status != app.NotificationBindingStarting {
 		return app.NotificationBinding{}, errors.New("complete starting notification binding identity is required")
@@ -201,10 +201,55 @@ func prepareNotificationBindingUpdate(previous app.NotificationBinding, replacem
 	if replacement.Status == app.NotificationBindingActive && strings.HasPrefix(replacement.CredentialRef, "cred_") && replacement.CredentialKind == "" && previous.CredentialRef == "" {
 		return app.NotificationBinding{}, errors.New("new Vault credential requires a kind")
 	}
+	if err := validateNotificationBindingFieldMask(previous, replacement); err != nil {
+		return app.NotificationBinding{}, err
+	}
 	if err := validatePersistedNotificationBinding(replacement); err != nil {
 		return app.NotificationBinding{}, err
 	}
 	return replacement, nil
+}
+
+func validateNotificationBindingFieldMask(previous, replacement app.NotificationBinding) error {
+	expected := cloneNotificationBinding(previous)
+	expected.Status = replacement.Status
+	expected.Version = replacement.Version
+	expected.CreatedAt = replacement.CreatedAt
+	expected.UpdatedAt = replacement.UpdatedAt
+	expected.RevokedAt = cloneTimePointer(replacement.RevokedAt)
+	switch {
+	case isWaitingNotificationBinding(previous.Status) && isWaitingNotificationBinding(replacement.Status):
+		expected.DisplayName = replacement.DisplayName
+		expected.BaseURL = replacement.BaseURL
+		expected.ProviderSessionID = replacement.ProviderSessionID
+		expected.ProviderState = replacement.ProviderState
+		expected.QRCodeURL = replacement.QRCodeURL
+		expected.QRCodeImage = replacement.QRCodeImage
+		expected.ExpiresAt = cloneTimePointer(replacement.ExpiresAt)
+		expected.LastError = replacement.LastError
+	case previous.Status == app.NotificationBindingActive && replacement.Status == app.NotificationBindingActive:
+		expected.DisplayName = replacement.DisplayName
+		expected.ExternalUserID = replacement.ExternalUserID
+		expected.ExternalChatID = replacement.ExternalChatID
+		expected.ExternalThreadID = replacement.ExternalThreadID
+		expected.AccountID = replacement.AccountID
+		expected.BaseURL = replacement.BaseURL
+		expected.ContextToken = replacement.ContextToken
+		expected.ProviderCursor = replacement.ProviderCursor
+		expected.DefaultForChannel = replacement.DefaultForChannel
+		expected.Scopes = append([]string(nil), replacement.Scopes...)
+		expected.LastError = replacement.LastError
+	default:
+		return nil
+	}
+	if !notificationBindingsEqual(expected, replacement) {
+		return errors.New("notification binding update changes fields outside its lifecycle mask")
+	}
+	return nil
+}
+
+func isWaitingNotificationBinding(status string) bool {
+	return status == app.NotificationBindingWaitingScan || status == app.NotificationBindingWaitingConfirm
 }
 
 func validatePersistedNotificationBinding(binding app.NotificationBinding) error {

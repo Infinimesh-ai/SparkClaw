@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,6 +179,108 @@ func TestConnectorRepositoryBindingLifecycleContract(t *testing.T) {
 			again, _, err := backend.store.GetNotificationBinding(t.Context(), listed[0].ID)
 			if err != nil || len(again.Scopes) == len(listed[0].Scopes) {
 				t.Fatalf("binding scopes alias escaped: %#v err=%v", again, err)
+			}
+		})
+	}
+}
+
+func TestConnectorRepositoryBindingInputAndFieldMasks(t *testing.T) {
+	for _, backend := range newConnectorContractBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			for _, testCase := range []struct {
+				name   string
+				mutate func(*app.NotificationBinding)
+			}{
+				{name: "version", mutate: func(binding *app.NotificationBinding) { binding.Version = 1 }},
+				{name: "created at", mutate: func(binding *app.NotificationBinding) { binding.CreatedAt = time.Now().UTC() }},
+				{name: "updated at", mutate: func(binding *app.NotificationBinding) { binding.UpdatedAt = time.Now().UTC() }},
+			} {
+				t.Run("create rejects "+testCase.name, func(t *testing.T) {
+					request := app.NotificationBinding{
+						ID: "binding-create-" + strings.ReplaceAll(testCase.name, " ", "-"), OwnerID: "owner", ActorID: "actor",
+						Channel: "weixin", Provider: "openclaw-weixin-qr", Status: app.NotificationBindingStarting,
+					}
+					testCase.mutate(&request)
+					if candidate, err := backend.store.CreateNotificationBinding(t.Context(), request); candidate.ID != "" || StoreErrorCodeOf(err) != StoreErrorInvalid {
+						t.Fatalf("candidate=%#v err=%v code=%q", candidate, err, StoreErrorCodeOf(err))
+					}
+				})
+			}
+
+			starting, err := backend.store.CreateNotificationBinding(t.Context(), app.NotificationBinding{
+				ID: "binding-field-mask", OwnerID: "owner", ActorID: "actor", Channel: "weixin",
+				Provider: "openclaw-weixin-qr", Status: app.NotificationBindingStarting,
+				Scopes: []string{app.BindingScopeMessageSendSelf}, CredentialKind: "openclaw-weixin-bot-token",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitingCandidate := starting
+			waitingCandidate.Status = app.NotificationBindingWaitingScan
+			waitingCandidate.DisplayName = "Waiting account"
+			waitingCandidate.BaseURL = "https://provider.example"
+			waitingCandidate.ProviderSessionID = "provider-session"
+			waitingCandidate.ProviderState = "provider-state"
+			waitingCandidate.QRCodeURL = "https://provider.example/qr"
+			waitingCandidate.QRCodeImage = "data:image/png;base64,AA"
+			expires := time.Now().UTC().Add(time.Hour)
+			waitingCandidate.ExpiresAt = &expires
+			waiting, err := backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(starting, waitingCandidate))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, testCase := range []struct {
+				name   string
+				mutate func(*app.NotificationBinding)
+			}{
+				{name: "scopes", mutate: func(binding *app.NotificationBinding) { binding.Scopes = []string{app.BindingScopeReminderSendSelf} }},
+				{name: "context", mutate: func(binding *app.NotificationBinding) { binding.ContextToken = "forbidden" }},
+				{name: "delivery identity", mutate: func(binding *app.NotificationBinding) { binding.ExternalUserID = "forbidden" }},
+			} {
+				t.Run("waiting rejects "+testCase.name, func(t *testing.T) {
+					replacement := waiting
+					testCase.mutate(&replacement)
+					if candidate, err := backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(waiting, replacement)); candidate.ID != "" || StoreErrorCodeOf(err) != StoreErrorInvalid {
+						t.Fatalf("candidate=%#v err=%v code=%q", candidate, err, StoreErrorCodeOf(err))
+					}
+				})
+			}
+			waitingConfirm := waiting
+			waitingConfirm.Status = app.NotificationBindingWaitingConfirm
+			waitingConfirm.DisplayName = "Confirmed account"
+			waitingConfirm.ProviderState = "confirmed"
+			waitingConfirm.LastError = "connector_provider_pending"
+			waiting, err = backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(waiting, waitingConfirm))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			activeCandidate := waiting
+			activeCandidate.Status = app.NotificationBindingActive
+			activeCandidate.ExternalUserID = "user"
+			activeCandidate.AccountID = "account"
+			activeCandidate.CredentialRef = "cred_field-mask"
+			activeCandidate.QRCodeURL = ""
+			activeCandidate.QRCodeImage = ""
+			activeCandidate.ExpiresAt = nil
+			activeCandidate.LastError = ""
+			active, err := backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(waiting, activeCandidate))
+			if err != nil {
+				t.Fatal(err)
+			}
+			allowedActive := active
+			allowedActive.ContextToken = "context"
+			allowedActive.ProviderCursor = "cursor"
+			allowedActive.Scopes = []string{app.BindingScopeReminderSendSelf}
+			allowedActive.LastError = "connector_sync_failed"
+			active, err = backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(active, allowedActive))
+			if err != nil || active.ContextToken != "context" || active.ProviderCursor != "cursor" {
+				t.Fatalf("allowed active update=%#v err=%v", active, err)
+			}
+			forbiddenActive := active
+			forbiddenActive.ProviderState = "replaced-after-activation"
+			if candidate, err := backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(active, forbiddenActive)); candidate.ID != "" || StoreErrorCodeOf(err) != StoreErrorInvalid {
+				t.Fatalf("forbidden active candidate=%#v err=%v code=%q", candidate, err, StoreErrorCodeOf(err))
 			}
 		})
 	}

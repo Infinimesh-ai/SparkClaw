@@ -22,6 +22,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 const (
@@ -32,6 +33,7 @@ const (
 	CodeUnsealFailed   = "credential_unseal_failed"
 
 	legacyWeixinCredentialKind = "openclaw-weixin-bot-token"
+	legacyWeixinRefPrefix      = "provider:" + weixinproto.QRProvider + ":"
 	maxSealIdentityBytes       = 256
 )
 
@@ -315,10 +317,11 @@ func (v *Vault) Delete(ctx context.Context, ref string) error {
 		return err
 	}
 	ref = strings.TrimSpace(ref)
-	if !strings.HasPrefix(ref, "cred_") {
+	legacyWeixin := isLegacyWeixinCredentialRef(ref)
+	if !strings.HasPrefix(ref, "cred_") && !legacyWeixin {
 		return credentialError(CodeInvalid, errors.New("credential reference is not Vault-owned"))
 	}
-	return v.deleteAuthenticated(ctx, ref, "")
+	return v.deleteAuthenticated(ctx, ref, "", legacyWeixin)
 }
 
 func (v *Vault) AbortSeal(ctx context.Context, bindingID, kind string) error {
@@ -330,10 +333,10 @@ func (v *Vault) AbortSeal(ctx context.Context, bindingID, kind string) error {
 	if bindingID == "" || len([]byte(bindingID)) > maxSealIdentityBytes || kind == "" {
 		return credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
 	}
-	return v.deleteAuthenticated(ctx, v.credentialRef(bindingID), kind)
+	return v.deleteAuthenticated(ctx, v.credentialRef(bindingID), kind, false)
 }
 
-func (v *Vault) deleteAuthenticated(ctx context.Context, ref, expectedKind string) error {
+func (v *Vault) deleteAuthenticated(ctx context.Context, ref, expectedKind string, allowLegacyWeixinPlaintext bool) error {
 	if err := ctx.Err(); err != nil {
 		return credentialError(CodeCanceled, err)
 	}
@@ -355,9 +358,12 @@ func (v *Vault) deleteAuthenticated(ctx context.Context, ref, expectedKind strin
 	if expectedKind != "" && stored.Kind != expectedKind {
 		return credentialError(CodeUnavailable, errors.New("credential kind does not match cleanup proof"))
 	}
+	if allowLegacyWeixinPlaintext && stored.Kind != legacyWeixinCredentialKind {
+		return credentialError(CodeUnavailable, errors.New("legacy credential kind does not match cleanup proof"))
+	}
 	plaintext, isEnvelope, openErr := v.openEnvelope(stored)
 	zero(plaintext)
-	if !isEnvelope || openErr != nil {
+	if openErr != nil || (!isEnvelope && (!allowLegacyWeixinPlaintext || stored.Value == "")) {
 		return credentialError(CodeUnavailable, errors.New("credential envelope does not match cleanup proof"))
 	}
 	condition := store.NewCredentialDeleteCondition(stored)
@@ -372,6 +378,11 @@ func (v *Vault) deleteAuthenticated(ctx context.Context, ref, expectedKind strin
 		}
 	}
 	return v.mapRepositoryError(err)
+}
+
+func isLegacyWeixinCredentialRef(ref string) bool {
+	bindingID, ok := strings.CutPrefix(ref, legacyWeixinRefPrefix)
+	return ok && bindingID != "" && bindingID == strings.TrimSpace(bindingID) && len([]byte(bindingID)) <= maxSealIdentityBytes
 }
 
 func (v *Vault) resolveExistingSeal(ref, kind string, plaintext []byte, stored app.CredentialSecret) (string, error) {

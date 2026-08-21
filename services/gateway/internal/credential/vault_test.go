@@ -148,6 +148,57 @@ func TestVaultRewrapsLegacyWeixinCredential(t *testing.T) {
 	}
 }
 
+func TestVaultDeletesOnlyOwnedLegacyWeixinCredentials(t *testing.T) {
+	st := store.NewMemoryStore()
+	vault := New(st, Options{Key: testKey(11)})
+	for _, testCase := range []struct {
+		name   string
+		ref    string
+		rewrap bool
+	}{
+		{name: "raw", ref: legacyWeixinRefPrefix + "binding-raw"},
+		{name: "rewrapped", ref: legacyWeixinRefPrefix + "binding-rewrapped", rewrap: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			created, err := st.SaveCredentialSecret(t.Context(), store.NewCredentialCreate(app.CredentialSecret{
+				Ref: testCase.ref, Kind: legacyWeixinCredentialKind, Value: "legacy-weixin-token",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if testCase.rewrap {
+				opened, err := vault.Open(t.Context(), created.Ref)
+				if err != nil || string(opened) != "legacy-weixin-token" {
+					t.Fatalf("legacy open=%q err=%v", opened, err)
+				}
+				zero(opened)
+			}
+			if err := vault.Delete(t.Context(), created.Ref); err != nil {
+				t.Fatal(err)
+			}
+			if stored, found, err := st.GetCredentialSecret(t.Context(), created.Ref); err != nil || found || stored.Ref != "" {
+				t.Fatalf("legacy credential survived delete: %#v found=%v err=%v", stored, found, err)
+			}
+		})
+	}
+
+	if err := vault.Delete(t.Context(), "provider:other:binding"); ErrorCode(err) != CodeInvalid {
+		t.Fatalf("unowned provider ref error=%v code=%q", err, ErrorCode(err))
+	}
+	wrongKindRef := legacyWeixinRefPrefix + "binding-wrong-kind"
+	if _, err := st.SaveCredentialSecret(t.Context(), store.NewCredentialCreate(app.CredentialSecret{
+		Ref: wrongKindRef, Kind: "other-kind", Value: "legacy-weixin-token",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Delete(t.Context(), wrongKindRef); ErrorCode(err) != CodeUnavailable {
+		t.Fatalf("wrong-kind legacy ref error=%v code=%q", err, ErrorCode(err))
+	}
+	if _, found, err := st.GetCredentialSecret(t.Context(), wrongKindRef); err != nil || !found {
+		t.Fatalf("wrong-kind credential was deleted: found=%v err=%v", found, err)
+	}
+}
+
 type unknownOnceRepository struct {
 	inner             *store.MemoryStore
 	unknownSaveOnce   bool

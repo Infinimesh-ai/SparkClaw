@@ -223,8 +223,12 @@ type CredentialLifecycleRecovery interface {
 }
 ```
 
-`Delete` 只接受 Vault ref，并条件删除精确的已认证 envelope；Connector 调用方只有
-同时持有精确 `revoking` 记录和 repository 全局唯一 ref 不变量时才获得授权。
+`Delete` 接受确定性 `cred_` ref，以及已发布的精确旧 Weixin QR 命名空间
+`provider:openclaw-weixin-qr:<bindingID>`。新 ref 必须是已认证 envelope。只有该旧
+命名空间允许保存旧 Weixin kind 的迁移前明文值或已认证的重新封装 envelope，并且
+Connector 只有同时持有精确 `revoking` 记录、与该记录 binding ID 相同的 ref 后缀和
+repository 全局唯一 ref 不变量时才可条件删除。其他 provider ref 或明文 ref 一律
+fail closed。
 `AbortSeal` 从 binding ID 推导确定性 ref，要求 expected kind，只条件删除该 envelope。
 缺失属于幂等成功；
 conflict、replacement、损坏 envelope 或未解决 Store 结果均映射为稳定 credential

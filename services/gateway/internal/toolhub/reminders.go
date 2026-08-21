@@ -99,7 +99,7 @@ func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sess
 		DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence, DedupeKey: reminder.DedupeKey,
 		Status: reminder.Status, CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
 	}
-	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(context.Background(), schedule); err != nil {
+	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(ctx, schedule); err != nil {
 		return Result{}, err
 	}
 	reminder, _ = h.store.GetReminder(reminder.ID)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -121,13 +122,27 @@ func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.Runti
 		}
 		if err := s.syncBinding(ctx, workCtx, scope, binding); err != nil {
 			replacement := binding
-			replacement.LastError = err.Error()
+			replacement.LastError = stableWeixinSyncError(err)
 			if _, updateErr := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement)); updateErr != nil {
 				slog.Warn("weixin binding error state could not be persisted", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(updateErr))
 			}
 			slog.Warn("weixin context sync failed", "binding_id", binding.ID, "error", err)
 		}
 	}
+}
+
+func stableWeixinSyncError(err error) string {
+	var credentialErr *credential.Error
+	if errors.As(err, &credentialErr) {
+		return credentialErr.Error()
+	}
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		if code := strings.TrimSpace(coded.ErrorCode()); code != "" {
+			return code
+		}
+	}
+	return "weixin_sync_failed"
 }
 
 // Wait blocks until every in-flight dispatch batch has finished.

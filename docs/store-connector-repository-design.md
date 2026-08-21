@@ -261,9 +261,14 @@ type CredentialLifecycleRecovery interface {
 }
 ```
 
-`Delete` accepts only a Vault ref and conditionally deletes the exact
-authenticated envelope. Its Connector caller is authorized only by an exact
-`revoking` record plus the repository's global unique-ref invariant.
+`Delete` accepts deterministic `cred_` refs and the exact shipped legacy Weixin
+QR namespace `provider:openclaw-weixin-qr:<bindingID>`. New refs require an
+authenticated envelope. Only that legacy namespace may contain either the
+legacy Weixin kind's raw pre-migration value or its authenticated rewrapped
+envelope, and Connector may conditionally delete it only while holding the exact
+`revoking` record, a ref suffix equal to that record's binding ID, plus the
+repository's global unique-ref invariant. Every other provider or raw ref fails
+closed.
 `AbortSeal` derives the deterministic ref from binding ID, requires the
 expected kind, and conditionally deletes only that envelope.
 Absence is idempotent success. Conflict, replacement, malformed envelope, or

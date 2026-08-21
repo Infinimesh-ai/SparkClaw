@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 func (r *Registry) StartNotificationBinding(ctx context.Context, requested app.NotificationBinding, options binding.StartOptions) (app.NotificationBinding, error) {
@@ -310,6 +311,10 @@ func (r *Registry) markBindingFailed(ctx context.Context, current app.Notificati
 
 func (r *Registry) cleanupRevokingBinding(ctx context.Context, current app.NotificationBinding) error {
 	ref := strings.TrimSpace(current.CredentialRef)
+	legacyWeixinPrefix := "provider:" + weixinproto.QRProvider + ":"
+	if strings.HasPrefix(ref, legacyWeixinPrefix) && ref != legacyWeixinPrefix+current.ID {
+		return connectorUnavailable(errors.New("legacy credential reference does not match binding identity"))
+	}
 	switch {
 	case ref != "" && !strings.HasPrefix(ref, "config:"):
 		if r.credentials == nil {

@@ -92,11 +92,16 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 	st := store.NewMemoryStore()
 	expired := time.Now().UTC().Add(-time.Minute)
 	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{"unknown"})
-	saveEndpointFixture(t, st, "bind-expired", "chat-expired", "owner-a", "actor-a", "weixin", "Chen", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
-	binding, _ := storetest.MustGetNotificationBinding(t, st, "bind-expired")
-	previous := binding
-	binding.ExpiresAt = &expired
-	storetest.MustUpdateNotificationBinding(t, st, previous, binding)
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "bind-expired", OwnerID: "owner-a", ActorID: "actor-a", Channel: "weixin", Provider: "weixin-provider",
+		Status: app.NotificationBindingActive, DisplayName: "weixin account",
+		Scopes: []string{app.BindingScopeMessageSendSelf}, ExpiresAt: &expired,
+	})
+	st.SaveExternalChatSession(app.ExternalChatSession{
+		ID: "chat-expired", OwnerID: "source-user-2", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "actor-a",
+		BindingID: "bind-expired", Channel: "weixin", ExternalUserID: "user-2", ExternalChatID: "chat-2",
+		DisplayName: "Chen", Status: "active",
+	})
 	registry := NewEndpointRegistry(st)
 
 	_, err := registry.GetForMessageSend(t.Context(), "chat-a", "owner-a", "actor-a")

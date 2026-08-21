@@ -414,7 +414,13 @@ Vault never returns a raw Store error. It preserves the cause only behind
 | absent ref, invalid envelope, wrong key/AAD, or authentication failure on Open | `credential_unseal_failed` | stable credential failure; never includes ref, kind, value, or cause |
 
 Once introduced with Connector, public `Delete` treats only typed Store
-`not_found` as idempotent success. Notification
+`not_found` as idempotent success. It accepts the shipped legacy Weixin QR
+`provider:openclaw-weixin-qr:<bindingID>` namespace only when the stored kind is
+the legacy Weixin kind; the exact raw pre-migration value or an authenticated
+rewrapped envelope is conditionally deleted under Connector's durable
+`revoking`, matching binding-ID suffix, and global unique-ref proof. Other
+provider or raw refs fail closed.
+Notification
 and Syncer distinguish unavailable from normal credential absence, expose only
 the stable Vault message, and never copy it from raw Store diagnostics into
 binding `last_error`.

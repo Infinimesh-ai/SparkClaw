@@ -175,6 +175,28 @@ func TestSyncerStoresOnlyStableCredentialFailure(t *testing.T) {
 	}
 }
 
+func TestSyncerStoresOnlyStableProviderFailure(t *testing.T) {
+	const canary = "provider-controlled private diagnostic"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":1,"errmsg":"` + canary + `"}`))
+	}))
+	defer server.Close()
+	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "binding-provider-failure", "bot-secret")
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-provider-failure", OwnerID: app.DefaultOwnerID, Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: app.NotificationBindingActive,
+		ExternalUserID: "recipient", CredentialRef: credentialRef, BaseURL: server.URL,
+	})
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), weixinTestRuntimeScope())
+	stored, found := storetest.MustGetNotificationBinding(t, st, binding.ID)
+	if !found || stored.LastError != "weixin_sync_failed" || strings.Contains(stored.LastError, canary) {
+		t.Fatalf("stored provider error=%q found=%v", stored.LastError, found)
+	}
+}
+
 func TestSyncerOwnerGateRetainsUndispatchedBatchUntilReenabled(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{

@@ -308,6 +308,9 @@ func (s *PostgresStore) GetNotificationBinding(ctx context.Context, id string) (
 		return app.NotificationBinding{}, false, nil
 	}
 	if err != nil {
+		if errors.Is(err, errNotificationBindingScopesDecode) {
+			return app.NotificationBinding{}, false, connectorBusinessError(ctx, OperationNotificationBindingGet, StoreErrorCorrupt, session, transaction, release, err)
+		}
 		return app.NotificationBinding{}, false, finishConnectorRead(ctx, OperationNotificationBindingGet, session, transaction, release, err)
 	}
 	if err := validatePersistedNotificationBinding(binding); err != nil {

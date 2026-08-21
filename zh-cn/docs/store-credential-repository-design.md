@@ -356,7 +356,11 @@ matching，按以下规则映射结果：
 | Open 时 ref 缺失、envelope 无效、wrong key/AAD 或 authentication failure | `credential_unseal_failed` | 稳定 credential failure；绝不包含 ref、kind、value 或 cause |
 
 随 Connector 引入后，public `Delete` 只把 typed Store `not_found` 视为 idempotent
-success。Notification 与
+success。它只在 Store 中 kind 为旧 Weixin kind 时接受已发布的旧 Weixin QR
+`provider:openclaw-weixin-qr:<bindingID>` 命名空间；在 Connector 的 durable
+`revoking`、匹配的 binding-ID ref 后缀与全局唯一 ref 证明下，条件删除精确的迁移前
+明文值或已认证的重新封装 envelope。其他 provider ref 或明文 ref 一律 fail closed。
+Notification 与
 Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault message，绝不
 把 raw Store diagnostic 复制到 binding `last_error`。
 

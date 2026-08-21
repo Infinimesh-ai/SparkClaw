@@ -1,6 +1,7 @@
 package toolhub
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,17 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
+
+type cancelAfterBindingListStore struct {
+	store.Store
+	cancel context.CancelFunc
+}
+
+func (s *cancelAfterBindingListStore) ListNotificationBindings(ctx context.Context, channel, status string) ([]app.NotificationBinding, error) {
+	bindings, err := s.Store.ListNotificationBindings(ctx, channel, status)
+	s.cancel()
+	return bindings, err
+}
 
 func TestRemindersCreateListCancel(t *testing.T) {
 	cfg := config.Default()
@@ -71,6 +83,26 @@ func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	}
 	if reminder.ScheduleSpec.SchemaVersion != app.ScheduleSpecSchemaVersion || reminder.ScheduleSpec.Payload.Content.Parts[0].Text != "search tomorrow's weather" {
 		t.Fatalf("unexpected runtime schedule: %#v", reminder.ScheduleSpec)
+	}
+}
+
+func TestRemindersCreateKeepsOwnedContextThroughScheduleSave(t *testing.T) {
+	base := store.NewMemoryStore()
+	session := base.CreateSession("Canceled schedule")
+	storetest.MustCreateNotificationBinding(t, base, app.NotificationBinding{
+		ID: "binding-cancel-schedule", Channel: "alpha", Status: app.NotificationBindingActive,
+		ExternalUserID: "recipient", Scopes: []string{app.BindingScopeReminderSendSelf},
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	wrapped := &cancelAfterBindingListStore{Store: base, cancel: cancel}
+	hub := New(config.Default(), wrapped)
+	if _, err := hub.Execute(ctx, "reminders.create", map[string]any{
+		"text": "must not persist", "due_time": "2026-07-18T09:00:00+08:00", "channel": "alpha",
+	}, session.ID, "run_canceled_schedule"); err == nil {
+		t.Fatal("canceled reminder schedule was persisted")
+	}
+	if reminders := base.ListReminders(app.ReminderFilter{}); len(reminders) != 0 {
+		t.Fatalf("canceled reminder persisted: %#v", reminders)
 	}
 }
 

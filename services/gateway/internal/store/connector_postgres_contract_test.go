@@ -373,6 +373,12 @@ func TestPostgresConnectorReadContracts(t *testing.T) {
 	if listed, err := st.ListNotificationBindings(t.Context(), "", ""); listed != nil || StoreErrorCodeOf(err) != StoreErrorCorrupt {
 		t.Fatalf("corrupt list=%#v err=%v code=%q", listed, err, StoreErrorCodeOf(err))
 	}
+
+	getTx := &fakeConnectorPostgresTx{rowQueue: []onboardingPostgresRow{badScopes}}
+	getStore, _, getSession := newFakePostgresConnectorStore(getTx)
+	if binding, found, err := getStore.GetNotificationBinding(t.Context(), "binding-bad-scopes"); binding.ID != "" || found || StoreErrorCodeOf(err) != StoreErrorCorrupt || getTx.rollbacks != 1 || getSession.releases != 1 || getSession.terminates != 0 {
+		t.Fatalf("corrupt get=%#v found=%v err=%v code=%q rollback=%d release=%d terminate=%d", binding, found, err, StoreErrorCodeOf(err), getTx.rollbacks, getSession.releases, getSession.terminates)
+	}
 }
 
 func TestPostgresConnectorStartupRejectsGlobalInvariantViolations(t *testing.T) {

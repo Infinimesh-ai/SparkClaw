@@ -101,6 +101,9 @@ func (r *Registry) PollNotificationBinding(ctx context.Context, id string) (app.
 		return app.NotificationBinding{}, r.failPreActiveBinding(ctx, current, pollErr)
 	}
 	replacement := applyPollResult(current, poll)
+	if replacement.Status == app.NotificationBindingActive && strings.TrimSpace(registration.CredentialKind) != "" && strings.TrimSpace(poll.CredentialSecret) == "" {
+		return app.NotificationBinding{}, r.failPreActiveBinding(ctx, current, &binding.BindingError{Code: binding.CodeConnectorUnavailable})
+	}
 	if replacement.Status == app.NotificationBindingActive && strings.TrimSpace(poll.CredentialSecret) != "" {
 		kind := strings.TrimSpace(poll.CredentialKind)
 		if kind == "" {
@@ -284,7 +287,7 @@ func (r *Registry) failPreActiveBinding(ctx context.Context, current app.Notific
 	if !found || !store.NotificationBindingsEqual(proven, current) {
 		return connectorUnavailable(cause)
 	}
-	if proven.CredentialKind != "" {
+	if proven.CredentialKind != "" && (proven.Status == app.NotificationBindingStarting || proven.Status == app.NotificationBindingCredentialPending) {
 		if err := r.abortSeal(ctx, proven); err != nil {
 			return err
 		}

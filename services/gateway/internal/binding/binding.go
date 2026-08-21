@@ -623,6 +623,9 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 	if botToken == "" {
 		botToken = strings.TrimSpace(decoded.BotToken)
 	}
+	if botToken == "" {
+		return PollResult{}, &BindingError{Code: CodeConnectorUnavailable}
+	}
 	baseURL := strings.TrimSpace(decoded.Data.BaseURL)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(decoded.BaseURL)
@@ -637,13 +640,11 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 	if nickname == "" {
 		nickname = strings.TrimSpace(decoded.Nickname)
 	}
-	credentialRef := "provider:" + weixinproto.QRProvider + ":" + binding.ID
 	return PollResult{
 		Status:           "active",
 		DisplayName:      nickname,
 		ExternalUserID:   userID,
 		AccountID:        accountID,
-		CredentialRef:    credentialRef,
 		CredentialKind:   "openclaw-weixin-bot-token",
 		CredentialSecret: botToken,
 		BaseURL:          baseURL,

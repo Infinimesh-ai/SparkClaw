@@ -71,8 +71,28 @@ func TestWeixinQRAdapterStartAndPoll(t *testing.T) {
 	if polled.Status != "active" || polled.ExternalUserID != "user-1" || polled.AccountID != "account-1" {
 		t.Fatalf("unexpected poll result: %#v", polled)
 	}
-	if polled.CredentialRef == "" || polled.CredentialRef == "bot-secret" {
-		t.Fatalf("credential ref should not be raw empty/plain token: %#v", polled)
+	if polled.CredentialRef != "" || polled.CredentialKind != "openclaw-weixin-bot-token" || polled.CredentialSecret != "bot-secret" {
+		t.Fatalf("QR adapter should return plaintext only to the lifecycle sealing boundary: %#v", polled)
+	}
+}
+
+func TestWeixinQRAdapterRejectsActiveWithoutCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"retcode": 0,
+			"data":    map[string]any{"status": "confirmed", "account_id": "account-without-token"},
+		})
+	}))
+	defer server.Close()
+
+	adapter := NewWeixinQRAdapter("weixin", config.NotificationChannelConfig{
+		Provider: "openclaw-weixin-qr",
+		BaseURL:  server.URL,
+	})
+	result, err := adapter.Poll(t.Context(), app.NotificationBinding{ID: "binding-without-token", ProviderSessionID: "qr-session"})
+	var bindingErr *BindingError
+	if !errors.As(err, &bindingErr) || bindingErr.Code != CodeConnectorUnavailable || result.Status != "" || result.CredentialRef != "" {
+		t.Fatalf("active-without-token result=%#v err=%#v", result, err)
 	}
 }
 

@@ -293,7 +293,9 @@ serialized in-process. The repository CAS remains the durable authority.
 4. Weixin start conditionally records `waiting_scan`/`waiting_confirm`. A poll
    that returns plaintext first conditionally records non-pollable
    `credential_pending` with provider metadata and kind, then calls Seal, then
-   conditionally records active with the ref.
+   conditionally records active with the ref. An adapter result that claims
+   active without the required plaintext credential fails closed from the exact
+   waiting record; it never installs a provider-shaped ref or an active binding.
 5. A provider/Seal failure is projected stably. Cleanup runs only after a
    barrier proves the exact pre-active state; otherwise the durable state is
    retained for startup recovery.

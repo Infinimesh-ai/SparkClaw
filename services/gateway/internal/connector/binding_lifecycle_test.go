@@ -188,6 +188,30 @@ func TestBindingLifecyclePollPersistsCredentialPendingBeforeSeal(t *testing.T) {
 	}
 }
 
+func TestBindingLifecycleRejectsActivePollWithoutRequiredCredential(t *testing.T) {
+	st := store.NewMemoryStore()
+	credentials := &lifecycleCredentialRecorder{repository: st, sealRef: "cred_must-not-exist"}
+	adapter := &lifecycleTestAdapter{poll: func(context.Context, app.NotificationBinding) (binding.PollResult, error) {
+		return binding.PollResult{Status: app.NotificationBindingActive, CredentialKind: "alpha-token"}, nil
+	}}
+	registry := NewRegistry(lifecycleTestConfig(), st).WithCredentialLifecycle(credentials)
+	registerLifecycleTestConnector(t, registry, adapter, nil, "alpha-token")
+	started, err := registry.StartNotificationBinding(t.Context(), app.NotificationBinding{OwnerID: "owner", ActorID: "actor", Channel: "alpha"}, binding.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, pollErr := registry.PollNotificationBinding(t.Context(), started.ID)
+	var bindingErr *binding.BindingError
+	if !errors.As(pollErr, &bindingErr) || bindingErr.Code != binding.CodeConnectorUnavailable || candidate.ID != "" {
+		t.Fatalf("candidate=%#v err=%v", candidate, pollErr)
+	}
+	failed, found := storetest.MustGetNotificationBinding(t, st, started.ID)
+	seals, _, aborts, proofErrors := credentials.snapshot()
+	if !found || failed.Status != app.NotificationBindingFailed || failed.CredentialRef != "" || failed.LastError != binding.CodeConnectorUnavailable || len(seals) != 0 || len(aborts) != 0 || len(proofErrors) != 0 {
+		t.Fatalf("failed=%#v found=%v seals=%v aborts=%v proofErrors=%v", failed, found, seals, aborts, proofErrors)
+	}
+}
+
 func TestBindingLifecycleRevokePersistsProofBeforeCleanup(t *testing.T) {
 	st := store.NewMemoryStore()
 	active := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{

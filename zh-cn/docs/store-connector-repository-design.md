@@ -248,7 +248,8 @@ Connector Registry 持有 binding 生命周期协调器，并显式接收 `Conne
    条件 active 更新安装返回 ref。
 4. Weixin start 条件记录 `waiting_scan`/`waiting_confirm`。poll 返回明文时，先条件记录
    带 provider 元数据与 kind、不可轮询的 `credential_pending`，再 Seal，最后条件记录
-   带 ref 的 active。
+   带 ref 的 active。adapter 若宣告 active 却未返回必需的明文 credential，必须从精确
+   waiting 记录 fail closed；它不得安装 provider 形状的 ref 或 active binding。
 5. provider/Seal 失败只输出稳定错误。只有 barrier 证明精确 pre-active 状态后才能
    清理；否则保留持久化状态供启动恢复。
 

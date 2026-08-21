@@ -593,5 +593,5 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Credential contract 审查 6 | `3c86739` | `REVISE` | foundation 在没有 Connector exact pre-active proof 时尝试 AbortSeal，stale concurrent compensation 可能删除 active credential；Connector 也在迁移顺序中重复出现 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 7 | `8ef063f` | `REVISE` | 路线图仍授权 foundation AbortSeal，legacy revoke 也可在没有 durable transition proof 时删除 credential；仅推迟 cleanup 还会使 public Vault Delete 没有合法 caller | Context-isolated gatekeepers / 2026-08-20 |
 | S3 Credential contract 审查 8 | `b0884f6` | `GO` | foundation/private reconciliation 与 Connector/public cleanup 已无 dead code 地分离；ambiguous legacy start/revoke fail-closed，双语路线图都要求 exact barrier authorization | Context-isolated gatekeeper / 2026-08-20 |
-| 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
-| S4 Store 删除 | pending | pending | pending | pending |
+| S3 repository 迁移集合 | `c5f9525` 及之前各 repository commit | `GO` | 清单内全部 repository 已在 Memory/File/PostgreSQL 类型化并迁移 consumer；风险分级 contract/source gate 与完整 Go 验证均为绿色 | 获 owner 授权的 primary agent / 2026-08-22 |
+| S4 Store 删除 | `a6fb4de` | `GO` | 删除 broad `store.Store` 与全局 backend assertion；保留三后端 per-repository assertion；移除可选 MCP discovery；独立 build/test/vet 与源码抽查均为绿色 | primary agent 在隔离审查 worktree / 2026-08-22 |

@@ -2,8 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-runtime-supervision-design.md)
 
-> Status: draft for S5 design review, 2026-08-19. No Runtime or health
-> abstraction may merge before S4 proves that `store.Store` has been deleted.
+> Status: revised S5 design candidate, 2026-08-22. S4 implementation
+> `a6fb4de` received independent `GO`; implementation remains gated by review
+> of this exact revision.
 
 ## Objective
 
@@ -23,6 +24,9 @@ without recreating a business mega-interface or service locator.
 
 Production handlers, Agent, schedulers, connectors, adapters, and registries
 receive repository interfaces directly. They never accept `*store.Runtime`.
+The accessors are backed by a statically populated repository set. Runtime does
+not discover capabilities through type assertions, expose a lookup by name, or
+generate a forwarding implementation of every repository method.
 
 ## Supervisor Boundary
 
@@ -42,6 +46,14 @@ decisions. It cannot accept arbitrary operation names.
 
 Telemetry never writes through the Store being supervised.
 
+Supervision is attached to the existing `operationContext` and typed-error
+construction boundary. One outer operation span is retained through File's
+Memory delegation, so nested implementation calls do not double-count. This
+keeps all repository method signatures unchanged and avoids rebuilding the
+deleted broad Store as a decorator. Supervision observes results; it does not
+add recovery, transaction, or idempotency protocols beyond the accepted
+P0/P1/P2 repository contracts.
+
 ## Finite Operation Registry
 
 Each `OperationID` has one static spec:
@@ -59,6 +71,12 @@ type OperationSpec struct {
 Registration rejects duplicate, missing, or unreferenced IDs. Metrics use only
 bounded spec fields, backend kind, and classified outcome. IDs, owners, paths,
 queries, DSNs, and content never become labels.
+
+The supervisor records one count and duration result when the outer operation
+returns. `StoreError` construction records the typed outcome in that operation
+span; cancellation records only a missing terminal context outcome. Source
+guards and contract tests keep public methods on these two boundaries so raw
+backend errors cannot be reported as successes.
 
 The S2-S3 operation boundary is upgraded in place; repository method signatures
 and call sites do not change again.
@@ -79,6 +97,10 @@ and call sites do not change again.
 Thresholds and transitions are deterministic and race-tested. Public readiness
 contains safe state and timestamps, never infrastructure secrets.
 
+Assembly runs the startup probe before publishing repositories. A bounded
+background coordinator probes only while unready; `/readyz` reads the current
+projection and performs no filesystem or database mutation.
+
 ## Probes
 
 File recovery uses an isolated same-directory temporary write, file sync,
@@ -97,6 +119,10 @@ Runtime construction returns an error and leaves no partially published
 repositories. `Close(ctx)` is idempotent and bounded, rejects new operations,
 waits for admitted operations within the deadline, closes backend resources,
 and joins relevant errors. Gateway shutdown owns the close context.
+
+Runtime accessors reject use after close. Shutdown stops the recovery
+coordinator before closing the backend, and PostgreSQL pool closure remains
+owned in exactly one place.
 
 ## Verification
 
@@ -124,5 +150,6 @@ above and proof that no consumer regained broad Store access.
 
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
+| S4 prerequisite | `a6fb4de` | `GO` | Broad `store.Store` and optional MCP capability discovery are removed; consumers use static minimum composites; independent build/test/vet and source inspection are green | Primary agent in isolated review worktree / 2026-08-22 |
 | Design | pending | pending | pending | pending |
 | Implementation | pending | pending | pending | pending |

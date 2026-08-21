@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/store-runtime-supervision-design.md) | 简体中文
 
-> 状态：S5 设计审查草案，2026-08-19。S4 证明 `store.Store` 已删除前，
-> 不得合并 Runtime 或健康抽象。
+> 状态：S5 修订设计候选，2026-08-22。S4 实现 `a6fb4de` 已获得独立
+> `GO`；生产实现仍需等待本精确修订通过审查。
 
 ## 目标
 
@@ -22,6 +22,8 @@
 
 生产 handler、Agent、scheduler、connector、adapter 和 registry 直接接收
 repository 接口，绝不接收 `*store.Runtime`。
+accessor 由静态填充的 repository set 支撑。Runtime 不通过 type assertion
+发现 capability，不提供按名称 lookup，也不生成转发全部 repository method 的实现。
 
 ## Supervisor 边界
 
@@ -40,6 +42,12 @@ routing、Policy、approval、delivery、audit persistence 或 retry decision，
 
 Telemetry 不得通过被监管的 Store 写入。
 
+监管接入现有 `operationContext` 和 typed-error 构造边界。File 委托 Memory 时
+保留同一个最外层 operation span，因此嵌套实现调用不会重复计数。所有 repository
+method 签名保持不变，也不会把已经删除的 broad Store 以 decorator 形式重建。
+监管只观察结果；不会在已接受的 P0/P1/P2 repository contract 之外增加恢复、
+transaction 或 idempotency protocol。
+
 ## 有限 Operation Registry
 
 每个 `OperationID` 只有一个静态 spec：
@@ -57,6 +65,11 @@ type OperationSpec struct {
 注册拒绝重复、缺失或未引用 ID。metric 只使用有界 spec 字段、backend kind
 和分类结果。ID、owner、path、query、DSN 和 content 不得成为 label。
 
+最外层 operation 返回时，Supervisor 记录一次 count 与 duration 结果。
+`StoreError` 构造把 typed outcome 记录到该 operation span；只有缺少 terminal
+outcome 时，cancel 才记录 context 结果。source guard 与 contract test 保证 public
+method 继续使用这两个边界，避免把原始 backend error 误报为 success。
+
 S2-S3 操作边界原地升级；repository 方法签名和调用点不再修改。
 
 ## 健康状态机
@@ -71,6 +84,10 @@ S2-S3 操作边界原地升级；repository 方法签名和调用点不再修改
 
 阈值和 transition 必须确定且经过 race test。公共 readiness 只包含安全状态
 和时间，不包含基础设施 secret。
+
+assembly 在发布 repository 前执行 startup probe。一个有界后台协调器只在
+unready 时执行 probe；`/readyz` 只读取当前 projection，不执行文件系统或数据库
+mutation。
 
 ## 探针
 
@@ -88,6 +105,9 @@ startup 使用相同有界 primitive，但 backend 构造、migration/load 和 p
 Runtime 构造失败时返回 error，不发布部分 repository。`Close(ctx)` 必须幂等
 且有界：拒绝新操作，在 deadline 内等待已 admission 操作，关闭 backend
 resource，并 join 相关错误。Gateway shutdown 提供 close context。
+
+Runtime accessor 在 close 后拒绝使用。shutdown 先停止 recovery coordinator，再
+关闭 backend，PostgreSQL pool 只在一个位置拥有 close ownership。
 
 ## 验证
 
@@ -115,5 +135,6 @@ resource，并 join 相关错误。Gateway shutdown 提供 close context。
 
 | 审查 | 修订/commit | 结论 | 证据和未解决风险 | 审查人/日期 |
 |---|---|---|---|---|
+| S4 前置门禁 | `a6fb4de` | `GO` | broad `store.Store` 与可选 MCP capability discovery 已删除；consumer 使用静态 minimum composite；独立 build/test/vet 与源码抽查均为绿色 | primary agent 在隔离审查 worktree / 2026-08-22 |
 | 设计 | pending | pending | pending | pending |
 | 实现 | pending | pending | pending | pending |

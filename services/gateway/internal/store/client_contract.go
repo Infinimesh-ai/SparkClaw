@@ -36,6 +36,8 @@ func cloneClientLifecycleEvent(event app.Event) app.Event {
 		event.Payload = clonePairingCode(payload)
 	case app.NotificationBinding:
 		event.Payload = cloneNotificationBinding(payload)
+	case app.Message:
+		event.Payload = cloneMessage(payload)
 	}
 	return event
 }

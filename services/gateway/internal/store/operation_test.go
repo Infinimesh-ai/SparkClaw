@@ -45,6 +45,22 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationSessionDelete, Repository: "SessionRepository",
 			Method: "DeleteSession", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationConversationAddMessage: {
+			ID: OperationConversationAddMessage, Repository: "ConversationRepository",
+			Method: "AddMessage", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationConversationListMessages: {
+			ID: OperationConversationListMessages, Repository: "ConversationRepository",
+			Method: "ListMessages", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationConversationMessageHead: {
+			ID: OperationConversationMessageHead, Repository: "ConversationRepository",
+			Method: "MessageEventHead", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationConversationMessagesAfter: {
+			ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
+			Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

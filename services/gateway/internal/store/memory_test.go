@@ -516,7 +516,7 @@ func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	session := mustCreateSession(t, st, "Feedback")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
-	message := st.AddMessage(app.Message{SessionID: session.ID, RunID: run.ID, Role: "assistant", Content: "first answer"})
+	message := mustAddMessage(t, st, app.Message{SessionID: session.ID, RunID: run.ID, Role: "assistant", Content: "first answer"})
 
 	feedback := st.SaveRunFeedback(app.RunFeedback{
 		SessionID:  session.ID,

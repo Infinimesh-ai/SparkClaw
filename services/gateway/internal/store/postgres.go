@@ -45,6 +45,7 @@ type PostgresStore struct {
 	connectorSettingWriteHighWater    map[string]time.Time
 	notificationBindingWriteHighWater map[string]time.Time
 	connectorNow                      func() time.Time
+	conversationPostgres              ownerPostgresOps
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -116,6 +117,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		connectorSettingWriteHighWater:    map[string]time.Time{},
 		notificationBindingWriteHighWater: map[string]time.Time{},
 		connectorNow:                      time.Now,
+		conversationPostgres:              pgxOwnerPostgresOps{pool: pool},
 		passiveNotificationRevs:           map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
@@ -446,72 +448,168 @@ func ownerAdvisoryKey(id string) int64 {
 	return int64(binary.BigEndian.Uint64(digest[:8]))
 }
 
-func (s *PostgresStore) AddMessage(message app.Message) app.Message {
-	if message.ID == "" {
-		message.ID = app.NewID("m")
+func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (app.Message, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationAddMessage, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationAddMessage, ctx); err != nil {
+		return app.Message{}, err
 	}
-	if message.CreatedAt.IsZero() {
-		message.CreatedAt = time.Now().UTC()
-	}
-	ctx := context.Background()
-	tx, err := s.db.Begin(ctx)
+	candidate, err := prepareMessage(message, time.Now())
 	if err != nil {
-		return message
+		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorInvalid, err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if existing, err := scanMessage(s.conversationPostgres.QueryRow(ctx, `
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+		FROM messages WHERE id = $1
+	`, candidate.ID)); err == nil {
+		return cloneMessage(existing), nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return app.Message{}, classifyConversationPostgresError(OperationConversationAddMessage, ctx, err)
+	}
 
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)`, message.ID).Scan(&exists); err != nil || exists {
-		return message
+	session, transaction, release, err := beginConversationTransaction(ctx, OperationConversationAddMessage, s.conversationPostgres)
+	if err != nil {
+		return app.Message{}, err
 	}
-	if _, err := tx.Exec(ctx, `
+	defer func() {
+		if *release {
+			session.Release()
+		}
+	}()
+	current, err := scanSession(transaction.QueryRow(ctx, sessionSelectSQL+` WHERE id=$1 FOR UPDATE`, candidate.SessionID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Message{}, conversationBusinessError(ctx, OperationConversationAddMessage, StoreErrorNotFound, session, transaction, release, errors.New("message session not found"))
+	}
+	if err != nil {
+		return app.Message{}, finishConversationStatement(ctx, OperationConversationAddMessage, candidate, session, transaction, release, err)
+	}
+	if err := validatePersistedSession(candidate.SessionID, current); err != nil {
+		return app.Message{}, conversationBusinessError(ctx, OperationConversationAddMessage, StoreErrorCorrupt, session, transaction, release, err)
+	}
+	stored, err := scanMessage(transaction.QueryRow(ctx, `
 		INSERT INTO messages (id, session_id, run_id, role, content, attachments, requested_media, created_at)
 		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8)
-	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, mustJSON(message.Attachments), mustJSON(message.RequestedMedia), message.CreatedAt); err != nil {
-		return message
-	}
-
-	var session app.Session
-	if err := tx.QueryRow(ctx, `
-		SELECT id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
-		FROM sessions WHERE id = $1
-	`, message.SessionID).Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt); err == nil {
-		if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
-			session.Title = deriveTitle(message.Content)
+		ON CONFLICT (id) DO NOTHING
+		RETURNING id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+	`, candidate.ID, candidate.SessionID, candidate.RunID, candidate.Role, candidate.Content,
+		mustJSON(candidate.Attachments), mustJSON(candidate.RequestedMedia), candidate.CreatedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, readErr := scanMessage(transaction.QueryRow(ctx, `
+			SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+			FROM messages WHERE id = $1
+		`, candidate.ID))
+		if readErr != nil {
+			return app.Message{}, finishConversationStatement(ctx, OperationConversationAddMessage, candidate, session, transaction, release, readErr)
 		}
-		session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt)
-		if _, err := tx.Exec(ctx, `
-			UPDATE sessions
-			SET title = $2, updated_at = $3
-			WHERE id = $1
-		`, session.ID, session.Title, session.UpdatedAt); err != nil {
-			return message
+		if rollbackErr := rollbackConversationTransaction(ctx, session, transaction, release, nil); rollbackErr != nil {
+			return app.Message{}, classifyConversationPostgresError(OperationConversationAddMessage, ctx, rollbackErr)
 		}
+		return cloneMessage(existing), nil
 	}
-	if _, err := tx.Exec(ctx, `
+	if err != nil {
+		return app.Message{}, finishConversationStatement(ctx, OperationConversationAddMessage, candidate, session, transaction, release, err)
+	}
+	current.UpdatedAt = nextSessionTime(stored.CreatedAt, current.UpdatedAt)
+	if !current.Hidden && (current.Title == "" || current.Title == "New SparkClaw Session") {
+		current.Title = deriveTitle(stored.Content)
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE sessions SET title=$2, updated_at=$3 WHERE id=$1`, current.ID, current.Title, current.UpdatedAt); err != nil {
+		return app.Message{}, finishConversationStatement(ctx, OperationConversationAddMessage, stored, session, transaction, release, err)
+	}
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
 		VALUES ($1, $2, 'message.created', $3, nullif($4, ''), $5)
-	`, app.NewID("evt"), time.Now().UTC(), message.SessionID, message.RunID, mustJSON(message)); err != nil {
-		return message
+	`, app.NewID("evt"), normalizeSessionTime(time.Now()), stored.SessionID, stored.RunID, mustJSON(stored)); err != nil {
+		return app.Message{}, finishConversationStatement(ctx, OperationConversationAddMessage, stored, session, transaction, release, err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return message
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return cloneMessage(stored), storeError(OperationConversationAddMessage, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
-	return message
+	return cloneMessage(stored), nil
 }
 
-func (s *PostgresStore) ListMessages(sessionID string) []app.Message {
-	rows, err := s.db.Query(context.Background(), `
+func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) ([]app.Message, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationListMessages, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationListMessages, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.conversationPostgres.Query(ctx, `
 		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
 		FROM messages
 		WHERE session_id = $1
-		ORDER BY created_at ASC
+		ORDER BY created_at ASC, id ASC
 	`, sessionID)
 	if err != nil {
-		return []app.Message{}
+		return nil, classifyConversationPostgresError(OperationConversationListMessages, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanMessage)
+	out := make([]app.Message, 0)
+	for rows.Next() {
+		message, err := scanMessage(rows)
+		if err != nil {
+			return nil, classifyConversationPostgresError(OperationConversationListMessages, ctx, err)
+		}
+		out = append(out, cloneMessage(message))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyConversationPostgresError(OperationConversationListMessages, ctx, err)
+	}
+	return out, nil
+}
+
+func beginConversationTransaction(ctx context.Context, operation StoreOperation, backend ownerPostgresOps) (onboardingPostgresSession, onboardingPostgresTx, *bool, error) {
+	session, err := backend.Acquire(ctx)
+	if err != nil {
+		return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	release := true
+	transaction, err := session.Begin(ctx, pgx.TxOptions{})
+	if err == nil {
+		return session, transaction, &release, nil
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
+		session.Release()
+		if postgresError != nil {
+			return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+		}
+		return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+}
+
+func rollbackConversationTransaction(ctx context.Context, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+		*release = false
+		return errors.Join(cause, rollbackErr, session.Terminate(ctx))
+	}
+	return cause
+}
+
+func finishConversationStatement(ctx context.Context, operation StoreOperation, _ app.Message, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	cause = rollbackConversationTransaction(ctx, session, transaction, release, cause)
+	return classifyConversationPostgresError(operation, ctx, cause)
+}
+
+func conversationBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	return storeError(operation, code, rollbackConversationTransaction(ctx, session, transaction, release, cause))
+}
+
+func classifyConversationPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
+	if errors.Is(cause, errMessageJSONDecode) {
+		return storeError(operation, StoreErrorCorrupt, cause)
+	}
+	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return contextStoreError(operation, ctx, cause)
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(cause, &postgresError) {
+		return storeError(operation, StoreErrorInternal, cause)
+	}
+	return storeError(operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback {
@@ -2449,9 +2547,14 @@ func (s *PostgresStore) EventsAfter(sessionID, after string) []app.Event {
 	return collectRows(rows, scanEvent)
 }
 
-func (s *PostgresStore) MessageEventHead(sessionID string) (string, error) {
+func (s *PostgresStore) MessageEventHead(ctx context.Context, sessionID string) (string, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationMessageHead, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationMessageHead, ctx); err != nil {
+		return "", err
+	}
 	var cursor string
-	err := s.db.QueryRow(context.Background(), `
+	err := s.conversationPostgres.QueryRow(ctx, `
 		SELECT id
 		FROM events
 		WHERE session_id = $1 AND type = 'message.created'
@@ -2461,31 +2564,38 @@ func (s *PostgresStore) MessageEventHead(sessionID string) (string, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
-	return cursor, err
+	if err != nil {
+		return "", classifyConversationPostgresError(OperationConversationMessageHead, ctx, err)
+	}
+	return cursor, nil
 }
 
-func (s *PostgresStore) MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error) {
+func (s *PostgresStore) MessageEventsAfter(ctx context.Context, sessionID, after string, limit int) (MessageEventPage, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationMessagesAfter, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationMessagesAfter, ctx); err != nil {
+		return MessageEventPage{}, err
+	}
 	if limit <= 0 || limit > MessageEventPageLimit {
 		limit = MessageEventPageLimit
 	}
-	ctx := context.Background()
 	var afterSeq int64
 	if after != "" {
 		var cursorSessionID, cursorType string
-		err := s.db.QueryRow(ctx, `
+		err := s.conversationPostgres.QueryRow(ctx, `
 			SELECT seq, coalesce(session_id, ''), type
 			FROM events
 			WHERE id = $1
 		`, after).Scan(&afterSeq, &cursorSessionID, &cursorType)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && (cursorSessionID != sessionID || cursorType != "message.created") {
-			return MessageEventPage{}, ErrMessageEventCursorInvalid
+			return MessageEventPage{}, storeError(OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
 		}
 		if err != nil {
-			return MessageEventPage{}, err
+			return MessageEventPage{}, classifyConversationPostgresError(OperationConversationMessagesAfter, ctx, err)
 		}
 	}
 
-	rows, err := s.db.Query(ctx, `
+	rows, err := s.conversationPostgres.Query(ctx, `
 		SELECT id, happened_at, type, coalesce(session_id, ''), coalesce(run_id, ''), payload
 		FROM events
 		WHERE seq > $1 AND session_id = $2 AND type = 'message.created'
@@ -2493,19 +2603,19 @@ func (s *PostgresStore) MessageEventsAfter(sessionID, after string, limit int) (
 		LIMIT $3
 	`, afterSeq, sessionID, limit+1)
 	if err != nil {
-		return MessageEventPage{}, err
+		return MessageEventPage{}, classifyConversationPostgresError(OperationConversationMessagesAfter, ctx, err)
 	}
 	defer rows.Close()
 	events := make([]app.Event, 0, limit+1)
 	for rows.Next() {
 		event, err := scanEvent(rows)
 		if err != nil {
-			return MessageEventPage{}, err
+			return MessageEventPage{}, classifyConversationPostgresError(OperationConversationMessagesAfter, ctx, err)
 		}
-		events = append(events, event)
+		events = append(events, cloneClientLifecycleEvent(event))
 	}
 	if err := rows.Err(); err != nil {
-		return MessageEventPage{}, err
+		return MessageEventPage{}, classifyConversationPostgresError(OperationConversationMessagesAfter, ctx, err)
 	}
 	hasMore := len(events) > limit
 	if hasMore {
@@ -2778,13 +2888,20 @@ func scanMessage(row scanner) (app.Message, error) {
 	var message app.Message
 	var attachments, requestedMedia []byte
 	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &attachments, &requestedMedia, &message.CreatedAt)
+	if err != nil {
+		return app.Message{}, err
+	}
 	if len(attachments) > 0 {
-		_ = json.Unmarshal(attachments, &message.Attachments)
+		if err := json.Unmarshal(attachments, &message.Attachments); err != nil {
+			return app.Message{}, fmt.Errorf("%w: attachments: %v", errMessageJSONDecode, err)
+		}
 	}
 	if len(requestedMedia) > 0 {
-		_ = json.Unmarshal(requestedMedia, &message.RequestedMedia)
+		if err := json.Unmarshal(requestedMedia, &message.RequestedMedia); err != nil {
+			return app.Message{}, fmt.Errorf("%w: requested media: %v", errMessageJSONDecode, err)
+		}
 	}
-	return message, err
+	return cloneMessage(message), nil
 }
 
 func scanExternalChatSession(row scanner) (app.ExternalChatSession, error) {

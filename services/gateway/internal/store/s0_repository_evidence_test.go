@@ -136,7 +136,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0RepositoryTest("ConversationRepository", s0DimensionSuccess),
 		s0RepositoryTest("ConversationRepository", s0DimensionAbsence),
 		s0Tests("TestMemoryMessageEventsAreBoundedAndSessionScoped@message_events_test.go"),
-		s0Tests("TestS0DefectEvidenceMutableAliases/ConversationRepository@s0_repository_characterization_test.go"),
+		s0Tests("TestS0ConversationRepositoryMutableValuesAreIsolated@s0_repository_characterization_test.go"),
 		s0RepositoryTest("ConversationRepository", s0DimensionDuplicate),
 		s0NA("Conversation exposes append/idempotent message reuse and cursor validation, but no update, delete, or CAS command."),
 		s0Tests("TestS0BackendNeutralRepositoryLifecycleEvidence/ConversationRepository@s0_repository_lifecycle_test.go", "TestMemoryMessageEventsAreBoundedAndSessionScoped@message_events_test.go"),

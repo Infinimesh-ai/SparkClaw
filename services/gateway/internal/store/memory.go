@@ -150,7 +150,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		MCPAccessTickets:     cloneMCPAccessTicketMap(s.mcpAccessTickets),
 		MCPBindings:          cloneMCPBindingMap(s.mcpBindings),
 		MCPOperations:        cloneMCPOperationMap(s.mcpOperations),
-		Messages:             cloneSliceMap(s.messages),
+		Messages:             cloneMessageMap(s.messages),
 		RunFeedback:          cloneSliceMap(s.runFeedback),
 		Runs:                 cloneMap(s.runs),
 		ModelCalls:           cloneMap(s.modelCalls),
@@ -253,7 +253,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.mcpAccessTickets = cloneMCPAccessTicketMap(ensureMap(snapshot.MCPAccessTickets))
 	s.mcpBindings = cloneMCPBindingMap(ensureMap(snapshot.MCPBindings))
 	s.mcpOperations = cloneMCPOperationMap(ensureMap(snapshot.MCPOperations))
-	s.messages = ensureSliceMap(snapshot.Messages)
+	s.messages = cloneMessageMap(ensureSliceMap(snapshot.Messages))
 	s.runFeedback = ensureSliceMap(snapshot.RunFeedback)
 	s.runs = ensureMap(snapshot.Runs)
 	s.modelCalls = ensureMap(snapshot.ModelCalls)
@@ -1057,42 +1057,64 @@ func (s *MemoryStore) ClaimPairingCode(ctx context.Context, id string, client ap
 	return clonePairingCode(code), cloneClient(client), nil
 }
 
-func (s *MemoryStore) AddMessage(message app.Message) app.Message {
+func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.Message, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationAddMessage, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationAddMessage, ctx); err != nil {
+		return app.Message{}, err
+	}
+	message, err := prepareMessage(message, time.Now())
+	if err != nil {
+		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if message.ID == "" {
-		message.ID = app.NewID("m")
-	} else {
-		for _, existing := range s.messages[message.SessionID] {
-			if existing.ID == message.ID {
-				return existing
-			}
-		}
+	if err := operationContextError(OperationConversationAddMessage, ctx); err != nil {
+		return app.Message{}, err
 	}
-	if message.CreatedAt.IsZero() {
-		message.CreatedAt = time.Now().UTC()
+	if existing, found := findMessageByID(s.messages, message.ID); found {
+		return existing, nil
 	}
-	s.messages[message.SessionID] = append(s.messages[message.SessionID], message)
-	if session, ok := s.sessions[message.SessionID]; ok {
-		session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt, s.sessionWriteHighWater[session.ID])
-		s.sessionWriteHighWater[session.ID] = session.UpdatedAt
-		if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
-			session.Title = deriveTitle(message.Content)
-		}
-		s.sessions[message.SessionID] = session
+	session, ok := s.sessions[message.SessionID]
+	if !ok {
+		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorNotFound, errors.New("message session not found"))
 	}
-	s.appendEventLocked("message.created", message.SessionID, message.RunID, message)
-	return message
+	if err := validatePersistedSession(message.SessionID, session); err != nil {
+		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorCorrupt, err)
+	}
+	s.messages[message.SessionID] = append(s.messages[message.SessionID], cloneMessage(message))
+	session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt, s.sessionWriteHighWater[session.ID])
+	s.sessionWriteHighWater[session.ID] = session.UpdatedAt
+	if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
+		session.Title = deriveTitle(message.Content)
+	}
+	s.sessions[message.SessionID] = session
+	s.appendEventLocked("message.created", message.SessionID, message.RunID, cloneMessage(message))
+	return cloneMessage(message), nil
 }
 
-func (s *MemoryStore) ListMessages(sessionID string) []app.Message {
+func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]app.Message, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationListMessages, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationListMessages, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	messages := s.messages[sessionID]
-	if len(messages) == 0 {
-		return []app.Message{}
+	if err := operationContextError(OperationConversationListMessages, ctx); err != nil {
+		return nil, err
 	}
-	return append([]app.Message{}, messages...)
+	messages := cloneMessages(s.messages[sessionID])
+	if len(messages) == 0 {
+		return []app.Message{}, nil
+	}
+	slices.SortFunc(messages, func(left, right app.Message) int {
+		if compared := left.CreatedAt.Compare(right.CreatedAt); compared != 0 {
+			return compared
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	return messages, nil
 }
 
 func (s *MemoryStore) SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback {
@@ -2681,9 +2703,17 @@ func (s *MemoryStore) EventsAfter(sessionID, after string) []app.Event {
 	return out
 }
 
-func (s *MemoryStore) MessageEventHead(sessionID string) (string, error) {
+func (s *MemoryStore) MessageEventHead(ctx context.Context, sessionID string) (string, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationMessageHead, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationMessageHead, ctx); err != nil {
+		return "", err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationConversationMessageHead, ctx); err != nil {
+		return "", err
+	}
 	for index := len(s.events) - 1; index >= 0; index-- {
 		event := s.events[index]
 		if event.SessionID == sessionID && event.Type == "message.created" {
@@ -2693,9 +2723,17 @@ func (s *MemoryStore) MessageEventHead(sessionID string) (string, error) {
 	return "", nil
 }
 
-func (s *MemoryStore) MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error) {
+func (s *MemoryStore) MessageEventsAfter(ctx context.Context, sessionID, after string, limit int) (MessageEventPage, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationMessagesAfter, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationMessagesAfter, ctx); err != nil {
+		return MessageEventPage{}, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationConversationMessagesAfter, ctx); err != nil {
+		return MessageEventPage{}, err
+	}
 	if limit <= 0 || limit > MessageEventPageLimit {
 		limit = MessageEventPageLimit
 	}
@@ -2708,20 +2746,20 @@ func (s *MemoryStore) MessageEventsAfter(sessionID, after string, limit int) (Me
 				continue
 			}
 			if event.SessionID != sessionID || event.Type != "message.created" {
-				return MessageEventPage{}, ErrMessageEventCursorInvalid
+				return MessageEventPage{}, storeError(OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
 			}
 			start = index + 1
 			break
 		}
 		if start < 0 {
-			return MessageEventPage{}, ErrMessageEventCursorInvalid
+			return MessageEventPage{}, storeError(OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
 		}
 	}
 
 	matching := make([]app.Event, 0, limit+1)
 	for _, event := range s.events[start:] {
 		if event.SessionID == sessionID && event.Type == "message.created" {
-			matching = append(matching, event)
+			matching = append(matching, cloneClientLifecycleEvent(event))
 			if len(matching) == limit+1 {
 				break
 			}

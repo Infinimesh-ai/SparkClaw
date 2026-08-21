@@ -286,7 +286,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if _, err := st.RevokeClient(t.Context(), "client_test"); err != nil {
 		t.Fatal(err)
 	}
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "hello"})
+	mustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "hello"})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead}
 	st.SaveRun(run)
 	st.SaveModelCall(app.ModelCall{
@@ -393,7 +393,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(clients) != 1 || clients[0].ID != "client_test" || clients[0].RevokedAt == nil {
 		t.Fatalf("client did not reload revoked: %#v", clients)
 	}
-	if messages := reloaded.ListMessages(session.ID); len(messages) != 1 || messages[0].Content != "hello" {
+	if messages := mustListMessages(t, reloaded, session.ID); len(messages) != 1 || messages[0].Content != "hello" {
 		t.Fatalf("messages did not reload: %#v", messages)
 	}
 	modelCalls := reloaded.ListModelCalls(session.ID, run.ID)
@@ -747,7 +747,7 @@ func TestFileStoreEncryptionKeyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustCreateSession(t, st, "Key File")
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "encrypted via key file"})
+	mustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "encrypted via key file"})
 	reloaded, err := NewFileStoreWithOptions(FileStoreOptions{
 		Path:              path,
 		EncryptAtRest:     true,
@@ -756,7 +756,7 @@ func TestFileStoreEncryptionKeyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if messages := reloaded.ListMessages(session.ID); len(messages) != 1 || messages[0].Content != "encrypted via key file" {
+	if messages := mustListMessages(t, reloaded, session.ID); len(messages) != 1 || messages[0].Content != "encrypted via key file" {
 		t.Fatalf("key-file encrypted state did not reload: %#v", messages)
 	}
 }

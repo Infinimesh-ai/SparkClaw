@@ -34,6 +34,10 @@ const (
 	OperationSessionGet                  StoreOperation = "session.get"
 	OperationSessionUpdateTitle          StoreOperation = "session.update_title"
 	OperationSessionDelete               StoreOperation = "session.delete"
+	OperationConversationAddMessage      StoreOperation = "conversation.add_message"
+	OperationConversationListMessages    StoreOperation = "conversation.list_messages"
+	OperationConversationMessageHead     StoreOperation = "conversation.message_event_head"
+	OperationConversationMessagesAfter   StoreOperation = "conversation.message_events_after"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -160,6 +164,22 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationSessionDelete: {
 		ID: OperationSessionDelete, Repository: "SessionRepository",
 		Method: "DeleteSession", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationConversationAddMessage: {
+		ID: OperationConversationAddMessage, Repository: "ConversationRepository",
+		Method: "AddMessage", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationConversationListMessages: {
+		ID: OperationConversationListMessages, Repository: "ConversationRepository",
+		Method: "ListMessages", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationMessageHead: {
+		ID: OperationConversationMessageHead, Repository: "ConversationRepository",
+		Method: "MessageEventHead", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationMessagesAfter: {
+		ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
+		Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

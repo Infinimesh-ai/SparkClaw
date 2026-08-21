@@ -188,7 +188,7 @@ func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, "", "mcp", false)
-	st.AddMessage(app.Message{
+	mustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "",
 		RequestedMedia: []app.MessageMediaLocator{{Name: "report.pdf", Caption: "Latest report"}},
 	})
@@ -196,7 +196,7 @@ func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages := reloaded.ListMessages(session.ID)
+	messages := mustListMessages(t, reloaded, session.ID)
 	if len(messages) != 1 || strings.TrimSpace(messages[0].Content) != "" || len(messages[0].Attachments) != 0 ||
 		len(messages[0].RequestedMedia) != 1 || messages[0].RequestedMedia[0].Name != "report.pdf" ||
 		messages[0].RequestedMedia[0].Caption != "Latest report" {

@@ -314,19 +314,19 @@ func characterizeS0ConversationRepository(t *testing.T, st Store, dimension stri
 	switch dimension {
 	case s0DimensionSuccess:
 		session := mustCreateSession(t, st, "conversation")
-		message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
-		if got := st.ListMessages(session.ID); len(got) != 1 || got[0].ID != message.ID {
+		message := mustAddMessage(t, st, app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
+		if got := mustListMessages(t, st, session.ID); len(got) != 1 || got[0].ID != message.ID {
 			t.Fatalf("message append/list = %#v", got)
 		}
 	case s0DimensionAbsence:
-		if got := st.ListMessages("missing"); len(got) != 0 {
+		if got := mustListMessages(t, st, "missing"); len(got) != 0 {
 			t.Fatalf("missing conversation messages = %#v", got)
 		}
 	case s0DimensionDuplicate:
 		session := mustCreateSession(t, st, "conversation")
-		message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
-		reused := st.AddMessage(app.Message{ID: message.ID, SessionID: session.ID, Role: "user", Content: "replacement"})
-		if got := st.ListMessages(session.ID); len(got) != 1 || reused.ID != message.ID || got[0].Content != "first" {
+		message := mustAddMessage(t, st, app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
+		reused := mustAddMessage(t, st, app.Message{ID: message.ID, SessionID: session.ID, Role: "user", Content: "replacement"})
+		if got := mustListMessages(t, st, session.ID); len(got) != 1 || reused.ID != message.ID || got[0].Content != "first" {
 			t.Fatalf("message duplicate reuse = %#v reused=%#v", got, reused)
 		}
 	default:
@@ -716,7 +716,6 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 }
 
 var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"ConversationRepository":        s0ConversationAliasSafe,
 	"RunRepository":                 s0RunAliasSafe,
 	"ApprovalRepository":            s0ApprovalAliasSafe,
 	"ScheduleRepository":            s0ScheduleAliasSafe,
@@ -726,6 +725,16 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"MemoryRepository":              s0MemoryAliasSafe,
 	"AuditRepository":               s0AuditAliasSafe,
 	"EvaluationRepository":          s0EvaluationAliasSafe,
+}
+
+func TestS0ConversationRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0ConversationAliasSafe(t, backend.store) {
+				t.Fatal("ConversationRepository exposed a mutable message alias")
+			}
+		})
+	}
 }
 
 func TestS0ConnectorRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -755,10 +764,10 @@ func TestS0DefectEvidenceMutableAliases(t *testing.T) {
 func s0ConversationAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
 	session := mustCreateSession(t, st, "alias")
-	st.AddMessage(app.Message{ID: "message-alias", SessionID: session.ID, Attachments: []app.MessageAttachment{{Name: "original"}}})
-	got := st.ListMessages(session.ID)
+	mustAddMessage(t, st, app.Message{ID: "message-alias", SessionID: session.ID, Attachments: []app.MessageAttachment{{Name: "original"}}})
+	got := mustListMessages(t, st, session.ID)
 	got[0].Attachments[0].Name = "mutated"
-	return st.ListMessages(session.ID)[0].Attachments[0].Name != "mutated"
+	return mustListMessages(t, st, session.ID)[0].Attachments[0].Name != "mutated"
 }
 
 func s0RunAliasSafe(t *testing.T, st Store) bool {

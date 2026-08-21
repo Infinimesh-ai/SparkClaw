@@ -95,6 +95,13 @@ type SessionRepository interface {
 	DeleteSession(context.Context, string) (app.Session, error)
 }
 
+type ConversationRepository interface {
+	AddMessage(context.Context, app.Message) (app.Message, error)
+	ListMessages(context.Context, string) ([]app.Message, error)
+	MessageEventHead(context.Context, string) (string, error)
+	MessageEventsAfter(context.Context, string, string, int) (MessageEventPage, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -119,6 +126,7 @@ type Store interface {
 	CredentialRepository
 	ConnectorRepository
 	SessionRepository
+	ConversationRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -138,8 +146,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	AddMessage(message app.Message) app.Message
-	ListMessages(sessionID string) []app.Message
 	SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback
 	ListRunFeedback(runID string) []app.RunFeedback
 	SaveRun(run app.AgentRun)
@@ -224,8 +230,6 @@ type Store interface {
 	AddAudit(event app.AuditEvent)
 	ListAudit(sessionID string) []app.AuditEvent
 	EventsAfter(sessionID, after string) []app.Event
-	MessageEventHead(sessionID string) (string, error)
-	MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error)
 	SaveEvalRun(run app.EvalRun)
 	GetEvalRun(id string) (app.EvalRun, bool)
 	ListEvalRuns() []app.EvalRun
@@ -255,6 +259,9 @@ var (
 	_ ConnectorRepository      = (*MemoryStore)(nil)
 	_ ConnectorRepository      = (*FileStore)(nil)
 	_ ConnectorRepository      = (*PostgresStore)(nil)
+	_ ConversationRepository   = (*MemoryStore)(nil)
+	_ ConversationRepository   = (*FileStore)(nil)
+	_ ConversationRepository   = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

@@ -54,6 +54,8 @@ var migratedFileAdmissions = map[string]string{
 	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated",
 	"ListSessions": "admitMigrated", "GetSession": "admitMigrated",
 	"UpdateSessionTitle": "admitMigrated", "DeleteSession": "admitMigrated",
+	"AddMessage": "admitMigrated", "ListMessages": "admitMigrated",
+	"MessageEventHead": "admitMigrated", "MessageEventsAfter": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

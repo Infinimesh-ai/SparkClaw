@@ -542,14 +542,14 @@ func characterizeMessageEvents(t *testing.T, st Store) {
 	t.Helper()
 	firstSession := mustCreateSession(t, st, "event-a")
 	secondSession := mustCreateSession(t, st, "event-b")
-	first := st.AddMessage(app.Message{SessionID: firstSession.ID, Role: "user", Content: "first"})
-	st.AddMessage(app.Message{SessionID: secondSession.ID, Role: "user", Content: "other"})
-	second := st.AddMessage(app.Message{SessionID: firstSession.ID, Role: "assistant", Content: "second"})
-	page, err := st.MessageEventsAfter(firstSession.ID, "", 10)
+	first := mustAddMessage(t, st, app.Message{SessionID: firstSession.ID, Role: "user", Content: "first"})
+	mustAddMessage(t, st, app.Message{SessionID: secondSession.ID, Role: "user", Content: "other"})
+	second := mustAddMessage(t, st, app.Message{SessionID: firstSession.ID, Role: "assistant", Content: "second"})
+	page, err := st.MessageEventsAfter(t.Context(), firstSession.ID, "", 10)
 	if err != nil || len(page.Events) != 2 || page.Events[0].Payload.(app.Message).ID != first.ID || page.Events[1].Payload.(app.Message).ID != second.ID {
 		t.Fatalf("message event order/scope = %#v err=%v", page, err)
 	}
-	if head, err := st.MessageEventHead(firstSession.ID); err != nil || head != page.Events[1].ID {
+	if head, err := st.MessageEventHead(t.Context(), firstSession.ID); err != nil || head != page.Events[1].ID {
 		t.Fatalf("message event head = %q err=%v", head, err)
 	}
 }
@@ -603,9 +603,9 @@ func characterizeConcurrentIdempotency(t *testing.T, st Store) {
 func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store) {
 	t.Helper()
 	session := mustCreateSession(t, st, "restart")
-	message := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "durable"})
+	message := mustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "durable"})
 	profile := mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-restart", DisplayName: "Restart", Preferences: map[string]string{"key": "value"}})
-	eventHead, err := st.MessageEventHead(session.ID)
+	eventHead, err := st.MessageEventHead(t.Context(), session.ID)
 	if err != nil || eventHead == "" {
 		t.Fatalf("message event head before restart = %q err=%v", eventHead, err)
 	}
@@ -621,13 +621,13 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	if got, ok := mustGetSession(t, reloaded, session.ID); !ok || got.Title != session.Title {
 		t.Fatalf("session did not survive restart: %#v ok=%v", got, ok)
 	}
-	if messages := reloaded.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID {
+	if messages := mustListMessages(t, reloaded, session.ID); len(messages) != 1 || messages[0].ID != message.ID {
 		t.Fatalf("message did not survive restart: %#v", messages)
 	}
 	if got, ok := mustGetOwnerProfileByID(t, reloaded, profile.ID); !ok || got.Preferences["key"] != "value" {
 		t.Fatalf("owner profile did not survive restart: %#v ok=%v", got, ok)
 	}
-	page, err := reloaded.MessageEventsAfter(session.ID, "", 10)
+	page, err := reloaded.MessageEventsAfter(t.Context(), session.ID, "", 10)
 	if err != nil || len(page.Events) != 1 || page.NextCursor != eventHead || messageFromEvent(t, page.Events[0]).ID != message.ID {
 		t.Fatalf("message events did not survive restart: %#v err=%v", page, err)
 	}
@@ -654,8 +654,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 32 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 32", got)
+	if got := strings.Count(source, "s.persist()"); got != 31 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 31", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {

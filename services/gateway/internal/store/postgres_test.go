@@ -44,19 +44,19 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if got := mustGetOwnerProfile(t, st); got.DisplayName != "Postgres Owner" || got.Email != "pg-owner@example.test" || got.Preferences["tone"] != "brief" {
 		t.Fatalf("owner profile did not round trip: %#v", got)
 	}
-	message := st.AddMessage(app.Message{
+	message := mustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "remember postgres",
 		RequestedMedia: []app.MessageMediaLocator{{Query: "quarterly report", Caption: "Latest report"}},
 	})
-	if messages := st.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID || len(messages[0].RequestedMedia) != 1 ||
+	if messages := mustListMessages(t, st, session.ID); len(messages) != 1 || messages[0].ID != message.ID || len(messages[0].RequestedMedia) != 1 ||
 		messages[0].RequestedMedia[0].Query != "quarterly report" || messages[0].RequestedMedia[0].Caption != "Latest report" {
 		t.Fatalf("messages did not round trip: %#v", messages)
 	}
-	messageHead, err := st.MessageEventHead(session.ID)
+	messageHead, err := st.MessageEventHead(t.Context(), session.ID)
 	if err != nil || messageHead == "" {
 		t.Fatalf("message event head did not round trip: head=%q err=%v", messageHead, err)
 	}
-	messagePage, err := st.MessageEventsAfter(session.ID, "", 100)
+	messagePage, err := st.MessageEventsAfter(t.Context(), session.ID, "", 100)
 	if err != nil || len(messagePage.Events) != 1 || messagePage.NextCursor != messageHead {
 		t.Fatalf("message event page did not round trip: page=%#v err=%v", messagePage, err)
 	}

@@ -42,7 +42,7 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 	"ConversationRepository": {
 		mutate: func(t *testing.T, st Store) {
 			session := mustCreateSession(t, st, "Lifecycle conversation")
-			st.AddMessage(app.Message{ID: "message-lifecycle", SessionID: session.ID, Role: "user", Content: "hello"})
+			mustAddMessage(t, st, app.Message{ID: "message-lifecycle", SessionID: session.ID, Role: "user", Content: "hello"})
 		},
 		eventType: "message.created",
 	},

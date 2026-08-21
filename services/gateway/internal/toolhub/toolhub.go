@@ -1812,7 +1812,10 @@ func (h *ToolHub) memoryVisibleToOwner(ctx context.Context, memory app.Memory, o
 	if strings.TrimSpace(memory.SourceID) == "" {
 		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
-	run, ok := h.store.GetRun(memory.SourceID)
+	run, ok, err := h.store.GetRun(ctx, memory.SourceID)
+	if err != nil {
+		return false, fmt.Errorf("load memory source run: %w", err)
+	}
 	if !ok {
 		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}

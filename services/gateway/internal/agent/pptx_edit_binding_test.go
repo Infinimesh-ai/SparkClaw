@@ -72,8 +72,8 @@ func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.
 			Route: app.RouteDecision{Slots: app.RouteSlots{Query: "把第三页完善一下"}},
 		},
 	}
-	st.SaveRun(run)
-	st.SaveToolCall(app.ToolCall{
+	testSaveRun(st, run)
+	testSaveToolCall(st, app.ToolCall{
 		ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
 		Arguments: map[string]any{"path": "uploads/deck.pptx"},
 		Result: map[string]any{
@@ -84,14 +84,18 @@ func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.
 			}},
 		},
 	})
+
 	runtime := Runtime{store: st}
-	args := runtime.bindPPTXEditArguments(run, "update_slide", map[string]any{
+	args, err := runtime.bindPPTXEditArguments(t.Context(), run, "update_slide", map[string]any{
 		"path": "uploads/deck.pptx", "slide_index": 2,
 		"updates": []any{
 			map[string]any{"shape_index": 1, "new_text": "Improved title\nSupporting line", "break_mode": "paragraph"},
 			map[string]any{"shape_index": 7, "old_text": "Model supplied evidence", "text": "Improved body"},
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if intLikeValue(args["slide_index"]) != 3 {
 		t.Fatalf("owner ordinal did not override guessed slide index: %#v", args)
 	}

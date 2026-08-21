@@ -261,7 +261,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		attempts++
 		stepNumber := attempts
 		run.State = "workflow_step"
-		r.store.SaveRun(run)
+		if saved, saveErr := r.saveRun(ctx, run); saveErr != nil {
+			result.fail(workflowFailureStateInvalid, saveErr)
+			return result
+		} else {
+			run = saved
+		}
 		stepVisibleTools := visibleTools
 		if stageBudget.MaxObservationReads > 0 && stageBudget.ObservationReads >= stageBudget.MaxObservationReads {
 			stepVisibleTools = workflowDefinitionsWithoutSupport(run, stageContext.WorkflowNodeID, visibleTools)
@@ -304,7 +309,10 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		chat, err := r.models.Chat(ctx, task, system, user)
 		completed := time.Now().UTC()
 		result.Chat = chat
-		r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, fmt.Sprintf("workflow_step_%d", stepNumber), chat, err, started, completed))
+		if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, run.ID, fmt.Sprintf("workflow_step_%d", stepNumber), chat, err, started, completed)); saveErr != nil {
+			result.fail(workflowFailureStateInvalid, saveErr)
+			return result
+		}
 		if err != nil {
 			result.Halted = true
 			result.Cancelled = ctx.Err() != nil
@@ -317,7 +325,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			return result
 		}
 		run.ModelLane = chat.Lane
-		r.store.SaveRun(run)
+		if saved, saveErr := r.saveRun(ctx, run); saveErr != nil {
+			result.fail(workflowFailureStateInvalid, saveErr)
+			return result
+		} else {
+			run = saved
+		}
 		parsed, parseErr := parseWorkflowStepOutput(chat.Content, visibleTools)
 		if parseErr != nil {
 			observation := recoverableWorkflowStepParseObservation(parseErr, stepNumber)
@@ -389,7 +402,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			Capability:     stageContext.Capability,
 		}
 		if stageContext.WorkflowID != "" {
-			capability, err := r.materializedWorkflowCapability(run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, parsed.Action.Tool)
+			capability, err := r.materializedWorkflowCapability(ctx, run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, parsed.Action.Tool)
 			if err != nil {
 				result.fail(workflowFailureToolOutsideActiveScope, err)
 				r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow_step.tool_scope_rejected", result.FailureCode, result.FailureDiagnostic, map[string]any{
@@ -460,7 +473,11 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				supportAdmitted = true
 			}
 		}
-		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
+		call, approval, observation, persistErr := r.runToolPlan(ctx, sessionID, run.ID, plan)
+		if persistErr != nil {
+			result.fail(workflowFailureStateInvalid, persistErr)
+			return result
+		}
 		result.ToolCalls = append(result.ToolCalls, call)
 		runBudget.observeToolCall(call)
 		if supportCall && workflowSupportCallExecuted(call, supportAdmitted) {
@@ -480,7 +497,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			noProgressActions++
 		}
 		if isManagedBrowserWorkflow(stageContext.WorkflowID) {
-			if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, content, plan, call); ok {
+			block, ok, err := r.recordBrowserLoginBlockFromToolCall(ctx, sessionID, run.ID, content, plan, call)
+			if err != nil {
+				result.fail(workflowFailureStateInvalid, err)
+				return result
+			}
+			if ok {
 				result.BrowserLoginBlock = &block
 				result.FinalAnswer = browserLoginBlockedMessage(block)
 				result.Completed = false

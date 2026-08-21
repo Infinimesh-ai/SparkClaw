@@ -654,8 +654,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 31 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 31", got)
+	if got := strings.Count(source, "s.persist()"); got != 26 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 26", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -706,8 +706,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 23 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 23", count)
+	if count != 18 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 18", count)
 	}
 }
 

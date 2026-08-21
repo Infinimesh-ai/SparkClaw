@@ -393,7 +393,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 			rejections := 0
 			foundErrorCode := test.wantErrorCode == ""
 			readCalls := 0
-			for _, call := range st.ListToolCalls(session.ID) {
+			for _, call := range testListToolCalls(st, session.ID) {
 				if call.RunID == run.ID && call.Tool == "files.read" {
 					readCalls++
 				}
@@ -415,7 +415,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 			if rejections != test.wantRejections || !foundErrorCode || len(projections) != 2 ||
 				projections[0].Fields["model_payload_digest"] != projections[1].Fields["model_payload_digest"] ||
 				readCalls != 1 {
-				t.Fatalf("repair did not reuse one source projection: rejections=%d projections=%#v calls=%#v", rejections, projections, st.ListToolCalls(session.ID))
+				t.Fatalf("repair did not reuse one source projection: rejections=%d projections=%#v calls=%#v", rejections, projections, testListToolCalls(st, session.ID))
 			}
 			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
 				t.Fatalf("PPTX semantic preflight left a user-visible output before approval: %v", err)
@@ -505,7 +505,7 @@ func TestPPTXWorkflowBlocksStaleAndGroupedTargetsBeforeApproval(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
 			defer closeRuntime()
-			call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+			call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 				Name: "pptx.update_slide",
 				Args: map[string]any{
 					"path": "model-invented.pptx", "output_path": "model-output.pptx", "slide_index": 2,
@@ -544,7 +544,7 @@ func TestPPTXWorkflowBlocksStaleInsertionRefsBeforeApproval(t *testing.T) {
 			test.args["after_slide_index"] = 2
 			test.args["title"] = "New title"
 			test.args["body"] = "New body"
-			call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+			call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 				Name: "pptx.add_slide", Args: test.args, WorkflowID: app.WorkflowDocumentEdit,
 				WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 			})
@@ -566,7 +566,7 @@ func TestPPTXWorkflowBlocksStaleExactTextBeforeApproval(t *testing.T) {
 		t, "Replace Original third title with Improved title in deck.pptx", "pptx.replace_text", "replace_text",
 	)
 	defer closeRuntime()
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name: "pptx.replace_text",
 		Args: map[string]any{
 			"path": "model-invented.pptx", "output_path": "model-output.pptx",
@@ -604,7 +604,7 @@ func TestPPTXWorkflowBlocksOversizedUpdatesBeforeApproval(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
 			defer closeRuntime()
-			call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+			call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 				Name: "pptx.update_slide",
 				Args: map[string]any{
 					"path": "model-invented.pptx", "output_path": "model-output.pptx", "slide_index": 3,
@@ -654,7 +654,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": "deck.pptx"}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: documentLocateEvidenceNodeID, ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -666,16 +666,16 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, readOutcome)
 	if changed, err := applyWorkflowOutcome(&storedRun, readOutcome, assessment); err != nil || !changed {
 		t.Fatalf("real PPTX read did not activate operation selection: changed=%t err=%v", changed, err)
 	}
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("single-slide PPTX operation selection failed: changed=%t err=%v", changed, err)
 	}
-	if calls := countModelCalls(st.ListModelCalls(session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane); calls != 0 {
+	if calls := countModelCalls(testListModelCalls(st, session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane); calls != 0 {
 		t.Fatalf("deterministic single-slide operation selection called the model %d times", calls)
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
@@ -714,11 +714,11 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if registeredUpdateProperties, _ := anyMap(registeredUpdateItem["properties"]); registeredUpdateProperties["old_text"] == nil || !slices.Contains(toolDefinitionRequiredArgs(registeredUpdateItem), "old_text") {
 		t.Fatalf("registered PPTX editor lost required old_text validation: %#v", registeredUpdateSlide.InputSchema)
 	}
-	if refreshed, ok := st.GetRun(storedRun.ID); ok {
+	if refreshed, ok := testGetRun(st, storedRun.ID); ok {
 		storedRun = refreshed
 	}
 
-	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	editCall, editApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "pptx.update_slide",
 		Args: map[string]any{
 			"layout_policy": "preserve", "updates": []any{map[string]any{"shape_index": 1, "text": "Improved third title"}},
@@ -748,13 +748,14 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
 		t.Fatalf("PPTX output existed before approval: %v", err)
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 	storedRun.State = "approval_pending"
-	st.SaveRun(storedRun)
-	st.SaveModelCall(app.ModelCall{
+	testSaveRun(st, storedRun)
+	testSaveModelCall(st, app.ModelCall{
 		ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID,
 		Operation: "workflow_step_1", Status: "completed", StartedAt: time.Now().UTC(),
 	})
+
 	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved PPTX copy")
 	if err != nil {
 		t.Fatal(err)
@@ -787,7 +788,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 func TestApprovedPPTXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 	runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
 	defer closeRuntime()
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name:       "pptx.update_slide",
 		Args:       map[string]any{"slide_index": 3, "updates": []any{map[string]any{"shape_index": 1, "text": "Approved replacement"}}},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
@@ -859,7 +860,7 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		closeRuntime()
 		t.Fatal(err)
 	}
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": "deck.pptx"}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: documentLocateEvidenceNodeID, ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -873,13 +874,13 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		closeRuntime()
 		t.Fatal(err)
 	}
-	run, _ := st.GetRun(dispatch.Run.ID)
+	run, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(run.Workflow, outcome)
 	if changed, err := applyWorkflowOutcome(&run, outcome, assessment); err != nil || !changed {
 		closeRuntime()
 		t.Fatalf("prepare real PPTX outcome: changed=%t err=%v", changed, err)
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	definition, ok := runtime.tools.Definition(selectedTool)
 	if !ok {
 		closeRuntime()
@@ -900,7 +901,7 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		t.Fatalf("prepare real PPTX editor %q operation %q is outside the decision scope", selectedTool, selectedOperation)
 	}
 	run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &run, dispatch.Profile); err != nil || !changed {
 		closeRuntime()
 		t.Fatalf("prepare real PPTX decision: changed=%t err=%v", changed, err)
@@ -911,8 +912,8 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		closeRuntime()
 		t.Fatalf("prepare real PPTX tool: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
-	run, _ = st.GetRun(run.ID)
-	if evidence, err := runtime.currentPPTXWorkflowEditEvidence(run, map[string]any{"path": "deck.pptx"}); err != nil || evidence.SourceSHA256 == "" {
+	run, _ = testGetRun(st, run.ID)
+	if evidence, err := runtime.currentPPTXWorkflowEditEvidence(context.Background(), run, map[string]any{"path": "deck.pptx"}); err != nil || evidence.SourceSHA256 == "" {
 		closeRuntime()
 		t.Fatalf("prepare real PPTX editor lost its compact localization evidence: evidence=%#v err=%v", evidence, err)
 	}

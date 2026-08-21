@@ -104,7 +104,7 @@ func TestRuntimeBuildsSemanticEmbeddingIndexBeforeRouting(t *testing.T) {
 		t.Fatal("runtime returned before the semantic embedding index was ready")
 	}
 	startupCalls := 0
-	for _, call := range st.ListModelCalls("", "") {
+	for _, call := range testListModelCalls(st, "", "") {
 		if call.Operation == "intent_embedding_index" && call.Status == "completed" {
 			startupCalls++
 		}
@@ -113,13 +113,13 @@ func TestRuntimeBuildsSemanticEmbeddingIndexBeforeRouting(t *testing.T) {
 		t.Fatalf("startup embedding index call count=%d want 1", startupCalls)
 	}
 
-	before := len(st.ListModelCalls("", ""))
+	before := len(testListModelCalls(st, "", ""))
 	runtime.semanticRouter.index = nil
 	result := runtime.scoreEmbeddingChannel(t.Context(), "", "", "hello", runtime.semanticRouter.graph.EligibleCandidates(app.MessageSourceWeb))
 	if result.state.ReasonCode != "embedding_index_unavailable" {
 		t.Fatalf("request path attempted to use an uninitialized index: %#v", result.state)
 	}
-	if after := len(st.ListModelCalls("", "")); after != before {
+	if after := len(testListModelCalls(st, "", "")); after != before {
 		t.Fatalf("request path rebuilt the embedding corpus: model calls %d -> %d", before, after)
 	}
 }
@@ -137,12 +137,12 @@ func TestRuntimeStartupFailsWhenSemanticEmbeddingIndexCannotBuild(t *testing.T) 
 		t.Fatal("runtime started without a valid semantic embedding index")
 	}
 	failedStartupCall := false
-	for _, call := range st.ListModelCalls("", "") {
+	for _, call := range testListModelCalls(st, "", "") {
 		if call.Operation == "intent_embedding_index" && call.Status == "failed" {
 			failedStartupCall = true
 		}
 	}
 	if !failedStartupCall {
-		t.Fatalf("failed startup embedding call was not recorded: %#v", st.ListModelCalls("", ""))
+		t.Fatalf("failed startup embedding call was not recorded: %#v", testListModelCalls(st, "", ""))
 	}
 }

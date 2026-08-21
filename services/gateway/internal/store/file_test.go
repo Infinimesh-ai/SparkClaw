@@ -137,7 +137,7 @@ func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
@@ -250,7 +250,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 	}
 	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
@@ -267,7 +267,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 	if _, ok := reloaded.GetBrowserLoginBlock(block.ID); ok {
 		t.Fatal("session deletion retained persisted browser login block")
 	}
-	if _, ok := reloaded.GetRun(run.ID); ok {
+	if _, ok := testGetRun(reloaded, run.ID); ok {
 		t.Fatal("session deletion retained persisted agent run")
 	}
 	if _, ok := mustGetSession(t, reloaded, session.ID); ok {
@@ -288,8 +288,8 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	}
 	mustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "hello"})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead}
-	st.SaveRun(run)
-	st.SaveModelCall(app.ModelCall{
+	testSaveRun(st, run)
+	testSaveModelCall(st, app.ModelCall{
 		ID:          app.NewID("mcall"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -301,6 +301,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Status:      "completed",
 		TotalTokens: 7,
 	})
+
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -335,7 +336,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 			Bytes:       128,
 		}},
 	})
-	st.SaveEpisodeSummary(app.EpisodeSummary{
+	testSaveEpisodeSummary(st, app.EpisodeSummary{
 		ID:        "ep_test",
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -346,6 +347,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Tools:     []string{"memory.search:completed"},
 		Summary:   "Episode summary",
 	})
+
 	st.SaveArtifactObject(app.ArtifactObject{
 		ID:          "obj_test",
 		Kind:        "trace",
@@ -358,13 +360,14 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		ContentType: "application/json",
 		Bytes:       256,
 	})
-	st.SaveRunFeedback(app.RunFeedback{
+	testSaveRunFeedback(st, app.RunFeedback{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		MessageID:  "m_feedback",
 		Rating:     "corrected",
 		Correction: "Persistent correction.",
 	})
+
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID:          session.ID,
 		RunID:              run.ID,
@@ -396,7 +399,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if messages := mustListMessages(t, reloaded, session.ID); len(messages) != 1 || messages[0].Content != "hello" {
 		t.Fatalf("messages did not reload: %#v", messages)
 	}
-	modelCalls := reloaded.ListModelCalls(session.ID, run.ID)
+	modelCalls := testListModelCalls(reloaded, session.ID, run.ID)
 	if len(modelCalls) != 1 || modelCalls[0].TotalTokens != 7 || modelCalls[0].Operation != "chat" {
 		t.Fatalf("model calls did not reload: %#v", modelCalls)
 	}
@@ -429,7 +432,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(evalRuns) != 1 || evalRuns[0].ID != "eval_test" || len(evalRuns[0].FailureArchives) != 1 {
 		t.Fatalf("eval runs did not list from persisted state: %#v", evalRuns)
 	}
-	episodes := reloaded.ListEpisodeSummaries(session.ID)
+	episodes := testListEpisodeSummaries(reloaded, session.ID)
 	if len(episodes) != 1 || episodes[0].ID != "ep_test" || episodes[0].Tools[0] != "memory.search:completed" {
 		t.Fatalf("episode summary did not reload: %#v", episodes)
 	}
@@ -440,7 +443,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if object, ok := reloaded.FindArtifactObjectByURI("artifact://sparkclaw/traces/"+run.ID+".json", session.ID, run.ID); !ok || object.ID != "obj_test" {
 		t.Fatalf("artifact lookup by URI did not survive reload: %#v ok=%v", object, ok)
 	}
-	feedback := reloaded.ListRunFeedback(run.ID)
+	feedback := testListRunFeedback(reloaded, run.ID)
 	if len(feedback) != 1 || feedback[0].Rating != "corrected" || feedback[0].Correction != "Persistent correction." {
 		t.Fatalf("run feedback did not reload: %#v", feedback)
 	}
@@ -504,8 +507,8 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 			},
 		},
 	}
-	st.SaveRun(run)
-	st.SaveToolCall(app.ToolCall{
+	testSaveRun(st, run)
+	testSaveToolCall(st, app.ToolCall{
 		ID:             app.NewID("tc"),
 		SessionID:      session.ID,
 		RunID:          run.ID,
@@ -523,7 +526,7 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotRun, ok := reloaded.GetRun(run.ID)
+	gotRun, ok := testGetRun(reloaded, run.ID)
 	if !ok || gotRun.Workflow == nil || gotRun.MessageContext == nil {
 		t.Fatalf("workflow state did not reload: %#v ok=%v", gotRun, ok)
 	}
@@ -537,7 +540,7 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		gotNode.LastDirectory == nil || gotNode.LastDirectory.DirectoryRevision != "directory_7" {
 		t.Fatalf("workflow restart state changed: %#v", gotRun.Workflow)
 	}
-	calls := reloaded.ListToolCalls(session.ID)
+	calls := testListToolCalls(reloaded, session.ID)
 	if len(calls) != 1 || calls[0].WorkflowID != app.WorkflowWebPublicResearch ||
 		calls[0].WorkflowNodeID != "research" || calls[0].ScopeRevision != 2 || calls[0].Capability != "web.page.read" {
 		t.Fatalf("tool workflow binding did not reload: %#v", calls)
@@ -552,7 +555,7 @@ func TestFileStorePersistsPolicyExecutionContext(t *testing.T) {
 	}
 	session := mustCreateSession(t, st, "Policy context")
 	run := app.AgentRun{ID: "run_policy_context", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	policyContext := &app.PolicyExecutionContext{
 		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
@@ -572,14 +575,14 @@ func TestFileStorePersistsPolicyExecutionContext(t *testing.T) {
 		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	st.SaveApproval(approval)
 
 	reloaded, err := NewFileStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotCall, callOK := reloaded.GetToolCall(call.ID)
+	gotCall, callOK := testGetToolCall(reloaded, call.ID)
 	gotApproval, approvalOK := reloaded.GetApproval(approval.ID)
 	if !callOK || !approvalOK || gotCall.PolicyContext == nil || gotApproval.PolicyContext == nil ||
 		gotCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
@@ -596,7 +599,7 @@ func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	}
 	session := mustCreateSession(t, st, "Retention")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -639,7 +642,7 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	}
 	session := mustCreateSession(t, st, "Encrypted Session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -698,7 +701,7 @@ func TestFileStoreEncryptionReadsLegacyPlaintextState(t *testing.T) {
 	}
 	session := mustCreateSession(t, st, "Legacy Plaintext")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -721,7 +724,7 @@ func TestFileStoreEncryptionReadsLegacyPlaintextState(t *testing.T) {
 	if memories := reloaded.SearchMemories("legacy plaintext"); len(memories) != 1 {
 		t.Fatalf("legacy plaintext state did not reload with encryption enabled: %#v", memories)
 	}
-	reloaded.SaveRun(run)
+	testSaveRun(reloaded, run)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

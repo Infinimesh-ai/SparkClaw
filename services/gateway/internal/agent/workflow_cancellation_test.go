@@ -40,7 +40,7 @@ func TestDocumentEditCancellationStopsBeforeRepeatingActiveStage(t *testing.T) {
 	if strings.Contains(result.FinalAnswer, "stopped before its completion rule") {
 		t.Fatalf("cancellation was overwritten by the generic incomplete-workflow message: %q", result.FinalAnswer)
 	}
-	storedRun, ok := st.GetRun(dispatch.Run.ID)
+	storedRun, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || storedRun.Workflow == nil {
 		t.Fatal("cancelled workflow state was not persisted")
 	}

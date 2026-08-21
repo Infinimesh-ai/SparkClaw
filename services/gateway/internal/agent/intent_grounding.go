@@ -37,7 +37,9 @@ func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, c
 		if ok {
 			projection.WorkspaceRoot = session.WorkspaceRoot
 		}
-		if run, ok := r.store.GetRun(runID); ok && run.MessageContext != nil {
+		if run, ok, err := r.store.GetRun(ctx, runID); err != nil {
+			return intentGroundingProjection{}, fmt.Errorf("resolve intent run: %w", err)
+		} else if ok && run.MessageContext != nil {
 			projection.ExternalMCP = isExternalMCPInvocation(run.MessageContext.MCP)
 		}
 	}

@@ -1117,32 +1117,35 @@ func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]app
 	return messages, nil
 }
 
-func (s *MemoryStore) SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback {
+func (s *MemoryStore) SaveRunFeedback(ctx context.Context, feedback app.RunFeedback) (app.RunFeedback, error) {
+	ctx, cancel := operationContext(ctx, OperationRunFeedbackSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunFeedbackSave, ctx); err != nil {
+		return app.RunFeedback{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if feedback.ID == "" {
-		feedback.ID = app.NewID("fb")
+	if err := operationContextError(OperationRunFeedbackSave, ctx); err != nil {
+		return app.RunFeedback{}, err
 	}
-	if feedback.CreatedAt.IsZero() {
-		feedback.CreatedAt = now
-	}
-	feedback.UpdatedAt = now
-	feedback.Rating = strings.TrimSpace(feedback.Rating)
-	feedback.Note = strings.TrimSpace(feedback.Note)
-	feedback.Correction = strings.TrimSpace(feedback.Correction)
 	items := s.runFeedback[feedback.RunID]
-	replaced := false
-	for i, existing := range items {
-		if existing.ID == feedback.ID || existing.MessageID != "" && existing.MessageID == feedback.MessageID {
-			feedback.ID = existing.ID
-			feedback.CreatedAt = existing.CreatedAt
-			items[i] = feedback
-			replaced = true
+	var existing *app.RunFeedback
+	existingIndex := -1
+	for i, current := range items {
+		if current.ID == feedback.ID || current.MessageID != "" && current.MessageID == feedback.MessageID {
+			existingCopy := current
+			existing = &existingCopy
+			existingIndex = i
 			break
 		}
 	}
-	if !replaced {
+	feedback, err := prepareRunFeedback(feedback, existing, time.Now().UTC())
+	if err != nil {
+		return app.RunFeedback{}, storeError(OperationRunFeedbackSave, StoreErrorInvalid, err)
+	}
+	if existingIndex >= 0 {
+		items[existingIndex] = feedback
+	} else {
 		items = append(items, feedback)
 	}
 	s.runFeedback[feedback.RunID] = items
@@ -1153,12 +1156,20 @@ func (s *MemoryStore) SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback 
 		"has_correction": feedback.Correction != "",
 	})
 	s.appendEventLocked("run_feedback.saved", feedback.SessionID, feedback.RunID, feedback)
-	return feedback
+	return feedback, nil
 }
 
-func (s *MemoryStore) ListRunFeedback(runID string) []app.RunFeedback {
+func (s *MemoryStore) ListRunFeedback(ctx context.Context, runID string) ([]app.RunFeedback, error) {
+	ctx, cancel := operationContext(ctx, OperationRunFeedbackList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunFeedbackList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationRunFeedbackList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.RunFeedback{}
 	if runID != "" {
 		out = append(out, s.runFeedback[runID]...)
@@ -1168,48 +1179,100 @@ func (s *MemoryStore) ListRunFeedback(runID string) []app.RunFeedback {
 		}
 	}
 	slices.SortFunc(out, func(a, b app.RunFeedback) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
+		if order := b.UpdatedAt.Compare(a.UpdatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return cloneRunFeedback(out), nil
 }
 
-func (s *MemoryStore) SaveRun(run app.AgentRun) {
+func (s *MemoryStore) SaveRun(ctx context.Context, run app.AgentRun) (app.AgentRun, error) {
+	ctx, cancel := operationContext(ctx, OperationRunSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunSave, ctx); err != nil {
+		return app.AgentRun{}, err
+	}
+	run, err := prepareRun(run, time.Now().UTC())
+	if err != nil {
+		return app.AgentRun{}, storeError(OperationRunSave, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationRunSave, ctx); err != nil {
+		return app.AgentRun{}, err
+	}
 	s.runs[run.ID] = run
 	s.appendEventLocked("run."+run.State, run.SessionID, run.ID, run)
+	return cloneRun(run)
 }
 
-func (s *MemoryStore) GetRun(id string) (app.AgentRun, bool) {
+func (s *MemoryStore) GetRun(ctx context.Context, id string) (app.AgentRun, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationRunGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunGet, ctx); err != nil {
+		return app.AgentRun{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationRunGet, ctx); err != nil {
+		return app.AgentRun{}, false, err
+	}
 	run, ok := s.runs[id]
-	return run, ok
+	if !ok {
+		return app.AgentRun{}, false, nil
+	}
+	cloned, err := cloneRun(run)
+	if err != nil {
+		return app.AgentRun{}, false, storeError(OperationRunGet, StoreErrorCorrupt, err)
+	}
+	return cloned, true, nil
 }
 
-func (s *MemoryStore) ListRuns(sessionID string) []app.AgentRun {
+func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]app.AgentRun, error) {
+	ctx, cancel := operationContext(ctx, OperationRunList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationRunList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.AgentRun{}
 	for _, run := range s.runs {
 		if sessionID == "" || run.SessionID == sessionID {
-			out = append(out, run)
+			cloned, err := cloneRun(run)
+			if err != nil {
+				return nil, storeError(OperationRunList, StoreErrorCorrupt, err)
+			}
+			out = append(out, cloned)
 		}
 	}
 	slices.SortFunc(out, func(a, b app.AgentRun) int {
-		return b.StartedAt.Compare(a.StartedAt)
+		if order := b.StartedAt.Compare(a.StartedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) SaveModelCall(call app.ModelCall) {
+func (s *MemoryStore) SaveModelCall(ctx context.Context, call app.ModelCall) (app.ModelCall, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallSave, ctx); err != nil {
+		return app.ModelCall{}, err
+	}
+	call, err := prepareModelCall(call, time.Now().UTC())
+	if err != nil {
+		return app.ModelCall{}, storeError(OperationModelCallSave, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if call.ID == "" {
-		call.ID = app.NewID("mc")
-	}
-	if call.StartedAt.IsZero() {
-		call.StartedAt = time.Now().UTC()
+	if err := operationContextError(OperationModelCallSave, ctx); err != nil {
+		return app.ModelCall{}, err
 	}
 	s.modelCalls[call.ID] = call
 	s.appendAuditLocked("model_call."+call.Status, call.SessionID, call.RunID, "model-router", call.Model, map[string]any{
@@ -1219,11 +1282,20 @@ func (s *MemoryStore) SaveModelCall(call app.ModelCall) {
 		"latency_ms": call.LatencyMS,
 	})
 	s.appendEventLocked("model_call."+call.Status, call.SessionID, call.RunID, call)
+	return call, nil
 }
 
-func (s *MemoryStore) ListModelCalls(sessionID, runID string) []app.ModelCall {
+func (s *MemoryStore) ListModelCalls(ctx context.Context, sessionID, runID string) ([]app.ModelCall, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationModelCallList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.ModelCall{}
 	for _, call := range s.modelCalls {
 		if (sessionID == "" || call.SessionID == sessionID) && (runID == "" || call.RunID == runID) {
@@ -1231,42 +1303,88 @@ func (s *MemoryStore) ListModelCalls(sessionID, runID string) []app.ModelCall {
 		}
 	}
 	slices.SortFunc(out, func(a, b app.ModelCall) int {
-		return a.StartedAt.Compare(b.StartedAt)
+		if order := a.StartedAt.Compare(b.StartedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) SaveToolCall(call app.ToolCall) {
+func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallSave, ctx); err != nil {
+		return app.ToolCall{}, err
+	}
+	call, err := prepareToolCall(call, time.Now().UTC())
+	if err != nil {
+		return app.ToolCall{}, storeError(OperationToolCallSave, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationToolCallSave, ctx); err != nil {
+		return app.ToolCall{}, err
+	}
 	s.toolCalls[call.ID] = call
 	s.appendAuditLocked("tool_call."+call.Status, call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
 	})
 	s.appendEventLocked("tool_call."+call.Status, call.SessionID, call.RunID, call)
+	return cloneToolCall(call)
 }
 
-func (s *MemoryStore) GetToolCall(id string) (app.ToolCall, bool) {
+func (s *MemoryStore) GetToolCall(ctx context.Context, id string) (app.ToolCall, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallGet, ctx); err != nil {
+		return app.ToolCall{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationToolCallGet, ctx); err != nil {
+		return app.ToolCall{}, false, err
+	}
 	call, ok := s.toolCalls[id]
-	return call, ok
+	if !ok {
+		return app.ToolCall{}, false, nil
+	}
+	cloned, err := cloneToolCall(call)
+	if err != nil {
+		return app.ToolCall{}, false, storeError(OperationToolCallGet, StoreErrorCorrupt, err)
+	}
+	return cloned, true, nil
 }
 
-func (s *MemoryStore) ListToolCalls(sessionID string) []app.ToolCall {
+func (s *MemoryStore) ListToolCalls(ctx context.Context, sessionID string) ([]app.ToolCall, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationToolCallList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.ToolCall{}
 	for _, call := range s.toolCalls {
 		if sessionID == "" || call.SessionID == sessionID {
-			out = append(out, call)
+			cloned, err := cloneToolCall(call)
+			if err != nil {
+				return nil, storeError(OperationToolCallList, StoreErrorCorrupt, err)
+			}
+			out = append(out, cloned)
 		}
 	}
 	slices.SortFunc(out, func(a, b app.ToolCall) int {
-		return a.StartedAt.Compare(b.StartedAt)
+		if order := a.StartedAt.Compare(b.StartedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
 func (s *MemoryStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
@@ -2889,14 +3007,20 @@ func (s *MemoryStore) unindexArtifactObjectLocked(object app.ArtifactObject) {
 	}
 }
 
-func (s *MemoryStore) SaveEpisodeSummary(summary app.EpisodeSummary) {
+func (s *MemoryStore) SaveEpisodeSummary(ctx context.Context, summary app.EpisodeSummary) (app.EpisodeSummary, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummarySave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummarySave, ctx); err != nil {
+		return app.EpisodeSummary{}, err
+	}
+	summary, err := prepareEpisodeSummary(summary, time.Now().UTC())
+	if err != nil {
+		return app.EpisodeSummary{}, storeError(OperationEpisodeSummarySave, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if summary.ID == "" {
-		summary.ID = app.NewID("ep")
-	}
-	if summary.CreatedAt.IsZero() {
-		summary.CreatedAt = time.Now().UTC()
+	if err := operationContextError(OperationEpisodeSummarySave, ctx); err != nil {
+		return app.EpisodeSummary{}, err
 	}
 	s.episodeSummaries[summary.ID] = summary
 	s.appendAuditLocked("episode_summary.saved", summary.SessionID, summary.RunID, "runtime", summary.Outcome, map[string]any{
@@ -2904,21 +3028,33 @@ func (s *MemoryStore) SaveEpisodeSummary(summary app.EpisodeSummary) {
 		"repair_performed": summary.RepairPerformed,
 	})
 	s.appendEventLocked("episode_summary.saved", summary.SessionID, summary.RunID, summary)
+	return cloneEpisodeSummary(summary), nil
 }
 
-func (s *MemoryStore) ListEpisodeSummaries(sessionID string) []app.EpisodeSummary {
+func (s *MemoryStore) ListEpisodeSummaries(ctx context.Context, sessionID string) ([]app.EpisodeSummary, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummaryList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummaryList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationEpisodeSummaryList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.EpisodeSummary{}
 	for _, summary := range s.episodeSummaries {
 		if sessionID == "" || summary.SessionID == sessionID {
-			out = append(out, summary)
+			out = append(out, cloneEpisodeSummary(summary))
 		}
 	}
 	slices.SortFunc(out, func(a, b app.EpisodeSummary) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
+		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
 func (s *MemoryStore) appendAuditLocked(typ, sessionID, runID, actor, summary string, fields map[string]any) {

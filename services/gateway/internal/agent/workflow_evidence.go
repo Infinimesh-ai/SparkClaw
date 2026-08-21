@@ -65,7 +65,7 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 			}
 			return provisionedWorkflowEvidence{}, errors.New("required workflow evidence exceeds the stage evidence budget")
 		}
-		call, ref, err := r.resolveWorkflowEvidenceCall(run, requirement)
+		call, ref, err := r.resolveWorkflowEvidenceCall(ctx, run, requirement)
 		if err != nil {
 			if requirement.Optional {
 				continue
@@ -287,7 +287,7 @@ func formatProvisionedEvidenceSection(ref, tool string, mode workflowEvidenceSli
 	return fmt.Sprintf("source=%s tool=%s mode=%s bytes=%d\n%s", ref, tool, mode, len([]byte(text)), text)
 }
 
-func (r Runtime) resolveWorkflowEvidenceCall(run app.AgentRun, requirement workflowEvidenceRequirement) (app.ToolCall, string, error) {
+func (r Runtime) resolveWorkflowEvidenceCall(ctx context.Context, run app.AgentRun, requirement workflowEvidenceRequirement) (app.ToolCall, string, error) {
 	if run.Workflow == nil {
 		return app.ToolCall{}, "", errors.New("workflow state is unavailable for evidence provisioning")
 	}
@@ -313,7 +313,10 @@ func (r Runtime) resolveWorkflowEvidenceCall(run app.AgentRun, requirement workf
 
 	var selected app.ToolCall
 	for _, callID := range candidateIDs {
-		call, ok := r.store.GetToolCall(callID)
+		call, ok, err := r.store.GetToolCall(ctx, callID)
+		if err != nil {
+			return app.ToolCall{}, "", err
+		}
 		if !ok || !toolCallCompleted(call) || call.RunID != run.ID || call.SessionID != run.SessionID || strings.TrimSpace(call.ObservationRef) == "" {
 			continue
 		}

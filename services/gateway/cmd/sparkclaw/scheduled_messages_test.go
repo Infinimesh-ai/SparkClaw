@@ -22,7 +22,9 @@ func (waitingScheduledRuntime) ExecuteApprovedToolCall(context.Context, app.Appr
 func (waitingScheduledRuntime) ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error) {
 	return agent.Result{}, false, nil
 }
-func (waitingScheduledRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (waitingScheduledRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error {
+	return nil
+}
 
 func TestScheduledPublisherDoesNotPresentWaitingRunAsSuccess(t *testing.T) {
 	publisher := newScheduledRequestPublisher(waitingScheduledRuntime{}, nil, &delivery.Gateway{})

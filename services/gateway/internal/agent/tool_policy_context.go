@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,10 +13,13 @@ import (
 
 const policyExecutionContextSchemaVersion = 1
 
-func (r Runtime) toolPolicyExecutionContext(runID string, definition app.ToolDefinition, args map[string]any) app.PolicyExecutionContext {
-	run, ok := r.store.GetRun(runID)
+func (r Runtime) toolPolicyExecutionContext(ctx context.Context, runID string, definition app.ToolDefinition, args map[string]any) (app.PolicyExecutionContext, error) {
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return app.PolicyExecutionContext{}, err
+	}
 	if !ok || run.MessageContext == nil || !isExternalMCPInvocation(run.MessageContext.MCP) {
-		return app.PolicyExecutionContext{}
+		return app.PolicyExecutionContext{}, nil
 	}
 	context := app.PolicyExecutionContext{
 		SchemaVersion:  policyExecutionContextSchemaVersion,
@@ -35,7 +39,15 @@ func (r Runtime) toolPolicyExecutionContext(runID string, definition app.ToolDef
 		context.WorkflowRevision = run.Workflow.Plan.ProfileRevision
 		context.PlanDigest = run.Workflow.PlanDigest
 	}
-	if toolReadsSparkClawWorkspaceData(r, run, definition, args) && !r.approvedWorkspaceContractCoversTool(run, definition, args) {
+	readsWorkspace, err := toolReadsSparkClawWorkspaceData(ctx, r, run, definition, args)
+	if err != nil {
+		return app.PolicyExecutionContext{}, err
+	}
+	covered, err := r.approvedWorkspaceContractCoversTool(ctx, run, definition, args)
+	if err != nil {
+		return app.PolicyExecutionContext{}, err
+	}
+	if readsWorkspace && !covered {
 		context.ResourceClass = app.PolicyResourceSparkClawWorkspaceData
 		context.AccessClass = app.PolicyAccessWorkspaceSourceRead
 		if definition.Name == app.ToolWorkspaceDataAccess {
@@ -45,48 +57,61 @@ func (r Runtime) toolPolicyExecutionContext(runID string, definition app.ToolDef
 		}
 		context.ContractDigest = policyExecutionContractDigest(definition.Name, args, context)
 	}
-	return context
+	return context, nil
 }
 
-func (r Runtime) approvedWorkspaceContractCoversTool(run app.AgentRun, definition app.ToolDefinition, args map[string]any) bool {
+func (r Runtime) approvedWorkspaceContractCoversTool(ctx context.Context, run app.AgentRun, definition app.ToolDefinition, args map[string]any) (bool, error) {
 	if definition.Name == app.ToolWorkspaceDataAccess || run.Workflow == nil ||
 		(run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead && run.Workflow.Plan.ProfileID != app.WorkflowDocumentEdit) {
-		return false
+		return false, nil
 	}
 	if toolDefinitionHasCapability(definition, app.ToolCapabilityObservationRead) {
-		source := r.workspaceObservationSourceCall(run, strings.TrimSpace(stringValue(args["artifact_uri"])))
+		source, err := r.workspaceObservationSourceCall(ctx, run, strings.TrimSpace(stringValue(args["artifact_uri"])))
+		if err != nil {
+			return false, err
+		}
 		if source == nil || !toolCallCompleted(*source) || source.Capability == app.ToolCapabilityObservationRead {
-			return false
+			return false, nil
 		}
 		sourceDefinition, ok := r.tools.Definition(source.Tool)
-		return ok && r.approvedWorkspaceContractCoversTool(run, sourceDefinition, source.Arguments)
+		if !ok {
+			return false, nil
+		}
+		return r.approvedWorkspaceContractCoversTool(ctx, run, sourceDefinition, source.Arguments)
 	}
 	path := strings.TrimSpace(stringValue(args["path"]))
 	if path != "" && path != strings.TrimSpace(run.Workflow.Route.Slots.TargetRef) {
-		return false
+		return false, nil
 	}
 	if path == "" {
-		return false
+		return false, nil
 	}
-	call := r.workspaceDataAccessCallForRun(run.ID)
+	call, err := r.workspaceDataAccessCallForRun(ctx, run.ID)
+	if err != nil {
+		return false, err
+	}
 	if call == nil || call.Status != "completed_after_approval" {
-		return false
+		return false, nil
 	}
 	approval, ok := r.store.GetApproval(call.ApprovalID)
-	return ok && approval.Status == "approved" && r.validateWorkspaceDataAccessApproval(*call, approval) == nil
+	return ok && approval.Status == "approved" && r.validateWorkspaceDataAccessApproval(ctx, *call, approval) == nil, nil
 }
 
-func (r Runtime) workspaceObservationSourceCall(run app.AgentRun, artifactURI string) *app.ToolCall {
+func (r Runtime) workspaceObservationSourceCall(ctx context.Context, run app.AgentRun, artifactURI string) (*app.ToolCall, error) {
 	if artifactURI == "" {
-		return nil
+		return nil, nil
 	}
-	for _, call := range toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID) {
+	storedCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	for _, call := range toolCallsForRun(storedCalls, run.ID) {
 		if strings.TrimSpace(call.ObservationRef) == artifactURI {
 			copy := call
-			return &copy
+			return &copy, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func isExternalMCPInvocation(ref *app.MCPInvocationRef) bool {
@@ -94,23 +119,26 @@ func isExternalMCPInvocation(ref *app.MCPInvocationRef) bool {
 		strings.TrimSpace(ref.BindingRef) != "" && ref.BindingRevision > 0 && strings.TrimSpace(ref.RequesterDeviceID) != ""
 }
 
-func toolReadsSparkClawWorkspaceData(r Runtime, run app.AgentRun, definition app.ToolDefinition, args map[string]any) bool {
+func toolReadsSparkClawWorkspaceData(ctx context.Context, r Runtime, run app.AgentRun, definition app.ToolDefinition, args map[string]any) (bool, error) {
 	if containsToolEffect(definition.Directory.Effects, app.ToolEffectWorkspaceRead) {
-		return true
+		return true, nil
 	}
 	if !toolDefinitionHasCapability(definition, app.ToolCapabilityObservationRead) {
-		return false
+		return false, nil
 	}
 	artifactURI := strings.TrimSpace(stringValue(args["artifact_uri"]))
 	if artifactURI == "" {
-		return false
+		return false, nil
 	}
-	call := r.workspaceObservationSourceCall(run, artifactURI)
+	call, err := r.workspaceObservationSourceCall(ctx, run, artifactURI)
+	if err != nil {
+		return false, err
+	}
 	if call == nil {
-		return false
+		return false, nil
 	}
 	source, ok := r.tools.Definition(call.Tool)
-	return ok && containsToolEffect(source.Directory.Effects, app.ToolEffectWorkspaceRead)
+	return ok && containsToolEffect(source.Directory.Effects, app.ToolEffectWorkspaceRead), nil
 }
 
 func toolDefinitionHasCapability(definition app.ToolDefinition, name string) bool {
@@ -190,13 +218,17 @@ func samePolicyExecutionContext(left, right *app.PolicyExecutionContext) bool {
 	return leftErr == nil && rightErr == nil && string(leftRaw) == string(rightRaw)
 }
 
-func (r Runtime) validateContextBoundToolApproval(call app.ToolCall, approval app.Approval, definition app.ToolDefinition) error {
+func (r Runtime) validateContextBoundToolApproval(ctx context.Context, call app.ToolCall, approval app.Approval, definition app.ToolDefinition) error {
 	if call.PolicyContext == nil || approval.PolicyContext == nil ||
 		compactToolArgsFingerprint(call.Arguments) != compactToolArgsFingerprint(approval.Arguments) ||
 		!samePolicyExecutionContext(call.PolicyContext, approval.PolicyContext) {
 		return errors.New("context-bound tool approval contract was modified")
 	}
-	current := persistedPolicyExecutionContext(r.toolPolicyExecutionContext(call.RunID, definition, call.Arguments))
+	execution, err := r.toolPolicyExecutionContext(ctx, call.RunID, definition, call.Arguments)
+	if err != nil {
+		return err
+	}
+	current := persistedPolicyExecutionContext(execution)
 	if !samePolicyExecutionContext(current, call.PolicyContext) {
 		return errors.New("context-bound tool approval no longer matches the authenticated execution context")
 	}

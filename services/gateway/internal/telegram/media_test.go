@@ -150,9 +150,9 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
 	st.SaveExternalChatSession(app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
 	run := app.AgentRun{ID: "run_approval", SessionID: linked.ID, State: "approval_pending"}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	call := app.ToolCall{ID: "call_approval", SessionID: linked.ID, RunID: run.ID, Status: "approval_pending"}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	approval := app.Approval{ID: "approval_opaque_id", SessionID: linked.ID, RunID: run.ID, ToolCallID: call.ID, Status: "pending", Tool: "file.delete"}
 	st.SaveApproval(approval)
 	runtime := &approvalRuntime{}
@@ -209,7 +209,7 @@ func (r *approvalRuntime) ExecuteApprovedToolCall(context.Context, app.Approval)
 func (r *approvalRuntime) ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error) {
 	return agent.Result{}, false, nil
 }
-func (r *approvalRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (r *approvalRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 func (r *approvalRuntime) executeCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

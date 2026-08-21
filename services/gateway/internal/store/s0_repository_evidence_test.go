@@ -148,7 +148,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0RepositoryTest("RunRepository", s0DimensionSuccess),
 		s0RepositoryTest("RunRepository", s0DimensionAbsence),
 		s0RepositoryTest("RunRepository", s0DimensionOrderScope),
-		s0Tests("TestS0DefectEvidenceMutableAliases/RunRepository@s0_repository_characterization_test.go"),
+		s0Tests("TestS0RunRepositoryMutableValuesAreIsolated@s0_repository_characterization_test.go"),
 		s0Tests("TestMemoryStoreSavesRunFeedback@memory_test.go"),
 		s0NA("Run records are overwrite/append records and expose no repository delete, CAS, or typed conflict command."),
 		s0Tests("TestS0BackendNeutralRepositoryLifecycleEvidence/RunRepository@s0_repository_lifecycle_test.go", "TestMemoryStoreSavesRunFeedback@memory_test.go"),

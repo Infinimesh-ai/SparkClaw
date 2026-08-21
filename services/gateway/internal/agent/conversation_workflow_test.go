@@ -136,10 +136,10 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 			t.Fatalf("ordinary media part was not governed from the source workspace: index=%d part=%#v", index, part)
 		}
 	}
-	if hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_answer", "deep") ||
-		hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "intent_tree_graph", "fast") ||
+	if hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "workflow_answer", "deep") ||
+		hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "intent_tree_graph", "fast") ||
 		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.message_completed") {
-		t.Fatalf("multipart publication used a chat answer model or missed its typed completion audit: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
+		t.Fatalf("multipart publication used a chat answer model or missed its typed completion audit: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), st.ListAudit(session.ID))
 	}
 	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 1 || messages[0].Role != "user" {
@@ -227,9 +227,9 @@ func TestConversationAnswerRunsWithoutToolsOrLegacyFallback(t *testing.T) {
 		result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.State != "completed" || result.Message.Content != "巴黎。" {
 		t.Fatalf("simple conversation did not complete through conversation.answer: %#v", result)
 	}
-	if len(result.ToolCalls) != 0 || len(result.Approvals) != 0 || !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_answer", "deep") ||
-		hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("conversation.answer used tools, approvals, or the step loop: result=%#v calls=%#v", result, st.ListModelCalls(session.ID, result.Run.ID))
+	if len(result.ToolCalls) != 0 || len(result.Approvals) != 0 || !hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "workflow_answer", "deep") ||
+		hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("conversation.answer used tools, approvals, or the step loop: result=%#v calls=%#v", result, testListModelCalls(st, session.ID, result.Run.ID))
 	}
 	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.none") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow.model_answer_completed") {
 		t.Fatalf("no-tool workflow boundary was not audited: %#v", st.ListAudit(session.ID))
@@ -448,7 +448,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"rep
 		t.Fatalf("approved external MCP document read did not complete: %#v", result)
 	}
 	approvals := approvalsForRun(st.ListApprovals(""), result.Run.ID)
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID)
 	if len(approvals) != 1 || len(calls) != 2 || calls[0].Tool != app.ToolWorkspaceDataAccess || calls[1].Tool != "files.read" || calls[1].Status != "completed" {
 		t.Fatalf("approved document operation did not reuse its single data-boundary approval: approvals=%#v calls=%#v", approvals, calls)
 	}
@@ -474,12 +474,12 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"rep
 	}
 	result := approveMCPWorkspaceAccess(t, runtime, st, pending)
 	foreignArtifact := "artifact://sparkclaw/observations/foreign-path.json"
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_foreign_path", SessionID: session.ID, RunID: result.Run.ID, Tool: "files.read", Status: "completed",
 		Arguments: map[string]any{"path": "other.txt"}, ObservationRef: foreignArtifact, StartedAt: time.Now().UTC(),
 	})
 
-	call, approval, _ := runtime.runToolPlan(t.Context(), session.ID, result.Run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, result.Run.ID, toolPlan{
 		Name: "observation.read", Args: map[string]any{"artifact_uri": foreignArtifact, "max_bytes": 100},
 	})
 	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil ||
@@ -505,8 +505,10 @@ func TestRejectedMCPWorkspaceApprovalExposesNoResourceFacts(t *testing.T) {
 	if _, err := st.ResolveApproval(pending.Approvals[0].ID, "rejected", "not authorized"); err != nil {
 		t.Fatal(err)
 	}
-	runtime.CompleteRunIfApprovalsResolved(pending.Run.ID)
-	blocked, _ := st.GetRun(pending.Run.ID)
+	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), pending.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	blocked, _ := testGetRun(st, pending.Run.ID)
 	if blocked.State != "blocked" || blocked.MessageContext.ResponseMedia != nil {
 		t.Fatalf("rejected workspace approval exposed a resource decision: %#v", blocked)
 	}
@@ -548,9 +550,9 @@ func TestMCPWorkspaceApprovalCannotBeReusedAfterLocatorOrTargetChange(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			changed, _ := st.GetRun(pending.Run.ID)
+			changed, _ := testGetRun(st, pending.Run.ID)
 			test.mutate(&changed)
-			st.SaveRun(changed)
+			testSaveRun(st, changed)
 			call, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
 			if err != nil || call.Status != "failed_after_approval" {
 				t.Fatalf("changed workspace contract reused approval: call=%#v err=%v", call, err)
@@ -617,7 +619,7 @@ func TestHandleMessagePersistsFinalTopTwoIntentFusionEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, ok := st.GetRun(result.Run.ID)
+	stored, ok := testGetRun(st, result.Run.ID)
 	if !ok || stored.MessageContext == nil || stored.MessageContext.IntentFusion == nil {
 		t.Fatalf("AgentRun lost semantic fusion evidence: %#v ok=%v", stored, ok)
 	}
@@ -642,7 +644,7 @@ func TestHandleMessagePersistsClientTimezoneFromWebIngress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, ok := st.GetRun(result.Run.ID)
+	stored, ok := testGetRun(st, result.Run.ID)
 	if !ok || stored.MessageContext == nil || stored.MessageContext.ClientTimezone != "America/New_York" {
 		t.Fatalf("client timezone was not persisted with the run: %#v ok=%t", stored.MessageContext, ok)
 	}
@@ -664,7 +666,7 @@ func TestHandleScheduleActionPersistsClientTimezoneFromWebIngress(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, ok := st.GetRun(result.Run.ID)
+	stored, ok := testGetRun(st, result.Run.ID)
 	if !ok || stored.MessageContext == nil || stored.MessageContext.ClientTimezone != "America/New_York" {
 		t.Fatalf("schedule action lost the client timezone: %#v ok=%t", stored.MessageContext, ok)
 	}

@@ -102,6 +102,21 @@ type ConversationRepository interface {
 	MessageEventsAfter(context.Context, string, string, int) (MessageEventPage, error)
 }
 
+type RunRepository interface {
+	SaveRunFeedback(context.Context, app.RunFeedback) (app.RunFeedback, error)
+	ListRunFeedback(context.Context, string) ([]app.RunFeedback, error)
+	SaveRun(context.Context, app.AgentRun) (app.AgentRun, error)
+	GetRun(context.Context, string) (app.AgentRun, bool, error)
+	ListRuns(context.Context, string) ([]app.AgentRun, error)
+	SaveModelCall(context.Context, app.ModelCall) (app.ModelCall, error)
+	ListModelCalls(context.Context, string, string) ([]app.ModelCall, error)
+	SaveToolCall(context.Context, app.ToolCall) (app.ToolCall, error)
+	GetToolCall(context.Context, string) (app.ToolCall, bool, error)
+	ListToolCalls(context.Context, string) ([]app.ToolCall, error)
+	SaveEpisodeSummary(context.Context, app.EpisodeSummary) (app.EpisodeSummary, error)
+	ListEpisodeSummaries(context.Context, string) ([]app.EpisodeSummary, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -127,6 +142,7 @@ type Store interface {
 	ConnectorRepository
 	SessionRepository
 	ConversationRepository
+	RunRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -146,16 +162,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback
-	ListRunFeedback(runID string) []app.RunFeedback
-	SaveRun(run app.AgentRun)
-	GetRun(id string) (app.AgentRun, bool)
-	ListRuns(sessionID string) []app.AgentRun
-	SaveModelCall(call app.ModelCall)
-	ListModelCalls(sessionID, runID string) []app.ModelCall
-	SaveToolCall(call app.ToolCall)
-	GetToolCall(id string) (app.ToolCall, bool)
-	ListToolCalls(sessionID string) []app.ToolCall
 	SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord
 	GetDocumentRecord(id string) (app.DocumentRecord, bool)
 	ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord
@@ -238,8 +244,6 @@ type Store interface {
 	// FindArtifactObjectByURI returns the newest artifact object with the
 	// given URI. An empty sessionID or runID matches any session or run.
 	FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool)
-	SaveEpisodeSummary(summary app.EpisodeSummary)
-	ListEpisodeSummaries(sessionID string) []app.EpisodeSummary
 }
 
 // Compile-time checks that every backend implements the full Store interface.
@@ -262,6 +266,9 @@ var (
 	_ ConversationRepository   = (*MemoryStore)(nil)
 	_ ConversationRepository   = (*FileStore)(nil)
 	_ ConversationRepository   = (*PostgresStore)(nil)
+	_ RunRepository            = (*MemoryStore)(nil)
+	_ RunRepository            = (*FileStore)(nil)
+	_ RunRepository            = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

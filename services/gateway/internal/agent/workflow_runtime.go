@@ -16,7 +16,10 @@ func (r Runtime) validateWorkflowToolPlan(ctx context.Context, runID string, pla
 	if plan.WorkflowID == "" {
 		return nil
 	}
-	run, ok := r.store.GetRun(runID)
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return err
+	}
 	if !ok || run.Workflow == nil || run.Workflow.PlanDigest == "" ||
 		workflowPlanDigest(run.Workflow.Plan) != run.Workflow.PlanDigest || run.Workflow.Plan.ProfileID != plan.WorkflowID {
 		return errors.New("tool call does not belong to the persisted workflow plan")
@@ -93,25 +96,28 @@ func (r Runtime) validateWorkflowToolPlan(ctx context.Context, runID string, pla
 	return nil
 }
 
-func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) toolPlan {
+func (r Runtime) materializeWorkflowBoundArguments(ctx context.Context, runID string, plan toolPlan) (toolPlan, error) {
 	if plan.WorkflowID == "" {
-		return plan
+		return plan, nil
 	}
-	run, ok := r.store.GetRun(runID)
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return toolPlan{}, err
+	}
 	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != plan.WorkflowID {
-		return plan
+		return plan, nil
 	}
 	state, ok := run.Workflow.Nodes[plan.WorkflowNodeID]
 	if !ok || state.Status != app.WorkflowNodeActive || state.ScopeRevision != plan.ScopeRevision {
-		return plan
+		return plan, nil
 	}
 	node, ok := workflowPlanNode(run.Workflow.Plan, plan.WorkflowNodeID)
 	if !ok {
-		return plan
+		return plan, nil
 	}
 	definition, ok := r.tools.Definition(plan.Name)
 	if !ok {
-		return plan
+		return plan, nil
 	}
 	args := map[string]any{}
 	for key, value := range plan.Args {
@@ -161,7 +167,7 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 	if changed {
 		plan.Args = args
 	}
-	return plan
+	return plan, nil
 }
 
 func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument string) bool {
@@ -250,8 +256,11 @@ func qualifierBoundArgumentsAllowed(definition app.ToolDefinition, capability ap
 	return true
 }
 
-func (r Runtime) materializedWorkflowCapability(runID string, nodeID app.WorkflowNodeID, scopeRevision int, toolName string) (string, error) {
-	run, ok := r.store.GetRun(runID)
+func (r Runtime) materializedWorkflowCapability(ctx context.Context, runID string, nodeID app.WorkflowNodeID, scopeRevision int, toolName string) (string, error) {
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
 	if !ok || run.Workflow == nil {
 		return "", errors.New("workflow state is unavailable for tool selection")
 	}
@@ -304,25 +313,28 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 	return false
 }
 
-func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[string]any {
+func (r Runtime) bindWorkflowToolArguments(ctx context.Context, runID string, plan toolPlan) (map[string]any, error) {
 	args := make(map[string]any, len(plan.Args))
 	for key, value := range plan.Args {
 		args[key] = value
 	}
 	if plan.WorkflowID != app.WorkflowDocumentEdit || r.store == nil {
-		return args
+		return args, nil
 	}
-	run, ok := r.store.GetRun(runID)
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != plan.WorkflowID {
-		return args
+		return args, nil
 	}
 	state, ok := run.Workflow.Nodes[plan.WorkflowNodeID]
 	if !ok || state.ScopeRevision != plan.ScopeRevision {
-		return args
+		return args, nil
 	}
 	node, ok := workflowPlanNode(run.Workflow.Plan, plan.WorkflowNodeID)
 	if !ok {
-		return args
+		return args, nil
 	}
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability != plan.Capability {
@@ -351,10 +363,13 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 	}
 	if definition, ok := r.tools.Definition(plan.Name); ok {
 		if operationPolicy, _, _, registered := agentDocumentOperationForPlan(run, definition, plan); registered && operationPolicy.BindArguments != nil {
-			args = operationPolicy.BindArguments(r, run, args)
+			args, err = operationPolicy.BindArguments(ctx, r, run, args)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
-	return args
+	return args, nil
 }
 
 func sameDocumentReadPath(expectedPath string, call app.ToolCall, result map[string]any) bool {
@@ -449,7 +464,10 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	run.State = "blocked"
 	run.CompletedAt = &now
 	run.Summary = publicWorkflowFailureMessage(workflowFailureSetup)
-	r.store.SaveRun(run)
+	var err error
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return Result{}, err
+	}
 	r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.blocked", workflowFailureSetup, workflowFailureDiagnostic(setupErr), nil)
 	assistant, err := r.store.AddMessage(ctx, app.Message{
 		SessionID: run.SessionID,
@@ -462,7 +480,9 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 		return Result{}, fmt.Errorf("persist workflow setup failure: %w", err)
 	}
 	episode := summarizeEpisode(goal, run, nil, nil, run.Summary, now)
-	r.store.SaveEpisodeSummary(episode)
+	if _, err := r.store.SaveEpisodeSummary(ctx, episode); err != nil {
+		return Result{}, err
+	}
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, &episode)
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
 }
@@ -524,7 +544,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			break
 		}
 		if stageResult.FailureCode != "" {
-			if err := r.blockActiveWorkflowNodeForProtocolFailure(&run, stageResult.FailureCode); err != nil {
+			if err := r.blockActiveWorkflowNodeForProtocolFailure(ctx, &run, stageResult.FailureCode); err != nil {
 				latest.fail(workflowFailureStateInvalid, err)
 				r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.protocol_block_failed", latest.FailureCode, latest.FailureDiagnostic, nil)
 			} else {
@@ -537,7 +557,12 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			break
 		}
 		if stageResult.Completed && strings.TrimSpace(stageResult.FinalAnswer) != "" {
-			storedRun, ok := r.store.GetRun(run.ID)
+			storedRun, ok, loadErr := r.store.GetRun(ctx, run.ID)
+			if loadErr != nil {
+				latest.fail(workflowFailureStateInvalid, loadErr)
+				latest.Halted = true
+				break
+			}
 			if ok && storedRun.Workflow != nil && (activeWorkflowNodeUsesModelAnswer(storedRun.Workflow) || activeWorkflowNodeUsesMessageContent(storedRun.Workflow)) {
 				completion := app.CompletionModelAnswer
 				auditType := "workflow.model_answer_completed"
@@ -553,7 +578,13 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 					r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.no_tool_completion_failed", latest.FailureCode, latest.FailureDiagnostic, nil)
 					break
 				}
-				r.store.SaveRun(storedRun)
+				saved, saveErr := r.saveRun(ctx, storedRun)
+				if saveErr != nil {
+					latest.fail(workflowFailureStateInvalid, saveErr)
+					latest.Halted = true
+					break
+				}
+				storedRun = saved
 				r.store.AddAudit(app.AuditEvent{
 					SessionID: sessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType,
 					Summary: auditSummary,
@@ -582,7 +613,12 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 				r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.outcome_adaptation_failed", latest.FailureCode, latest.FailureDiagnostic, map[string]any{"tool_call_id": call.ID})
 				break
 			}
-			storedRun, ok := r.store.GetRun(run.ID)
+			storedRun, ok, loadErr := r.store.GetRun(ctx, run.ID)
+			if loadErr != nil {
+				latest.fail(workflowFailureStateInvalid, loadErr)
+				latest.Halted = true
+				break
+			}
 			if !ok || storedRun.Workflow == nil {
 				latest.fail(workflowFailureStateInvalid, errors.New("workflow state was not available after tool execution"))
 				latest.Halted = true
@@ -591,7 +627,13 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			}
 			assessment := profile.Assess(storedRun.Workflow, outcome)
 			changed, applyErr := applyWorkflowOutcome(&storedRun, outcome, assessment)
-			r.store.SaveRun(storedRun)
+			saved, saveErr := r.saveRun(ctx, storedRun)
+			if saveErr != nil {
+				latest.fail(workflowFailureStateInvalid, saveErr)
+				latest.Halted = true
+				break
+			}
+			storedRun = saved
 			r.auditWorkflowOutcome(storedRun, outcome, assessment, changed, applyErr)
 			for _, ref := range assessment.SelectedRefs {
 				if ref.Kind != "browser_presentation_equivalence" {
@@ -624,7 +666,12 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			break
 		}
 
-		storedRun, ok := r.store.GetRun(run.ID)
+		storedRun, ok, loadErr := r.store.GetRun(ctx, run.ID)
+		if loadErr != nil {
+			latest.fail(workflowFailureStateInvalid, loadErr)
+			latest.Halted = true
+			break
+		}
 		if !ok || storedRun.Workflow == nil {
 			latest.fail(workflowFailureStateInvalid, errors.New("workflow state could not be reloaded"))
 			latest.Halted = true
@@ -667,7 +714,11 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			})
 			break
 		}
-		if refreshed, ok := r.store.GetRun(run.ID); ok {
+		if refreshed, ok, loadErr := r.store.GetRun(ctx, run.ID); loadErr != nil {
+			latest.fail(workflowFailureStateInvalid, loadErr)
+			latest.Halted = true
+			break
+		} else if ok {
 			run = refreshed
 		}
 	}
@@ -679,7 +730,12 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		latest.Completed = false
 		return latest.withPublicFailureProjection()
 	}
-	if storedRun, ok := r.store.GetRun(run.ID); ok && storedRun.Workflow != nil {
+	storedRun, ok, loadErr := r.store.GetRun(ctx, run.ID)
+	if loadErr != nil {
+		latest.fail(workflowFailureStateInvalid, loadErr)
+		return latest.withPublicFailureProjection()
+	}
+	if ok && storedRun.Workflow != nil {
 		switch {
 		case storedRun.Workflow.Status == app.WorkflowStatusRunning && latest.BrowserLoginBlock == nil && len(latest.Approvals) == 0:
 			latest.Completed = false
@@ -757,7 +813,7 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 		result.fail(workflowFailureDirectToolInvocationInvalid, nil)
 		return result
 	}
-	capability, err := r.materializedWorkflowCapability(run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, visibleTools[0].Name)
+	capability, err := r.materializedWorkflowCapability(ctx, run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, visibleTools[0].Name)
 	if err != nil {
 		result.fail(workflowFailureToolOutsideActiveScope, err)
 		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.direct_tool_scope_rejected", result.FailureCode, result.FailureDiagnostic, map[string]any{"tool": visibleTools[0].Name})
@@ -772,7 +828,11 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 		Capability:     capability,
 	}
 	plan = enrichPlanWithBrowserMode(stageContext, plan)
-	call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
+	call, approval, observation, persistErr := r.runToolPlan(ctx, sessionID, run.ID, plan)
+	if persistErr != nil {
+		result.fail(workflowFailureStateInvalid, persistErr)
+		return result
+	}
 	runBudget.observeToolCall(call)
 	result.ToolCalls = []app.ToolCall{call}
 	if approval != nil {
@@ -786,7 +846,12 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 		if strings.TrimSpace(goal) == "" {
 			goal = run.Workflow.Route.Slots.TargetRef
 		}
-		if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, goal, plan, call); ok {
+		block, ok, err := r.recordBrowserLoginBlockFromToolCall(ctx, sessionID, run.ID, goal, plan, call)
+		if err != nil {
+			result.fail(workflowFailureStateInvalid, err)
+			return result
+		}
+		if ok {
 			result.BrowserLoginBlock = &block
 			result.FinalAnswer = browserLoginBlockedMessage(block)
 			result.Completed = false
@@ -810,7 +875,7 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 	return result
 }
 
-func (r Runtime) blockActiveWorkflowNodeForProtocolFailure(run *app.AgentRun, reason workflowFailureCode) error {
+func (r Runtime) blockActiveWorkflowNodeForProtocolFailure(ctx context.Context, run *app.AgentRun, reason workflowFailureCode) error {
 	if run == nil || run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 {
 		return errors.New("workflow protocol failure requires one active node")
 	}
@@ -825,7 +890,11 @@ func (r Runtime) blockActiveWorkflowNodeForProtocolFailure(run *app.AgentRun, re
 	}
 	run.Workflow.Nodes[nodeID] = state
 	run.Workflow.Status = app.WorkflowStatusBlocked
-	r.store.SaveRun(*run)
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: run.SessionID,
 		RunID:     run.ID,
@@ -891,7 +960,9 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	started := time.Now().UTC()
 	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_final_answer", laneForFinalStream(lane), system, strings.Join(userLines, "\n"), emit)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(run.SessionID, run.ID, "workflow_final_answer", chat, err, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(run.SessionID, run.ID, "workflow_final_answer", chat, err, started, completed)); saveErr != nil {
+		return chat, "", saveErr
+	}
 	if err != nil {
 		return chat, "", err
 	}

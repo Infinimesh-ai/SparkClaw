@@ -53,7 +53,10 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 	}
 	resultStatus := request.ResultStatus
 	if resultStatus == "" {
-		run, hasRun := p.store.GetRun(operation.Invocation.RunID)
+		run, hasRun, err := p.store.GetRun(ctx, operation.Invocation.RunID)
+		if err != nil {
+			return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeProviderRetryable, "MCP workflow state is unavailable", "retryable")
+		}
 		if hasRun && (run.State == "approval_pending" || run.State == "browser_login_blocked") {
 			resultStatus = app.WorkflowResultWaiting
 		} else {
@@ -77,7 +80,7 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 	operation.Result = payload
 	applyWorkflowResultToOperation(&operation, resultStatus, request.ResultError)
 	now := time.Now().UTC()
-	updated, changed, err := updateOperationRecord(p.store, operation.ID, func(current *app.MCPOperation) bool {
+	updated, changed, err := updateOperationRecord(ctx, p.store, operation.ID, func(current *app.MCPOperation) bool {
 		if operationTerminal(current.State) {
 			return false
 		}

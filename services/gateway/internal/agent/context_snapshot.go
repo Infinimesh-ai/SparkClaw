@@ -31,7 +31,9 @@ type agentContextSnapshot struct {
 }
 
 func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, currentRunID, currentContent string) (agentContextSnapshot, error) {
-	if run, ok := r.store.GetRun(currentRunID); ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
+	if run, ok, err := r.store.GetRun(ctx, currentRunID); err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load current run context: %w", err)
+	} else if ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
 		// An inbound MCP request must not inherit cached workspace derivatives
 		// through conversation, tool, memory, image, or episode context. Exact
 		// workspace access is admitted through the current run's bound approval
@@ -42,11 +44,19 @@ func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, curre
 	if err != nil {
 		return agentContextSnapshot{}, fmt.Errorf("load conversation context: %w", err)
 	}
+	episodes, err := r.store.ListEpisodeSummaries(ctx, sessionID)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load episode context: %w", err)
+	}
+	toolCalls, err := r.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load tool context: %w", err)
+	}
 	return agentContextSnapshot{
 		Messages:     recentContextMessages(messages, currentRunID, defaultContextMessageLimit),
-		Episodes:     recentContextEpisodes(r.store.ListEpisodeSummaries(sessionID), defaultContextEpisodeLimit),
+		Episodes:     recentContextEpisodes(episodes, defaultContextEpisodeLimit),
 		Memories:     relevantContextMemories(r.store.SearchMemories(currentContent), defaultContextMemoryLimit),
-		ToolResults:  recentContextToolResults(r.store.ListToolCalls(sessionID), currentRunID, defaultContextToolLimit),
+		ToolResults:  recentContextToolResults(toolCalls, currentRunID, defaultContextToolLimit),
 		RecentImages: recentContextImages(messages, currentRunID, 3),
 	}, nil
 }

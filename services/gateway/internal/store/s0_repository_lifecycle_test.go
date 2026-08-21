@@ -48,7 +48,7 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 	},
 	"RunRepository": {
 		mutate: func(_ *testing.T, st Store) {
-			st.SaveRun(app.AgentRun{ID: "run-lifecycle", SessionID: "session-lifecycle", State: "completed"})
+			testSaveRun(st, app.AgentRun{ID: "run-lifecycle", SessionID: "session-lifecycle", State: "completed"})
 		},
 		eventType: "run.completed",
 	},

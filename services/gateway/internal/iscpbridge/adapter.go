@@ -34,7 +34,7 @@ type AgentRuntime interface {
 	HandleMessageWithIngress(context.Context, string, string, string, string, []agent.MessageAttachment, app.MessageIngressContext) (agent.Result, error)
 	ExecuteApprovedToolCall(context.Context, app.Approval) (app.ToolCall, error)
 	ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error)
-	CompleteRunIfApprovalsResolved(string)
+	CompleteRunIfApprovalsResolved(context.Context, string) error
 }
 
 type RuntimeProvider func() AgentRuntime
@@ -324,7 +324,10 @@ func (a *GatewayAdapter) sendMessage(ctx context.Context, req Request, principal
 		a.mu.Unlock()
 		return newResponse(req, "accepted", nil, &operation, nil, now)
 	}
-	if run, ok := a.store.GetRun(operationID); ok {
+	if run, ok, err := a.store.GetRun(ctx, operationID); err != nil {
+		a.mu.Unlock()
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "operation state is temporarily unavailable", true), now)
+	} else if ok {
 		if runEndpointID(run) != req.EndpointID {
 			a.mu.Unlock()
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
@@ -346,7 +349,7 @@ func (a *GatewayAdapter) sendMessage(ctx context.Context, req Request, principal
 		a.mu.Unlock()
 		return newResponse(req, "accepted", nil, &operation, nil, now)
 	}
-	opCtx, cancel := context.WithTimeout(context.Background(), a.operationLimit)
+	opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.operationLimit)
 	operation := Operation{
 		ID: operationID, RequestID: req.RequestID, SessionID: req.SessionID, RunID: operationID,
 		State: "accepted", CreatedAt: now, UpdatedAt: now,
@@ -579,15 +582,23 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 		} else if resumedOK {
 			result = &resumed
 		}
-	} else if rejected, found := a.store.GetToolCall(resolved.ToolCallID); found {
+	} else if rejected, found, readErr := a.store.GetToolCall(ctx, resolved.ToolCallID); readErr != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "tool call state is temporarily unavailable", true), now)
+	} else if found {
 		completedAt := time.Now().UTC()
 		rejected.Status = "rejected"
 		rejected.Error = "owner rejected approval"
 		rejected.CompletedAt = &completedAt
-		a.store.SaveToolCall(rejected)
-		call = &rejected
+		persisted, saveErr := a.store.SaveToolCall(ctx, rejected)
+		persisted, saveErr = store.ReconcileToolCallWrite(ctx, a.store, persisted, saveErr)
+		if saveErr != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "tool call decision is temporarily unavailable", true), now)
+		}
+		call = &persisted
 	}
-	a.runtime().CompleteRunIfApprovalsResolved(resolved.RunID)
+	if err := a.runtime().CompleteRunIfApprovalsResolved(ctx, resolved.RunID); err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "run completion is temporarily unavailable", true), now)
+	}
 	response := newResponse(req, "ok", map[string]any{
 		"approval":  ApprovalView{Approval: resolved, PreviewHash: ApprovalPreviewHash(resolved)},
 		"tool_call": call,
@@ -620,7 +631,9 @@ func (a *GatewayAdapter) operationStatus(ctx context.Context, req Request, princ
 		return newResponse(req, "ok", nil, &operation, nil, now)
 	}
 	a.mu.Unlock()
-	if run, ok := a.store.GetRun(operationID); ok {
+	if run, ok, err := a.store.GetRun(ctx, operationID); err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "operation state is temporarily unavailable", true), now)
+	} else if ok {
 		if runEndpointID(run) != req.EndpointID {
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
 		}
@@ -640,9 +653,13 @@ func (a *GatewayAdapter) operationStatus(ctx context.Context, req Request, princ
 }
 
 func (a *GatewayAdapter) operationFromRun(ctx context.Context, run app.AgentRun, requestID string) (Operation, error) {
+	toolCalls, err := a.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return Operation{}, err
+	}
 	result := map[string]any{
 		"run":        run,
-		"tool_calls": toolCallsForRun(a.store.ListToolCalls(run.SessionID), run.ID),
+		"tool_calls": toolCallsForRun(toolCalls, run.ID),
 		"approvals":  approvalsForRun(a.store.ListApprovals(""), run.ID),
 	}
 	messages, err := a.store.ListMessages(ctx, run.SessionID)

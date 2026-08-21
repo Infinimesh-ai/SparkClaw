@@ -38,7 +38,7 @@ func (r *bridgeRuntime) ResumeRunAfterApproval(context.Context, string, string) 
 	return agent.Result{}, false, nil
 }
 
-func (r *bridgeRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (r *bridgeRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 
 func TestAgentBridgeSelectsIdempotentExecutionWhenIdentifiersArePresent(t *testing.T) {
 	runtime := &bridgeRuntime{}

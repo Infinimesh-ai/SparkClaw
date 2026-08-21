@@ -189,7 +189,11 @@ func (r Runtime) runWorkflowMessageContentStep(ctx context.Context, run app.Agen
 		return result
 	}
 	run.MessageContext.RequestContent = content
-	r.store.SaveRun(run)
+	if _, err := r.saveRun(ctx, run); err != nil {
+		result := workflowExecutionResult{Halted: true}
+		result.fail(workflowFailureStateInvalid, err)
+		return result
+	}
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.message_content_governed",
 		Summary: "Prepared normalized multipart message content for the shared result path",
@@ -288,7 +292,11 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 	started := time.Now().UTC()
 	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_answer", workflowExecutionModelLane, system, strings.Join(userParts, "\n\n"), emit)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed)); saveErr != nil {
+		result := workflowExecutionResult{Chat: chat, Halted: true}
+		result.fail(workflowFailureStateInvalid, saveErr)
+		return result
+	}
 	if err != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
 		result.fail(workflowFailureModelUnavailable, err)

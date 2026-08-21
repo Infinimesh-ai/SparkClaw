@@ -88,7 +88,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatalf("edit workflow must expose list first: %#v", visibleToolNames(dispatch.Tools))
 	}
 
-	listCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	listCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "reminders.list", Args: map[string]any{"status": "pending"}, WorkflowID: app.WorkflowScheduleManage,
 		WorkflowNodeID: "schedule_manage", ScopeRevision: 1, Capability: app.ToolCapabilityScheduleManage,
 	})
@@ -100,7 +100,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if assessment.ReasonCode != "schedule_target_resolved" || len(assessment.SelectedRefs) != 1 {
 		t.Fatalf("schedule target was not uniquely resolved: %#v", assessment)
@@ -109,7 +109,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil || !changed {
 		t.Fatalf("schedule workflow did not enter mutation stage: changed=%t err=%v", changed, err)
 	}
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
 	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatalf("edit workflow exposed the wrong mutation: %#v", visibleToolNames(mutationTools))
 	}
 	node := storedRun.Workflow.Nodes["schedule_manage"]
-	updateCall, updateApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	updateCall, updateApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "reminders.update", Args: map[string]any{
 			"reminder_id": "model-invented-id", "expected_updated_at": "2000-01-01T00:00:00Z",
 			"text": "model invented text", "due_time": "2000-01-01T00:00", "timezone": "UTC", "recurrence": "daily",
@@ -142,7 +142,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 	assessment = dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if assessment.Status != app.AssessmentComplete || assessment.ReasonCode != "schedule_changed" {
 		t.Fatalf("schedule mutation did not produce completion evidence: %#v", assessment)

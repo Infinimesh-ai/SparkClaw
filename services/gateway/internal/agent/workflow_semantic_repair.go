@@ -37,16 +37,25 @@ func (e *workflowSemanticValidationError) Error() string {
 }
 
 func (r Runtime) prepareWorkflowSemanticPlan(ctx context.Context, runID string, plan toolPlan) (toolPlan, *workflowSemanticValidationError, error) {
-	prepared := r.materializeWorkflowBoundArguments(runID, plan)
+	prepared, err := r.materializeWorkflowBoundArguments(ctx, runID, plan)
+	if err != nil {
+		return toolPlan{}, nil, err
+	}
 	definition, ok := r.tools.Definition(prepared.Name)
 	if !ok {
 		return prepared, nil, nil
 	}
-	prepared.Args = r.bindWorkflowToolArguments(runID, prepared)
+	prepared.Args, err = r.bindWorkflowToolArguments(ctx, runID, prepared)
+	if err != nil {
+		return toolPlan{}, nil, err
+	}
 	if prepared.WorkflowID != app.WorkflowDocumentEdit {
 		return prepared, nil, nil
 	}
-	run, ok := r.store.GetRun(runID)
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return toolPlan{}, nil, err
+	}
 	if !ok || run.Workflow == nil {
 		return prepared, nil, nil
 	}

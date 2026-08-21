@@ -38,6 +38,18 @@ const (
 	OperationConversationListMessages    StoreOperation = "conversation.list_messages"
 	OperationConversationMessageHead     StoreOperation = "conversation.message_event_head"
 	OperationConversationMessagesAfter   StoreOperation = "conversation.message_events_after"
+	OperationRunFeedbackSave             StoreOperation = "run_feedback.save"
+	OperationRunFeedbackList             StoreOperation = "run_feedback.list"
+	OperationRunSave                     StoreOperation = "run.save"
+	OperationRunGet                      StoreOperation = "run.get"
+	OperationRunList                     StoreOperation = "run.list"
+	OperationModelCallSave               StoreOperation = "model_call.save"
+	OperationModelCallList               StoreOperation = "model_call.list"
+	OperationToolCallSave                StoreOperation = "tool_call.save"
+	OperationToolCallGet                 StoreOperation = "tool_call.get"
+	OperationToolCallList                StoreOperation = "tool_call.list"
+	OperationEpisodeSummarySave          StoreOperation = "episode_summary.save"
+	OperationEpisodeSummaryList          StoreOperation = "episode_summary.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -180,6 +192,54 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationConversationMessagesAfter: {
 		ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
 		Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationRunFeedbackSave: {
+		ID: OperationRunFeedbackSave, Repository: "RunRepository",
+		Method: "SaveRunFeedback", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationRunFeedbackList: {
+		ID: OperationRunFeedbackList, Repository: "RunRepository",
+		Method: "ListRunFeedback", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationRunSave: {
+		ID: OperationRunSave, Repository: "RunRepository",
+		Method: "SaveRun", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationRunGet: {
+		ID: OperationRunGet, Repository: "RunRepository",
+		Method: "GetRun", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationRunList: {
+		ID: OperationRunList, Repository: "RunRepository",
+		Method: "ListRuns", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationModelCallSave: {
+		ID: OperationModelCallSave, Repository: "RunRepository",
+		Method: "SaveModelCall", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationModelCallList: {
+		ID: OperationModelCallList, Repository: "RunRepository",
+		Method: "ListModelCalls", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationToolCallSave: {
+		ID: OperationToolCallSave, Repository: "RunRepository",
+		Method: "SaveToolCall", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationToolCallGet: {
+		ID: OperationToolCallGet, Repository: "RunRepository",
+		Method: "GetToolCall", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationToolCallList: {
+		ID: OperationToolCallList, Repository: "RunRepository",
+		Method: "ListToolCalls", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEpisodeSummarySave: {
+		ID: OperationEpisodeSummarySave, Repository: "RunRepository",
+		Method: "SaveEpisodeSummary", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationEpisodeSummaryList: {
+		ID: OperationEpisodeSummaryList, Repository: "RunRepository",
+		Method: "ListEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

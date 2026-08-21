@@ -368,7 +368,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	if !ok || linkedSession.Source != "weixin" || !linkedSession.Hidden {
 		t.Fatalf("linked session should be hidden weixin session: %#v", linkedSession)
 	}
-	runs := st.ListRuns(chatSession.LinkedSessionID)
+	runs := testListRuns(st, chatSession.LinkedSessionID)
 	if len(runs) != 1 || runs[0].MessageContext == nil || runs[0].MessageContext.OwnerID != chatSession.OwnerID || runs[0].MessageContext.ReturnRoute.SourceEndpointID != app.EndpointID(chatSession.ID) || runs[0].MessageContext.Route.Status != app.RouteMatched || len(runs[0].MessageContext.Route.CapabilityPath) != 2 || runs[0].MessageContext.Route.CapabilityPath[1] != app.CapabilityConversationAnswer || runs[0].Workflow == nil || runs[0].Workflow.Plan.ProfileID != app.WorkflowConversationAnswer {
 		t.Fatalf("weixin run did not persist the external endpoint route context: %#v", runs)
 	}
@@ -742,7 +742,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if !ok || failed.Status != "delivery_failed" {
 		t.Fatalf("failed reply was not retained for delivery retry: %#v ok=%v", failed, ok)
 	}
-	runsAfterFirstTick := len(st.ListRuns(chatSession.LinkedSessionID))
+	runsAfterFirstTick := len(testListRuns(st, chatSession.LinkedSessionID))
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
@@ -759,7 +759,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if strings.Join(polledCursors, ",") != "cursor-1,cursor-1" {
 		t.Fatalf("second poll should reuse the unadvanced cursor: %#v", polledCursors)
 	}
-	if runsAfterRetry := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfterRetry != runsAfterFirstTick {
+	if runsAfterRetry := len(testListRuns(st, chatSession.LinkedSessionID)); runsAfterRetry != runsAfterFirstTick {
 		t.Fatalf("delivery retry reran the agent: before=%d after=%d", runsAfterFirstTick, runsAfterRetry)
 	}
 	delivered, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
@@ -968,11 +968,11 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatalf("expected one retry reply, got %#v", sentTexts)
 	}
 
-	runsBefore := len(st.ListRuns(chatSession.LinkedSessionID))
+	runsBefore := len(testListRuns(st, chatSession.LinkedSessionID))
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
 		t.Fatal(err)
 	}
-	if runsAfter := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfter != runsBefore {
+	if runsAfter := len(testListRuns(st, chatSession.LinkedSessionID)); runsAfter != runsBefore {
 		t.Fatalf("processed message must not run the agent again: before=%d after=%d", runsBefore, runsAfter)
 	}
 }

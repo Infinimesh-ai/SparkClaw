@@ -54,7 +54,7 @@ func (f *fakeAgentRuntime) ResumeRunAfterApproval(context.Context, string, strin
 	return agent.Result{}, false, nil
 }
 
-func (f *fakeAgentRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (f *fakeAgentRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 
 func (f *fakeAgentRuntime) handledCount() int {
 	f.mu.Lock()

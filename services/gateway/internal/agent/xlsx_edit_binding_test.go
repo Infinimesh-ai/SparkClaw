@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
@@ -36,7 +37,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": inputRef}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: documentLocateEvidenceNodeID, ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -48,12 +49,12 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if changed, applyErr := applyWorkflowOutcome(&storedRun, outcome, assessment); applyErr != nil || !changed {
 		t.Fatalf("XLSX localization evidence did not activate operation selection: changed=%t err=%v", changed, applyErr)
 	}
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 
 	editorDefinition, ok := runtime.tools.Definition("xlsx.update_row")
 	if !ok {
@@ -72,7 +73,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		t.Fatal("xlsx.update_row is outside the operation-selection scope")
 	}
 	storedRun.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	if _, changed, resolveErr := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); resolveErr != nil || !changed {
 		t.Fatalf("XLSX update_row operation was not selected: changed=%t err=%v", changed, resolveErr)
 	}
@@ -106,15 +107,18 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 			t.Fatalf("registered XLSX editor lost execution argument %s: %#v", runtimeBound, registeredEditor.InputSchema)
 		}
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 
-	evidence, ok := runtime.currentXLSXEditEvidence(storedRun, "update_row", map[string]any{
+	evidence, ok, err := runtime.currentXLSXEditEvidence(t.Context(), storedRun, "update_row", map[string]any{
 		"path": inputRef, "sheet": "data", "row": 2,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || evidence.SourceSHA256 == "" || evidence.TargetHash == "" || evidence.Sheet != "Data" {
 		t.Fatalf("localization read omitted canonical XLSX row evidence: %#v", evidence)
 	}
-	conflictingCall, conflictingApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	conflictingCall, conflictingApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "xlsx.update_row",
 		Args: map[string]any{
 			"path": "model-invented.xlsx", "output_path": "model-output.xlsx", "sheet": "data", "row": 2,
@@ -130,7 +134,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		t.Fatalf("conflicting XLSX evidence created an owner approval: %#v", approvals)
 	}
 
-	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	editCall, editApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "xlsx.update_row",
 		Args: map[string]any{
 			"path": "model-invented.xlsx", "output_path": "model-output.xlsx", "sheet": "data", "row": 2,
@@ -209,7 +213,7 @@ func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing
 	if coverage["status"] != "partial" || coverage["mutation_supported"] != false {
 		t.Fatalf("read-only unsupported package coverage is missing: %#v", coverage)
 	}
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name:       "xlsx.update_cell",
 		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
@@ -247,7 +251,7 @@ func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationThroughPipeline(
 	replaceAgentXLSXLocateEvidence(t, runtime, st, storedRun, inputRef)
 	mutateAgentXLSXFixture(t, inputPath)
 
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name:       "xlsx.update_cell",
 		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
@@ -330,24 +334,21 @@ const ExcelJS = require("exceljs");
 	}
 }
 
-func replaceAgentXLSXLocateEvidence(t *testing.T, runtime Runtime, st interface {
-	GetToolCall(string) (app.ToolCall, bool)
-	SaveToolCall(app.ToolCall)
-}, run app.AgentRun, inputRef string) map[string]any {
+func replaceAgentXLSXLocateEvidence(t *testing.T, runtime Runtime, st store.RunRepository, run app.AgentRun, inputRef string) map[string]any {
 	t.Helper()
 	read, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": inputRef}, run.SessionID, run.ID)
 	if err != nil {
 		t.Fatalf("read-only XLSX inspection failed: %v", err)
 	}
 	locateState := run.Workflow.Nodes[documentLocateEvidenceNodeID]
-	readCall, ok := st.GetToolCall(locateState.ToolCallIDs[0])
+	readCall, ok := testGetToolCall(st, locateState.ToolCallIDs[0])
 	if !ok {
 		t.Fatal("XLSX locate call is missing")
 	}
 	readCall.Result = read.Output
 	readCall.Status = "completed"
 	readCall.Error = ""
-	st.SaveToolCall(readCall)
+	testSaveToolCall(st, readCall)
 	output, ok := anyMap(read.Output)
 	if !ok {
 		t.Fatalf("XLSX read output is not structured: %#v", read.Output)

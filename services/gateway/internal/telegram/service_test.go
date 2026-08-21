@@ -625,7 +625,7 @@ func (r *recordingRuntime) ExecuteApprovedToolCall(context.Context, app.Approval
 func (r *recordingRuntime) ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error) {
 	return agent.Result{}, false, nil
 }
-func (r *recordingRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (r *recordingRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 func (r *recordingRuntime) callCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -678,7 +678,7 @@ func (r *blockingRuntime) ExecuteApprovedToolCall(context.Context, app.Approval)
 func (r *blockingRuntime) ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error) {
 	return agent.Result{}, false, nil
 }
-func (r *blockingRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (r *blockingRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 func (r *blockingRuntime) maxActiveCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -77,7 +77,7 @@ func TestDocumentOCRCacheIsOwnerScopedAndPersistsOnlyFreshModelCalls(t *testing.
 	if adapter.calls.Load() != 2 {
 		t.Fatalf("owner isolation should require two fresh calls, got %d", adapter.calls.Load())
 	}
-	calls := state.ListModelCalls("", "")
+	calls := testListModelCalls(state, "", "")
 	if len(calls) != 2 {
 		t.Fatalf("cache hit created a fake model call: %#v", calls)
 	}
@@ -154,7 +154,7 @@ func TestDocumentOCRSingleflightCoalescesConcurrentOwnerMisses(t *testing.T) {
 	if cacheResults["miss"] != 1 || cacheResults["coalesced"] != 1 || adapter.calls.Load() != 1 {
 		t.Fatalf("singleflight did not coalesce the miss: first=%#v second=%#v calls=%d", first, second, adapter.calls.Load())
 	}
-	if first.ModelCallID == "" || first.ModelCallID != second.ModelCallID || len(state.ListModelCalls("", "")) != 1 {
+	if first.ModelCallID == "" || first.ModelCallID != second.ModelCallID || len(testListModelCalls(state, "", "")) != 1 {
 		t.Fatalf("coalesced result did not share one real model call: first=%#v second=%#v", first, second)
 	}
 }
@@ -172,8 +172,8 @@ func TestDocumentOCRCacheValidationAndVersionInvalidation(t *testing.T) {
 				t.Fatalf("transient failure classification changed: %#v", result)
 			}
 		}
-		if adapter.calls.Load() != 2 || len(state.ListModelCalls("", "")) != 2 {
-			t.Fatalf("transient failure was cached or not recorded: calls=%d model_calls=%d", adapter.calls.Load(), len(state.ListModelCalls("", "")))
+		if adapter.calls.Load() != 2 || len(testListModelCalls(state, "", "")) != 2 {
+			t.Fatalf("transient failure was cached or not recorded: calls=%d model_calls=%d", adapter.calls.Load(), len(testListModelCalls(state, "", "")))
 		}
 		if readiness := hub.DocumentOCRReadiness(); readiness.RuntimeStatus != "ready" || readiness.LastCallStatus != "timeout" {
 			t.Fatalf("request failure rewrote configured runtime state: %#v", readiness)

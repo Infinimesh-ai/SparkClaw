@@ -25,7 +25,7 @@ type orderedDocumentDecisionRule struct {
 type agentDocumentOperationPolicy struct {
 	RuntimeBoundArguments  []string
 	ModelRequiredArguments []string
-	BindArguments          func(Runtime, app.AgentRun, map[string]any) map[string]any
+	BindArguments          func(context.Context, Runtime, app.AgentRun, map[string]any) (map[string]any, error)
 	ValidateEvidence       func(context.Context, Runtime, app.AgentRun, string, map[string]any) error
 	RevalidateApproved     func(context.Context, Runtime, app.ToolCall) error
 }
@@ -240,11 +240,11 @@ func docxAgentDocumentPolicy() agentDocumentFormatPolicy {
 		operations[operation] = agentDocumentOperationPolicy{
 			RuntimeBoundArguments:  runtimeBound,
 			ModelRequiredArguments: modelRequired,
-			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
-				return runtime.bindDOCXMutationEvidence(run, operation, args)
+			BindArguments: func(ctx context.Context, runtime Runtime, run app.AgentRun, args map[string]any) (map[string]any, error) {
+				return runtime.bindDOCXMutationEvidence(ctx, run, operation, args)
 			},
-			ValidateEvidence: func(_ context.Context, runtime Runtime, run app.AgentRun, toolName string, args map[string]any) error {
-				return runtime.validateDOCXMutationEvidence(run, toolName, operation, args)
+			ValidateEvidence: func(ctx context.Context, runtime Runtime, run app.AgentRun, toolName string, args map[string]any) error {
+				return runtime.validateDOCXMutationEvidence(ctx, run, toolName, operation, args)
 			},
 			RevalidateApproved: func(ctx context.Context, runtime Runtime, call app.ToolCall) error {
 				return runtime.revalidateApprovedDOCXMutation(ctx, call, operation)
@@ -302,8 +302,8 @@ func xlsxAgentDocumentPolicy() agentDocumentFormatPolicy {
 		}
 		operations[operation] = agentDocumentOperationPolicy{
 			RuntimeBoundArguments: runtimeBound,
-			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
-				return runtime.bindXLSXEditEvidence(run, operation, args)
+			BindArguments: func(ctx context.Context, runtime Runtime, run app.AgentRun, args map[string]any) (map[string]any, error) {
+				return runtime.bindXLSXEditEvidence(ctx, run, operation, args)
 			},
 			ValidateEvidence: func(ctx context.Context, runtime Runtime, run app.AgentRun, _ string, args map[string]any) error {
 				return runtime.validateXLSXEditEvidence(ctx, run, operation, args)
@@ -346,11 +346,11 @@ func pptxAgentDocumentPolicy() agentDocumentFormatPolicy {
 		operation := operation
 		operations[operation] = agentDocumentOperationPolicy{
 			RuntimeBoundArguments: []string{app.DocumentSourceSHA256Argument},
-			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
-				return runtime.bindPPTXEditArguments(run, operation, args)
+			BindArguments: func(ctx context.Context, runtime Runtime, run app.AgentRun, args map[string]any) (map[string]any, error) {
+				return runtime.bindPPTXEditArguments(ctx, run, operation, args)
 			},
-			ValidateEvidence: func(_ context.Context, runtime Runtime, run app.AgentRun, _ string, args map[string]any) error {
-				return runtime.validatePPTXEditEvidence(run, operation, args)
+			ValidateEvidence: func(ctx context.Context, runtime Runtime, run app.AgentRun, _ string, args map[string]any) error {
+				return runtime.validatePPTXEditEvidence(ctx, run, operation, args)
 			},
 			RevalidateApproved: func(ctx context.Context, runtime Runtime, call app.ToolCall) error {
 				return runtime.revalidateApprovedPPTXMutation(ctx, call, operation)
@@ -593,7 +593,10 @@ func projectDocumentReadCoverage(call app.ToolCall, output map[string]any) docum
 }
 
 func (r Runtime) revalidateApprovedDocumentOperation(ctx context.Context, call app.ToolCall, definition app.ToolDefinition) error {
-	run, ok := r.store.GetRun(call.RunID)
+	run, ok, err := r.store.GetRun(ctx, call.RunID)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("approved DOCX mutation run is unavailable")
 	}

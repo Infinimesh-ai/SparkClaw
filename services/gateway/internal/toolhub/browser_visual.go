@@ -15,7 +15,10 @@ import (
 const browserVisualSummaryMaxRunes = 4000
 
 func (h *ToolHub) inspectBrowserVisual(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	run, ok := h.store.GetRun(runID)
+	run, ok, err := h.store.GetRun(ctx, runID)
+	if err != nil {
+		return Result{}, visualStaleError("browser visual workflow state is unavailable")
+	}
 	if !ok || run.SessionID != sessionID || run.Workflow == nil || !browserVisualWorkflowAllowed(run.Workflow.Plan.ProfileID) ||
 		strings.TrimSpace(run.Workflow.Route.Facts["browser_visual_reason"]) != "owner_requested" {
 		return Result{}, visualStaleError("browser visual inspection is not enabled by the active Workflow route")
@@ -25,7 +28,10 @@ func (h *ToolHub) inspectBrowserVisual(ctx context.Context, args map[string]any,
 		return Result{}, visualStaleError("browser visual inspection requires a frozen typed reason")
 	}
 
-	calls := h.store.ListToolCalls(sessionID)
+	calls, err := h.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return Result{}, visualStaleError("browser visual evidence is unavailable")
+	}
 	snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
 	pageID := strings.TrimSpace(browserAutomationStringValue(args["page_id"]))
 	snapshot, found := findBrowserSnapshotRecord(calls, runID, snapshotID)

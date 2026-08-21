@@ -117,10 +117,10 @@ MOCK_CONVERSATION_RESPONSE:巴黎。`
 		result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer || result.Message.Content != "巴黎。" {
 		t.Fatalf("deterministic conversation route was downgraded by Fast: %#v", result)
 	}
-	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("conversation answer entered the step loop: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("conversation answer entered the step loop: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
-	for _, call := range toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID) {
+	for _, call := range toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID) {
 		if call.Tool == "web.search" {
 			t.Fatalf("static common knowledge forced an Internet search: %#v", call)
 		}
@@ -239,7 +239,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+
 	if requestedQuery != wantQuery || result.RouteDecision == nil || result.RouteDecision.Slots.Query != wantQuery {
 		t.Fatalf("provider query was rewritten after route freeze: route=%#v provider_query=%q", result.RouteDecision, requestedQuery)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 {
 		t.Fatalf("expected one production web.search call, got %#v", calls)
 	}
@@ -270,7 +270,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+
 		t.Fatalf("grounded result did not use the deterministic Info renderer: %q", result.Message.Content)
 	}
 	workflowStepCalls := 0
-	for _, modelCall := range st.ListModelCalls(session.ID, result.Run.ID) {
+	for _, modelCall := range testListModelCalls(st, session.ID, result.Run.ID) {
 		if strings.HasPrefix(modelCall.Operation, "workflow_step_") {
 			workflowStepCalls++
 		}
@@ -343,11 +343,11 @@ func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) 
 	}
 	runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
 MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"今日金价"}}`, dispatch.Profile, dispatch.Context, dispatch.Tools)
-	run, ok := st.GetRun(run.ID)
+	run, ok := testGetRun(st, run.ID)
 	if !ok || run.Workflow == nil || run.Workflow.Status != app.WorkflowStatusSucceeded || run.Workflow.Plan.ProfileID != app.WorkflowBrowserInternetSearch {
 		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), run.ID)
 	wantQuery := materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate())
 	if requestedQuery != wantQuery || routing.Route.Slots.Query != wantQuery || len(calls) != 1 || calls[0].Tool != "web.search" || calls[0].Capability != app.ToolCapabilityWebDiscovery {
 		t.Fatalf("gold search did not preserve its frozen route query: route=%#v provider_query=%q calls=%#v", routing.Route, requestedQuery, calls)
@@ -868,7 +868,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	outcome, err := adaptWorkflowOutcome(definition, call)
 	if err != nil {
 		t.Fatal(err)
@@ -939,7 +939,7 @@ func TestWorkflowImageOutputIsInlineAndProjectsWithoutAttachmentText(t *testing.
 		ID: "tc_weather_image", SessionID: session.ID, RunID: "run_weather_image", Tool: definition.Name, Status: "completed",
 		Result: map[string]any{"path": filepath.Join(session.WorkspaceRoot, "media", "weather.png"), "content_type": "image/png", "bytes": 2048, "width": 1400, "height": 900, "summary": "杭州天气"},
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	run := app.AgentRun{ID: call.RunID, SessionID: session.ID, Workflow: &app.WorkflowState{Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
 		"render_weather_card": {OutcomeRefs: []app.ResourceRef{{Kind: "path", Ref: filepath.Join(session.WorkspaceRoot, "media", "weather.png"), Provenance: call.ID}}},
 	}}}
@@ -994,7 +994,7 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 	} {
 		runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
-		st.SaveRun(run)
+		testSaveRun(st, run)
 		route := app.RouteDecision{
 			SchemaVersion: app.RouteDecisionSchemaVersion, Status: test.status, CatalogRevision: runtime.capabilities.Revision(),
 			CapabilityPath: []app.CapabilityID{"browser"}, Reason: "more routing information is required",
@@ -1004,7 +1004,7 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 		if result.WorkflowResult == nil || result.WorkflowResult.Status != test.want || len(result.ToolCalls) != 0 {
 			t.Fatalf("terminal route %q returned the wrong result: %#v", test.status, result)
 		}
-		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, run.ID)) {
+		if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, run.ID)) {
 			t.Fatalf("terminal route %q entered a legacy fallback", test.status)
 		}
 	}
@@ -1023,8 +1023,8 @@ func TestUnmatchedRouteBlocksWithoutLegacyFallback(t *testing.T) {
 	if result.Run.State != "blocked" || result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.Status != app.WorkflowResultBlocked {
 		t.Fatalf("unmatched route did not produce a blocked router result: %#v", result)
 	}
-	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.visible_tools") {
-		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.visible_tools") {
+		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), st.ListAudit(session.ID))
 	}
 }
 
@@ -1041,8 +1041,8 @@ func TestMatchedDispatchFailureReturnsFailedWorkflowResultWithoutFallback(t *tes
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultFailed || result.WorkflowResult.Workflow.ID != app.WorkflowBrowserSearch {
 		t.Fatalf("matched setup failure did not return the leaf WorkflowResult: %#v", result.WorkflowResult)
 	}
-	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("matched workflow failure entered a legacy fallback: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("matched workflow failure entered a legacy fallback: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
 }
 
@@ -1278,12 +1278,12 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 			node := result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]]
 			assessment = node.LastAssessment
 		}
-		t.Fatalf("workflow did not complete under expected contract: status=%q stage=%q assessment=%#v calls=%#v message=%q summary=%q", result.Run.Workflow.Status, result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]].Stage, assessment, workflowCallDebug(toolCallsForRun(st.ListToolCalls(sessionID), result.Run.ID)), result.Message.Content, result.Run.Summary)
+		t.Fatalf("workflow did not complete under expected contract: status=%q stage=%q assessment=%#v calls=%#v message=%q summary=%q", result.Run.Workflow.Status, result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]].Stage, assessment, workflowCallDebug(toolCallsForRun(testListToolCalls(st, sessionID), result.Run.ID)), result.Message.Content, result.Run.Summary)
 	}
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded || result.WorkflowResult.Workflow.ID != workflowID || result.WorkflowResult.CapabilityPath[1] != capabilityID {
 		t.Fatalf("missing successful WorkflowResult: %#v", result.WorkflowResult)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(sessionID), result.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, sessionID), result.Run.ID)
 	if len(calls) != len(toolNames) || len(toolNames) != len(semanticCapabilities) {
 		t.Fatalf("workflow did not execute the expected registered tool: %#v", calls)
 	}
@@ -1292,7 +1292,7 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 			t.Fatalf("workflow call %d escaped its stage capability: %#v", index, calls[index])
 		}
 	}
-	modelCalls := st.ListModelCalls(sessionID, result.Run.ID)
+	modelCalls := testListModelCalls(st, sessionID, result.Run.ID)
 	if !hasModelCallOperation(modelCalls, "intent_embedding", "embedding") ||
 		!hasModelCallOperation(modelCalls, "intent_tree_graph", "fast") {
 		t.Fatalf("matched workflow was not selected by semantic fusion: %#v", modelCalls)

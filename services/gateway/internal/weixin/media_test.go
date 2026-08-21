@@ -256,7 +256,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	if len(agentMessages) != 1 || len(agentMessages[0].Attachments) != 1 || !strings.Contains(agentMessages[0].Content, "uploads/20260707/report.docx") {
 		t.Fatalf("expected pending attachment in local agent context: %#v", agentMessages)
 	}
-	if runs := st.ListRuns(chatSession.LinkedSessionID); len(runs) != 0 {
+	if runs := testListRuns(st, chatSession.LinkedSessionID); len(runs) != 0 {
 		t.Fatalf("attachment-only clarification should not run agent: %#v", runs)
 	}
 }
@@ -289,8 +289,8 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	root := t.TempDir()
 	oldSession := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", root, "weixin", true)
 	storetest.MustAddMessage(t, st, app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
-	st.SaveEpisodeSummary(app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
-	st.SaveToolCall(app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
+	testSaveEpisodeSummary(st, app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
+	testSaveToolCall(st, app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
 		OwnerID:         "owner",
 		WorkspaceRoot:   root,
@@ -327,10 +327,10 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	if messages := storetest.MustListMessages(t, st, updated.LinkedSessionID); len(messages) != 0 {
 		t.Fatalf("fresh Agent session should not carry old messages: %#v", messages)
 	}
-	if episodes := st.ListEpisodeSummaries(updated.LinkedSessionID); len(episodes) != 0 {
+	if episodes := testListEpisodeSummaries(st, updated.LinkedSessionID); len(episodes) != 0 {
 		t.Fatalf("fresh Agent session should not carry old episodes: %#v", episodes)
 	}
-	if calls := st.ListToolCalls(updated.LinkedSessionID); len(calls) != 0 {
+	if calls := testListToolCalls(st, updated.LinkedSessionID); len(calls) != 0 {
 		t.Fatalf("fresh Agent session should not carry old tool results: %#v", calls)
 	}
 	if !strings.Contains(sentText, "后续消息会从新的上下文开始") {
@@ -367,10 +367,10 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	approvalID := app.NewID("ap")
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval", Risk: app.RiskReversible, Status: "approval_pending", ApprovalID: approvalID, StartedAt: time.Now().UTC()}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	approval := app.Approval{ID: approvalID, SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve notify", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
 	st.SaveApproval(approval)
 
@@ -390,7 +390,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _ := st.GetToolCall(call.ID)
+	resolved, _ := testGetToolCall(st, call.ID)
 	if resolved.Status != "completed_after_approval" {
 		t.Fatalf("expected approved call to execute, got %#v sent=%q approvals=%#v", resolved, sentText, st.ListApprovals(""))
 	}
@@ -432,9 +432,9 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "docx.replace_paragraph", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	approval := app.Approval{ID: app.NewID("ap"), SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve docx", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
 	st.SaveApproval(approval)
 
@@ -454,7 +454,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected, _ := st.GetToolCall(call.ID)
+	rejected, _ := testGetToolCall(st, call.ID)
 	if rejected.Status != "rejected" {
 		t.Fatalf("expected call rejection, got %#v", rejected)
 	}

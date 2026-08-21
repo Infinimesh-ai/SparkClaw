@@ -76,12 +76,14 @@ type weatherCardFaces struct {
 }
 
 func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	_ = ctx
 	payloadRef := strings.TrimSpace(stringArg(args, "weather_payload_ref", ""))
 	if payloadRef == "" || h.store == nil {
 		return Result{}, errors.New("weather card requires a governed weather payload reference")
 	}
-	call, ok := h.store.GetToolCall(payloadRef)
+	call, ok, err := h.store.GetToolCall(ctx, payloadRef)
+	if err != nil {
+		return Result{}, errors.New("weather payload is temporarily unavailable")
+	}
 	if !ok || call.SessionID != sessionID || call.RunID != runID {
 		return Result{}, errors.New("weather payload reference is outside the current run")
 	}
@@ -90,7 +92,10 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 		return Result{}, err
 	}
 	data := weatherCardDataFromPayload(payload)
-	data.displayLocation = h.weatherCardDisplayLocation(runID, payload.Timezone)
+	data.displayLocation, err = h.weatherCardDisplayLocation(ctx, runID, payload.Timezone)
+	if err != nil {
+		return Result{}, errors.New("weather workflow context is temporarily unavailable")
+	}
 	if strings.TrimSpace(data.UpdatedAt) == "" {
 		data.UpdatedAt = weatherCardNow(data.displayLocation).Format("2006-01-02 15:04")
 	}
@@ -143,18 +148,20 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 	}}, nil
 }
 
-func (h *ToolHub) weatherCardDisplayLocation(runID, payloadTimezone string) *time.Location {
+func (h *ToolHub) weatherCardDisplayLocation(ctx context.Context, runID, payloadTimezone string) (*time.Location, error) {
 	if h != nil && h.store != nil {
-		if run, ok := h.store.GetRun(runID); ok && run.MessageContext != nil {
+		if run, ok, err := h.store.GetRun(ctx, runID); err != nil {
+			return nil, err
+		} else if ok && run.MessageContext != nil {
 			if location, ok := loadWeatherCardLocation(run.MessageContext.ClientTimezone); ok {
-				return location
+				return location, nil
 			}
 		}
 	}
 	if location, ok := loadWeatherCardLocation(payloadTimezone); ok {
-		return location
+		return location, nil
 	}
-	return time.Local
+	return time.Local, nil
 }
 
 func loadWeatherCardLocation(value string) (*time.Location, bool) {

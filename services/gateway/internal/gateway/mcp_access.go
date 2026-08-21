@@ -170,7 +170,7 @@ func (s *Server) revokeMCPBinding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
-	binding, err := s.mcpAccess.RevokeBinding(binding.ID, time.Now().UTC())
+	binding, err := s.mcpAccess.RevokeBinding(r.Context(), binding.ID, time.Now().UTC())
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return
@@ -188,7 +188,7 @@ func (s *Server) deleteMCPBinding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
-	binding, err := s.mcpAccess.DeleteBinding(principal.OwnerID, r.PathValue("id"), time.Now().UTC())
+	binding, err := s.mcpAccess.DeleteBinding(r.Context(), principal.OwnerID, r.PathValue("id"), time.Now().UTC())
 	if err != nil {
 		writeError(w, http.StatusNotFound, errors.New("MCP binding not found"))
 		return
@@ -206,7 +206,7 @@ func (s *Server) deleteMCPAccessRecords(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
-	deleted, err := s.mcpAccess.DeleteAccessRecords(principal.OwnerID, time.Now().UTC())
+	deleted, err := s.mcpAccess.DeleteAccessRecords(r.Context(), principal.OwnerID, time.Now().UTC())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

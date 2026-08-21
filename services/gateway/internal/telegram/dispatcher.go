@@ -244,7 +244,9 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 			ingress := telegramIngress(binding, chatSession, "approval:"+approval.ID, threadID)
 			return d.deliverAgentResult(ctx, result, ingress)
 		}
-		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
+		if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, approval.RunID); err != nil {
+			return err
+		}
 		return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Approved and executed.", "approval:"+approval.ID, approval.RunID, nil)
 	}
 	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from "+actor)
@@ -254,14 +256,21 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 		}
 		return err
 	}
-	if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+	if call, ok, err := d.store.GetToolCall(ctx, resolved.ToolCallID); err != nil {
+		return err
+	} else if ok {
 		now := time.Now().UTC()
 		call.Status = "rejected"
 		call.Error = "user rejected approval from Telegram"
 		call.CompletedAt = &now
-		d.store.SaveToolCall(call)
+		candidate, saveErr := d.store.SaveToolCall(ctx, call)
+		if _, saveErr = store.ReconcileToolCallWrite(ctx, d.store, candidate, saveErr); saveErr != nil {
+			return saveErr
+		}
 	}
-	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
+	if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, resolved.RunID); err != nil {
+		return err
+	}
 	return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Canceled. The requested action was not executed.", "approval:"+approval.ID, resolved.RunID, nil)
 }
 

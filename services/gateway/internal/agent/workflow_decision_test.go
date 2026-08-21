@@ -14,7 +14,7 @@ import (
 func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Improve the existing paragraph in report.docx")
 	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:not-json"
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 
 	_, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile)
 	if err != nil || !changed {
@@ -26,8 +26,8 @@ func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 		decision.LastAssessment.ReasonCode != "edit_operation_selection_invalid" {
 		t.Fatalf("invalid decision output did not exhaust its own attempt bound: %#v", decision)
 	}
-	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
-		t.Fatalf("invalid decision output did not retry on the document workflow lane: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
+	if countModelCalls(testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
+		t.Fatalf("invalid decision output did not retry on the document workflow lane: %#v", testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID))
 	}
 	projections := []app.AuditEvent{}
 	for _, event := range st.ListAudit(dispatch.Run.SessionID) {
@@ -109,7 +109,7 @@ func TestDocumentEditDecisionForeignCandidateRetriesThenBlocks(t *testing.T) {
 	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Improve the existing paragraph in report.docx")
 	dispatch.Run.Workflow.Route.Slots.Query += `
 MOCK_OPERATION_SELECTION_RESPONSE:{"status":"selected","candidate_id":"candidate_foreign"}`
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 
 	_, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile)
 	if err != nil || !changed {
@@ -125,7 +125,7 @@ MOCK_OPERATION_SELECTION_RESPONSE:{"status":"selected","candidate_id":"candidate
 func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(t *testing.T) {
 	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Replace a paragraph in report.docx")
 	dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionNoMatchResponse()
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 
 	_, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile)
 	if err != nil || !changed {
@@ -136,10 +136,10 @@ func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(
 		decision.LastAssessment == nil || decision.LastAssessment.ReasonCode != "no_registered_editor_matches" {
 		t.Fatalf("empty decision output did not preserve its terminal reason: %#v", decision)
 	}
-	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
-		t.Fatalf("empty decision output did not use the decision node attempt bound: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
+	if countModelCalls(testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
+		t.Fatalf("empty decision output did not use the decision node attempt bound: %#v", testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID))
 	}
-	if hasModelCallOperation(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
+	if hasModelCallOperation(testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
 		t.Fatal("document edit decision fell back to the retired fast directory selector")
 	}
 }
@@ -171,21 +171,21 @@ func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
 		if !activateReadyWorkflowNodes(dispatch.Run.Workflow) {
 			t.Fatal("test setup did not activate the editor node")
 		}
-		st.SaveRun(dispatch.Run)
+		testSaveRun(st, dispatch.Run)
 
 		stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
 		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run), &stageContext); err == nil ||
 			!strings.Contains(err.Error(), "decision reference") {
 			t.Fatalf("editor materialized without a persisted decision reference: %v", err)
 		}
-		if hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
+		if hasModelCallOperation(testListModelCalls(st, session.ID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
 			t.Fatal("missing document decision invoked the generic fast fallback")
 		}
 	})
 
 	t.Run("unexpected multi-candidate scope requires a decision node", func(t *testing.T) {
 		_, st, _, dispatch := newDocumentDecisionFixture(t, "Improve report.docx")
-		before := len(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
+		before := len(testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID))
 		state := dispatch.Run.Workflow.Nodes["document_locate_evidence"]
 		state.SelectedEntries = nil
 		view := app.DirectoryView{
@@ -199,7 +199,7 @@ func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
 			!strings.Contains(err.Error(), "explicit decision node is required") {
 			t.Fatalf("multi-candidate scope without a decision node did not fail closed: %v", err)
 		}
-		if after := len(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID)); after != before {
+		if after := len(testListModelCalls(st, dispatch.Run.SessionID, dispatch.Run.ID)); after != before {
 			t.Fatalf("deterministic directory selection unexpectedly called a model: before=%d after=%d", before, after)
 		}
 	})

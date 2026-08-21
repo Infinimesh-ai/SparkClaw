@@ -39,7 +39,10 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 	if _, required, err := mcpResponseMediaAccessRequest(run); err != nil {
 		return err
 	} else if required {
-		call := r.workspaceDataAccessCallForRun(run.ID)
+		call, err := r.workspaceDataAccessCallForRun(ctx, run.ID)
+		if err != nil {
+			return err
+		}
 		if call == nil || call.Status != "completed_after_approval" {
 			return errors.New("external MCP workspace data access requires owner approval")
 		}
@@ -47,7 +50,7 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 		if !ok || approval.Status != "approved" {
 			return errors.New("external MCP workspace data access approval is unavailable")
 		}
-		if err := r.validateWorkspaceDataAccessApproval(*call, approval); err != nil {
+		if err := r.validateWorkspaceDataAccessApproval(ctx, *call, approval); err != nil {
 			return err
 		}
 	}
@@ -69,7 +72,11 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 	if len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != "answer" {
 		return errors.New("conversation response-media detection did not activate the answer node")
 	}
-	r.store.SaveRun(*run)
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.response_media_detected",
 		Summary: string(decision.Status), Fields: map[string]any{
@@ -347,7 +354,11 @@ func (r Runtime) runConversationResponseContentStep(ctx context.Context, run app
 			content = cloneMessageContent(run.MessageContext.RequestContent)
 		}
 		run.MessageContext.ResponseContent = content
-		r.store.SaveRun(run)
+		if _, err := r.saveRun(ctx, run); err != nil {
+			result := workflowExecutionResult{Halted: true}
+			result.fail(workflowFailureStateInvalid, err)
+			return result
+		}
 		return workflowExecutionResult{FinalAnswer: publishedMessageSummary(content), Completed: true}
 	case app.ResponseMediaSelected:
 		if err := r.revalidateFrozenResponseMedia(ctx, &run); err != nil {
@@ -370,7 +381,11 @@ func (r Runtime) revalidateFrozenResponseMedia(ctx context.Context, run *app.Age
 	}
 	run.MessageContext.ResponseMedia = &decision
 	run.MessageContext.ResponseContent = content
-	r.store.SaveRun(*run)
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
 	return nil
 }
 

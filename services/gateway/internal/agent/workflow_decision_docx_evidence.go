@@ -40,7 +40,7 @@ func (r Runtime) workflowDOCXDecisionEvidence(ctx context.Context, run app.Agent
 		if !ok || len(state.ToolCallIDs) == 0 {
 			continue
 		}
-		call, ref, err := r.resolveWorkflowEvidenceCall(run, workflowEvidenceRequirement{SourceNodeID: dependency})
+		call, ref, err := r.resolveWorkflowEvidenceCall(ctx, run, workflowEvidenceRequirement{SourceNodeID: dependency})
 		if err != nil {
 			return "", err
 		}

@@ -58,8 +58,8 @@ func newToolExposureEngine(st store.Store, tools *toolhub.ToolHub, policyEngine 
 	}
 }
 
-func (e *toolExposureEngine) Search(_ context.Context, request app.ExposureRequest) (app.DirectoryView, error) {
-	run, node, state, err := e.activeNode(request.RunID, request.WorkflowID, request.NodeID, request.ScopeRevision)
+func (e *toolExposureEngine) Search(ctx context.Context, request app.ExposureRequest) (app.DirectoryView, error) {
+	run, node, state, err := e.activeNode(ctx, request.RunID, request.WorkflowID, request.NodeID, request.ScopeRevision)
 	if err != nil {
 		return app.DirectoryView{}, err
 	}
@@ -134,12 +134,14 @@ func (e *toolExposureEngine) Search(_ context.Context, request app.ExposureReque
 		EntryIDs:          directoryEntryIDs(entries),
 	}
 	run.Workflow.Nodes[request.NodeID] = state
-	e.store.SaveRun(run)
+	if _, err := saveRunRecord(ctx, e.store, run); err != nil {
+		return app.DirectoryView{}, err
+	}
 	return view, nil
 }
 
-func (e *toolExposureEngine) Materialize(_ context.Context, request app.MaterializeRequest) (app.ExposureView, error) {
-	run, node, state, err := e.activeNode(request.RunID, request.WorkflowID, request.NodeID, request.ScopeRevision)
+func (e *toolExposureEngine) Materialize(ctx context.Context, request app.MaterializeRequest) (app.ExposureView, error) {
+	run, node, state, err := e.activeNode(ctx, request.RunID, request.WorkflowID, request.NodeID, request.ScopeRevision)
 	if err != nil {
 		return app.ExposureView{}, err
 	}
@@ -176,7 +178,9 @@ func (e *toolExposureEngine) Materialize(_ context.Context, request app.Material
 	}
 	state.SelectedEntries = append([]app.ToolDirectoryEntryID(nil), request.EntryIDs...)
 	run.Workflow.Nodes[request.NodeID] = state
-	e.store.SaveRun(run)
+	if _, err := saveRunRecord(ctx, e.store, run); err != nil {
+		return app.ExposureView{}, err
+	}
 	return app.ExposureView{
 		ViewID:            latest.view.ViewID,
 		RunID:             request.RunID,
@@ -222,8 +226,11 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 	return out
 }
 
-func (e *toolExposureEngine) activeNode(runID string, workflowID app.WorkflowID, nodeID app.WorkflowNodeID, scopeRevision int) (app.AgentRun, app.WorkflowNode, app.WorkflowNodeState, error) {
-	run, ok := e.store.GetRun(runID)
+func (e *toolExposureEngine) activeNode(ctx context.Context, runID string, workflowID app.WorkflowID, nodeID app.WorkflowNodeID, scopeRevision int) (app.AgentRun, app.WorkflowNode, app.WorkflowNodeState, error) {
+	run, ok, err := e.store.GetRun(ctx, runID)
+	if err != nil {
+		return app.AgentRun{}, app.WorkflowNode{}, app.WorkflowNodeState{}, err
+	}
 	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != workflowID || run.Workflow.PlanDigest == "" {
 		return app.AgentRun{}, app.WorkflowNode{}, app.WorkflowNodeState{}, errExposureWorkflowMismatch
 	}

@@ -339,19 +339,19 @@ func characterizeS0RunRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		run := app.AgentRun{ID: "run-s0", SessionID: "session-s0", State: "running", StartedAt: base}
-		st.SaveRun(run)
-		if got, ok := st.GetRun(run.ID); !ok || got.State != run.State {
+		testSaveRun(st, run)
+		if got, ok := testGetRun(st, run.ID); !ok || got.State != run.State {
 			t.Fatalf("run save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetRun("missing"); ok {
+		if _, ok := testGetRun(st, "missing"); ok {
 			t.Fatal("missing run was found")
 		}
 	case s0DimensionOrderScope:
-		st.SaveRun(app.AgentRun{ID: "run-old", SessionID: "session-s0", State: "completed", StartedAt: base})
-		st.SaveRun(app.AgentRun{ID: "run-new", SessionID: "session-s0", State: "completed", StartedAt: base.Add(time.Minute)})
-		st.SaveRun(app.AgentRun{ID: "run-other", SessionID: "other-session", State: "completed", StartedAt: base.Add(2 * time.Minute)})
-		if got := st.ListRuns("session-s0"); len(got) != 2 || got[0].ID != "run-new" || got[1].ID != "run-old" {
+		testSaveRun(st, app.AgentRun{ID: "run-old", SessionID: "session-s0", State: "completed", StartedAt: base})
+		testSaveRun(st, app.AgentRun{ID: "run-new", SessionID: "session-s0", State: "completed", StartedAt: base.Add(time.Minute)})
+		testSaveRun(st, app.AgentRun{ID: "run-other", SessionID: "other-session", State: "completed", StartedAt: base.Add(2 * time.Minute)})
+		if got := testListRuns(st, "session-s0"); len(got) != 2 || got[0].ID != "run-new" || got[1].ID != "run-old" {
 			t.Fatalf("run order/scope = %#v", got)
 		}
 	default:
@@ -716,7 +716,6 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 }
 
 var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"RunRepository":                 s0RunAliasSafe,
 	"ApprovalRepository":            s0ApprovalAliasSafe,
 	"ScheduleRepository":            s0ScheduleAliasSafe,
 	"PassiveNotificationRepository": s0PassiveAliasSafe,
@@ -725,6 +724,16 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"MemoryRepository":              s0MemoryAliasSafe,
 	"AuditRepository":               s0AuditAliasSafe,
 	"EvaluationRepository":          s0EvaluationAliasSafe,
+}
+
+func TestS0RunRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0RunAliasSafe(t, backend.store) {
+				t.Fatal("RunRepository exposed a mutable tool call alias")
+			}
+		})
+	}
 }
 
 func TestS0ConversationRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -772,10 +781,10 @@ func s0ConversationAliasSafe(t *testing.T, st Store) bool {
 
 func s0RunAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.SaveToolCall(app.ToolCall{ID: "tool-alias", Arguments: map[string]any{"value": "original"}})
-	got, _ := st.GetToolCall("tool-alias")
+	testSaveToolCall(st, app.ToolCall{ID: "tool-alias", Arguments: map[string]any{"value": "original"}})
+	got, _ := testGetToolCall(st, "tool-alias")
 	got.Arguments["value"] = "mutated"
-	again, _ := st.GetToolCall("tool-alias")
+	again, _ := testGetToolCall(st, "tool-alias")
 	return again.Arguments["value"] != "mutated"
 }
 

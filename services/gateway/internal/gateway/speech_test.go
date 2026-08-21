@@ -158,10 +158,10 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	if artifacts := st.ListArtifactObjects(0); len(artifacts) != 0 {
 		t.Fatalf("speech transcription must not create artifacts: %#v", artifacts)
 	}
-	if runs := st.ListRuns(session.ID); len(runs) != 0 {
+	if runs := testListRuns(st, session.ID); len(runs) != 0 {
 		t.Fatalf("speech transcription must not create agent runs: %#v", runs)
 	}
-	if calls := st.ListToolCalls(session.ID); len(calls) != 0 {
+	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("speech transcription must not create tool calls: %#v", calls)
 	}
 	audits := st.ListAudit(session.ID)

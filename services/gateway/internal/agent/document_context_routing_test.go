@@ -22,8 +22,8 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"状态正常"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "request_normalization", "fast") {
-		t.Fatalf("removed request normalization still made a model call: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "request_normalization", "fast") {
+		t.Fatalf("removed request normalization still made a model call: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
 	if hasAgentAuditType(st.ListAudit(session.ID), "message.request.normalized") {
 		t.Fatalf("removed request normalization still emitted an audit: %#v", st.ListAudit(session.ID))
@@ -198,11 +198,12 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "请看一下这份通识选修课说明"})
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "已读取说明文档"})
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_student_notice", SessionID: session.ID, RunID: "run_previous",
 		Tool: "files.read", Risk: app.RiskRead, Status: "completed",
 		Arguments: map[string]any{"path": "student-notice.docx"},
 	})
+
 	current := "作为23级学生要注意什么"
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
@@ -281,13 +282,14 @@ func TestRecentDocumentResolverPrefersNewestSource(t *testing.T) {
 	defer closeRuntime()
 	base := time.Now().UTC().Add(-time.Minute)
 	toolCompletedAt := base.Add(10 * time.Second)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_old_document", SessionID: session.ID, RunID: "run_old",
 		Tool: "files.read", Status: "completed", StartedAt: base,
 		CompletedAt:        &toolCompletedAt,
 		Arguments:          map[string]any{"path": "old.docx"},
 		ObservationSummary: "Read old.docx.",
 	})
+
 	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "", CreatedAt: base.Add(20 * time.Second),
 		Attachments: []app.MessageAttachment{
@@ -316,7 +318,7 @@ func TestRecentDocumentResolverPrefersNewerToolOutput(t *testing.T) {
 		Attachments: []app.MessageAttachment{{Name: "input.docx", RelPath: "input.docx"}},
 	})
 	toolCompletedAt := base.Add(20 * time.Second)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_new_output", SessionID: session.ID, RunID: "run_edit",
 		Tool: "docx.replace_paragraph", Status: "completed", StartedAt: base.Add(10 * time.Second),
 		CompletedAt:        &toolCompletedAt,

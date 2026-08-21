@@ -42,7 +42,7 @@ func (*adapterRuntime) ResumeRunAfterApproval(context.Context, string, string) (
 	return agent.Result{}, false, nil
 }
 
-func (*adapterRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (*adapterRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 
 func TestGatewayAdapterSessionCreateIsIdempotent(t *testing.T) {
 	st := store.NewMemoryStore()
@@ -99,8 +99,8 @@ func TestGatewayAdapterPassiveNotificationPersistsWithoutAgentActivity(t *testin
 	if got := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10); len(got) != 1 {
 		t.Fatalf("persisted notifications = %#v", got)
 	}
-	if len(storetest.MustListSessions(t, st)) != 0 || len(st.ListRuns("")) != 0 || len(st.ListModelCalls("", "")) != 0 ||
-		len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(storetest.MustListSessions(t, st)) != 0 || len(testListRuns(st, "")) != 0 || len(testListModelCalls(st, "", "")) != 0 ||
+		len(testListToolCalls(st, "")) != 0 || len(st.ListApprovals("")) != 0 {
 		t.Fatal("passive notification created Agent activity")
 	}
 
@@ -228,12 +228,13 @@ func TestGatewayAdapterMessageReplayAfterRestartChecksOriginalInput(t *testing.T
 	runID := stableID("run_iscp", endpointID, idempotencyKey)
 	messageID := stableID("m_iscp", endpointID, idempotencyKey)
 	storetest.MustAddMessage(t, st, app.Message{ID: messageID, SessionID: sessionRecord.ID, Role: "user", Content: "original"})
-	st.SaveRun(app.AgentRun{
+	testSaveRun(st, app.AgentRun{
 		ID: runID, SessionID: sessionRecord.ID, State: "completed", StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{Source: app.MessageSourceContext{
 			Kind: app.MessageSourceThirdPartyDevice, Adapter: "iscp-bridge", EndpointID: app.EndpointID(endpointID),
 		}},
 	})
+
 	adapter := NewGatewayAdapter(st, func() AgentRuntime { return &adapterRuntime{started: make(chan struct{}, 1)} })
 	principal := Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}
 

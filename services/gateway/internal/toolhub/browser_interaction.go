@@ -30,10 +30,17 @@ type browserSnapshotRecord struct {
 }
 
 func (h *ToolHub) clickBrowserInteraction(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	if run, ok := h.store.GetRun(runID); ok && run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowBrowserInteraction {
+	run, ok, err := h.store.GetRun(ctx, runID)
+	if err != nil {
+		return Result{}, errors.New("browser interaction workflow state is unavailable")
+	}
+	if ok && run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowBrowserInteraction {
 		snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
 		elementRef := strings.TrimSpace(browserAutomationStringValue(args["uid"]))
-		calls := h.store.ListToolCalls(sessionID)
+		calls, err := h.store.ListToolCalls(ctx, sessionID)
+		if err != nil {
+			return Result{}, errors.New("browser interaction evidence is unavailable")
+		}
 		if snapshot, found := findBrowserSnapshotRecord(calls, runID, snapshotID); found {
 			if label := strings.TrimSpace(snapshot.Labels[elementRef]); unsafeBrowserInteractionLabel(label) {
 				return Result{}, &app.CodedToolError{
@@ -52,14 +59,17 @@ func (h *ToolHub) clickBrowserInteraction(ctx context.Context, args map[string]a
 	return h.browserAutomationTool(ctx, "browser.click", args, sessionID)
 }
 
-func (h *ToolHub) validateBrowserTransition(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) validateBrowserTransition(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	beforeID := strings.TrimSpace(browserAutomationStringValue(args["before_snapshot_id"]))
 	afterID := strings.TrimSpace(browserAutomationStringValue(args["after_snapshot_id"]))
 	elementRef := strings.TrimSpace(browserAutomationStringValue(args["element_ref"]))
 	if beforeID == "" || afterID == "" || beforeID == afterID {
 		return Result{}, errors.New("browser.validate_transition requires two different snapshot IDs")
 	}
-	calls := h.store.ListToolCalls(sessionID)
+	calls, err := h.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return Result{}, errors.New("browser transition evidence is unavailable")
+	}
 	before, beforeOK := findBrowserSnapshotRecord(calls, runID, beforeID)
 	after, afterOK := findBrowserSnapshotRecord(calls, runID, afterID)
 	if !beforeOK || !afterOK || before.Index >= after.Index {
@@ -98,7 +108,7 @@ func (h *ToolHub) validateBrowserTransition(_ context.Context, args map[string]a
 	}}, nil
 }
 
-func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) assessBrowserGoal(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
 	verdict := strings.ToLower(strings.TrimSpace(browserAutomationStringValue(args["verdict"])))
 	evidenceRefs := browserInteractionStringSlice(args["evidence_refs"])
@@ -108,7 +118,10 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 	if len(evidenceRefs) == 0 {
 		return Result{}, errors.New("browser.assess_goal requires current after-snapshot evidence citations")
 	}
-	calls := h.store.ListToolCalls(sessionID)
+	calls, err := h.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return Result{}, errors.New("browser goal evidence is unavailable")
+	}
 	snapshot, ok := findBrowserSnapshotRecord(calls, runID, snapshotID)
 	if !ok {
 		return Result{}, errors.New("browser.assess_goal snapshot is unavailable in the current run")
@@ -119,7 +132,9 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 		}
 	}
 	draftProfile := false
-	if run, found := h.store.GetRun(runID); found && run.Workflow != nil {
+	if run, found, err := h.store.GetRun(ctx, runID); err != nil {
+		return Result{}, errors.New("browser interaction workflow state is unavailable")
+	} else if found && run.Workflow != nil {
 		draftProfile = run.Workflow.Plan.ProfileID == app.WorkflowBrowserFormDraft
 	}
 	actionCount := completedBrowserClickCount(calls, runID, snapshot.Index)
@@ -467,4 +482,3 @@ func firstBrowserString(values ...any) string {
 	}
 	return ""
 }
-

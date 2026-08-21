@@ -42,7 +42,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		t.Fatalf("document edit did not expose its reader first: %#v", visibleToolNames(dispatch.Tools))
 	}
 
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": "notes.md"}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: "document_locate_evidence", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -54,17 +54,17 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	changed, err := applyWorkflowOutcome(&storedRun, outcome, assessment)
 	if err != nil || !changed {
 		t.Fatalf("structured read did not activate operation decision: changed=%t assessment=%#v err=%v", changed, assessment, err)
 	}
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("single-candidate text operation decision did not resolve deterministically: changed=%t err=%v", changed, err)
 	}
-	if hasModelCallOperation(st.ListModelCalls(session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane) {
+	if hasModelCallOperation(testListModelCalls(st, session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane) {
 		t.Fatalf("single-candidate text edit made an unnecessary operation-selection model call")
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
@@ -76,7 +76,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		t.Fatalf("text edit stage exposed the wrong editor: %#v", visibleToolNames(editTools))
 	}
 
-	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	editCall, editApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "text.replace_text",
 		Args: map[string]any{
 			"path": "model-invented-input.md", "output_path": "model-invented-output.md", "expected_replacements": 1,
@@ -94,10 +94,10 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if _, err := os.Stat(filepath.Join(root, "notes-sparkclaw-edit.md")); !os.IsNotExist(err) {
 		t.Fatalf("text output existed before approval: %v", err)
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 	storedRun.State = "approval_pending"
-	st.SaveRun(storedRun)
-	st.SaveModelCall(app.ModelCall{ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC()})
+	testSaveRun(st, storedRun)
+	testSaveModelCall(st, app.ModelCall{ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC()})
 
 	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved document copy")
 	if err != nil {
@@ -186,7 +186,7 @@ func TestDocumentEditLocateEvidenceInvokesBoundReaderBeforeModel(t *testing.T) {
 	result := runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
 MOCK_STEP_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"path":"model-path.md","output_path":"model-output.md","expected_replacements":1,"replacements":[{"find":"Original reflection","replace":"Improved reflection"}]}}`, dispatch.Profile, dispatch.Context, dispatch.Tools)
 
-	storedRun, ok := st.GetRun(dispatch.Run.ID)
+	storedRun, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || storedRun.Workflow == nil {
 		t.Fatal("document edit workflow state was not persisted")
 	}
@@ -200,7 +200,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"pat
 		result.ToolCalls[1].Tool != "text.replace_text" || result.ToolCalls[1].Status != "approval_pending" {
 		t.Fatalf("document edit did not run one bound read before the editor: %#v", result.ToolCalls)
 	}
-	modelCalls := st.ListModelCalls(session.ID, dispatch.Run.ID)
+	modelCalls := testListModelCalls(st, session.ID, dispatch.Run.ID)
 	if countModelCalls(modelCalls, "workflow_step_1", documentWorkflowModelLane) != 1 ||
 		countModelCalls(modelCalls, "workflow_step_2", documentWorkflowModelLane) != 0 ||
 		hasModelCallOperation(modelCalls, "workflow_operation_selection", documentWorkflowModelLane) {
@@ -238,10 +238,10 @@ func TestDocumentEditDirectLocalizationRejectsMismatchedWorkflowHint(t *testing.
 	if result.FailureCode != workflowFailureDirectToolInvocationInvalid || len(result.ToolCalls) != 0 {
 		t.Fatalf("mismatched direct localization hint was not rejected before execution: %#v", result)
 	}
-	if calls := toolCallsForRun(st.ListToolCalls(session.ID), dispatch.Run.ID); len(calls) != 0 {
+	if calls := toolCallsForRun(testListToolCalls(st, session.ID), dispatch.Run.ID); len(calls) != 0 {
 		t.Fatalf("mismatched direct localization hint executed a tool: %#v", calls)
 	}
-	if calls := st.ListModelCalls(session.ID, dispatch.Run.ID); len(calls) != 0 {
+	if calls := testListModelCalls(st, session.ID, dispatch.Run.ID); len(calls) != 0 {
 		t.Fatalf("mismatched direct localization hint invoked a model: %#v", calls)
 	}
 }
@@ -267,7 +267,7 @@ func TestDocumentEditEditorBlocksAfterRepeatedPrematureFinal(t *testing.T) {
 	result := runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, `重新完善 notes.md 的心得与体会
 MOCK_STEP_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profile, dispatch.Context, dispatch.Tools)
 
-	storedRun, ok := st.GetRun(dispatch.Run.ID)
+	storedRun, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || storedRun.Workflow == nil {
 		t.Fatal("document edit workflow state was not persisted")
 	}
@@ -280,7 +280,7 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profil
 	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Tool != "files.read" {
 		t.Fatalf("direct localization should be the only executed tool: %#v", result.ToolCalls)
 	}
-	modelCalls := st.ListModelCalls(session.ID, dispatch.Run.ID)
+	modelCalls := testListModelCalls(st, session.ID, dispatch.Run.ID)
 	if countModelCalls(modelCalls, "workflow_step_1", documentWorkflowModelLane) != 1 ||
 		countModelCalls(modelCalls, "workflow_step_2", documentWorkflowModelLane) != 1 ||
 		countModelCalls(modelCalls, "workflow_step_3", documentWorkflowModelLane) != 0 {

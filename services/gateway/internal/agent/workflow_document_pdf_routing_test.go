@@ -122,7 +122,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		t.Fatalf("PDF edit did not begin with governed read: %#v", visibleToolNames(dispatch.Tools))
 	}
 
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "pdf.extract_text", Args: map[string]any{"path": "report.pdf"}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: "document_locate_evidence", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -134,7 +134,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if changed, err := applyWorkflowOutcome(&storedRun, outcome, assessment); err != nil || !changed {
 		t.Fatalf("PDF read did not activate operation selection: changed=%t err=%v", changed, err)
@@ -148,7 +148,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		}
 	}
 	storedRun.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("extract_pages operation selection failed: changed=%t err=%v", changed, err)
 	}
@@ -166,11 +166,11 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 	if !containsString(stageContext.SemanticVariables, "pdf.transform.pages") {
 		t.Fatalf("PDF editor stage did not retain its semantic page variable: %#v", stageContext.SemanticVariables)
 	}
-	if calls := countModelCalls(st.ListModelCalls(session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane); calls != 1 {
+	if calls := countModelCalls(testListModelCalls(st, session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane); calls != 1 {
 		t.Fatalf("ambiguous PDF transform family used %d bounded operation-selection calls, want 1", calls)
 	}
 
-	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	editCall, editApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "pdf.transform",
 		Args: map[string]any{
 			"operation": "delete_pages", "path": "model-input.pdf", "pages": []any{2}, "output_path": "model-output.pdf",
@@ -181,12 +181,13 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		editCall.Arguments["path"] != "report.pdf" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.pdf" {
 		t.Fatalf("PDF transform did not enter approval with frozen paths: call=%#v approval=%#v", editCall, editApproval)
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 	storedRun.State = "approval_pending"
-	st.SaveRun(storedRun)
-	st.SaveModelCall(app.ModelCall{
+	testSaveRun(st, storedRun)
+	testSaveModelCall(st, app.ModelCall{
 		ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC(),
 	})
+
 	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "fixture owner approved PDF page export")
 	if err != nil {
 		t.Fatal(err)

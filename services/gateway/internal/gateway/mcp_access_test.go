@@ -503,7 +503,7 @@ func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	server := &Server{store: st}
 	ref := &app.MCPInvocationRef{OperationID: "operation-approval"}
-	st.SaveRun(app.AgentRun{ID: "run-approval", MessageContext: &app.MessageRunContext{MCP: ref}})
+	testSaveRun(st, app.AgentRun{ID: "run-approval", MessageContext: &app.MessageRunContext{MCP: ref}})
 	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
 		ID: ref.OperationID, BindingID: "binding-a", IdempotencyKey: "approval", Fingerprint: "approval",
 		Invocation: app.MCPInvocationContext{RunID: "run-approval"}, State: app.MCPOperationApprovalRequired,
@@ -512,14 +512,14 @@ func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := app.Approval{RunID: "run-approval"}
-	if err := server.validateMCPApproval(approval); err != nil {
+	if err := server.validateMCPApproval(t.Context(), approval); err != nil {
 		t.Fatalf("live local approval was rejected: %v", err)
 	}
 	operation.State = app.MCPOperationCancelled
 	if _, err := st.UpdateMCPOperation(operation, operation.Version); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.validateMCPApproval(approval); err == nil {
+	if err := server.validateMCPApproval(t.Context(), approval); err == nil {
 		t.Fatal("approval succeeded after the MCP operation became terminal")
 	}
 }

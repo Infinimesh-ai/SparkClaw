@@ -61,6 +61,54 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
 			Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationRunFeedbackSave: {
+			ID: OperationRunFeedbackSave, Repository: "RunRepository",
+			Method: "SaveRunFeedback", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationRunFeedbackList: {
+			ID: OperationRunFeedbackList, Repository: "RunRepository",
+			Method: "ListRunFeedback", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationRunSave: {
+			ID: OperationRunSave, Repository: "RunRepository",
+			Method: "SaveRun", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationRunGet: {
+			ID: OperationRunGet, Repository: "RunRepository",
+			Method: "GetRun", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationRunList: {
+			ID: OperationRunList, Repository: "RunRepository",
+			Method: "ListRuns", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationModelCallSave: {
+			ID: OperationModelCallSave, Repository: "RunRepository",
+			Method: "SaveModelCall", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationModelCallList: {
+			ID: OperationModelCallList, Repository: "RunRepository",
+			Method: "ListModelCalls", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationToolCallSave: {
+			ID: OperationToolCallSave, Repository: "RunRepository",
+			Method: "SaveToolCall", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationToolCallGet: {
+			ID: OperationToolCallGet, Repository: "RunRepository",
+			Method: "GetToolCall", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationToolCallList: {
+			ID: OperationToolCallList, Repository: "RunRepository",
+			Method: "ListToolCalls", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationEpisodeSummarySave: {
+			ID: OperationEpisodeSummarySave, Repository: "RunRepository",
+			Method: "SaveEpisodeSummary", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationEpisodeSummaryList: {
+			ID: OperationEpisodeSummaryList, Repository: "RunRepository",
+			Method: "ListEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

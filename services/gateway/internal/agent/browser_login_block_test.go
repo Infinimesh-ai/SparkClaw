@@ -41,7 +41,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	if first.Run.State != "browser_login_blocked" || first.Run.Workflow == nil {
 		t.Fatalf("QQ Mail login challenge did not pause its Workflow: %#v", first.Run)
 	}
-	stored, ok := st.GetRun(first.Run.ID)
+	stored, ok := testGetRun(st, first.Run.ID)
 	if !ok || stored.Workflow == nil {
 		t.Fatal("blocked browser Workflow was not persisted")
 	}
@@ -53,7 +53,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	stored.Workflow.Browser.Target.TargetKind = app.BrowserTargetRegisteredDestination
 	stored.Workflow.Browser.Target.DestinationID = "qq_mail"
 	stored.Workflow.Browser.Target.QueryProvenance = app.BrowserQueryDestinationStatic
-	st.SaveRun(stored)
+	testSaveRun(st, stored)
 	first.Run = stored
 	frozenTarget := stored.Workflow.Route.Slots.TargetRef
 
@@ -64,7 +64,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	}
 	if second.Run.ID != first.Run.ID || second.Run.State != "completed" {
 		node := second.Run.Workflow.Nodes["browser_result"]
-		t.Fatalf("validated QQ Mail page did not resume the original run: run=%#v node=%#v calls=%#v", second.Run, node, workflowCallDebug(toolCallsForRun(st.ListToolCalls(session.ID), first.Run.ID)))
+		t.Fatalf("validated QQ Mail page did not resume the original run: run=%#v node=%#v calls=%#v", second.Run, node, workflowCallDebug(toolCallsForRun(testListToolCalls(st, session.ID), first.Run.ID)))
 	}
 	if second.Run.Workflow == nil || second.Run.Workflow.Route.Slots.TargetRef != frozenTarget ||
 		frozenTarget != "https://mail.qq.com/" {
@@ -93,16 +93,16 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 		blocks[0].VisibleEvidence == nil || blocks[0].VisibleEvidence.VisibleSession.Generation != 2 {
 		t.Fatalf("resolved handoff persisted volatile query data or lost visible evidence: %#v", blocks)
 	}
-	for _, call := range st.ListToolCalls(session.ID) {
+	for _, call := range testListToolCalls(st, session.ID) {
 		if call.RunID == first.Run.ID && call.Tool == "browser.read" {
 			t.Fatalf("revision-2 login recovery unexpectedly used the retired browser.read preflight: %#v", call)
 		}
 	}
 	for label, value := range map[string]any{
-		"tool calls": st.ListToolCalls(session.ID),
+		"tool calls": testListToolCalls(st, session.ID),
 		"audits":     st.ListAudit(session.ID),
 		"handoffs":   st.ListBrowserLoginBlocks(session.ID, ""),
-		"episodes":   st.ListEpisodeSummaries(session.ID),
+		"episodes":   testListEpisodeSummaries(st, session.ID),
 		"result":     second,
 	} {
 		raw, err := json.Marshal(value)
@@ -336,12 +336,12 @@ func TestBrowserLoginRestartRecoversHiddenValidation(t *testing.T) {
 	adapter.selectedTabURL = "https://example.com/protected"
 	adapter.visibleValidated = true
 	block, _ := st.FindActiveBrowserLoginBlock(sessionID)
-	run, _ := st.GetRun(first.Run.ID)
+	run, _ := testGetRun(st, first.Run.ID)
 	if err := resetBrowserRevision2AfterHandoff(&run, block.WorkflowNodeID); err != nil {
 		t.Fatal(err)
 	}
 	run.State = "executing"
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	block.Status = app.BrowserHandoffStatusValidatingHidden
 	block.SessionGeneration = 2
 	block.VisibleEvidence = browserLoginTestVisibleEvidence(block)
@@ -389,7 +389,7 @@ func TestPersistedBrowserRevision1LoginHandoffsRetireBeforeBrowserAccess(t *test
 		t.Run(string(workflowID), func(t *testing.T) {
 			runtime, st, sessionID, adapter := newBrowserLoginStateMachineTest(t, "retire persisted browser r1 handoff")
 			first := startBrowserLoginStateMachineTest(t, runtime, sessionID)
-			run, ok := st.GetRun(first.Run.ID)
+			run, ok := testGetRun(st, first.Run.ID)
 			if !ok || run.Workflow == nil {
 				t.Fatal("persisted browser workflow fixture is missing")
 			}
@@ -397,7 +397,7 @@ func TestPersistedBrowserRevision1LoginHandoffsRetireBeforeBrowserAccess(t *test
 			run.Workflow.Plan.ProfileRevision = 1
 			run.Workflow.PlanDigest = workflowPlanDigest(run.Workflow.Plan)
 			run.Workflow.Status = app.WorkflowStatusRunning
-			st.SaveRun(run)
+			testSaveRun(st, run)
 
 			block, ok := st.FindActiveBrowserLoginBlock(sessionID)
 			if !ok {

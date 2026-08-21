@@ -39,7 +39,7 @@ func TestBrowserFormDraftAcceptsOnlyLatestExactOwnerBoundAction(t *testing.T) {
 				strings.TrimSpace(browserAutomationStringValue(output["value_digest"])) == "" || output["value_source"] != "owner_request" {
 				t.Fatalf("draft action output lost its frozen identity: %#v", result.Output)
 			}
-			if calls := st.ListToolCalls("session"); len(calls) != 1 || calls[0].Tool != "browser.snapshot" {
+			if calls := testListToolCalls(st, "session"); len(calls) != 1 || calls[0].Tool != "browser.snapshot" {
 				t.Fatalf("ToolHub draft execution unexpectedly persisted a parallel action record: %#v", calls)
 			}
 		})
@@ -102,7 +102,7 @@ func newBrowserFormDraftHub(t *testing.T, role, label, ownerValue string) (*stor
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true
 	st := store.NewMemoryStore()
-	st.SaveRun(app.AgentRun{
+	testSaveRun(st, app.AgentRun{
 		ID: "run", SessionID: "session", StartedAt: time.Now().UTC(),
 		Workflow: &app.WorkflowState{
 			Plan:  app.WorkflowPlan{ProfileID: app.WorkflowBrowserFormDraft},
@@ -112,6 +112,7 @@ func newBrowserFormDraftHub(t *testing.T, role, label, ownerValue string) (*stor
 			}},
 		},
 	})
+
 	ref := "snapshot_1:e1:0123456789abcdef"
 	seedBrowserFormDraftSnapshot(st, "run", "snapshot_1", "page_1", 7, 9, ref, role, label)
 	adapter := &recordingBrowserDraftAdapter{}
@@ -128,7 +129,7 @@ func browserFormDraftArgs(ref, valueKey, value string) map[string]any {
 }
 
 func seedBrowserFormDraftSnapshot(st *store.MemoryStore, runID, snapshotID, pageID string, sessionGeneration, pageGeneration uint64, ref, role, label string) {
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: app.NewID("snapshot_call"), SessionID: "session", RunID: runID,
 		Tool: "browser.snapshot", Status: "completed", StartedAt: time.Now().UTC(),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
@@ -140,6 +141,7 @@ func seedBrowserFormDraftSnapshot(st *store.MemoryStore, runID, snapshotID, page
 			}},
 		}}},
 	})
+
 }
 
 type recordingBrowserDraftAdapter struct {

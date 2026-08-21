@@ -15,7 +15,10 @@ import (
 // surface the failed call; only orchestration problems (missing call, wrong
 // state, unknown tool) are returned as errors.
 func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Approval) (app.ToolCall, error) {
-	call, ok := r.store.GetToolCall(approval.ToolCallID)
+	call, ok, err := r.store.GetToolCall(ctx, approval.ToolCallID)
+	if err != nil {
+		return app.ToolCall{}, fmt.Errorf("load approved tool call: %w", err)
+	}
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("approved tool call not found")
 	}
@@ -39,7 +42,9 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 			call.CompletedAt = &now
 			call.Error = "legacy external-send approval is retired; submit a fresh instruction"
 			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
-			r.store.SaveToolCall(call)
+			if _, err := r.saveToolCall(ctx, call); err != nil {
+				return app.ToolCall{}, fmt.Errorf("persist retired approved tool call: %w", err)
+			}
 			return call, nil
 		}
 		call.Status = "completed_after_approval"
@@ -49,18 +54,22 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		call.ErrorCode = ""
 		call.ObservationSummary = CompressObservation(call.Tool, call.Result, r.observationSummaryLimit())
 		call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
-		r.store.SaveToolCall(call)
+		if _, err := r.saveToolCall(ctx, call); err != nil {
+			return app.ToolCall{}, fmt.Errorf("persist confirmed approval tool call: %w", err)
+		}
 		return call, nil
 	}
 	workspaceDataApproval := call.Tool == app.ToolWorkspaceDataAccess
 	if workspaceDataApproval {
-		if err := r.validateWorkspaceDataAccessApproval(call, approval); err != nil {
+		if err := r.validateWorkspaceDataAccessApproval(ctx, call, approval); err != nil {
 			now := time.Now().UTC()
 			call.Status = "failed_after_approval"
 			call.CompletedAt = &now
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
-			r.store.SaveToolCall(call)
+			if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+				return app.ToolCall{}, fmt.Errorf("persist rejected workspace approval: %w", saveErr)
+			}
 			return call, nil
 		}
 	}
@@ -72,13 +81,15 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
 	}
 	if call.PolicyContext != nil && !workspaceDataApproval {
-		if err := r.validateContextBoundToolApproval(call, approval, def); err != nil {
+		if err := r.validateContextBoundToolApproval(ctx, call, approval, def); err != nil {
 			now := time.Now().UTC()
 			call.Status = "failed_after_approval"
 			call.CompletedAt = &now
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
-			r.store.SaveToolCall(call)
+			if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+				return app.ToolCall{}, fmt.Errorf("persist invalid context approval: %w", saveErr)
+			}
 			return call, nil
 		}
 	}
@@ -94,11 +105,15 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		call.CompletedAt = &now
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
-		r.store.SaveToolCall(call)
+		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+			return app.ToolCall{}, fmt.Errorf("persist rejected approved document call: %w", saveErr)
+		}
 		return call, nil
 	}
 	call.Status = "running_after_approval"
-	r.store.SaveToolCall(call)
+	if _, err := r.saveToolCall(ctx, call); err != nil {
+		return app.ToolCall{}, fmt.Errorf("persist running approved tool call: %w", err)
+	}
 	result, err := r.tools.Execute(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)
 	now := time.Now().UTC()
 	call.CompletedAt = &now
@@ -111,7 +126,9 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 			call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 		}
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.observationSummaryLimit()})
-		r.store.SaveToolCall(call)
+		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+			return app.ToolCall{}, fmt.Errorf("persist failed approved tool call: %w", saveErr)
+		}
 		return call, nil
 	}
 	call.Status = "completed_after_approval"
@@ -120,7 +137,9 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	call.ErrorCode = ""
 	call.ObservationSummary = CompressObservation(call.Tool, result.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
-	r.store.SaveToolCall(call)
+	if _, err := r.saveToolCall(ctx, call); err != nil {
+		return app.ToolCall{}, fmt.Errorf("persist completed approved tool call: %w", err)
+	}
 	if err := r.recordDocumentToolActivity(execCtx, call); err != nil {
 		return call, err
 	}
@@ -129,17 +148,20 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 
 // CompleteRunIfApprovalsResolved marks an approval-pending run as completed
 // once no pending approvals remain for it.
-func (r Runtime) CompleteRunIfApprovalsResolved(runID string) {
+func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID string) error {
 	if runID == "" {
-		return
+		return nil
 	}
-	run, ok := r.store.GetRun(runID)
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("load approval run: %w", err)
+	}
 	if !ok || run.State != "approval_pending" {
-		return
+		return nil
 	}
 	for _, approval := range r.store.ListApprovals("pending") {
 		if approval.RunID == runID {
-			return
+			return nil
 		}
 	}
 	now := time.Now().UTC()
@@ -149,12 +171,13 @@ func (r Runtime) CompleteRunIfApprovalsResolved(runID string) {
 		}
 		run.State = "blocked"
 		run.CompletedAt = &now
-		r.store.SaveRun(run)
-		return
+		_, err := r.saveRun(ctx, run)
+		return err
 	}
 	run.State = "completed"
 	run.CompletedAt = &now
-	r.store.SaveRun(run)
+	_, err = r.saveRun(ctx, run)
+	return err
 }
 
 func (r Runtime) observationSummaryLimit() int {

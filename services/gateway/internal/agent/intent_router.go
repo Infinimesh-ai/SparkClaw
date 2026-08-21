@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode"
@@ -14,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type IntentRoutingOutput struct {
@@ -85,7 +87,10 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 		return IntentRoutingOutput{}, err
 	}
 	clientTimezone := ""
-	run, hasRun := r.store.GetRun(runID)
+	run, hasRun, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return IntentRoutingOutput{}, fmt.Errorf("load intent run: %w", err)
+	}
 	if hasRun && run.MessageContext != nil {
 		clientTimezone = run.MessageContext.ClientTimezone
 	}
@@ -248,7 +253,9 @@ func (r Runtime) scoreEmbeddingChannel(ctx context.Context, sessionID, runID, qu
 	inputs := []string{query}
 	result, callErr := r.models.Embed(callCtx, inputs)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromEmbedding(sessionID, runID, "intent_embedding", result, callErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromEmbedding(sessionID, runID, "intent_embedding", result, callErr, started, completed)); saveErr != nil {
+		slog.Warn("intent embedding model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if callErr != nil {
 		return embeddingChannelResult{state: state}
 	}
@@ -325,7 +332,9 @@ func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query, 
 	started := time.Now().UTC()
 	chat, callErr := r.models.ChatWithProfile(callCtx, "fast", system, user)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, runID, "intent_tree_graph", chat, callErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, runID, "intent_tree_graph", chat, callErr, started, completed)); saveErr != nil {
+		slog.Warn("intent tree model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if callErr != nil {
 		return treeChannelResult{state: state}
 	}
@@ -372,7 +381,9 @@ func (r Runtime) repairTreeRoutingOutput(ctx context.Context, sessionID, runID, 
 	started := time.Now().UTC()
 	chat, callErr := r.models.ChatWithProfile(ctx, "fast", system, user)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, runID, "intent_tree_graph_repair", chat, callErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, runID, "intent_tree_graph_repair", chat, callErr, started, completed)); saveErr != nil {
+		slog.Warn("intent tree repair model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if callErr != nil {
 		return treeRoutingOutput{}, callErr
 	}

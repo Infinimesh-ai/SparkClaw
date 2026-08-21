@@ -91,7 +91,11 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 	if err != nil {
 		return documentContextResolution{}, err
 	}
-	toolReferences := recentDocumentToolReferences(r.store.ListToolCalls(sessionID), workspaceRoot)
+	storedToolCalls, err := r.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return documentContextResolution{}, err
+	}
+	toolReferences := recentDocumentToolReferences(storedToolCalls, workspaceRoot)
 	messageReferences := recentDocumentMessageReferences(snapshot.Messages)
 	switch {
 	case len(toolReferences) == 0:

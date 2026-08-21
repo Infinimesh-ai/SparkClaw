@@ -45,7 +45,7 @@ func TestWorkflowEvidenceProvisioningReadsPersistedNodeOutput(t *testing.T) {
 	}
 
 	call.ObservationRef = ""
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	if _, err := runtime.provisionWorkflowEvidence(context.Background(), run, []workflowEvidenceRequirement{{
 		SourceNodeID: "source", Mode: workflowEvidenceHead, MaxBytes: 1000,
 	}}); err == nil || !strings.Contains(err.Error(), "persisted observation reference") {
@@ -156,8 +156,8 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	register("localmind.normal_read", app.RiskRead, false)
 	now := time.Now().UTC()
 	run := app.AgentRun{ID: "run_dual_normal", SessionID: session.ID, StartedAt: now}
-	st.SaveRun(run)
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_read", Args: map[string]any{}})
+	testSaveRun(st, run)
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_read", Args: map[string]any{}})
 	if approval != nil || call.Status != "completed" {
 		t.Fatalf("normal dynamic call did not complete: %#v %#v", call, approval)
 	}
@@ -171,7 +171,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	assertSeparated(manual.Call)
 
 	register("localmind.approved_write", app.RiskReversible, false)
-	pending, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_write", Args: map[string]any{"title": "safe"}})
+	pending, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_write", Args: map[string]any{"title": "safe"}})
 	if approval == nil || pending.Status != "approval_pending" {
 		t.Fatalf("mutation did not enter approval: %#v %#v", pending, approval)
 	}
@@ -186,7 +186,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	assertSeparated(executed)
 
 	register("localmind.normal_error", app.RiskRead, true)
-	failed, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_error", Args: map[string]any{}})
+	failed, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_error", Args: map[string]any{}})
 	if approval != nil || failed.Status != "failed" {
 		t.Fatalf("normal error output was not retained: %#v %#v", failed, approval)
 	}
@@ -200,7 +200,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	assertSeparated(manualFailed.Call)
 
 	register("localmind.approved_error", app.RiskReversible, true)
-	pending, approval, _ = runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_error", Args: map[string]any{"title": "safe"}})
+	pending, approval, _, _ = runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_error", Args: map[string]any{"title": "safe"}})
 	if approval == nil {
 		t.Fatal("error fixture mutation did not enter approval")
 	}
@@ -236,13 +236,13 @@ func TestLocalMindApprovalRejectsUnsafeArgumentsBeforePersistence(t *testing.T) 
 		t.Fatal(err)
 	}
 	run := app.AgentRun{ID: "run_unsafe_approval", SessionID: session.ID, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	rawBase64 := strings.Repeat("QUJD", 2048)
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: name, Args: map[string]any{"base64": rawBase64}})
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: name, Args: map[string]any{"base64": rawBase64}})
 	if approval != nil || call.Status != "blocked" || call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
 		t.Fatalf("unsafe approval arguments did not fail closed: %#v %#v", call, approval)
 	}
-	persisted, ok := st.GetToolCall(call.ID)
+	persisted, ok := testGetToolCall(st, call.ID)
 	if !ok {
 		t.Fatal("blocked call was not persisted")
 	}
@@ -275,7 +275,7 @@ func TestGenericMCPManualApprovalRejectsUnsafeArgumentsBeforePersistence(t *test
 	if err == nil || invocation.Approval != nil || invocation.Call.Status != "blocked" || invocation.Call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
 		t.Fatalf("unsafe generic MCP manual approval did not fail closed: %#v %v", invocation, err)
 	}
-	persisted, ok := st.GetToolCall(invocation.Call.ID)
+	persisted, ok := testGetToolCall(st, invocation.Call.ID)
 	if !ok {
 		t.Fatal("blocked generic MCP call was not persisted")
 	}
@@ -369,7 +369,7 @@ func TestObservationReadStageQuotaExcludesBusinessRunAccounting(t *testing.T) {
 			},
 		}},
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	content := fmt.Sprintf("read more evidence\nMOCK_STEP_RESPONSE:{\"type\":\"action\",\"tool\":\"observation.read\",\"arguments\":{\"artifact_uri\":%q,\"max_bytes\":32}}", sourceCall.ObservationRef)
 	runBudget := runtime.newWorkflowRunBudget(nil)
 	result := runtime.runWorkflowStepLoop(context.Background(), session.ID, run, content, workflowStageContext{
@@ -492,9 +492,9 @@ func TestWorkflowFinalizerRecordsActualEvidenceProjection(t *testing.T) {
 	fixture := pdfCoverageToolCall("complete", "complete PDF evidence", true)
 	run, call := archivedEvidenceFixture(t, runtime, st, session.ID, fixture.Tool, fixture.Result)
 	call.Capability = app.ToolCapabilityDocumentRead
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	run.Workflow = &app.WorkflowState{Plan: app.WorkflowPlan{ProfileID: app.WorkflowDocumentRead}}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 
 	projection, err := runtime.workflowFinalEvidence(context.Background(), run, []app.ToolCall{call}, nil)
 	if err != nil {
@@ -550,6 +550,6 @@ func archivedEvidenceFixture(t *testing.T, runtime Runtime, st *store.MemoryStor
 	if call.ObservationRef == "" {
 		t.Fatal("fixture evidence was not archived")
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	return run, call
 }

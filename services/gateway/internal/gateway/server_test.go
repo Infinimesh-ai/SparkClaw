@@ -203,16 +203,17 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 	}
 	runID := "run-async-approval"
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "Continue after approval"})
-	st.SaveRun(app.AgentRun{
+	testSaveRun(st, app.AgentRun{
 		ID: runID, SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{MCP: ref},
 	})
+
 	call := app.ToolCall{
 		ID: "call-async-approval", SessionID: session.ID, RunID: runID, Tool: "notify.ask_approval", Risk: app.RiskRead,
 		Status: "approval_pending", Arguments: map[string]any{"summary": "Continue"}, StartedAt: time.Now().UTC(),
 		ApprovalID: "approval-async",
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	st.SaveApproval(app.Approval{
 		ID: call.ApprovalID, Source: app.ApprovalSourceTool, SessionID: session.ID, RunID: runID, ToolCallID: call.ID,
 		Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
@@ -520,7 +521,7 @@ func TestUnregisteredPatchRequestBlocksBeforeApproval(t *testing.T) {
 	if len(approvals) != 0 {
 		t.Fatalf("unregistered patch request created approvals: %#v", approvals)
 	}
-	runs := st.ListRuns(sessionID)
+	runs := testListRuns(st, sessionID)
 	if len(runs) != 1 || runs[0].State != "blocked" || runs[0].MessageContext == nil || runs[0].MessageContext.Route.Status != app.RouteUnmatched {
 		t.Fatalf("unregistered patch request did not fail closed: %#v", runs)
 	}
@@ -528,8 +529,8 @@ func TestUnregisteredPatchRequestBlocksBeforeApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != "alpha\nbeta\ngamma" || len(st.ListToolCalls(sessionID)) != 0 {
-		t.Fatalf("blocked patch request mutated the workspace: raw=%q calls=%#v", raw, st.ListToolCalls(sessionID))
+	if string(raw) != "alpha\nbeta\ngamma" || len(testListToolCalls(st, sessionID)) != 0 {
+		t.Fatalf("blocked patch request mutated the workspace: raw=%q calls=%#v", raw, testListToolCalls(st, sessionID))
 	}
 }
 
@@ -542,7 +543,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		Risk:      app.RiskDangerous,
 		StartedAt: time.Now().UTC(),
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	created := time.Now().UTC()
 	st.SaveApproval(app.Approval{
 		ID:        "ap_one",
@@ -571,8 +572,10 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	if _, err := st.ResolveApproval("ap_one", "approved", "ok"); err != nil {
 		t.Fatal(err)
 	}
-	runtime.CompleteRunIfApprovalsResolved(run.ID)
-	pendingRun, ok := st.GetRun(run.ID)
+	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	pendingRun, ok := testGetRun(st, run.ID)
 	if !ok {
 		t.Fatalf("run %q missing", run.ID)
 	}
@@ -582,8 +585,10 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	if _, err := st.ResolveApproval("ap_two", "rejected", "no"); err != nil {
 		t.Fatal(err)
 	}
-	runtime.CompleteRunIfApprovalsResolved(run.ID)
-	completedRun, ok := st.GetRun(run.ID)
+	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	completedRun, ok := testGetRun(st, run.ID)
 	if !ok {
 		t.Fatalf("run %q missing after approvals", run.ID)
 	}
@@ -730,10 +735,10 @@ func TestChatEndpointSupportsManualModelProfileWithoutTools(t *testing.T) {
 	if decoded.Model.Lane != "deep" || decoded.Model.Profile != cfg.Model.Deep.Name || !decoded.Model.Mock || decoded.Message == "" {
 		t.Fatalf("unexpected chat response: %#v", decoded)
 	}
-	if len(storetest.MustListSessions(t, st)) != 0 || len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(storetest.MustListSessions(t, st)) != 0 || len(testListToolCalls(st, "")) != 0 || len(st.ListApprovals("")) != 0 {
 		t.Fatalf("direct chat should not mutate agent state")
 	}
-	calls := st.ListModelCalls("", "")
+	calls := testListModelCalls(st, "", "")
 	directCallRecorded := false
 	for _, call := range calls {
 		if call.Operation == "direct_chat" && call.Lane == "deep" && call.TotalTokens > 0 {
@@ -1099,7 +1104,7 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -1199,7 +1204,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "Memory export")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	profile, err := st.GetOwnerProfile(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -1216,7 +1221,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	st.SaveEpisodeSummary(app.EpisodeSummary{
+	testSaveEpisodeSummary(st, app.EpisodeSummary{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Goal:      "Export memory",
@@ -1226,6 +1231,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 		Summary:   "Memory export test episode.",
 		CreatedAt: time.Now().UTC(),
 	})
+
 	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
@@ -1472,7 +1478,7 @@ func TestManualToolInvokeRequiresApprovalForDangerousTool(t *testing.T) {
 	if len(approvals) != 1 || approvals[0]["tool"] != "shell.exec_sandboxed" {
 		t.Fatalf("expected pending shell approval, got %#v", approvals)
 	}
-	calls := st.ListToolCalls(sessionID)
+	calls := testListToolCalls(st, sessionID)
 	if len(calls) != 1 || calls[0].Status != "approval_pending" {
 		t.Fatalf("expected approval-pending tool call, got %#v", calls)
 	}
@@ -1581,7 +1587,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 	run := app.AgentRun{ID: "run_context_modify", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	policyContext := &app.PolicyExecutionContext{
 		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
@@ -1597,7 +1603,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	st.SaveApproval(approval)
 
 	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"arguments":{"request_digest":"changed"}}`))
@@ -1661,7 +1667,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	if resolver.status != "approved" || resolver.approval.ExternalContext == nil || resolver.approval.ExternalContext.Plan != "Owner-edited plan" || stored.Status != "approved" {
 		t.Fatalf("remote-first approval mismatch resolver=%#v stored=%#v", resolver, stored)
 	}
-	if calls := st.ListToolCalls(""); len(calls) != 0 {
+	if calls := testListToolCalls(st, ""); len(calls) != 0 {
 		t.Fatalf("external approval created a local tool call: %#v", calls)
 	}
 }
@@ -1860,7 +1866,7 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 		Risk:      app.RiskRead,
 		StartedAt: time.Now().UTC().AddDate(0, 0, -30),
 	}
-	st.SaveRun(ownerRun)
+	testSaveRun(st, ownerRun)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID:   ownerSession.ID,
 		RunID:       ownerRun.ID,
@@ -2096,7 +2102,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if memories := st.SearchMemories("sk-approved-sensitive-test"); len(memories) != 0 {
 		t.Fatalf("sensitive memory persisted before approval: %#v", memories)
 	}
-	pendingRun, ok := st.GetRun(queued.ToolCall.RunID)
+	pendingRun, ok := testGetRun(st, queued.ToolCall.RunID)
 	if !ok || pendingRun.State != "approval_pending" || pendingRun.CompletedAt != nil {
 		t.Fatalf("manual sensitive memory run should be approval pending: %#v", pendingRun)
 	}
@@ -2130,7 +2136,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if len(memories) != 1 || memories[0].Kind != "credential_note" || memories[0].SourceID != queued.ToolCall.RunID {
 		t.Fatalf("approved sensitive memory not persisted: %#v", memories)
 	}
-	completedRun, ok := st.GetRun(queued.ToolCall.RunID)
+	completedRun, ok := testGetRun(st, queued.ToolCall.RunID)
 	if !ok || completedRun.State != "completed" || completedRun.CompletedAt == nil {
 		t.Fatalf("manual sensitive memory run did not complete: %#v", completedRun)
 	}
@@ -3138,7 +3144,7 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	sendTestMessage(t, ts.URL, sessionID, "Read project-note.txt")
-	runs := st.ListRuns(sessionID)
+	runs := testListRuns(st, sessionID)
 	if len(runs) == 0 {
 		t.Fatal("run was not saved")
 	}

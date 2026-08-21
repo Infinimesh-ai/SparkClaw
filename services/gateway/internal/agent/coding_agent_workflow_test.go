@@ -48,7 +48,7 @@ func TestCodingAgentChatUsesNamespacedMCPReadTools(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := st.ListToolCalls(session.ID)
+			calls := testListToolCalls(st, session.ID)
 			if executions != 1 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "completed" {
 				t.Fatalf("coding MCP chat execution = %d calls=%#v", executions, calls)
 			}
@@ -97,7 +97,7 @@ func TestCodingAgentMutationsStopForApprovalBeforeRemoteExecution(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := st.ListToolCalls(session.ID)
+			calls := testListToolCalls(st, session.ID)
 			approvals := st.ListApprovals("pending")
 			if executions != 0 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "approval_pending" || len(approvals) != 1 {
 				t.Fatalf("mutation did not stop at approval: executions=%d calls=%#v approvals=%#v result=%#v", executions, calls, approvals, result)

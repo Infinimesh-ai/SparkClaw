@@ -104,7 +104,7 @@ func TestDeliveryAPIListsOpaqueExactEndpointsAndSendsAllCanonicalParts(t *testin
 			t.Fatalf("binary part was not governed before delivery: %#v", part)
 		}
 	}
-	if runs := st.ListRuns(""); len(runs) != 0 {
+	if runs := testListRuns(st, ""); len(runs) != 0 {
 		t.Fatalf("Web direct send created an Agent run: %#v", runs)
 	}
 

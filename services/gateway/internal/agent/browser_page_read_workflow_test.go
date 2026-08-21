@@ -25,7 +25,7 @@ func TestBrowserPageReadRunsFixedHiddenManagedBrowserChain(t *testing.T) {
 		result.Run.Workflow.Plan.ProfileID != app.WorkflowBrowserPageRead || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("explicit page read did not complete browser.page_read: %#v", result)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID)
 	want := []string{"browser.status", "browser.open", "browser.read"}
 	if len(calls) != len(want) {
 		t.Fatalf("page-read chain length = %d, want %d: %#v", len(calls), len(want), calls)
@@ -93,7 +93,7 @@ func TestBrowserPageReadLoginResumeRestartsRevision1HealthOpenReadChain(t *testi
 		second.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("page-read handoff did not resume the original revision-1 run: %#v", second)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), first.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), first.Run.ID)
 	counts := map[string]int{}
 	for _, call := range calls {
 		counts[call.Tool]++

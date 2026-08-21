@@ -28,7 +28,7 @@ func TestNotifyAskApprovalCreatesPendingApproval(t *testing.T) {
 	if len(approvals) != 1 || approvals[0].Summary != "Confirm sending the deployment note" || approvals[0].Tool != "notify.ask_approval" {
 		t.Fatalf("notify approval not saved: %#v", approvals)
 	}
-	calls := st.ListToolCalls("s")
+	calls := testListToolCalls(st, "s")
 	if len(calls) != 1 || calls[0].Status != "approval_pending" || calls[0].ApprovalID != approvals[0].ID {
 		t.Fatalf("notify tool call not saved: %#v", calls)
 	}

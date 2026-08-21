@@ -56,7 +56,9 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		}
 		assessment := profile.Assess(run.Workflow, outcome)
 		changed, applyErr := applyWorkflowOutcome(&run, outcome, assessment)
-		r.store.SaveRun(run)
+		if run, err = r.saveRun(ctx, run); err != nil {
+			return Result{}, true, err
+		}
 		r.auditWorkflowOutcome(run, outcome, assessment, changed, applyErr)
 		if applyErr != nil && assessment.Status != app.AssessmentBlocked {
 			result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, applyErr)
@@ -73,7 +75,9 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		if strings.TrimSpace(observation) != "" {
 			decisionObservations = append(decisionObservations, observation)
 		}
-		if refreshed, ok := r.store.GetRun(run.ID); ok {
+		if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
+			return Result{}, true, err
+		} else if ok {
 			run = refreshed
 		}
 	}
@@ -85,17 +89,23 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 			result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, exposeErr)
 			return result, true, resultErr
 		}
-		if refreshed, ok := r.store.GetRun(run.ID); ok {
+		if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
+			return Result{}, true, err
+		} else if ok {
 			run = refreshed
 		}
 		run.State = "executing"
 		run.CompletedAt = nil
-		r.store.SaveRun(run)
+		if run, err = r.saveRun(ctx, run); err != nil {
+			return Result{}, true, err
+		}
 		workflowExecution = r.runWorkflowWithSeed(
 			ctx, run.SessionID, run, content, profile, stageContext, visibleTools,
 			seedCalls, append(observationsForResume(seedCalls), decisionObservations...),
 		)
-		if refreshed, ok := r.store.GetRun(run.ID); ok {
+		if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
+			return Result{}, true, err
+		} else if ok {
 			run = refreshed
 		}
 	}
@@ -111,7 +121,11 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		run.State = "blocked"
 		run.CompletedAt = &now
 	}
-	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
+	storedToolCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return Result{}, true, err
+	}
+	currentToolCalls := toolCallsForRun(storedToolCalls, run.ID)
 	if workflowExecution.FailureCode != "" {
 		run.Summary = publicWorkflowFailureMessage(workflowExecution.FailureCode)
 	} else {
@@ -124,11 +138,18 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	if strings.TrimSpace(run.Summary) == "" {
 		run.Summary = "The matched workflow completed after its approved action."
 	}
-	r.store.SaveRun(run)
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return Result{}, true, err
+	}
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
-	feedback := r.store.ListRunFeedback(run.ID)
+	feedback, err := r.store.ListRunFeedback(ctx, run.ID)
+	if err != nil {
+		return Result{}, true, err
+	}
 	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
-	r.store.SaveEpisodeSummary(episode)
+	if _, err := r.store.SaveEpisodeSummary(ctx, episode); err != nil {
+		return Result{}, true, err
+	}
 	route := run.Workflow.Route
 	workflowResult, err := r.workflowResultForRun(ctx, run, route, run.Workflow.ReturnRoute, run.Summary, workflowExecution.FailureCode)
 	if err != nil {
@@ -163,7 +184,9 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 	run.Workflow = newWorkflowState(route, returnRoute, resolved.Intent, resolved.Plan)
 	// Persist the frozen plan before Policy binds it into an approval contract.
 	// This write contains no workspace discovery or file metadata.
-	r.store.SaveRun(run)
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return matchedWorkflowDispatch{}, err
+	}
 	if _, _, queued, err := r.queueMCPWorkspaceDataApproval(ctx, &run); err != nil {
 		return matchedWorkflowDispatch{}, err
 	} else if queued {
@@ -172,12 +195,16 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 	if err := prepareWorkflowState(resolved.Profile, run.Workflow); err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
-	r.store.SaveRun(run)
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return matchedWorkflowDispatch{}, err
+	}
 	if err := r.completeConversationMediaDetection(ctx, &run); err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
 	run.State = "routing"
-	r.store.SaveRun(run)
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return matchedWorkflowDispatch{}, err
+	}
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.dispatched",
 		Summary: "Dispatched a validated capability leaf to its exact workflow contract",
@@ -192,7 +219,9 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 	if err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
-	if refreshed, ok := r.store.GetRun(run.ID); ok {
+	if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
+		return matchedWorkflowDispatch{}, err
+	} else if ok {
 		run = refreshed
 	}
 	r.store.AddAudit(app.AuditEvent{
@@ -219,13 +248,18 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 	if strings.TrimSpace(route.Reason) != "" {
 		run.Summary += " " + strings.TrimSpace(route.Reason)
 	}
-	r.store.SaveRun(run)
+	var err error
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return Result{}, err
+	}
 	assistant, err := r.store.AddMessage(ctx, app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
 	if err != nil {
 		return Result{}, fmt.Errorf("persist terminal route response: %w", err)
 	}
 	episode := summarizeEpisode(goal, run, nil, nil, run.Summary, now)
-	r.store.SaveEpisodeSummary(episode)
+	if _, err := r.store.SaveEpisodeSummary(ctx, episode); err != nil {
+		return Result{}, err
+	}
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, &episode)
 	result, err := r.workflowResultForTerminalRoute(ctx, run, route, returnRoute, run.Summary)
 	if err != nil {
@@ -255,12 +289,16 @@ func (r Runtime) workflowResultForRun(ctx context.Context, run app.AgentRun, rou
 	if err != nil {
 		return nil, err
 	}
+	data, err := r.workflowResultData(ctx, run)
+	if err != nil {
+		return nil, err
+	}
 	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...),
 		Workflow:   app.WorkflowContractRef{ID: run.Workflow.Plan.ProfileID, Revision: run.Workflow.Plan.ProfileRevision},
-		Data:       r.workflowResultData(run),
+		Data:       data,
 		Content:    content,
 		References: workflowResourceRefs(run.Workflow), ReturnRoute: workflowResultReturnRoute(status, returnRoute),
 	}
@@ -277,15 +315,18 @@ func (r Runtime) workflowResultForRun(ctx context.Context, run app.AgentRun, rou
 	return result, nil
 }
 
-func (r Runtime) workflowResultData(run app.AgentRun) map[string]any {
+func (r Runtime) workflowResultData(ctx context.Context, run app.AgentRun) (map[string]any, error) {
 	if run.Workflow == nil || r.tools == nil || r.store == nil {
-		return nil
+		return nil, nil
 	}
 	for _, ref := range workflowResourceRefs(run.Workflow) {
 		if strings.TrimSpace(ref.Provenance) == "" {
 			continue
 		}
-		call, ok := r.store.GetToolCall(ref.Provenance)
+		call, ok, err := r.store.GetToolCall(ctx, ref.Provenance)
+		if err != nil {
+			return nil, err
+		}
 		if !ok || !toolCallCompleted(call) {
 			continue
 		}
@@ -307,9 +348,9 @@ func (r Runtime) workflowResultData(run app.AgentRun) map[string]any {
 				data[key] = value
 			}
 		}
-		return data
+		return data, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (r Runtime) workflowResultContent(ctx context.Context, run app.AgentRun, summary string) (app.MessageContent, error) {
@@ -336,7 +377,10 @@ func (r Runtime) workflowResultContent(ctx context.Context, run app.AgentRun, su
 		if ref.Kind != "path" || strings.TrimSpace(ref.Ref) == "" || strings.TrimSpace(ref.Provenance) == "" {
 			continue
 		}
-		call, ok := r.store.GetToolCall(ref.Provenance)
+		call, ok, err := r.store.GetToolCall(ctx, ref.Provenance)
+		if err != nil {
+			return app.MessageContent{}, err
+		}
 		if !ok || !toolCallCompleted(call) {
 			continue
 		}
@@ -498,7 +542,11 @@ func workflowFileSHA256(path string) (string, error) {
 
 func (r Runtime) workflowResultContentFromToolCalls(ctx context.Context, run app.AgentRun, summary string) (app.MessageContent, error) {
 	parts := []app.MessagePart{}
-	for _, call := range toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID) {
+	storedCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return app.MessageContent{}, err
+	}
+	for _, call := range toolCallsForRun(storedCalls, run.ID) {
 		if !toolCallCompleted(call) {
 			continue
 		}

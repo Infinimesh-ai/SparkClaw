@@ -307,7 +307,7 @@ var toolRegistry = func() map[string]toolRegistration {
 			map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 			"Cancel an existing scheduled task.", "Use only for schedule.manage delete operations.", "Do not permanently remove schedule history.", app.ToolEffectLocalWrite),
 		"shell.exec_sandboxed": {run: ctxArgs((*ToolHub).shellExecSandboxed)},
-		"notify.ask_approval":  {run: argsSessionRun((*ToolHub).notifyAskApproval)},
+		"notify.ask_approval":  {run: ctxArgsSessionRun((*ToolHub).notifyAskApproval)},
 	}
 	for name, registration := range documentToolRegistrations() {
 		registry[name] = registration

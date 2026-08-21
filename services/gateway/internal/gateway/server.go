@@ -443,7 +443,21 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	messages := 0
 	runs := 0
-	allModelCalls := s.store.ListModelCalls("", "")
+	allModelCalls, err := s.store.ListModelCalls(r.Context(), "", "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	allToolCalls, err := s.store.ListToolCalls(r.Context(), "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	allEpisodes, err := s.store.ListEpisodeSummaries(r.Context(), "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	modelCalls := len(allModelCalls)
 	modelErrors := 0
 	modelLatencyTotal := int64(0)
@@ -455,7 +469,12 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		messages += len(storedMessages)
-		runs += len(s.store.ListRuns(session.ID))
+		storedRuns, err := s.store.ListRuns(r.Context(), session.ID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		runs += len(storedRuns)
 	}
 	for _, call := range allModelCalls {
 		if call.Status == "failed" {
@@ -512,7 +531,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_model_call_tokens_total %d", modelTokensTotal),
 		"# HELP sparkclaw_tool_calls_total Current tool call count.",
 		"# TYPE sparkclaw_tool_calls_total gauge",
-		fmt.Sprintf("sparkclaw_tool_calls_total %d", len(s.store.ListToolCalls(""))),
+		fmt.Sprintf("sparkclaw_tool_calls_total %d", len(allToolCalls)),
 		"# HELP sparkclaw_approvals_total Current approval count.",
 		"# TYPE sparkclaw_approvals_total gauge",
 		fmt.Sprintf("sparkclaw_approvals_total %d", len(approvals)),
@@ -527,7 +546,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_memories_total %d", len(s.store.SearchMemories(""))),
 		"# HELP sparkclaw_episode_summaries_total Current episode summary count.",
 		"# TYPE sparkclaw_episode_summaries_total gauge",
-		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(s.store.ListEpisodeSummaries(""))),
+		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(allEpisodes)),
 	}
 	lines = append(lines, s.tools.DocumentMetrics()...)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -808,7 +827,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	started := time.Now().UTC()
 	result, err := s.models.ChatWithProfile(r.Context(), profile, system, content)
 	completed := time.Now().UTC()
-	s.store.SaveModelCall(modelCallFromChat("", "", "direct_chat", result, err, started, completed))
+	if _, saveErr := s.store.SaveModelCall(r.Context(), modelCallFromChat("", "", "direct_chat", result, err, started, completed)); saveErr != nil {
+		slog.Warn("direct chat model call persistence unavailable", "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -1646,7 +1667,12 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionToolCalls(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"tool_calls": s.store.ListToolCalls(r.PathValue("id"))})
+	toolCalls, err := s.store.ListToolCalls(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tool_calls": toolCalls})
 }
 
 func (s *Server) listSessionAudit(w http.ResponseWriter, r *http.Request) {
@@ -1654,20 +1680,39 @@ func (s *Server) listSessionAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionEpisodes(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"episodes": s.store.ListEpisodeSummaries(r.PathValue("id"))})
+	episodes, err := s.store.ListEpisodeSummaries(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"episodes": episodes})
 }
 
 func (s *Server) listSessionModelCalls(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"model_calls": s.store.ListModelCalls(r.PathValue("id"), r.URL.Query().Get("run_id"))})
+	modelCalls, err := s.store.ListModelCalls(r.Context(), r.PathValue("id"), r.URL.Query().Get("run_id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"model_calls": modelCalls})
 }
 
 func (s *Server) listRunFeedback(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"feedback": s.store.ListRunFeedback(r.PathValue("id"))})
+	feedback, err := s.store.ListRunFeedback(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"feedback": feedback})
 }
 
 func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
-	run, ok := s.store.GetRun(runID)
+	run, ok, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("run not found"))
 		return
@@ -1687,7 +1732,7 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("feedback rating must be up, down, or corrected"))
 		return
 	}
-	feedback := s.store.SaveRunFeedback(app.RunFeedback{
+	feedback, err := s.store.SaveRunFeedback(r.Context(), app.RunFeedback{
 		SessionID:  run.SessionID,
 		RunID:      run.ID,
 		MessageID:  strings.TrimSpace(input.MessageID),
@@ -1695,6 +1740,10 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 		Note:       input.Note,
 		Correction: input.Correction,
 	})
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	s.refreshTrace(r.Context(), run.ID)
 	writeJSON(w, http.StatusOK, feedback)
 }
@@ -1740,7 +1789,11 @@ func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
-	call, ok := s.store.GetToolCall(r.PathValue("id"))
+	call, ok, err := s.store.GetToolCall(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
 		return
@@ -1842,7 +1895,11 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("modify requires args or arguments"))
 		return
 	}
-	call, ok := s.store.GetToolCall(approval.ToolCallID)
+	call, ok, err := s.store.GetToolCall(r.Context(), approval.ToolCallID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
 		return
@@ -1870,7 +1927,13 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	approval.Arguments = args
 	call.Arguments = args
-	s.store.SaveToolCall(call)
+	persistedCall, saveErr := s.store.SaveToolCall(r.Context(), call)
+	persistedCall, saveErr = store.ReconcileToolCallWrite(r.Context(), s.store, persistedCall, saveErr)
+	if saveErr != nil {
+		writeSessionStoreError(w, saveErr)
+		return
+	}
+	call = persistedCall
 	s.store.SaveApproval(approval)
 	s.store.AddAudit(app.AuditEvent{
 		SessionID: approval.SessionID,
@@ -1887,8 +1950,11 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
 }
 
-func (s *Server) validateMCPApproval(approval app.Approval) error {
-	run, ok := s.store.GetRun(approval.RunID)
+func (s *Server) validateMCPApproval(ctx context.Context, approval app.Approval) error {
+	run, ok, err := s.store.GetRun(ctx, approval.RunID)
+	if err != nil {
+		return err
+	}
 	if !ok || run.MessageContext == nil || run.MessageContext.MCP == nil {
 		return nil
 	}
@@ -1950,11 +2016,14 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	mcpRun := false
-	if run, ok := s.store.GetRun(approval.RunID); ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
+	if run, ok, err := s.store.GetRun(r.Context(), approval.RunID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	} else if ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
 		mcpRun = true
 	}
 	if status == "approved" {
-		if err := s.validateMCPApproval(approval); err != nil {
+		if err := s.validateMCPApproval(r.Context(), approval); err != nil {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
@@ -1969,7 +2038,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	if status == "approved" && mcpRun && s.mcpAccess != nil {
-		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(approval.RunID)
+		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(r.Context(), approval.RunID)
 		if beginErr != nil {
 			s.refreshTrace(r.Context(), approval.RunID)
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -2020,20 +2089,35 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		}
 	}
 	if status == "rejected" {
-		if rejected, ok := s.store.GetToolCall(approval.ToolCallID); ok {
+		if rejected, ok, err := s.store.GetToolCall(r.Context(), approval.ToolCallID); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		} else if ok {
 			now := time.Now().UTC()
 			rejected.Status = "rejected"
 			rejected.Error = "owner rejected approval"
 			rejected.CompletedAt = &now
-			s.store.SaveToolCall(rejected)
+			persisted, saveErr := s.store.SaveToolCall(r.Context(), rejected)
+			persisted, saveErr = store.ReconcileToolCallWrite(r.Context(), s.store, persisted, saveErr)
+			if saveErr != nil {
+				writeError(w, http.StatusInternalServerError, saveErr)
+				return
+			}
+			rejected = persisted
 			call = &rejected
 		}
 	}
 	if !resumed {
-		s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
+		if err := s.runtime.CompleteRunIfApprovalsResolved(r.Context(), approval.RunID); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	if status == "rejected" && mcpRun && s.mcpAccess != nil {
-		s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_rejected", "The local owner rejected the pending action")
+		if err := s.mcpAccess.FailApprovalExecution(r.Context(), approval.RunID, "approval_rejected", "The local owner rejected the pending action"); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 		executionStatus = string(app.MCPOperationFailed)
 	}
 	s.refreshTrace(r.Context(), approval.RunID)
@@ -2052,7 +2136,7 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 
 		executed, err := s.runtime.ExecuteApprovedToolCall(executionCtx, approval)
 		if err != nil {
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_execution_failed", "Approved tool execution could not be started")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "approval_execution_failed", "Approved tool execution could not be started")
 			return
 		}
 		if err := executionCtx.Err(); err != nil {
@@ -2060,7 +2144,7 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 			return
 		}
 		if strings.HasPrefix(executed.Status, "failed") {
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_tool_failed", "The approved tool execution failed")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "approval_tool_failed", "The approved tool execution failed")
 			return
 		}
 		result, resumed, err := s.runtime.ResumeRunAfterApproval(executionCtx, approval.SessionID, approval.RunID)
@@ -2069,16 +2153,20 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 				s.failCancelledMCPApprovalExecution(approval.RunID, executionCtx.Err())
 				return
 			}
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "workflow_resume_failed", "SparkClaw workflow resume failed after approval")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "workflow_resume_failed", "SparkClaw workflow resume failed after approval")
 			return
 		}
 		if !resumed {
 			if runHasPendingApproval(s.store, approval.RunID) {
-				s.mcpAccess.RestoreApprovalRequired(approval.RunID)
+				if err := s.mcpAccess.RestoreApprovalRequired(executionCtx, approval.RunID); err != nil {
+					slog.Error("failed to restore MCP approval-required state", "run_id", approval.RunID, "error", err)
+				}
 				return
 			}
-			s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "workflow_resume_unavailable", "SparkClaw workflow could not continue after approval")
+			if err := s.runtime.CompleteRunIfApprovalsResolved(executionCtx, approval.RunID); err != nil {
+				slog.Error("failed to complete MCP run after approval", "run_id", approval.RunID, "error", err)
+			}
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "workflow_resume_unavailable", "SparkClaw workflow could not continue after approval")
 			return
 		}
 		if err := executionCtx.Err(); err != nil {
@@ -2090,10 +2178,12 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 				s.failCancelledMCPApprovalExecution(approval.RunID, executionCtx.Err())
 				return
 			}
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "delivery_failed", "Approved MCP result delivery failed")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "delivery_failed", "Approved MCP result delivery failed")
 			return
 		}
-		s.mcpAccess.RecordWorkflowResult(result)
+		if err := s.mcpAccess.RecordWorkflowResult(executionCtx, result); err != nil {
+			slog.Error("failed to record MCP workflow result", "run_id", approval.RunID, "error", err)
+		}
 	}()
 }
 
@@ -2104,7 +2194,13 @@ func (s *Server) failCancelledMCPApprovalExecution(runID string, err error) {
 		code = "approval_execution_expired"
 		message = "Approved MCP execution exceeded the operation deadline"
 	}
-	s.mcpAccess.FailApprovalExecution(runID, code, message)
+	s.recordMCPApprovalExecutionFailure(context.WithoutCancel(s.lifecycleCtx), runID, code, message)
+}
+
+func (s *Server) recordMCPApprovalExecutionFailure(ctx context.Context, runID, code, message string) {
+	if err := s.mcpAccess.FailApprovalExecution(context.WithoutCancel(ctx), runID, code, message); err != nil {
+		slog.Error("failed to persist MCP approval execution failure", "run_id", runID, "code", code, "error", err)
+	}
 }
 
 func runHasPendingApproval(st store.Store, runID string) bool {
@@ -2239,7 +2335,10 @@ func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error
 		}
 	}
 	memories := s.store.SearchMemories("")
-	episodes := s.store.ListEpisodeSummaries("")
+	episodes, err := s.store.ListEpisodeSummaries(ctx, "")
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	ownerProfile, err := s.store.GetOwnerProfile(ctx)
 	if err != nil {
 		return app.MemoryExport{}, err
@@ -2377,15 +2476,28 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	runs := s.store.ListRuns("")
+	runs, err := s.store.ListRuns(r.Context(), "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	out := make([]app.TraceMetadata, 0, min(limit, len(runs)))
 	for _, run := range runs {
 		if len(out) >= limit {
 			break
 		}
-		toolCalls := toolCallsForRun(s.store.ListToolCalls(run.SessionID), run.ID)
+		storedToolCalls, err := s.store.ListToolCalls(r.Context(), run.SessionID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		toolCalls := toolCallsForRun(storedToolCalls, run.ID)
 		approvals := approvalsForRun(s.store.ListApprovals(""), run.ID)
-		modelCalls := s.store.ListModelCalls(run.SessionID, run.ID)
+		modelCalls, err := s.store.ListModelCalls(r.Context(), run.SessionID, run.ID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
 		messages, err := s.store.ListMessages(r.Context(), run.SessionID)
 		if err != nil {
 			writeSessionStoreError(w, err)
@@ -2793,7 +2905,11 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 	if s.traces == nil || runID == "" {
 		return
 	}
-	run, ok := s.store.GetRun(runID)
+	run, ok, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		slog.Warn("trace run refresh unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
 	if !ok {
 		return
 	}
@@ -2802,7 +2918,12 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		_ = json.Unmarshal(raw, &current)
 	}
 	if current.Episode == nil {
-		for _, episode := range s.store.ListEpisodeSummaries(run.SessionID) {
+		episodes, err := s.store.ListEpisodeSummaries(ctx, run.SessionID)
+		if err != nil {
+			slog.Warn("trace episode refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		for _, episode := range episodes {
 			if episode.RunID == run.ID {
 				current.Episode = &episode
 				break
@@ -2810,10 +2931,23 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		}
 	}
 	current.Run = run
-	current.ModelCalls = s.store.ListModelCalls(run.SessionID, run.ID)
-	current.ToolCalls = toolCallsForRun(s.store.ListToolCalls(run.SessionID), run.ID)
+	current.ModelCalls, err = s.store.ListModelCalls(ctx, run.SessionID, run.ID)
+	if err != nil {
+		slog.Warn("trace model call refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	storedToolCalls, err := s.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		slog.Warn("trace tool call refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	current.ToolCalls = toolCallsForRun(storedToolCalls, run.ID)
 	current.Approvals = approvalsForRun(s.store.ListApprovals(""), run.ID)
-	current.Feedback = s.store.ListRunFeedback(run.ID)
+	current.Feedback, err = s.store.ListRunFeedback(ctx, run.ID)
+	if err != nil {
+		slog.Warn("trace feedback refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
 	messages, err := s.store.ListMessages(ctx, run.SessionID)
 	if err != nil {
 		slog.Warn("trace message refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))

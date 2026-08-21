@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -298,17 +299,20 @@ func pptxScopedOperationContext(blocks, layoutShapes, slideLayouts []any, scope,
 	return strings.Join(lines, "\n")
 }
 
-func (r Runtime) projectPPTXLocalizationPersistence(runID string, call app.ToolCall, output any) any {
+func (r Runtime) projectPPTXLocalizationPersistence(ctx context.Context, runID string, call app.ToolCall, output any) (any, error) {
 	if call.WorkflowID != app.WorkflowDocumentEdit || call.WorkflowNodeID != documentLocateEvidenceNodeID || call.Tool != "files.read" || r.store == nil {
-		return output
+		return output, nil
 	}
-	run, ok := r.store.GetRun(runID)
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok || run.Workflow == nil || !strings.EqualFold(firstNonEmptyString(run.Workflow.Route.Facts["document_format"], run.Workflow.Route.Slots.Format), app.DocumentFormatPPTX) {
-		return output
+		return output, nil
 	}
 	outputMap, ok := outputAsMap(output)
 	if !ok {
-		return output
+		return output, nil
 	}
 	projected, ok := pptxBusinessProjectionResult(
 		outputMap,
@@ -316,9 +320,9 @@ func (r Runtime) projectPPTXLocalizationPersistence(runID string, call app.ToolC
 		decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact]),
 	)
 	if !ok {
-		return output
+		return output, nil
 	}
-	return projected
+	return projected, nil
 }
 
 func pptxBusinessProjectionResult(output map[string]any, scope string, targetSlides []int) (map[string]any, bool) {

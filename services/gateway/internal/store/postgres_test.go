@@ -83,8 +83,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 			},
 		},
 	}
-	st.SaveRun(run)
-	if got, ok := st.GetRun(run.ID); !ok || got.Workflow == nil || got.Workflow.PlanDigest != "sha256:postgres-plan" || got.Workflow.Nodes["read"].Status != app.WorkflowNodeSucceeded {
+	testSaveRun(st, run)
+	if got, ok := testGetRun(st, run.ID); !ok || got.Workflow == nil || got.Workflow.PlanDigest != "sha256:postgres-plan" || got.Workflow.Nodes["read"].Status != app.WorkflowNodeSucceeded {
 		t.Fatalf("workflow state did not round trip: %#v ok=%v", got, ok)
 	}
 	policyContext := &app.PolicyExecutionContext{
@@ -115,8 +115,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		PolicyContext:      policyContext,
 		StartedAt:          time.Now().UTC(),
 	}
-	st.SaveToolCall(call)
-	if got, ok := st.GetToolCall(call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary ||
+	testSaveToolCall(st, call)
+	if got, ok := testGetToolCall(st, call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary ||
 		got.WorkflowID != app.WorkflowWebExplicitURL || got.WorkflowNodeID != "read" || got.ScopeRevision != 1 || got.Capability != "web.page.read" ||
 		got.PolicyContext == nil || got.PolicyContext.ContractDigest != policyContext.ContractDigest ||
 		got.PolicyContext.MCP == nil || got.PolicyContext.MCP.RequesterDeviceID != policyContext.MCP.RequesterDeviceID {
@@ -136,7 +136,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatalf("document records did not list: %#v", records)
 	}
 	modelCompleted := time.Now().UTC()
-	st.SaveModelCall(app.ModelCall{
+	testSaveModelCall(st, app.ModelCall{
 		ID:             app.NewID("mcall"),
 		SessionID:      session.ID,
 		RunID:          run.ID,
@@ -153,7 +153,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		StartedAt:      time.Now().UTC(),
 		CompletedAt:    &modelCompleted,
 	})
-	modelCalls := st.ListModelCalls(session.ID, run.ID)
+
+	modelCalls := testListModelCalls(st, session.ID, run.ID)
 	if len(modelCalls) != 1 || modelCalls[0].Model != "Qwen/Fast" || modelCalls[0].TotalTokens != 5 {
 		t.Fatalf("model call did not round trip: %#v", modelCalls)
 	}
@@ -187,7 +188,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	restartedCall, callOK := restarted.GetToolCall(call.ID)
+	restartedCall, callOK := testGetToolCall(restarted, call.ID)
 	restartedApproval, approvalOK := restarted.GetApproval(approval.ID)
 	if !callOK || !approvalOK || restartedCall.PolicyContext == nil || restartedApproval.PolicyContext == nil ||
 		restartedCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
@@ -332,7 +333,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", "", ""); ok {
 		t.Fatal("missing URI lookup returned an object")
 	}
-	st.SaveEpisodeSummary(app.EpisodeSummary{
+	testSaveEpisodeSummary(st, app.EpisodeSummary{
 		ID:        "ep_pg",
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -344,7 +345,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Summary:   "Postgres episode summary",
 		CreatedAt: time.Now().UTC(),
 	})
-	episodes := st.ListEpisodeSummaries(session.ID)
+
+	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || episodes[0].ID != "ep_pg" || episodes[0].Tools[0] != "memory.write_candidate:completed" {
 		t.Fatalf("episode summary did not round trip: %#v", episodes)
 	}
@@ -564,7 +566,7 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 
 	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
@@ -580,7 +582,7 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
 		t.Fatal("session deletion retained browser login block")
 	}
-	if _, ok := st.GetRun(run.ID); ok {
+	if _, ok := testGetRun(st, run.ID); ok {
 		t.Fatal("session deletion retained agent run")
 	}
 	if _, ok := mustGetSession(t, st, session.ID); ok {
@@ -605,7 +607,7 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
@@ -668,7 +670,7 @@ func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t 
 	for _, status := range statuses {
 		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-		st.SaveRun(run)
+		testSaveRun(st, run)
 		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
 			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
 		})

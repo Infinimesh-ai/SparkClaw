@@ -107,7 +107,7 @@ type AgentRuntime interface {
 	HandleMessageWithAttachments(context.Context, string, string, []agent.MessageAttachment) (agent.Result, error)
 	ExecuteApprovedToolCall(context.Context, app.Approval) (app.ToolCall, error)
 	ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error)
-	CompleteRunIfApprovalsResolved(string)
+	CompleteRunIfApprovalsResolved(context.Context, string) error
 }
 
 type idempotentAgentRuntime interface {
@@ -166,6 +166,6 @@ func (b AgentBridge) ResumeRunAfterApproval(ctx context.Context, sessionID, runI
 	return b.runtime.ResumeRunAfterApproval(ctx, sessionID, runID)
 }
 
-func (b AgentBridge) CompleteRunIfApprovalsResolved(runID string) {
-	b.runtime.CompleteRunIfApprovalsResolved(runID)
+func (b AgentBridge) CompleteRunIfApprovalsResolved(ctx context.Context, runID string) error {
+	return b.runtime.CompleteRunIfApprovalsResolved(ctx, runID)
 }

@@ -49,7 +49,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	if first.Run.ID != "tg_run_42" || second.Run.ID != first.Run.ID || second.Message.ID != first.Message.ID {
 		t.Fatalf("idempotent result changed: first=%#v second=%#v", first, second)
 	}
-	if runs := st.ListRuns(session.ID); len(runs) != 1 || runs[0].ID != "tg_run_42" {
+	if runs := testListRuns(st, session.ID); len(runs) != 1 || runs[0].ID != "tg_run_42" {
 		t.Fatalf("duplicate Agent run was created: %#v", runs)
 	}
 	messages := storetest.MustListMessages(t, st, session.ID)
@@ -131,13 +131,13 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 		!strings.Contains(result.Message.Content, "secret_exfiltration") {
 		t.Fatalf("guard-blocked assistant message missing explanation: %q", result.Message.Content)
 	}
-	if calls := st.ListToolCalls(session.ID); len(calls) != 0 {
+	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("guard-blocked request should not execute tools: %#v", calls)
 	}
 	if approvals := st.ListApprovals(""); len(approvals) != 0 {
 		t.Fatalf("guard-blocked request should not create approvals: %#v", approvals)
 	}
-	modelCalls := st.ListModelCalls(session.ID, result.Run.ID)
+	modelCalls := testListModelCalls(st, session.ID, result.Run.ID)
 	if !hasModelCallOperation(modelCalls, "guard", "guard") {
 		t.Fatalf("guard model call was not recorded: %#v", modelCalls)
 	}
@@ -154,7 +154,7 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 	if !foundAudit {
 		t.Fatalf("guard review audit missing: %#v", st.ListAudit(session.ID))
 	}
-	episodes := st.ListEpisodeSummaries(session.ID)
+	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || episodes[0].Outcome != "blocked" {
 		t.Fatalf("guard-blocked request did not save blocked episode: %#v", episodes)
 	}
@@ -202,15 +202,15 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 		strings.Contains(result.Message.Content, "SparkClaw local file assistant reads workspace files") {
 		t.Fatalf("assistant should synthesize a model final from completed document evidence:\n%s", result.Message.Content)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != "completed" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
 	if hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
 		t.Fatalf("successful document read should not use the missing-final fallback: %#v", st.ListAudit(session.ID))
 	}
-	if !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer", documentWorkflowModelLane) {
-		t.Fatalf("document read did not run its profile finalizer: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if !hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "workflow_final_answer", documentWorkflowModelLane) {
+		t.Fatalf("document read did not run its profile finalizer: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
 		t.Fatalf("workspace read did not complete through its workflow profile: %#v", result.Run.Workflow)
@@ -252,7 +252,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 0 {
 		t.Fatalf("document.read revision 4 must not expose file search: %#v", calls)
 	}
@@ -287,7 +287,7 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 		strings.Contains(result.Message.Content, "Summary from local file:") {
 		t.Fatalf("assistant should synthesize a final without exposing raw source content:\n%s", result.Message.Content)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Result == nil {
 		t.Fatalf("expected one completed file read call, got %#v", calls)
 	}
@@ -317,7 +317,7 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("file content should not trigger extra tools: %#v", calls)
 	}
@@ -420,7 +420,7 @@ func TestRuntimeRoutesExplicitURLReadWithoutLegacyHTTPFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	for _, call := range calls {
 		if call.Tool == "browser.read" {
 			t.Fatalf("disabled managed browser unexpectedly reached browser.read or direct HTTP fallback: %#v", calls)
@@ -546,11 +546,11 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		Risk:      app.RiskRead,
 		StartedAt: now,
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	done := now
 	doneSnapshot := now.Add(time.Millisecond)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -561,6 +561,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		StartedAt:   now,
 		CompletedAt: &done,
 	})
+
 	snapshot := app.ToolCall{
 		ID:        app.NewID("tc"),
 		SessionID: session.ID,
@@ -575,12 +576,15 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		StartedAt:   now.Add(time.Millisecond),
 		CompletedAt: &doneSnapshot,
 	}
-	st.SaveToolCall(snapshot)
+	testSaveToolCall(st, snapshot)
 
-	block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "访问https://s.zstu.edu.cn，查询我的个人课表", toolPlan{
+	block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "访问https://s.zstu.edu.cn，查询我的个人课表", toolPlan{
 		Name: "browser.snapshot",
 		Args: snapshot.Arguments,
 	}, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
 		t.Fatalf("expected auth gate snapshot text to create browser login block")
 	}
@@ -604,10 +608,10 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		Risk:      app.RiskRead,
 		StartedAt: now,
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	done := now
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -618,6 +622,7 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		StartedAt:   now,
 		CompletedAt: &done,
 	})
+
 	snapshot := app.ToolCall{
 		ID:        app.NewID("tc"),
 		SessionID: session.ID,
@@ -632,10 +637,12 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		CompletedAt: &done,
 	}
 
-	if block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "查看账户数据", toolPlan{
+	if block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "查看账户数据", toolPlan{
 		Name: "browser.snapshot",
 		Args: snapshot.Arguments,
-	}, snapshot); ok {
+	}, snapshot); err != nil {
+		t.Fatal(err)
+	} else if ok {
 		t.Fatalf("authenticated application snapshot must continue instead of reopening login handoff: %#v", block)
 	}
 }
@@ -823,7 +830,7 @@ func TestRuntimeComparesBrowserSourcesWithCitations(t *testing.T) {
 		strings.Contains(result.Message.Content, "Alpha focuses on") {
 		t.Fatalf("browser comparison fallback should not fake a comparison:\n%s", result.Message.Content)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 0 {
 		t.Fatalf("browser.internet_search revision 1 must not expose multi-page reads: %#v", calls)
 	}
@@ -2103,7 +2110,7 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 		Call:   previous,
 		Output: previous.Result,
 	})
-	st.SaveToolCall(previous)
+	testSaveToolCall(st, previous)
 
 	route, err := runtime.routeCapability(context.Background(), session.ID, "run_current", "把张三的学号改为6")
 	if err != nil || route.Status == app.RouteMatched {
@@ -2149,7 +2156,7 @@ func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 		Call:   previous,
 		Output: previous.Result,
 	})
-	st.SaveToolCall(previous)
+	testSaveToolCall(st, previous)
 
 	route, err := runtime.routeCapability(context.Background(), session.ID, "run_current", "完善结果分析内容")
 	if err != nil || route.Status != app.RouteBlocked {
@@ -2358,7 +2365,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Read large-note.txt"); err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
@@ -2375,7 +2382,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	if !strings.Contains(adapted.Summary, "Observation bytes=") && adapted.Structured["truncated"] != true {
 		t.Fatalf("summary missing byte metadata or truncation marker: %#v", adapted)
 	}
-	episodes := st.ListEpisodeSummaries(session.ID)
+	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || strings.Contains(episodes[0].Summary, "Observation bytes=") {
 		t.Fatalf("episode should keep user-facing summary without observation diagnostics: %#v", episodes)
 	}
@@ -2400,7 +2407,7 @@ func TestRuntimeKeepsCompleteDocumentRecoverableUnderUniformObservationCap(t *te
 	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Read small-doc.txt"); err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
@@ -2479,12 +2486,12 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 		if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.State != "blocked" || result.Run.Workflow != nil {
 			t.Fatalf("unregistered code task did not fail closed for %q: %#v", goal, result)
 		}
-		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+		if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
 			t.Fatalf("unregistered code task entered ReAct for %q", goal)
 		}
 	}
-	if len(st.ListToolCalls(session.ID)) != 0 || len(st.ListApprovals("")) != 0 {
-		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", st.ListToolCalls(session.ID), st.ListApprovals(""))
+	if len(testListToolCalls(st, session.ID)) != 0 || len(st.ListApprovals("")) != 0 {
+		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", testListToolCalls(st, session.ID), st.ListApprovals(""))
 	}
 }
 
@@ -2542,7 +2549,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		Risk:      app.RiskReversible,
 		StartedAt: now,
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -2550,7 +2557,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		Content:   "uploads/test.docx 帮我把第二段写得更详细一些",
 		CreatedAt: now,
 	})
-	st.SaveModelCall(app.ModelCall{
+	testSaveModelCall(st, app.ModelCall{
 		ID:        app.NewID("mc"),
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -2558,8 +2565,9 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		Status:    "completed",
 		StartedAt: now,
 	})
+
 	readDone := now.Add(time.Second)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -2571,8 +2579,9 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		StartedAt:   now.Add(time.Millisecond),
 		CompletedAt: &readDone,
 	})
+
 	mutationDone := now.Add(2 * time.Second)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -2584,6 +2593,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		StartedAt:   now.Add(time.Second),
 		CompletedAt: &mutationDone,
 	})
+
 	st.SaveApproval(app.Approval{
 		ID:         app.NewID("ap"),
 		SessionID:  session.ID,
@@ -2610,7 +2620,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 	if resumed.Message.Content != "" || len(resumed.Message.Attachments) != 1 || resumed.Message.Attachments[0].RelPath != "outputs/test-expanded.docx" {
 		t.Fatalf("approved document result was not projected as a file attachment: %#v", resumed.Message)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	docxCalls := 0
 	for _, call := range calls {
 		if call.Tool == "docx.replace_paragraph" {
@@ -3068,8 +3078,8 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	if result.Run.State != "blocked" || result.Run.CompletedAt == nil || result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
 		t.Fatalf("unregistered dangerous run did not fail closed: %#v", result)
 	}
-	if len(st.ListApprovals("")) != 0 || len(st.ListToolCalls(session.ID)) != 0 || hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", st.ListApprovals(""), st.ListToolCalls(session.ID))
+	if len(st.ListApprovals("")) != 0 || len(testListToolCalls(st, session.ID)) != 0 || hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", st.ListApprovals(""), testListToolCalls(st, session.ID))
 	}
 }
 

@@ -280,7 +280,7 @@ func TestMessageControlClarificationStopsBeforeBusinessTools(t *testing.T) {
 			if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteClarify || len(result.ToolCalls) != 0 || len(result.Approvals) != 0 {
 				t.Fatalf("message control clarification entered a business workflow: %#v", result)
 			}
-			if calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID); len(calls) != 0 {
+			if calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID); len(calls) != 0 {
 				t.Fatalf("clarification performed tool calls: %#v", calls)
 			}
 		})
@@ -372,7 +372,7 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 		Result: map[string]any{"output_path": "note-sparkclaw-edit.docx"}, StartedAt: dispatch.Run.StartedAt, CompletedAt: &completedAt,
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	st.SaveApproval(app.Approval{
 		ID: "ap_document_edit", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: definition.Name,
 		Risk: app.RiskReversible, Status: "approved", Summary: "Approve document edit", CreatedAt: dispatch.Run.StartedAt, ResolvedAt: &completedAt,
@@ -380,11 +380,12 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, RunID: run.ID, Role: "user", Content: "Replace a paragraph in note.docx", CreatedAt: dispatch.Run.StartedAt,
 	})
-	st.SaveModelCall(app.ModelCall{
+	testSaveModelCall(st, app.ModelCall{
 		ID: "mc_document_edit", SessionID: session.ID, RunID: run.ID, Operation: "workflow_step_1", Status: "completed", StartedAt: dispatch.Run.StartedAt,
 	})
+
 	dispatch.Run.State = "approval_pending"
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 	frozenRoute := dispatch.Run.Workflow.Route
 	frozenPlanDigest := dispatch.Run.Workflow.PlanDigest
 	after, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, run.ID)

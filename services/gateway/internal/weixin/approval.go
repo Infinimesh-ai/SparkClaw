@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) (bool, error) {
@@ -58,8 +59,12 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 			_, deliveryErr := d.finishWorkflowReply(ctx, record, result, ingress)
 			return true, deliveryErr
 		}
-		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
-		if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+		if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, approval.RunID); err != nil {
+			return true, err
+		}
+		if call, ok, err := d.store.GetToolCall(ctx, resolved.ToolCallID); err != nil {
+			return true, err
+		} else if ok {
 			if answer := weixinApprovedToolAnswer(call); answer != "" {
 				_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, answer, approval.RunID, "processed")
 				return true, sendErr
@@ -72,14 +77,21 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 	if err != nil {
 		return true, err
 	}
-	if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+	if call, ok, err := d.store.GetToolCall(ctx, resolved.ToolCallID); err != nil {
+		return true, err
+	} else if ok {
 		now := time.Now().UTC()
 		call.Status = "rejected"
 		call.Error = "user rejected approval from vx"
 		call.CompletedAt = &now
-		d.store.SaveToolCall(call)
+		candidate, saveErr := d.store.SaveToolCall(ctx, call)
+		if _, saveErr = store.ReconcileToolCallWrite(ctx, d.store, candidate, saveErr); saveErr != nil {
+			return true, saveErr
+		}
 	}
-	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
+	if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, resolved.RunID); err != nil {
+		return true, err
+	}
 	_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已取消，本次需要确认的操作没有执行。", resolved.RunID, "processed")
 	return true, sendErr
 }

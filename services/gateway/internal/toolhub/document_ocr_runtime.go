@@ -252,11 +252,15 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		errorText = callErr.Error()
 	}
 	if h.store != nil {
-		h.store.SaveModelCall(app.ModelCall{
+		if _, err := h.store.SaveModelCall(ctx, app.ModelCall{
 			ID: modelCallID, SessionID: metadata.SessionID, RunID: metadata.RunID,
 			Lane: "ocr", Profile: provider, Model: model, Operation: "document_ocr", Status: modelStatus,
 			LatencyMS: completed.Sub(started).Milliseconds(), Error: errorText, StartedAt: started, CompletedAt: &completed,
-		})
+		}); err != nil {
+			callErr = fmt.Errorf("persist OCR model call: %w", err)
+			status = documentOCRResultStatus(result, callErr)
+			reasonCode = documentOCRReasonCode(result, callErr)
+		}
 	}
 	invocation := documentOCRInvocation{
 		Result: result, Err: callErr, Status: status, ReasonCode: reasonCode, CacheResult: "miss", ModelCallID: modelCallID,

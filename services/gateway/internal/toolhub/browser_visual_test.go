@@ -34,7 +34,7 @@ func TestBrowserVisualInspectReturnsFreshGenerationBoundEvidence(t *testing.T) {
 	if adapter.screenshotCalls != 1 || adapter.snapshotCalls != 1 {
 		t.Fatalf("visual inspection did not capture and then revalidate exactly once: %#v", adapter)
 	}
-	if calls := st.ListToolCalls("session"); len(calls) != 1 || calls[0].Tool != "browser.snapshot" {
+	if calls := testListToolCalls(st, "session"); len(calls) != 1 || calls[0].Tool != "browser.snapshot" {
 		t.Fatalf("Workflow-only visual helper created parallel persisted tool calls: %#v", calls)
 	}
 }
@@ -52,9 +52,9 @@ func TestBrowserVisualInspectRejectsPageChangeDuringInference(t *testing.T) {
 
 func TestBrowserVisualInspectRequiresFrozenOwnerReasonAndLatestSnapshot(t *testing.T) {
 	st, hub, adapter := newBrowserVisualHub(t, 9)
-	run, _ := st.GetRun("run")
+	run, _ := testGetRun(st, "run")
 	run.Workflow.Route.Facts = nil
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	_, err := hub.Execute(context.Background(), "browser.visual_inspect", browserVisualTestArgs(), "session", "run")
 	if app.ToolErrorCodeFrom(err) != app.ToolErrorVisualEvidenceStale || adapter.screenshotCalls != 0 {
 		t.Fatalf("unfrozen visual request reached capture: err=%v adapter=%#v", err, adapter)
@@ -74,13 +74,14 @@ func newBrowserVisualHub(t *testing.T, postPageGeneration uint64) (*store.Memory
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	st.SaveRun(app.AgentRun{
+	testSaveRun(st, app.AgentRun{
 		ID: "run", SessionID: "session", StartedAt: time.Now().UTC(),
 		Workflow: &app.WorkflowState{
 			Plan:  app.WorkflowPlan{ProfileID: app.WorkflowBrowserAutomation},
 			Route: app.RouteDecision{Facts: map[string]string{"browser_visual_reason": "owner_requested"}},
 		},
 	})
+
 	seedBrowserVisualSnapshot(st)
 	adapter := &browserVisualTestAdapter{screenshotPath: screenshotPath, postPageGeneration: postPageGeneration}
 	hub := New(cfg, st).WithBrowserAutomationAdapter(adapter)
@@ -89,7 +90,7 @@ func newBrowserVisualHub(t *testing.T, postPageGeneration uint64) (*store.Memory
 }
 
 func seedBrowserVisualSnapshot(st *store.MemoryStore) {
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "snapshot_call", SessionID: "session", RunID: "run", Tool: "browser.snapshot", Status: "completed",
 		StartedAt: time.Now().UTC(),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
@@ -98,6 +99,7 @@ func seedBrowserVisualSnapshot(st *store.MemoryStore) {
 			"session_generation": uint64(7), "page_generation": uint64(9), "controls": []any{},
 		}}},
 	})
+
 }
 
 func browserVisualTestArgs() map[string]any {

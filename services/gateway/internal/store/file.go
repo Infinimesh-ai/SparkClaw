@@ -813,59 +813,102 @@ func (s *FileStore) ListMessages(ctx context.Context, sessionID string) ([]app.M
 	return s.inner.ListMessages(ctx, sessionID)
 }
 
-func (s *FileStore) SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveRunFeedback(feedback)
-	s.persist()
-	return out
+func (s *FileStore) SaveRunFeedback(ctx context.Context, feedback app.RunFeedback) (app.RunFeedback, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationRunFeedbackSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.RunFeedback{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationRunFeedbackSave, func(ctx context.Context) (app.RunFeedback, error) {
+		return s.inner.SaveRunFeedback(ctx, feedback)
+	})
 }
 
-func (s *FileStore) ListRunFeedback(runID string) []app.RunFeedback {
-	defer s.admitLegacyRead()()
-	return s.inner.ListRunFeedback(runID)
+func (s *FileStore) ListRunFeedback(ctx context.Context, runID string) ([]app.RunFeedback, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationRunFeedbackList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListRunFeedback(ctx, runID)
 }
 
-func (s *FileStore) SaveRun(run app.AgentRun) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveRun(run)
-	s.persist()
+func (s *FileStore) SaveRun(ctx context.Context, run app.AgentRun) (app.AgentRun, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationRunSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.AgentRun{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationRunSave, func(ctx context.Context) (app.AgentRun, error) {
+		return s.inner.SaveRun(ctx, run)
+	})
 }
 
-func (s *FileStore) GetRun(id string) (app.AgentRun, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetRun(id)
+func (s *FileStore) GetRun(ctx context.Context, id string) (app.AgentRun, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationRunGet, 1)
+	if err != nil {
+		return app.AgentRun{}, false, err
+	}
+	defer release()
+	return s.inner.GetRun(ctx, id)
 }
 
-func (s *FileStore) ListRuns(sessionID string) []app.AgentRun {
-	defer s.admitLegacyRead()()
-	return s.inner.ListRuns(sessionID)
+func (s *FileStore) ListRuns(ctx context.Context, sessionID string) ([]app.AgentRun, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationRunList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListRuns(ctx, sessionID)
 }
 
-func (s *FileStore) SaveModelCall(call app.ModelCall) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveModelCall(call)
-	s.persist()
+func (s *FileStore) SaveModelCall(ctx context.Context, call app.ModelCall) (app.ModelCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationModelCallSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.ModelCall{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationModelCallSave, func(ctx context.Context) (app.ModelCall, error) {
+		return s.inner.SaveModelCall(ctx, call)
+	})
 }
 
-func (s *FileStore) ListModelCalls(sessionID, runID string) []app.ModelCall {
-	defer s.admitLegacyRead()()
-	return s.inner.ListModelCalls(sessionID, runID)
+func (s *FileStore) ListModelCalls(ctx context.Context, sessionID, runID string) ([]app.ModelCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationModelCallList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListModelCalls(ctx, sessionID, runID)
 }
 
-func (s *FileStore) SaveToolCall(call app.ToolCall) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveToolCall(call)
-	s.persist()
+func (s *FileStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationToolCallSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.ToolCall{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationToolCallSave, func(ctx context.Context) (app.ToolCall, error) {
+		return s.inner.SaveToolCall(ctx, call)
+	})
 }
 
-func (s *FileStore) GetToolCall(id string) (app.ToolCall, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetToolCall(id)
+func (s *FileStore) GetToolCall(ctx context.Context, id string) (app.ToolCall, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationToolCallGet, 1)
+	if err != nil {
+		return app.ToolCall{}, false, err
+	}
+	defer release()
+	return s.inner.GetToolCall(ctx, id)
 }
 
-func (s *FileStore) ListToolCalls(sessionID string) []app.ToolCall {
-	defer s.admitLegacyRead()()
-	return s.inner.ListToolCalls(sessionID)
+func (s *FileStore) ListToolCalls(ctx context.Context, sessionID string) ([]app.ToolCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationToolCallList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListToolCalls(ctx, sessionID)
 }
 
 func (s *FileStore) SaveApproval(approval app.Approval) {
@@ -1341,15 +1384,24 @@ func (s *FileStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.A
 	return s.inner.FindArtifactObjectByURI(uri, sessionID, runID)
 }
 
-func (s *FileStore) SaveEpisodeSummary(summary app.EpisodeSummary) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveEpisodeSummary(summary)
-	s.persist()
+func (s *FileStore) SaveEpisodeSummary(ctx context.Context, summary app.EpisodeSummary) (app.EpisodeSummary, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEpisodeSummarySave, fileAdmissionCapacity)
+	if err != nil {
+		return app.EpisodeSummary{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationEpisodeSummarySave, func(ctx context.Context) (app.EpisodeSummary, error) {
+		return s.inner.SaveEpisodeSummary(ctx, summary)
+	})
 }
 
-func (s *FileStore) ListEpisodeSummaries(sessionID string) []app.EpisodeSummary {
-	defer s.admitLegacyRead()()
-	return s.inner.ListEpisodeSummaries(sessionID)
+func (s *FileStore) ListEpisodeSummaries(ctx context.Context, sessionID string) ([]app.EpisodeSummary, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEpisodeSummaryList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListEpisodeSummaries(ctx, sessionID)
 }
 
 func (s *FileStore) persist() {

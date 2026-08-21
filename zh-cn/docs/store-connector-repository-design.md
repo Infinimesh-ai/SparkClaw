@@ -337,3 +337,11 @@ S3 repository。
 4. 独立实现门禁和最终 Credential 集成门禁。
 
 这些提交不混入 Store 大文件拆分。
+
+## 审查记录
+
+| 审查 | 修订 | 结论 | 证据 | 审查人/日期 |
+|---|---|---|---|---|
+| Connector implementation review 1 | `aeb6c21` | `REVISE` | 旧 Weixin cleanup 无法删除 provider ref/raw token；waiting/active field mask、create lifecycle 拒绝、PostgreSQL 损坏 scope 分类、Reminder context ownership 及公共 sync error 投影不完整 | Context-isolated gatekeeper / 2026-08-21 |
+| Connector implementation review 2 | `7d7cfeb` | `REVISE` | 前述问题均已关闭，但 QR provider 可以在无 token 时返回 active，并持久化没有 credential row 的旧形状 ref | Context-isolated gatekeeper / 2026-08-21 |
+| Connector implementation review 3 | `1d3fc26` | `GO` | 空 token active fail closed；成功 QR credential 经过 durable `credential_pending -> Seal -> active`；不再生成新 legacy ref；waiting failure 不 Seal 且不越权 AbortSeal；完整 Go 与聚焦 race gate 均通过 | Context-isolated gatekeeper / 2026-08-21 |

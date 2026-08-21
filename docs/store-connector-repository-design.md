@@ -398,3 +398,11 @@ repository start.
 4. Independent implementation gate and final integrated Credential gate.
 
 No large Store file split is mixed into these commits.
+
+## Review Record
+
+| Review | Revision | Decision | Evidence | Reviewer/date |
+|---|---|---|---|---|
+| Connector implementation review 1 | `aeb6c21` | `REVISE` | Legacy Weixin cleanup could not delete provider refs/raw tokens; waiting/active field masks, create lifecycle rejection, PostgreSQL corrupt-scope classification, Reminder context ownership, and public sync-error projection were incomplete | Context-isolated gatekeeper / 2026-08-21 |
+| Connector implementation review 2 | `7d7cfeb` | `REVISE` | Earlier findings were closed, but a QR provider could return active without a token and persist a legacy-shaped ref with no credential row | Context-isolated gatekeeper / 2026-08-21 |
+| Connector implementation review 3 | `1d3fc26` | `GO` | Empty-token active fails closed; successful QR credentials use durable `credential_pending -> Seal -> active`; no new legacy ref is generated; waiting failure performs neither Seal nor unauthorized AbortSeal; full Go and focused race gates are green | Context-isolated gatekeeper / 2026-08-21 |

@@ -36,12 +36,12 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "credential_secret.saved",
 	},
 	"SessionRepository": {
-		mutate:    func(_ *testing.T, st Store) { st.CreateSession("Lifecycle") },
+		mutate:    func(t *testing.T, st Store) { mustCreateSession(t, st, "Lifecycle") },
 		auditType: "session.created", eventType: "session.created",
 	},
 	"ConversationRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			session := st.CreateSession("Lifecycle conversation")
+		mutate: func(t *testing.T, st Store) {
+			session := mustCreateSession(t, st, "Lifecycle conversation")
 			st.AddMessage(app.Message{ID: "message-lifecycle", SessionID: session.ID, Role: "user", Content: "hello"})
 		},
 		eventType: "message.created",

@@ -282,27 +282,27 @@ func characterizeS0CredentialRepository(t *testing.T, st Store, dimension string
 func characterizeS0SessionRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		session := st.CreateSession("session")
-		updated, err := st.UpdateSessionTitle(session.ID, "updated")
+		session := mustCreateSession(t, st, "session")
+		updated, err := st.UpdateSessionTitle(t.Context(), session.ID, "updated")
 		if err != nil || updated.Title != "updated" {
 			t.Fatalf("session create/update = %#v err=%v", updated, err)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetSession("missing"); ok {
+		if _, ok := mustGetSession(t, st, "missing"); ok {
 			t.Fatal("missing session was found")
 		}
 	case s0DimensionOrderScope:
-		hidden := st.CreateSessionWithScope("hidden", "owner-s0", "/workspace", "test", true)
-		visible := st.CreateSession("visible")
-		if got := st.ListSessions(); len(got) != 1 || got[0].ID != visible.ID || got[0].ID == hidden.ID {
+		hidden := mustCreateSessionWithScope(t, st, "hidden", "owner-s0", "/workspace", "test", true)
+		visible := mustCreateSession(t, st, "visible")
+		if got := mustListSessions(t, st); len(got) != 1 || got[0].ID != visible.ID || got[0].ID == hidden.ID {
 			t.Fatalf("visible session scope = %#v", got)
 		}
 	case s0DimensionConflictDeletion:
-		session := st.CreateSession("session")
-		if _, err := st.DeleteSession(session.ID); err != nil {
+		session := mustCreateSession(t, st, "session")
+		if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := st.GetSession(session.ID); ok {
+		if _, ok := mustGetSession(t, st, session.ID); ok {
 			t.Fatal("deleted session was found")
 		}
 	default:
@@ -313,7 +313,7 @@ func characterizeS0SessionRepository(t *testing.T, st Store, dimension string) {
 func characterizeS0ConversationRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		session := st.CreateSession("conversation")
+		session := mustCreateSession(t, st, "conversation")
 		message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
 		if got := st.ListMessages(session.ID); len(got) != 1 || got[0].ID != message.ID {
 			t.Fatalf("message append/list = %#v", got)
@@ -323,7 +323,7 @@ func characterizeS0ConversationRepository(t *testing.T, st Store, dimension stri
 			t.Fatalf("missing conversation messages = %#v", got)
 		}
 	case s0DimensionDuplicate:
-		session := st.CreateSession("conversation")
+		session := mustCreateSession(t, st, "conversation")
 		message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
 		reused := st.AddMessage(app.Message{ID: message.ID, SessionID: session.ID, Role: "user", Content: "replacement"})
 		if got := st.ListMessages(session.ID); len(got) != 1 || reused.ID != message.ID || got[0].Content != "first" {
@@ -754,7 +754,7 @@ func TestS0DefectEvidenceMutableAliases(t *testing.T) {
 
 func s0ConversationAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	session := st.CreateSession("alias")
+	session := mustCreateSession(t, st, "alias")
 	st.AddMessage(app.Message{ID: "message-alias", SessionID: session.ID, Attachments: []app.MessageAttachment{{Name: "original"}}})
 	got := st.ListMessages(session.ID)
 	got[0].Attachments[0].Name = "mutated"

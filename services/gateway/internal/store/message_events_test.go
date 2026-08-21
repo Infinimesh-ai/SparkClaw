@@ -11,8 +11,8 @@ import (
 
 func TestMemoryMessageEventsAreBoundedAndSessionScoped(t *testing.T) {
 	st := NewMemoryStore()
-	firstSession := st.CreateSession("first")
-	secondSession := st.CreateSession("second")
+	firstSession := mustCreateSession(t, st, "first")
+	secondSession := mustCreateSession(t, st, "second")
 	first := st.AddMessage(app.Message{SessionID: firstSession.ID, Role: "user", Content: "one"})
 	st.AddMessage(app.Message{SessionID: secondSession.ID, Role: "assistant", Content: "other"})
 	second := st.AddMessage(app.Message{SessionID: firstSession.ID, Role: "assistant", Content: "two"})
@@ -61,7 +61,7 @@ func TestFileMessageEventsSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("file events")
+	session := mustCreateSession(t, st, "file events")
 	message := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "persisted"})
 	head, err := st.MessageEventHead(session.ID)
 	if err != nil || head == "" {

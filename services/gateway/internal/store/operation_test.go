@@ -21,6 +21,30 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationISCPOnboardingList, Repository: "ISCPOnboardingRepository",
 			Method: "ListISCPOnboardings", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationSessionCreate: {
+			ID: OperationSessionCreate, Repository: "SessionRepository",
+			Method: "CreateSession", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationSessionCreateWithScope: {
+			ID: OperationSessionCreateWithScope, Repository: "SessionRepository",
+			Method: "CreateSessionWithScope", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationSessionList: {
+			ID: OperationSessionList, Repository: "SessionRepository",
+			Method: "ListSessions", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationSessionGet: {
+			ID: OperationSessionGet, Repository: "SessionRepository",
+			Method: "GetSession", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationSessionUpdateTitle: {
+			ID: OperationSessionUpdateTitle, Repository: "SessionRepository",
+			Method: "UpdateSessionTitle", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationSessionDelete: {
+			ID: OperationSessionDelete, Repository: "SessionRepository",
+			Method: "DeleteSession", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

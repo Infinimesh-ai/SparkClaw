@@ -25,8 +25,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	defer st.Close()
 	truncatePostgresStore(t, st)
 
-	session := st.CreateSession("Postgres Session")
-	if got, ok := st.GetSession(session.ID); !ok || got.Title != "Postgres Session" {
+	session := mustCreateSession(t, st, "Postgres Session")
+	if got, ok := mustGetSession(t, st, session.ID); !ok || got.Title != "Postgres Session" {
 		t.Fatalf("session did not round trip: %#v ok=%v", got, ok)
 	}
 	defaultOwner := mustGetOwnerProfile(t, st)
@@ -460,7 +460,7 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	if !ok || storedBinding.RequesterDeviceID != peer.DeviceID || storedBinding.LinkedSessionID == "" {
 		t.Fatalf("PostgreSQL binding did not recover: %#v ok=%v", storedBinding, ok)
 	}
-	if linked, ok := restarted.GetSession(storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
+	if linked, ok := mustGetSession(t, restarted, storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
 		t.Fatalf("PostgreSQL legacy MCP conversation was not normalized on restart: %#v ok=%v", linked, ok)
 	}
 	storedOperation, ok := restarted.GetMCPOperation(operation.ID)
@@ -562,7 +562,7 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	defer st.Close()
 	truncatePostgresStore(t, st)
 
-	session := st.CreateSession("delete blocked browser session")
+	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -574,7 +574,7 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 		t.Fatal("browser login block was not saved")
 	}
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
@@ -583,7 +583,7 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	if _, ok := st.GetRun(run.ID); ok {
 		t.Fatal("session deletion retained agent run")
 	}
-	if _, ok := st.GetSession(session.ID); ok {
+	if _, ok := mustGetSession(t, st, session.ID); ok {
 		t.Fatal("session deletion retained session")
 	}
 }
@@ -600,7 +600,7 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	defer st.Close()
 	truncatePostgresStore(t, st)
 
-	session := st.CreateSession("browser handoff CAS")
+	session := mustCreateSession(t, st, "browser handoff CAS")
 	run := app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
@@ -666,7 +666,7 @@ func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t 
 		app.BrowserHandoffStatusFailed,
 	)
 	for _, status := range statuses {
-		session := st.CreateSession("active predicate " + status)
+		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 		st.SaveRun(run)
 		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{

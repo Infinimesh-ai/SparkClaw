@@ -540,8 +540,8 @@ func characterizeIdempotencyCASAndAliasSafety(t *testing.T, st Store) {
 
 func characterizeMessageEvents(t *testing.T, st Store) {
 	t.Helper()
-	firstSession := st.CreateSession("event-a")
-	secondSession := st.CreateSession("event-b")
+	firstSession := mustCreateSession(t, st, "event-a")
+	secondSession := mustCreateSession(t, st, "event-b")
 	first := st.AddMessage(app.Message{SessionID: firstSession.ID, Role: "user", Content: "first"})
 	st.AddMessage(app.Message{SessionID: secondSession.ID, Role: "user", Content: "other"})
 	second := st.AddMessage(app.Message{SessionID: firstSession.ID, Role: "assistant", Content: "second"})
@@ -602,7 +602,7 @@ func characterizeConcurrentIdempotency(t *testing.T, st Store) {
 
 func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store) {
 	t.Helper()
-	session := st.CreateSession("restart")
+	session := mustCreateSession(t, st, "restart")
 	message := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "durable"})
 	profile := mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-restart", DisplayName: "Restart", Preferences: map[string]string{"key": "value"}})
 	eventHead, err := st.MessageEventHead(session.ID)
@@ -618,7 +618,7 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 		t.Fatalf("create operation before restart: created=%v err=%v", created, err)
 	}
 	reloaded := reopen(t)
-	if got, ok := reloaded.GetSession(session.ID); !ok || got.Title != session.Title {
+	if got, ok := mustGetSession(t, reloaded, session.ID); !ok || got.Title != session.Title {
 		t.Fatalf("session did not survive restart: %#v ok=%v", got, ok)
 	}
 	if messages := reloaded.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID {
@@ -654,8 +654,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 36 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 36", got)
+	if got := strings.Count(source, "s.persist()"); got != 32 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 32", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -706,8 +706,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 24 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 24", count)
+	if count != 23 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 23", count)
 	}
 }
 

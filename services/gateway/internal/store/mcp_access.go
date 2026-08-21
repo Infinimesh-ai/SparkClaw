@@ -224,10 +224,12 @@ func (s *MemoryStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerI
 			AuthorizationRevision: ticket.AuthorizationRevision, Scope: ticket.Scope, LatestISCPSessionID: peer.ISCPSessionID,
 		}, now)
 		binding.LinkedSessionID = "s_" + binding.ID
+		sessionTime := normalizeSessionTime(now)
 		s.sessions[binding.LinkedSessionID] = app.Session{
 			ID: binding.LinkedSessionID, OwnerID: binding.OwnerID, Title: mcpSessionTitle(binding.RequesterDeviceID), Source: "mcp", Hidden: false,
-			CreatedAt: now, UpdatedAt: now,
+			CreatedAt: sessionTime, UpdatedAt: sessionTime,
 		}
+		s.sessionWriteHighWater[binding.LinkedSessionID] = sessionTime
 		s.mcpBindings[binding.ID] = cloneMCPBinding(binding)
 		return cloneMCPBinding(binding), nil
 	}

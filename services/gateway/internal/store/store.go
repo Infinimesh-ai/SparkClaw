@@ -86,6 +86,15 @@ type ConnectorRepository interface {
 	UpdateNotificationBinding(context.Context, NotificationBindingUpdateCommand) (app.NotificationBinding, error)
 }
 
+type SessionRepository interface {
+	CreateSession(context.Context, string) (app.Session, error)
+	CreateSessionWithScope(context.Context, string, string, string, string, bool) (app.Session, error)
+	ListSessions(context.Context) ([]app.Session, error)
+	GetSession(context.Context, string) (app.Session, bool, error)
+	UpdateSessionTitle(context.Context, string, string) (app.Session, error)
+	DeleteSession(context.Context, string) (app.Session, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -109,12 +118,7 @@ type Store interface {
 	ClientRepository
 	CredentialRepository
 	ConnectorRepository
-	CreateSession(title string) app.Session
-	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
-	ListSessions() []app.Session
-	GetSession(id string) (app.Session, bool)
-	UpdateSessionTitle(id, title string) (app.Session, error)
-	DeleteSession(id string) (app.Session, error)
+	SessionRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)

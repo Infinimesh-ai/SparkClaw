@@ -20,7 +20,7 @@ func TestFileStorePersistsDocumentRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("documents")
+	session := mustCreateSession(t, st, "documents")
 	saved := st.SaveDocumentRecord(app.DocumentRecord{
 		ID: "doc_file", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "reports/report.pdf", Name: "report.pdf", Format: app.DocumentFormatPDF,
@@ -132,7 +132,7 @@ func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("browser handoff round trip")
+	session := mustCreateSession(t, st, "browser handoff round trip")
 	run := app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
@@ -248,7 +248,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("delete blocked browser session")
+	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -257,7 +257,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 		SiteOrigin: "https://example.com",
 	})
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := NewFileStore(path)
@@ -270,7 +270,7 @@ func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) 
 	if _, ok := reloaded.GetRun(run.ID); ok {
 		t.Fatal("session deletion retained persisted agent run")
 	}
-	if _, ok := reloaded.GetSession(session.ID); ok {
+	if _, ok := mustGetSession(t, reloaded, session.ID); ok {
 		t.Fatal("session deletion retained persisted session")
 	}
 }
@@ -281,7 +281,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Persistent Session")
+	session := mustCreateSession(t, st, "Persistent Session")
 	mustClaimTestClient(t, st, app.Client{ID: "client_test", Name: "Persistent Client", TokenHash: "hash"})
 	if _, err := st.RevokeClient(t.Context(), "client_test"); err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := reloaded.GetSession(session.ID); !ok || got.Title != "Persistent Session" {
+	if got, ok := mustGetSession(t, reloaded, session.ID); !ok || got.Title != "Persistent Session" {
 		t.Fatalf("session did not reload: %#v ok=%v", got, ok)
 	}
 	clients, err := reloaded.ListClients(t.Context())
@@ -455,7 +455,7 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Workflow State")
+	session := mustCreateSession(t, st, "Workflow State")
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
 		SessionID: session.ID,
@@ -550,7 +550,7 @@ func TestFileStorePersistsPolicyExecutionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Policy context")
+	session := mustCreateSession(t, st, "Policy context")
 	run := app.AgentRun{ID: "run_policy_context", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	policyContext := &app.PolicyExecutionContext{
@@ -594,7 +594,7 @@ func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Retention")
+	session := mustCreateSession(t, st, "Retention")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
@@ -637,7 +637,7 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Encrypted Session")
+	session := mustCreateSession(t, st, "Encrypted Session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
@@ -696,7 +696,7 @@ func TestFileStoreEncryptionReadsLegacyPlaintextState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Legacy Plaintext")
+	session := mustCreateSession(t, st, "Legacy Plaintext")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
@@ -746,7 +746,7 @@ func TestFileStoreEncryptionKeyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Key File")
+	session := mustCreateSession(t, st, "Key File")
 	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "encrypted via key file"})
 	reloaded, err := NewFileStoreWithOptions(FileStoreOptions{
 		Path:              path,

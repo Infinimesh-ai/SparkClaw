@@ -71,7 +71,7 @@ func TestMemoryStoreFindsExternalApprovalByStableReference(t *testing.T) {
 
 func TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("documents")
+	session := mustCreateSession(t, st, "documents")
 	older := time.Now().UTC().Add(-time.Minute)
 	st.SaveDocumentRecord(app.DocumentRecord{
 		ID: "doc_old", OwnerID: session.OwnerID, SessionID: session.ID,
@@ -92,7 +92,7 @@ func TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped(t *testing.T) {
 	if got, ok := st.GetDocumentRecord(latest.ID); !ok || got.GovernedPath != "new.docx" {
 		t.Fatalf("document record did not round trip: %#v ok=%v", got, ok)
 	}
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if records := st.ListDocumentRecords("", session.ID, 10); len(records) != 0 {
@@ -102,7 +102,7 @@ func TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped(t *testing.T) {
 
 func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("Memory editor")
+	session := mustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
@@ -263,7 +263,7 @@ func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) 
 
 func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("login block")
+	session := mustCreateSession(t, st, "login block")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -299,7 +299,7 @@ func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 
 func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("browser handoff CAS")
+	session := mustCreateSession(t, st, "browser handoff CAS")
 	run := app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
@@ -355,7 +355,7 @@ func TestMemoryStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *t
 	)
 	for _, status := range statuses {
 		st := NewMemoryStore()
-		session := st.CreateSession("active predicate " + status)
+		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 		st.SaveRun(run)
 		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -372,7 +372,7 @@ func TestMemoryStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *t
 
 func TestMemoryStoreBrowserLoginBlockReadsDoNotMutateStoredState(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("read stability")
+	session := mustCreateSession(t, st, "read stability")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -450,7 +450,7 @@ func TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate(t *testin
 
 func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("trim id")
+	session := mustCreateSession(t, st, "trim id")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -488,7 +488,7 @@ func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
 
 func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("delete blocked browser session")
+	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
@@ -497,7 +497,7 @@ func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 		SiteOrigin: "https://example.com",
 	})
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
@@ -506,14 +506,14 @@ func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	if _, ok := st.GetRun(run.ID); ok {
 		t.Fatal("session deletion retained agent run")
 	}
-	if _, ok := st.GetSession(session.ID); ok {
+	if _, ok := mustGetSession(t, st, session.ID); ok {
 		t.Fatal("session deletion retained session")
 	}
 }
 
 func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("Feedback")
+	session := mustCreateSession(t, st, "Feedback")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	message := st.AddMessage(app.Message{SessionID: session.ID, RunID: run.ID, Role: "assistant", Content: "first answer"})
@@ -549,7 +549,7 @@ func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 
 func TestMemoryStorePrunesExpiredMemories(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("Retention")
+	session := mustCreateSession(t, st, "Retention")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	old := app.Memory{
@@ -615,7 +615,7 @@ func TestMemoryStoreListsArtifactObjectsNewestFirst(t *testing.T) {
 
 func TestMemoryStoreFindsArtifactObjectByURI(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("artifact lookup")
+	session := mustCreateSession(t, st, "artifact lookup")
 	uri := "artifact://sparkclaw/observations/run_a/tc_1.json"
 	older := app.ArtifactObject{
 		ID:          "obj_a",
@@ -660,7 +660,7 @@ func TestMemoryStoreFindsArtifactObjectByURI(t *testing.T) {
 		t.Fatalf("re-saved artifact lookup failed: %#v ok=%v", object, ok)
 	}
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); ok {

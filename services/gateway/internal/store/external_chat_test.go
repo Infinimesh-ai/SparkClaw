@@ -48,9 +48,10 @@ func TestFileStoreExternalChatAndInboxParity(t *testing.T) {
 
 func TestFileStoreReadsLegacyWeixinChatSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	snapshot := Snapshot{
 		Sessions: map[string]app.Session{
-			"session_legacy": {ID: "session_legacy", Title: "微信会话"},
+			"session_legacy": {ID: "session_legacy", Title: "微信会话", CreatedAt: now, UpdatedAt: now},
 		},
 		WeixinChatSessions: map[string]app.WeixinChatSession{
 			"wxchat_legacy": {
@@ -96,7 +97,7 @@ func TestFileStoreReadsLegacyWeixinChatSnapshot(t *testing.T) {
 
 func testExternalChatAndInboxParity(t *testing.T, st Store) {
 	t.Helper()
-	linked := st.CreateSessionWithScope("Telegram session", app.DefaultOwnerID, t.TempDir(), "telegram", true)
+	linked := mustCreateSessionWithScope(t, st, "Telegram session", app.DefaultOwnerID, t.TempDir(), "telegram", true)
 	chat := st.SaveExternalChatSession(app.ExternalChatSession{
 		BindingID:        "bind_tg",
 		Channel:          "telegram",

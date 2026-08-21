@@ -98,10 +98,10 @@ func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
 	if !ok || binding.OwnerID != ticket.OwnerID || binding.ActorID != ticket.ActorID || binding.RequesterDeviceID == binding.ActorID {
 		t.Fatalf("binding did not preserve requester/executor separation: %#v ok=%v", binding, ok)
 	}
-	if session, ok := st.GetSession(binding.LinkedSessionID); !ok || session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
+	if session, ok := mustGetSession(t, st, binding.LinkedSessionID); !ok || session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
 		t.Fatalf("binding session was not created atomically: %#v ok=%v", session, ok)
 	}
-	if sessions := st.ListSessions(); len(sessions) != 1 || sessions[0].ID != binding.LinkedSessionID {
+	if sessions := mustListSessions(t, st); len(sessions) != 1 || sessions[0].ID != binding.LinkedSessionID {
 		t.Fatalf("binding conversation was not visible in the ordinary session list: %#v", sessions)
 	}
 	if _, ok := st.FindMCPBindingForPeer(peer.DomainID, "device-b", peer.KeyThumbprint); ok {
@@ -143,7 +143,7 @@ func TestFileStorePersistsMCPAccessWithoutPlaintextSecret(t *testing.T) {
 	if got, ok := reloaded.GetMCPOperation(operation.ID); !ok || got.Invocation.ID != "inv-file" {
 		t.Fatalf("operation did not persist: %#v ok=%v", got, ok)
 	}
-	if session, ok := reloaded.GetSession(binding.LinkedSessionID); !ok || session.Hidden || session.Title != "AI · device-file" {
+	if session, ok := mustGetSession(t, reloaded, binding.LinkedSessionID); !ok || session.Hidden || session.Title != "AI · device-file" {
 		t.Fatalf("visible MCP conversation did not survive restart: %#v ok=%v", session, ok)
 	}
 	if got, ok := reloaded.FindMCPAccessTicketBySecretHash(ticket.SecretHash); !ok || got.SecretHash != "sha256-only" {
@@ -175,7 +175,7 @@ func TestFileStoreNormalizesLegacyHiddenMCPConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, ok := st.GetSession(binding.LinkedSessionID)
+	session, ok := mustGetSession(t, st, binding.LinkedSessionID)
 	if !ok || session.Hidden || session.Title != "AI · legacy-devic" || session.Source != "mcp" {
 		t.Fatalf("legacy MCP conversation was not normalized: %#v ok=%v", session, ok)
 	}
@@ -187,7 +187,7 @@ func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, "", "mcp", false)
+	session := mustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, "", "mcp", false)
 	st.AddMessage(app.Message{
 		SessionID: session.ID, Role: "user", Content: "",
 		RequestedMedia: []app.MessageMediaLocator{{Name: "report.pdf", Caption: "Latest report"}},
@@ -321,7 +321,7 @@ func testMCPAccessRecordDeletion(t *testing.T, st Store) string {
 	if _, ok := st.GetMCPOperation(operation.ID); ok {
 		t.Fatal("binding deletion retained its MCP operation")
 	}
-	if _, ok := st.GetSession(binding.LinkedSessionID); !ok {
+	if _, ok := mustGetSession(t, st, binding.LinkedSessionID); !ok {
 		t.Fatal("binding record deletion removed conversation history")
 	}
 

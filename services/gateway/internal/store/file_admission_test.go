@@ -51,6 +51,9 @@ var migratedFileAdmissions = map[string]string{
 	"GetConnectorSetting": "admitMigrated", "ListConnectorSettings": "admitMigrated", "ListAllConnectorSettings": "admitMigrated",
 	"UpdateConnectorSetting": "admitMigrated", "CreateNotificationBinding": "admitMigrated", "GetNotificationBinding": "admitMigrated",
 	"ListNotificationBindings": "admitMigrated", "UpdateNotificationBinding": "admitMigrated",
+	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated",
+	"ListSessions": "admitMigrated", "GetSession": "admitMigrated",
+	"UpdateSessionTitle": "admitMigrated", "DeleteSession": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
@@ -256,7 +259,7 @@ func TestFileStoreAdmissionAllowsConcurrentReads(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		store.ListSessions()
+		mustListSessions(t, store)
 		close(done)
 	}()
 	awaitFileAdmission(t, done, "concurrent read")

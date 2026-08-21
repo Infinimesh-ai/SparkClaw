@@ -22,6 +22,10 @@ import (
 type PostgresStore struct {
 	db                                *pgxpool.Pool
 	operationTimeouts                 OperationTimeouts
+	sessionPostgres                   ownerPostgresOps
+	sessionCommandGate                *semaphore.Weighted
+	sessionWriteHighWater             map[string]time.Time
+	sessionNow                        func() time.Time
 	onboardingPostgres                onboardingPostgresOps
 	ownerPostgres                     ownerPostgresOps
 	clientPostgres                    ownerPostgresOps
@@ -90,6 +94,10 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 	}
 	st := &PostgresStore{
 		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
+		sessionPostgres:                   pgxOwnerPostgresOps{pool: pool},
+		sessionCommandGate:                semaphore.NewWeighted(1),
+		sessionWriteHighWater:             map[string]time.Time{},
+		sessionNow:                        time.Now,
 		onboardingPostgres:                pgxOnboardingPostgresOps{pool: pool},
 		ownerPostgres:                     pgxOwnerPostgresOps{pool: pool},
 		clientPostgres:                    pgxOwnerPostgresOps{pool: pool},
@@ -111,6 +119,10 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		passiveNotificationRevs:           map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.validateSessionState(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -177,8 +189,8 @@ func (s *PostgresStore) normalizeMCPBindingSessions(ctx context.Context) error {
 		if strings.TrimSpace(binding.LinkedSessionID) == "" {
 			continue
 		}
-		createdAt := firstNonZeroTime(binding.CreatedAt, time.Now().UTC())
-		updatedAt := firstNonZeroTime(binding.UpdatedAt, createdAt)
+		createdAt := normalizeSessionTime(firstNonZeroTime(binding.CreatedAt, time.Now().UTC()))
+		updatedAt := normalizeSessionTime(firstNonZeroTime(binding.UpdatedAt, createdAt))
 		if _, err := s.db.Exec(ctx, `
 			INSERT INTO sessions (id, owner_id, title, source, hidden, created_at, updated_at)
 			VALUES ($1, $2, $3, 'mcp', false, $4, $5)
@@ -188,124 +200,6 @@ func (s *PostgresStore) normalizeMCPBindingSessions(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (s *PostgresStore) CreateSession(title string) app.Session {
-	return s.CreateSessionWithScope(title, app.DefaultOwnerID, "", "webchat", false)
-}
-
-func (s *PostgresStore) CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session {
-	now := time.Now().UTC()
-	if title == "" {
-		title = "New SparkClaw Session"
-	}
-	if strings.TrimSpace(ownerID) == "" {
-		ownerID = app.DefaultOwnerID
-	}
-	if strings.TrimSpace(source) == "" {
-		source = "webchat"
-	}
-	session := app.Session{ID: app.NewID("s"), OwnerID: ownerID, WorkspaceRoot: strings.TrimSpace(workspaceRoot), Title: title, Source: source, Hidden: hidden, CreatedAt: now, UpdatedAt: now}
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO sessions (id, owner_id, workspace_root, title, source, hidden, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, session.ID, session.OwnerID, session.WorkspaceRoot, session.Title, session.Source, session.Hidden, session.CreatedAt, session.UpdatedAt)
-	s.appendAudit(ctx, "session.created", session.ID, "", "system", "Session created", map[string]any{"title": title, "owner_id": ownerID})
-	s.appendEvent(ctx, "session.created", session.ID, "", session)
-	return session
-}
-
-func (s *PostgresStore) ListSessions() []app.Session {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
-		FROM sessions
-		WHERE hidden = false
-		ORDER BY updated_at DESC
-	`)
-	if err != nil {
-		return []app.Session{}
-	}
-	defer rows.Close()
-	return collectRows(rows, scanSession)
-}
-
-func (s *PostgresStore) GetSession(id string) (app.Session, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
-		FROM sessions
-		WHERE id = $1
-	`, id)
-	session, err := scanSession(row)
-	return session, err == nil
-}
-
-func (s *PostgresStore) UpdateSessionTitle(id, title string) (app.Session, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return app.Session{}, errors.New("session title is required")
-	}
-	now := time.Now().UTC()
-	ctx := context.Background()
-	row := s.db.QueryRow(ctx, `
-		UPDATE sessions
-		SET title = $2, updated_at = $3
-		WHERE id = $1
-		RETURNING id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
-	`, id, title, now)
-	session, err := scanSession(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.Session{}, errors.New("session not found")
-		}
-		return app.Session{}, err
-	}
-	s.appendAudit(ctx, "session.updated", id, "", "owner", "Session renamed", map[string]any{"title": title})
-	s.appendEvent(ctx, "session.updated", id, "", session)
-	return session, nil
-}
-
-func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
-	session, ok := s.GetSession(id)
-	if !ok {
-		return app.Session{}, errors.New("session not found")
-	}
-	ctx := context.Background()
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return app.Session{}, err
-	}
-	defer tx.Rollback(ctx)
-	deleteStatements := []string{
-		`DELETE FROM run_feedback WHERE session_id = $1`,
-		`DELETE FROM approvals WHERE session_id = $1`,
-		`DELETE FROM document_records WHERE session_id = $1`,
-		`DELETE FROM memory_candidates WHERE session_id = $1`,
-		`DELETE FROM memories WHERE source_run_id IN (SELECT id FROM agent_runs WHERE session_id = $1)`,
-		`DELETE FROM episode_summaries WHERE session_id = $1`,
-		`DELETE FROM artifact_objects WHERE session_id = $1`,
-		`DELETE FROM external_chat_messages WHERE chat_session_id IN (SELECT id FROM external_chat_sessions WHERE linked_session_id = $1)`,
-		`DELETE FROM external_chat_sessions WHERE linked_session_id = $1`,
-		`DELETE FROM browser_login_blocks WHERE session_id = $1`,
-		`DELETE FROM tool_calls WHERE session_id = $1`,
-		`DELETE FROM model_calls WHERE session_id = $1`,
-		`DELETE FROM messages WHERE session_id = $1`,
-		`DELETE FROM agent_runs WHERE session_id = $1`,
-		`DELETE FROM audit_events WHERE session_id = $1`,
-		`DELETE FROM events WHERE session_id = $1`,
-		`DELETE FROM sessions WHERE id = $1`,
-	}
-	for _, statement := range deleteStatements {
-		if _, err := tx.Exec(ctx, statement, id); err != nil {
-			return app.Session{}, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.Session{}, err
-	}
-	s.appendAudit(ctx, "session.deleted", "", "", "owner", "Session deleted", map[string]any{"session_id": id, "title": session.Title})
-	s.appendEvent(ctx, "session.deleted", "", "", session)
-	return session, nil
 }
 
 func (s *PostgresStore) seedDefaultOwner(ctx context.Context) error {
@@ -585,11 +479,12 @@ func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 		if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
 			session.Title = deriveTitle(message.Content)
 		}
+		session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt)
 		if _, err := tx.Exec(ctx, `
 			UPDATE sessions
 			SET title = $2, updated_at = $3
 			WHERE id = $1
-		`, session.ID, session.Title, message.CreatedAt); err != nil {
+		`, session.ID, session.Title, session.UpdatedAt); err != nil {
 			return message
 		}
 	}
@@ -1622,6 +1517,7 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 		session.LinkedSessionID, session.Status, session.ProviderCursor, session.LastContextToken,
 		session.CreatedAt, session.UpdatedAt)
 	if strings.TrimSpace(session.LinkedSessionID) != "" {
+		sessionUpdatedAt := normalizeSessionTime(now)
 		_, _ = s.db.Exec(context.Background(), `
 			UPDATE sessions
 			SET source = $5,
@@ -1631,7 +1527,7 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 			    title = CASE WHEN title = '' OR title = 'New SparkClaw Session' OR title = '微信会话' THEN $6 ELSE title END,
 			    updated_at = $2
 			WHERE id = $1
-		`, session.LinkedSessionID, now, session.OwnerID, session.WorkspaceRoot, session.Channel, externalChatSessionTitle(session.Channel))
+		`, session.LinkedSessionID, sessionUpdatedAt, session.OwnerID, session.WorkspaceRoot, session.Channel, externalChatSessionTitle(session.Channel))
 	}
 	s.appendAudit(context.Background(), "external_chat_session."+session.Status, session.LinkedSessionID, "", "gateway", redactPostgresExternalID(session.ExternalUserID), map[string]any{
 		"chat_session_id": session.ID,

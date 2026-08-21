@@ -413,7 +413,7 @@ func TestFileOnboardingDirectoryFailuresFenceAndReconcile(t *testing.T) {
 	}
 }
 
-func TestFileOnboardingFenceBlocksPrequeuedLegacyWaiters(t *testing.T) {
+func TestFileOnboardingFenceReconcilesPrequeuedMigratedWaiters(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := NewFileStore(path)
 	if err != nil {
@@ -433,28 +433,35 @@ func TestFileOnboardingFenceBlocksPrequeuedLegacyWaiters(t *testing.T) {
 	<-controlled.dirSyncEntered
 
 	readDone := make(chan struct{})
+	readErr := make(chan error, 1)
 	go func() {
-		store.GetSession("missing")
+		_, _, err := store.GetSession(context.Background(), "missing")
+		readErr <- err
 		close(readDone)
 	}()
 	commandDone := make(chan struct{})
+	commandErr := make(chan error, 1)
 	go func() {
-		store.CreateSession("queued session")
+		_, err := store.CreateSession(context.Background(), "queued session")
+		commandErr <- err
 		close(commandDone)
 	}()
 	close(controlled.dirSyncRelease)
 	if err := <-saveDone; StoreErrorCodeOf(err) != StoreErrorUnknownOutcome {
 		t.Fatalf("directory sync result = %v code=%q", err, StoreErrorCodeOf(err))
 	}
-	assertFileAdmissionBlocked(t, readDone, "prequeued legacy read")
-	assertFileAdmissionBlocked(t, commandDone, "prequeued legacy command")
-
 	got, found, err := store.GetISCPOnboarding(context.Background(), receipt.ID)
 	if err != nil || !found || got.ID != receipt.ID {
 		t.Fatalf("fence reconciliation = %#v found=%v err=%v", got, found, err)
 	}
-	awaitFileAdmission(t, readDone, "prequeued legacy read")
-	awaitFileAdmission(t, commandDone, "prequeued legacy command")
+	awaitFileAdmission(t, readDone, "prequeued migrated read")
+	awaitFileAdmission(t, commandDone, "prequeued migrated command")
+	if err := <-readErr; err != nil {
+		t.Fatalf("prequeued migrated read: %v", err)
+	}
+	if err := <-commandErr; err != nil {
+		t.Fatalf("prequeued migrated command: %v", err)
+	}
 }
 
 func TestFileOnboardingFenceRestoresPreviousDestination(t *testing.T) {

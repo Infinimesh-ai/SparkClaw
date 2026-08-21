@@ -28,6 +28,12 @@ const (
 	OperationISCPOnboardingSave          StoreOperation = "iscp_onboarding.save"
 	OperationISCPOnboardingGet           StoreOperation = "iscp_onboarding.get"
 	OperationISCPOnboardingList          StoreOperation = "iscp_onboarding.list"
+	OperationSessionCreate               StoreOperation = "session.create"
+	OperationSessionCreateWithScope      StoreOperation = "session.create_with_scope"
+	OperationSessionList                 StoreOperation = "session.list"
+	OperationSessionGet                  StoreOperation = "session.get"
+	OperationSessionUpdateTitle          StoreOperation = "session.update_title"
+	OperationSessionDelete               StoreOperation = "session.delete"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -130,6 +136,30 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationISCPOnboardingList: {
 		ID: OperationISCPOnboardingList, Repository: "ISCPOnboardingRepository",
 		Method: "ListISCPOnboardings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationSessionCreate: {
+		ID: OperationSessionCreate, Repository: "SessionRepository",
+		Method: "CreateSession", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationSessionCreateWithScope: {
+		ID: OperationSessionCreateWithScope, Repository: "SessionRepository",
+		Method: "CreateSessionWithScope", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationSessionList: {
+		ID: OperationSessionList, Repository: "SessionRepository",
+		Method: "ListSessions", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationSessionGet: {
+		ID: OperationSessionGet, Repository: "SessionRepository",
+		Method: "GetSession", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationSessionUpdateTitle: {
+		ID: OperationSessionUpdateTitle, Repository: "SessionRepository",
+		Method: "UpdateSessionTitle", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationSessionDelete: {
+		ID: OperationSessionDelete, Repository: "SessionRepository",
+		Method: "DeleteSession", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

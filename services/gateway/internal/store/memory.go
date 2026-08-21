@@ -16,6 +16,8 @@ type MemoryStore struct {
 	mu                                sync.RWMutex
 	operationTimeouts                 OperationTimeouts
 	sessions                          map[string]app.Session
+	sessionWriteHighWater             map[string]time.Time
+	sessionNow                        func() time.Time
 	clients                           map[string]app.Client
 	clientWriteHighWater              map[string]time.Time
 	pairingWriteHighWater             map[string]time.Time
@@ -82,6 +84,8 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 	return &MemoryStore{
 		operationTimeouts:                 normalizeOperationTimeouts(timeouts),
 		sessions:                          map[string]app.Session{},
+		sessionWriteHighWater:             map[string]time.Time{},
+		sessionNow:                        time.Now,
 		clients:                           map[string]app.Client{},
 		clientWriteHighWater:              map[string]time.Time{},
 		pairingWriteHighWater:             map[string]time.Time{},
@@ -180,6 +184,21 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions = ensureMap(snapshot.Sessions)
+	if s.sessionWriteHighWater == nil {
+		s.sessionWriteHighWater = map[string]time.Time{}
+	}
+	for id, session := range s.sessions {
+		if strings.TrimSpace(session.OwnerID) == "" {
+			session.OwnerID = app.DefaultOwnerID
+		}
+		if strings.TrimSpace(session.Source) == "" {
+			session.Source = "webchat"
+		}
+		s.sessions[id] = session
+		if session.UpdatedAt.After(s.sessionWriteHighWater[id]) {
+			s.sessionWriteHighWater[id] = session.UpdatedAt
+		}
+	}
 	s.clients = cloneClientMap(ensureMap(snapshot.Clients))
 	if s.clientWriteHighWater == nil {
 		s.clientWriteHighWater = map[string]time.Time{}
@@ -347,41 +366,41 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.hideLinkedExternalChatSessionsLocked()
 }
 
-func (s *MemoryStore) CreateSession(title string) app.Session {
-	return s.CreateSessionWithScope(title, app.DefaultOwnerID, "", "webchat", false)
+func (s *MemoryStore) CreateSession(ctx context.Context, title string) (app.Session, error) {
+	return s.createSession(ctx, OperationSessionCreate, title, app.DefaultOwnerID, "", "webchat", false)
 }
 
-func (s *MemoryStore) CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session {
+func (s *MemoryStore) CreateSessionWithScope(ctx context.Context, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
+	return s.createSession(ctx, OperationSessionCreateWithScope, title, ownerID, workspaceRoot, source, hidden)
+}
+
+func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperation, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.Session{}, err
+	}
+	session, err := prepareSession(title, ownerID, workspaceRoot, source, hidden, s.sessionNow())
+	if err != nil {
+		return app.Session{}, storeError(operation, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if title == "" {
-		title = "New SparkClaw Session"
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.Session{}, err
 	}
-	if strings.TrimSpace(ownerID) == "" {
-		ownerID = app.DefaultOwnerID
+	if _, exists := s.sessions[session.ID]; exists {
+		return app.Session{}, storeError(operation, StoreErrorConflict, errors.New("session ID already exists"))
 	}
-	if strings.TrimSpace(source) == "" {
-		source = "webchat"
-	}
-	session := app.Session{
-		ID:            app.NewID("s"),
-		OwnerID:       ownerID,
-		WorkspaceRoot: strings.TrimSpace(workspaceRoot),
-		Title:         title,
-		Source:        source,
-		Hidden:        hidden,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
+	s.sessionWriteHighWater[session.ID] = session.UpdatedAt
 	s.sessions[session.ID] = session
-	s.appendAuditLocked("session.created", session.ID, "", "system", "Session created", map[string]any{"title": title, "owner_id": ownerID})
+	s.appendAuditLocked("session.created", session.ID, "", "system", "Session created", map[string]any{"title": session.Title, "owner_id": session.OwnerID})
 	s.appendEventLocked("session.created", session.ID, "", session)
-	return session
+	return session, nil
 }
 
 func (s *MemoryStore) hideLinkedExternalChatSessionsLocked() {
-	now := time.Now().UTC()
+	now := normalizeSessionTime(s.sessionNow())
 	for _, chatSession := range s.externalChatSessions {
 		if linked, ok := s.sessions[chatSession.LinkedSessionID]; ok {
 			linked.Source = chatSession.Channel
@@ -398,13 +417,19 @@ func (s *MemoryStore) hideLinkedExternalChatSessionsLocked() {
 			if linked.UpdatedAt.IsZero() {
 				linked.UpdatedAt = now
 			}
+			linked.CreatedAt = normalizeSessionTime(linked.CreatedAt)
+			linked.UpdatedAt = normalizeSessionTime(linked.UpdatedAt)
+			if linked.UpdatedAt.Before(linked.CreatedAt) {
+				linked.UpdatedAt = linked.CreatedAt
+			}
+			s.sessionWriteHighWater[linked.ID] = linked.UpdatedAt
 			s.sessions[linked.ID] = linked
 		}
 	}
 }
 
 func (s *MemoryStore) normalizeLinkedMCPSessionsLocked() {
-	now := time.Now().UTC()
+	now := normalizeSessionTime(s.sessionNow())
 	for _, binding := range s.mcpBindings {
 		if strings.TrimSpace(binding.LinkedSessionID) == "" {
 			continue
@@ -421,6 +446,12 @@ func (s *MemoryStore) normalizeLinkedMCPSessionsLocked() {
 		if linked.UpdatedAt.IsZero() {
 			linked.UpdatedAt = firstNonZeroTime(binding.UpdatedAt, linked.CreatedAt)
 		}
+		linked.CreatedAt = normalizeSessionTime(linked.CreatedAt)
+		linked.UpdatedAt = normalizeSessionTime(linked.UpdatedAt)
+		if linked.UpdatedAt.Before(linked.CreatedAt) {
+			linked.UpdatedAt = linked.CreatedAt
+		}
+		s.sessionWriteHighWater[linked.ID] = linked.UpdatedAt
 		s.sessions[linked.ID] = linked
 	}
 }
@@ -434,54 +465,117 @@ func firstNonZeroTime(values ...time.Time) time.Time {
 	return time.Time{}
 }
 
-func (s *MemoryStore) ListSessions() []app.Session {
+func (s *MemoryStore) ListSessions(ctx context.Context) ([]app.Session, error) {
+	ctx, cancel := operationContext(ctx, OperationSessionList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationSessionList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationSessionList, ctx); err != nil {
+		return nil, err
+	}
 	out := make([]app.Session, 0, len(s.sessions))
-	for _, session := range s.sessions {
+	for id, session := range s.sessions {
+		if err := validatePersistedSession(id, session); err != nil {
+			return nil, storeError(OperationSessionList, StoreErrorCorrupt, err)
+		}
 		if session.Hidden {
 			continue
 		}
 		out = append(out, session)
 	}
 	slices.SortFunc(out, func(a, b app.Session) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
+		if byUpdated := b.UpdatedAt.Compare(a.UpdatedAt); byUpdated != 0 {
+			return byUpdated
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) GetSession(id string) (app.Session, bool) {
+func (s *MemoryStore) GetSession(ctx context.Context, id string) (app.Session, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationSessionGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationSessionGet, ctx); err != nil {
+		return app.Session{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationSessionGet, ctx); err != nil {
+		return app.Session{}, false, err
+	}
 	session, ok := s.sessions[id]
-	return session, ok
+	if !ok {
+		return app.Session{}, false, nil
+	}
+	if err := validatePersistedSession(id, session); err != nil {
+		return app.Session{}, false, storeError(OperationSessionGet, StoreErrorCorrupt, err)
+	}
+	return session, true, nil
 }
 
-func (s *MemoryStore) UpdateSessionTitle(id, title string) (app.Session, error) {
+func (s *MemoryStore) UpdateSessionTitle(ctx context.Context, id, title string) (app.Session, error) {
+	ctx, cancel := operationContext(ctx, OperationSessionUpdateTitle, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationSessionUpdateTitle, ctx); err != nil {
+		return app.Session{}, err
+	}
+	if strings.TrimSpace(id) == "" {
+		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session ID is required"))
+	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return app.Session{}, errors.New("session title is required")
+		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session title is required"))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationSessionUpdateTitle, ctx); err != nil {
+		return app.Session{}, err
+	}
 	session, ok := s.sessions[id]
 	if !ok {
-		return app.Session{}, errors.New("session not found")
+		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorNotFound, errors.New("session not found"))
+	}
+	if err := validatePersistedSession(id, session); err != nil {
+		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorCorrupt, err)
+	}
+	if strings.TrimSpace(session.Source) == "mcp" {
+		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorConflict, errors.New("MCP session title is binding-owned"))
 	}
 	session.Title = title
-	session.UpdatedAt = time.Now().UTC()
+	session.UpdatedAt = nextSessionTime(s.sessionNow(), session.UpdatedAt, s.sessionWriteHighWater[id])
+	s.sessionWriteHighWater[id] = session.UpdatedAt
 	s.sessions[id] = session
 	s.appendAuditLocked("session.updated", id, "", "owner", "Session renamed", map[string]any{"title": title})
 	s.appendEventLocked("session.updated", id, "", session)
 	return session, nil
 }
 
-func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
+func (s *MemoryStore) DeleteSession(ctx context.Context, id string) (app.Session, error) {
+	ctx, cancel := operationContext(ctx, OperationSessionDelete, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationSessionDelete, ctx); err != nil {
+		return app.Session{}, err
+	}
+	if strings.TrimSpace(id) == "" {
+		return app.Session{}, storeError(OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationSessionDelete, ctx); err != nil {
+		return app.Session{}, err
+	}
 	session, ok := s.sessions[id]
 	if !ok {
-		return app.Session{}, errors.New("session not found")
+		return app.Session{}, storeError(OperationSessionDelete, StoreErrorNotFound, errors.New("session not found"))
+	}
+	if err := validatePersistedSession(id, session); err != nil {
+		return app.Session{}, storeError(OperationSessionDelete, StoreErrorCorrupt, err)
+	}
+	if strings.TrimSpace(session.Source) == "mcp" {
+		return app.Session{}, storeError(OperationSessionDelete, StoreErrorConflict, errors.New("MCP session history is binding-owned"))
 	}
 	runIDs := map[string]bool{}
 	for runID, run := range s.runs {
@@ -976,7 +1070,8 @@ func (s *MemoryStore) AddMessage(message app.Message) app.Message {
 	}
 	s.messages[message.SessionID] = append(s.messages[message.SessionID], message)
 	if session, ok := s.sessions[message.SessionID]; ok {
-		session.UpdatedAt = message.CreatedAt
+		session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt, s.sessionWriteHighWater[session.ID])
+		s.sessionWriteHighWater[session.ID] = session.UpdatedAt
 		if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
 			session.Title = deriveTitle(message.Content)
 		}
@@ -1773,7 +1868,8 @@ func (s *MemoryStore) SaveExternalChatSession(session app.ExternalChatSession) a
 		if strings.TrimSpace(session.WorkspaceRoot) != "" {
 			linked.WorkspaceRoot = session.WorkspaceRoot
 		}
-		linked.UpdatedAt = now
+		linked.UpdatedAt = nextSessionTime(now, linked.UpdatedAt, s.sessionWriteHighWater[linked.ID])
+		s.sessionWriteHighWater[linked.ID] = linked.UpdatedAt
 		if linked.Title == "" || linked.Title == "New SparkClaw Session" || linked.Title == "微信会话" {
 			linked.Title = externalChatSessionTitle(session.Channel)
 		}

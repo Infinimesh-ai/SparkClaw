@@ -169,6 +169,18 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationEvaluationList, Repository: "EvaluationRepository",
 			Method: "ListEvalRuns", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationArtifactMetadataSave: {
+			ID: OperationArtifactMetadataSave, Repository: "ArtifactMetadataRepository",
+			Method: "SaveArtifactObject", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationArtifactMetadataList: {
+			ID: OperationArtifactMetadataList, Repository: "ArtifactMetadataRepository",
+			Method: "ListArtifactObjects", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationArtifactMetadataFindByURI: {
+			ID: OperationArtifactMetadataFindByURI, Repository: "ArtifactMetadataRepository",
+			Method: "FindArtifactObjectByURI", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationOwnerProfileGet: {
 			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
 			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,

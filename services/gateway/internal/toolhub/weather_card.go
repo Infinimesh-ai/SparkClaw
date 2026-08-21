@@ -130,7 +130,11 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 		CreatedAt:   now,
 	}
 	if h.store != nil {
-		h.store.SaveArtifactObject(object)
+		stored, err := h.store.SaveArtifactObject(ctx, object)
+		if err != nil {
+			return Result{}, fmt.Errorf("save weather artifact metadata: %w", err)
+		}
+		object = stored
 	}
 	return Result{Output: map[string]any{
 		"status":       "completed",

@@ -826,8 +826,11 @@ func (h *ToolHub) archiveBrowserSnapshot(ctx context.Context, parsed *url.URL, c
 		Bytes:       object.Bytes,
 		CreatedAt:   time.Now().UTC(),
 	}
-	h.store.SaveArtifactObject(artifactObject)
-	return &artifactObject, nil
+	stored, err := h.store.SaveArtifactObject(ctx, artifactObject)
+	if err != nil {
+		return nil, fmt.Errorf("save browser snapshot metadata: %w", err)
+	}
+	return &stored, nil
 }
 
 func shortBrowserSnapshotHash(raw []byte) string {

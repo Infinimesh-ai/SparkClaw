@@ -2363,7 +2363,12 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 		Bytes:       object.Bytes,
 		CreatedAt:   now,
 	}
-	s.store.SaveArtifactObject(artifactObject)
+	stored, err := s.store.SaveArtifactObject(r.Context(), artifactObject)
+	if err != nil {
+		writeArtifactMetadataStoreError(w, err)
+		return
+	}
+	artifactObject = stored
 	s.addAudit(r.Context(), app.AuditEvent{
 		Type:    "memory.exported",
 		Actor:   "owner",
@@ -2604,7 +2609,12 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerID := queryOwnerID(r)
 	objects := []app.ArtifactObject{}
-	for _, object := range s.store.ListArtifactObjects(0) {
+	storedObjects, err := s.store.ListArtifactObjects(r.Context(), 0)
+	if err != nil {
+		writeArtifactMetadataStoreError(w, err)
+		return
+	}
+	for _, object := range storedObjects {
 		visible, err := s.artifactVisibleToOwner(r.Context(), object, ownerID)
 		if err != nil {
 			writeSessionStoreError(w, err)
@@ -2618,6 +2628,17 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"artifacts": objects})
+}
+
+func writeArtifactMetadataStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("artifact metadata request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("artifact metadata operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("artifact metadata service is unavailable"))
+	}
 }
 
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
@@ -2705,7 +2726,12 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		Bytes:       int(bytesWritten),
 		CreatedAt:   now,
 	}
-	s.store.SaveArtifactObject(object)
+	stored, err := s.store.SaveArtifactObject(r.Context(), object)
+	if err != nil {
+		writeArtifactMetadataStoreError(w, err)
+		return
+	}
+	object = stored
 	s.addAudit(r.Context(), app.AuditEvent{
 		SessionID: sessionID,
 		Actor:     "owner",
@@ -3025,7 +3051,7 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 	}
 	object, _ := s.traces.WriteRunObject(ctx, current)
 	if object != nil {
-		s.store.SaveArtifactObject(app.ArtifactObject{
+		if _, err := s.store.SaveArtifactObject(ctx, app.ArtifactObject{
 			ID:          app.NewID("obj"),
 			Kind:        "trace",
 			RunID:       run.ID,
@@ -3038,7 +3064,9 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 			ContentType: object.ContentType,
 			Bytes:       object.Bytes,
 			CreatedAt:   time.Now().UTC(),
-		})
+		}); err != nil {
+			slog.Warn("trace artifact metadata unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		}
 	}
 }
 

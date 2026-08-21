@@ -669,12 +669,12 @@ func characterizeS0ArtifactMetadataRepository(t *testing.T, st Store, dimension 
 	switch dimension {
 	case s0DimensionSuccess:
 		object := app.ArtifactObject{ID: "artifact-s0", URI: "artifact://s0", Key: "s0", CreatedAt: time.Now().UTC()}
-		st.SaveArtifactObject(object)
-		if got, ok := st.FindArtifactObjectByURI(object.URI, "", ""); !ok || got.ID != object.ID {
+		mustSaveArtifactObject(t, st, object)
+		if got, ok := mustFindArtifactObjectByURI(t, st, object.URI, "", ""); !ok || got.ID != object.ID {
 			t.Fatalf("artifact save/lookup = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.FindArtifactObjectByURI("artifact://missing", "", ""); ok {
+		if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://missing", "", ""); ok {
 			t.Fatal("missing artifact was found")
 		}
 	default:

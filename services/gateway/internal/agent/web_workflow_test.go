@@ -892,14 +892,14 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		t.Fatalf("unexpected document output part: %#v", filePart)
 	}
 	foundArtifact := false
-	for _, object := range st.ListArtifactObjects(0) {
+	for _, object := range storetest.MustListArtifactObjects(t, st, 0) {
 		if object.ID == filePart.ArtifactID && object.RunID == dispatch.Run.ID && object.SessionID == session.ID && object.Kind == "workflow_output" {
 			foundArtifact = true
 			break
 		}
 	}
 	if !foundArtifact {
-		t.Fatalf("document output was not registered as a governed artifact: %#v", st.ListArtifactObjects(0))
+		t.Fatalf("document output was not registered as a governed artifact: %#v", storetest.MustListArtifactObjects(t, st, 0))
 	}
 	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "Modified file: note-sparkclaw-edit.docx"}, result)
 	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "note-sparkclaw-edit.docx" ||

@@ -588,7 +588,7 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 		CDNBaseURL: ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveArtifactObject(app.ArtifactObject{
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_weather",
 		Kind:        "media_weather_card",
 		Backend:     "workspace",

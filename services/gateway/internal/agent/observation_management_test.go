@@ -138,7 +138,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 			t.Fatal("archive projection was not persisted")
 		}
 		var object app.ArtifactObject
-		for _, candidate := range st.ListArtifactObjects(0) {
+		for _, candidate := range storetest.MustListArtifactObjects(t, st, 0) {
 			if candidate.URI == call.ObservationRef {
 				object = candidate
 				break

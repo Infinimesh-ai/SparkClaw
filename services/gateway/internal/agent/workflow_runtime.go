@@ -987,7 +987,11 @@ func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, ca
 	materialized := append([]app.ToolCall(nil), calls...)
 	archivedBytesByCall := map[string]int{}
 	artifactBytesByURI := map[string]int{}
-	for _, object := range r.store.ListArtifactObjects(0) {
+	objects, err := r.store.ListArtifactObjects(ctx, 0)
+	if err != nil {
+		return workflowFinalEvidenceProjection{}, fmt.Errorf("workflow finalization artifact metadata is unavailable: %w", err)
+	}
+	for _, object := range objects {
 		if object.SessionID == run.SessionID && object.RunID == run.ID {
 			artifactBytesByURI[object.URI] = object.Bytes
 		}

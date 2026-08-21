@@ -155,7 +155,7 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	if messages := storetest.MustListMessages(t, st, session.ID); len(messages) != 0 {
 		t.Fatalf("speech transcription must not create messages: %#v", messages)
 	}
-	if artifacts := st.ListArtifactObjects(0); len(artifacts) != 0 {
+	if artifacts := storetest.MustListArtifactObjects(t, st, 0); len(artifacts) != 0 {
 		t.Fatalf("speech transcription must not create artifacts: %#v", artifacts)
 	}
 	if runs := testListRuns(st, session.ID); len(runs) != 0 {

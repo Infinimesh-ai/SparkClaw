@@ -603,10 +603,10 @@ func TestMemoryStoreListsArtifactObjectsNewestFirst(t *testing.T) {
 	newer.Key = "traces/run_new.json"
 	newer.URI = "artifact://sparkclaw/traces/run_new.json"
 	newer.CreatedAt = time.Now().UTC()
-	st.SaveArtifactObject(older)
-	st.SaveArtifactObject(newer)
+	mustSaveArtifactObject(t, st, older)
+	mustSaveArtifactObject(t, st, newer)
 
-	objects := st.ListArtifactObjects(1)
+	objects := mustListArtifactObjects(t, st, 1)
 	if len(objects) != 1 || objects[0].ID != "obj_new" {
 		t.Fatalf("artifact objects did not list newest first: %#v", objects)
 	}
@@ -636,39 +636,39 @@ func TestMemoryStoreFindsArtifactObjectByURI(t *testing.T) {
 	newer.ID = "obj_b"
 	newer.RunID = "run_b"
 	newer.CreatedAt = time.Now().UTC()
-	st.SaveArtifactObject(older)
-	st.SaveArtifactObject(newer)
+	mustSaveArtifactObject(t, st, older)
+	mustSaveArtifactObject(t, st, newer)
 
-	if object, ok := st.FindArtifactObjectByURI(uri, session.ID, "run_a"); !ok || object.ID != "obj_a" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, "run_a"); !ok || object.ID != "obj_a" {
 		t.Fatalf("run-scoped artifact lookup failed: %#v ok=%v", object, ok)
 	}
-	if object, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); !ok || object.ID != "obj_b" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, ""); !ok || object.ID != "obj_b" {
 		t.Fatalf("session-scoped lookup did not pick the newest object: %#v ok=%v", object, ok)
 	}
-	if _, ok := st.FindArtifactObjectByURI(uri, "s_other", ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, uri, "s_other", ""); ok {
 		t.Fatal("artifact lookup crossed the session boundary")
 	}
-	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", session.ID, ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/missing.json", session.ID, ""); ok {
 		t.Fatal("missing URI lookup returned an object")
 	}
 
 	moved := newer
 	moved.URI = "artifact://sparkclaw/observations/run_b/tc_1.json"
-	st.SaveArtifactObject(moved)
-	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, "run_b"); ok {
+	mustSaveArtifactObject(t, st, moved)
+	if _, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, "run_b"); ok {
 		t.Fatal("stale URI index entry survived a re-save under a new URI")
 	}
-	if object, ok := st.FindArtifactObjectByURI(moved.URI, session.ID, "run_b"); !ok || object.ID != "obj_b" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, moved.URI, session.ID, "run_b"); !ok || object.ID != "obj_b" {
 		t.Fatalf("re-saved artifact lookup failed: %#v ok=%v", object, ok)
 	}
 
 	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, ""); ok {
 		t.Fatal("artifact lookup survived session deletion")
 	}
-	if _, ok := st.FindArtifactObjectByURI(moved.URI, "", ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, moved.URI, "", ""); ok {
 		t.Fatal("URI index entry survived session deletion")
 	}
 }

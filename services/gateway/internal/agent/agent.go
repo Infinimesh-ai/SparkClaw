@@ -916,7 +916,7 @@ func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrou
 			Episode:    episode,
 		})
 		if object != nil {
-			r.store.SaveArtifactObject(app.ArtifactObject{
+			if _, err := r.store.SaveArtifactObject(ctx, app.ArtifactObject{
 				ID:          app.NewID("obj"),
 				Kind:        "trace",
 				RunID:       run.ID,
@@ -929,7 +929,9 @@ func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrou
 				ContentType: object.ContentType,
 				Bytes:       object.Bytes,
 				CreatedAt:   time.Now().UTC(),
-			})
+			}); err != nil {
+				slog.Warn("agent trace artifact metadata unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+			}
 		}
 	}
 }

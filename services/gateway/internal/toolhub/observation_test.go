@@ -147,7 +147,7 @@ func TestObservationReadReportsBinaryContentWithNextOffset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID: "obj_bin", Kind: "tool_observation", RunID: "run_bin", SessionID: session.ID,
 		Backend: object.Backend, Bucket: object.Bucket, Key: object.Key, URI: object.URI,
 		Path: object.Path, ContentType: object.ContentType, Bytes: object.Bytes,

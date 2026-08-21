@@ -164,7 +164,7 @@ func TestDeliveryAPIRejectsCrossOwnerArtifactBeforeProvider(t *testing.T) {
 	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{ID: "obj-other", SessionID: other.ID, Path: path, Key: "private.txt", Bytes: 7})
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: "obj-other", SessionID: other.ID, Path: path, Key: "private.txt", Bytes: 7})
 	resp := postJSON(t, ts.URL+"/api/deliveries", map[string]any{
 		"target": endpointID, "idempotency_key": "web-key-cross", "confirmed": true,
 		"content": map[string]any{"parts": []map[string]any{{"id": "file", "kind": "file", "disposition": "attachment", "artifact_id": "obj-other"}}},
@@ -219,7 +219,7 @@ func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *stor
 		if err := os.WriteFile(path, raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		st.SaveArtifactObject(app.ArtifactObject{ID: artifactIDs[index], SessionID: session.ID, Path: path, Key: file.name, ContentType: file.contentType, Bytes: len(raw)})
+		storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: artifactIDs[index], SessionID: session.ID, Path: path, Key: file.name, ContentType: file.contentType, Bytes: len(raw)})
 	}
 	provider := &gatewayDeliveryProvider{key: "testchat", partialOn: partialOn}
 	providers := delivery.NewProviderRegistry()

@@ -309,7 +309,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if len(evalRuns) != 1 || evalRuns[0].ID != "eval_pg" || len(evalRuns[0].FailureArchives) != 1 {
 		t.Fatalf("eval runs did not list: %#v", evalRuns)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{
+	mustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_pg",
 		Kind:        "eval_failure",
 		EvalID:      "eval_pg",
@@ -321,16 +321,16 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Bytes:       128,
 		CreatedAt:   time.Now().UTC(),
 	})
-	if objects := st.ListArtifactObjects(10); len(objects) != 1 || objects[0].ID != "obj_pg" || objects[0].EvalID != "eval_pg" {
+	if objects := mustListArtifactObjects(t, st, 10); len(objects) != 1 || objects[0].ID != "obj_pg" || objects[0].EvalID != "eval_pg" {
 		t.Fatalf("artifact object did not round trip: %#v", objects)
 	}
-	if object, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", "", ""); !ok || object.ID != "obj_pg" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", "", ""); !ok || object.ID != "obj_pg" {
 		t.Fatalf("artifact lookup by URI failed: %#v ok=%v", object, ok)
 	}
-	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", session.ID, ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", session.ID, ""); ok {
 		t.Fatal("artifact lookup matched a session it does not belong to")
 	}
-	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", "", ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/missing.json", "", ""); ok {
 		t.Fatal("missing URI lookup returned an object")
 	}
 	testSaveEpisodeSummary(st, app.EpisodeSummary{

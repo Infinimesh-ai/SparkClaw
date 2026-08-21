@@ -122,8 +122,14 @@ func (p *Provider) callToolResult(ctx context.Context, endpoint app.MessageEndpo
 	parts := make([]map[string]any, 0, len(prepared))
 	for index, item := range prepared {
 		part := item.Part
-		if part.Kind != app.MessagePartText && !p.resourceBelongsToLinkedSession(endpoint.SessionID, part) {
-			return CallToolResult{}, delivery.NewError(delivery.CodeCrossUserDenied, fmt.Sprintf("MCP result part %q is outside the linked conversation", part.ID), "blocked")
+		if part.Kind != app.MessagePartText {
+			belongs, err := p.resourceBelongsToLinkedSession(ctx, endpoint.SessionID, part)
+			if err != nil {
+				return CallToolResult{}, delivery.NewError(delivery.CodeProviderRetryable, "MCP result artifact metadata is unavailable", "retryable")
+			}
+			if !belongs {
+				return CallToolResult{}, delivery.NewError(delivery.CodeCrossUserDenied, fmt.Sprintf("MCP result part %q is outside the linked conversation", part.ID), "blocked")
+			}
 		}
 		if strings.TrimSpace(part.ContentType) == "" {
 			part.ContentType = mime.TypeByExtension(strings.ToLower(filepath.Ext(part.Name)))
@@ -177,17 +183,21 @@ func (p *Provider) callToolResult(ctx context.Context, endpoint app.MessageEndpo
 	return CallToolResult{Content: content, StructuredContent: structured}, nil
 }
 
-func (p *Provider) resourceBelongsToLinkedSession(sessionID string, part app.MessagePart) bool {
+func (p *Provider) resourceBelongsToLinkedSession(ctx context.Context, sessionID string, part app.MessagePart) (bool, error) {
 	if p == nil || p.store == nil || strings.TrimSpace(sessionID) == "" {
-		return false
+		return false, nil
 	}
 	if artifactID := strings.TrimSpace(part.ArtifactID); artifactID != "" {
-		for _, object := range p.store.ListArtifactObjects(0) {
+		objects, err := p.store.ListArtifactObjects(ctx, 0)
+		if err != nil {
+			return false, err
+		}
+		for _, object := range objects {
 			if object.ID == artifactID {
-				return object.SessionID == sessionID
+				return object.SessionID == sessionID, nil
 			}
 		}
-		return false
+		return false, nil
 	}
-	return part.Resource != nil && part.Resource.Kind == "workspace_file" && strings.TrimSpace(part.Resource.Ref) != ""
+	return part.Resource != nil && part.Resource.Kind == "workspace_file" && strings.TrimSpace(part.Resource.Ref) != "", nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -148,7 +149,7 @@ func (s *Server) archiveFailedEvalCases(ctx context.Context, run app.EvalRun) []
 		if err != nil {
 			continue
 		}
-		s.store.SaveArtifactObject(app.ArtifactObject{
+		if _, err := s.store.SaveArtifactObject(ctx, app.ArtifactObject{
 			ID:          app.NewID("obj"),
 			Kind:        "eval_failure",
 			EvalID:      run.ID,
@@ -160,7 +161,10 @@ func (s *Server) archiveFailedEvalCases(ctx context.Context, run app.EvalRun) []
 			ContentType: object.ContentType,
 			Bytes:       object.Bytes,
 			CreatedAt:   time.Now().UTC(),
-		})
+		}); err != nil {
+			slog.Warn("evaluation failure artifact metadata unavailable", "eval_id", run.ID, "code", store.StoreErrorCodeOf(err))
+			continue
+		}
 		failures = append(failures, app.EvalArtifact{
 			CaseName:    evalCase.Name,
 			URI:         object.URI,

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -32,7 +33,7 @@ func ArchiveToolObservation(ctx context.Context, st Store, artifacts artifact.St
 	if err != nil {
 		return ""
 	}
-	st.SaveArtifactObject(app.ArtifactObject{
+	if _, err := st.SaveArtifactObject(ctx, app.ArtifactObject{
 		ID:          app.NewID("obj"),
 		Kind:        "tool_observation",
 		RunID:       call.RunID,
@@ -45,6 +46,9 @@ func ArchiveToolObservation(ctx context.Context, st Store, artifacts artifact.St
 		ContentType: object.ContentType,
 		Bytes:       object.Bytes,
 		CreatedAt:   time.Now().UTC(),
-	})
+	}); err != nil {
+		slog.Warn("tool observation artifact metadata unavailable", "tool_call_id", call.ID, "code", StoreErrorCodeOf(err))
+		return ""
+	}
 	return object.URI
 }

@@ -348,7 +348,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Summary:   "Episode summary",
 	})
 
-	st.SaveArtifactObject(app.ArtifactObject{
+	mustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_test",
 		Kind:        "trace",
 		RunID:       run.ID,
@@ -436,11 +436,11 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(episodes) != 1 || episodes[0].ID != "ep_test" || episodes[0].Tools[0] != "memory.search:completed" {
 		t.Fatalf("episode summary did not reload: %#v", episodes)
 	}
-	objects := reloaded.ListArtifactObjects(10)
+	objects := mustListArtifactObjects(t, reloaded, 10)
 	if len(objects) != 1 || objects[0].ID != "obj_test" || objects[0].RunID != run.ID {
 		t.Fatalf("artifact object did not reload: %#v", objects)
 	}
-	if object, ok := reloaded.FindArtifactObjectByURI("artifact://sparkclaw/traces/"+run.ID+".json", session.ID, run.ID); !ok || object.ID != "obj_test" {
+	if object, ok := mustFindArtifactObjectByURI(t, reloaded, "artifact://sparkclaw/traces/"+run.ID+".json", session.ID, run.ID); !ok || object.ID != "obj_test" {
 		t.Fatalf("artifact lookup by URI did not survive reload: %#v ok=%v", object, ok)
 	}
 	feedback := testListRunFeedback(reloaded, run.ID)

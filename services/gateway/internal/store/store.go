@@ -146,6 +146,14 @@ type EvaluationRepository interface {
 	ListEvalRuns(context.Context) ([]app.EvalRun, error)
 }
 
+type ArtifactMetadataRepository interface {
+	SaveArtifactObject(context.Context, app.ArtifactObject) (app.ArtifactObject, error)
+	ListArtifactObjects(context.Context, int) ([]app.ArtifactObject, error)
+	// FindArtifactObjectByURI returns the newest artifact object with the
+	// given URI. An empty sessionID or runID matches any session or run.
+	FindArtifactObjectByURI(context.Context, string, string, string) (app.ArtifactObject, bool, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -176,6 +184,7 @@ type Store interface {
 	ApprovalRepository
 	AuditRepository
 	EvaluationRepository
+	ArtifactMetadataRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -257,49 +266,47 @@ type Store interface {
 	UpdateMemory(id, kind, content string) (app.Memory, error)
 	DeleteMemory(id string) (app.Memory, error)
 	PruneMemories(cutoff time.Time) []app.Memory
-	SaveArtifactObject(object app.ArtifactObject)
-	ListArtifactObjects(limit int) []app.ArtifactObject
-	// FindArtifactObjectByURI returns the newest artifact object with the
-	// given URI. An empty sessionID or runID matches any session or run.
-	FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool)
 }
 
 // Compile-time checks that every backend implements the full Store interface.
 var (
-	_ ISCPOnboardingRepository = (*MemoryStore)(nil)
-	_ ISCPOnboardingRepository = (*FileStore)(nil)
-	_ ISCPOnboardingRepository = (*PostgresStore)(nil)
-	_ OwnerRepository          = (*MemoryStore)(nil)
-	_ OwnerRepository          = (*FileStore)(nil)
-	_ OwnerRepository          = (*PostgresStore)(nil)
-	_ ClientRepository         = (*MemoryStore)(nil)
-	_ ClientRepository         = (*FileStore)(nil)
-	_ ClientRepository         = (*PostgresStore)(nil)
-	_ CredentialRepository     = (*MemoryStore)(nil)
-	_ CredentialRepository     = (*FileStore)(nil)
-	_ CredentialRepository     = (*PostgresStore)(nil)
-	_ ConnectorRepository      = (*MemoryStore)(nil)
-	_ ConnectorRepository      = (*FileStore)(nil)
-	_ ConnectorRepository      = (*PostgresStore)(nil)
-	_ ConversationRepository   = (*MemoryStore)(nil)
-	_ ConversationRepository   = (*FileStore)(nil)
-	_ ConversationRepository   = (*PostgresStore)(nil)
-	_ RunRepository            = (*MemoryStore)(nil)
-	_ RunRepository            = (*FileStore)(nil)
-	_ RunRepository            = (*PostgresStore)(nil)
-	_ DocumentRepository       = (*MemoryStore)(nil)
-	_ DocumentRepository       = (*FileStore)(nil)
-	_ DocumentRepository       = (*PostgresStore)(nil)
-	_ ApprovalRepository       = (*MemoryStore)(nil)
-	_ ApprovalRepository       = (*FileStore)(nil)
-	_ ApprovalRepository       = (*PostgresStore)(nil)
-	_ AuditRepository          = (*MemoryStore)(nil)
-	_ AuditRepository          = (*FileStore)(nil)
-	_ AuditRepository          = (*PostgresStore)(nil)
-	_ EvaluationRepository     = (*MemoryStore)(nil)
-	_ EvaluationRepository     = (*FileStore)(nil)
-	_ EvaluationRepository     = (*PostgresStore)(nil)
-	_ Store                    = (*MemoryStore)(nil)
-	_ Store                    = (*FileStore)(nil)
-	_ Store                    = (*PostgresStore)(nil)
+	_ ISCPOnboardingRepository   = (*MemoryStore)(nil)
+	_ ISCPOnboardingRepository   = (*FileStore)(nil)
+	_ ISCPOnboardingRepository   = (*PostgresStore)(nil)
+	_ OwnerRepository            = (*MemoryStore)(nil)
+	_ OwnerRepository            = (*FileStore)(nil)
+	_ OwnerRepository            = (*PostgresStore)(nil)
+	_ ClientRepository           = (*MemoryStore)(nil)
+	_ ClientRepository           = (*FileStore)(nil)
+	_ ClientRepository           = (*PostgresStore)(nil)
+	_ CredentialRepository       = (*MemoryStore)(nil)
+	_ CredentialRepository       = (*FileStore)(nil)
+	_ CredentialRepository       = (*PostgresStore)(nil)
+	_ ConnectorRepository        = (*MemoryStore)(nil)
+	_ ConnectorRepository        = (*FileStore)(nil)
+	_ ConnectorRepository        = (*PostgresStore)(nil)
+	_ ConversationRepository     = (*MemoryStore)(nil)
+	_ ConversationRepository     = (*FileStore)(nil)
+	_ ConversationRepository     = (*PostgresStore)(nil)
+	_ RunRepository              = (*MemoryStore)(nil)
+	_ RunRepository              = (*FileStore)(nil)
+	_ RunRepository              = (*PostgresStore)(nil)
+	_ DocumentRepository         = (*MemoryStore)(nil)
+	_ DocumentRepository         = (*FileStore)(nil)
+	_ DocumentRepository         = (*PostgresStore)(nil)
+	_ ApprovalRepository         = (*MemoryStore)(nil)
+	_ ApprovalRepository         = (*FileStore)(nil)
+	_ ApprovalRepository         = (*PostgresStore)(nil)
+	_ AuditRepository            = (*MemoryStore)(nil)
+	_ AuditRepository            = (*FileStore)(nil)
+	_ AuditRepository            = (*PostgresStore)(nil)
+	_ EvaluationRepository       = (*MemoryStore)(nil)
+	_ EvaluationRepository       = (*FileStore)(nil)
+	_ EvaluationRepository       = (*PostgresStore)(nil)
+	_ ArtifactMetadataRepository = (*MemoryStore)(nil)
+	_ ArtifactMetadataRepository = (*FileStore)(nil)
+	_ ArtifactMetadataRepository = (*PostgresStore)(nil)
+	_ Store                      = (*MemoryStore)(nil)
+	_ Store                      = (*FileStore)(nil)
+	_ Store                      = (*PostgresStore)(nil)
 )

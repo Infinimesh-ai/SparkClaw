@@ -136,7 +136,7 @@ func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	if !strings.Contains(string(raw), "SparkClaw document upload") {
 		t.Fatalf("uploaded file content mismatch: %q", raw)
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) == 0 || objects[0].Kind != "document_upload" {
 		t.Fatalf("upload artifact not stored: %#v", objects)
 	}
@@ -1297,7 +1297,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	if !strings.Contains(string(raw), updated.Content) {
 		t.Fatalf("archived memory export missing edited memory: %s", string(raw))
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if !slices.ContainsFunc(objects, func(object app.ArtifactObject) bool {
 		return object.Kind == "memory_export" && object.URI == archived.Artifact.URI
 	}) {

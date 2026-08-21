@@ -79,7 +79,7 @@ func TestMediaAdapterDownloadsInboundImageAsAttachment(t *testing.T) {
 	if string(raw) != string(png) {
 		t.Fatal("saved image content does not match decrypted plaintext")
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) != 1 || objects[0].Kind != "weixin_image_upload" {
 		t.Fatalf("expected weixin image artifact, got %#v", objects)
 	}
@@ -155,7 +155,7 @@ func TestSendAssistantAnswerUploadsAbsoluteWeatherCardArtifact(t *testing.T) {
 	}
 
 	st := store.NewMemoryStore()
-	st.SaveArtifactObject(app.ArtifactObject{
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_weather",
 		Kind:        "media_weather_card",
 		Backend:     "workspace",
@@ -601,7 +601,7 @@ func TestMediaAdapterDownloadsInboundFileAsUploadAttachment(t *testing.T) {
 	if string(raw) != string(content) {
 		t.Fatal("saved file content does not match decrypted plaintext")
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) != 1 || objects[0].Kind != "weixin_file_upload" {
 		t.Fatalf("expected weixin file artifact, got %#v", objects)
 	}

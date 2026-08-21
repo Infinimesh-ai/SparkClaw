@@ -124,8 +124,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "eval.passed", eventType: "eval.passed",
 	},
 	"ArtifactMetadataRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveArtifactObject(app.ArtifactObject{ID: "artifact-lifecycle", URI: "artifact://s0/lifecycle", Key: "lifecycle"})
+		mutate: func(t *testing.T, st Store) {
+			mustSaveArtifactObject(t, st, app.ArtifactObject{ID: "artifact-lifecycle", URI: "artifact://s0/lifecycle", Key: "lifecycle"})
 		},
 		auditType: "artifact.saved", eventType: "artifact.saved",
 	},

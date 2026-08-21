@@ -21,7 +21,7 @@ func TestResolveBrowserContentUsesDefaultWorkspaceForUnscopedWebSession(t *testi
 	if err := os.WriteFile(path, []byte("workflow output"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID: "obj_default_workspace", SessionID: session.ID, Backend: "workspace", Key: "uploads/result.docx",
 		Path: path, ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Bytes: len("workflow output"),
 	})

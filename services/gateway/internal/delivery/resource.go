@@ -12,7 +12,7 @@ import (
 )
 
 type artifactStore interface {
-	ListArtifactObjects(int) []app.ArtifactObject
+	ListArtifactObjects(context.Context, int) ([]app.ArtifactObject, error)
 }
 
 type endpointResourceStore interface {
@@ -73,7 +73,7 @@ func NewStoreResourceResolver(st artifactStore) StoreResourceResolver {
 	return StoreResourceResolver{store: st}
 }
 
-func (r StoreResourceResolver) Resolve(_ context.Context, part app.MessagePart) (string, error) {
+func (r StoreResourceResolver) Resolve(ctx context.Context, part app.MessagePart) (string, error) {
 	if r.store == nil {
 		return "", errors.New("artifact resolver is unavailable")
 	}
@@ -89,7 +89,11 @@ func (r StoreResourceResolver) Resolve(_ context.Context, part app.MessagePart) 
 	if wanted == "" {
 		return "", errors.New("binary delivery part requires an artifact id")
 	}
-	for _, object := range r.store.ListArtifactObjects(5000) {
+	objects, err := r.store.ListArtifactObjects(ctx, 5000)
+	if err != nil {
+		return "", errors.New("artifact registry is unavailable")
+	}
+	for _, object := range objects {
 		if object.ID != wanted && object.URI != wanted && object.Key != wanted {
 			continue
 		}

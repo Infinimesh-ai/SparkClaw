@@ -1428,20 +1428,33 @@ func (s *FileStore) ListEvalRuns(ctx context.Context) ([]app.EvalRun, error) {
 	return s.inner.ListEvalRuns(ctx)
 }
 
-func (s *FileStore) SaveArtifactObject(object app.ArtifactObject) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveArtifactObject(object)
-	s.persist()
+func (s *FileStore) SaveArtifactObject(ctx context.Context, object app.ArtifactObject) (app.ArtifactObject, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationArtifactMetadataSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.ArtifactObject{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationArtifactMetadataSave, func(ctx context.Context) (app.ArtifactObject, error) {
+		return s.inner.SaveArtifactObject(ctx, object)
+	})
 }
 
-func (s *FileStore) ListArtifactObjects(limit int) []app.ArtifactObject {
-	defer s.admitLegacyRead()()
-	return s.inner.ListArtifactObjects(limit)
+func (s *FileStore) ListArtifactObjects(ctx context.Context, limit int) ([]app.ArtifactObject, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationArtifactMetadataList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListArtifactObjects(ctx, limit)
 }
 
-func (s *FileStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindArtifactObjectByURI(uri, sessionID, runID)
+func (s *FileStore) FindArtifactObjectByURI(ctx context.Context, uri, sessionID, runID string) (app.ArtifactObject, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationArtifactMetadataFindByURI, 1)
+	if err != nil {
+		return app.ArtifactObject{}, false, err
+	}
+	defer release()
+	return s.inner.FindArtifactObjectByURI(ctx, uri, sessionID, runID)
 }
 
 func (s *FileStore) SaveEpisodeSummary(ctx context.Context, summary app.EpisodeSummary) (app.EpisodeSummary, error) {

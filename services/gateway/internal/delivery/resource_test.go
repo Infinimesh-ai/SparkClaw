@@ -39,7 +39,7 @@ func TestEndpointResourceResolverPrefersGovernedArtifactFromSourceWorkspace(t *t
 		Path: sourcePath, ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		Bytes: len("source workflow output"), CreatedAt: time.Now().UTC(),
 	}
-	st.SaveArtifactObject(artifact)
+	storetest.MustSaveArtifactObject(t, st, artifact)
 
 	resolved, err := NewEndpointResourceResolver(st, app.MessageEndpoint{SessionID: target.ID}).Resolve(t.Context(), app.MessagePart{
 		ID: "file", Kind: app.MessagePartFile, Disposition: app.MessageDispositionAttachment,

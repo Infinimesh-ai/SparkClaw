@@ -121,7 +121,12 @@ func (a *MediaAdapter) DownloadInboundImage(ctx context.Context, binding app.Not
 		CreatedAt:   now,
 	}
 	if a.store != nil {
-		a.store.SaveArtifactObject(object)
+		stored, err := a.store.SaveArtifactObject(ctx, object)
+		if err != nil {
+			_ = os.Remove(absPath)
+			return app.MessageAttachment{}, fmt.Errorf("save weixin image metadata: %w", err)
+		}
+		object = stored
 		recordAudit(ctx, a.store, app.AuditEvent{
 			SessionID: sessionID,
 			Actor:     "gateway",
@@ -196,7 +201,12 @@ func (a *MediaAdapter) DownloadInboundFile(ctx context.Context, binding app.Noti
 		CreatedAt:   now,
 	}
 	if a.store != nil {
-		a.store.SaveArtifactObject(object)
+		stored, err := a.store.SaveArtifactObject(ctx, object)
+		if err != nil {
+			_ = os.Remove(absPath)
+			return app.MessageAttachment{}, fmt.Errorf("save weixin file metadata: %w", err)
+		}
+		object = stored
 		recordAudit(ctx, a.store, app.AuditEvent{
 			SessionID: sessionID,
 			Actor:     "gateway",

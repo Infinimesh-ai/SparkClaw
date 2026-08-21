@@ -128,18 +128,18 @@ func TestOutboundResolutionRejectsUploadsAndUnregisteredAbsolutePaths(t *testing
 	if _, err := writeDownloadFixture(outputPath, []byte("output")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := dispatcher.resolveWorkspaceOutput(chat, "uploads/source.pdf"); ok {
+	if _, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, "uploads/source.pdf"); err != nil || ok {
 		t.Fatal("uploads path was eligible for outbound delivery")
 	}
-	if resolved, ok := dispatcher.resolveWorkspaceOutput(chat, "outputs/result.pdf"); !ok || resolved != outputPath {
-		t.Fatalf("workspace output did not resolve: %q ok=%v", resolved, ok)
+	if resolved, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, "outputs/result.pdf"); err != nil || !ok || resolved != outputPath {
+		t.Fatalf("workspace output did not resolve: %q ok=%v err=%v", resolved, ok, err)
 	}
-	if _, ok := dispatcher.resolveWorkspaceOutput(chat, outputPath); ok {
+	if _, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, outputPath); err != nil || ok {
 		t.Fatal("unregistered absolute path was eligible for outbound delivery")
 	}
-	st.SaveArtifactObject(app.ArtifactObject{ID: "artifact", SessionID: linked.ID, Key: "outputs/result.pdf", Path: outputPath})
-	if resolved, ok := dispatcher.resolveWorkspaceOutput(chat, outputPath); !ok || resolved != outputPath {
-		t.Fatalf("registered artifact did not resolve: %q ok=%v", resolved, ok)
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: "artifact", SessionID: linked.ID, Key: "outputs/result.pdf", Path: outputPath})
+	if resolved, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, outputPath); err != nil || !ok || resolved != outputPath {
+		t.Fatalf("registered artifact did not resolve: %q ok=%v err=%v", resolved, ok, err)
 	}
 }
 

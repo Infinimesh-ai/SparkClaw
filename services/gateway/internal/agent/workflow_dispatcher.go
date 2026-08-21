@@ -475,7 +475,11 @@ func (r Runtime) governWorkflowRequestPart(ctx context.Context, run app.AgentRun
 	}
 
 	object := app.ArtifactObject{}
-	for _, existing := range r.store.ListArtifactObjects(0) {
+	objects, err := r.store.ListArtifactObjects(ctx, 0)
+	if err != nil {
+		return app.MessagePart{}, errors.New("artifact metadata is unavailable")
+	}
+	for _, existing := range objects {
 		if existing.SessionID != run.SessionID {
 			continue
 		}
@@ -505,7 +509,11 @@ func (r Runtime) governWorkflowRequestPart(ctx context.Context, run app.AgentRun
 			Backend: "workspace", Key: ref, URI: "workspace://" + ref, Path: candidate,
 			ContentType: contentType, Bytes: int(info.Size()), CreatedAt: time.Now().UTC(),
 		}
-		r.store.SaveArtifactObject(object)
+		stored, err := r.store.SaveArtifactObject(ctx, object)
+		if err != nil {
+			return app.MessagePart{}, errors.New("workspace artifact metadata could not be saved")
+		}
+		object = stored
 	}
 	digest, err := workflowFileSHA256(candidate)
 	if err != nil {
@@ -655,7 +663,11 @@ func (r Runtime) persistWorkflowOutputArtifact(ctx context.Context, sessionID st
 	if err != nil || !info.Mode().IsRegular() {
 		return "", nil
 	}
-	for _, object := range r.store.ListArtifactObjects(0) {
+	objects, err := r.store.ListArtifactObjects(ctx, 0)
+	if err != nil {
+		return "", err
+	}
+	for _, object := range objects {
 		if object.RunID == call.RunID && object.SessionID == sessionID && filepath.Clean(object.Path) == candidate && object.Bytes == int(info.Size()) {
 			return object.ID, nil
 		}
@@ -665,8 +677,11 @@ func (r Runtime) persistWorkflowOutputArtifact(ctx context.Context, sessionID st
 		Backend: "workspace", Key: resource.Ref, URI: "workspace://" + filepath.ToSlash(resource.Ref),
 		Path: candidate, ContentType: contentType, Bytes: int(info.Size()), CreatedAt: completedToolCallTime(call),
 	}
-	r.store.SaveArtifactObject(object)
-	return object.ID, nil
+	stored, err := r.store.SaveArtifactObject(ctx, object)
+	if err != nil {
+		return "", err
+	}
+	return stored.ID, nil
 }
 
 func toolCallOutputRefs(call app.ToolCall, tools interface {

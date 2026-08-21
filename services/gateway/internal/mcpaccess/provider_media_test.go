@@ -44,7 +44,7 @@ func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 			Backend: "workspace", Key: fixture.name, URI: "workspace://" + fixture.name, Path: path,
 			ContentType: fixture.contentType, Bytes: len(fixture.content), CreatedAt: time.Now().UTC(),
 		}
-		st.SaveArtifactObject(object)
+		storetest.MustSaveArtifactObject(t, st, object)
 		parts = append(parts, app.MessagePart{
 			ID: "part-" + fixture.name, Kind: fixture.kind, Disposition: app.MessageDispositionAttachment,
 			ArtifactID: object.ID, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: fixture.name, Provenance: "response_media_frozen"},
@@ -90,7 +90,7 @@ func TestProviderMediaFailureDoesNotPersistPartialResult(t *testing.T) {
 		ID: "object-changed", SessionID: session.ID, Backend: "workspace", Key: "changed.pdf", URI: "workspace://changed.pdf",
 		Path: path, ContentType: "application/pdf", Bytes: len("original"), CreatedAt: time.Now().UTC(),
 	}
-	st.SaveArtifactObject(object)
+	storetest.MustSaveArtifactObject(t, st, object)
 	_, err := NewProvider(st).Deliver(t.Context(), app.MessageEndpoint{
 		ProviderKey: "mcp", BindingRef: operation.BindingID, RequesterDeviceID: ref.RequesterDeviceID, SessionID: session.ID,
 	}, app.DeliveryRequest{

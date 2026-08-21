@@ -103,7 +103,7 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 		if err := os.WriteFile(path, []byte(item.content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		st.SaveArtifactObject(app.ArtifactObject{ID: item.id, Path: path, Key: item.name})
+		storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: item.id, Path: path, Key: item.name})
 		parts = append(parts, app.MessagePart{ID: item.id, Kind: item.kind, Disposition: item.disposition, ArtifactID: item.id, Name: item.name})
 	}
 	adapter := NewNotificationAdapter(st, vault, config.Default().Tools.Notifications.Channels["telegram"])

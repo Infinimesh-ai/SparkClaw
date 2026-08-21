@@ -3064,14 +3064,17 @@ func (s *MemoryStore) ListEvalRuns(ctx context.Context) ([]app.EvalRun, error) {
 	return out, nil
 }
 
-func (s *MemoryStore) SaveArtifactObject(object app.ArtifactObject) {
+func (s *MemoryStore) SaveArtifactObject(ctx context.Context, object app.ArtifactObject) (app.ArtifactObject, error) {
+	ctx, cancel := operationContext(ctx, OperationArtifactMetadataSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationArtifactMetadataSave, ctx); err != nil {
+		return app.ArtifactObject{}, err
+	}
+	object = prepareArtifactObject(object, time.Now().UTC())
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if object.ID == "" {
-		object.ID = app.NewID("obj")
-	}
-	if object.CreatedAt.IsZero() {
-		object.CreatedAt = time.Now().UTC()
+	if err := operationContextError(OperationArtifactMetadataSave, ctx); err != nil {
+		return app.ArtifactObject{}, err
 	}
 	if existing, ok := s.artifactObjects[object.ID]; ok && existing.URI != object.URI {
 		s.unindexArtifactObjectLocked(existing)
@@ -3086,27 +3089,47 @@ func (s *MemoryStore) SaveArtifactObject(object app.ArtifactObject) {
 		"eval_id": object.EvalID,
 	})
 	s.appendEventLocked("artifact.saved", object.SessionID, object.RunID, object)
+	return object, nil
 }
 
-func (s *MemoryStore) ListArtifactObjects(limit int) []app.ArtifactObject {
+func (s *MemoryStore) ListArtifactObjects(ctx context.Context, limit int) ([]app.ArtifactObject, error) {
+	ctx, cancel := operationContext(ctx, OperationArtifactMetadataList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationArtifactMetadataList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationArtifactMetadataList, ctx); err != nil {
+		return nil, err
+	}
 	out := []app.ArtifactObject{}
 	for _, object := range s.artifactObjects {
 		out = append(out, object)
 	}
 	slices.SortFunc(out, func(a, b app.ArtifactObject) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
+		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
 	})
 	if limit > 0 && len(out) > limit {
-		return out[:limit]
+		out = out[:limit]
 	}
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool) {
+func (s *MemoryStore) FindArtifactObjectByURI(ctx context.Context, uri, sessionID, runID string) (app.ArtifactObject, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationArtifactMetadataFindByURI, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationArtifactMetadataFindByURI, ctx); err != nil {
+		return app.ArtifactObject{}, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationArtifactMetadataFindByURI, ctx); err != nil {
+		return app.ArtifactObject{}, false, err
+	}
 	var newest app.ArtifactObject
 	found := false
 	for id := range s.artifactObjectIDsByURI[uri] {
@@ -3114,12 +3137,12 @@ func (s *MemoryStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app
 		if !ok || (sessionID != "" && object.SessionID != sessionID) || (runID != "" && object.RunID != runID) {
 			continue
 		}
-		if !found || object.CreatedAt.After(newest.CreatedAt) {
+		if !found || object.CreatedAt.After(newest.CreatedAt) || object.CreatedAt.Equal(newest.CreatedAt) && object.ID < newest.ID {
 			newest = object
 			found = true
 		}
 	}
-	return newest, found
+	return newest, found, nil
 }
 
 func (s *MemoryStore) indexArtifactObjectLocked(object app.ArtifactObject) {

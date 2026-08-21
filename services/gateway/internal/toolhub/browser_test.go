@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestExtractReadableText(t *testing.T) {
@@ -88,7 +89,7 @@ func TestBrowserReadArchivesRawSnapshot(t *testing.T) {
 	if out["snapshot_ref"] == "" || out["snapshot_object_key"] == "" {
 		t.Fatalf("browser output missing snapshot reference: %#v", out)
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if !hasBrowserArtifactKind(objects, "browser_snapshot") {
 		t.Fatalf("browser snapshot was not cataloged: %#v", objects)
 	}

@@ -408,7 +408,11 @@ func (r Runtime) workflowDecisionSourceLineage(ctx context.Context, run app.Agen
 		}
 	}
 	artifactBytes := map[string]int{}
-	for _, object := range r.store.ListArtifactObjects(0) {
+	objects, err := r.store.ListArtifactObjects(ctx, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, object := range objects {
 		if object.SessionID == run.SessionID && object.RunID == run.ID {
 			artifactBytes[object.URI] = object.Bytes
 		}

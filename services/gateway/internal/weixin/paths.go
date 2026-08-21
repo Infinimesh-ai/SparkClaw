@@ -77,7 +77,11 @@ func (d *Dispatcher) workspaceMediaPath(ctx context.Context, mediaPath string, i
 		}
 		absPath = filepath.Clean(cleaned)
 	}
-	for _, object := range d.store.ListArtifactObjects(200) {
+	objects, err := d.store.ListArtifactObjects(ctx, 200)
+	if err != nil {
+		return "", false, err
+	}
+	for _, object := range objects {
 		key := filepath.ToSlash(object.Key)
 		objectPath := strings.TrimSpace(object.Path)
 		if !strings.HasPrefix(key, "media/") || objectPath == "" {
@@ -119,10 +123,14 @@ func (d *Dispatcher) workspaceFilePath(ctx context.Context, answer string, inbou
 		if strings.HasPrefix(relPath, "uploads/") && !isLikelyOutputFileAnswer(answer) {
 			continue
 		}
-		if absPath, ok := d.workspaceObjectPath(relPath); ok {
+		absPath, ok, err := d.workspaceObjectPath(ctx, relPath)
+		if err != nil {
+			return "", "", false, err
+		}
+		if ok {
 			return absPath, filepath.Base(relPath), true, nil
 		}
-		absPath, ok, err := d.workspaceSessionPath(ctx, relPath, inbound)
+		absPath, ok, err = d.workspaceSessionPath(ctx, relPath, inbound)
 		if err != nil {
 			return "", "", false, err
 		}
@@ -143,14 +151,18 @@ func isLikelyOutputFileAnswer(answer string) bool {
 		strings.Contains(answer, "修改后")
 }
 
-func (d *Dispatcher) workspaceObjectPath(relPath string) (string, bool) {
+func (d *Dispatcher) workspaceObjectPath(ctx context.Context, relPath string) (string, bool, error) {
 	relPath = filepath.ToSlash(strings.TrimSpace(relPath))
-	for _, object := range d.store.ListArtifactObjects(200) {
+	objects, err := d.store.ListArtifactObjects(ctx, 200)
+	if err != nil {
+		return "", false, err
+	}
+	for _, object := range objects {
 		if filepath.ToSlash(object.Key) == relPath && strings.TrimSpace(object.Path) != "" {
-			return object.Path, true
+			return object.Path, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
 func (d *Dispatcher) workspaceSessionPath(ctx context.Context, relPath string, inbound InboundMessage) (string, bool, error) {

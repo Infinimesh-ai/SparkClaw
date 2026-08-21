@@ -65,6 +65,9 @@ const (
 	OperationEvaluationSave              StoreOperation = "evaluation.save"
 	OperationEvaluationGet               StoreOperation = "evaluation.get"
 	OperationEvaluationList              StoreOperation = "evaluation.list"
+	OperationArtifactMetadataSave        StoreOperation = "artifact_metadata.save"
+	OperationArtifactMetadataList        StoreOperation = "artifact_metadata.list"
+	OperationArtifactMetadataFindByURI   StoreOperation = "artifact_metadata.find_by_uri"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -315,6 +318,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationEvaluationList: {
 		ID: OperationEvaluationList, Repository: "EvaluationRepository",
 		Method: "ListEvalRuns", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationArtifactMetadataSave: {
+		ID: OperationArtifactMetadataSave, Repository: "ArtifactMetadataRepository",
+		Method: "SaveArtifactObject", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationArtifactMetadataList: {
+		ID: OperationArtifactMetadataList, Repository: "ArtifactMetadataRepository",
+		Method: "ListArtifactObjects", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationArtifactMetadataFindByURI: {
+		ID: OperationArtifactMetadataFindByURI, Repository: "ArtifactMetadataRepository",
+		Method: "FindArtifactObjectByURI", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

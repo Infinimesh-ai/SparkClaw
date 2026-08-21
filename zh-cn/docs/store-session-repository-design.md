@@ -84,6 +84,8 @@ Delete 返回精确删除的 session，并原子删除 S0 分配给该命令的�
 - browser login blocks；
 - artifact metadata 与内存 URI index；
 - linked external-chat sessions 及 messages；
+- PostgreSQL 中与该 session 关联的兼容源 `weixin_chat_sessions` 及其
+  `weixin_chat_messages`，并先于 canonical external-chat target 删除；
 - 被删 session 的旧 audit/event rows。
 
 同一事务在被删 session scope 之外追加一个替代 `session.deleted` audit/event，只携带
@@ -91,9 +93,12 @@ deleted session projection 与非秘密 ID/title 证据。它不删除 delivery/
 connector binding、passive notification、evaluation、browser auth 或其他记录。测试
 同时证明目标完整删除和跨 session 隔离。
 
-PostgreSQL 必须先删 reminder deliveries 再删 reminders，并在 runs/session 前删除所有
-foreign-key child；检查每个 statement 错误，并要求恰好删除一条 session。这会关闭
-Memory/File 删除 reminder 而 PostgreSQL 可能保留的现有差异。
+PostgreSQL 必须先删 reminder deliveries 再删 reminders，先删 legacy Weixin chat
+messages，再删 legacy sessions 和 canonical external-chat targets，并在 runs/session
+前删除所有 foreign-key child；检查每个 statement 错误，并要求恰好删除一条 session。
+同时删除 legacy source 与 canonical target，保证下次重启仍满足已有 PostgreSQL
+compatibility postcondition。这也会关闭 Memory/File 删除 reminder 而 PostgreSQL 可能
+保留的现有差异。
 
 ## Operation 与失败契约
 
@@ -104,7 +109,7 @@ Memory/File 删除 reminder 而 PostgreSQL 可能保留的现有差异。
 | `session.list` | read | read | 无 |
 | `session.get` | read/barrier | read | self |
 | `session.update_title` | write transaction | transaction | exact Get 等于 candidate |
-| `session.delete` | write transaction | transaction | exact Get 缺失 |
+| `session.delete` | write transaction | transaction | exact Get 缺失并完成完整 delete-closure 证明 |
 
 caller deadline 优先，fallback 使用现有 Store operation setting。admission/backend 前取消
 不得做任何工作。Memory 在加锁前和锁内检查 context；File 使用 migrated admission；
@@ -122,10 +127,15 @@ transport、statement、context 或 commit failure 为 `unknown_outcome`，termi
 `pgx.ErrNoRows` 只对 Get 表示正常缺失，对 update/delete 映射 typed `not_found`。
 
 unknown create/update 返回的非零 candidate 只是证据，只有 exact Get equality 证明
-commit；unknown delete 返回的 removed candidate 也只是证据，只有同 barrier 后 Get
-缺失证明原子删除。其他 present/different/unresolved read 保留原 unknown。caller 不得
-把 candidate 当成功，也不得在证明前自动 retry。共享 Store helper 集中这三种协调，
-避免调用方各自拼接。
+commit。unknown delete 返回的 removed candidate 也只是证据；协调要求同一 barrier/
+fence 后 Get 缺失，并完成 backend-private 的完整 delete-closure 证明。File 协调匹配
+完整 candidate snapshot 的 digest，而非只检查 session map；PostgreSQL 的 absent Get
+路径在 session advisory barrier 内用一条内部 closure query 证明全部 canonical child
+及分配给 delete 的兼容源 Weixin rows 都已缺失；Memory 不会产生 submitted unknown
+outcome。该证明不得调用仍未迁移且可能吞掉 backend error 的公共 child list 方法。
+其他 different/present/incomplete/unresolved read 保留原 unknown。caller 不得把 candidate
+当成功，也不得在证明前自动 retry。共享 Store helper 集中这三种协调，避免调用方各自
+拼接。
 
 ## 后端实现
 
@@ -149,8 +159,10 @@ PostgreSQL 在一个 transaction 内 create/update/delete session 和所需 life
 ## 调用方迁移
 
 全部生产 caller 传递 request/run/worker/startup/shutdown context 并处理 typed error。
-HTTP session handler 不再匹配错误字符串：invalid 400、not_found 404、conflict 409，
-unavailable/durability/unknown 503；绝不序列化 uncertain candidate。
+HTTP session handler 不再匹配错误字符串：invalid 400、not_found 404、conflict 409、
+canceled 408、timeout 504，unavailable/durability/unknown/corrupt/internal 503。所有错误
+响应使用稳定脱敏文案，不序列化 uncertain candidate 或原始 Store diagnostic；list/get/
+create/update/delete handler 覆盖完整映射矩阵。
 
 Gateway、Agent、ToolHub、ISCP Bridge、message control、delivery、Telegram、Weixin 在
 S4 前可以保留 consumer-owned broad composite，但 Session surface 必须是上述 exact
@@ -167,7 +179,8 @@ Implementation `GO` 要求：
 - exact interface/signature/operation/source guard、Store 只嵌入一次、三个后端直接断言；
 - Memory/File 在 normalization、hidden filter、deterministic order、exact absence、MCP
   保护、timestamp high-water、atomic created/updated/deleted lifecycle 方面一致；
-- 完整 delete fixture 覆盖全部 S0-owned record/index，另有第二 session 证明隔离；
+- 完整 delete fixture 覆盖全部 S0-owned record/index，另有第二 session 证明隔离，并覆盖
+  PostgreSQL legacy Weixin source rows 及删除后的 restart/readiness；
 - File 在 encode、write、file sync、close、rename、directory open/sync/close、rollback、
   unknown fence、restart、cancellation 的确定性注入，且无 Session `persist()`；
 - PostgreSQL 覆盖 acquisition、begin、barrier、select/scan、create/update、每个 delete
@@ -175,8 +188,8 @@ Implementation `GO` 要求：
   termination；
 - 通过 DSN skip 的真实 PostgreSQL round-trip/concurrent update-delete，CI service 和
   `SPARKCLAW_TEST_POSTGRES_DSN` 不变；
-- 生产 caller error/context 测试，以及 compile-fail/source fixture 外零无 context
-  Session call；
+- 生产 caller error/context 测试、完整 HTTP mapping 测试，以及 compile-fail/source
+  fixture 外零无 context Session call；
 - affected package、完整 Go build/test/vet、聚焦 Store/Gateway/Agent/connector race、
   未改变的 WebChat test/build，以及双语 docs CI 全绿。
 

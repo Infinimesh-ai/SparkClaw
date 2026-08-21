@@ -104,6 +104,9 @@ assigned to the command:
 - browser login blocks;
 - artifact metadata plus the in-memory URI index entries;
 - linked external-chat sessions and their messages;
+- PostgreSQL compatibility-source `weixin_chat_sessions` linked to the session
+  and their `weixin_chat_messages`, before their canonical external-chat
+  targets;
 - the deleted session's old audit and event rows.
 
 The same transaction appends one replacement `session.deleted` audit and event
@@ -113,9 +116,12 @@ connector bindings, passive notifications, evaluations, browser auth records,
 or unrelated records. Tests prove both complete target deletion and
 cross-session isolation.
 
-The PostgreSQL command explicitly deletes reminder deliveries before reminders
-and every foreign-key child before runs/session. It checks every statement
-error and requires exactly one deleted session row. This closes the current
+The PostgreSQL command explicitly deletes reminder deliveries before reminders,
+legacy Weixin chat messages before legacy sessions and canonical external-chat
+targets, and every foreign-key child before runs/session. It checks every
+statement error and requires exactly one deleted session row. Removing both
+legacy source and canonical target rows preserves the existing PostgreSQL
+compatibility postcondition on the next restart. This also closes the current
 backend divergence where Memory/File delete reminders but PostgreSQL may retain
 them.
 
@@ -128,7 +134,7 @@ them.
 | `session.list` | read | read | none |
 | `session.get` | read/barrier | read | self |
 | `session.update_title` | write transaction | transaction | exact Get equals candidate |
-| `session.delete` | write transaction | transaction | exact Get absence |
+| `session.delete` | write transaction | transaction | exact Get absence plus complete delete-closure proof |
 
 Caller deadlines always win; fallback bounds come from the existing Store
 operation settings. Cancellation before admission/backend acquisition performs
@@ -152,11 +158,18 @@ termination causes. `pgx.ErrNoRows` is normal only for Get and maps to typed
 
 On unknown create/update, a nonzero returned candidate is evidence only; exact
 Get equality proves commit. On unknown delete, the returned removed candidate
-is evidence only; Get absence behind the same barrier proves the atomic delete.
-Any different/present/unresolved read retains the original unknown outcome.
-No caller reports a candidate as success or automatically retries before this
-proof. Shared store helpers centralize these three reconciliation shapes rather
-than duplicating ad hoc comparisons.
+is evidence only. Reconciliation requires Get absence plus a complete backend-
+private delete-closure proof behind the same barrier/fence. File reconciliation
+matches the digest of the complete candidate snapshot, not only its session
+map. PostgreSQL's absent Get path uses one internal closure query under the
+session advisory barrier to prove that all canonical children and compatibility-
+source Weixin rows assigned to delete are absent. Memory cannot produce an
+unknown submitted outcome. This proof does not call still-unmigrated public
+child list methods that may suppress backend errors. Any different, present,
+incomplete, or unresolved read retains the original unknown outcome. No caller
+reports a candidate as success or automatically retries before this proof.
+Shared store helpers centralize these three reconciliation shapes rather than
+duplicating ad hoc comparisons.
 
 ## Backend Implementation
 
@@ -187,9 +200,11 @@ split as part of this wave.
 
 Every production caller passes its request, run, worker, startup, or shutdown
 context and handles typed errors. HTTP session handlers stop matching error
-strings: invalid is 400, not_found is 404, conflict is 409, and unavailable,
-durability, or unresolved outcomes are 503. They never serialize an uncertain
-candidate.
+strings: invalid is 400, not_found is 404, conflict is 409, canceled is 408,
+timeout is 504, and unavailable, durability, unresolved, corrupt, or internal
+outcomes are 503. Every error response uses stable redacted copy and never
+serializes an uncertain candidate or raw Store diagnostic. List, get, create,
+update, and delete handlers cover this mapping matrix.
 
 Gateway, Agent, ToolHub, ISCP Bridge, message control, delivery, Telegram, and
 Weixin may temporarily keep broader consumer-owned composites until S4, but
@@ -211,7 +226,8 @@ Implementation `GO` requires:
   exact absence, protected MCP records, timestamp high-water, and atomic
   created/updated/deleted lifecycle rows;
 - a complete delete fixture covering every S0-owned record/index plus a second
-  session proving isolation;
+  session proving isolation, including PostgreSQL legacy Weixin source rows and
+  a restart/readiness proof after deletion;
 - deterministic File injection at encode, write, file sync, close, rename,
   directory open/sync/close, rollback, unknown fence, restart, and cancellation,
   with no Session `persist()` path;
@@ -220,8 +236,8 @@ Implementation `GO` requires:
   list iteration, commit, rollback, release, and termination;
 - DSN-skipping real PostgreSQL round-trip/concurrent update-delete tests without
   CI service or `SPARKCLAW_TEST_POSTGRES_DSN` changes;
-- migrated production caller error/context tests and zero context-free Session
-  calls outside compile-fail/source fixtures;
+- migrated production caller error/context tests, complete HTTP mapping tests,
+  and zero context-free Session calls outside compile-fail/source fixtures;
 - affected package tests, full Go build/test/vet, focused Store/Gateway/Agent/
   connector race tests, unchanged WebChat tests/build, and bilingual docs CI.
 

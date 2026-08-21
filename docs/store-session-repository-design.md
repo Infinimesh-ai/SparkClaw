@@ -257,3 +257,4 @@ ASR CI work, or large-file split is mixed into these commits.
 | Review | Revision | Decision | Evidence | Reviewer/date |
 |---|---|---|---|---|
 | SessionRepository design | `da5a849` | `GO` | six-method ownership; complete delete closure including legacy Weixin source rows; Memory/File/PostgreSQL failure model; full redacted HTTP mapping; bilingual parity | independent gate / 2026-08-21 |
+| SessionRepository implementation | `a0f03cf` | `GO` | three-backend contracts and complete Session delete closure; legacy File timestamp compatibility; source and HTTP error guards; full Go build/test/vet; Store/Gateway/Agent/Connector/Telegram/Weixin race; WebChat 72 tests/build; docs CI; configured PostgreSQL test retained with DSN unset skip | independent gate / 2026-08-21 |

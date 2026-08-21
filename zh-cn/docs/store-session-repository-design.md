@@ -210,3 +210,4 @@ Implementation `GO` 要求：
 | 审查 | 修订 | 结论 | 证据 | 审查人/日期 |
 |---|---|---|---|---|
 | SessionRepository design | `da5a849` | `GO` | 6 方法归属；包含 legacy Weixin source rows 的完整 delete closure；Memory/File/PostgreSQL failure model；完整脱敏 HTTP mapping；双语一致 | independent gate / 2026-08-21 |
+| SessionRepository implementation | `a0f03cf` | `GO` | 三后端 contract 与完整 Session delete closure；旧 File 时间戳兼容；source/HTTP error guard；完整 Go build/test/vet；Store/Gateway/Agent/Connector/Telegram/Weixin race；WebChat 72 项测试/build；docs CI；保留原 PostgreSQL 测试且 DSN 未设置时跳过 | independent gate / 2026-08-21 |

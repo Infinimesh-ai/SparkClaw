@@ -494,12 +494,12 @@ func characterizeS0PassiveNotificationRepository(t *testing.T, st Store, dimensi
 	case s0DimensionSuccess:
 		notification := testPassiveNotification("passive-s0", "endpoint-s0", "delivery-s0", "fingerprint-s0")
 		notification.OwnerID = "owner-s0"
-		created, inserted, err := st.CreatePassiveNotification(notification)
+		created, inserted, err := st.CreatePassiveNotification(t.Context(), notification)
 		if err != nil || !inserted || created.ID != notification.ID {
 			t.Fatalf("passive notification create = %#v inserted=%v err=%v", created, inserted, err)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetPassiveNotification("owner-s0", "missing"); ok {
+		if _, ok := mustGetPassiveNotification(t, st, "owner-s0", "missing"); ok {
 			t.Fatal("missing passive notification was found")
 		}
 	default:
@@ -720,8 +720,7 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 }
 
 var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"PassiveNotificationRepository": s0PassiveAliasSafe,
-	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
+	"DeliveryRecordRepository": s0DeliveryAliasSafe,
 }
 
 func TestS0AuditRepositoryMutableValuesAreIsolated(t *testing.T) {
@@ -814,6 +813,16 @@ func TestS0ScheduleRepositoryMutableValuesAreIsolated(t *testing.T) {
 	}
 }
 
+func TestS0PassiveNotificationRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0PassiveAliasSafe(t, backend.store) {
+				t.Fatal("PassiveNotificationRepository exposed a mutable read-time alias")
+			}
+		})
+	}
+}
+
 func TestS0DefectEvidenceMutableAliases(t *testing.T) {
 	for repository, check := range s0MutableAliasChecks {
 		t.Run(repository, func(t *testing.T) {
@@ -877,16 +886,16 @@ func s0ConnectorAliasSafe(t *testing.T, st Store) bool {
 func s0PassiveAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
 	notification := testPassiveNotification("passive-alias", "endpoint-alias", "delivery-alias", "fingerprint-alias")
-	created, _, err := st.CreatePassiveNotification(notification)
+	created, _, err := st.CreatePassiveNotification(t.Context(), notification)
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := st.MarkPassiveNotificationRead(created.OwnerID, created.ID, time.Now().UTC())
+	read, err := st.MarkPassiveNotificationRead(t.Context(), created.OwnerID, created.ID, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	*read.ReadAt = read.ReadAt.Add(time.Hour)
-	again, _ := st.GetPassiveNotification(created.OwnerID, created.ID)
+	again, _ := mustGetPassiveNotification(t, st, created.OwnerID, created.ID)
 	return !again.ReadAt.Equal(*read.ReadAt)
 }
 

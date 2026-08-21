@@ -92,6 +92,14 @@ const (
 	OperationReminderClaimDue            StoreOperation = "reminder.claim_due"
 	OperationReminderDeliverySave        StoreOperation = "reminder_delivery.save"
 	OperationReminderDeliveryList        StoreOperation = "reminder_delivery.list"
+	OperationPassiveNotificationCreate   StoreOperation = "passive_notification.create"
+	OperationPassiveNotificationGet      StoreOperation = "passive_notification.get"
+	OperationPassiveNotificationList     StoreOperation = "passive_notification.list"
+	OperationPassiveNotificationCount    StoreOperation = "passive_notification.count_unread"
+	OperationPassiveNotificationMarkRead StoreOperation = "passive_notification.mark_read"
+	OperationPassiveNotificationMarkAll  StoreOperation = "passive_notification.mark_all_read"
+	OperationPassiveNotificationPrune    StoreOperation = "passive_notification.prune"
+	OperationPassiveNotificationRevision StoreOperation = "passive_notification.revision"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -450,6 +458,38 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationReminderDeliveryList: {
 		ID: OperationReminderDeliveryList, Repository: "ScheduleRepository",
 		Method: "ListReminderDeliveries", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationPassiveNotificationCreate: {
+		ID: OperationPassiveNotificationCreate, Repository: "PassiveNotificationRepository",
+		Method: "CreatePassiveNotification", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationPassiveNotificationGet: {
+		ID: OperationPassiveNotificationGet, Repository: "PassiveNotificationRepository",
+		Method: "GetPassiveNotification", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationPassiveNotificationList: {
+		ID: OperationPassiveNotificationList, Repository: "PassiveNotificationRepository",
+		Method: "ListPassiveNotifications", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationPassiveNotificationCount: {
+		ID: OperationPassiveNotificationCount, Repository: "PassiveNotificationRepository",
+		Method: "CountUnreadPassiveNotifications", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationPassiveNotificationMarkRead: {
+		ID: OperationPassiveNotificationMarkRead, Repository: "PassiveNotificationRepository",
+		Method: "MarkPassiveNotificationRead", Mode: operationWrite, Timeout: timeoutWrite,
+	},
+	OperationPassiveNotificationMarkAll: {
+		ID: OperationPassiveNotificationMarkAll, Repository: "PassiveNotificationRepository",
+		Method: "MarkAllPassiveNotificationsRead", Mode: operationWrite, Timeout: timeoutWrite,
+	},
+	OperationPassiveNotificationPrune: {
+		ID: OperationPassiveNotificationPrune, Repository: "PassiveNotificationRepository",
+		Method: "PrunePassiveNotifications", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationPassiveNotificationRevision: {
+		ID: OperationPassiveNotificationRevision, Repository: "PassiveNotificationRepository",
+		Method: "PassiveNotificationRevision", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationOwnerProfileGet: {
 		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",

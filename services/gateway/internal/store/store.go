@@ -187,6 +187,26 @@ type ScheduleRepository interface {
 	ListReminderDeliveries(context.Context, string) ([]app.ReminderDelivery, error)
 }
 
+type PassiveNotificationRepository interface {
+	CreatePassiveNotification(context.Context, app.PassiveNotification) (app.PassiveNotification, bool, error)
+	GetPassiveNotification(context.Context, string, string) (app.PassiveNotification, bool, error)
+	ListPassiveNotifications(context.Context, string, string, int) ([]app.PassiveNotification, error)
+	CountUnreadPassiveNotifications(context.Context, string) (int, error)
+	MarkPassiveNotificationRead(context.Context, string, string, time.Time) (app.PassiveNotification, error)
+	MarkAllPassiveNotificationsRead(context.Context, string, time.Time) (int, error)
+	// PrunePassiveNotifications bounds the durable inbox: notifications created
+	// before cutoff are removed (a zero cutoff disables the retention sweep),
+	// and each owner is trimmed to maxPerOwner records (zero or negative
+	// disables the cap), evicting read notifications oldest-first before
+	// touching unread ones. Pruned idempotency keys become replayable; the
+	// dedup window intentionally equals the retention window.
+	PrunePassiveNotifications(context.Context, time.Time, int) (int, error)
+	// PassiveNotificationRevision reports a counter that increases whenever the
+	// owner's inbox changes (create, mark-read, prune). It is process-local and
+	// resets on restart; callers may only compare values for equality.
+	PassiveNotificationRevision(context.Context, string) (uint64, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -221,6 +241,7 @@ type Store interface {
 	BrowserStateRepository
 	MemoryRepository
 	ScheduleRepository
+	PassiveNotificationRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -240,23 +261,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error)
-	GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool)
-	ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification
-	CountUnreadPassiveNotifications(ownerID string) int
-	MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error)
-	MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error)
-	// PrunePassiveNotifications bounds the durable inbox: notifications created
-	// before cutoff are removed (a zero cutoff disables the retention sweep),
-	// and each owner is trimmed to maxPerOwner records (zero or negative
-	// disables the cap), evicting read notifications oldest-first before
-	// touching unread ones. Pruned idempotency keys become replayable; the
-	// dedup window intentionally equals the retention window.
-	PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int
-	// PassiveNotificationRevision reports a counter that increases whenever the
-	// owner's inbox changes (create, mark-read, prune). It is process-local and
-	// resets on restart; callers may only compare values for equality.
-	PassiveNotificationRevision(ownerID string) uint64
 	SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession
 	GetExternalChatSession(id string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(channel, status string) []app.ExternalChatSession

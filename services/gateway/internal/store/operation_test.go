@@ -377,6 +377,38 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationReminderDeliveryList, Repository: "ScheduleRepository",
 			Method: "ListReminderDeliveries", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationPassiveNotificationCreate: {
+			ID: OperationPassiveNotificationCreate, Repository: "PassiveNotificationRepository",
+			Method: "CreatePassiveNotification", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationPassiveNotificationGet: {
+			ID: OperationPassiveNotificationGet, Repository: "PassiveNotificationRepository",
+			Method: "GetPassiveNotification", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationPassiveNotificationList: {
+			ID: OperationPassiveNotificationList, Repository: "PassiveNotificationRepository",
+			Method: "ListPassiveNotifications", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationPassiveNotificationCount: {
+			ID: OperationPassiveNotificationCount, Repository: "PassiveNotificationRepository",
+			Method: "CountUnreadPassiveNotifications", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationPassiveNotificationMarkRead: {
+			ID: OperationPassiveNotificationMarkRead, Repository: "PassiveNotificationRepository",
+			Method: "MarkPassiveNotificationRead", Mode: operationWrite, Timeout: timeoutWrite,
+		},
+		OperationPassiveNotificationMarkAll: {
+			ID: OperationPassiveNotificationMarkAll, Repository: "PassiveNotificationRepository",
+			Method: "MarkAllPassiveNotificationsRead", Mode: operationWrite, Timeout: timeoutWrite,
+		},
+		OperationPassiveNotificationPrune: {
+			ID: OperationPassiveNotificationPrune, Repository: "PassiveNotificationRepository",
+			Method: "PrunePassiveNotifications", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationPassiveNotificationRevision: {
+			ID: OperationPassiveNotificationRevision, Repository: "PassiveNotificationRepository",
+			Method: "PassiveNotificationRevision", Mode: operationRead, Timeout: timeoutRead,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

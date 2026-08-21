@@ -161,7 +161,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
 		ConnectorSettings:    cloneMap(s.connectorSettings),
 		NotificationBindings: cloneNotificationBindingMap(s.notificationBindings),
-		PassiveNotifications: cloneMap(s.passiveNotifications),
+		PassiveNotifications: clonePassiveNotificationMap(s.passiveNotifications),
 		ExternalChatSessions: cloneMap(s.externalChatSessions),
 		ExternalChatMessages: cloneMap(s.externalChatMessages),
 		MessageReceives:      cloneMap(s.messageReceives),
@@ -294,6 +294,8 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	// so it is always rebuilt from the notifications themselves.
 	s.passiveNotificationIDsByKey = make(map[string]string, len(s.passiveNotifications))
 	for id, notification := range s.passiveNotifications {
+		notification = normalizePassiveNotification(notification)
+		s.passiveNotifications[id] = clonePassiveNotification(notification)
 		s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)] = id
 	}
 	s.passiveNotificationRevs = map[string]uint64{}
@@ -1880,31 +1882,33 @@ func connectorSettingKey(ownerID, channel string) string {
 	return normalizeConnectorOwner(ownerID) + "\x1f" + normalizeConnectorChannel(channel)
 }
 
-func (s *MemoryStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+func (s *MemoryStore) CreatePassiveNotification(ctx context.Context, notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationCreate, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationCreate, ctx); err != nil {
+		return app.PassiveNotification{}, false, err
+	}
+	var err error
+	notification, err = preparePassiveNotification(notification, time.Now().UTC())
+	if err != nil {
+		return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	notification.OwnerID = strings.TrimSpace(notification.OwnerID)
-	notification.EndpointID = strings.TrimSpace(notification.EndpointID)
-	notification.IdempotencyKey = strings.TrimSpace(notification.IdempotencyKey)
-	if notification.OwnerID == "" || notification.EndpointID == "" || notification.IdempotencyKey == "" || strings.TrimSpace(notification.Fingerprint) == "" {
-		return app.PassiveNotification{}, false, errors.New("notification owner, endpoint, idempotency key, and fingerprint are required")
+	if err := operationContextError(OperationPassiveNotificationCreate, ctx); err != nil {
+		return app.PassiveNotification{}, false, err
 	}
 	if existingID, ok := s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)]; ok {
 		existing := s.passiveNotifications[existingID]
-		if existing.OwnerID != notification.OwnerID || existing.Fingerprint != notification.Fingerprint {
-			return app.PassiveNotification{}, false, ErrPassiveNotificationConflict
+		if !passiveNotificationsEqualForReplay(existing, notification) {
+			return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorConflict, ErrPassiveNotificationConflict)
 		}
-		return existing, false, nil
+		return clonePassiveNotification(existing), false, nil
 	}
-	now := time.Now().UTC()
-	if notification.ID == "" {
-		notification.ID = app.NewID("notification")
+	if _, exists := s.passiveNotifications[notification.ID]; exists {
+		return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorConflict, ErrPassiveNotificationConflict)
 	}
-	if notification.CreatedAt.IsZero() {
-		notification.CreatedAt = now
-	}
-	notification.UpdatedAt = now
-	s.passiveNotifications[notification.ID] = notification
+	s.passiveNotifications[notification.ID] = clonePassiveNotification(notification)
 	s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)] = notification.ID
 	s.passiveNotificationRevs[notification.OwnerID]++
 	s.appendAuditLocked("notification.received", "", "", notification.OwnerID, notification.Source, map[string]any{
@@ -1912,28 +1916,45 @@ func (s *MemoryStore) CreatePassiveNotification(notification app.PassiveNotifica
 		"endpoint_id":     notification.EndpointID,
 		"kind":            notification.Kind,
 	})
-	return notification, true, nil
+	return clonePassiveNotification(notification), true, nil
 }
 
-func (s *MemoryStore) GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	notification, ok := s.passiveNotifications[id]
-	return notification, ok && notification.OwnerID == ownerID
-}
-
-func (s *MemoryStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if limit <= 0 || limit > 500 {
-		limit = 100
+func (s *MemoryStore) GetPassiveNotification(ctx context.Context, ownerID, id string) (app.PassiveNotification, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationGet, ctx); err != nil {
+		return app.PassiveNotification{}, false, err
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationPassiveNotificationGet, ctx); err != nil {
+		return app.PassiveNotification{}, false, err
+	}
+	notification, ok := s.passiveNotifications[id]
+	if !ok || notification.OwnerID != ownerID {
+		return app.PassiveNotification{}, false, nil
+	}
+	return clonePassiveNotification(notification), true, nil
+}
+
+func (s *MemoryStore) ListPassiveNotifications(ctx context.Context, ownerID, after string, limit int) ([]app.PassiveNotification, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationList, ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationPassiveNotificationList, ctx); err != nil {
+		return nil, err
+	}
+	limit = normalizePassiveNotificationLimit(limit)
 	var cursor app.PassiveNotification
 	if after != "" {
 		var ok bool
 		cursor, ok = s.passiveNotifications[after]
 		if !ok || cursor.OwnerID != ownerID {
-			return []app.PassiveNotification{}
+			return []app.PassiveNotification{}, nil
 		}
 	}
 	out := make([]app.PassiveNotification, 0)
@@ -1944,7 +1965,7 @@ func (s *MemoryStore) ListPassiveNotifications(ownerID, after string, limit int)
 		if after != "" && (notification.CreatedAt.Before(cursor.CreatedAt) || (notification.CreatedAt.Equal(cursor.CreatedAt) && notification.ID <= cursor.ID)) {
 			continue
 		}
-		out = append(out, notification)
+		out = append(out, clonePassiveNotification(notification))
 	}
 	slices.SortFunc(out, func(a, b app.PassiveNotification) int {
 		order := a.CreatedAt.Compare(b.CreatedAt)
@@ -1959,51 +1980,77 @@ func (s *MemoryStore) ListPassiveNotifications(ownerID, after string, limit int)
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) CountUnreadPassiveNotifications(ownerID string) int {
+func (s *MemoryStore) CountUnreadPassiveNotifications(ctx context.Context, ownerID string) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationCount, ctx); err != nil {
+		return 0, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationPassiveNotificationCount, ctx); err != nil {
+		return 0, err
+	}
 	count := 0
 	for _, notification := range s.passiveNotifications {
 		if notification.OwnerID == ownerID && notification.ReadAt == nil {
 			count++
 		}
 	}
-	return count
+	return count, nil
 }
 
-func (s *MemoryStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+func (s *MemoryStore) MarkPassiveNotificationRead(ctx context.Context, ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationMarkRead, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationMarkRead, ctx); err != nil {
+		return app.PassiveNotification{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationPassiveNotificationMarkRead, ctx); err != nil {
+		return app.PassiveNotification{}, err
+	}
 	notification, ok := s.passiveNotifications[id]
 	if !ok || notification.OwnerID != ownerID {
-		return app.PassiveNotification{}, ErrPassiveNotificationNotFound
+		return app.PassiveNotification{}, storeError(OperationPassiveNotificationMarkRead, StoreErrorNotFound, ErrPassiveNotificationNotFound)
 	}
 	if notification.ReadAt != nil {
-		return notification, nil
+		return clonePassiveNotification(notification), nil
 	}
 	if readAt.IsZero() {
 		readAt = time.Now().UTC()
 	} else {
-		readAt = readAt.UTC()
+		readAt = postgresTime(readAt)
 	}
+	readAt = postgresTime(readAt)
 	notification.ReadAt = &readAt
 	notification.UpdatedAt = readAt
 	s.passiveNotifications[id] = notification
 	s.passiveNotificationRevs[notification.OwnerID]++
-	return notification, nil
+	return clonePassiveNotification(notification), nil
 }
 
-func (s *MemoryStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error) {
+func (s *MemoryStore) MarkAllPassiveNotificationsRead(ctx context.Context, ownerID string, readAt time.Time) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationMarkAll, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationMarkAll, ctx); err != nil {
+		return 0, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationPassiveNotificationMarkAll, ctx); err != nil {
+		return 0, err
+	}
 	if readAt.IsZero() {
 		readAt = time.Now().UTC()
 	} else {
-		readAt = readAt.UTC()
+		readAt = postgresTime(readAt)
 	}
+	readAt = postgresTime(readAt)
 	count := 0
 	for id, notification := range s.passiveNotifications {
 		if notification.OwnerID != ownerID || notification.ReadAt != nil {
@@ -2020,9 +2067,18 @@ func (s *MemoryStore) MarkAllPassiveNotificationsRead(ownerID string, readAt tim
 	return count, nil
 }
 
-func (s *MemoryStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int {
+func (s *MemoryStore) PrunePassiveNotifications(ctx context.Context, cutoff time.Time, maxPerOwner int) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationPrune, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationPrune, ctx); err != nil {
+		return 0, err
+	}
+	cutoff = postgresTime(cutoff)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationPassiveNotificationPrune, ctx); err != nil {
+		return 0, err
+	}
 	removedByOwner := map[string]int{}
 	if !cutoff.IsZero() {
 		for id, notification := range s.passiveNotifications {
@@ -2058,7 +2114,7 @@ func (s *MemoryStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner in
 			"cutoff":        cutoff.UTC().Format(time.RFC3339),
 		})
 	}
-	return removed
+	return removed, nil
 }
 
 func (s *MemoryStore) removePassiveNotificationLocked(id string, notification app.PassiveNotification) {
@@ -2067,10 +2123,18 @@ func (s *MemoryStore) removePassiveNotificationLocked(id string, notification ap
 	s.passiveNotificationRevs[notification.OwnerID]++
 }
 
-func (s *MemoryStore) PassiveNotificationRevision(ownerID string) uint64 {
+func (s *MemoryStore) PassiveNotificationRevision(ctx context.Context, ownerID string) (uint64, error) {
+	ctx, cancel := operationContext(ctx, OperationPassiveNotificationRevision, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPassiveNotificationRevision, ctx); err != nil {
+		return 0, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.passiveNotificationRevs[ownerID]
+	if err := operationContextError(OperationPassiveNotificationRevision, ctx); err != nil {
+		return 0, err
+	}
+	return s.passiveNotificationRevs[ownerID], nil
 }
 
 // passiveNotificationEvictionOrder ranks cap evictions: read notifications go

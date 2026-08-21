@@ -81,7 +81,7 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 	"PassiveNotificationRepository": {
 		mutate: func(t *testing.T, st Store) {
 			notification := testPassiveNotification("passive-lifecycle", "endpoint-lifecycle", "delivery-lifecycle", "fingerprint-lifecycle")
-			if _, inserted, err := st.CreatePassiveNotification(notification); err != nil || !inserted {
+			if _, inserted, err := st.CreatePassiveNotification(t.Context(), notification); err != nil || !inserted {
 				t.Fatalf("create passive notification: inserted=%v err=%v", inserted, err)
 			}
 		},

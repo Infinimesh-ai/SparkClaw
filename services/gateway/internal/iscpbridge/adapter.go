@@ -167,7 +167,7 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 	case TypeMessageCancel:
 		return a.cancelMessage(ctx, req, principal, now)
 	case TypeNotificationDeliver:
-		return a.deliverNotification(req, principal, now)
+		return a.deliverNotification(ctx, req, principal, now)
 	case TypeEventResume:
 		return a.resumeEvents(ctx, req, principal, now)
 	case TypeApprovalList:
@@ -181,7 +181,7 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 	}
 }
 
-func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) deliverNotification(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	if strings.TrimSpace(req.SessionID) != "" {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "session_id is not allowed for passive notifications", false), now)
 	}
@@ -207,7 +207,7 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 	if payload.OccurredAt.IsZero() || payload.OccurredAt.After(now.Add(2*time.Minute)) {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "occurred_at is invalid", false), now)
 	}
-	notification, created, err := a.store.CreatePassiveNotification(app.PassiveNotification{
+	notification, created, err := a.store.CreatePassiveNotification(ctx, app.PassiveNotification{
 		ID:             stableID("notification", req.EndpointID, req.IdempotencyKey),
 		OwnerID:        principal.OwnerID,
 		EndpointID:     req.EndpointID,
@@ -227,7 +227,9 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "notification could not be persisted", true), now)
 	}
 	if created {
-		a.prunePassiveNotifications(now)
+		if err := a.prunePassiveNotifications(ctx, now); err != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "notification retention could not be persisted", true), now)
+		}
 	}
 	return newResponse(req, "ok", NotificationDeliveryResult{
 		ID: notification.ID, NotificationID: notification.NotificationID, Created: created,
@@ -237,15 +239,16 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 // prunePassiveNotifications applies the configured retention window and
 // per-owner cap after each accepted delivery, so the inbox stays bounded at
 // its only ingestion point.
-func (a *GatewayAdapter) prunePassiveNotifications(now time.Time) {
+func (a *GatewayAdapter) prunePassiveNotifications(ctx context.Context, now time.Time) error {
 	cutoff := time.Time{}
 	if a.notificationRetentionDays > 0 {
 		cutoff = now.AddDate(0, 0, -a.notificationRetentionDays)
 	}
 	if cutoff.IsZero() && a.notificationMaxPerOwner <= 0 {
-		return
+		return nil
 	}
-	a.store.PrunePassiveNotifications(cutoff, a.notificationMaxPerOwner)
+	_, err := a.store.PrunePassiveNotifications(ctx, cutoff, a.notificationMaxPerOwner)
+	return err
 }
 
 func (a *GatewayAdapter) listSessions(ctx context.Context, req Request, principal Principal, now time.Time) Response {

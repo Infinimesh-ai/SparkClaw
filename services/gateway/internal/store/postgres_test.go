@@ -712,35 +712,35 @@ func TestPostgresStorePassiveNotificationPruneAndRevision(t *testing.T) {
 	for _, item := range seed {
 		notification := testPassiveNotification("notification-"+item.id, "endpoint-pg", "delivery-"+item.id, "fingerprint-"+item.id)
 		notification.CreatedAt = now.Add(-item.age)
-		if _, inserted, err := st.CreatePassiveNotification(notification); err != nil || !inserted {
+		if _, inserted, err := st.CreatePassiveNotification(t.Context(), notification); err != nil || !inserted {
 			t.Fatalf("create %s = %v, %v", item.id, inserted, err)
 		}
 		if item.read {
-			if _, err := st.MarkPassiveNotificationRead(app.DefaultOwnerID, notification.ID, time.Time{}); err != nil {
+			if _, err := st.MarkPassiveNotificationRead(t.Context(), app.DefaultOwnerID, notification.ID, time.Time{}); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	revBefore := st.PassiveNotificationRevision(app.DefaultOwnerID)
+	revBefore := mustPassiveNotificationRevision(t, st, app.DefaultOwnerID)
 	if revBefore == 0 {
 		t.Fatal("creates did not bump the revision")
 	}
 
 	// Retention removes the stale record; the cap then evicts read records
 	// oldest-first before the oldest unread one.
-	if removed := st.PrunePassiveNotifications(now.AddDate(0, 0, -7), 1); removed != 4 {
+	if removed := mustPrunePassiveNotifications(t, st, now.AddDate(0, 0, -7), 1); removed != 4 {
 		t.Fatalf("prune removed %d, want 4", removed)
 	}
-	items := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10)
+	items := mustListPassiveNotifications(t, st, app.DefaultOwnerID, "", 10)
 	if len(items) != 1 || items[0].ID != "notification-unread-new" {
 		t.Fatalf("survivors = %#v", items)
 	}
-	if got := st.PassiveNotificationRevision(app.DefaultOwnerID); got == revBefore {
+	if got := mustPassiveNotificationRevision(t, st, app.DefaultOwnerID); got == revBefore {
 		t.Fatal("prune did not bump the revision")
 	}
 	// A pruned idempotency key is replayable again.
 	replay := testPassiveNotification("notification-stale", "endpoint-pg", "delivery-stale", "fingerprint-stale")
-	if _, inserted, err := st.CreatePassiveNotification(replay); err != nil || !inserted {
+	if _, inserted, err := st.CreatePassiveNotification(t.Context(), replay); err != nil || !inserted {
 		t.Fatalf("replay after prune = %v, %v", inserted, err)
 	}
 }

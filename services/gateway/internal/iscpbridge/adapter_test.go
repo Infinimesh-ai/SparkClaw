@@ -96,7 +96,7 @@ func TestGatewayAdapterPassiveNotificationPersistsWithoutAgentActivity(t *testin
 	if runtimeRequested {
 		t.Fatal("passive notification requested the Agent runtime")
 	}
-	if got := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10); len(got) != 1 {
+	if got, err := st.ListPassiveNotifications(t.Context(), app.DefaultOwnerID, "", 10); err != nil || len(got) != 1 {
 		t.Fatalf("persisted notifications = %#v", got)
 	}
 	if len(storetest.MustListSessions(t, st)) != 0 || len(testListRuns(st, "")) != 0 || len(testListModelCalls(st, "", "")) != 0 ||
@@ -139,7 +139,11 @@ func TestGatewayAdapterPassiveNotificationIngestionEnforcesCap(t *testing.T) {
 			t.Fatalf("delivery %d failed: %#v", i, response)
 		}
 	}
-	if got := len(st.ListPassiveNotifications(app.DefaultOwnerID, "", 10)); got != 3 {
+	listed, err := st.ListPassiveNotifications(t.Context(), app.DefaultOwnerID, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(listed); got != 3 {
 		t.Fatalf("inbox size after capped ingestion = %d, want 3", got)
 	}
 }

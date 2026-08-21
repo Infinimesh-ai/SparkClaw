@@ -1056,64 +1056,88 @@ func (s *FileStore) ListReminderDeliveries(ctx context.Context, reminderID strin
 	return s.inner.ListReminderDeliveries(ctx, reminderID)
 }
 
-func (s *FileStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
-	defer s.admitLegacyCommand()()
-	out, created, err := s.inner.CreatePassiveNotification(notification)
-	if err != nil || !created {
-		// Idempotent replays change nothing; skip the full snapshot rewrite.
-		return out, created, err
-	}
-	if err := s.persistSnapshot(); err != nil {
+func (s *FileStore) CreatePassiveNotification(ctx context.Context, notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationCreate, fileAdmissionCapacity)
+	if err != nil {
 		return app.PassiveNotification{}, false, err
 	}
-	return out, created, nil
+	defer release()
+	return runFileOptionalCommand(s, ctx, OperationPassiveNotificationCreate, func(ctx context.Context) (app.PassiveNotification, bool, error) {
+		return s.inner.CreatePassiveNotification(ctx, notification)
+	})
 }
 
-func (s *FileStore) GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetPassiveNotification(ownerID, id)
-}
-
-func (s *FileStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
-	defer s.admitLegacyRead()()
-	return s.inner.ListPassiveNotifications(ownerID, after, limit)
-}
-
-func (s *FileStore) CountUnreadPassiveNotifications(ownerID string) int {
-	defer s.admitLegacyRead()()
-	return s.inner.CountUnreadPassiveNotifications(ownerID)
-}
-
-func (s *FileStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.MarkPassiveNotificationRead(ownerID, id, readAt)
-	if err == nil {
-		err = s.persistSnapshot()
+func (s *FileStore) GetPassiveNotification(ctx context.Context, ownerID, id string) (app.PassiveNotification, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationGet, 1)
+	if err != nil {
+		return app.PassiveNotification{}, false, err
 	}
-	return out, err
+	defer release()
+	return s.inner.GetPassiveNotification(ctx, ownerID, id)
 }
 
-func (s *FileStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error) {
-	defer s.admitLegacyCommand()()
-	count, err := s.inner.MarkAllPassiveNotificationsRead(ownerID, readAt)
-	if err == nil && count > 0 {
-		err = s.persistSnapshot()
+func (s *FileStore) ListPassiveNotifications(ctx context.Context, ownerID, after string, limit int) ([]app.PassiveNotification, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationList, 1)
+	if err != nil {
+		return nil, err
 	}
+	defer release()
+	return s.inner.ListPassiveNotifications(ctx, ownerID, after, limit)
+}
+
+func (s *FileStore) CountUnreadPassiveNotifications(ctx context.Context, ownerID string) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationCount, 1)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return s.inner.CountUnreadPassiveNotifications(ctx, ownerID)
+}
+
+func (s *FileStore) MarkPassiveNotificationRead(ctx context.Context, ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationMarkRead, fileAdmissionCapacity)
+	if err != nil {
+		return app.PassiveNotification{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationPassiveNotificationMarkRead, func(ctx context.Context) (app.PassiveNotification, error) {
+		return s.inner.MarkPassiveNotificationRead(ctx, ownerID, id, readAt)
+	})
+}
+
+func (s *FileStore) MarkAllPassiveNotificationsRead(ctx context.Context, ownerID string, readAt time.Time) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationMarkAll, fileAdmissionCapacity)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	count, _, err := runFileOptionalCommand(s, ctx, OperationPassiveNotificationMarkAll, func(ctx context.Context) (int, bool, error) {
+		count, err := s.inner.MarkAllPassiveNotificationsRead(ctx, ownerID, readAt)
+		return count, count > 0, err
+	})
 	return count, err
 }
 
-func (s *FileStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int {
-	defer s.admitLegacyCommand()()
-	removed := s.inner.PrunePassiveNotifications(cutoff, maxPerOwner)
-	if removed > 0 {
-		s.persist()
+func (s *FileStore) PrunePassiveNotifications(ctx context.Context, cutoff time.Time, maxPerOwner int) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationPrune, fileAdmissionCapacity)
+	if err != nil {
+		return 0, err
 	}
-	return removed
+	defer release()
+	removed, _, err := runFileOptionalCommand(s, ctx, OperationPassiveNotificationPrune, func(ctx context.Context) (int, bool, error) {
+		removed, err := s.inner.PrunePassiveNotifications(ctx, cutoff, maxPerOwner)
+		return removed, removed > 0, err
+	})
+	return removed, err
 }
 
-func (s *FileStore) PassiveNotificationRevision(ownerID string) uint64 {
-	defer s.admitLegacyRead()()
-	return s.inner.PassiveNotificationRevision(ownerID)
+func (s *FileStore) PassiveNotificationRevision(ctx context.Context, ownerID string) (uint64, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPassiveNotificationRevision, 1)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return s.inner.PassiveNotificationRevision(ctx, ownerID)
 }
 
 func (s *FileStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {

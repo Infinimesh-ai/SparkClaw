@@ -75,6 +75,10 @@ var migratedFileAdmissions = map[string]string{
 	"SearchMemories": "admitMigrated", "UpdateMemory": "admitMigrated", "DeleteMemory": "admitMigrated", "PruneMemories": "admitMigrated",
 	"SaveReminder": "admitMigrated", "UpdatePendingReminder": "admitMigrated", "GetReminder": "admitMigrated", "ListReminders": "admitMigrated",
 	"ClaimDueReminders": "admitMigrated", "SaveReminderDelivery": "admitMigrated", "ListReminderDeliveries": "admitMigrated",
+	"CreatePassiveNotification": "admitMigrated", "GetPassiveNotification": "admitMigrated",
+	"ListPassiveNotifications": "admitMigrated", "CountUnreadPassiveNotifications": "admitMigrated",
+	"MarkPassiveNotificationRead": "admitMigrated", "MarkAllPassiveNotificationsRead": "admitMigrated",
+	"PrunePassiveNotifications": "admitMigrated", "PassiveNotificationRevision": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

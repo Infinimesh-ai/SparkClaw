@@ -358,7 +358,7 @@ func TestS0RepositoryCharacterizationMatrixCompleteness(t *testing.T) {
 }
 
 func TestS0RepositoryEvidenceMapsCollectRowsDefect(t *testing.T) {
-	parsed, err := parser.ParseFile(token.NewFileSet(), "postgres.go", nil, 0)
+	paths, err := filepath.Glob("*postgres.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,18 +369,24 @@ func TestS0RepositoryEvidenceMapsCollectRowsDefect(t *testing.T) {
 		}
 	}
 	want := s0PostgresRowsErrTest("shared", "collectRows")
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Body == nil || !s0CallsFunction(function.Body, "collectRows") {
-			continue
+	for _, path := range paths {
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
 		}
-		repository, ok := owners[function.Name.Name]
-		if !ok {
-			continue
-		}
-		cell := s0RepositoryCharacterizationEvidence[repository][s0DimensionPostgresRows]
-		if !s0ContainsString(cell.Tests, want) {
-			t.Errorf("%s.%s calls collectRows but its PostgreSQL evidence does not reference %s", repository, function.Name.Name, want)
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv == nil || function.Body == nil || !s0CallsFunction(function.Body, "collectRows") {
+				continue
+			}
+			repository, ok := owners[function.Name.Name]
+			if !ok {
+				continue
+			}
+			cell := s0RepositoryCharacterizationEvidence[repository][s0DimensionPostgresRows]
+			if !s0ContainsString(cell.Tests, want) {
+				t.Errorf("%s.%s calls collectRows but its PostgreSQL evidence does not reference %s", repository, function.Name.Name, want)
+			}
 		}
 	}
 }

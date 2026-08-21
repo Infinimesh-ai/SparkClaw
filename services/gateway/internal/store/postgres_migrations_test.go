@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -40,12 +41,18 @@ func TestPostgresMigrationManifest(t *testing.T) {
 }
 
 func TestPostgresDomainDDLExistsOnlyInEmbeddedMigrations(t *testing.T) {
-	postgresSource, err := os.ReadFile("postgres.go")
+	paths, err := filepath.Glob("*postgres.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(strings.ToUpper(string(postgresSource)), "CREATE TABLE") {
-		t.Fatal("postgres.go still contains domain DDL")
+	for _, path := range paths {
+		postgresSource, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.ToUpper(string(postgresSource)), "CREATE TABLE") {
+			t.Fatalf("%s contains domain DDL", path)
+		}
 	}
 	runnerSource, err := os.ReadFile("postgres_migrations.go")
 	if err != nil {

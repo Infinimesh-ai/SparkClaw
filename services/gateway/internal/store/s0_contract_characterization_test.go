@@ -459,7 +459,7 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 }
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreClosed(t *testing.T) {
-	source := readS0Source(t, "file.go")
+	source := readS0ProductionSources(t, "*file.go")
 	if strings.Contains(source, "s.persist()") || strings.Contains(source, "_ = s.persistSnapshot()") {
 		t.Fatal("legacy File persistence error discard returned after ExternalChatRepository migration")
 	}
@@ -496,14 +496,27 @@ func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
 }
 
 func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
-	files := []string{"postgres.go", "iscp_onboarding_postgres.go", "mcp_access_postgres.go"}
-	count := 0
-	for _, file := range files {
-		count += strings.Count(readS0Source(t, file), "_, _ = ")
-	}
+	count := strings.Count(readS0ProductionSources(t, "*postgres.go"), "_, _ = ")
 	if count != 2 {
 		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 2", count)
 	}
+}
+
+func readS0ProductionSources(t *testing.T, pattern string) string {
+	t.Helper()
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		source.WriteString(readS0Source(t, path))
+		source.WriteByte('\n')
+	}
+	return source.String()
 }
 
 func readS0Source(t *testing.T, name string) string {

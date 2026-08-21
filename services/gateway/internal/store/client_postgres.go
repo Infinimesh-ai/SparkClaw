@@ -137,7 +137,7 @@ func (s *PostgresStore) GetClient(ctx context.Context, id string) (app.Client, b
 	client, err = normalizePostgresClient(client)
 	if err != nil {
 		err = rollbackPostgresOnboardingRead(ctx, session, transaction, release, err)
-		return app.Client{}, false, storeError(OperationClientGet, StoreErrorCorrupt, err)
+		return app.Client{}, false, storeError(ctx, OperationClientGet, StoreErrorCorrupt, err)
 	}
 	if err := commitClientRead(ctx, OperationClientGet, session, transaction, release); err != nil {
 		return app.Client{}, false, err
@@ -164,7 +164,7 @@ func (s *PostgresStore) ListClients(ctx context.Context) ([]app.Client, error) {
 		}
 		client, err = normalizePostgresClient(client)
 		if err != nil {
-			return nil, storeError(OperationClientList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationClientList, StoreErrorCorrupt, err)
 		}
 		out = append(out, client)
 	}
@@ -193,7 +193,7 @@ func (s *PostgresStore) FindClientByTokenHash(ctx context.Context, tokenHash str
 	}
 	client, err = normalizePostgresClient(client)
 	if err != nil {
-		return app.Client{}, false, storeError(OperationClientFindTokenHash, StoreErrorCorrupt, err)
+		return app.Client{}, false, storeError(ctx, OperationClientFindTokenHash, StoreErrorCorrupt, err)
 	}
 	return client, true, nil
 }
@@ -255,7 +255,7 @@ func (s *PostgresStore) RevokeClient(ctx context.Context, id string) (app.Client
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return cloneClient(client), storeError(OperationClientRevoke, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return cloneClient(client), storeError(ctx, OperationClientRevoke, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneClient(client), nil
 }
@@ -319,7 +319,7 @@ func (s *PostgresStore) TouchClient(ctx context.Context, id string) (app.Client,
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return cloneClient(client), true, storeError(OperationClientTouch, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return cloneClient(client), true, storeError(ctx, OperationClientTouch, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneClient(client), true, nil
 }
@@ -332,7 +332,7 @@ func (s *PostgresStore) SavePairingCode(ctx context.Context, code app.PairingCod
 	}
 	code, err := normalizePairingSave(code)
 	if err != nil {
-		return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorInvalid, err)
+		return app.PairingCode{}, storeError(ctx, OperationPairingCodeSave, StoreErrorInvalid, err)
 	}
 	releaseCommand, err := s.acquireClientCommand(ctx, OperationPairingCodeSave)
 	if err != nil {
@@ -387,7 +387,7 @@ func (s *PostgresStore) SavePairingCode(ctx context.Context, code app.PairingCod
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return clonePairingCode(code), storeError(OperationPairingCodeSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return clonePairingCode(code), storeError(ctx, OperationPairingCodeSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return clonePairingCode(code), nil
 }
@@ -433,7 +433,7 @@ func (s *PostgresStore) GetPairingCode(ctx context.Context, id string) (app.Pair
 	}
 	if validationErr != nil {
 		validationErr = rollbackPostgresOnboardingRead(ctx, session, transaction, release, validationErr)
-		return app.PairingCode{}, false, storeError(OperationPairingCodeGet, StoreErrorCorrupt, validationErr)
+		return app.PairingCode{}, false, storeError(ctx, OperationPairingCodeGet, StoreErrorCorrupt, validationErr)
 	}
 	if err := commitClientRead(ctx, OperationPairingCodeGet, session, transaction, release); err != nil {
 		return app.PairingCode{}, false, err
@@ -449,7 +449,7 @@ func (s *PostgresStore) ClaimPairingCode(ctx context.Context, id string, client 
 	}
 	client, err := normalizeClaimClient(client)
 	if err != nil {
-		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorInvalid, err)
+		return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorInvalid, err)
 	}
 	id = strings.TrimSpace(id)
 	releaseCommand, err := s.acquireClientCommand(ctx, OperationPairingCodeClaim)
@@ -529,7 +529,7 @@ func (s *PostgresStore) ClaimPairingCode(ctx context.Context, id string, client 
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return clonePairingCode(code), cloneClient(client), storeError(OperationPairingCodeClaim, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return clonePairingCode(code), cloneClient(client), storeError(ctx, OperationPairingCodeClaim, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return clonePairingCode(code), cloneClient(client), nil
 }
@@ -565,11 +565,11 @@ func (s *PostgresStore) beginClientTransaction(ctx context.Context, operation St
 		if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
 			session.Release()
 			if postgresError != nil {
-				return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+				return nil, nil, nil, storeError(ctx, operation, StoreErrorInternal, err)
 			}
 			return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
 		}
-		return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return nil, nil, nil, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return session, transaction, &release, nil
 }
@@ -579,7 +579,7 @@ func (s *PostgresStore) acquireClientCommand(ctx context.Context, operation Stor
 		if contextErr := operationContextError(operation, ctx); contextErr != nil {
 			return nil, contextErr
 		}
-		return nil, storeError(operation, StoreErrorUnavailable, err)
+		return nil, storeError(ctx, operation, StoreErrorUnavailable, err)
 	}
 	if err := operationContextError(operation, ctx); err != nil {
 		s.clientCommandGate.Release(1)
@@ -601,12 +601,12 @@ func finishClientPreCandidate(ctx context.Context, operation StoreOperation, ses
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil {
-			return storeError(operation, StoreErrorInternal, cause)
+			return storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func finishClientStatement(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (bool, error) {
@@ -614,19 +614,19 @@ func finishClientStatement(ctx context.Context, operation StoreOperation, sessio
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil && postgresError.Code == "23505" {
-			return false, storeError(operation, StoreErrorConflict, cause)
+			return false, storeError(ctx, operation, StoreErrorConflict, cause)
 		}
 		if postgresError != nil {
-			return false, storeError(operation, StoreErrorInternal, cause)
+			return false, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return false, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return true, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return true, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func clientBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
 }
 
 func clientAdvisoryKey(id string) int64 {

@@ -198,13 +198,12 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	cfg.State.CredentialKey = "01234567890123456789012345678901"
 	cfg.State.CredentialKeyFile = ""
 
-	st, err := newStore(context.Background(), cfg)
+	storeRuntime, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closer, ok := st.(interface{ Close() }); ok {
-		defer closer.Close()
-	}
+	defer storeRuntime.Close(context.Background())
+	st := backendFromRuntime(storeRuntime)
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
 	defer tools.Close()
@@ -213,7 +212,7 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	backend := &recordingSpeechTranscriber{status: speech.Status{
 		Enabled: true, Ready: true, State: speech.StateReady, Backend: "openai-http", Model: "sparkclaw-asr",
 	}}
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend, storeRuntime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,11 +308,12 @@ func TestNewStorePropagatesOperationTimeouts(t *testing.T) {
 			cfg.State.ReadTimeoutSeconds = 7
 			cfg.State.WriteTimeoutSeconds = 19
 			cfg.State.TransactionTimeoutSeconds = 23
-			st, err := newStore(context.Background(), cfg)
+			storeRuntime, err := newStore(context.Background(), cfg)
 			if err != nil {
 				t.Fatal(err)
 			}
-			value := reflect.ValueOf(st).Elem()
+			defer storeRuntime.Close(context.Background())
+			value := reflect.ValueOf(storeRuntime.SessionRepository()).Elem()
 			fieldName := "operationTimeouts"
 			if backend == "file" {
 				fieldName = "timeouts"
@@ -340,16 +340,18 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	cfg.State.Backend = "file"
 	cfg.State.Path = filepath.Join(root, "gateway-state.json")
 
-	st, err := newStore(context.Background(), cfg)
+	storeRuntime, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer storeRuntime.Close(context.Background())
+	st := backendFromRuntime(storeRuntime)
 	session := storetest.MustCreateSession(t, st, "Scheduled Web message")
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	traces := trace.NewWriter(cfg.Storage.TraceDir)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), traces)
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech))
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech), storeRuntime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,13 +419,12 @@ func TestDefaultFileBackendProductionEntryReadsStructuredDocument(t *testing.T) 
 	cfg.Workspaces.DefaultRoot = workspace
 	cfg.Workspaces.Allowlist = []string{workspace}
 
-	st, err := newStore(context.Background(), cfg)
+	storeRuntime, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closer, ok := st.(interface{ Close() }); ok {
-		defer closer.Close()
-	}
+	defer storeRuntime.Close(context.Background())
+	st := backendFromRuntime(storeRuntime)
 	session := storetest.MustCreateSessionWithScope(t, st, "document production entry", app.DefaultOwnerID, workspace, "web", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()

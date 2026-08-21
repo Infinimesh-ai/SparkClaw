@@ -279,6 +279,18 @@ export type ReadyStatus = {
   model_mode: string;
   gateway_binding: string;
   speech: SpeechStatus;
+  store?: {
+    backend: "memory" | "file" | "postgres" | string;
+    state: "starting" | "ready" | "unready" | "closing" | "closed" | string;
+    ready: boolean;
+    durable: boolean;
+    reason_code?: string;
+    active_operations: number;
+    started_at: string;
+    last_probe_at?: string;
+    degraded_at?: string;
+    last_recovered_at?: string;
+  };
 };
 
 export type SpeechStatus = {

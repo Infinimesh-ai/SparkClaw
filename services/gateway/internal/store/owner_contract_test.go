@@ -367,7 +367,7 @@ func mustNewOwnerFileStore(t testing.TB, options FileStoreOptions) *FileStore {
 func TestReconcileOwnerProfileWriteRequiresExactCandidate(t *testing.T) {
 	repository := NewMemoryStore()
 	persisted := mustSaveOwnerProfile(t, repository, app.OwnerProfile{ID: "owner-reconcile", DisplayName: "Persisted"})
-	unknown := storeError(OperationOwnerProfileSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
+	unknown := storeError(context.Background(), OperationOwnerProfileSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
 	if got, err := ReconcileOwnerProfileWrite(context.Background(), repository, persisted, unknown); err != nil || !OwnerProfilesEqual(got, persisted) {
 		t.Fatalf("exact reconciliation = %#v err=%v", got, err)
 	}

@@ -411,7 +411,7 @@ func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperatio
 	}
 	session, err := prepareSession(title, ownerID, workspaceRoot, source, hidden, s.sessionNow())
 	if err != nil {
-		return app.Session{}, storeError(operation, StoreErrorInvalid, err)
+		return app.Session{}, storeError(ctx, operation, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -419,7 +419,7 @@ func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperatio
 		return app.Session{}, err
 	}
 	if _, exists := s.sessions[session.ID]; exists {
-		return app.Session{}, storeError(operation, StoreErrorConflict, errors.New("session ID already exists"))
+		return app.Session{}, storeError(ctx, operation, StoreErrorConflict, errors.New("session ID already exists"))
 	}
 	s.sessionWriteHighWater[session.ID] = session.UpdatedAt
 	s.sessions[session.ID] = session
@@ -508,7 +508,7 @@ func (s *MemoryStore) ListSessions(ctx context.Context) ([]app.Session, error) {
 	out := make([]app.Session, 0, len(s.sessions))
 	for id, session := range s.sessions {
 		if err := validatePersistedSession(id, session); err != nil {
-			return nil, storeError(OperationSessionList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationSessionList, StoreErrorCorrupt, err)
 		}
 		if session.Hidden {
 			continue
@@ -540,7 +540,7 @@ func (s *MemoryStore) GetSession(ctx context.Context, id string) (app.Session, b
 		return app.Session{}, false, nil
 	}
 	if err := validatePersistedSession(id, session); err != nil {
-		return app.Session{}, false, storeError(OperationSessionGet, StoreErrorCorrupt, err)
+		return app.Session{}, false, storeError(ctx, OperationSessionGet, StoreErrorCorrupt, err)
 	}
 	return session, true, nil
 }
@@ -552,11 +552,11 @@ func (s *MemoryStore) UpdateSessionTitle(ctx context.Context, id, title string) 
 		return app.Session{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session ID is required"))
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session ID is required"))
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session title is required"))
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session title is required"))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -565,13 +565,13 @@ func (s *MemoryStore) UpdateSessionTitle(ctx context.Context, id, title string) 
 	}
 	session, ok := s.sessions[id]
 	if !ok {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorNotFound, errors.New("session not found"))
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorNotFound, errors.New("session not found"))
 	}
 	if err := validatePersistedSession(id, session); err != nil {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorCorrupt, err)
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorCorrupt, err)
 	}
 	if strings.TrimSpace(session.Source) == "mcp" {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorConflict, errors.New("MCP session title is binding-owned"))
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorConflict, errors.New("MCP session title is binding-owned"))
 	}
 	session.Title = title
 	session.UpdatedAt = nextSessionTime(s.sessionNow(), session.UpdatedAt, s.sessionWriteHighWater[id])
@@ -589,7 +589,7 @@ func (s *MemoryStore) DeleteSession(ctx context.Context, id string) (app.Session
 		return app.Session{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return app.Session{}, storeError(OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
+		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -598,13 +598,13 @@ func (s *MemoryStore) DeleteSession(ctx context.Context, id string) (app.Session
 	}
 	session, ok := s.sessions[id]
 	if !ok {
-		return app.Session{}, storeError(OperationSessionDelete, StoreErrorNotFound, errors.New("session not found"))
+		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorNotFound, errors.New("session not found"))
 	}
 	if err := validatePersistedSession(id, session); err != nil {
-		return app.Session{}, storeError(OperationSessionDelete, StoreErrorCorrupt, err)
+		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorCorrupt, err)
 	}
 	if strings.TrimSpace(session.Source) == "mcp" {
-		return app.Session{}, storeError(OperationSessionDelete, StoreErrorConflict, errors.New("MCP session history is binding-owned"))
+		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorConflict, errors.New("MCP session history is binding-owned"))
 	}
 	runIDs := map[string]bool{}
 	for runID, run := range s.runs {
@@ -733,7 +733,7 @@ func (s *MemoryStore) GetClient(ctx context.Context, id string) (app.Client, boo
 		return app.Client{}, false, nil
 	}
 	if err := validatePersistedClient(client); err != nil {
-		return app.Client{}, false, storeError(OperationClientGet, StoreErrorCorrupt, err)
+		return app.Client{}, false, storeError(ctx, OperationClientGet, StoreErrorCorrupt, err)
 	}
 	return cloneClient(client), true, nil
 }
@@ -752,7 +752,7 @@ func (s *MemoryStore) ListClients(ctx context.Context) ([]app.Client, error) {
 	out := make([]app.Client, 0, len(s.clients))
 	for _, client := range s.clients {
 		if err := validatePersistedClient(client); err != nil {
-			return nil, storeError(OperationClientList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationClientList, StoreErrorCorrupt, err)
 		}
 		out = append(out, cloneClient(client))
 	}
@@ -781,10 +781,10 @@ func (s *MemoryStore) RevokeClient(ctx context.Context, id string) (app.Client, 
 	}
 	client, ok := s.clients[id]
 	if !ok {
-		return app.Client{}, storeError(OperationClientRevoke, StoreErrorNotFound, errors.New("client not found"))
+		return app.Client{}, storeError(ctx, OperationClientRevoke, StoreErrorNotFound, errors.New("client not found"))
 	}
 	if err := validatePersistedClient(client); err != nil {
-		return app.Client{}, storeError(OperationClientRevoke, StoreErrorCorrupt, err)
+		return app.Client{}, storeError(ctx, OperationClientRevoke, StoreErrorCorrupt, err)
 	}
 	now := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[id], client.CreatedAt, timePointerValue(client.LastSeenAt), timePointerValue(client.RevokedAt))
 	client.RevokedAt = &now
@@ -815,7 +815,7 @@ func (s *MemoryStore) FindClientByTokenHash(ctx context.Context, tokenHash strin
 			continue
 		}
 		if err := validatePersistedClient(client); err != nil {
-			return app.Client{}, false, storeError(OperationClientFindTokenHash, StoreErrorCorrupt, err)
+			return app.Client{}, false, storeError(ctx, OperationClientFindTokenHash, StoreErrorCorrupt, err)
 		}
 		if client.RevokedAt == nil {
 			return cloneClient(client), true, nil
@@ -844,7 +844,7 @@ func (s *MemoryStore) TouchClient(ctx context.Context, id string) (app.Client, b
 		return app.Client{}, false, nil
 	}
 	if err := validatePersistedClient(client); err != nil {
-		return app.Client{}, false, storeError(OperationClientTouch, StoreErrorCorrupt, err)
+		return app.Client{}, false, storeError(ctx, OperationClientTouch, StoreErrorCorrupt, err)
 	}
 	if client.RevokedAt != nil {
 		return app.Client{}, false, nil
@@ -869,7 +869,7 @@ func (s *MemoryStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, er
 	}
 	profile, ok := s.ownerProfiles[app.DefaultOwnerID]
 	if !ok {
-		return app.OwnerProfile{}, storeError(OperationOwnerProfileGet, StoreErrorCorrupt, errors.New("default owner profile is missing"))
+		return app.OwnerProfile{}, storeError(ctx, OperationOwnerProfileGet, StoreErrorCorrupt, errors.New("default owner profile is missing"))
 	}
 	return cloneOwnerProfile(profile), nil
 }
@@ -982,7 +982,7 @@ func (s *MemoryStore) SavePairingCode(ctx context.Context, code app.PairingCode)
 	}
 	code, err := normalizePairingSave(code)
 	if err != nil {
-		return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorInvalid, err)
+		return app.PairingCode{}, storeError(ctx, OperationPairingCodeSave, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -990,11 +990,11 @@ func (s *MemoryStore) SavePairingCode(ctx context.Context, code app.PairingCode)
 		return app.PairingCode{}, err
 	}
 	if _, exists := s.pairingCodes[code.ID]; exists {
-		return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorConflict, errors.New("pairing ID already exists"))
+		return app.PairingCode{}, storeError(ctx, OperationPairingCodeSave, StoreErrorConflict, errors.New("pairing ID already exists"))
 	}
 	for _, existing := range s.pairingCodes {
 		if strings.TrimSpace(existing.CodeHash) != "" && existing.CodeHash == code.CodeHash {
-			return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorConflict, errors.New("pairing code hash already exists"))
+			return app.PairingCode{}, storeError(ctx, OperationPairingCodeSave, StoreErrorConflict, errors.New("pairing code hash already exists"))
 		}
 	}
 	createdAt := nextRepositoryTime(s.clientNow(), s.pairingWriteHighWater[code.ID])
@@ -1026,7 +1026,7 @@ func (s *MemoryStore) GetPairingCode(ctx context.Context, id string) (app.Pairin
 		return app.PairingCode{}, false, nil
 	}
 	if err := validatePersistedPairingCode(code, s.clients); err != nil {
-		return app.PairingCode{}, false, storeError(OperationPairingCodeGet, StoreErrorCorrupt, err)
+		return app.PairingCode{}, false, storeError(ctx, OperationPairingCodeGet, StoreErrorCorrupt, err)
 	}
 	return clonePairingCode(code), true, nil
 }
@@ -1039,7 +1039,7 @@ func (s *MemoryStore) ClaimPairingCode(ctx context.Context, id string, client ap
 	}
 	client, err := normalizeClaimClient(client)
 	if err != nil {
-		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorInvalid, err)
+		return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorInvalid, err)
 	}
 	id = strings.TrimSpace(id)
 	s.mu.Lock()
@@ -1049,21 +1049,21 @@ func (s *MemoryStore) ClaimPairingCode(ctx context.Context, id string, client ap
 	}
 	code, ok := s.pairingCodes[id]
 	if !ok {
-		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorNotFound, errors.New("pairing code not found"))
+		return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorNotFound, errors.New("pairing code not found"))
 	}
 	if err := validatePersistedPairingCode(code, s.clients); err != nil {
-		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorCorrupt, err)
+		return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorCorrupt, err)
 	}
 	now := postgresTime(s.clientNow())
 	if code.Status != "pending" || strings.TrimSpace(code.CodeHash) == "" || !code.ExpiresAt.After(now) {
-		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorConflict, errors.New("pairing code is not claimable"))
+		return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorConflict, errors.New("pairing code is not claimable"))
 	}
 	if _, exists := s.clients[client.ID]; exists {
-		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorConflict, errors.New("client ID already exists"))
+		return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorConflict, errors.New("client ID already exists"))
 	}
 	for _, existing := range s.clients {
 		if strings.TrimSpace(existing.TokenHash) != "" && existing.TokenHash == client.TokenHash {
-			return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorConflict, errors.New("client token hash already exists"))
+			return app.PairingCode{}, app.Client{}, storeError(ctx, OperationPairingCodeClaim, StoreErrorConflict, errors.New("client token hash already exists"))
 		}
 	}
 	commandAt := nextRepositoryTime(now, s.pairingWriteHighWater[id], s.clientWriteHighWater[client.ID], code.CreatedAt, timePointerValue(code.ClaimedAt))
@@ -1090,7 +1090,7 @@ func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.
 	}
 	message, err := prepareMessage(message, time.Now())
 	if err != nil {
-		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorInvalid, err)
+		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1102,10 +1102,10 @@ func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.
 	}
 	session, ok := s.sessions[message.SessionID]
 	if !ok {
-		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorNotFound, errors.New("message session not found"))
+		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorNotFound, errors.New("message session not found"))
 	}
 	if err := validatePersistedSession(message.SessionID, session); err != nil {
-		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorCorrupt, err)
+		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorCorrupt, err)
 	}
 	s.messages[message.SessionID] = append(s.messages[message.SessionID], cloneMessage(message))
 	session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt, s.sessionWriteHighWater[session.ID])
@@ -1166,7 +1166,7 @@ func (s *MemoryStore) SaveRunFeedback(ctx context.Context, feedback app.RunFeedb
 	}
 	feedback, err := prepareRunFeedback(feedback, existing, time.Now().UTC())
 	if err != nil {
-		return app.RunFeedback{}, storeError(OperationRunFeedbackSave, StoreErrorInvalid, err)
+		return app.RunFeedback{}, storeError(ctx, OperationRunFeedbackSave, StoreErrorInvalid, err)
 	}
 	if existingIndex >= 0 {
 		items[existingIndex] = feedback
@@ -1220,7 +1220,7 @@ func (s *MemoryStore) SaveRun(ctx context.Context, run app.AgentRun) (app.AgentR
 	}
 	run, err := prepareRun(run, time.Now().UTC())
 	if err != nil {
-		return app.AgentRun{}, storeError(OperationRunSave, StoreErrorInvalid, err)
+		return app.AgentRun{}, storeError(ctx, OperationRunSave, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1249,7 +1249,7 @@ func (s *MemoryStore) GetRun(ctx context.Context, id string) (app.AgentRun, bool
 	}
 	cloned, err := cloneRun(run)
 	if err != nil {
-		return app.AgentRun{}, false, storeError(OperationRunGet, StoreErrorCorrupt, err)
+		return app.AgentRun{}, false, storeError(ctx, OperationRunGet, StoreErrorCorrupt, err)
 	}
 	return cloned, true, nil
 }
@@ -1270,7 +1270,7 @@ func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]app.Age
 		if sessionID == "" || run.SessionID == sessionID {
 			cloned, err := cloneRun(run)
 			if err != nil {
-				return nil, storeError(OperationRunList, StoreErrorCorrupt, err)
+				return nil, storeError(ctx, OperationRunList, StoreErrorCorrupt, err)
 			}
 			out = append(out, cloned)
 		}
@@ -1292,7 +1292,7 @@ func (s *MemoryStore) SaveModelCall(ctx context.Context, call app.ModelCall) (ap
 	}
 	call, err := prepareModelCall(call, time.Now().UTC())
 	if err != nil {
-		return app.ModelCall{}, storeError(OperationModelCallSave, StoreErrorInvalid, err)
+		return app.ModelCall{}, storeError(ctx, OperationModelCallSave, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1344,7 +1344,7 @@ func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.
 	}
 	call, err := prepareToolCall(call, time.Now().UTC())
 	if err != nil {
-		return app.ToolCall{}, storeError(OperationToolCallSave, StoreErrorInvalid, err)
+		return app.ToolCall{}, storeError(ctx, OperationToolCallSave, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1377,7 +1377,7 @@ func (s *MemoryStore) GetToolCall(ctx context.Context, id string) (app.ToolCall,
 	}
 	cloned, err := cloneToolCall(call)
 	if err != nil {
-		return app.ToolCall{}, false, storeError(OperationToolCallGet, StoreErrorCorrupt, err)
+		return app.ToolCall{}, false, storeError(ctx, OperationToolCallGet, StoreErrorCorrupt, err)
 	}
 	return cloned, true, nil
 }
@@ -1398,7 +1398,7 @@ func (s *MemoryStore) ListToolCalls(ctx context.Context, sessionID string) ([]ap
 		if sessionID == "" || call.SessionID == sessionID {
 			cloned, err := cloneToolCall(call)
 			if err != nil {
-				return nil, storeError(OperationToolCallList, StoreErrorCorrupt, err)
+				return nil, storeError(ctx, OperationToolCallList, StoreErrorCorrupt, err)
 			}
 			out = append(out, cloned)
 		}
@@ -1503,18 +1503,18 @@ func (s *MemoryStore) SaveApproval(ctx context.Context, approval app.Approval) (
 	}
 	approval, err := prepareApproval(approval, existing, time.Now())
 	if err != nil {
-		return app.Approval{}, storeError(OperationApprovalSave, StoreErrorInvalid, err)
+		return app.Approval{}, storeError(ctx, OperationApprovalSave, StoreErrorInvalid, err)
 	}
 	if existing != nil {
 		if approvalsEqual(*existing, approval) {
 			return cloneApproval(approval)
 		}
-		return app.Approval{}, storeError(OperationApprovalSave, StoreErrorConflict, ErrApprovalConflict)
+		return app.Approval{}, storeError(ctx, OperationApprovalSave, StoreErrorConflict, ErrApprovalConflict)
 	}
 	if approval.ExternalID != "" {
 		for id, current := range s.approvals {
 			if id != approval.ID && current.Source == approval.Source && current.ExternalID == approval.ExternalID {
-				return app.Approval{}, storeError(OperationApprovalSave, StoreErrorConflict, ErrApprovalConflict)
+				return app.Approval{}, storeError(ctx, OperationApprovalSave, StoreErrorConflict, ErrApprovalConflict)
 			}
 		}
 	}
@@ -1541,7 +1541,7 @@ func (s *MemoryStore) GetApproval(ctx context.Context, id string) (app.Approval,
 	}
 	approval, err := normalizePersistedApproval(approval)
 	if err != nil {
-		return app.Approval{}, false, storeError(OperationApprovalGet, StoreErrorCorrupt, err)
+		return app.Approval{}, false, storeError(ctx, OperationApprovalGet, StoreErrorCorrupt, err)
 	}
 	return approval, true, nil
 }
@@ -1572,7 +1572,7 @@ func (s *MemoryStore) FindApprovalByExternalRef(ctx context.Context, source app.
 	}
 	matched, err := normalizePersistedApproval(matched)
 	if err != nil {
-		return app.Approval{}, false, storeError(OperationApprovalFindExternalRef, StoreErrorCorrupt, err)
+		return app.Approval{}, false, storeError(ctx, OperationApprovalFindExternalRef, StoreErrorCorrupt, err)
 	}
 	return matched, true, nil
 }
@@ -1590,7 +1590,7 @@ func (s *MemoryStore) UpdatePendingApproval(ctx context.Context, command Approva
 	}
 	current, ok := s.approvals[command.Candidate.ID]
 	if !ok {
-		return app.Approval{}, storeError(OperationApprovalUpdatePending, StoreErrorNotFound, ErrApprovalNotFound)
+		return app.Approval{}, storeError(ctx, OperationApprovalUpdatePending, StoreErrorNotFound, ErrApprovalNotFound)
 	}
 	approval, err := preparePendingApprovalUpdate(command, current)
 	if err != nil {
@@ -1598,7 +1598,7 @@ func (s *MemoryStore) UpdatePendingApproval(ctx context.Context, command Approva
 		if errors.Is(err, ErrApprovalConflict) {
 			code = StoreErrorConflict
 		}
-		return app.Approval{}, storeError(OperationApprovalUpdatePending, code, err)
+		return app.Approval{}, storeError(ctx, OperationApprovalUpdatePending, code, err)
 	}
 	s.approvals[approval.ID] = approval
 	s.appendAuditLocked("approval.modified", approval.SessionID, approval.RunID, approvalUpdateActor(approval), approval.Summary, approvalUpdateFields(approval, command.Note))
@@ -1619,7 +1619,7 @@ func (s *MemoryStore) ResolveApproval(ctx context.Context, id, status, note stri
 	}
 	approval, ok := s.approvals[id]
 	if !ok {
-		return app.Approval{}, storeError(OperationApprovalResolve, StoreErrorNotFound, ErrApprovalNotFound)
+		return app.Approval{}, storeError(ctx, OperationApprovalResolve, StoreErrorNotFound, ErrApprovalNotFound)
 	}
 	approval, replay, err := prepareApprovalResolution(approval, status, note, time.Now())
 	if err != nil {
@@ -1627,7 +1627,7 @@ func (s *MemoryStore) ResolveApproval(ctx context.Context, id, status, note stri
 		if errors.Is(err, ErrApprovalConflict) {
 			code = StoreErrorConflict
 		}
-		return app.Approval{}, storeError(OperationApprovalResolve, code, err)
+		return app.Approval{}, storeError(ctx, OperationApprovalResolve, code, err)
 	}
 	if replay {
 		return cloneApproval(approval)
@@ -1653,7 +1653,7 @@ func (s *MemoryStore) ListApprovals(ctx context.Context, status string) ([]app.A
 	for _, approval := range s.approvals {
 		approval, err := normalizePersistedApproval(approval)
 		if err != nil {
-			return nil, storeError(OperationApprovalList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationApprovalList, StoreErrorCorrupt, err)
 		}
 		if status == "" || approval.Status == status {
 			out = append(out, approval)
@@ -1698,7 +1698,7 @@ func (s *MemoryStore) UpdatePendingReminder(ctx context.Context, reminder app.Re
 	}
 	current, ok := s.reminders[reminder.ID]
 	if !ok || current.Status != "pending" || !current.UpdatedAt.Equal(postgresTime(expectedUpdatedAt)) {
-		return app.Reminder{}, storeError(OperationReminderUpdatePending, StoreErrorConflict, ErrReminderConflict)
+		return app.Reminder{}, storeError(ctx, OperationReminderUpdatePending, StoreErrorConflict, ErrReminderConflict)
 	}
 	reminder = prepareReminderUpdate(reminder, current, time.Now().UTC())
 	s.reminders[reminder.ID] = cloneReminder(reminder)
@@ -1820,7 +1820,7 @@ func (s *MemoryStore) SaveReminderDelivery(ctx context.Context, delivery app.Rem
 	}
 	reminder, ok := s.reminders[delivery.ReminderID]
 	if !ok {
-		return app.ReminderDelivery{}, storeError(OperationReminderDeliverySave, StoreErrorNotFound, errors.New("reminder not found"))
+		return app.ReminderDelivery{}, storeError(ctx, OperationReminderDeliverySave, StoreErrorNotFound, errors.New("reminder not found"))
 	}
 	s.reminderDelivery[delivery.ID] = delivery
 	reminder.LastDeliveryID = delivery.ID
@@ -1891,7 +1891,7 @@ func (s *MemoryStore) CreatePassiveNotification(ctx context.Context, notificatio
 	var err error
 	notification, err = preparePassiveNotification(notification, time.Now().UTC())
 	if err != nil {
-		return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorInvalid, err)
+		return app.PassiveNotification{}, false, storeError(ctx, OperationPassiveNotificationCreate, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1901,12 +1901,12 @@ func (s *MemoryStore) CreatePassiveNotification(ctx context.Context, notificatio
 	if existingID, ok := s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)]; ok {
 		existing := s.passiveNotifications[existingID]
 		if !passiveNotificationsEqualForReplay(existing, notification) {
-			return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorConflict, ErrPassiveNotificationConflict)
+			return app.PassiveNotification{}, false, storeError(ctx, OperationPassiveNotificationCreate, StoreErrorConflict, ErrPassiveNotificationConflict)
 		}
 		return clonePassiveNotification(existing), false, nil
 	}
 	if _, exists := s.passiveNotifications[notification.ID]; exists {
-		return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorConflict, ErrPassiveNotificationConflict)
+		return app.PassiveNotification{}, false, storeError(ctx, OperationPassiveNotificationCreate, StoreErrorConflict, ErrPassiveNotificationConflict)
 	}
 	s.passiveNotifications[notification.ID] = clonePassiveNotification(notification)
 	s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)] = notification.ID
@@ -2016,7 +2016,7 @@ func (s *MemoryStore) MarkPassiveNotificationRead(ctx context.Context, ownerID, 
 	}
 	notification, ok := s.passiveNotifications[id]
 	if !ok || notification.OwnerID != ownerID {
-		return app.PassiveNotification{}, storeError(OperationPassiveNotificationMarkRead, StoreErrorNotFound, ErrPassiveNotificationNotFound)
+		return app.PassiveNotification{}, storeError(ctx, OperationPassiveNotificationMarkRead, StoreErrorNotFound, ErrPassiveNotificationNotFound)
 	}
 	if notification.ReadAt != nil {
 		return clonePassiveNotification(notification), nil
@@ -2395,7 +2395,7 @@ func (s *MemoryStore) SaveMessageReceive(ctx context.Context, record app.Message
 			continue
 		}
 		if exists && current.ID != candidate.ID {
-			return app.MessageReceiveRecord{}, storeError(OperationMessageReceiveSave, StoreErrorConflict, ErrMessageReceiveConflict)
+			return app.MessageReceiveRecord{}, storeError(ctx, OperationMessageReceiveSave, StoreErrorConflict, ErrMessageReceiveConflict)
 		}
 		current, exists = candidate, true
 		break
@@ -2406,7 +2406,7 @@ func (s *MemoryStore) SaveMessageReceive(ctx context.Context, record app.Message
 		if errors.Is(err, ErrMessageReceiveConflict) {
 			code = StoreErrorConflict
 		}
-		return app.MessageReceiveRecord{}, storeError(OperationMessageReceiveSave, code, err)
+		return app.MessageReceiveRecord{}, storeError(ctx, OperationMessageReceiveSave, code, err)
 	}
 	s.messageReceives[prepared.ID] = cloneMessageReceive(prepared)
 	s.appendAuditLocked("message.receive."+prepared.Status, "", prepared.LinkedRunID, "gateway", prepared.ProviderKey, map[string]any{
@@ -2505,11 +2505,11 @@ func (s *MemoryStore) SaveMessageDelivery(ctx context.Context, record app.Messag
 			continue
 		}
 		if exists && current.ID != candidate.ID {
-			return app.MessageDeliveryRecord{}, storeError(OperationMessageDeliverySave, StoreErrorConflict, ErrMessageDeliveryConflict)
+			return app.MessageDeliveryRecord{}, storeError(ctx, OperationMessageDeliverySave, StoreErrorConflict, ErrMessageDeliveryConflict)
 		}
 		if candidate.ID != record.ID {
 			if !messageDeliveryIdentityEqual(candidate, record) {
-				return app.MessageDeliveryRecord{}, storeError(OperationMessageDeliverySave, StoreErrorConflict, ErrMessageDeliveryConflict)
+				return app.MessageDeliveryRecord{}, storeError(ctx, OperationMessageDeliverySave, StoreErrorConflict, ErrMessageDeliveryConflict)
 			}
 			return cloneMessageDelivery(candidate), nil
 		}
@@ -2522,7 +2522,7 @@ func (s *MemoryStore) SaveMessageDelivery(ctx context.Context, record app.Messag
 		if errors.Is(err, ErrMessageDeliveryConflict) {
 			code = StoreErrorConflict
 		}
-		return app.MessageDeliveryRecord{}, storeError(OperationMessageDeliverySave, code, err)
+		return app.MessageDeliveryRecord{}, storeError(ctx, OperationMessageDeliverySave, code, err)
 	}
 	s.messageDeliveries[string(prepared.ID)] = cloneMessageDelivery(prepared)
 	s.appendAuditLocked("message.send."+string(prepared.Status), "", prepared.Request.RunID, prepared.ActorID, prepared.SoftwareDisplayName, map[string]any{
@@ -2622,11 +2622,11 @@ func (s *MemoryStore) SaveChannelInboxUpdate(ctx context.Context, update app.Cha
 			continue
 		}
 		if exists && current.ID != candidate.ID {
-			return app.ChannelInboxUpdate{}, storeError(OperationChannelInboxUpdateSave, StoreErrorConflict, ErrChannelInboxUpdateConflict)
+			return app.ChannelInboxUpdate{}, storeError(ctx, OperationChannelInboxUpdateSave, StoreErrorConflict, ErrChannelInboxUpdateConflict)
 		}
 		if candidate.ID != update.ID {
 			if candidate.Channel != update.Channel {
-				return app.ChannelInboxUpdate{}, storeError(OperationChannelInboxUpdateSave, StoreErrorConflict, ErrChannelInboxUpdateConflict)
+				return app.ChannelInboxUpdate{}, storeError(ctx, OperationChannelInboxUpdateSave, StoreErrorConflict, ErrChannelInboxUpdateConflict)
 			}
 			return cloneChannelInboxUpdate(candidate), nil
 		}
@@ -2639,7 +2639,7 @@ func (s *MemoryStore) SaveChannelInboxUpdate(ctx context.Context, update app.Cha
 		if errors.Is(err, ErrChannelInboxUpdateConflict) {
 			code = StoreErrorConflict
 		}
-		return app.ChannelInboxUpdate{}, storeError(OperationChannelInboxUpdateSave, code, err)
+		return app.ChannelInboxUpdate{}, storeError(ctx, OperationChannelInboxUpdateSave, code, err)
 	}
 	s.channelInboxUpdates[prepared.ID] = cloneChannelInboxUpdate(prepared)
 	return cloneChannelInboxUpdate(prepared), nil
@@ -2734,7 +2734,7 @@ func (s *MemoryStore) SaveCredentialSecret(ctx context.Context, command Credenti
 	}
 	command, err := normalizeCredentialSaveCommand(command)
 	if err != nil {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorInvalid, err)
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretSave, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2745,15 +2745,15 @@ func (s *MemoryStore) SaveCredentialSecret(ctx context.Context, command Credenti
 	if exists {
 		current, err = normalizePersistedCredentialSecret(current)
 		if err != nil {
-			return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorCorrupt, err)
+			return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretSave, StoreErrorCorrupt, err)
 		}
 	}
 	if command.mode == credentialSaveCreate {
 		if exists {
-			return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorConflict, errors.New("credential already exists"))
+			return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretSave, StoreErrorConflict, errors.New("credential already exists"))
 		}
 	} else if !exists || credentialSecretDigest(current) != command.expected {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorConflict, errors.New("credential changed"))
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretSave, StoreErrorConflict, errors.New("credential changed"))
 	}
 	commandAt := nextRepositoryTime(s.credentialNow(), s.credentialWriteHighWater[command.secret.Ref], latestCredentialTime(current))
 	candidate := command.secret
@@ -2793,7 +2793,7 @@ func (s *MemoryStore) GetCredentialSecret(ctx context.Context, ref string) (app.
 	}
 	secret, err := normalizePersistedCredentialSecret(secret)
 	if err != nil {
-		return app.CredentialSecret{}, false, storeError(OperationCredentialSecretGet, StoreErrorCorrupt, err)
+		return app.CredentialSecret{}, false, storeError(ctx, OperationCredentialSecretGet, StoreErrorCorrupt, err)
 	}
 	return secret, true, nil
 }
@@ -2806,7 +2806,7 @@ func (s *MemoryStore) DeleteCredentialSecret(ctx context.Context, condition Cred
 	}
 	condition, err := normalizeCredentialDeleteCondition(condition)
 	if err != nil {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorInvalid, err)
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretDelete, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2815,14 +2815,14 @@ func (s *MemoryStore) DeleteCredentialSecret(ctx context.Context, condition Cred
 	}
 	secret, ok := s.credentialSecrets[condition.ref]
 	if !ok {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorNotFound, errors.New("credential not found"))
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretDelete, StoreErrorNotFound, errors.New("credential not found"))
 	}
 	secret, err = normalizePersistedCredentialSecret(secret)
 	if err != nil {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorCorrupt, err)
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretDelete, StoreErrorCorrupt, err)
 	}
 	if credentialSecretDigest(secret) != condition.expected {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorConflict, errors.New("credential changed"))
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretDelete, StoreErrorConflict, errors.New("credential changed"))
 	}
 	commandAt := nextRepositoryTime(s.credentialNow(), s.credentialWriteHighWater[secret.Ref], latestCredentialTime(secret))
 	s.credentialWriteHighWater[secret.Ref] = commandAt
@@ -2958,7 +2958,7 @@ func (s *MemoryStore) RevokeBrowserAuthRecord(ctx context.Context, id, reason st
 	id = strings.TrimSpace(id)
 	record, ok := s.browserAuthRecords[id]
 	if !ok {
-		return app.BrowserAuthRecord{}, storeError(OperationBrowserAuthRevoke, StoreErrorNotFound, errors.New("browser auth record not found"))
+		return app.BrowserAuthRecord{}, storeError(ctx, OperationBrowserAuthRevoke, StoreErrorNotFound, errors.New("browser auth record not found"))
 	}
 	now := postgresTime(time.Now().UTC())
 	record.Status = app.BrowserAuthStatusRevoked
@@ -3003,7 +3003,7 @@ func (s *MemoryStore) UpdateBrowserLoginBlock(ctx context.Context, block app.Bro
 	}
 	current, ok := s.browserLoginBlocks[strings.TrimSpace(block.ID)]
 	if !ok || current.Version != expectedVersion {
-		return app.BrowserLoginBlock{}, storeError(OperationBrowserLoginBlockUpdate, StoreErrorConflict, ErrBrowserHandoffConflict)
+		return app.BrowserLoginBlock{}, storeError(ctx, OperationBrowserLoginBlockUpdate, StoreErrorConflict, ErrBrowserHandoffConflict)
 	}
 	block.Version = expectedVersion + 1
 	block = normalizeBrowserLoginBlock(block, current)
@@ -3122,10 +3122,10 @@ func (s *MemoryStore) ResolveMemoryCandidate(ctx context.Context, id, status str
 	}
 	candidate, ok := s.memoryCandidates[id]
 	if !ok {
-		return app.MemoryCandidate{}, nil, storeError(OperationMemoryCandidateResolve, StoreErrorNotFound, errors.New("memory candidate not found"))
+		return app.MemoryCandidate{}, nil, storeError(ctx, OperationMemoryCandidateResolve, StoreErrorNotFound, errors.New("memory candidate not found"))
 	}
 	if candidate.Status != "pending" {
-		return app.MemoryCandidate{}, nil, storeError(OperationMemoryCandidateResolve, StoreErrorConflict, errors.New("memory candidate already resolved"))
+		return app.MemoryCandidate{}, nil, storeError(ctx, OperationMemoryCandidateResolve, StoreErrorConflict, errors.New("memory candidate already resolved"))
 	}
 	now := postgresTime(time.Now().UTC())
 	candidate.Status = status
@@ -3211,7 +3211,7 @@ func (s *MemoryStore) UpdateMemory(ctx context.Context, id, kind, content string
 	}
 	memory, ok := s.memories[id]
 	if !ok {
-		return app.Memory{}, storeError(OperationMemoryUpdate, StoreErrorNotFound, errors.New("memory not found"))
+		return app.Memory{}, storeError(ctx, OperationMemoryUpdate, StoreErrorNotFound, errors.New("memory not found"))
 	}
 	memory.Kind = kind
 	memory.Content = content
@@ -3235,7 +3235,7 @@ func (s *MemoryStore) DeleteMemory(ctx context.Context, id string) (app.Memory, 
 	}
 	memory, ok := s.memories[id]
 	if !ok {
-		return app.Memory{}, storeError(OperationMemoryDelete, StoreErrorNotFound, errors.New("memory not found"))
+		return app.Memory{}, storeError(ctx, OperationMemoryDelete, StoreErrorNotFound, errors.New("memory not found"))
 	}
 	delete(s.memories, id)
 	sessionID := s.sessionIDForRunLocked(memory.SourceID)
@@ -3295,7 +3295,7 @@ func (s *MemoryStore) AddAudit(ctx context.Context, event app.AuditEvent) error 
 	}
 	prepared, err := prepareAuditEvent(event, time.Now().UTC())
 	if err != nil {
-		return storeError(OperationAuditAdd, StoreErrorInvalid, err)
+		return storeError(ctx, OperationAuditAdd, StoreErrorInvalid, err)
 	}
 	s.auditEvents = append(s.auditEvents, prepared)
 	return nil
@@ -3317,7 +3317,7 @@ func (s *MemoryStore) ListAudit(ctx context.Context, sessionID string) ([]app.Au
 		if sessionID == "" || event.SessionID == sessionID {
 			cloned, err := cloneAuditEvent(event)
 			if err != nil {
-				return nil, storeError(OperationAuditList, StoreErrorCorrupt, err)
+				return nil, storeError(ctx, OperationAuditList, StoreErrorCorrupt, err)
 			}
 			out = append(out, cloned)
 		}
@@ -3401,13 +3401,13 @@ func (s *MemoryStore) MessageEventsAfter(ctx context.Context, sessionID, after s
 				continue
 			}
 			if event.SessionID != sessionID || event.Type != "message.created" {
-				return MessageEventPage{}, storeError(OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
+				return MessageEventPage{}, storeError(ctx, OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
 			}
 			start = index + 1
 			break
 		}
 		if start < 0 {
-			return MessageEventPage{}, storeError(OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
+			return MessageEventPage{}, storeError(ctx, OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
 		}
 	}
 
@@ -3598,7 +3598,7 @@ func (s *MemoryStore) SaveEpisodeSummary(ctx context.Context, summary app.Episod
 	}
 	summary, err := prepareEpisodeSummary(summary, time.Now().UTC())
 	if err != nil {
-		return app.EpisodeSummary{}, storeError(OperationEpisodeSummarySave, StoreErrorInvalid, err)
+		return app.EpisodeSummary{}, storeError(ctx, OperationEpisodeSummarySave, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

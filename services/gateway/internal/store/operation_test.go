@@ -518,6 +518,7 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 	}
 	methods := map[string]struct{}{}
 	for id, expected := range want {
+		expected.AffectsReadiness = true
 		got, exists := operationSpecs[id]
 		if !exists || got != expected {
 			t.Errorf("operation %s = %#v, want %#v", id, got, expected)

@@ -18,7 +18,7 @@ var errNotificationBindingScopesDecode = errors.New("notification binding scopes
 
 func classifyConnectorBindingScanError(operation StoreOperation, ctx context.Context, err error) error {
 	if errors.Is(err, errNotificationBindingScopesDecode) {
-		return storeError(operation, StoreErrorCorrupt, err)
+		return storeError(ctx, operation, StoreErrorCorrupt, err)
 	}
 	return classifyPostgresReadError(operation, ctx, err)
 }

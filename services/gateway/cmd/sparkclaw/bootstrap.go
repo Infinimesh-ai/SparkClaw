@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -33,6 +34,7 @@ func newGatewayServices(
 	runtime agent.Runtime,
 	traces *trace.Writer,
 	transcriber speech.Transcriber,
+	storeRuntime *store.Runtime,
 ) (*gatewayServices, error) {
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
@@ -75,6 +77,7 @@ func newGatewayServices(
 			gateway.WithExternalApprovalResolver(happyApprovals),
 			gateway.WithManagedBrowserWindows(tools),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
+			gateway.WithStoreRuntime(storeRuntime),
 		),
 		connectors:        connectors,
 		reminderScheduler: reminderScheduler,

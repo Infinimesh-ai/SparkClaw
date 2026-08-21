@@ -89,7 +89,7 @@ func TestMCPRemainingReconciliationRejectsUnprovenOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknown := storeError(OperationMCPAccessTicketDelete, StoreErrorUnknownOutcome, errors.New("commit outcome unknown"))
+	unknown := storeError(context.Background(), OperationMCPAccessTicketDelete, StoreErrorUnknownOutcome, errors.New("commit outcome unknown"))
 	revokedCandidate := ticket
 	revokedCandidate.Status = app.MCPAccessRevoked
 	revokedCandidate.RevokedAt = &now

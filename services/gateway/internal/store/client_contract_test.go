@@ -674,7 +674,7 @@ func TestClientRepositoryUnknownErrorCandidatesAreExact(t *testing.T) {
 	if PairingCodesEqual(pairing, changedPairing) || ClientsEqual(client, changedClient) {
 		t.Fatal("candidate equality accepted different persisted fields")
 	}
-	unknown := storeError(OperationPairingCodeClaim, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
+	unknown := storeError(context.Background(), OperationPairingCodeClaim, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
 	if StoreErrorCodeOf(unknown) != StoreErrorUnknownOutcome {
 		t.Fatalf("unknown candidate error = %v", unknown)
 	}

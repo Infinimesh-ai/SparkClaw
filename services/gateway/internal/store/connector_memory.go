@@ -30,7 +30,7 @@ func (s *MemoryStore) GetConnectorSetting(ctx context.Context, ownerID, channel 
 		return app.ConnectorSetting{}, false, nil
 	}
 	if err := validatePersistedConnectorSetting(setting); err != nil {
-		return app.ConnectorSetting{}, false, storeError(OperationConnectorSettingGet, StoreErrorCorrupt, err)
+		return app.ConnectorSetting{}, false, storeError(ctx, OperationConnectorSettingGet, StoreErrorCorrupt, err)
 	}
 	return setting, true, nil
 }
@@ -50,7 +50,7 @@ func (s *MemoryStore) ListConnectorSettings(ctx context.Context, ownerID string)
 	out := make([]app.ConnectorSetting, 0)
 	for _, setting := range s.connectorSettings {
 		if err := validatePersistedConnectorSetting(setting); err != nil {
-			return nil, storeError(OperationConnectorSettingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationConnectorSettingList, StoreErrorCorrupt, err)
 		}
 		if setting.OwnerID == ownerID {
 			out = append(out, setting)
@@ -74,7 +74,7 @@ func (s *MemoryStore) ListAllConnectorSettings(ctx context.Context) ([]app.Conne
 	out := make([]app.ConnectorSetting, 0, len(s.connectorSettings))
 	for _, setting := range s.connectorSettings {
 		if err := validatePersistedConnectorSetting(setting); err != nil {
-			return nil, storeError(OperationConnectorSettingListAll, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationConnectorSettingListAll, StoreErrorCorrupt, err)
 		}
 		out = append(out, setting)
 	}
@@ -95,7 +95,7 @@ func (s *MemoryStore) UpdateConnectorSetting(ctx context.Context, setting app.Co
 	}
 	setting, err := normalizeConnectorSettingCandidate(setting, expectedVersion)
 	if err != nil {
-		return app.ConnectorSetting{}, storeError(OperationConnectorSettingUpdate, StoreErrorInvalid, err)
+		return app.ConnectorSetting{}, storeError(ctx, OperationConnectorSettingUpdate, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -106,11 +106,11 @@ func (s *MemoryStore) UpdateConnectorSetting(ctx context.Context, setting app.Co
 	current, exists := s.connectorSettings[key]
 	if exists {
 		if err := validatePersistedConnectorSetting(current); err != nil {
-			return app.ConnectorSetting{}, storeError(OperationConnectorSettingUpdate, StoreErrorCorrupt, err)
+			return app.ConnectorSetting{}, storeError(ctx, OperationConnectorSettingUpdate, StoreErrorCorrupt, err)
 		}
 	}
 	if (!exists && expectedVersion != 0) || (exists && current.Version != expectedVersion) {
-		return app.ConnectorSetting{}, storeError(OperationConnectorSettingUpdate, StoreErrorConflict, ErrConnectorSettingConflict)
+		return app.ConnectorSetting{}, storeError(ctx, OperationConnectorSettingUpdate, StoreErrorConflict, ErrConnectorSettingConflict)
 	}
 	at := nextRepositoryTime(s.connectorNow(), s.connectorSettingWriteHighWater[key], current.UpdatedAt)
 	setting.Version = expectedVersion + 1
@@ -131,7 +131,7 @@ func (s *MemoryStore) CreateNotificationBinding(ctx context.Context, binding app
 	}
 	binding, err := normalizeNotificationBindingCreate(binding)
 	if err != nil {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingCreate, StoreErrorInvalid, err)
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingCreate, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +139,7 @@ func (s *MemoryStore) CreateNotificationBinding(ctx context.Context, binding app
 		return app.NotificationBinding{}, err
 	}
 	if _, exists := s.notificationBindings[binding.ID]; exists {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingCreate, StoreErrorConflict, errors.New("notification binding already exists"))
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingCreate, StoreErrorConflict, errors.New("notification binding already exists"))
 	}
 	at := nextRepositoryTime(s.connectorNow(), s.notificationBindingWriteHighWater[binding.ID])
 	binding.Version = 1
@@ -171,7 +171,7 @@ func (s *MemoryStore) GetNotificationBinding(ctx context.Context, id string) (ap
 		return app.NotificationBinding{}, false, nil
 	}
 	if err := validatePersistedNotificationBinding(binding); err != nil {
-		return app.NotificationBinding{}, false, storeError(OperationNotificationBindingGet, StoreErrorCorrupt, err)
+		return app.NotificationBinding{}, false, storeError(ctx, OperationNotificationBindingGet, StoreErrorCorrupt, err)
 	}
 	return cloneNotificationBinding(binding), true, nil
 }
@@ -194,15 +194,15 @@ func (s *MemoryStore) ListNotificationBindings(ctx context.Context, channel, sta
 	activeDefaults := map[string]string{}
 	for _, binding := range s.notificationBindings {
 		if err := validatePersistedNotificationBinding(binding); err != nil {
-			return nil, storeError(OperationNotificationBindingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationNotificationBindingList, StoreErrorCorrupt, err)
 		}
 		if err := claimBindingCredentialRef(vaultOwners, binding); err != nil {
-			return nil, storeError(OperationNotificationBindingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationNotificationBindingList, StoreErrorCorrupt, err)
 		}
 		if binding.Status == app.NotificationBindingActive && binding.DefaultForChannel {
 			key := connectorSettingKey(binding.OwnerID, binding.Channel)
 			if activeDefaults[key] != "" {
-				return nil, storeError(OperationNotificationBindingList, StoreErrorCorrupt, errors.New("multiple active default bindings"))
+				return nil, storeError(ctx, OperationNotificationBindingList, StoreErrorCorrupt, errors.New("multiple active default bindings"))
 			}
 			activeDefaults[key] = binding.ID
 		}
@@ -222,7 +222,7 @@ func (s *MemoryStore) UpdateNotificationBinding(ctx context.Context, command Not
 	}
 	command, err := normalizeNotificationBindingUpdateCommand(command)
 	if err != nil {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingUpdate, StoreErrorInvalid, err)
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingUpdate, StoreErrorInvalid, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -231,20 +231,20 @@ func (s *MemoryStore) UpdateNotificationBinding(ctx context.Context, command Not
 	}
 	previous, ok := s.notificationBindings[command.id]
 	if !ok {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingUpdate, StoreErrorNotFound, errors.New("notification binding not found"))
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingUpdate, StoreErrorNotFound, errors.New("notification binding not found"))
 	}
 	if err := validatePersistedNotificationBinding(previous); err != nil {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingUpdate, StoreErrorCorrupt, err)
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingUpdate, StoreErrorCorrupt, err)
 	}
 	if notificationBindingDigest(previous) != command.expected {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingUpdate, StoreErrorConflict, errors.New("notification binding changed"))
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingUpdate, StoreErrorConflict, errors.New("notification binding changed"))
 	}
 	at := s.nextNotificationBindingCommandTimeLocked(previous, command.next)
 	candidate, err := prepareNotificationBindingUpdate(previous, command.next, at)
 	if err != nil {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingUpdate, StoreErrorInvalid, err)
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingUpdate, StoreErrorInvalid, err)
 	}
-	if err := s.validateNotificationBindingOwnershipLocked(candidate); err != nil {
+	if err := s.validateNotificationBindingOwnershipLocked(ctx, candidate); err != nil {
 		return app.NotificationBinding{}, err
 	}
 	if candidate.Status == app.NotificationBindingActive && candidate.DefaultForChannel {
@@ -280,21 +280,21 @@ func (s *MemoryStore) nextNotificationBindingCommandTimeLocked(previous, replace
 	return nextRepositoryTime(s.connectorNow(), highWater...)
 }
 
-func (s *MemoryStore) validateNotificationBindingOwnershipLocked(candidate app.NotificationBinding) error {
+func (s *MemoryStore) validateNotificationBindingOwnershipLocked(ctx context.Context, candidate app.NotificationBinding) error {
 	owners := map[string]string{}
 	for id, existing := range s.notificationBindings {
 		if id == candidate.ID {
 			continue
 		}
 		if err := validatePersistedNotificationBinding(existing); err != nil {
-			return storeError(OperationNotificationBindingUpdate, StoreErrorCorrupt, err)
+			return storeError(ctx, OperationNotificationBindingUpdate, StoreErrorCorrupt, err)
 		}
 		if err := claimBindingCredentialRef(owners, existing); err != nil {
-			return storeError(OperationNotificationBindingUpdate, StoreErrorCorrupt, err)
+			return storeError(ctx, OperationNotificationBindingUpdate, StoreErrorCorrupt, err)
 		}
 	}
 	if err := claimBindingCredentialRef(owners, candidate); err != nil {
-		return storeError(OperationNotificationBindingUpdate, StoreErrorConflict, err)
+		return storeError(ctx, OperationNotificationBindingUpdate, StoreErrorConflict, err)
 	}
 	return nil
 }

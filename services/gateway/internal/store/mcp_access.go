@@ -423,11 +423,11 @@ func (s *MemoryStore) SaveMCPAccessTicket(ctx context.Context, ticket app.MCPAcc
 	}
 	ticket = normalizeMCPAccessTicket(ticket, time.Now().UTC())
 	if ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation {
-		return app.MCPAccessTicket{}, storeError(OperationMCPAccessTicketSave, StoreErrorInvalid, ErrMCPAccessTicketInvalid)
+		return app.MCPAccessTicket{}, storeError(ctx, OperationMCPAccessTicketSave, StoreErrorInvalid, ErrMCPAccessTicketInvalid)
 	}
 	for id, existing := range s.mcpAccessTickets {
 		if id != ticket.ID && existing.SecretHash == ticket.SecretHash {
-			return app.MCPAccessTicket{}, storeError(OperationMCPAccessTicketSave, StoreErrorConflict, ErrMCPAccessTicketInvalid)
+			return app.MCPAccessTicket{}, storeError(ctx, OperationMCPAccessTicketSave, StoreErrorConflict, ErrMCPAccessTicketInvalid)
 		}
 	}
 	s.mcpAccessTickets[ticket.ID] = cloneMCPAccessTicket(ticket)
@@ -516,7 +516,7 @@ func (s *MemoryStore) RedeemMCPAccessTicket(ctx context.Context, secretHash stri
 		for _, existing := range s.mcpBindings {
 			if existing.Status == app.MCPBindingActive && existing.DomainID == peer.DomainID && existing.RequesterDeviceID == peer.DeviceID &&
 				existing.RequesterKeyThumbprint == peer.KeyThumbprint {
-				return app.MCPBinding{}, storeError(OperationMCPAccessTicketRedeem, StoreErrorConflict, ErrMCPAccessTicketInvalid)
+				return app.MCPBinding{}, storeError(ctx, OperationMCPAccessTicketRedeem, StoreErrorConflict, ErrMCPAccessTicketInvalid)
 			}
 		}
 		ticket.Status = app.MCPAccessConsumed
@@ -538,7 +538,7 @@ func (s *MemoryStore) RedeemMCPAccessTicket(ctx context.Context, secretHash stri
 		s.mcpBindings[binding.ID] = cloneMCPBinding(binding)
 		return cloneMCPBinding(binding), nil
 	}
-	return app.MCPBinding{}, storeError(OperationMCPAccessTicketRedeem, StoreErrorInvalid, ErrMCPAccessTicketInvalid)
+	return app.MCPBinding{}, storeError(ctx, OperationMCPAccessTicketRedeem, StoreErrorInvalid, ErrMCPAccessTicketInvalid)
 }
 
 func (s *MemoryStore) RevokeMCPAccessTicket(ctx context.Context, id string, now time.Time) (app.MCPAccessTicket, error) {
@@ -554,7 +554,7 @@ func (s *MemoryStore) RevokeMCPAccessTicket(ctx context.Context, id string, now 
 	}
 	ticket, ok := s.mcpAccessTickets[id]
 	if !ok || ticket.Status != app.MCPAccessPending {
-		return app.MCPAccessTicket{}, storeError(OperationMCPAccessTicketRevoke, StoreErrorConflict, ErrMCPAccessTicketInvalid)
+		return app.MCPAccessTicket{}, storeError(ctx, OperationMCPAccessTicketRevoke, StoreErrorConflict, ErrMCPAccessTicketInvalid)
 	}
 	now = normalizeMCPTime(now)
 	ticket.Status, ticket.RevokedAt = app.MCPAccessRevoked, &now
@@ -575,7 +575,7 @@ func (s *MemoryStore) DeleteMCPAccessTicket(ctx context.Context, ownerID, id str
 	}
 	ticket, ok := s.mcpAccessTickets[id]
 	if !ok || ticket.OwnerID != ownerID {
-		return app.MCPAccessTicket{}, storeError(OperationMCPAccessTicketDelete, StoreErrorNotFound, ErrMCPAccessTicketInvalid)
+		return app.MCPAccessTicket{}, storeError(ctx, OperationMCPAccessTicketDelete, StoreErrorNotFound, ErrMCPAccessTicketInvalid)
 	}
 	delete(s.mcpAccessTickets, id)
 	return cloneMCPAccessTicket(ticket), nil
@@ -654,7 +654,7 @@ func (s *MemoryStore) RevokeMCPBinding(ctx context.Context, id string, now time.
 	}
 	binding, ok := s.mcpBindings[id]
 	if !ok {
-		return app.MCPBinding{}, storeError(OperationMCPBindingRevoke, StoreErrorNotFound, ErrMCPBindingUnavailable)
+		return app.MCPBinding{}, storeError(ctx, OperationMCPBindingRevoke, StoreErrorNotFound, ErrMCPBindingUnavailable)
 	}
 	now = normalizeMCPTime(now)
 	if binding.Status != app.MCPBindingRevoked {
@@ -689,7 +689,7 @@ func (s *MemoryStore) DeleteMCPBinding(ctx context.Context, ownerID, id string) 
 	}
 	binding, ok := s.mcpBindings[id]
 	if !ok || binding.OwnerID != ownerID {
-		return app.MCPBinding{}, storeError(OperationMCPBindingDelete, StoreErrorNotFound, ErrMCPBindingUnavailable)
+		return app.MCPBinding{}, storeError(ctx, OperationMCPBindingDelete, StoreErrorNotFound, ErrMCPBindingUnavailable)
 	}
 	delete(s.mcpBindings, id)
 	for operationID, operation := range s.mcpOperations {
@@ -747,7 +747,7 @@ func (s *MemoryStore) TouchMCPBinding(ctx context.Context, id, iscpSessionID str
 	}
 	binding, ok := s.mcpBindings[id]
 	if !ok || binding.Status != app.MCPBindingActive {
-		return storeError(OperationMCPBindingTouch, StoreErrorConflict, ErrMCPBindingUnavailable)
+		return storeError(ctx, OperationMCPBindingTouch, StoreErrorConflict, ErrMCPBindingUnavailable)
 	}
 	now = normalizeMCPTime(now)
 	binding.LatestISCPSessionID, binding.LastUsedAt, binding.UpdatedAt = iscpSessionID, &now, now
@@ -769,14 +769,14 @@ func (s *MemoryStore) CreateMCPOperation(ctx context.Context, operation app.MCPO
 	for _, existing := range s.mcpOperations {
 		if existing.BindingID == operation.BindingID && existing.IdempotencyKey == operation.IdempotencyKey {
 			if existing.Fingerprint != operation.Fingerprint {
-				return app.MCPOperation{}, false, storeError(OperationMCPOperationCreate, StoreErrorConflict, ErrMCPOperationConflict)
+				return app.MCPOperation{}, false, storeError(ctx, OperationMCPOperationCreate, StoreErrorConflict, ErrMCPOperationConflict)
 			}
 			return cloneMCPOperation(existing), false, nil
 		}
 	}
 	operation = normalizeMCPOperation(operation, time.Now().UTC())
 	if _, exists := s.mcpOperations[operation.ID]; exists {
-		return app.MCPOperation{}, false, storeError(OperationMCPOperationCreate, StoreErrorConflict, ErrMCPOperationConflict)
+		return app.MCPOperation{}, false, storeError(ctx, OperationMCPOperationCreate, StoreErrorConflict, ErrMCPOperationConflict)
 	}
 	s.mcpOperations[operation.ID] = cloneMCPOperation(operation)
 	return cloneMCPOperation(operation), true, nil
@@ -855,13 +855,13 @@ func (s *MemoryStore) UpdateMCPOperation(ctx context.Context, operation app.MCPO
 	}
 	existing, ok := s.mcpOperations[operation.ID]
 	if !ok {
-		return app.MCPOperation{}, storeError(OperationMCPOperationUpdate, StoreErrorNotFound, errors.New("MCP operation not found"))
+		return app.MCPOperation{}, storeError(ctx, OperationMCPOperationUpdate, StoreErrorNotFound, errors.New("MCP operation not found"))
 	}
 	if existing.Version != expectedVersion {
-		return app.MCPOperation{}, storeError(OperationMCPOperationUpdate, StoreErrorConflict, ErrMCPOperationVersionConflict)
+		return app.MCPOperation{}, storeError(ctx, OperationMCPOperationUpdate, StoreErrorConflict, ErrMCPOperationVersionConflict)
 	}
 	if !mcpOperationIdentityEqual(existing, operation) {
-		return app.MCPOperation{}, storeError(OperationMCPOperationUpdate, StoreErrorConflict, ErrMCPOperationConflict)
+		return app.MCPOperation{}, storeError(ctx, OperationMCPOperationUpdate, StoreErrorConflict, ErrMCPOperationConflict)
 	}
 	operation.Version = expectedVersion + 1
 	operation.CreatedAt = existing.CreatedAt

@@ -112,7 +112,7 @@ func (s *PostgresStore) createPostgresSession(ctx context.Context, operation Sto
 	defer releaseCommand()
 	candidate, err := prepareSession(title, ownerID, workspaceRoot, source, hidden, s.sessionNow())
 	if err != nil {
-		return app.Session{}, storeError(operation, StoreErrorInvalid, err)
+		return app.Session{}, storeError(ctx, operation, StoreErrorInvalid, err)
 	}
 	s.sessionWriteHighWater[candidate.ID] = candidate.UpdatedAt
 	session, transaction, release, err := s.beginSessionTransaction(ctx, operation, pgx.TxOptions{})
@@ -149,7 +149,7 @@ func (s *PostgresStore) createPostgresSession(ctx context.Context, operation Sto
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
@@ -248,11 +248,11 @@ func (s *PostgresStore) UpdateSessionTitle(ctx context.Context, id, title string
 		return app.Session{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session ID is required"))
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session ID is required"))
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return app.Session{}, storeError(OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session title is required"))
+		return app.Session{}, storeError(ctx, OperationSessionUpdateTitle, StoreErrorInvalid, errors.New("session title is required"))
 	}
 	releaseCommand, err := s.acquireSessionCommand(ctx, OperationSessionUpdateTitle)
 	if err != nil {
@@ -303,7 +303,7 @@ func (s *PostgresStore) UpdateSessionTitle(ctx context.Context, id, title string
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationSessionUpdateTitle, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationSessionUpdateTitle, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
@@ -315,7 +315,7 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, id string) (app.Sessi
 		return app.Session{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return app.Session{}, storeError(OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
+		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
 	}
 	releaseCommand, err := s.acquireSessionCommand(ctx, OperationSessionDelete)
 	if err != nil {
@@ -363,7 +363,7 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, id string) (app.Sessi
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationSessionDelete, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationSessionDelete, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
@@ -391,7 +391,7 @@ func (s *PostgresStore) acquireSessionCommand(ctx context.Context, operation Sto
 		if contextErr := operationContextError(operation, ctx); contextErr != nil {
 			return nil, contextErr
 		}
-		return nil, storeError(operation, StoreErrorUnavailable, err)
+		return nil, storeError(ctx, operation, StoreErrorUnavailable, err)
 	}
 	if err := operationContextError(operation, ctx); err != nil {
 		s.sessionCommandGate.Release(1)
@@ -412,11 +412,11 @@ func (s *PostgresStore) beginSessionTransaction(ctx context.Context, operation S
 		if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
 			session.Release()
 			if postgresError != nil {
-				return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+				return nil, nil, nil, storeError(ctx, operation, StoreErrorInternal, err)
 			}
 			return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
 		}
-		return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return nil, nil, nil, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return session, transaction, &release, nil
 }
@@ -424,7 +424,7 @@ func (s *PostgresStore) beginSessionTransaction(ctx context.Context, operation S
 func commitPostgresSessionRead(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool) error {
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return nil
 }
@@ -433,7 +433,7 @@ func finishPostgresSessionRead(ctx context.Context, operation StoreOperation, se
 	cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }
@@ -443,19 +443,19 @@ func finishPostgresSessionStatement(ctx context.Context, operation StoreOperatio
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil && postgresError.Code == "23505" {
-			return app.Session{}, storeError(operation, StoreErrorConflict, cause)
+			return app.Session{}, storeError(ctx, operation, StoreErrorConflict, cause)
 		}
 		if postgresError != nil {
-			return app.Session{}, storeError(operation, StoreErrorInternal, cause)
+			return app.Session{}, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return app.Session{}, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func sessionBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
 }
 
 func sessionAdvisoryKey(id string) int64 {

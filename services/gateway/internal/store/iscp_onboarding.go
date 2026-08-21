@@ -64,10 +64,10 @@ func (s *MemoryStore) SaveISCPOnboarding(ctx context.Context, onboarding app.ISC
 	}
 	onboarding, err := normalizeISCPOnboarding(onboarding, time.Now().UTC())
 	if err != nil {
-		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorInvalid, err)
+		return app.ISCPOnboarding{}, storeError(ctx, OperationISCPOnboardingSave, StoreErrorInvalid, err)
 	}
 	if _, exists := s.iscpOnboardings[onboarding.ID]; exists {
-		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorConflict, ErrISCPOnboardingConflict)
+		return app.ISCPOnboarding{}, storeError(ctx, OperationISCPOnboardingSave, StoreErrorConflict, ErrISCPOnboardingConflict)
 	}
 	s.iscpOnboardings[onboarding.ID] = onboarding
 	return onboarding, nil

@@ -24,7 +24,7 @@ func (s *PostgresStore) SaveMCPAccessTicket(ctx context.Context, ticket app.MCPA
 	}
 	ticket = normalizeMCPAccessTicket(ticket, time.Now())
 	if ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation {
-		return app.MCPAccessTicket{}, storeError(OperationMCPAccessTicketSave, StoreErrorInvalid, ErrMCPAccessTicketInvalid)
+		return app.MCPAccessTicket{}, storeError(ctx, OperationMCPAccessTicketSave, StoreErrorInvalid, ErrMCPAccessTicketInvalid)
 	}
 	session, transaction, release, err := s.beginMCPPostgresWrite(ctx, OperationMCPAccessTicketSave)
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *PostgresStore) GetMCPAccessTicket(ctx context.Context, id string) (app.
 		}
 		ticket, err := decodeMCPAccessTicket(raw, id)
 		if err != nil {
-			return app.MCPAccessTicket{}, false, storeError(OperationMCPAccessTicketGet, StoreErrorCorrupt, err)
+			return app.MCPAccessTicket{}, false, storeError(ctx, OperationMCPAccessTicketGet, StoreErrorCorrupt, err)
 		}
 		return ticket, true, nil
 	})
@@ -92,7 +92,7 @@ func (s *PostgresStore) FindMCPAccessTicketBySecretHash(ctx context.Context, sec
 			if err == nil {
 				err = fmt.Errorf("ticket secret hash does not match lookup")
 			}
-			return app.MCPAccessTicket{}, false, storeError(OperationMCPAccessTicketFindHash, StoreErrorCorrupt, err)
+			return app.MCPAccessTicket{}, false, storeError(ctx, OperationMCPAccessTicketFindHash, StoreErrorCorrupt, err)
 		}
 		return ticket, true, nil
 	})
@@ -128,7 +128,7 @@ func (s *PostgresStore) ListMCPAccessTickets(ctx context.Context, ownerID string
 				if err == nil {
 					err = fmt.Errorf("ticket owner does not match list scope")
 				}
-				return nil, false, storeError(OperationMCPAccessTicketList, StoreErrorCorrupt, err)
+				return nil, false, storeError(ctx, OperationMCPAccessTicketList, StoreErrorCorrupt, err)
 			}
 			out = append(out, ticket)
 		}
@@ -301,7 +301,7 @@ func (s *PostgresStore) GetMCPBinding(ctx context.Context, id string) (app.MCPBi
 		}
 		binding, err := decodeMCPBinding(raw, id)
 		if err != nil {
-			return app.MCPBinding{}, false, storeError(OperationMCPBindingGet, StoreErrorCorrupt, err)
+			return app.MCPBinding{}, false, storeError(ctx, OperationMCPBindingGet, StoreErrorCorrupt, err)
 		}
 		return binding, true, nil
 	})
@@ -330,7 +330,7 @@ func (s *PostgresStore) FindMCPBindingForPeer(ctx context.Context, domainID, dev
 			if err == nil {
 				err = fmt.Errorf("binding payload does not match peer lookup")
 			}
-			return app.MCPBinding{}, false, storeError(OperationMCPBindingFindPeer, StoreErrorCorrupt, err)
+			return app.MCPBinding{}, false, storeError(ctx, OperationMCPBindingFindPeer, StoreErrorCorrupt, err)
 		}
 		return binding, true, nil
 	})
@@ -364,7 +364,7 @@ func (s *PostgresStore) ListMCPBindings(ctx context.Context, ownerID string) ([]
 				if err == nil {
 					err = fmt.Errorf("binding owner does not match list scope")
 				}
-				return nil, false, storeError(OperationMCPBindingList, StoreErrorCorrupt, err)
+				return nil, false, storeError(ctx, OperationMCPBindingList, StoreErrorCorrupt, err)
 			}
 			out = append(out, binding)
 		}
@@ -647,7 +647,7 @@ func (s *PostgresStore) GetMCPOperation(ctx context.Context, id string) (app.MCP
 		}
 		operation, err := decodeMCPOperation(raw, id)
 		if err != nil {
-			return app.MCPOperation{}, false, storeError(OperationMCPOperationGet, StoreErrorCorrupt, err)
+			return app.MCPOperation{}, false, storeError(ctx, OperationMCPOperationGet, StoreErrorCorrupt, err)
 		}
 		return operation, true, nil
 	})
@@ -674,7 +674,7 @@ func (s *PostgresStore) FindMCPOperationByIdempotency(ctx context.Context, bindi
 			if err == nil {
 				err = errors.New("MCP operation payload does not match idempotency lookup")
 			}
-			return app.MCPOperation{}, false, storeError(OperationMCPOperationFindIdempotency, StoreErrorCorrupt, err)
+			return app.MCPOperation{}, false, storeError(ctx, OperationMCPOperationFindIdempotency, StoreErrorCorrupt, err)
 		}
 		return operation, true, nil
 	})
@@ -708,7 +708,7 @@ func (s *PostgresStore) ListMCPOperations(ctx context.Context, bindingID string)
 				if err == nil {
 					err = errors.New("MCP operation binding does not match list scope")
 				}
-				return nil, false, storeError(OperationMCPOperationList, StoreErrorCorrupt, err)
+				return nil, false, storeError(ctx, OperationMCPOperationList, StoreErrorCorrupt, err)
 			}
 			out = append(out, operation)
 		}
@@ -784,7 +784,7 @@ func runMCPPostgresRead[T any](ctx context.Context, repository *PostgresStore, o
 	value, found, err := read(transaction)
 	if err != nil {
 		if StoreErrorCodeOf(err) != "" {
-			return zero, false, storeError(operation, StoreErrorCodeOf(err), rollbackMCPPostgres(ctx, session, transaction, err))
+			return zero, false, storeError(ctx, operation, StoreErrorCodeOf(err), rollbackMCPPostgres(ctx, session, transaction, err))
 		}
 		_, err = finishMCPPostgresWrite(ctx, operation, struct{}{}, false, session, transaction, err, nil)
 		return zero, false, err
@@ -828,11 +828,11 @@ func (s *PostgresStore) beginMCPPostgresTransaction(ctx context.Context, operati
 		if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
 			session.Release()
 			if postgresError != nil {
-				return nil, nil, func() {}, storeError(operation, StoreErrorInternal, err)
+				return nil, nil, func() {}, storeError(ctx, operation, StoreErrorInternal, err)
 			}
 			return nil, nil, func() {}, classifyPostgresPreTransaction(operation, ctx, err)
 		}
-		return nil, nil, func() {}, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return nil, nil, func() {}, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return session, transaction, session.Release, nil
 }
@@ -859,30 +859,30 @@ func finishMCPPostgresWrite[T any](ctx context.Context, operation StoreOperation
 	if !candidateKnown || errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackMCPPostgres(ctx, session, transaction, cause)
 		if postgresError != nil && postgresError.Code == "23505" {
-			return zero, storeError(operation, StoreErrorConflict, errors.Join(conflictCause, cause))
+			return zero, storeError(ctx, operation, StoreErrorConflict, errors.Join(conflictCause, cause))
 		}
 		if postgresError != nil {
-			return zero, storeError(operation, StoreErrorInternal, cause)
+			return zero, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return zero, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
-	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func commitMCPPostgresWrite[T any](ctx context.Context, operation StoreOperation, candidate T, session onboardingPostgresSession, transaction onboardingPostgresTx) (T, error) {
 	if err := transaction.Commit(ctx); err != nil {
-		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
 
 func mcpPostgresBusinessError[T any](ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, cause error) (T, error) {
 	var zero T
-	return zero, storeError(operation, code, rollbackMCPPostgres(ctx, session, transaction, cause))
+	return zero, storeError(ctx, operation, code, rollbackMCPPostgres(ctx, session, transaction, cause))
 }
 
 func mcpPostgresBusinessErrorOnly(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, cause error) error {
-	return storeError(operation, code, rollbackMCPPostgres(ctx, session, transaction, cause))
+	return storeError(ctx, operation, code, rollbackMCPPostgres(ctx, session, transaction, cause))
 }
 
 func rollbackMCPPostgres(ctx context.Context, session onboardingPostgresSession, transaction onboardingPostgresTx, cause error) error {
@@ -895,7 +895,7 @@ func rollbackMCPPostgres(ctx context.Context, session onboardingPostgresSession,
 func classifyMCPPostgresRead(operation StoreOperation, ctx context.Context, cause error) error {
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }

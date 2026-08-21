@@ -40,7 +40,7 @@ func releasePostgresSession(session onboardingPostgresSession, release *bool) {
 }
 
 func approvalPostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func finishApprovalPostgresStatement(ctx context.Context, operation StoreOperation, candidate app.Approval, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (app.Approval, error) {
@@ -48,31 +48,31 @@ func finishApprovalPostgresStatement(ctx context.Context, operation StoreOperati
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) || errors.Is(cause, errApprovalJSONDecode) {
 		cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
 		if errors.Is(cause, errApprovalJSONDecode) {
-			return app.Approval{}, storeError(operation, StoreErrorCorrupt, cause)
+			return app.Approval{}, storeError(ctx, operation, StoreErrorCorrupt, cause)
 		}
 		if postgresError != nil && postgresError.Code == "23505" {
-			return app.Approval{}, storeError(operation, StoreErrorConflict, errors.Join(ErrApprovalConflict, cause))
+			return app.Approval{}, storeError(ctx, operation, StoreErrorConflict, errors.Join(ErrApprovalConflict, cause))
 		}
 		if postgresError != nil {
-			return app.Approval{}, storeError(operation, StoreErrorInternal, cause)
+			return app.Approval{}, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return app.Approval{}, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func commitApprovalPostgres(ctx context.Context, operation StoreOperation, candidate app.Approval, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool) (app.Approval, error) {
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
 
 func classifyApprovalPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errApprovalJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }

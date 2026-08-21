@@ -112,6 +112,7 @@ type Server struct {
 	streamWG                 sync.WaitGroup
 	approvalLocks            sync.Map
 	pairing                  *pairingCoordinator
+	storeRuntime             StoreRuntimeMonitor
 }
 
 func (s *Server) addAudit(ctx context.Context, event app.AuditEvent) {
@@ -121,6 +122,11 @@ func (s *Server) addAudit(ctx context.Context, event app.AuditEvent) {
 }
 
 type Option func(*Server)
+
+type StoreRuntimeMonitor interface {
+	Status() store.RuntimeStatus
+	Metrics() []store.OperationMetric
+}
 
 type ConnectorController interface {
 	Enabled(ownerID, channel string) bool
@@ -182,6 +188,12 @@ func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
 func WithManagedBrowserWindows(controller ManagedBrowserWindowController) Option {
 	return func(server *Server) {
 		server.managedBrowserWindows = controller
+	}
+}
+
+func WithStoreRuntime(runtime StoreRuntimeMonitor) Option {
+	return func(server *Server) {
+		server.storeRuntime = runtime
 	}
 }
 
@@ -426,6 +438,15 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	var storeStatus *store.RuntimeStatus
+	if s.storeRuntime != nil {
+		status := s.storeRuntime.Status()
+		storeStatus = &status
+		if !status.Ready {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "store": status})
+			return
+		}
+	}
 	if err := os.MkdirAll(s.cfg.Storage.TraceDir, 0o755); err != nil {
 		writeError(w, http.StatusServiceUnavailable, err)
 		return
@@ -441,7 +462,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	speechStatus := s.speech.Status(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"ok":               true,
 		"workspace_root":   s.cfg.Workspaces.DefaultRoot,
 		"trace_dir":        s.cfg.Storage.TraceDir,
@@ -456,7 +477,11 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		"model_mode":       modelMode(s.cfg),
 		"gateway_binding":  s.Addr(),
 		"speech":           speechStatus,
-	})
+	}
+	if storeStatus != nil {
+		payload["store"] = storeStatus
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
@@ -591,9 +616,37 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(allEpisodes)),
 	}
 	lines = append(lines, s.tools.DocumentMetrics()...)
+	lines = append(lines, s.storeOperationMetrics()...)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(strings.Join(lines, "\n") + "\n"))
+}
+
+func (s *Server) storeOperationMetrics() []string {
+	if s.storeRuntime == nil {
+		return nil
+	}
+	status := s.storeRuntime.Status()
+	lines := []string{
+		"# HELP sparkclaw_store_ready Whether the selected Store backend is ready.",
+		"# TYPE sparkclaw_store_ready gauge",
+		fmt.Sprintf("sparkclaw_store_ready{backend=%q} %d", status.Backend, boolMetric(status.Ready)),
+		"# HELP sparkclaw_store_active_operations Current admitted Store operations.",
+		"# TYPE sparkclaw_store_active_operations gauge",
+		fmt.Sprintf("sparkclaw_store_active_operations{backend=%q} %d", status.Backend, status.Active),
+		"# HELP sparkclaw_store_operations_total Completed Store operations by bounded result.",
+		"# TYPE sparkclaw_store_operations_total counter",
+		"# HELP sparkclaw_store_operation_duration_seconds_total Total Store operation duration by bounded result.",
+		"# TYPE sparkclaw_store_operation_duration_seconds_total counter",
+	}
+	for _, metric := range s.storeRuntime.Metrics() {
+		labels := fmt.Sprintf("backend=%q,repository=%q,operation=%q,mode=%q,outcome=%q", status.Backend, metric.Repository, metric.Operation, metric.Mode, metric.Outcome)
+		lines = append(lines,
+			fmt.Sprintf("sparkclaw_store_operations_total{%s} %d", labels, metric.Count),
+			fmt.Sprintf("sparkclaw_store_operation_duration_seconds_total{%s} %.6f", labels, metric.DurationSeconds),
+		)
+	}
+	return lines
 }
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {

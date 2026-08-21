@@ -48,7 +48,7 @@ func (s *PostgresStore) SaveCredentialSecret(ctx context.Context, command Creden
 	}
 	command, err := normalizeCredentialSaveCommand(command)
 	if err != nil {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretSave, StoreErrorInvalid, err)
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretSave, StoreErrorInvalid, err)
 	}
 	releaseCommand, err := s.acquireCredentialCommand(ctx, OperationCredentialSecretSave)
 	if err != nil {
@@ -123,7 +123,7 @@ func (s *PostgresStore) SaveCredentialSecret(ctx context.Context, command Creden
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationCredentialSecretSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationCredentialSecretSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
@@ -163,7 +163,7 @@ func (s *PostgresStore) GetCredentialSecret(ctx context.Context, ref string) (ap
 	secret, err = normalizePersistedCredentialSecret(secret)
 	if err != nil {
 		err = rollbackPostgresOnboardingRead(ctx, session, transaction, release, err)
-		return app.CredentialSecret{}, false, storeError(OperationCredentialSecretGet, StoreErrorCorrupt, err)
+		return app.CredentialSecret{}, false, storeError(ctx, OperationCredentialSecretGet, StoreErrorCorrupt, err)
 	}
 	if err := commitCredentialRead(ctx, OperationCredentialSecretGet, session, transaction, release); err != nil {
 		return app.CredentialSecret{}, false, err
@@ -179,7 +179,7 @@ func (s *PostgresStore) DeleteCredentialSecret(ctx context.Context, condition Cr
 	}
 	condition, err := normalizeCredentialDeleteCondition(condition)
 	if err != nil {
-		return app.CredentialSecret{}, storeError(OperationCredentialSecretDelete, StoreErrorInvalid, err)
+		return app.CredentialSecret{}, storeError(ctx, OperationCredentialSecretDelete, StoreErrorInvalid, err)
 	}
 	releaseCommand, err := s.acquireCredentialCommand(ctx, OperationCredentialSecretDelete)
 	if err != nil {
@@ -238,7 +238,7 @@ func (s *PostgresStore) DeleteCredentialSecret(ctx context.Context, condition Cr
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return secret, storeError(OperationCredentialSecretDelete, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return secret, storeError(ctx, OperationCredentialSecretDelete, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return secret, nil
 }
@@ -252,7 +252,7 @@ func (s *PostgresStore) acquireCredentialCommand(ctx context.Context, operation 
 		if contextErr := operationContextError(operation, ctx); contextErr != nil {
 			return nil, contextErr
 		}
-		return nil, storeError(operation, StoreErrorUnavailable, err)
+		return nil, storeError(ctx, operation, StoreErrorUnavailable, err)
 	}
 	if err := operationContextError(operation, ctx); err != nil {
 		s.credentialCommandGate.Release(1)
@@ -273,11 +273,11 @@ func (s *PostgresStore) beginCredentialTransaction(ctx context.Context, operatio
 		if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
 			session.Release()
 			if postgresError != nil {
-				return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+				return nil, nil, nil, storeError(ctx, operation, StoreErrorInternal, err)
 			}
 			return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
 		}
-		return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return nil, nil, nil, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return session, transaction, &release, nil
 }
@@ -285,7 +285,7 @@ func (s *PostgresStore) beginCredentialTransaction(ctx context.Context, operatio
 func commitCredentialRead(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool) error {
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return nil
 }
@@ -295,12 +295,12 @@ func finishCredentialRead(ctx context.Context, operation StoreOperation, session
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil {
-			return storeError(operation, StoreErrorInternal, cause)
+			return storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func finishCredentialPreCandidate(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
@@ -308,12 +308,12 @@ func finishCredentialPreCandidate(ctx context.Context, operation StoreOperation,
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil {
-			return storeError(operation, StoreErrorInternal, cause)
+			return storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func finishCredentialStatement(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (bool, error) {
@@ -321,19 +321,19 @@ func finishCredentialStatement(ctx context.Context, operation StoreOperation, se
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil && postgresError.Code == "23505" {
-			return false, storeError(operation, StoreErrorConflict, cause)
+			return false, storeError(ctx, operation, StoreErrorConflict, cause)
 		}
 		if postgresError != nil {
-			return false, storeError(operation, StoreErrorInternal, cause)
+			return false, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return false, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return true, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return true, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func credentialBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
 }
 
 func credentialAdvisoryKey(ref string) int64 {

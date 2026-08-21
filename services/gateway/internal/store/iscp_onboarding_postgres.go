@@ -120,7 +120,7 @@ func (s *PostgresStore) SaveISCPOnboarding(ctx context.Context, onboarding app.I
 	}
 	onboarding, err := normalizeISCPOnboarding(onboarding, time.Now().UTC())
 	if err != nil {
-		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorInvalid, err)
+		return app.ISCPOnboarding{}, storeError(ctx, OperationISCPOnboardingSave, StoreErrorInvalid, err)
 	}
 	session, err := s.onboardingPostgres.Acquire(ctx)
 	if err != nil {
@@ -149,7 +149,7 @@ func (s *PostgresStore) SaveISCPOnboarding(ctx context.Context, onboarding app.I
 	if err := transaction.Commit(ctx); err != nil {
 		release = false
 		closeErr := session.Terminate(ctx)
-		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorUnknownOutcome, errors.Join(err, closeErr))
+		return app.ISCPOnboarding{}, storeError(ctx, OperationISCPOnboardingSave, StoreErrorUnknownOutcome, errors.Join(err, closeErr))
 	}
 	return onboarding, nil
 }
@@ -195,7 +195,7 @@ func (s *PostgresStore) GetISCPOnboarding(ctx context.Context, id string) (app.I
 	onboarding, err := decodeISCPOnboarding(raw, id)
 	if err != nil {
 		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
-		return app.ISCPOnboarding{}, false, storeError(OperationISCPOnboardingGet, StoreErrorCorrupt, err)
+		return app.ISCPOnboarding{}, false, storeError(ctx, OperationISCPOnboardingGet, StoreErrorCorrupt, err)
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		release = false
@@ -248,12 +248,12 @@ func (s *PostgresStore) ListISCPOnboardings(ctx context.Context, ownerID string)
 		if err != nil {
 			rows.Close()
 			err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
-			return nil, storeError(OperationISCPOnboardingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationISCPOnboardingList, StoreErrorCorrupt, err)
 		}
 		if onboarding.OwnerID != rowOwnerID || (ownerID != "" && rowOwnerID != ownerID) {
 			rows.Close()
 			err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, errors.New("onboarding payload owner does not match indexed owner"))
-			return nil, storeError(OperationISCPOnboardingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationISCPOnboardingList, StoreErrorCorrupt, err)
 		}
 		out = append(out, onboarding)
 	}
@@ -292,16 +292,16 @@ func finishPostgresOnboardingStatement(
 		}
 		joined := errors.Join(cause, rollbackErr)
 		if postgresError != nil && postgresError.Code == "23505" {
-			return storeError(OperationISCPOnboardingSave, StoreErrorConflict, errors.Join(ErrISCPOnboardingConflict, joined))
+			return storeError(ctx, OperationISCPOnboardingSave, StoreErrorConflict, errors.Join(ErrISCPOnboardingConflict, joined))
 		}
 		if postgresError != nil {
-			return storeError(OperationISCPOnboardingSave, StoreErrorInternal, joined)
+			return storeError(ctx, OperationISCPOnboardingSave, StoreErrorInternal, joined)
 		}
 		return classifyPostgresPreTransaction(OperationISCPOnboardingSave, ctx, joined)
 	}
 	*release = false
 	closeErr := session.Terminate(ctx)
-	return storeError(OperationISCPOnboardingSave, StoreErrorUnknownOutcome, errors.Join(cause, closeErr))
+	return storeError(ctx, OperationISCPOnboardingSave, StoreErrorUnknownOutcome, errors.Join(cause, closeErr))
 }
 
 func classifyPostgresPreTransaction(operation StoreOperation, ctx context.Context, cause error) error {
@@ -309,7 +309,7 @@ func classifyPostgresPreTransaction(operation StoreOperation, ctx context.Contex
 		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return contextStoreError(operation, ctx, cause)
 	}
-	return storeError(operation, StoreErrorUnavailable, cause)
+	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
 
 func classifyPostgresReadError(operation StoreOperation, ctx context.Context, cause error) error {
@@ -317,7 +317,7 @@ func classifyPostgresReadError(operation StoreOperation, ctx context.Context, ca
 		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return contextStoreError(operation, ctx, cause)
 	}
-	return storeError(operation, StoreErrorUnavailable, cause)
+	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
 
 func rollbackPostgresOnboardingRead(

@@ -202,6 +202,7 @@ type OperationTimeouts struct {
 	Read        time.Duration
 	Write       time.Duration
 	Transaction time.Duration
+	supervisor  *Supervisor
 }
 
 var defaultOperationTimeouts = OperationTimeouts{
@@ -223,11 +224,12 @@ const (
 )
 
 type operationSpec struct {
-	ID         StoreOperation
-	Repository string
-	Method     string
-	Mode       operationMode
-	Timeout    operationTimeoutClass
+	ID               StoreOperation
+	Repository       string
+	Method           string
+	Mode             operationMode
+	Timeout          operationTimeoutClass
+	AffectsReadiness bool
 }
 
 var operationSpecs = map[StoreOperation]operationSpec{
@@ -774,6 +776,13 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	},
 }
 
+func init() {
+	for id, spec := range operationSpecs {
+		spec.AffectsReadiness = true
+		operationSpecs[id] = spec
+	}
+}
+
 func normalizeOperationTimeouts(timeouts OperationTimeouts) OperationTimeouts {
 	if timeouts.Read <= 0 {
 		timeouts.Read = defaultOperationTimeouts.Read
@@ -795,10 +804,29 @@ func operationContext(parent context.Context, operation StoreOperation, timeouts
 	} else if spec.Timeout == timeoutTransaction {
 		timeout = timeouts.Transaction
 	}
+	var ctx context.Context
+	var cancel context.CancelFunc
 	if deadline, exists := parent.Deadline(); exists && time.Until(deadline) <= timeout {
-		return context.WithCancel(parent)
+		ctx, cancel = context.WithCancel(parent)
+	} else {
+		ctx, cancel = context.WithTimeout(parent, timeout)
 	}
-	return context.WithTimeout(parent, timeout)
+	if timeouts.supervisor == nil {
+		return ctx, cancel
+	}
+	if parentSpan, _ := parent.Value(operationSpanContextKey{}).(*operationSpan); parentSpan != nil &&
+		parentSpan.supervisor == timeouts.supervisor && parentSpan.operation == operation {
+		return ctx, cancel
+	}
+	span, admitted := timeouts.supervisor.begin(operation)
+	if !admitted {
+		return context.WithValue(ctx, operationDeniedContextKey{}, ErrRuntimeClosing), cancel
+	}
+	ctx = context.WithValue(ctx, operationSpanContextKey{}, span)
+	return ctx, func() {
+		span.finish(ctx)
+		cancel()
+	}
 }
 
 func contextStoreError(operation StoreOperation, ctx context.Context, cause error) error {
@@ -808,16 +836,21 @@ func contextStoreError(operation StoreOperation, ctx context.Context, cause erro
 	} else if errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		code = StoreErrorTimeout
 	}
+	markOperationOutcome(ctx, code)
 	return &StoreError{Code: code, Operation: operation, Err: cause}
 }
 
 func operationContextError(operation StoreOperation, ctx context.Context) error {
+	if cause, denied := ctx.Value(operationDeniedContextKey{}).(error); denied {
+		return storeError(ctx, operation, StoreErrorUnavailable, cause)
+	}
 	if err := ctx.Err(); err != nil {
 		return contextStoreError(operation, ctx, err)
 	}
 	return nil
 }
 
-func storeError(operation StoreOperation, code StoreErrorCode, cause error) error {
+func storeError(ctx context.Context, operation StoreOperation, code StoreErrorCode, cause error) error {
+	markOperationOutcome(ctx, code)
 	return &StoreError{Code: code, Operation: operation, Err: cause}
 }

@@ -145,7 +145,7 @@ func (s *PostgresStore) listConnectorSettings(ctx context.Context, operation Sto
 			return nil, classifyPostgresReadError(operation, ctx, err)
 		}
 		if err := validatePersistedConnectorSetting(setting); err != nil {
-			return nil, storeError(operation, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, operation, StoreErrorCorrupt, err)
 		}
 		out = append(out, setting)
 	}
@@ -163,7 +163,7 @@ func (s *PostgresStore) UpdateConnectorSetting(ctx context.Context, setting app.
 	}
 	setting, err := normalizeConnectorSettingCandidate(setting, expectedVersion)
 	if err != nil {
-		return app.ConnectorSetting{}, storeError(OperationConnectorSettingUpdate, StoreErrorInvalid, err)
+		return app.ConnectorSetting{}, storeError(ctx, OperationConnectorSettingUpdate, StoreErrorInvalid, err)
 	}
 	releaseCommand, err := s.acquireConnectorCommand(ctx, OperationConnectorSettingUpdate)
 	if err != nil {
@@ -220,7 +220,7 @@ func (s *PostgresStore) UpdateConnectorSetting(ctx context.Context, setting app.
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return setting, storeError(OperationConnectorSettingUpdate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return setting, storeError(ctx, OperationConnectorSettingUpdate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return setting, nil
 }
@@ -233,7 +233,7 @@ func (s *PostgresStore) CreateNotificationBinding(ctx context.Context, binding a
 	}
 	binding, err := normalizeNotificationBindingCreate(binding)
 	if err != nil {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingCreate, StoreErrorInvalid, err)
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingCreate, StoreErrorInvalid, err)
 	}
 	releaseCommand, err := s.acquireConnectorCommand(ctx, OperationNotificationBindingCreate)
 	if err != nil {
@@ -273,7 +273,7 @@ func (s *PostgresStore) CreateNotificationBinding(ctx context.Context, binding a
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return cloneNotificationBinding(binding), storeError(OperationNotificationBindingCreate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return cloneNotificationBinding(binding), storeError(ctx, OperationNotificationBindingCreate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneNotificationBinding(binding), nil
 }
@@ -344,15 +344,15 @@ func (s *PostgresStore) ListNotificationBindings(ctx context.Context, channel, s
 			return nil, classifyConnectorBindingScanError(OperationNotificationBindingList, ctx, err)
 		}
 		if err := validatePersistedNotificationBinding(binding); err != nil {
-			return nil, storeError(OperationNotificationBindingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationNotificationBindingList, StoreErrorCorrupt, err)
 		}
 		if err := claimBindingCredentialRef(vaultOwners, binding); err != nil {
-			return nil, storeError(OperationNotificationBindingList, StoreErrorCorrupt, err)
+			return nil, storeError(ctx, OperationNotificationBindingList, StoreErrorCorrupt, err)
 		}
 		if binding.Status == app.NotificationBindingActive && binding.DefaultForChannel {
 			key := connectorSettingKey(binding.OwnerID, binding.Channel)
 			if activeDefaults[key] != "" {
-				return nil, storeError(OperationNotificationBindingList, StoreErrorCorrupt, errors.New("multiple active default bindings"))
+				return nil, storeError(ctx, OperationNotificationBindingList, StoreErrorCorrupt, errors.New("multiple active default bindings"))
 			}
 			activeDefaults[key] = binding.ID
 		}
@@ -374,7 +374,7 @@ func (s *PostgresStore) UpdateNotificationBinding(ctx context.Context, command N
 	}
 	command, err := normalizeNotificationBindingUpdateCommand(command)
 	if err != nil {
-		return app.NotificationBinding{}, storeError(OperationNotificationBindingUpdate, StoreErrorInvalid, err)
+		return app.NotificationBinding{}, storeError(ctx, OperationNotificationBindingUpdate, StoreErrorInvalid, err)
 	}
 	releaseCommand, err := s.acquireConnectorCommand(ctx, OperationNotificationBindingUpdate)
 	if err != nil {
@@ -459,7 +459,7 @@ func (s *PostgresStore) UpdateNotificationBinding(ctx context.Context, command N
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return cloneNotificationBinding(candidate), storeError(OperationNotificationBindingUpdate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return cloneNotificationBinding(candidate), storeError(ctx, OperationNotificationBindingUpdate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneNotificationBinding(candidate), nil
 }
@@ -579,7 +579,7 @@ func (s *PostgresStore) acquireConnectorCommand(ctx context.Context, operation S
 		if contextErr := operationContextError(operation, ctx); contextErr != nil {
 			return nil, contextErr
 		}
-		return nil, storeError(operation, StoreErrorUnavailable, err)
+		return nil, storeError(ctx, operation, StoreErrorUnavailable, err)
 	}
 	if err := operationContextError(operation, ctx); err != nil {
 		s.connectorCommandGate.Release(1)
@@ -600,11 +600,11 @@ func (s *PostgresStore) beginConnectorTransaction(ctx context.Context, operation
 		if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
 			session.Release()
 			if postgresError != nil {
-				return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+				return nil, nil, nil, storeError(ctx, operation, StoreErrorInternal, err)
 			}
 			return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
 		}
-		return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return nil, nil, nil, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return session, transaction, &release, nil
 }
@@ -612,7 +612,7 @@ func (s *PostgresStore) beginConnectorTransaction(ctx context.Context, operation
 func commitConnectorRead(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool) error {
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return nil
 }
@@ -622,12 +622,12 @@ func finishConnectorRead(ctx context.Context, operation StoreOperation, session 
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil {
-			return storeError(operation, StoreErrorInternal, cause)
+			return storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func finishConnectorPreCandidate(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
@@ -639,19 +639,19 @@ func finishConnectorStatement(ctx context.Context, operation StoreOperation, ses
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 		if postgresError != nil && postgresError.Code == "23505" {
-			return false, storeError(operation, StoreErrorConflict, cause)
+			return false, storeError(ctx, operation, StoreErrorConflict, cause)
 		}
 		if postgresError != nil {
-			return false, storeError(operation, StoreErrorInternal, cause)
+			return false, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return false, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return true, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return true, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func connectorBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause))
 }
 
 func connectorOwnerChannelAdvisoryKey(ownerID, channel string) int64 {

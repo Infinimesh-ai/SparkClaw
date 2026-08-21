@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -93,7 +94,7 @@ func TestRunWriteReconciliationRequiresExactCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknownRun := storeError(OperationRunSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
+	unknownRun := storeError(context.Background(), OperationRunSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
 	if reconciled, err := ReconcileRunWrite(t.Context(), repository, run, unknownRun); err != nil || !runRecordsEqual(reconciled, run) {
 		t.Fatalf("exact Run reconciliation = %#v err=%v", reconciled, err)
 	}
@@ -109,7 +110,7 @@ func TestRunWriteReconciliationRequiresExactCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknownTool := storeError(OperationToolCallSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
+	unknownTool := storeError(context.Background(), OperationToolCallSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
 	if reconciled, err := ReconcileToolCallWrite(t.Context(), repository, toolCall, unknownTool); err != nil || !runRecordsEqual(reconciled, toolCall) {
 		t.Fatalf("exact ToolCall reconciliation = %#v err=%v", reconciled, err)
 	}

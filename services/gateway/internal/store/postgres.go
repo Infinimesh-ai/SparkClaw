@@ -268,7 +268,7 @@ func (s *PostgresStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, 
 		return app.OwnerProfile{}, err
 	}
 	if !found {
-		return app.OwnerProfile{}, storeError(OperationOwnerProfileGet, StoreErrorCorrupt, errors.New("default owner profile is missing"))
+		return app.OwnerProfile{}, storeError(ctx, OperationOwnerProfileGet, StoreErrorCorrupt, errors.New("default owner profile is missing"))
 	}
 	return profile, nil
 }
@@ -390,7 +390,7 @@ func (s *PostgresStore) saveOwnerProfile(ctx context.Context, operation StoreOpe
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		release = false
-		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneOwnerProfile(candidate), nil
 }
@@ -400,14 +400,14 @@ func finishPostgresOwnerPreCandidate(ctx context.Context, operation StoreOperati
 	definite := errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) || errors.Is(cause, errOwnerPreferencesDecode)
 	if !definite {
 		*release = false
-		return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+		return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 	}
 	cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
 	if errors.Is(cause, errOwnerPreferencesDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	if postgresError != nil {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
 	return classifyPostgresPreTransaction(operation, ctx, cause)
 }
@@ -422,12 +422,12 @@ func finishPostgresOwnerStatement(ctx context.Context, operation StoreOperation,
 		}
 		joined := errors.Join(cause, rollbackErr)
 		if postgresError != nil {
-			return app.OwnerProfile{}, storeError(operation, StoreErrorInternal, joined)
+			return app.OwnerProfile{}, storeError(ctx, operation, StoreErrorInternal, joined)
 		}
 		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, joined)
 	}
 	*release = false
-	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func (s *PostgresStore) ListOwnerProfiles(ctx context.Context) ([]app.OwnerProfile, error) {
@@ -484,7 +484,7 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 	}
 	candidate, err := prepareMessage(message, time.Now())
 	if err != nil {
-		return app.Message{}, storeError(OperationConversationAddMessage, StoreErrorInvalid, err)
+		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorInvalid, err)
 	}
 	if existing, err := scanMessage(s.conversationPostgres.QueryRow(ctx, `
 		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
@@ -552,7 +552,7 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return cloneMessage(stored), storeError(OperationConversationAddMessage, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return cloneMessage(stored), storeError(ctx, OperationConversationAddMessage, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneMessage(stored), nil
 }
@@ -601,11 +601,11 @@ func beginPostgresTransaction(ctx context.Context, operation StoreOperation, bac
 	if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
 		session.Release()
 		if postgresError != nil {
-			return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+			return nil, nil, nil, storeError(ctx, operation, StoreErrorInternal, err)
 		}
 		return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
 	}
-	return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	return nil, nil, nil, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 }
 
 func rollbackPostgresTransaction(ctx context.Context, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
@@ -622,12 +622,12 @@ func finishConversationStatement(ctx context.Context, operation StoreOperation, 
 }
 
 func conversationBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifyConversationPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errMessageJSONDecode) || errors.Is(cause, errEventPayloadJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
 		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -635,9 +635,9 @@ func classifyConversationPostgresError(operation StoreOperation, ctx context.Con
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
-	return storeError(operation, StoreErrorUnavailable, cause)
+	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) SaveRunFeedback(ctx context.Context, feedback app.RunFeedback) (app.RunFeedback, error) {
@@ -648,7 +648,7 @@ func (s *PostgresStore) SaveRunFeedback(ctx context.Context, feedback app.RunFee
 	}
 	feedback, err := prepareRunFeedback(feedback, nil, time.Now().UTC())
 	if err != nil {
-		return app.RunFeedback{}, storeError(OperationRunFeedbackSave, StoreErrorInvalid, err)
+		return app.RunFeedback{}, storeError(ctx, OperationRunFeedbackSave, StoreErrorInvalid, err)
 	}
 	session, err := s.runPostgres.Acquire(ctx)
 	if err != nil {
@@ -687,7 +687,7 @@ func (s *PostgresStore) SaveRunFeedback(ctx context.Context, feedback app.RunFee
 	feedback, err = prepareRunFeedback(feedback, existing, time.Now().UTC())
 	if err != nil {
 		cause := rollbackPostgresTransaction(ctx, session, transaction, &release, err)
-		return app.RunFeedback{}, storeError(OperationRunFeedbackSave, StoreErrorInvalid, cause)
+		return app.RunFeedback{}, storeError(ctx, OperationRunFeedbackSave, StoreErrorInvalid, cause)
 	}
 	if _, err := transaction.Exec(ctx, `
 		INSERT INTO run_feedback (id, session_id, run_id, message_id, rating, note, correction, created_at, updated_at)
@@ -706,7 +706,7 @@ func (s *PostgresStore) SaveRunFeedback(ctx context.Context, feedback app.RunFee
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		release = false
-		return feedback, storeError(OperationRunFeedbackSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return feedback, storeError(ctx, OperationRunFeedbackSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return feedback, nil
 }
@@ -744,7 +744,7 @@ func (s *PostgresStore) ListRunFeedback(ctx context.Context, runID string) ([]ap
 func (s *PostgresStore) SaveRun(ctx context.Context, run app.AgentRun) (app.AgentRun, error) {
 	run, err := prepareRun(run, time.Now().UTC())
 	if err != nil {
-		return app.AgentRun{}, storeError(OperationRunSave, StoreErrorInvalid, err)
+		return app.AgentRun{}, storeError(ctx, OperationRunSave, StoreErrorInvalid, err)
 	}
 	workflowState := optionalJSON(run.Workflow)
 	messageContext := optionalJSON(run.MessageContext)
@@ -816,7 +816,7 @@ func (s *PostgresStore) ListRuns(ctx context.Context, sessionID string) ([]app.A
 func (s *PostgresStore) SaveModelCall(ctx context.Context, call app.ModelCall) (app.ModelCall, error) {
 	call, err := prepareModelCall(call, time.Now().UTC())
 	if err != nil {
-		return app.ModelCall{}, storeError(OperationModelCallSave, StoreErrorInvalid, err)
+		return app.ModelCall{}, storeError(ctx, OperationModelCallSave, StoreErrorInvalid, err)
 	}
 	return runPostgresWrite(s, ctx, OperationModelCallSave, "model_call", call.ID, call, func(transaction onboardingPostgresTx, commandCtx context.Context) error {
 		if _, err := transaction.Exec(commandCtx, `
@@ -873,7 +873,7 @@ func (s *PostgresStore) ListModelCalls(ctx context.Context, sessionID, runID str
 func (s *PostgresStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
 	call, err := prepareToolCall(call, time.Now().UTC())
 	if err != nil {
-		return app.ToolCall{}, storeError(OperationToolCallSave, StoreErrorInvalid, err)
+		return app.ToolCall{}, storeError(ctx, OperationToolCallSave, StoreErrorInvalid, err)
 	}
 	args := mustJSON(call.Arguments)
 	result := optionalJSON(call.Result)
@@ -984,7 +984,7 @@ func runPostgresWrite[T any](s *PostgresStore, parent context.Context, operation
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		release = false
-		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }
@@ -994,12 +994,12 @@ func finishRunPostgresPreCandidate(ctx context.Context, operation StoreOperation
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
 		if postgresError != nil {
-			return storeError(operation, StoreErrorInternal, cause)
+			return storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func finishRunPostgresStatement[T any](ctx context.Context, operation StoreOperation, candidate T, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (T, error) {
@@ -1008,12 +1008,12 @@ func finishRunPostgresStatement[T any](ctx context.Context, operation StoreOpera
 	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
 		cause = rollbackPostgresTransaction(ctx, session, transaction, release, cause)
 		if postgresError != nil {
-			return zero, storeError(operation, StoreErrorInternal, cause)
+			return zero, storeError(ctx, operation, StoreErrorInternal, cause)
 		}
 		return zero, classifyPostgresPreTransaction(operation, ctx, cause)
 	}
 	*release = false
-	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func appendRunLifecycle(transaction onboardingPostgresTx, ctx context.Context, typ, sessionID, runID, actor, summary string, fields map[string]any, payload any) error {
@@ -1036,7 +1036,7 @@ func appendRunEvent(transaction onboardingPostgresTx, ctx context.Context, typ, 
 
 func classifyRunPostgresReadError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errRunJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }
@@ -1111,7 +1111,7 @@ func (s *PostgresStore) SaveDocumentRecord(ctx context.Context, record app.Docum
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return record, storeError(OperationDocumentRecordSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return record, storeError(ctx, OperationDocumentRecordSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return record, nil
 }
@@ -1206,9 +1206,9 @@ func classifyDocumentPostgresError(operation StoreOperation, ctx context.Context
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
-	return storeError(operation, StoreErrorUnavailable, cause)
+	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) SaveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
@@ -1485,7 +1485,7 @@ func (s *PostgresStore) SaveReminder(ctx context.Context, reminder app.Reminder)
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return reminder, storeError(OperationReminderSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return reminder, storeError(ctx, OperationReminderSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneReminder(reminder), nil
 }
@@ -1540,7 +1540,7 @@ func (s *PostgresStore) UpdatePendingReminder(ctx context.Context, reminder app.
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return updated, storeError(OperationReminderUpdatePending, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return updated, storeError(ctx, OperationReminderUpdatePending, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneReminder(updated), nil
 }
@@ -1710,7 +1710,7 @@ func (s *PostgresStore) SaveReminderDelivery(ctx context.Context, delivery app.R
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return delivery, storeError(OperationReminderDeliverySave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return delivery, storeError(ctx, OperationReminderDeliverySave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return delivery, nil
 }
@@ -1789,12 +1789,12 @@ func finishSchedulePostgresStatement(ctx context.Context, operation StoreOperati
 }
 
 func schedulePostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifySchedulePostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errReminderScheduleSpecJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }
@@ -1808,7 +1808,7 @@ func (s *PostgresStore) CreatePassiveNotification(ctx context.Context, notificat
 	var err error
 	notification, err = preparePassiveNotification(notification, time.Now().UTC())
 	if err != nil {
-		return app.PassiveNotification{}, false, storeError(OperationPassiveNotificationCreate, StoreErrorInvalid, err)
+		return app.PassiveNotification{}, false, storeError(ctx, OperationPassiveNotificationCreate, StoreErrorInvalid, err)
 	}
 	session, transaction, release, err := beginPostgresTransaction(ctx, OperationPassiveNotificationCreate, s.passiveNotificationPostgres)
 	if err != nil {
@@ -1837,7 +1837,7 @@ func (s *PostgresStore) CreatePassiveNotification(ctx context.Context, notificat
 		}
 		if err := transaction.Commit(ctx); err != nil {
 			*release = false
-			return clonePassiveNotification(inserted), true, storeError(OperationPassiveNotificationCreate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+			return clonePassiveNotification(inserted), true, storeError(ctx, OperationPassiveNotificationCreate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 		}
 		s.bumpPassiveNotificationRev(notification.OwnerID)
 		return clonePassiveNotification(inserted), true, nil
@@ -1992,7 +1992,7 @@ func (s *PostgresStore) MarkPassiveNotificationRead(ctx context.Context, ownerID
 	`, ownerID, id, readAt)
 	notification, changed, err := scanPassiveNotificationReadResult(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.PassiveNotification{}, storeError(OperationPassiveNotificationMarkRead, StoreErrorNotFound, ErrPassiveNotificationNotFound)
+		return app.PassiveNotification{}, storeError(ctx, OperationPassiveNotificationMarkRead, StoreErrorNotFound, ErrPassiveNotificationNotFound)
 	}
 	if err != nil {
 		return app.PassiveNotification{}, classifyPassiveNotificationPostgresError(OperationPassiveNotificationMarkRead, ctx, err)
@@ -2121,7 +2121,7 @@ func (s *PostgresStore) PrunePassiveNotifications(ctx context.Context, cutoff ti
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return removed, storeError(OperationPassiveNotificationPrune, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return removed, storeError(ctx, OperationPassiveNotificationPrune, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	for ownerID := range removedByOwner {
 		s.bumpPassiveNotificationRev(ownerID)
@@ -2163,7 +2163,7 @@ func finishPassiveNotificationPostgresStatement(ctx context.Context, operation S
 }
 
 func passiveNotificationPostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifyPassiveNotificationPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
@@ -2235,7 +2235,7 @@ func (s *PostgresStore) SaveExternalChatSession(ctx context.Context, session app
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return session, storeError(OperationExternalChatSessionSave, StoreErrorUnknownOutcome, errors.Join(err, databaseSession.Terminate(ctx)))
+		return session, storeError(ctx, OperationExternalChatSessionSave, StoreErrorUnknownOutcome, errors.Join(err, databaseSession.Terminate(ctx)))
 	}
 	return session, nil
 }
@@ -2403,7 +2403,7 @@ func (s *PostgresStore) SaveExternalChatMessage(ctx context.Context, message app
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return message, storeError(OperationExternalChatMessageSave, StoreErrorUnknownOutcome, errors.Join(err, databaseSession.Terminate(ctx)))
+		return message, storeError(ctx, OperationExternalChatMessageSave, StoreErrorUnknownOutcome, errors.Join(err, databaseSession.Terminate(ctx)))
 	}
 	return message, nil
 }
@@ -2558,7 +2558,7 @@ func (s *PostgresStore) SaveMessageReceive(ctx context.Context, record app.Messa
 	}
 	candidate, err := prepareMessageReceive(record, app.MessageReceiveRecord{}, time.Now().UTC())
 	if err != nil {
-		return app.MessageReceiveRecord{}, storeError(OperationMessageReceiveSave, StoreErrorInvalid, err)
+		return app.MessageReceiveRecord{}, storeError(ctx, OperationMessageReceiveSave, StoreErrorInvalid, err)
 	}
 	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMessageReceiveSave, s.deliveryRecordPostgres)
 	if err != nil {
@@ -2615,7 +2615,7 @@ func (s *PostgresStore) SaveMessageReceive(ctx context.Context, record app.Messa
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationMessageReceiveSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationMessageReceiveSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneMessageReceive(candidate), nil
 }
@@ -2683,7 +2683,7 @@ func (s *PostgresStore) SaveMessageDelivery(ctx context.Context, record app.Mess
 	}
 	candidate, err := prepareMessageDelivery(record, app.MessageDeliveryRecord{}, time.Now().UTC())
 	if err != nil {
-		return app.MessageDeliveryRecord{}, storeError(OperationMessageDeliverySave, StoreErrorInvalid, err)
+		return app.MessageDeliveryRecord{}, storeError(ctx, OperationMessageDeliverySave, StoreErrorInvalid, err)
 	}
 	session, transaction, release, err := beginPostgresTransaction(ctx, OperationMessageDeliverySave, s.deliveryRecordPostgres)
 	if err != nil {
@@ -2747,7 +2747,7 @@ func (s *PostgresStore) SaveMessageDelivery(ctx context.Context, record app.Mess
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationMessageDeliverySave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationMessageDeliverySave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneMessageDelivery(candidate), nil
 }
@@ -2815,7 +2815,7 @@ func (s *PostgresStore) SaveChannelInboxUpdate(ctx context.Context, update app.C
 	}
 	candidate, err := prepareChannelInboxUpdate(update, app.ChannelInboxUpdate{}, time.Now().UTC())
 	if err != nil {
-		return app.ChannelInboxUpdate{}, storeError(OperationChannelInboxUpdateSave, StoreErrorInvalid, err)
+		return app.ChannelInboxUpdate{}, storeError(ctx, OperationChannelInboxUpdateSave, StoreErrorInvalid, err)
 	}
 	session, transaction, release, err := beginPostgresTransaction(ctx, OperationChannelInboxUpdateSave, s.deliveryRecordPostgres)
 	if err != nil {
@@ -2881,7 +2881,7 @@ func (s *PostgresStore) SaveChannelInboxUpdate(ctx context.Context, update app.C
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationChannelInboxUpdateSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationChannelInboxUpdateSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneChannelInboxUpdate(candidate), nil
 }
@@ -3043,23 +3043,23 @@ func finishDeliveryRecordPostgresStatement[T any](ctx context.Context, operation
 		return zero, classifyDeliveryRecordPostgresError(operation, ctx, cause)
 	}
 	*release = false
-	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
 }
 
 func deliveryRecordPostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifyDeliveryRecordPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errMessageReceiveJSONDecode) || errors.Is(cause, errMessageDeliveryJSONDecode) || errors.Is(cause, errChannelInboxPayloadDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
 		if postgresError.Code == "23505" {
-			return storeError(operation, StoreErrorConflict, errors.Join(deliveryRecordConflictForOperation(operation), cause))
+			return storeError(ctx, operation, StoreErrorConflict, errors.Join(deliveryRecordConflictForOperation(operation), cause))
 		}
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }
@@ -3145,7 +3145,7 @@ func (s *PostgresStore) SaveBrowserAuthRecord(ctx context.Context, record app.Br
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return record, storeError(OperationBrowserAuthSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return record, storeError(ctx, OperationBrowserAuthSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneBrowserAuthRecord(record), nil
 }
@@ -3266,7 +3266,7 @@ func (s *PostgresStore) RevokeBrowserAuthRecord(ctx context.Context, id, reason 
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return record, storeError(OperationBrowserAuthRevoke, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return record, storeError(ctx, OperationBrowserAuthRevoke, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneBrowserAuthRecord(record), nil
 }
@@ -3347,7 +3347,7 @@ func (s *PostgresStore) SaveBrowserLoginBlock(ctx context.Context, block app.Bro
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return block, storeError(OperationBrowserLoginBlockSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return block, storeError(ctx, OperationBrowserLoginBlockSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneBrowserLoginBlock(block), nil
 }
@@ -3406,7 +3406,7 @@ func (s *PostgresStore) UpdateBrowserLoginBlock(ctx context.Context, block app.B
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return block, storeError(OperationBrowserLoginBlockUpdate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return block, storeError(ctx, OperationBrowserLoginBlockUpdate, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneBrowserLoginBlock(block), nil
 }
@@ -3496,12 +3496,12 @@ func finishBrowserStatePostgresStatement(ctx context.Context, operation StoreOpe
 }
 
 func browserStateBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifyBrowserStatePostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errBrowserLoginBlockJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
 		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -3509,9 +3509,9 @@ func classifyBrowserStatePostgresError(operation StoreOperation, ctx context.Con
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
-	return storeError(operation, StoreErrorUnavailable, cause)
+	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) AddMemoryCandidate(ctx context.Context, candidate app.MemoryCandidate) (app.MemoryCandidate, error) {
@@ -3549,7 +3549,7 @@ func (s *PostgresStore) AddMemoryCandidate(ctx context.Context, candidate app.Me
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(OperationMemoryCandidateAdd, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, OperationMemoryCandidateAdd, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneMemoryCandidate(candidate), nil
 }
@@ -3610,7 +3610,7 @@ func (s *PostgresStore) ResolveMemoryCandidate(ctx context.Context, id, status s
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, memory, storeError(OperationMemoryCandidateResolve, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, memory, storeError(ctx, OperationMemoryCandidateResolve, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneMemoryCandidate(candidate), memory, nil
 }
@@ -3736,7 +3736,7 @@ func (s *PostgresStore) updateOrDeleteMemory(ctx context.Context, operation Stor
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return memory, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return memory, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return memory, nil
 }
@@ -3804,7 +3804,7 @@ func (s *PostgresStore) PruneMemories(ctx context.Context, cutoff time.Time) ([]
 	})
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return out, storeError(OperationMemoryPrune, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return out, storeError(ctx, OperationMemoryPrune, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return out, nil
 }
@@ -3830,7 +3830,7 @@ func finishMemoryPostgresStatement(ctx context.Context, operation StoreOperation
 }
 
 func memoryPostgresBusinessError(ctx context.Context, operation StoreOperation, code StoreErrorCode, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
-	return storeError(operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
+	return storeError(ctx, operation, code, rollbackPostgresTransaction(ctx, session, transaction, release, cause))
 }
 
 func classifyMemoryPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
@@ -3845,7 +3845,7 @@ func (s *PostgresStore) AddAudit(ctx context.Context, event app.AuditEvent) erro
 	}
 	prepared, err := prepareAuditEvent(event, time.Now().UTC())
 	if err != nil {
-		return storeError(OperationAuditAdd, StoreErrorInvalid, err)
+		return storeError(ctx, OperationAuditAdd, StoreErrorInvalid, err)
 	}
 	_, err = s.auditPostgres.Exec(ctx, `
 		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
@@ -3929,7 +3929,7 @@ func (s *PostgresStore) EventsAfter(ctx context.Context, sessionID, after string
 
 func classifyAuditPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errAuditFieldsJSONDecode) || errors.Is(cause, errEventPayloadJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	if errors.Is(cause, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
 		errors.Is(cause, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -3937,9 +3937,9 @@ func classifyAuditPostgresError(operation StoreOperation, ctx context.Context, c
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
-		return storeError(operation, StoreErrorInternal, cause)
+		return storeError(ctx, operation, StoreErrorInternal, cause)
 	}
-	return storeError(operation, StoreErrorUnavailable, cause)
+	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
 
 func (s *PostgresStore) MessageEventHead(ctx context.Context, sessionID string) (string, error) {
@@ -3983,7 +3983,7 @@ func (s *PostgresStore) MessageEventsAfter(ctx context.Context, sessionID, after
 			WHERE id = $1
 		`, after).Scan(&afterSeq, &cursorSessionID, &cursorType)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && (cursorSessionID != sessionID || cursorType != "message.created") {
-			return MessageEventPage{}, storeError(OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
+			return MessageEventPage{}, storeError(ctx, OperationConversationMessagesAfter, StoreErrorInvalid, ErrMessageEventCursorInvalid)
 		}
 		if err != nil {
 			return MessageEventPage{}, classifyConversationPostgresError(OperationConversationMessagesAfter, ctx, err)
@@ -4054,7 +4054,7 @@ func (s *PostgresStore) SaveEvalRun(ctx context.Context, run app.EvalRun) (app.E
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return prepared, storeError(OperationEvaluationSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return prepared, storeError(ctx, OperationEvaluationSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneEvalRun(prepared), nil
 }
@@ -4133,7 +4133,7 @@ func finishEvaluationPostgresStatement(ctx context.Context, session onboardingPo
 
 func classifyEvaluationPostgresError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errEvalRunJSONDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }
@@ -4177,7 +4177,7 @@ func (s *PostgresStore) SaveArtifactObject(ctx context.Context, object app.Artif
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return object, storeError(OperationArtifactMetadataSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return object, storeError(ctx, OperationArtifactMetadataSave, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return object, nil
 }
@@ -4270,7 +4270,7 @@ func finishArtifactMetadataPostgresStatement(ctx context.Context, session onboar
 func (s *PostgresStore) SaveEpisodeSummary(ctx context.Context, summary app.EpisodeSummary) (app.EpisodeSummary, error) {
 	summary, err := prepareEpisodeSummary(summary, time.Now().UTC())
 	if err != nil {
-		return app.EpisodeSummary{}, storeError(OperationEpisodeSummarySave, StoreErrorInvalid, err)
+		return app.EpisodeSummary{}, storeError(ctx, OperationEpisodeSummarySave, StoreErrorInvalid, err)
 	}
 	return runPostgresWrite(s, ctx, OperationEpisodeSummarySave, "episode_summary", summary.ID, summary, func(transaction onboardingPostgresTx, commandCtx context.Context) error {
 		if _, err := transaction.Exec(commandCtx, `
@@ -4394,7 +4394,7 @@ var errOwnerPreferencesDecode = errors.New("owner preferences decode failed")
 
 func classifyPostgresOwnerReadError(operation StoreOperation, ctx context.Context, cause error) error {
 	if errors.Is(cause, errOwnerPreferencesDecode) {
-		return storeError(operation, StoreErrorCorrupt, cause)
+		return storeError(ctx, operation, StoreErrorCorrupt, cause)
 	}
 	return classifyPostgresReadError(operation, ctx, cause)
 }

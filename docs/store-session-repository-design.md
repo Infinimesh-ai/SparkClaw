@@ -2,10 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-session-repository-design.md)
 
-> Status: candidate for S3 SessionRepository design review, 2026-08-21.
-> Implementation starts only after this exact bilingual design receives a
-> recorded `GO`. Connector and the integrated Credential lifecycle received
-> implementation `GO` at `a9a5ab9`.
+> Status: design `GO`, 2026-08-21. The independent gate reviewed revision
+> `da5a849`; implementation may proceed. Connector and the integrated
+> Credential lifecycle received implementation `GO` at `a9a5ab9`.
 
 ## Scope
 
@@ -256,4 +255,4 @@ ASR CI work, or large-file split is mixed into these commits.
 
 | Review | Revision | Decision | Evidence | Reviewer/date |
 |---|---|---|---|---|
-| SessionRepository design | pending | pending | pending | pending |
+| SessionRepository design | `da5a849` | `GO` | six-method ownership; complete delete closure including legacy Weixin source rows; Memory/File/PostgreSQL failure model; full redacted HTTP mapping; bilingual parity | independent gate / 2026-08-21 |

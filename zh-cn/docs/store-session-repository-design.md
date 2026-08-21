@@ -2,9 +2,8 @@
 
 > Language: 简体中文 | [English](../../docs/store-session-repository-design.md)
 
-> 状态：2026-08-21 S3 SessionRepository 设计审查候选。本精确双语设计获得记录的
-> `GO` 前不得开始实现。Connector 与集成 Credential 生命周期已在 `a9a5ab9` 获得
-> implementation `GO`。
+> 状态：2026-08-21 设计 `GO`。独立门禁已审查 revision `da5a849`，可以开始实现。
+> Connector 与集成 Credential 生命周期已在 `a9a5ab9` 获得 implementation `GO`。
 
 ## 范围
 
@@ -208,4 +207,4 @@ Implementation `GO` 要求：
 
 | 审查 | 修订 | 结论 | 证据 | 审查人/日期 |
 |---|---|---|---|---|
-| SessionRepository design | pending | pending | pending | pending |
+| SessionRepository design | `da5a849` | `GO` | 6 方法归属；包含 legacy Weixin source rows 的完整 delete closure；Memory/File/PostgreSQL failure model；完整脱敏 HTTP mapping；双语一致 | independent gate / 2026-08-21 |

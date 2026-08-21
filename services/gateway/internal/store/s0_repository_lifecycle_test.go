@@ -72,7 +72,7 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 	},
 	"ConnectorRepository": {
 		mutate: func(t *testing.T, st Store) {
-			if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{OwnerID: "owner-lifecycle", Channel: "telegram", Enabled: true}, 0); err != nil {
+			if _, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{OwnerID: "owner-lifecycle", Channel: "telegram", Enabled: true}, 0); err != nil {
 				t.Fatal(err)
 			}
 		},

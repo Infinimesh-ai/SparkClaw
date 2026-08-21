@@ -297,6 +297,8 @@ func (d *Dispatcher) resetConversation(ctx context.Context, binding app.Notifica
 	session := d.store.CreateSessionWithScope("Telegram conversation", chatSession.OwnerID, chatSession.WorkspaceRoot, "telegram", true)
 	chatSession.LinkedSessionID = session.ID
 	chatSession.Status = "active"
+	chatSession.AuthorizedOwnerID = binding.OwnerID
+	chatSession.AuthorizedActorID = binding.ActorID
 	d.store.SaveExternalChatSession(chatSession)
 	return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, "A new conversation has started.", "cmd-new:"+externalID, "", nil)
 }
@@ -406,19 +408,21 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.Notifica
 	}
 	session := d.store.CreateSessionWithScope("Telegram conversation", profile.ID, workspaceRoot, "telegram", true)
 	return d.store.SaveExternalChatSession(app.ExternalChatSession{
-		OwnerID:          profile.ID,
-		WorkspaceRoot:    workspaceRoot,
-		BindingID:        binding.ID,
-		Channel:          "telegram",
-		Provider:         binding.Provider,
-		ExternalUserID:   strconv.FormatInt(user.ID, 10),
-		ExternalChatID:   externalChatID,
-		ExternalThreadID: externalThreadID,
-		DisplayName:      user.DisplayName(),
-		LinkedSessionID:  session.ID,
-		Status:           "active",
-		ProviderCursor:   binding.ProviderCursor,
-		LastContextToken: binding.ContextToken,
+		OwnerID:           profile.ID,
+		AuthorizedOwnerID: binding.OwnerID,
+		AuthorizedActorID: binding.ActorID,
+		WorkspaceRoot:     workspaceRoot,
+		BindingID:         binding.ID,
+		Channel:           "telegram",
+		Provider:          binding.Provider,
+		ExternalUserID:    strconv.FormatInt(user.ID, 10),
+		ExternalChatID:    externalChatID,
+		ExternalThreadID:  externalThreadID,
+		DisplayName:       user.DisplayName(),
+		LinkedSessionID:   session.ID,
+		Status:            "active",
+		ProviderCursor:    binding.ProviderCursor,
+		LastContextToken:  binding.ContextToken,
 	}), nil
 }
 

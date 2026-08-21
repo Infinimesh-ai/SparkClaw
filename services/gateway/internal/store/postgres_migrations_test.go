@@ -21,10 +21,10 @@ func TestPostgresMigrationManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 3 {
-		t.Fatalf("migration count = %d, want 3", len(migrations))
+	if len(migrations) != 4 {
+		t.Fatalf("migration count = %d, want 4", len(migrations))
 	}
-	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql"}
+	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql"}
 	for index, migration := range migrations {
 		if migration.Version != index+1 || migration.Filename != wantNames[index] {
 			t.Fatalf("migration %d = %#v", index, migration)
@@ -74,9 +74,9 @@ SELECT count(*), min(applied_at) FROM sparkclaw_schema_migrations
 		st.Close()
 		t.Fatal(err)
 	}
-	if count != 3 {
+	if count != 4 {
 		st.Close()
-		t.Fatalf("ledger count = %d, want 3", count)
+		t.Fatalf("ledger count = %d, want 4", count)
 	}
 	st.Close()
 

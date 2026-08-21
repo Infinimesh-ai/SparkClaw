@@ -45,6 +45,14 @@ const (
 	OperationCredentialSecretSave        StoreOperation = "credential_secret.save"
 	OperationCredentialSecretGet         StoreOperation = "credential_secret.get"
 	OperationCredentialSecretDelete      StoreOperation = "credential_secret.delete"
+	OperationConnectorSettingGet         StoreOperation = "connector_setting.get"
+	OperationConnectorSettingList        StoreOperation = "connector_setting.list"
+	OperationConnectorSettingListAll     StoreOperation = "connector_setting.list_all"
+	OperationConnectorSettingUpdate      StoreOperation = "connector_setting.update"
+	OperationNotificationBindingCreate   StoreOperation = "notification_binding.create"
+	OperationNotificationBindingGet      StoreOperation = "notification_binding.get"
+	OperationNotificationBindingList     StoreOperation = "notification_binding.list"
+	OperationNotificationBindingUpdate   StoreOperation = "notification_binding.update"
 )
 
 type StoreError struct {
@@ -190,6 +198,38 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationCredentialSecretDelete: {
 		ID: OperationCredentialSecretDelete, Repository: "CredentialRepository",
 		Method: "DeleteCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationConnectorSettingGet: {
+		ID: OperationConnectorSettingGet, Repository: "ConnectorRepository",
+		Method: "GetConnectorSetting", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConnectorSettingList: {
+		ID: OperationConnectorSettingList, Repository: "ConnectorRepository",
+		Method: "ListConnectorSettings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConnectorSettingListAll: {
+		ID: OperationConnectorSettingListAll, Repository: "ConnectorRepository",
+		Method: "ListAllConnectorSettings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConnectorSettingUpdate: {
+		ID: OperationConnectorSettingUpdate, Repository: "ConnectorRepository",
+		Method: "UpdateConnectorSetting", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationNotificationBindingCreate: {
+		ID: OperationNotificationBindingCreate, Repository: "ConnectorRepository",
+		Method: "CreateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationNotificationBindingGet: {
+		ID: OperationNotificationBindingGet, Repository: "ConnectorRepository",
+		Method: "GetNotificationBinding", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationNotificationBindingList: {
+		ID: OperationNotificationBindingList, Repository: "ConnectorRepository",
+		Method: "ListNotificationBindings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationNotificationBindingUpdate: {
+		ID: OperationNotificationBindingUpdate, Repository: "ConnectorRepository",
+		Method: "UpdateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 }
 

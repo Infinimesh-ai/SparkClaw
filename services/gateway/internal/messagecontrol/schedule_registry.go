@@ -18,7 +18,7 @@ type scheduleStore interface {
 	ListReminders(app.ReminderFilter) []app.Reminder
 	ClaimDueReminders(time.Time, time.Time, int) []app.Reminder
 	GetSession(string) (app.Session, bool)
-	GetNotificationBinding(string) (app.NotificationBinding, bool)
+	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(string, string) []app.ExternalChatSession
 }
@@ -55,7 +55,7 @@ func (r *ScheduleRegistry) Save(ctx context.Context, schedule app.MessageSchedul
 }
 
 func (r *ScheduleRegistry) UpdatePending(ctx context.Context, id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time, patch SchedulePatch) (app.MessageSchedule, error) {
-	schedule, err := r.pendingOwned(id, ownerID, actorID, expectedUpdatedAt)
+	schedule, err := r.pendingOwned(ctx, id, ownerID, actorID, expectedUpdatedAt)
 	if err != nil {
 		return app.MessageSchedule{}, err
 	}
@@ -94,7 +94,7 @@ func (r *ScheduleRegistry) UpdatePending(ctx context.Context, id app.ScheduleID,
 }
 
 func (r *ScheduleRegistry) CancelPending(ctx context.Context, id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time) (app.MessageSchedule, error) {
-	schedule, err := r.pendingOwned(id, ownerID, actorID, expectedUpdatedAt)
+	schedule, err := r.pendingOwned(ctx, id, ownerID, actorID, expectedUpdatedAt)
 	if err != nil {
 		return app.MessageSchedule{}, err
 	}
@@ -120,11 +120,11 @@ func (r *ScheduleRegistry) CancelPending(ctx context.Context, id app.ScheduleID,
 	return result, nil
 }
 
-func (r *ScheduleRegistry) pendingOwned(id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time) (app.MessageSchedule, error) {
+func (r *ScheduleRegistry) pendingOwned(ctx context.Context, id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time) (app.MessageSchedule, error) {
 	if r == nil || r.store == nil {
 		return app.MessageSchedule{}, errors.New("schedule registry is unavailable")
 	}
-	schedule, ok := r.Get(context.Background(), id)
+	schedule, ok := r.Get(ctx, id)
 	if !ok || schedule.Spec.OwnerID != strings.TrimSpace(ownerID) || schedule.Spec.ActorID != strings.TrimSpace(actorID) {
 		return app.MessageSchedule{}, errors.New("schedule not found")
 	}
@@ -171,7 +171,9 @@ func (r *ScheduleRegistry) reminderForSchedule(ctx context.Context, schedule app
 	reminder.CanceledAt = schedule.CanceledAt
 	spec := schedule.Spec
 	reminder.ScheduleSpec = &spec
-	r.applyTargetProjection(&reminder, spec.ReturnRoute)
+	if err := r.applyTargetProjection(ctx, &reminder, spec.ReturnRoute); err != nil {
+		return app.Reminder{}, err
+	}
 	return reminder, nil
 }
 
@@ -231,7 +233,7 @@ func (r *ScheduleRegistry) fromReminder(reminder app.Reminder) (app.MessageSched
 	}, true
 }
 
-func (r *ScheduleRegistry) applyTargetProjection(reminder *app.Reminder, route app.ReturnRoute) {
+func (r *ScheduleRegistry) applyTargetProjection(ctx context.Context, reminder *app.Reminder, route app.ReturnRoute) error {
 	endpointID := route.EndpointID
 	if route.Mode == app.ReturnToSource {
 		endpointID = route.SourceEndpointID
@@ -239,20 +241,29 @@ func (r *ScheduleRegistry) applyTargetProjection(reminder *app.Reminder, route a
 	if strings.HasPrefix(string(endpointID), "session:") {
 		reminder.Channel = "web"
 		reminder.BindingID, reminder.Recipient, reminder.RecipientBinding, reminder.CredentialRef, reminder.BaseURL = "", "", "", "", ""
-		return
+		return nil
 	}
-	if endpoint, err := NewEndpointRegistry(r.store).Get(context.Background(), endpointID); err == nil && endpoint.Kind == app.EndpointKindThirdPartyDevice {
+	endpoint, endpointErr := NewEndpointRegistry(r.store).Get(ctx, endpointID)
+	if endpointErr == nil && endpoint.Kind == app.EndpointKindThirdPartyDevice {
 		reminder.Channel, reminder.BindingID = endpoint.ProviderKey, endpoint.BindingRef
 		reminder.Recipient = firstValue(endpoint.Address, reminder.Recipient)
 		reminder.RecipientBinding = firstValue(endpoint.ThreadRef, endpoint.ContextRef, reminder.RecipientBinding)
-		if binding, ok := r.store.GetNotificationBinding(endpoint.BindingRef); ok {
+		if binding, ok, err := r.store.GetNotificationBinding(ctx, endpoint.BindingRef); err != nil {
+			return err
+		} else if ok {
 			reminder.CredentialRef, reminder.BaseURL = binding.CredentialRef, binding.BaseURL
 		}
-		return
+		return nil
 	}
-	binding, ok := r.store.GetNotificationBinding(string(endpointID))
+	if store.StoreErrorCodeOf(endpointErr) != "" {
+		return endpointErr
+	}
+	binding, ok, err := r.store.GetNotificationBinding(ctx, string(endpointID))
+	if err != nil {
+		return err
+	}
 	if !ok {
-		return
+		return nil
 	}
 	reminder.Channel = strings.ToLower(strings.TrimSpace(binding.Channel))
 	reminder.BindingID = binding.ID
@@ -260,6 +271,7 @@ func (r *ScheduleRegistry) applyTargetProjection(reminder *app.Reminder, route a
 	reminder.RecipientBinding = firstValue(binding.ExternalThreadID, binding.ContextToken, reminder.RecipientBinding)
 	reminder.CredentialRef = binding.CredentialRef
 	reminder.BaseURL = binding.BaseURL
+	return nil
 }
 
 func validateSchedule(schedule app.MessageSchedule) error {

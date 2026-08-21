@@ -71,7 +71,6 @@ func (s *Service) Run(ctx context.Context, scope connectorruntime.RuntimeScope) 
 	if s.store == nil || s.dispatcher == nil || s.clientFactory == nil {
 		return errors.New("Telegram service dependencies are incomplete")
 	}
-	s.migrateLegacyDirectBindings()
 	s.recoverExpiredLeases(time.Now().UTC())
 	workerDone := make(chan struct{})
 	go func() {
@@ -93,7 +92,14 @@ func (s *Service) pollLoop(ctx context.Context, scope connectorruntime.RuntimeSc
 			}
 			continue
 		}
-		bindings := s.pollingBindings(scope)
+		bindings, err := s.pollingBindings(ctx, scope)
+		if err != nil {
+			slog.Warn("Telegram bindings unavailable", "code", store.StoreErrorCodeOf(err))
+			if !waitContext(ctx, time.Second) {
+				return
+			}
+			continue
+		}
 		if len(bindings) == 0 {
 			if !waitContext(ctx, time.Second) {
 				return
@@ -142,7 +148,7 @@ func (s *Service) pollLoop(ctx context.Context, scope connectorruntime.RuntimeSc
 				}
 			}
 			if persisted && nextOffset > offset {
-				s.saveBindingCursor(binding, nextOffset)
+				s.saveBindingCursor(ctx, binding, nextOffset)
 			}
 			s.signalWorker()
 		}
@@ -198,7 +204,12 @@ func (s *Service) dispatchPending(ctx context.Context, scope connectorruntime.Ru
 		s.store.ListChannelInboxUpdates("telegram", "retry_wait", now, s.cfg.MaxPending)...)
 	sort.SliceStable(ready, func(i, j int) bool { return ready[i].CreatedAt.Before(ready[j].CreatedAt) })
 	for _, inbox := range ready {
-		if binding, ok := s.store.GetNotificationBinding(inbox.BindingID); ok && !scope.AllowsOwner(binding.OwnerID) {
+		binding, ok, err := s.store.GetNotificationBinding(ctx, inbox.BindingID)
+		if err != nil {
+			slog.Warn("Telegram binding unavailable while dispatching", "binding_id", inbox.BindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		if ok && !scope.AllowsOwner(binding.OwnerID) {
 			continue
 		}
 		if ctx.Err() != nil || !s.reserveChat(inbox.ChatKey) {
@@ -238,7 +249,11 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 		cancel()
 		s.unregisterActive(inbox.BindingID, inbox.ID)
 	}()
-	binding, ok := s.store.GetNotificationBinding(inbox.BindingID)
+	binding, ok, bindingErr := s.store.GetNotificationBinding(ctx, inbox.BindingID)
+	if bindingErr != nil {
+		s.failInbox(inbox, NewConnectorError("binding_store_unavailable", true, bindingErr))
+		return
+	}
 	if !ok || binding.Status == "revoked" || binding.Status == "expired" || binding.Status == "failed" {
 		inbox.Status = "canceled"
 		inbox.LastError = CodeBindingUnavailable
@@ -256,7 +271,11 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 		claimedNow := false
 		authorized := s.authorized(binding, update)
 		if binding.ExternalUserID == "" || binding.ExternalChatID == "" {
-			binding, authorized, claimedNow = s.claimBinding(binding.ID, update)
+			var claimErr error
+			binding, authorized, claimedNow, claimErr = s.claimBinding(ctx, binding.ID, update)
+			if claimErr != nil {
+				err = claimErr
+			}
 		}
 		if authorized {
 			if claimedNow && isStartCommand(update) {
@@ -284,7 +303,10 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 	if current, ok := s.store.GetChannelInboxUpdate(inbox.ID); ok && current.Status == "canceled" {
 		return
 	}
-	if currentBinding, ok := s.store.GetNotificationBinding(inbox.BindingID); !ok || currentBinding.Status == "revoked" {
+	if currentBinding, ok, bindingErr := s.store.GetNotificationBinding(ctx, inbox.BindingID); bindingErr != nil {
+		s.failInbox(inbox, NewConnectorError("binding_store_unavailable", true, bindingErr))
+		return
+	} else if !ok || currentBinding.Status == "revoked" {
 		s.cancelInbox(inbox)
 		return
 	}
@@ -361,46 +383,55 @@ func (s *Service) failInbox(inbox app.ChannelInboxUpdate, err error) {
 	s.store.SaveChannelInboxUpdate(inbox)
 }
 
-func (s *Service) claimBinding(bindingID string, update Update) (app.NotificationBinding, bool, bool) {
+func (s *Service) claimBinding(ctx context.Context, bindingID string, update Update) (app.NotificationBinding, bool, bool, error) {
 	message := update.Message
 	if message == nil || message.From == nil || message.Chat.Type != "private" {
-		return app.NotificationBinding{}, false, false
+		return app.NotificationBinding{}, false, false, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(ctx, bindingID)
+	if err != nil {
+		return app.NotificationBinding{}, false, false, err
+	}
 	if !ok || binding.Status != "active" {
-		return app.NotificationBinding{}, false, false
+		return app.NotificationBinding{}, false, false, nil
 	}
 	if binding.ExternalUserID != "" || binding.ExternalChatID != "" {
-		return binding, s.authorized(binding, update), false
+		return binding, s.authorized(binding, update), false, nil
 	}
 	if message.Date > 0 && !binding.CreatedAt.IsZero() && time.Unix(message.Date, 0).Before(binding.CreatedAt.Add(-30*time.Second)) {
-		return binding, false, false
+		return binding, false, false, nil
 	}
-	now := time.Now().UTC()
-	binding.Status = "active"
-	binding.ExternalUserID = strconv.FormatInt(message.From.ID, 10)
-	binding.ExternalChatID = strconv.FormatInt(message.Chat.ID, 10)
-	binding.ExternalThreadID = threadIDString(message.MessageThreadID)
-	binding.ContextToken = binding.ExternalChatID
-	binding.ProviderState = ""
-	binding.QRCodeURL = ""
-	binding.QRCodeImage = ""
-	binding.ExpiresAt = nil
-	binding.LastError = ""
-	binding.UpdatedAt = now
-	if !hasDefaultActiveBinding(s.store, binding.ID) {
-		binding.DefaultForChannel = true
+	replacement := binding
+	replacement.Status = "active"
+	replacement.ExternalUserID = strconv.FormatInt(message.From.ID, 10)
+	replacement.ExternalChatID = strconv.FormatInt(message.Chat.ID, 10)
+	replacement.ExternalThreadID = threadIDString(message.MessageThreadID)
+	replacement.ContextToken = replacement.ExternalChatID
+	replacement.ProviderState = ""
+	replacement.QRCodeURL = ""
+	replacement.QRCodeImage = ""
+	replacement.ExpiresAt = nil
+	replacement.LastError = ""
+	hasDefault, err := hasDefaultActiveBinding(ctx, s.store, binding.ID)
+	if err != nil {
+		return app.NotificationBinding{}, false, false, err
 	}
-	binding = s.store.SaveNotificationBinding(binding)
+	if !hasDefault {
+		replacement.DefaultForChannel = true
+	}
+	binding, err = s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement))
+	if err != nil {
+		return app.NotificationBinding{}, false, false, err
+	}
 	s.store.AddAudit(app.AuditEvent{
 		Actor:   "telegram",
 		Type:    "telegram.binding.claimed",
 		Summary: "Claimed Telegram binding from a private chat",
 		Fields:  map[string]any{"binding_id": binding.ID},
 	})
-	return binding, true, true
+	return binding, true, true, nil
 }
 
 func bindingConnectedMessage(languageCode string) string {
@@ -427,43 +458,18 @@ func (s *Service) authorized(binding app.NotificationBinding, update Update) boo
 		binding.ExternalThreadID == threadIDString(threadID)
 }
 
-func (s *Service) pollingBindings(scope connectorruntime.RuntimeScope) []app.NotificationBinding {
-	bindings := s.store.ListNotificationBindings("telegram", "active")
+func (s *Service) pollingBindings(ctx context.Context, scope connectorruntime.RuntimeScope) ([]app.NotificationBinding, error) {
+	bindings, err := s.store.ListNotificationBindings(ctx, "telegram", "active")
+	if err != nil {
+		return nil, err
+	}
 	eligible := make([]app.NotificationBinding, 0, len(bindings))
 	for _, binding := range bindings {
 		if scope.AllowsOwner(binding.OwnerID) {
 			eligible = append(eligible, binding)
 		}
 	}
-	return eligible
-}
-
-func (s *Service) migrateLegacyDirectBindings() {
-	now := time.Now().UTC()
-	for _, status := range []string{"waiting_confirm", "expired"} {
-		for _, binding := range s.store.ListNotificationBindings("telegram", status) {
-			if strings.TrimSpace(binding.CredentialRef) == "" {
-				continue
-			}
-			binding.Status = "active"
-			binding.ProviderState = ""
-			binding.QRCodeURL = ""
-			binding.QRCodeImage = ""
-			binding.ExpiresAt = nil
-			binding.LastError = ""
-			if binding.ExternalUserID == "" || binding.ExternalChatID == "" {
-				binding.DefaultForChannel = false
-			}
-			binding.UpdatedAt = now
-			s.store.SaveNotificationBinding(binding)
-			s.store.AddAudit(app.AuditEvent{
-				Actor:   "system",
-				Type:    "telegram.binding.direct_mode_migrated",
-				Summary: "Migrated Telegram binding to direct chat claim mode",
-				Fields:  map[string]any{"binding_id": binding.ID, "previous_status": status},
-			})
-		}
-	}
+	return eligible, nil
 }
 
 func (s *Service) vaultClient(ctx context.Context, binding app.NotificationBinding) (BotAPI, error) {
@@ -502,16 +508,28 @@ func (s *Service) inboxDepth() int {
 	return depth
 }
 
-func (s *Service) saveBindingCursor(binding app.NotificationBinding, offset int64) {
+func (s *Service) saveBindingCursor(ctx context.Context, binding app.NotificationBinding, offset int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, ok := s.store.GetNotificationBinding(binding.ID)
-	if !ok || bindingCursor(current) >= offset {
-		return
+	for attempt := 0; attempt < 3; attempt++ {
+		current, ok, err := s.store.GetNotificationBinding(ctx, binding.ID)
+		if err != nil {
+			slog.Warn("Telegram binding cursor read failed", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		if !ok || bindingCursor(current) >= offset {
+			return
+		}
+		replacement := current
+		replacement.ProviderCursor = strconv.FormatInt(offset, 10)
+		if _, err := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(current, replacement)); err == nil {
+			return
+		} else if store.StoreErrorCodeOf(err) != store.StoreErrorConflict {
+			slog.Warn("Telegram binding cursor update failed", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
 	}
-	current.ProviderCursor = strconv.FormatInt(offset, 10)
-	current.UpdatedAt = time.Now().UTC()
-	s.store.SaveNotificationBinding(current)
+	slog.Warn("Telegram binding cursor update conflicted repeatedly", "binding_id", binding.ID)
 }
 
 func (s *Service) signalWorker() {
@@ -542,13 +560,17 @@ func bindingCursor(binding app.NotificationBinding) int64 {
 	return value
 }
 
-func hasDefaultActiveBinding(st store.Store, exceptID string) bool {
-	for _, binding := range st.ListNotificationBindings("telegram", "active") {
+func hasDefaultActiveBinding(ctx context.Context, st store.ConnectorRepository, exceptID string) (bool, error) {
+	bindings, err := st.ListNotificationBindings(ctx, "telegram", "active")
+	if err != nil {
+		return false, err
+	}
+	for _, binding := range bindings {
 		if binding.ID != exceptID && binding.DefaultForChannel {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func isStartCommand(update Update) bool {

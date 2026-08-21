@@ -12,9 +12,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connector"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -58,12 +60,15 @@ func TestNotificationBindingBrowserUsesPersistedWeixinURLAndClosesAfterActivatio
 	t.Cleanup(func() { _ = tools.Close() })
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	controller := &bindingBrowserController{}
-	router := binding.NewBaseRouter(cfg).WithAdapter("weixin", activeQRBindingAdapter{})
-	server := New(cfg, st, tools, runtime, WithBindingRouter(router), WithManagedBrowserWindows(controller))
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{Channel: "weixin", Binding: activeQRBindingAdapter{}, BindingProvider: weixinproto.QRProvider}); err != nil {
+		t.Fatal(err)
+	}
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry), WithManagedBrowserWindows(controller))
 
 	now := time.Now().UTC()
 	expiresAt := now.Add(5 * time.Minute)
-	record := st.SaveNotificationBinding(app.NotificationBinding{
+	record := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-managed", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "weixin", Provider: weixinproto.QRProvider, Status: "waiting_scan",
 		QRCodeURL: "https://liteapp.weixin.qq.com/q/provider-ticket", CreatedAt: now, UpdatedAt: now, ExpiresAt: &expiresAt,
@@ -78,7 +83,7 @@ func TestNotificationBindingBrowserUsesPersistedWeixinURLAndClosesAfterActivatio
 		t.Fatalf("managed browser did not use persisted owner-scoped binding data: %#v", controller)
 	}
 
-	pollReq := httptest.NewRequest(http.MethodGet, "/api/notification-bindings/"+record.ID, nil)
+	pollReq := httptest.NewRequest(http.MethodPost, "/api/notification-bindings/"+record.ID+"/poll", strings.NewReader(`{}`))
 	pollResp := httptest.NewRecorder()
 	server.Handler().ServeHTTP(pollResp, pollReq)
 	if pollResp.Code != http.StatusOK || controller.closedID != record.ID {
@@ -101,7 +106,7 @@ func TestNotificationBindingBrowserRejectsUntrustedOrInactiveRecords(t *testing.
 		{ID: "active", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "weixin", Provider: weixinproto.QRProvider, Status: "active", QRCodeURL: "https://liteapp.weixin.qq.com/q/old", CreatedAt: now, UpdatedAt: now},
 		{ID: "expired", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "weixin", Provider: weixinproto.QRProvider, Status: "waiting_scan", QRCodeURL: "https://liteapp.weixin.qq.com/q/expired", CreatedAt: now, UpdatedAt: now, ExpiresAt: &expiredAt},
 	} {
-		st.SaveNotificationBinding(record)
+		storetest.MustCreateNotificationBinding(t, st, record)
 		req := httptest.NewRequest(http.MethodPost, "/api/notification-bindings/"+record.ID+"/browser", nil)
 		resp := httptest.NewRecorder()
 		server.Handler().ServeHTTP(resp, req)

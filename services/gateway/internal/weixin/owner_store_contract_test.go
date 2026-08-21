@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type weixinOwnerFailureStore struct {
@@ -48,7 +49,7 @@ func TestHandleInboundPropagatesContextAndReturnsOwnerFailure(t *testing.T) {
 
 func TestSyncerOwnerFailureDoesNotAdvanceProviderCursor(t *testing.T) {
 	base := store.NewMemoryStore()
-	binding := base.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, base, app.NotificationBinding{
 		ID: "binding-owner-cursor", OwnerID: app.DefaultOwnerID, Channel: "weixin",
 		Status: "active", ProviderCursor: "cursor-before",
 	})
@@ -69,7 +70,7 @@ func TestSyncerOwnerFailureDoesNotAdvanceProviderCursor(t *testing.T) {
 	marker := &struct{}{}
 	ctx := context.WithValue(t.Context(), contextKey{}, marker)
 	syncer.processBatch(ctx, weixinTestRuntimeScope(), batch)
-	stored, found := base.GetNotificationBinding(binding.ID)
+	stored, found := storetest.MustGetNotificationBinding(t, base, binding.ID)
 	if !found || stored.ProviderCursor != "cursor-before" || runtime.handledCount() != 0 {
 		t.Fatalf("binding=%#v found=%v handled=%d", stored, found, runtime.handledCount())
 	}

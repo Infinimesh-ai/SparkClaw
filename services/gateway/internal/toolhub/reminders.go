@@ -11,7 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 )
 
-func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	text := strings.TrimSpace(stringArg(args, "text", ""))
 	if text == "" {
 		return Result{}, errors.New("text cannot be empty")
@@ -29,7 +29,9 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 		if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok {
 			channel = chatSession.Channel
 			if strings.TrimSpace(channel) == "" {
-				if binding, bindingOK := h.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID)); bindingOK {
+				if binding, bindingOK, err := h.store.GetNotificationBinding(ctx, strings.TrimSpace(chatSession.BindingID)); err != nil {
+					return Result{}, err
+				} else if bindingOK {
 					channel = binding.Channel
 				}
 			}
@@ -46,7 +48,7 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	baseURL := ""
 	endpointID := app.EndpointID("session:" + sessionID)
 	if channel != "web" {
-		resolved, err := h.reminders.Resolve(channel, sessionID, recipient)
+		resolved, err := h.reminders.Resolve(ctx, channel, sessionID, recipient)
 		if err != nil {
 			return Result{}, err
 		}
@@ -172,7 +174,7 @@ func (h *ToolHub) remindersList(args map[string]any, sessionID string) (Result, 
 	}}, nil
 }
 
-func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	id := strings.TrimSpace(stringArg(args, "reminder_id", ""))
 	if id == "" {
 		return Result{}, errors.New("reminder_id cannot be empty")
@@ -182,7 +184,7 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		return Result{}, err
 	}
 	registry := messagecontrol.NewScheduleRegistry(h.store)
-	schedule, ok := registry.Get(context.Background(), app.ScheduleID(id))
+	schedule, ok := registry.Get(ctx, app.ScheduleID(id))
 	if !ok {
 		return Result{}, errors.New("reminder not found")
 	}
@@ -227,7 +229,7 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		endpointID := app.EndpointID("session:" + schedule.SessionID)
 		if channel == "web" {
 		} else {
-			resolved, err := h.reminders.Resolve(channel, schedule.SessionID, requestedRecipient)
+			resolved, err := h.reminders.Resolve(ctx, channel, schedule.SessionID, requestedRecipient)
 			if err != nil {
 				return Result{}, err
 			}
@@ -241,7 +243,7 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		patch.Recurrence = &recurrence
 	}
 	ownerID := h.ownerIDForSession(sessionID)
-	updated, err := registry.UpdatePending(context.Background(), app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt, patch)
+	updated, err := registry.UpdatePending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt, patch)
 	if err != nil {
 		return Result{}, err
 	}
@@ -249,7 +251,7 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
-func (h *ToolHub) remindersCancel(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) remindersCancel(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	id := strings.TrimSpace(stringArg(args, "reminder_id", ""))
 	if id == "" {
 		return Result{}, errors.New("reminder_id cannot be empty")
@@ -259,7 +261,7 @@ func (h *ToolHub) remindersCancel(args map[string]any, sessionID string) (Result
 		return Result{}, err
 	}
 	ownerID := h.ownerIDForSession(sessionID)
-	canceled, err := messagecontrol.NewScheduleRegistry(h.store).CancelPending(context.Background(), app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
+	canceled, err := messagecontrol.NewScheduleRegistry(h.store).CancelPending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
 	if err != nil {
 		return Result{}, err
 	}

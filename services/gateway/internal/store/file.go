@@ -230,6 +230,11 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		if err := normalizeAndValidatePersistedCredentialSecrets(snapshot.CredentialSecrets); err != nil {
 			return nil, fmt.Errorf("validate credential state: %w", err)
 		}
+		snapshot.ConnectorSettings = ensureMap(snapshot.ConnectorSettings)
+		snapshot.NotificationBindings = ensureMap(snapshot.NotificationBindings)
+		if err := normalizeAndValidatePersistedConnectorState(snapshot.ConnectorSettings, snapshot.NotificationBindings); err != nil {
+			return nil, fmt.Errorf("validate connector state: %w", err)
+		}
 		inner.loadSnapshot(snapshot)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -916,60 +921,6 @@ func (s *FileStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.Remi
 func (s *FileStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
 	defer s.admitLegacyRead()()
 	return s.inner.ListReminderDeliveries(reminderID)
-}
-
-func (s *FileStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetConnectorSetting(ownerID, channel)
-}
-
-func (s *FileStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
-	defer s.admitLegacyRead()()
-	return s.inner.ListConnectorSettings(ownerID)
-}
-
-func (s *FileStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
-	defer s.admitLegacyRead()()
-	return s.inner.ListAllConnectorSettings()
-}
-
-func (s *FileStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.UpdateConnectorSetting(setting, expectedVersion)
-	if err == nil {
-		s.persist()
-	}
-	return out, err
-}
-
-func (s *FileStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
-	defer s.admitLegacyCommand()()
-	rollback := s.captureFileRollback()
-	out := s.inner.SaveNotificationBinding(binding)
-	if err := s.persistSnapshot(); err != nil {
-		s.restoreFileRollback(rollback)
-		return app.NotificationBinding{}
-	}
-	return out
-}
-
-func (s *FileStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetNotificationBinding(id)
-}
-
-func (s *FileStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
-	defer s.admitLegacyRead()()
-	return s.inner.ListNotificationBindings(channel, status)
-}
-
-func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBinding, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.RevokeNotificationBinding(id)
-	if err == nil {
-		s.persist()
-	}
-	return out, err
 }
 
 func (s *FileStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {

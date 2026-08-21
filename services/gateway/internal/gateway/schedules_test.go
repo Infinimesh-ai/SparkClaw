@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -76,7 +77,7 @@ func TestScheduleEndpointProjectionNamesWebAndThirdPartyReminderEndpoints(t *tes
 	st := store.NewMemoryStore()
 	webSession := st.CreateSession("Web schedule chat")
 	now := time.Now().UTC()
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "binding-telegram", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "telegram", Status: string(app.EndpointActive), DisplayName: "Work bot",
 		ExternalUserID: "private-user-id", CreatedAt: now, UpdatedAt: now,

@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestIsBlockedClassifiesDeliveryErrors(t *testing.T) {
@@ -53,7 +54,7 @@ func (p *recordingProvider) Deliver(_ context.Context, endpoint app.MessageEndpo
 
 func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-source", OwnerID: "owner-a", ActorID: "web-actor", Channel: "fake", Status: "active",
 		Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
@@ -150,7 +151,7 @@ func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 
 func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_fake", Channel: "fake", Provider: "anything", Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_fake", Channel: "fake", Provider: "anything", Status: "active"})
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{
@@ -178,7 +179,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 
 func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_text", Channel: "text-only", Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_text", Channel: "text-only", Status: "active"})
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "text-only", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
@@ -227,7 +228,7 @@ func TestWorkflowAndExplicitSendShareDeliveryRequest(t *testing.T) {
 
 func TestGatewayRejectsEndpointOwnedByAnotherPrincipal(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_other", OwnerID: "owner-b", Channel: "fake", Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_other", OwnerID: "owner-b", Channel: "fake", Status: "active"})
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
 	if err := providers.Register(fake); err != nil {

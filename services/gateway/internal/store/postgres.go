@@ -20,22 +20,27 @@ import (
 )
 
 type PostgresStore struct {
-	db                       *pgxpool.Pool
-	operationTimeouts        OperationTimeouts
-	onboardingPostgres       onboardingPostgresOps
-	ownerPostgres            ownerPostgresOps
-	clientPostgres           ownerPostgresOps
-	ownerMu                  sync.Mutex
-	ownerWriteHighWater      map[string]time.Time
-	ownerNow                 func() time.Time
-	clientCommandGate        *semaphore.Weighted
-	clientWriteHighWater     map[string]time.Time
-	pairingWriteHighWater    map[string]time.Time
-	clientNow                func() time.Time
-	credentialPostgres       ownerPostgresOps
-	credentialCommandGate    *semaphore.Weighted
-	credentialWriteHighWater map[string]time.Time
-	credentialNow            func() time.Time
+	db                                *pgxpool.Pool
+	operationTimeouts                 OperationTimeouts
+	onboardingPostgres                onboardingPostgresOps
+	ownerPostgres                     ownerPostgresOps
+	clientPostgres                    ownerPostgresOps
+	ownerMu                           sync.Mutex
+	ownerWriteHighWater               map[string]time.Time
+	ownerNow                          func() time.Time
+	clientCommandGate                 *semaphore.Weighted
+	clientWriteHighWater              map[string]time.Time
+	pairingWriteHighWater             map[string]time.Time
+	clientNow                         func() time.Time
+	credentialPostgres                ownerPostgresOps
+	credentialCommandGate             *semaphore.Weighted
+	credentialWriteHighWater          map[string]time.Time
+	credentialNow                     func() time.Time
+	connectorPostgres                 ownerPostgresOps
+	connectorCommandGate              *semaphore.Weighted
+	connectorSettingWriteHighWater    map[string]time.Time
+	notificationBindingWriteHighWater map[string]time.Time
+	connectorNow                      func() time.Time
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -85,20 +90,25 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 	}
 	st := &PostgresStore{
 		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
-		onboardingPostgres:       pgxOnboardingPostgresOps{pool: pool},
-		ownerPostgres:            pgxOwnerPostgresOps{pool: pool},
-		clientPostgres:           pgxOwnerPostgresOps{pool: pool},
-		clientCommandGate:        semaphore.NewWeighted(1),
-		ownerWriteHighWater:      map[string]time.Time{},
-		ownerNow:                 time.Now,
-		clientWriteHighWater:     map[string]time.Time{},
-		pairingWriteHighWater:    map[string]time.Time{},
-		clientNow:                time.Now,
-		credentialPostgres:       pgxOwnerPostgresOps{pool: pool},
-		credentialCommandGate:    semaphore.NewWeighted(1),
-		credentialWriteHighWater: map[string]time.Time{},
-		credentialNow:            time.Now,
-		passiveNotificationRevs:  map[string]uint64{},
+		onboardingPostgres:                pgxOnboardingPostgresOps{pool: pool},
+		ownerPostgres:                     pgxOwnerPostgresOps{pool: pool},
+		clientPostgres:                    pgxOwnerPostgresOps{pool: pool},
+		clientCommandGate:                 semaphore.NewWeighted(1),
+		ownerWriteHighWater:               map[string]time.Time{},
+		ownerNow:                          time.Now,
+		clientWriteHighWater:              map[string]time.Time{},
+		pairingWriteHighWater:             map[string]time.Time{},
+		clientNow:                         time.Now,
+		credentialPostgres:                pgxOwnerPostgresOps{pool: pool},
+		credentialCommandGate:             semaphore.NewWeighted(1),
+		credentialWriteHighWater:          map[string]time.Time{},
+		credentialNow:                     time.Now,
+		connectorPostgres:                 pgxOwnerPostgresOps{pool: pool},
+		connectorCommandGate:              semaphore.NewWeighted(1),
+		connectorSettingWriteHighWater:    map[string]time.Time{},
+		notificationBindingWriteHighWater: map[string]time.Time{},
+		connectorNow:                      time.Now,
+		passiveNotificationRevs:           map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
 		pool.Close()
@@ -109,6 +119,10 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		return nil, err
 	}
 	if err := st.validateCredentialState(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.validateConnectorState(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -1328,241 +1342,6 @@ func (s *PostgresStore) ListReminderDeliveries(reminderID string) []app.Reminder
 	return collectRows(rows, scanReminderDelivery)
 }
 
-func (s *PostgresStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at
-		FROM connector_settings
-		WHERE owner_id = $1 AND channel = $2
-	`, normalizeConnectorOwner(ownerID), normalizeConnectorChannel(channel))
-	setting, err := scanConnectorSetting(row)
-	return setting, err == nil
-}
-
-func (s *PostgresStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at
-		FROM connector_settings
-		WHERE owner_id = $1
-		ORDER BY channel ASC
-	`, normalizeConnectorOwner(ownerID))
-	if err != nil {
-		return []app.ConnectorSetting{}
-	}
-	defer rows.Close()
-	return collectRows(rows, scanConnectorSetting)
-}
-
-func (s *PostgresStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at
-		FROM connector_settings
-		ORDER BY owner_id ASC, channel ASC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	settings := []app.ConnectorSetting{}
-	for rows.Next() {
-		setting, err := scanConnectorSetting(rows)
-		if err != nil {
-			return nil, err
-		}
-		settings = append(settings, setting)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return settings, nil
-}
-
-func (s *PostgresStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
-	setting.OwnerID = normalizeConnectorOwner(setting.OwnerID)
-	setting.Channel = normalizeConnectorChannel(setting.Channel)
-	setting.UpdatedBy = strings.TrimSpace(setting.UpdatedBy)
-	if setting.UpdatedBy == "" {
-		setting.UpdatedBy = setting.OwnerID
-	}
-	if setting.Channel == "" || expectedVersion < 0 {
-		return app.ConnectorSetting{}, ErrConnectorSettingConflict
-	}
-	ctx := context.Background()
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return app.ConnectorSetting{}, err
-	}
-	defer tx.Rollback(ctx)
-	var currentVersion int64
-	var currentEnabled, currentISCPEnabled, currentLANAccessEnabled bool
-	err = tx.QueryRow(ctx, `
-		SELECT version, enabled, iscp_enabled, lan_access_enabled FROM connector_settings
-		WHERE owner_id = $1 AND channel = $2
-		FOR UPDATE
-	`, setting.OwnerID, setting.Channel).Scan(&currentVersion, &currentEnabled, &currentISCPEnabled, &currentLANAccessEnabled)
-	exists := err == nil
-	switch {
-	case errors.Is(err, pgx.ErrNoRows) && expectedVersion != 0:
-		return app.ConnectorSetting{}, ErrConnectorSettingConflict
-	case err != nil && !errors.Is(err, pgx.ErrNoRows):
-		return app.ConnectorSetting{}, err
-	case err == nil && currentVersion != expectedVersion:
-		return app.ConnectorSetting{}, ErrConnectorSettingConflict
-	}
-	setting.Version = expectedVersion + 1
-	setting.UpdatedAt = time.Now().UTC()
-	if expectedVersion == 0 {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO connector_settings (owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.ISCPEnabled, setting.LANAccessEnabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt)
-	} else {
-		result, updateErr := tx.Exec(ctx, `
-			UPDATE connector_settings
-			SET enabled = $3, iscp_enabled = $4, lan_access_enabled = $5, version = $6, updated_by = $7, updated_at = $8
-			WHERE owner_id = $1 AND channel = $2 AND version = $9
-		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.ISCPEnabled, setting.LANAccessEnabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt, expectedVersion)
-		err = updateErr
-		if err == nil && result.RowsAffected() != 1 {
-			return app.ConnectorSetting{}, ErrConnectorSettingConflict
-		}
-	}
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
-			return app.ConnectorSetting{}, ErrConnectorSettingConflict
-		}
-		return app.ConnectorSetting{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.ConnectorSetting{}, err
-	}
-	auditType := connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, currentLANAccessEnabled, setting)
-	s.appendAudit(ctx, auditType, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
-		"owner_id":           setting.OwnerID,
-		"channel":            setting.Channel,
-		"enabled":            setting.Enabled,
-		"iscp_enabled":       setting.ISCPEnabled,
-		"lan_access_enabled": setting.LANAccessEnabled,
-		"version":            setting.Version,
-	})
-	s.appendEvent(ctx, auditType, "", "", setting)
-	return setting, nil
-}
-
-func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
-	now := time.Now().UTC()
-	if binding.ID == "" {
-		binding.ID = app.NewID("bind")
-	}
-	if binding.OwnerID == "" {
-		binding.OwnerID = app.DefaultOwnerID
-	}
-	if binding.ActorID == "" {
-		binding.ActorID = binding.OwnerID
-	}
-	if binding.CreatedAt.IsZero() {
-		binding.CreatedAt = now
-	}
-	binding.UpdatedAt = now
-	if binding.Status == "" {
-		binding.Status = "waiting_scan"
-	}
-	ctx := context.Background()
-	if binding.DefaultForChannel {
-		_, _ = s.db.Exec(ctx, `
-			UPDATE notification_bindings
-			SET default_for_channel = false, updated_at = $1
-			WHERE owner_id = $2 AND channel = $3 AND id <> $4
-		`, now, binding.OwnerID, binding.Channel, binding.ID)
-	}
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO notification_bindings (
-			id, owner_id, actor_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
-			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
-			created_at, updated_at, expires_at, revoked_at, last_error
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
-		ON CONFLICT (id) DO UPDATE SET
-			owner_id = EXCLUDED.owner_id,
-			actor_id = EXCLUDED.actor_id,
-			provider = EXCLUDED.provider,
-			status = EXCLUDED.status,
-			display_name = EXCLUDED.display_name,
-			external_user_id = EXCLUDED.external_user_id,
-			external_chat_id = EXCLUDED.external_chat_id,
-			external_thread_id = EXCLUDED.external_thread_id,
-			account_id = EXCLUDED.account_id,
-			credential_ref = EXCLUDED.credential_ref,
-			base_url = EXCLUDED.base_url,
-			provider_session_id = EXCLUDED.provider_session_id,
-			provider_state = EXCLUDED.provider_state,
-			context_token = EXCLUDED.context_token,
-			provider_cursor = EXCLUDED.provider_cursor,
-			qr_code_url = EXCLUDED.qr_code_url,
-			qr_code_image = EXCLUDED.qr_code_image,
-			default_for_channel = EXCLUDED.default_for_channel,
-			scopes = EXCLUDED.scopes,
-			updated_at = EXCLUDED.updated_at,
-			expires_at = EXCLUDED.expires_at,
-			revoked_at = EXCLUDED.revoked_at,
-			last_error = EXCLUDED.last_error
-	`, binding.ID, binding.OwnerID, binding.ActorID, binding.Channel, binding.Provider, binding.Status, binding.DisplayName,
-		binding.ExternalUserID, binding.ExternalChatID, binding.ExternalThreadID, binding.AccountID, binding.CredentialRef, binding.BaseURL, binding.ProviderSessionID,
-		binding.ProviderState, binding.ContextToken, binding.ProviderCursor, binding.QRCodeURL, binding.QRCodeImage, binding.DefaultForChannel, mustJSON(binding.Scopes), binding.CreatedAt, binding.UpdatedAt,
-		binding.ExpiresAt, binding.RevokedAt, binding.LastError)
-	s.appendAudit(ctx, "notification_binding."+binding.Status, "", "", "owner", binding.Channel, map[string]any{
-		"binding_id": binding.ID,
-		"channel":    binding.Channel,
-		"provider":   binding.Provider,
-		"default":    binding.DefaultForChannel,
-	})
-	s.appendEvent(ctx, "notification_binding."+binding.Status, "", "", binding)
-	return binding
-}
-
-func (s *PostgresStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, actor_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
-			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
-			created_at, updated_at, expires_at, revoked_at, last_error
-		FROM notification_bindings
-		WHERE id = $1
-	`, id)
-	binding, err := scanNotificationBinding(row)
-	return binding, err == nil
-}
-
-func (s *PostgresStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT id, owner_id, actor_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
-			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
-			created_at, updated_at, expires_at, revoked_at, last_error
-		FROM notification_bindings
-		WHERE ($1 = '' OR channel = $1) AND ($2 = '' OR status = $2)
-		ORDER BY updated_at DESC
-	`, channel, status)
-	if err != nil {
-		return []app.NotificationBinding{}
-	}
-	defer rows.Close()
-	return collectRows(rows, scanNotificationBinding)
-}
-
-func (s *PostgresStore) RevokeNotificationBinding(id string) (app.NotificationBinding, error) {
-	binding, ok := s.GetNotificationBinding(id)
-	if !ok {
-		return app.NotificationBinding{}, errors.New("notification binding not found")
-	}
-	if binding.Status == "revoked" {
-		return binding, nil
-	}
-	now := time.Now().UTC()
-	binding.Status = "revoked"
-	binding.RevokedAt = &now
-	binding.UpdatedAt = now
-	binding.DefaultForChannel = false
-	return s.SaveNotificationBinding(binding), nil
-}
-
 func (s *PostgresStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
 	notification.OwnerID = strings.TrimSpace(notification.OwnerID)
 	notification.EndpointID = strings.TrimSpace(notification.EndpointID)
@@ -1802,13 +1581,7 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 		session.ExternalChatID = session.ExternalUserID
 	}
 	if strings.TrimSpace(session.AuthorizedOwnerID) == "" {
-		if binding, ok := s.GetNotificationBinding(session.BindingID); ok {
-			session.AuthorizedOwnerID = binding.OwnerID
-			session.AuthorizedActorID = binding.ActorID
-		}
-		if session.AuthorizedOwnerID == "" {
-			session.AuthorizedOwnerID = session.OwnerID
-		}
+		session.AuthorizedOwnerID = session.OwnerID
 	}
 	if strings.TrimSpace(session.AuthorizedActorID) == "" {
 		session.AuthorizedActorID = session.AuthorizedOwnerID
@@ -3395,12 +3168,14 @@ func scanNotificationBinding(row scanner) (app.NotificationBinding, error) {
 		&binding.BaseURL, &binding.ProviderSessionID, &binding.ProviderState, &binding.ContextToken,
 		&binding.ProviderCursor, &binding.QRCodeURL, &binding.QRCodeImage, &binding.DefaultForChannel,
 		&scopes, &binding.CreatedAt, &binding.UpdatedAt, &binding.ExpiresAt, &binding.RevokedAt,
-		&binding.LastError)
+		&binding.LastError, &binding.Version, &binding.CredentialKind)
 	if err != nil {
 		return app.NotificationBinding{}, err
 	}
 	binding.Scopes = []string{}
-	_ = json.Unmarshal(scopes, &binding.Scopes)
+	if err := json.Unmarshal(scopes, &binding.Scopes); err != nil {
+		return app.NotificationBinding{}, errors.Join(errNotificationBindingScopesDecode, err)
+	}
 	return binding, nil
 }
 

@@ -756,11 +756,11 @@ func TestPostgresStoreListsAllConnectorSettings(t *testing.T) {
 		{OwnerID: "owner-b", Channel: "weixin", Enabled: true},
 		{OwnerID: "owner-a", Channel: "telegram", Enabled: false},
 	} {
-		if _, err := st.UpdateConnectorSetting(setting, 0); err != nil {
+		if _, err := st.UpdateConnectorSetting(t.Context(), setting, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	settings, err := st.ListAllConnectorSettings()
+	settings, err := st.ListAllConnectorSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -196,7 +196,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	if a.store == nil {
 		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked", nil)
 	}
-	binding, err := a.deliveryBinding(endpoint, request)
+	binding, err := a.deliveryBinding(ctx, endpoint, request)
 	if err != nil {
 		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
@@ -263,8 +263,12 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	return receipt, nil
 }
 
-func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
-	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
+func (a *WeixinAdapter) deliveryBinding(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
+	binding, ok, err := a.store.GetNotificationBinding(ctx, strings.TrimSpace(endpoint.BindingRef))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding could not be read", "retryable")
+	}
+	if ok &&
 		binding.Status == "active" && strings.EqualFold(strings.TrimSpace(binding.Channel), strings.TrimSpace(a.channel)) {
 		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")

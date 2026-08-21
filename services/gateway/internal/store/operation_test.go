@@ -89,6 +89,38 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationCredentialSecretDelete, Repository: "CredentialRepository",
 			Method: "DeleteCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationConnectorSettingGet: {
+			ID: OperationConnectorSettingGet, Repository: "ConnectorRepository",
+			Method: "GetConnectorSetting", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationConnectorSettingList: {
+			ID: OperationConnectorSettingList, Repository: "ConnectorRepository",
+			Method: "ListConnectorSettings", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationConnectorSettingListAll: {
+			ID: OperationConnectorSettingListAll, Repository: "ConnectorRepository",
+			Method: "ListAllConnectorSettings", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationConnectorSettingUpdate: {
+			ID: OperationConnectorSettingUpdate, Repository: "ConnectorRepository",
+			Method: "UpdateConnectorSetting", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationNotificationBindingCreate: {
+			ID: OperationNotificationBindingCreate, Repository: "ConnectorRepository",
+			Method: "CreateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationNotificationBindingGet: {
+			ID: OperationNotificationBindingGet, Repository: "ConnectorRepository",
+			Method: "GetNotificationBinding", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationNotificationBindingList: {
+			ID: OperationNotificationBindingList, Repository: "ConnectorRepository",
+			Method: "ListNotificationBindings", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationNotificationBindingUpdate: {
+			ID: OperationNotificationBindingUpdate, Repository: "ConnectorRepository",
+			Method: "UpdateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

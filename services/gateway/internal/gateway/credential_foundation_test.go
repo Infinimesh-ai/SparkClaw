@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connector"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -92,10 +93,16 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 		stateDirectory:  stateDirectory,
 		backupDirectory: stateDirectory + "-committed",
 	}
-	router := binding.NewBaseRouter(cfg).WithAdapter("credential-test", &credentialPollAdapter{secret: secret})
+	registry := connector.NewRegistry(cfg, st).WithCredentialLifecycle(vault)
+	if err := registry.Register(connector.Registration{
+		Channel: "credential-test", Binding: &credentialPollAdapter{secret: secret},
+		BindingProvider: "credential-test", CredentialKind: "openclaw-weixin-bot-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime, WithCredentialVault(vault), WithBindingRouter(router))
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -115,7 +122,7 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 		t.Fatalf("unexpected pending binding: %#v", started)
 	}
 
-	pollResponse, err := http.Get(ts.URL + "/api/notification-bindings/" + started.ID)
+	pollResponse, err := http.Post(ts.URL+"/api/notification-bindings/"+started.ID+"/poll", "application/json", bytes.NewReader([]byte(`{}`)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +131,7 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 	if err := json.NewDecoder(pollResponse.Body).Decode(&projected); err != nil {
 		t.Fatal(err)
 	}
-	if pollResponse.StatusCode != http.StatusServiceUnavailable || projected["code"] != credential.CodeUnavailable {
+	if pollResponse.StatusCode != http.StatusServiceUnavailable || projected["code"] != binding.CodeConnectorUnavailable || projected["retryable"] != false {
 		t.Fatalf("ambiguous binding save status=%d body=%#v", pollResponse.StatusCode, projected)
 	}
 	if vault.sabotageErr != nil {
@@ -133,8 +140,11 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 	if strings.Contains(fmt.Sprint(projected), secret) || strings.Contains(fmt.Sprint(projected), "provider-pending") {
 		t.Fatalf("ambiguous binding response disclosed credential material: %#v", projected)
 	}
-	retained, found := st.GetNotificationBinding(started.ID)
-	if !found || retained.Status != "waiting_confirm" || retained.CredentialRef != "" {
+	retained, found, err := st.GetNotificationBinding(t.Context(), started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || retained.Status != app.NotificationBindingCredentialPending || retained.CredentialRef != "" {
 		t.Fatalf("durable binding crossed the unverified save: %#v found=%v", retained, found)
 	}
 	if err := os.Remove(stateDirectory); err != nil {
@@ -147,8 +157,11 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	durable, found := reloaded.GetNotificationBinding(started.ID)
-	if !found || durable.Status != "waiting_confirm" || durable.CredentialRef != "" {
+	durable, found, err := reloaded.GetNotificationBinding(t.Context(), started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || durable.Status != app.NotificationBindingCredentialPending || durable.CredentialRef != "" {
 		t.Fatalf("restart observed an uncommitted active binding: %#v found=%v", durable, found)
 	}
 	stored, found, err := reloaded.GetCredentialSecret(t.Context(), vault.ref)

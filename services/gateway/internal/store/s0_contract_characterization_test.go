@@ -38,8 +38,8 @@ var s0RepositoryMethods = map[string][]string{
 		"SavePairingCode", "TouchClient",
 	},
 	"ConnectorRepository": {
-		"GetConnectorSetting", "GetNotificationBinding", "ListAllConnectorSettings", "ListConnectorSettings", "ListNotificationBindings",
-		"RevokeNotificationBinding", "SaveNotificationBinding", "UpdateConnectorSetting",
+		"CreateNotificationBinding", "GetConnectorSetting", "GetNotificationBinding", "ListAllConnectorSettings", "ListConnectorSettings",
+		"ListNotificationBindings", "UpdateConnectorSetting", "UpdateNotificationBinding",
 	},
 	"ConversationRepository": {
 		"AddMessage", "ListMessages", "MessageEventHead", "MessageEventsAfter",
@@ -167,7 +167,6 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/telegram/notification.go:func NewNotificationAdapter":  1,
 		"internal/telegram/notification.go:type NotificationAdapter":     1,
 		"internal/telegram/service.go:func NewService":                   1,
-		"internal/telegram/service.go:func hasDefaultActiveBinding":      1,
 		"internal/telegram/service.go:type Service":                      1,
 		"internal/toolhub/toolhub.go:func New":                           1,
 		"internal/toolhub/toolhub.go:type ToolHub":                       1,
@@ -180,9 +179,6 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/weixin/syncer.go:type Syncer":                          1,
 	}
 	wantLocalInterfaces := map[string][]string{
-		"internal/connector/registry.go:connectorStore": {
-			"GetConnectorSetting", "ListAllConnectorSettings", "ListConnectorSettings", "ListNotificationBindings", "UpdateConnectorSetting",
-		},
 		"internal/delivery/content.go:governedArtifactStore":            {"GetSession", "ListArtifactObjects"},
 		"internal/delivery/record.go:externalDeliveryStore":             {"GetExternalChatSession", "SaveExternalChatMessage"},
 		"internal/delivery/resource.go:artifactStore":                   {"ListArtifactObjects"},
@@ -658,8 +654,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 38 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 38", got)
+	if got := strings.Count(source, "s.persist()"); got != 36 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 36", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -710,8 +706,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 26 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 26", count)
+	if count != 24 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 24", count)
 	}
 }
 

@@ -1,12 +1,15 @@
 package gateway
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type publicSchedule struct {
@@ -72,7 +75,7 @@ func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSch
 	}
 	endpoint, err := messagecontrol.NewEndpointRegistry(s.store).Get(r.Context(), endpointID)
 	if err != nil {
-		return s.unavailableScheduleEndpoint(endpointID, schedule.SessionID)
+		return s.unavailableScheduleEndpoint(r.Context(), endpointID, schedule.SessionID)
 	}
 	projection := publicScheduleEndpoint{
 		Kind: endpoint.Kind, Channel: endpoint.ProviderKey, SoftwareDisplayName: endpoint.SoftwareDisplayName,
@@ -89,7 +92,7 @@ func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSch
 	return projection
 }
 
-func (s *Server) unavailableScheduleEndpoint(endpointID app.EndpointID, sessionID string) publicScheduleEndpoint {
+func (s *Server) unavailableScheduleEndpoint(ctx context.Context, endpointID app.EndpointID, sessionID string) publicScheduleEndpoint {
 	value := strings.TrimSpace(string(endpointID))
 	if strings.HasPrefix(value, "session:") {
 		projection := publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", Status: "unavailable"}
@@ -99,14 +102,19 @@ func (s *Server) unavailableScheduleEndpoint(endpointID app.EndpointID, sessionI
 		return projection
 	}
 	if chat, ok := s.store.GetExternalChatSession(value); ok {
-		binding, _ := s.store.GetNotificationBinding(chat.BindingID)
+		binding, _, err := s.store.GetNotificationBinding(ctx, chat.BindingID)
+		if err != nil {
+			slog.Warn("schedule binding projection unavailable", "binding_id", chat.BindingID, "code", store.StoreErrorCodeOf(err))
+		}
 		return publicScheduleEndpoint{
 			Kind: app.EndpointKindThirdPartyDevice, Channel: chat.Channel, SoftwareDisplayName: chat.Channel,
 			AccountDisplayName: binding.DisplayName, RecipientDisplayName: chat.DisplayName,
 			ConversationLabel: binding.DisplayName, Status: "unavailable",
 		}
 	}
-	if binding, ok := s.store.GetNotificationBinding(value); ok {
+	if binding, ok, err := s.store.GetNotificationBinding(ctx, value); err != nil {
+		slog.Warn("schedule binding projection unavailable", "binding_id", value, "code", store.StoreErrorCodeOf(err))
+	} else if ok {
 		return publicScheduleEndpoint{
 			Kind: app.EndpointKindThirdPartyDevice, Channel: binding.Channel, SoftwareDisplayName: binding.Channel,
 			AccountDisplayName: binding.DisplayName, Status: "unavailable",

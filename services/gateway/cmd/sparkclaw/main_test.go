@@ -23,6 +23,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
@@ -145,7 +146,7 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 				ExternalUserID: "7",
 				ExternalChatID: "9",
 			}
-			binding = st.SaveNotificationBinding(binding)
+			binding = storetest.MustCreateNotificationBinding(t, st, binding)
 			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot).WithResultDeliverer(recordingMainResultDeliverer{bot: bot})
 			err = dispatcher.HandleUpdate(context.Background(), binding, telegram.Update{
 				UpdateID: 1,

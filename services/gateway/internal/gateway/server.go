@@ -66,13 +66,10 @@ type Server struct {
 	traces                   *trace.Writer
 	artifacts                artifact.Store
 	policies                 policy.Engine
-	bindings                 binding.Router
 	speech                   speech.Transcriber
 	speechRealtimeMu         sync.Mutex
 	speechRealtimeTickets    map[string]*speechRealtimeTicket
 	speechRealtimeTicketIDs  map[string]string
-	credentials              credential.CredentialVault
-	cancelBinding            func(app.NotificationBinding)
 	managedBrowserWindows    ManagedBrowserWindowController
 	delivery                 *delivery.Gateway
 	endpoints                *messagecontrol.EndpointRegistry
@@ -84,7 +81,6 @@ type Server struct {
 	externalApprovalResolver ExternalApprovalResolver
 	bridge                   *iscpbridge.GatewayAdapter
 	deliveryMu               sync.Mutex
-	bindingsSet              bool
 	mux                      *http.ServeMux
 	started                  time.Time
 	limiter                  *rateLimiter
@@ -101,10 +97,14 @@ type Server struct {
 type Option func(*Server)
 
 type ConnectorController interface {
-	ListStatus(ownerID string) []app.ConnectorStatus
-	Status(ownerID, channel string) (app.ConnectorStatus, error)
+	Enabled(ownerID, channel string) bool
+	ListStatus(context.Context, string) ([]app.ConnectorStatus, error)
+	Status(context.Context, string, string) (app.ConnectorStatus, error)
 	SetEnabled(ctx context.Context, ownerID, actorID, channel string, enabled bool, expectedVersion int64) (app.ConnectorStatus, error)
 	SetMCPTransports(ctx context.Context, ownerID, actorID string, iscpEnabled, lanAccessEnabled bool, expectedVersion int64) (app.ConnectorStatus, error)
+	StartNotificationBinding(context.Context, app.NotificationBinding, binding.StartOptions) (app.NotificationBinding, error)
+	PollNotificationBinding(context.Context, string) (app.NotificationBinding, error)
+	RevokeNotificationBinding(context.Context, string) (app.NotificationBinding, error)
 }
 
 type MCPController interface {
@@ -150,27 +150,6 @@ func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
 		if transcriber != nil {
 			server.speech = transcriber
 		}
-	}
-}
-
-func WithCredentialVault(vault credential.CredentialVault) Option {
-	return func(server *Server) {
-		if vault != nil {
-			server.credentials = vault
-		}
-	}
-}
-
-func WithBindingRouter(router binding.Router) Option {
-	return func(server *Server) {
-		server.bindings = router
-		server.bindingsSet = true
-	}
-}
-
-func WithNotificationBindingCancellation(cancel func(app.NotificationBinding)) Option {
-	return func(server *Server) {
-		server.cancelBinding = cancel
 	}
 }
 
@@ -241,12 +220,8 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 	}
 	if s.connectors != nil {
 		s.mcpAccess.WithChannelEnabled(func(ownerID string) bool {
-			status, err := s.connectors.Status(ownerID, "mcp")
-			return err == nil && status.Enabled
+			return s.connectors.Enabled(ownerID, "mcp")
 		})
-	}
-	if !s.bindingsSet {
-		s.bindings = binding.NewRouter(cfg, s.credentials)
 	}
 	s.applyMemoryRetention()
 	s.routes()
@@ -342,6 +317,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
+	s.mux.HandleFunc("POST /api/notification-bindings/{id}/poll", s.pollNotificationBinding)
 	s.mux.HandleFunc("POST /api/notification-bindings/{id}/browser", s.openNotificationBindingBrowser)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
 	s.mux.HandleFunc("GET /api/delivery-endpoints", s.listDeliveryEndpoints)
@@ -552,6 +528,11 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
+	toolsConfig, err := s.publicToolsConfig(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"gateway":             publicGatewayConfig(s.cfg.Gateway),
 		"model":               publicModelConfig(s.cfg.Model),
@@ -564,7 +545,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"storage":             publicStorageConfig(s.cfg.Storage),
 		"state":               publicStateConfig(s.cfg.State),
 		"adapters":            publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
-		"tools":               s.publicToolsConfig(principal.OwnerID),
+		"tools":               toolsConfig,
 		"mcp_server_statuses": s.mcpServerStatuses(),
 		"memory":              s.cfg.Memory,
 		"runtime":             s.cfg.Runtime,
@@ -1021,7 +1002,12 @@ func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	principal := principalForRequest(r)
 	visible := []app.NotificationBinding{}
-	for _, binding := range s.store.ListNotificationBindings(channel, status) {
+	bindings, err := s.store.ListNotificationBindings(r.Context(), channel, status)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	for _, binding := range bindings {
 		actorID := strings.TrimSpace(binding.ActorID)
 		if actorID == "" {
 			actorID = binding.OwnerID
@@ -1041,7 +1027,12 @@ func (s *Server) listConnectors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal := principalForRequest(r)
-	writeJSON(w, http.StatusOK, map[string]any{"connectors": s.connectors.ListStatus(principal.OwnerID)})
+	statuses, err := s.connectors.ListStatus(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connectors": statuses})
 }
 
 func (s *Server) updateConnector(w http.ResponseWriter, r *http.Request) {
@@ -1077,6 +1068,10 @@ func (s *Server) updateConnector(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
 	channel := strings.ToLower(strings.TrimSpace(r.PathValue("channel")))
 	if channel == "" {
 		writeError(w, http.StatusBadRequest, errors.New("channel is required"))
@@ -1095,35 +1090,20 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		}
 	}
 	principal := principalForRequest(r)
-	capability := s.bindings.CapabilityForOwner(principal.OwnerID, channel, s.store.ListNotificationBindings(channel, ""))
-	if !capability.Startable {
-		writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
-		return
-	}
-	now := time.Now().UTC()
-	pendingBinding := app.NotificationBinding{
-		ID:                app.NewID("bind"),
+	requested := app.NotificationBinding{
 		OwnerID:           principal.OwnerID,
 		ActorID:           principal.ActorID,
 		Channel:           channel,
-		Status:            "waiting_scan",
 		DefaultForChannel: input.DefaultForChannel,
 		Scopes:            app.DefaultMessagingBindingScopes(),
-		CreatedAt:         now,
-		UpdatedAt:         now,
 	}
 	credentialSecret := strings.TrimSpace(input.CredentialSecret)
 	if credentialSecret == "" {
 		credentialSecret = input.BotToken
 	}
-	started, err := s.bindings.Start(r.Context(), pendingBinding, binding.StartOptions{CredentialSecret: credentialSecret})
+	started, err := s.connectors.StartNotificationBinding(r.Context(), requested, binding.StartOptions{CredentialSecret: credentialSecret})
 	if err != nil {
-		writeError(w, connectorStartStatus(errorCode(err)), err)
-		return
-	}
-	started = s.store.SaveNotificationBinding(started)
-	if persisted, ok := s.store.GetNotificationBinding(started.ID); !ok || persisted.CredentialRef != started.CredentialRef {
-		writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeUnavailable})
+		writeConnectorError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, publicNotificationBinding(started, true))
@@ -1131,67 +1111,53 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 
 func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) {
 	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
 	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
-	if binding.Status == "waiting_scan" || binding.Status == "waiting_confirm" {
-		poll, err := s.bindings.Poll(r.Context(), binding)
-		if err == nil && poll.Status != "" && poll.Status != binding.Status {
-			binding.Status = poll.Status
-			binding.DisplayName = poll.DisplayName
-			binding.ExternalUserID = poll.ExternalUserID
-			binding.AccountID = poll.AccountID
-			binding.CredentialRef = poll.CredentialRef
-			binding.BaseURL = poll.BaseURL
-			binding.LastError = poll.LastError
-			binding.UpdatedAt = time.Now().UTC()
-			if poll.CredentialRef != "" && poll.CredentialSecret != "" {
-				if s.credentials == nil {
-					writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeKeyUnavailable})
-					return
-				}
-				secret := []byte(poll.CredentialSecret)
-				credentialRef, sealErr := s.credentials.Seal(r.Context(), binding.ID, poll.CredentialKind, secret)
-				clearBytes(secret)
-				poll.CredentialSecret = ""
-				if sealErr != nil {
-					writeError(w, connectorStartStatus(errorCode(sealErr)), sealErr)
-					return
-				}
-				binding.CredentialRef = credentialRef
-			}
-			if binding.Status == "active" {
-				if binding.DefaultForChannel || !s.hasActiveDefaultNotificationBinding(binding.Channel, binding.ID) {
-					binding.DefaultForChannel = true
-				}
-				binding.QRCodeURL = ""
-				binding.QRCodeImage = ""
-			}
-			binding = s.store.SaveNotificationBinding(binding)
-			persisted, persistedOK := s.store.GetNotificationBinding(binding.ID)
-			if !persistedOK || persisted.Status != binding.Status || persisted.CredentialRef != binding.CredentialRef {
-				writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeUnavailable})
-				return
-			}
-			binding = persisted
-			if !isPendingNotificationBinding(binding.Status) {
-				s.closeNotificationBindingBrowser(binding)
-			}
-		} else if err != nil {
-			binding.LastError = err.Error()
-			binding.UpdatedAt = time.Now().UTC()
-			binding = s.store.SaveNotificationBinding(binding)
-		}
-	}
 	writeJSON(w, http.StatusOK, publicNotificationBinding(binding))
+}
+
+func (s *Server) pollNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
+	bindingID := strings.TrimSpace(r.PathValue("id"))
+	current, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	principal := principalForRequest(r)
+	if !ok || current.OwnerID != principal.OwnerID || firstEndpointActor(current) != principal.ActorID {
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+		return
+	}
+	updated, err := s.connectors.PollNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	if !isPendingNotificationBinding(updated.Status) {
+		s.closeNotificationBindingBrowser(r.Context(), updated)
+	}
+	writeJSON(w, http.StatusOK, publicNotificationBinding(updated))
 }
 
 func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.Request) {
 	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
 	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
@@ -1225,50 +1191,38 @@ func isPendingNotificationBinding(status string) bool {
 	return status == "waiting_scan" || status == "waiting_confirm"
 }
 
-func (s *Server) closeNotificationBindingBrowser(binding app.NotificationBinding) {
+func (s *Server) closeNotificationBindingBrowser(ctx context.Context, binding app.NotificationBinding) {
 	if s.managedBrowserWindows == nil || binding.Channel != "weixin" || !weixinproto.IsQRLoginProvider(binding.Provider) {
 		return
 	}
-	if err := s.managedBrowserWindows.CloseManagedBrowserWindow(context.Background(), binding.OwnerID, binding.ID); err != nil {
+	if err := s.managedBrowserWindows.CloseManagedBrowserWindow(ctx, binding.OwnerID, binding.ID); err != nil {
 		slog.Warn("failed to close managed Weixin login window", "binding_id", binding.ID, "error", err)
 	}
 }
 
-func (s *Server) hasActiveDefaultNotificationBinding(channel, exceptID string) bool {
-	for _, binding := range s.store.ListNotificationBindings(channel, "active") {
-		if binding.ID != exceptID && binding.DefaultForChannel {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
 	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
 	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
-	_ = s.bindings.Cancel(r.Context(), binding)
-	if strings.TrimSpace(binding.CredentialRef) != "" {
-		if s.cancelBinding != nil {
-			s.cancelBinding(binding)
-		}
-		s.closeNotificationBindingBrowser(binding)
-		writeError(w, http.StatusServiceUnavailable, &credential.Error{Code: credential.CodeUnavailable})
-		return
-	}
-	revoked, err := s.store.RevokeNotificationBinding(bindingID)
+	revoked, err := s.connectors.RevokeNotificationBinding(r.Context(), bindingID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		s.closeNotificationBindingBrowser(r.Context(), binding)
+		writeConnectorError(w, err)
 		return
 	}
-	if s.cancelBinding != nil {
-		s.cancelBinding(binding)
-	}
-	s.closeNotificationBindingBrowser(binding)
+	s.closeNotificationBindingBrowser(r.Context(), binding)
 	writeJSON(w, http.StatusOK, publicNotificationBinding(revoked))
 }
 
@@ -3210,12 +3164,6 @@ func errorCode(err error) string {
 	return ""
 }
 
-func clearBytes(value []byte) {
-	for index := range value {
-		value[index] = 0
-	}
-}
-
 func connectorStartStatus(code string) int {
 	switch code {
 	case binding.CodeOperatorDisabled:
@@ -3225,7 +3173,7 @@ func connectorStartStatus(code string) int {
 	case binding.CodeBindingInProgress, binding.CodeBindingActive:
 		return http.StatusConflict
 	case binding.CodeConnectorUnavailable:
-		return http.StatusNotImplemented
+		return http.StatusServiceUnavailable
 	case credential.CodeInvalid:
 		return http.StatusBadRequest
 	case credential.CodeCanceled:
@@ -3242,6 +3190,24 @@ func connectorStartStatus(code string) int {
 		return http.StatusBadGateway
 	default:
 		return http.StatusBadRequest
+	}
+}
+
+func writeConnectorError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("notification binding changed"))
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("notification binding request is invalid"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, &credential.Error{Code: credential.CodeCanceled})
+	case store.StoreErrorTimeout, store.StoreErrorUnavailable, store.StoreErrorDurability,
+		store.StoreErrorUnknownOutcome, store.StoreErrorCorrupt, store.StoreErrorInternal:
+		writeError(w, http.StatusServiceUnavailable, &binding.BindingError{Code: binding.CodeConnectorUnavailable})
+	default:
+		writeError(w, connectorStartStatus(errorCode(err)), err)
 	}
 }
 
@@ -3386,8 +3352,18 @@ func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.Runt
 	}
 }
 
-func (s *Server) publicToolsConfig(ownerID string) map[string]any {
+func (s *Server) publicToolsConfig(ctx context.Context, ownerID string) (map[string]any, error) {
 	cfg := s.cfg
+	connectorStatuses := map[string]app.ConnectorStatus{}
+	if s.connectors != nil {
+		statuses, err := s.connectors.ListStatus(ctx, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		for _, status := range statuses {
+			connectorStatuses[status.Channel] = status
+		}
+	}
 	notificationChannels := map[string]any{}
 	for name, channel := range cfg.Tools.Notifications.Channels {
 		publicChannel := map[string]any{
@@ -3397,20 +3373,17 @@ func (s *Server) publicToolsConfig(ownerID string) map[string]any {
 			"token_configured": strings.TrimSpace(channel.Token) != "",
 			"recipient_set":    strings.TrimSpace(channel.Recipient) != "",
 		}
-		capability := s.bindings.CapabilityForOwner(ownerID, name, s.store.ListNotificationBindings(name, ""))
-		publicChannel["available"] = capability.Available
+		publicChannel["available"] = false
 		publicChannel["operator_enabled"] = channel.Enabled
-		publicChannel["binding_status"] = capability.BindingStatus
-		publicChannel["startable"] = capability.Startable
-		publicChannel["disabled_reason"] = capability.DisabledReason
-		if s.connectors != nil {
-			if status, err := s.connectors.Status(ownerID, name); err == nil {
-				publicChannel["enabled"] = status.Enabled
-				publicChannel["available"] = status.Available
-				publicChannel["binding_status"] = status.BindingStatus
-				publicChannel["startable"] = status.BindingStartable
-				publicChannel["disabled_reason"] = status.DisabledReason
-			}
+		publicChannel["binding_status"] = ""
+		publicChannel["startable"] = false
+		publicChannel["disabled_reason"] = binding.CodeConnectorUnavailable
+		if status, ok := connectorStatuses[name]; ok {
+			publicChannel["enabled"] = status.Enabled
+			publicChannel["available"] = status.Available
+			publicChannel["binding_status"] = status.BindingStatus
+			publicChannel["startable"] = status.BindingStartable
+			publicChannel["disabled_reason"] = status.DisabledReason
 		}
 		notificationChannels[name] = publicChannel
 	}
@@ -3434,7 +3407,7 @@ func (s *Server) publicToolsConfig(ownerID string) map[string]any {
 		"notifications": map[string]any{
 			"channels": notificationChannels,
 		},
-	}
+	}, nil
 }
 
 func webSearchConfigured(cfg config.Config) bool {

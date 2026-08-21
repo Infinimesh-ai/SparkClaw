@@ -93,6 +93,8 @@ type CredentialVault interface {
 	BindLifecycle(context.Context)
 	Seal(context.Context, string, string, []byte) (string, error)
 	Open(context.Context, string) ([]byte, error)
+	Delete(context.Context, string) error
+	AbortSeal(context.Context, string, string) error
 }
 
 type pendingMode uint8
@@ -306,6 +308,70 @@ func (v *Vault) Open(ctx context.Context, ref string) ([]byte, error) {
 	}
 	zero(plaintext)
 	return nil, v.mapRepositoryError(err)
+}
+
+func (v *Vault) Delete(ctx context.Context, ref string) error {
+	if err := v.Ready(); err != nil {
+		return err
+	}
+	ref = strings.TrimSpace(ref)
+	if !strings.HasPrefix(ref, "cred_") {
+		return credentialError(CodeInvalid, errors.New("credential reference is not Vault-owned"))
+	}
+	return v.deleteAuthenticated(ctx, ref, "")
+}
+
+func (v *Vault) AbortSeal(ctx context.Context, bindingID, kind string) error {
+	if err := v.Ready(); err != nil {
+		return err
+	}
+	bindingID = strings.TrimSpace(bindingID)
+	kind = strings.TrimSpace(kind)
+	if bindingID == "" || len([]byte(bindingID)) > maxSealIdentityBytes || kind == "" {
+		return credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
+	}
+	return v.deleteAuthenticated(ctx, v.credentialRef(bindingID), kind)
+}
+
+func (v *Vault) deleteAuthenticated(ctx context.Context, ref, expectedKind string) error {
+	if err := ctx.Err(); err != nil {
+		return credentialError(CodeCanceled, err)
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return credentialError(CodeCanceled, err)
+	}
+	if _, _, err := v.resolvePendingLocked(ctx, pendingCommand{ref: ref}); err != nil {
+		return err
+	}
+	stored, found, err := v.repository.GetCredentialSecret(ctx, ref)
+	if err != nil {
+		return v.mapRepositoryError(err)
+	}
+	if !found {
+		return nil
+	}
+	if expectedKind != "" && stored.Kind != expectedKind {
+		return credentialError(CodeUnavailable, errors.New("credential kind does not match cleanup proof"))
+	}
+	plaintext, isEnvelope, openErr := v.openEnvelope(stored)
+	zero(plaintext)
+	if !isEnvelope || openErr != nil {
+		return credentialError(CodeUnavailable, errors.New("credential envelope does not match cleanup proof"))
+	}
+	condition := store.NewCredentialDeleteCondition(stored)
+	deleted, err := v.repository.DeleteCredentialSecret(ctx, condition)
+	deleted.Value = ""
+	if err == nil || store.StoreErrorCodeOf(err) == store.StoreErrorNotFound {
+		return nil
+	}
+	if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+		v.pending = &pendingCommand{
+			mode: pendingDelete, generation: v.lifecycleGeneration, ref: ref, condition: condition,
+		}
+	}
+	return v.mapRepositoryError(err)
 }
 
 func (v *Vault) resolveExistingSeal(ref, kind string, plaintext []byte, stored app.CredentialSecret) (string, error) {

@@ -16,23 +16,23 @@ import (
 var fileCommandMethods = map[string]struct{}{
 	"AddAudit": {}, "AddMemoryCandidate": {}, "AddMessage": {},
 	"ClaimDueReminders": {}, "ClaimPairingCode": {}, "CreateMCPOperation": {},
-	"CreatePassiveNotification": {}, "CreateSession": {}, "CreateSessionWithScope": {},
+	"CreateNotificationBinding": {}, "CreatePassiveNotification": {}, "CreateSession": {}, "CreateSessionWithScope": {},
 	"DeleteCredentialSecret": {}, "DeleteMCPAccessRecords": {}, "DeleteMCPAccessTicket": {},
 	"DeleteMCPBinding": {}, "DeleteMemory": {}, "DeleteSession": {},
 	"MarkAllPassiveNotificationsRead": {}, "MarkPassiveNotificationRead": {},
 	"PruneMemories": {}, "PrunePassiveNotifications": {}, "RedeemMCPAccessTicket": {},
 	"ResolveApproval": {}, "ResolveMemoryCandidate": {}, "RevokeBrowserAuthRecord": {},
 	"RevokeClient": {}, "RevokeMCPAccessTicket": {}, "RevokeMCPBinding": {},
-	"RevokeNotificationBinding": {}, "SaveApproval": {}, "SaveArtifactObject": {},
+	"SaveApproval": {}, "SaveArtifactObject": {},
 	"SaveBrowserAuthRecord": {}, "SaveBrowserLoginBlock": {}, "SaveChannelInboxUpdate": {},
 	"SaveCredentialSecret": {}, "SaveDocumentRecord": {},
 	"SaveEpisodeSummary": {}, "SaveEvalRun": {}, "SaveExternalChatMessage": {},
 	"SaveExternalChatSession": {}, "SaveISCPOnboarding": {}, "SaveMCPAccessTicket": {},
 	"SaveMessageDelivery": {}, "SaveMessageReceive": {}, "SaveModelCall": {},
-	"SaveNotificationBinding": {}, "SaveOwnerProfile": {}, "SavePairingCode": {},
+	"SaveOwnerProfile": {}, "SavePairingCode": {},
 	"SaveReminder": {}, "SaveReminderDelivery": {}, "SaveRun": {},
 	"SaveRunFeedback": {}, "SaveToolCall": {}, "TouchClient": {},
-	"TouchMCPBinding": {}, "UpdateBrowserLoginBlock": {}, "UpdateConnectorSetting": {},
+	"TouchMCPBinding": {}, "UpdateBrowserLoginBlock": {}, "UpdateConnectorSetting": {}, "UpdateNotificationBinding": {},
 	"UpdateMCPOperation": {}, "UpdateMemory": {}, "UpdateOwnerProfile": {},
 	"UpdatePendingApproval": {}, "UpdatePendingReminder": {}, "UpdateSessionTitle": {},
 }
@@ -48,6 +48,9 @@ var migratedFileAdmissions = map[string]string{
 	"FindClientByTokenHash": "admitMigrated", "TouchClient": "admitMigrated",
 	"SavePairingCode": "admitMigrated", "GetPairingCode": "admitMigrated", "ClaimPairingCode": "admitMigrated",
 	"SaveCredentialSecret": "admitMigrated", "GetCredentialSecret": "admitMigrated", "DeleteCredentialSecret": "admitMigrated",
+	"GetConnectorSetting": "admitMigrated", "ListConnectorSettings": "admitMigrated", "ListAllConnectorSettings": "admitMigrated",
+	"UpdateConnectorSetting": "admitMigrated", "CreateNotificationBinding": "admitMigrated", "GetNotificationBinding": "admitMigrated",
+	"ListNotificationBindings": "admitMigrated", "UpdateNotificationBinding": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

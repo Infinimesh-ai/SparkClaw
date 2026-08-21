@@ -6,15 +6,16 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestResolverUsesProviderNeutralBindingFields(t *testing.T) {
 	st := store.NewMemoryStore()
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_alpha", Channel: "alpha", Status: "active", DisplayName: "Alpha user",
 		ExternalUserID: "alpha-user", ContextToken: "alpha-context", CredentialRef: "alpha-credential", BaseURL: "https://alpha.example",
 	})
-	target, err := NewResolver(st).Resolve("alpha", "web-session", "Alpha user")
+	target, err := NewResolver(st).Resolve(t.Context(), "alpha", "web-session", "Alpha user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,14 +27,14 @@ func TestResolverUsesProviderNeutralBindingFields(t *testing.T) {
 func TestResolverUsesCurrentExternalSession(t *testing.T) {
 	st := store.NewMemoryStore()
 	linked := st.CreateSession("linked")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_alpha", Channel: "alpha", Status: "active", ExternalUserID: "binding-user", CredentialRef: "credential",
 	})
 	st.SaveExternalChatSession(app.ExternalChatSession{
 		BindingID: "bind_alpha", Channel: "alpha", ExternalUserID: "session-user", ExternalChatID: "session-chat",
 		ExternalThreadID: "session-thread", LinkedSessionID: linked.ID, Status: "active",
 	})
-	target, err := NewResolver(st).Resolve("alpha", linked.ID, "")
+	target, err := NewResolver(st).Resolve(t.Context(), "alpha", linked.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,9 +46,9 @@ func TestResolverUsesCurrentExternalSession(t *testing.T) {
 func TestResolverRequiresSelectionForMultipleBindings(t *testing.T) {
 	st := store.NewMemoryStore()
 	for _, id := range []string{"bind_alpha_a", "bind_alpha_b"} {
-		st.SaveNotificationBinding(app.NotificationBinding{ID: id, Channel: "alpha", Status: "active", ExternalUserID: id})
+		storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: id, Channel: "alpha", Status: "active", ExternalUserID: id})
 	}
-	_, err := NewResolver(st).Resolve("alpha", "web-session", "")
+	_, err := NewResolver(st).Resolve(t.Context(), "alpha", "web-session", "")
 	if err == nil || !strings.Contains(err.Error(), "multiple alpha bindings") {
 		t.Fatalf("expected explicit binding selection error, got %v", err)
 	}

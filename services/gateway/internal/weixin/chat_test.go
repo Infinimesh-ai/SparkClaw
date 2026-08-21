@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 // fakeAgentRuntime counts how often the dispatcher enters the agent runtime.
@@ -105,7 +106,7 @@ func newPendingReplyTestBinding() app.NotificationBinding {
 func TestHandleInboundDeliveryRetryDoesNotRerunRuntime(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := newPendingReplyTestBinding()
-	st.SaveNotificationBinding(binding)
+	storetest.MustCreateNotificationBinding(t, st, binding)
 	completed := time.Now().UTC()
 	runtime := &fakeAgentRuntime{result: agent.Result{
 		Run: app.AgentRun{ID: "run_pending", State: "completed", CompletedAt: &completed},
@@ -182,7 +183,7 @@ func TestHandleInboundDeliveryRetryDoesNotRerunRuntime(t *testing.T) {
 func TestHandleInboundMarksBlockedDeliveryTerminal(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := newPendingReplyTestBinding()
-	st.SaveNotificationBinding(binding)
+	storetest.MustCreateNotificationBinding(t, st, binding)
 	runtime := &fakeAgentRuntime{result: agent.Result{
 		Run: app.AgentRun{ID: "run_blocked", State: "completed"},
 		WorkflowResult: &app.WorkflowResult{
@@ -291,7 +292,7 @@ func newControlReplyTestDispatcher(t *testing.T, st *store.MemoryStore, runtime 
 	binding := newPendingReplyTestBinding()
 	binding.CredentialRef = credentialRef
 	binding.BaseURL = baseURL
-	st.SaveNotificationBinding(binding)
+	storetest.MustCreateNotificationBinding(t, st, binding)
 	cfg := config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: baseURL}
 	return NewDispatcher(st, runtime, cfg).WithCredentialVault(vault), binding
 }

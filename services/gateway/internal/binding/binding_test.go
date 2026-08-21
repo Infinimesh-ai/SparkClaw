@@ -136,7 +136,11 @@ func TestTelegramAdapterDoesNotPersistRejectedToken(t *testing.T) {
 	if !errors.As(err, &bindingErr) || bindingErr.Code != CodeInvalidBotToken {
 		t.Fatalf("unexpected rejected-token error: %v", err)
 	}
-	if secrets := st.ListNotificationBindings("telegram", ""); len(secrets) != 0 {
+	secrets, listErr := st.ListNotificationBindings(t.Context(), "telegram", "")
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(secrets) != 0 {
 		t.Fatalf("rejected token created binding state: %#v", secrets)
 	}
 }

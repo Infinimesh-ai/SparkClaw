@@ -44,7 +44,7 @@ func TestFileStoreNotificationBindingSaveRollsBackOnPersistenceFailure(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	initial := st.SaveNotificationBinding(app.NotificationBinding{
+	initial := mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{
 		ID: "bind-file-rollback", OwnerID: "owner-file-rollback", Channel: "weixin", Status: "waiting_confirm",
 	})
 	if initial.ID == "" {
@@ -61,10 +61,11 @@ func TestFileStoreNotificationBindingSaveRollsBackOnPersistenceFailure(t *testin
 	candidate := initial
 	candidate.Status = "active"
 	candidate.CredentialRef = "cred_must_remain_uncommitted"
-	if saved := st.SaveNotificationBinding(candidate); saved.ID != "" {
+	candidate.CredentialKind = "test-secret"
+	if saved, updateErr := st.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(initial, candidate)); updateErr == nil || saved.ID != "" {
 		t.Fatalf("failed persistence returned a committed binding: %#v", saved)
 	}
-	got, found := st.GetNotificationBinding(initial.ID)
+	got, found := mustGetNotificationBindingFixture(t, st, initial.ID)
 	if !found || got.Status != initial.Status || got.CredentialRef != "" {
 		t.Fatalf("failed persistence remained visible in memory: %#v found=%v", got, found)
 	}
@@ -79,7 +80,7 @@ func TestFileStoreNotificationBindingSaveRollsBackOnPersistenceFailure(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	durable, found := reloaded.GetNotificationBinding(initial.ID)
+	durable, found := mustGetNotificationBindingFixture(t, reloaded, initial.ID)
 	if !found || durable.Status != initial.Status || durable.CredentialRef != "" {
 		t.Fatalf("failed persistence changed the durable binding: %#v found=%v", durable, found)
 	}

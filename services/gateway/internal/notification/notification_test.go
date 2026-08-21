@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type unavailableNotificationCredentialRepository struct {
@@ -65,7 +66,7 @@ func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	vault, credentialRef := newNotificationTestCredential(t, st, "bind_1")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
@@ -117,7 +118,7 @@ func TestWeixinProviderPreflightsAudioFallbackBeforeExternalSend(t *testing.T) {
 	}))
 	defer server.Close()
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_audio", Channel: "weixin", Status: "active", ExternalUserID: "wx-user", ContextToken: "ctx", BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_audio", Channel: "weixin", Status: "active", ExternalUserID: "wx-user", ContextToken: "ctx", BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
 	provider := NewWeixinAdapter("weixin", config.NotificationChannelConfig{Enabled: true, BaseURL: server.URL, Token: "token"}, st, nil)
 	providers := delivery.NewProviderRegistry()
 	if err := providers.Register(provider); err != nil {
@@ -156,7 +157,7 @@ func TestWeixinBindingScopeCompatibilityDefaultsToAllMessaging(t *testing.T) {
 func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 	st := store.NewMemoryStore()
 	vault, credentialRef := newNotificationTestCredential(t, st, "bind_1")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",

@@ -44,7 +44,7 @@ func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable"))
 		return
 	}
-	connector, err := s.connectors.Status(principal.OwnerID, "mcp")
+	connector, err := s.connectors.Status(r.Context(), principal.OwnerID, "mcp")
 	if err != nil || !connector.Enabled {
 		writeError(w, http.StatusConflict, errors.New("MCP connector is disabled"))
 		return

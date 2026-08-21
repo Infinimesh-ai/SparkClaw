@@ -75,6 +75,17 @@ type CredentialRepository interface {
 	DeleteCredentialSecret(context.Context, CredentialDeleteCondition) (app.CredentialSecret, error)
 }
 
+type ConnectorRepository interface {
+	GetConnectorSetting(context.Context, string, string) (app.ConnectorSetting, bool, error)
+	ListConnectorSettings(context.Context, string) ([]app.ConnectorSetting, error)
+	ListAllConnectorSettings(context.Context) ([]app.ConnectorSetting, error)
+	UpdateConnectorSetting(context.Context, app.ConnectorSetting, int64) (app.ConnectorSetting, error)
+	CreateNotificationBinding(context.Context, app.NotificationBinding) (app.NotificationBinding, error)
+	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
+	ListNotificationBindings(context.Context, string, string) ([]app.NotificationBinding, error)
+	UpdateNotificationBinding(context.Context, NotificationBindingUpdateCommand) (app.NotificationBinding, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -97,6 +108,7 @@ type Store interface {
 	OwnerRepository
 	ClientRepository
 	CredentialRepository
+	ConnectorRepository
 	CreateSession(title string) app.Session
 	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
 	ListSessions() []app.Session
@@ -150,14 +162,6 @@ type Store interface {
 	ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder
 	SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery
 	ListReminderDeliveries(reminderID string) []app.ReminderDelivery
-	GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool)
-	ListConnectorSettings(ownerID string) []app.ConnectorSetting
-	ListAllConnectorSettings() ([]app.ConnectorSetting, error)
-	UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error)
-	SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding
-	GetNotificationBinding(id string) (app.NotificationBinding, bool)
-	ListNotificationBindings(channel, status string) []app.NotificationBinding
-	RevokeNotificationBinding(id string) (app.NotificationBinding, error)
 	CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error)
 	GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool)
 	ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification
@@ -244,6 +248,9 @@ var (
 	_ CredentialRepository     = (*MemoryStore)(nil)
 	_ CredentialRepository     = (*FileStore)(nil)
 	_ CredentialRepository     = (*PostgresStore)(nil)
+	_ ConnectorRepository      = (*MemoryStore)(nil)
+	_ ConnectorRepository      = (*FileStore)(nil)
+	_ ConnectorRepository      = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

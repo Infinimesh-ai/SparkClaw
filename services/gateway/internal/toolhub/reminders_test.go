@@ -8,6 +8,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestRemindersCreateListCancel(t *testing.T) {
@@ -128,7 +129,7 @@ func TestRemindersCreateRequiresRecipientWhenWebSessionHasMultipleWeixinBindings
 		{ID: "bind_a", Channel: "weixin", Provider: "openclaw-weixin-qr", Status: "active", DisplayName: "用户A", ExternalUserID: "wx-a", ContextToken: "ctx-a", CredentialRef: "cred-a", CreatedAt: now, UpdatedAt: now},
 		{ID: "bind_b", Channel: "weixin", Provider: "openclaw-weixin-qr", Status: "active", DisplayName: "用户B", ExternalUserID: "wx-b", ContextToken: "ctx-b", CredentialRef: "cred-b", CreatedAt: now, UpdatedAt: now},
 	} {
-		st.SaveNotificationBinding(binding)
+		storetest.MustCreateNotificationBinding(t, st, binding)
 	}
 	hub := New(cfg, st)
 	_, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
@@ -145,7 +146,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:             "bind_a",
 		Channel:        "weixin",
 		Provider:       "openclaw-weixin-qr",
@@ -158,7 +159,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:             "bind_b",
 		Channel:        "weixin",
 		Provider:       "openclaw-weixin-qr",
@@ -194,7 +195,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	linked := st.CreateSession("微信会话")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:            "bind_weixin",
 		Channel:       "weixin",
 		Provider:      "openclaw-weixin-qr",
@@ -239,7 +240,7 @@ func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	linked := st.CreateSession("Telegram conversation")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api", Status: "active",
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
 		CredentialRef: "cred_telegram", BaseURL: "https://api.telegram.org",

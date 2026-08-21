@@ -460,23 +460,24 @@ func characterizeS0ScheduleRepository(t *testing.T, st Store, dimension string) 
 func characterizeS0ConnectorRepository(t *testing.T, st Store, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
-		setting, err := st.UpdateConnectorSetting(app.ConnectorSetting{OwnerID: "owner-s0", Channel: "telegram", Enabled: true}, 0)
+		setting, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{OwnerID: "owner-s0", Channel: "telegram", Enabled: true}, 0)
 		if err != nil || setting.Version != 1 {
 			t.Fatalf("connector setting create = %#v err=%v", setting, err)
 		}
-		binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
-		if got, ok := st.GetNotificationBinding(binding.ID); !ok || got.Channel != binding.Channel {
+		binding := mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
+		if got, ok := mustGetNotificationBindingFixture(t, st, binding.ID); !ok || got.Channel != binding.Channel {
 			t.Fatalf("notification binding save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetConnectorSetting("owner-s0", "telegram"); ok {
+		if _, ok, err := st.GetConnectorSetting(t.Context(), "owner-s0", "telegram"); err != nil || ok {
 			t.Fatal("missing connector setting was found")
 		}
 	case s0DimensionDuplicate:
-		binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
-		binding.Status = "revoked"
-		st.SaveNotificationBinding(binding)
-		if got := st.ListNotificationBindings("telegram", ""); len(got) != 1 || got[0].Status != "revoked" {
+		binding := mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
+		replacement := binding
+		replacement.Status = "revoked"
+		mustUpdateNotificationBindingFixture(t, st, binding, replacement)
+		if got := mustListNotificationBindingsFixture(t, st, "telegram", ""); len(got) != 1 || got[0].Status != "revoked" {
 			t.Fatalf("notification binding overwrite created duplicates: %#v", got)
 		}
 	default:
@@ -703,12 +704,12 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-restart", OwnerID: "owner-s0", Channel: "telegram", Status: "active", Scopes: []string{"send"}})
+		binding := mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-restart", OwnerID: "owner-s0", Channel: "telegram", Status: "active", Scopes: []string{"send"}})
 		reloaded, err := NewFileStore(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, ok := reloaded.GetNotificationBinding(binding.ID); !ok || len(got.Scopes) != 1 || got.Scopes[0] != "send" {
+		if got, ok := mustGetNotificationBindingFixture(t, reloaded, binding.ID); !ok || len(got.Scopes) != 1 || got.Scopes[0] != "send" {
 			t.Fatalf("notification binding did not survive restart: %#v ok=%v", got, ok)
 		}
 	})
@@ -719,13 +720,22 @@ var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
 	"RunRepository":                 s0RunAliasSafe,
 	"ApprovalRepository":            s0ApprovalAliasSafe,
 	"ScheduleRepository":            s0ScheduleAliasSafe,
-	"ConnectorRepository":           s0ConnectorAliasSafe,
 	"PassiveNotificationRepository": s0PassiveAliasSafe,
 	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
 	"BrowserStateRepository":        s0BrowserAliasSafe,
 	"MemoryRepository":              s0MemoryAliasSafe,
 	"AuditRepository":               s0AuditAliasSafe,
 	"EvaluationRepository":          s0EvaluationAliasSafe,
+}
+
+func TestS0ConnectorRepositoryMutableValuesAreIsolated(t *testing.T) {
+	for _, backend := range newS0RepositoryBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			if !s0ConnectorAliasSafe(t, backend.store) {
+				t.Fatal("ConnectorRepository exposed a mutable binding alias")
+			}
+		})
+	}
 }
 
 func TestS0DefectEvidenceMutableAliases(t *testing.T) {
@@ -781,10 +791,10 @@ func s0ScheduleAliasSafe(t *testing.T, st Store) bool {
 
 func s0ConnectorAliasSafe(t *testing.T, st Store) bool {
 	t.Helper()
-	st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-alias", Channel: "telegram", Status: "active", Scopes: []string{"original"}})
-	got, _ := st.GetNotificationBinding("binding-alias")
+	mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-alias", Channel: "telegram", Status: "active", Scopes: []string{"original"}})
+	got, _ := mustGetNotificationBindingFixture(t, st, "binding-alias")
 	got.Scopes[0] = "mutated"
-	again, _ := st.GetNotificationBinding("binding-alias")
+	again, _ := mustGetNotificationBindingFixture(t, st, "binding-alias")
 	return again.Scopes[0] != "mutated"
 }
 

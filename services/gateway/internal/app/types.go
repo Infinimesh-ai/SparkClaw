@@ -221,7 +221,21 @@ type NotificationBinding struct {
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
 	LastError         string     `json:"last_error,omitempty"`
+	Version           int64      `json:"version"`
+	CredentialKind    string     `json:"credential_kind,omitempty"`
 }
+
+const (
+	NotificationBindingStarting          = "starting"
+	NotificationBindingWaitingScan       = "waiting_scan"
+	NotificationBindingWaitingConfirm    = "waiting_confirm"
+	NotificationBindingCredentialPending = "credential_pending"
+	NotificationBindingActive            = "active"
+	NotificationBindingRevoking          = "revoking"
+	NotificationBindingFailed            = "failed"
+	NotificationBindingExpired           = "expired"
+	NotificationBindingRevoked           = "revoked"
+)
 
 const (
 	PassiveNotificationKindDocumentMention = "document_mention"

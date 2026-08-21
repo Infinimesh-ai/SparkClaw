@@ -359,6 +359,8 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 	session := d.store.CreateSessionWithScope("微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
 	chatSession.LinkedSessionID = session.ID
 	chatSession.Status = "active"
+	chatSession.AuthorizedOwnerID = inbound.Binding.OwnerID
+	chatSession.AuthorizedActorID = inbound.Binding.ActorID
 	if inbound.ContextToken != "" {
 		chatSession.LastContextToken = inbound.ContextToken
 	}
@@ -616,6 +618,11 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 			existing.ProviderCursor = inbound.ProviderCursor
 			changed = true
 		}
+		if existing.AuthorizedOwnerID != inbound.Binding.OwnerID || existing.AuthorizedActorID != inbound.Binding.ActorID {
+			existing.AuthorizedOwnerID = inbound.Binding.OwnerID
+			existing.AuthorizedActorID = inbound.Binding.ActorID
+			changed = true
+		}
 		if changed {
 			return d.store.SaveExternalChatSession(existing), nil
 		}
@@ -623,18 +630,20 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 	}
 	session := d.store.CreateSessionWithScope("微信会话", ownerID, workspaceRoot, "weixin", true)
 	return d.store.SaveExternalChatSession(app.ExternalChatSession{
-		OwnerID:          ownerID,
-		WorkspaceRoot:    workspaceRoot,
-		BindingID:        inbound.Binding.ID,
-		Channel:          "weixin",
-		Provider:         inbound.Binding.Provider,
-		ExternalUserID:   externalUserID,
-		ExternalChatID:   externalUserID,
-		DisplayName:      inbound.Binding.DisplayName,
-		LinkedSessionID:  session.ID,
-		Status:           "active",
-		ProviderCursor:   inbound.ProviderCursor,
-		LastContextToken: inbound.ContextToken,
+		OwnerID:           ownerID,
+		AuthorizedOwnerID: inbound.Binding.OwnerID,
+		AuthorizedActorID: inbound.Binding.ActorID,
+		WorkspaceRoot:     workspaceRoot,
+		BindingID:         inbound.Binding.ID,
+		Channel:           "weixin",
+		Provider:          inbound.Binding.Provider,
+		ExternalUserID:    externalUserID,
+		ExternalChatID:    externalUserID,
+		DisplayName:       inbound.Binding.DisplayName,
+		LinkedSessionID:   session.ID,
+		Status:            "active",
+		ProviderCursor:    inbound.ProviderCursor,
+		LastContextToken:  inbound.ContextToken,
 	}), nil
 }
 

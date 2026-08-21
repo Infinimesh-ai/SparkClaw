@@ -44,7 +44,7 @@ func (a *NotificationAdapter) Capabilities() app.DeliveryCapabilities {
 }
 
 func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	binding, err := a.deliveryBinding(endpoint, request)
+	binding, err := a.deliveryBinding(ctx, endpoint, request)
 	if err != nil {
 		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
@@ -113,8 +113,12 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 	return receipt, nil
 }
 
-func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
-	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
+func (a *NotificationAdapter) deliveryBinding(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
+	binding, ok, err := a.store.GetNotificationBinding(ctx, strings.TrimSpace(endpoint.BindingRef))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding could not be read", "retryable")
+	}
+	if ok &&
 		binding.Status == "active" && binding.Channel == a.Key() {
 		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
@@ -234,7 +238,10 @@ func firstNonEmpty(values ...string) string {
 }
 
 func (a *NotificationAdapter) Send(ctx context.Context, request notification.Notification) (notification.Result, error) {
-	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(request.BindingID))
+	binding, ok, err := a.store.GetNotificationBinding(ctx, strings.TrimSpace(request.BindingID))
+	if err != nil {
+		return a.failed(request, "telegram binding could not be read", "retryable")
+	}
 	if !ok || binding.Channel != "telegram" || binding.Status != "active" {
 		return a.failed(request, "telegram binding is unavailable", "blocked")
 	}

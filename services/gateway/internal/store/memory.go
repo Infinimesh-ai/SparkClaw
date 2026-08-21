@@ -13,34 +13,37 @@ import (
 )
 
 type MemoryStore struct {
-	mu                    sync.RWMutex
-	operationTimeouts     OperationTimeouts
-	sessions              map[string]app.Session
-	clients               map[string]app.Client
-	clientWriteHighWater  map[string]time.Time
-	pairingWriteHighWater map[string]time.Time
-	clientNow             func() time.Time
-	ownerProfile          app.OwnerProfile
-	ownerProfiles         map[string]app.OwnerProfile
-	ownerWriteHighWater   map[string]time.Time
-	ownerNow              func() time.Time
-	pairingCodes          map[string]app.PairingCode
-	iscpOnboardings       map[string]app.ISCPOnboarding
-	mcpAccessTickets      map[string]app.MCPAccessTicket
-	mcpBindings           map[string]app.MCPBinding
-	mcpOperations         map[string]app.MCPOperation
-	messages              map[string][]app.Message
-	runFeedback           map[string][]app.RunFeedback
-	runs                  map[string]app.AgentRun
-	modelCalls            map[string]app.ModelCall
-	toolCalls             map[string]app.ToolCall
-	documentRecords       map[string]app.DocumentRecord
-	approvals             map[string]app.Approval
-	reminders             map[string]app.Reminder
-	reminderDelivery      map[string]app.ReminderDelivery
-	connectorSettings     map[string]app.ConnectorSetting
-	notificationBindings  map[string]app.NotificationBinding
-	passiveNotifications  map[string]app.PassiveNotification
+	mu                                sync.RWMutex
+	operationTimeouts                 OperationTimeouts
+	sessions                          map[string]app.Session
+	clients                           map[string]app.Client
+	clientWriteHighWater              map[string]time.Time
+	pairingWriteHighWater             map[string]time.Time
+	clientNow                         func() time.Time
+	ownerProfile                      app.OwnerProfile
+	ownerProfiles                     map[string]app.OwnerProfile
+	ownerWriteHighWater               map[string]time.Time
+	ownerNow                          func() time.Time
+	pairingCodes                      map[string]app.PairingCode
+	iscpOnboardings                   map[string]app.ISCPOnboarding
+	mcpAccessTickets                  map[string]app.MCPAccessTicket
+	mcpBindings                       map[string]app.MCPBinding
+	mcpOperations                     map[string]app.MCPOperation
+	messages                          map[string][]app.Message
+	runFeedback                       map[string][]app.RunFeedback
+	runs                              map[string]app.AgentRun
+	modelCalls                        map[string]app.ModelCall
+	toolCalls                         map[string]app.ToolCall
+	documentRecords                   map[string]app.DocumentRecord
+	approvals                         map[string]app.Approval
+	reminders                         map[string]app.Reminder
+	reminderDelivery                  map[string]app.ReminderDelivery
+	connectorSettings                 map[string]app.ConnectorSetting
+	notificationBindings              map[string]app.NotificationBinding
+	connectorSettingWriteHighWater    map[string]time.Time
+	notificationBindingWriteHighWater map[string]time.Time
+	connectorNow                      func() time.Time
+	passiveNotifications              map[string]app.PassiveNotification
 	// passiveNotificationIDsByKey indexes passiveNotifications by
 	// (endpoint_id, idempotency_key) so ingestion dedup is O(1) instead of a
 	// scan. Derived data: never persisted, rebuilt from loadSnapshot.
@@ -77,53 +80,56 @@ func NewMemoryStore() *MemoryStore {
 func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 	defaultOwner := app.DefaultOwnerProfile()
 	return &MemoryStore{
-		operationTimeouts:           normalizeOperationTimeouts(timeouts),
-		sessions:                    map[string]app.Session{},
-		clients:                     map[string]app.Client{},
-		clientWriteHighWater:        map[string]time.Time{},
-		pairingWriteHighWater:       map[string]time.Time{},
-		clientNow:                   time.Now,
-		ownerProfile:                cloneOwnerProfile(defaultOwner),
-		ownerProfiles:               map[string]app.OwnerProfile{app.DefaultOwnerID: cloneOwnerProfile(defaultOwner)},
-		ownerWriteHighWater:         map[string]time.Time{app.DefaultOwnerID: defaultOwner.UpdatedAt},
-		ownerNow:                    time.Now,
-		pairingCodes:                map[string]app.PairingCode{},
-		iscpOnboardings:             map[string]app.ISCPOnboarding{},
-		mcpAccessTickets:            map[string]app.MCPAccessTicket{},
-		mcpBindings:                 map[string]app.MCPBinding{},
-		mcpOperations:               map[string]app.MCPOperation{},
-		messages:                    map[string][]app.Message{},
-		runFeedback:                 map[string][]app.RunFeedback{},
-		runs:                        map[string]app.AgentRun{},
-		modelCalls:                  map[string]app.ModelCall{},
-		toolCalls:                   map[string]app.ToolCall{},
-		documentRecords:             map[string]app.DocumentRecord{},
-		approvals:                   map[string]app.Approval{},
-		reminders:                   map[string]app.Reminder{},
-		reminderDelivery:            map[string]app.ReminderDelivery{},
-		connectorSettings:           map[string]app.ConnectorSetting{},
-		notificationBindings:        map[string]app.NotificationBinding{},
-		passiveNotifications:        map[string]app.PassiveNotification{},
-		passiveNotificationIDsByKey: map[string]string{},
-		passiveNotificationRevs:     map[string]uint64{},
-		externalChatSessions:        map[string]app.ExternalChatSession{},
-		externalChatMessages:        map[string]app.ExternalChatMessage{},
-		messageReceives:             map[string]app.MessageReceiveRecord{},
-		messageDeliveries:           map[string]app.MessageDeliveryRecord{},
-		channelInboxUpdates:         map[string]app.ChannelInboxUpdate{},
-		credentialSecrets:           map[string]app.CredentialSecret{},
-		credentialWriteHighWater:    map[string]time.Time{},
-		credentialNow:               time.Now,
-		browserAuthRecords:          map[string]app.BrowserAuthRecord{},
-		browserLoginBlocks:          map[string]app.BrowserLoginBlock{},
-		memories:                    map[string]app.Memory{},
-		memoryCandidates:            map[string]app.MemoryCandidate{},
-		auditEvents:                 []app.AuditEvent{},
-		events:                      []app.Event{},
-		evalRuns:                    map[string]app.EvalRun{},
-		artifactObjects:             map[string]app.ArtifactObject{},
-		artifactObjectIDsByURI:      map[string]map[string]struct{}{},
-		episodeSummaries:            map[string]app.EpisodeSummary{},
+		operationTimeouts:                 normalizeOperationTimeouts(timeouts),
+		sessions:                          map[string]app.Session{},
+		clients:                           map[string]app.Client{},
+		clientWriteHighWater:              map[string]time.Time{},
+		pairingWriteHighWater:             map[string]time.Time{},
+		clientNow:                         time.Now,
+		ownerProfile:                      cloneOwnerProfile(defaultOwner),
+		ownerProfiles:                     map[string]app.OwnerProfile{app.DefaultOwnerID: cloneOwnerProfile(defaultOwner)},
+		ownerWriteHighWater:               map[string]time.Time{app.DefaultOwnerID: defaultOwner.UpdatedAt},
+		ownerNow:                          time.Now,
+		pairingCodes:                      map[string]app.PairingCode{},
+		iscpOnboardings:                   map[string]app.ISCPOnboarding{},
+		mcpAccessTickets:                  map[string]app.MCPAccessTicket{},
+		mcpBindings:                       map[string]app.MCPBinding{},
+		mcpOperations:                     map[string]app.MCPOperation{},
+		messages:                          map[string][]app.Message{},
+		runFeedback:                       map[string][]app.RunFeedback{},
+		runs:                              map[string]app.AgentRun{},
+		modelCalls:                        map[string]app.ModelCall{},
+		toolCalls:                         map[string]app.ToolCall{},
+		documentRecords:                   map[string]app.DocumentRecord{},
+		approvals:                         map[string]app.Approval{},
+		reminders:                         map[string]app.Reminder{},
+		reminderDelivery:                  map[string]app.ReminderDelivery{},
+		connectorSettings:                 map[string]app.ConnectorSetting{},
+		notificationBindings:              map[string]app.NotificationBinding{},
+		connectorSettingWriteHighWater:    map[string]time.Time{},
+		notificationBindingWriteHighWater: map[string]time.Time{},
+		connectorNow:                      time.Now,
+		passiveNotifications:              map[string]app.PassiveNotification{},
+		passiveNotificationIDsByKey:       map[string]string{},
+		passiveNotificationRevs:           map[string]uint64{},
+		externalChatSessions:              map[string]app.ExternalChatSession{},
+		externalChatMessages:              map[string]app.ExternalChatMessage{},
+		messageReceives:                   map[string]app.MessageReceiveRecord{},
+		messageDeliveries:                 map[string]app.MessageDeliveryRecord{},
+		channelInboxUpdates:               map[string]app.ChannelInboxUpdate{},
+		credentialSecrets:                 map[string]app.CredentialSecret{},
+		credentialWriteHighWater:          map[string]time.Time{},
+		credentialNow:                     time.Now,
+		browserAuthRecords:                map[string]app.BrowserAuthRecord{},
+		browserLoginBlocks:                map[string]app.BrowserLoginBlock{},
+		memories:                          map[string]app.Memory{},
+		memoryCandidates:                  map[string]app.MemoryCandidate{},
+		auditEvents:                       []app.AuditEvent{},
+		events:                            []app.Event{},
+		evalRuns:                          map[string]app.EvalRun{},
+		artifactObjects:                   map[string]app.ArtifactObject{},
+		artifactObjectIDsByURI:            map[string]map[string]struct{}{},
+		episodeSummaries:                  map[string]app.EpisodeSummary{},
 	}
 }
 
@@ -150,7 +156,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		Reminders:            cloneMap(s.reminders),
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
 		ConnectorSettings:    cloneMap(s.connectorSettings),
-		NotificationBindings: cloneMap(s.notificationBindings),
+		NotificationBindings: cloneNotificationBindingMap(s.notificationBindings),
 		PassiveNotifications: cloneMap(s.passiveNotifications),
 		ExternalChatSessions: cloneMap(s.externalChatSessions),
 		ExternalChatMessages: cloneMap(s.externalChatMessages),
@@ -234,7 +240,18 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.reminders = ensureMap(snapshot.Reminders)
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
 	s.connectorSettings = ensureMap(snapshot.ConnectorSettings)
-	s.notificationBindings = ensureMap(snapshot.NotificationBindings)
+	s.notificationBindings = cloneNotificationBindingMap(ensureMap(snapshot.NotificationBindings))
+	if s.connectorSettingWriteHighWater == nil {
+		s.connectorSettingWriteHighWater = map[string]time.Time{}
+	}
+	for key, setting := range s.connectorSettings {
+		if setting.UpdatedAt.After(s.connectorSettingWriteHighWater[key]) {
+			s.connectorSettingWriteHighWater[key] = setting.UpdatedAt
+		}
+	}
+	if s.notificationBindingWriteHighWater == nil {
+		s.notificationBindingWriteHighWater = map[string]time.Time{}
+	}
 	s.passiveNotifications = ensureMap(snapshot.PassiveNotifications)
 	// The idempotency index is derived state: older snapshots never carried it,
 	// so it is always rebuilt from the notifications themselves.
@@ -250,7 +267,11 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		if strings.TrimSpace(binding.ActorID) == "" {
 			binding.ActorID = binding.OwnerID
 		}
-		s.notificationBindings[id] = binding
+		s.notificationBindings[id] = cloneNotificationBinding(binding)
+		highWater := latestNotificationBindingTime(binding)
+		if highWater.After(s.notificationBindingWriteHighWater[id]) {
+			s.notificationBindingWriteHighWater[id] = highWater
+		}
 	}
 	s.externalChatSessions = ensureMap(snapshot.ExternalChatSessions)
 	for id, session := range snapshot.WeixinChatSessions {
@@ -1487,118 +1508,6 @@ func (s *MemoryStore) ListReminderDeliveries(reminderID string) []app.ReminderDe
 	return out
 }
 
-func (s *MemoryStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	setting, ok := s.connectorSettings[connectorSettingKey(ownerID, channel)]
-	return setting, ok
-}
-
-func (s *MemoryStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	ownerID = normalizeConnectorOwner(ownerID)
-	out := []app.ConnectorSetting{}
-	for _, setting := range s.connectorSettings {
-		if setting.OwnerID == ownerID {
-			out = append(out, setting)
-		}
-	}
-	slices.SortFunc(out, func(a, b app.ConnectorSetting) int {
-		return strings.Compare(a.Channel, b.Channel)
-	})
-	return out
-}
-
-func (s *MemoryStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]app.ConnectorSetting, 0, len(s.connectorSettings))
-	for _, setting := range s.connectorSettings {
-		out = append(out, setting)
-	}
-	slices.SortFunc(out, func(a, b app.ConnectorSetting) int {
-		if byOwner := strings.Compare(a.OwnerID, b.OwnerID); byOwner != 0 {
-			return byOwner
-		}
-		return strings.Compare(a.Channel, b.Channel)
-	})
-	return out, nil
-}
-
-func (s *MemoryStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	setting.OwnerID = normalizeConnectorOwner(setting.OwnerID)
-	setting.Channel = normalizeConnectorChannel(setting.Channel)
-	if setting.Channel == "" || expectedVersion < 0 {
-		return app.ConnectorSetting{}, ErrConnectorSettingConflict
-	}
-	key := connectorSettingKey(setting.OwnerID, setting.Channel)
-	current, exists := s.connectorSettings[key]
-	if (!exists && expectedVersion != 0) || (exists && current.Version != expectedVersion) {
-		return app.ConnectorSetting{}, ErrConnectorSettingConflict
-	}
-	setting.Version = expectedVersion + 1
-	setting.UpdatedBy = strings.TrimSpace(setting.UpdatedBy)
-	if setting.UpdatedBy == "" {
-		setting.UpdatedBy = setting.OwnerID
-	}
-	setting.UpdatedAt = time.Now().UTC()
-	s.connectorSettings[key] = setting
-	auditType := connectorSettingAuditType(exists, current.Enabled, current.ISCPEnabled, current.LANAccessEnabled, setting)
-	s.appendAuditLocked(auditType, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
-		"owner_id":           setting.OwnerID,
-		"channel":            setting.Channel,
-		"enabled":            setting.Enabled,
-		"iscp_enabled":       setting.ISCPEnabled,
-		"lan_access_enabled": setting.LANAccessEnabled,
-		"version":            setting.Version,
-	})
-	s.appendEventLocked(auditType, "", "", setting)
-	return setting, nil
-}
-
-func (s *MemoryStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now().UTC()
-	if binding.ID == "" {
-		binding.ID = app.NewID("bind")
-	}
-	if binding.OwnerID == "" {
-		binding.OwnerID = app.DefaultOwnerID
-	}
-	if binding.ActorID == "" {
-		binding.ActorID = binding.OwnerID
-	}
-	if binding.CreatedAt.IsZero() {
-		binding.CreatedAt = now
-	}
-	binding.UpdatedAt = now
-	if binding.Status == "" {
-		binding.Status = "waiting_scan"
-	}
-	if binding.DefaultForChannel {
-		for id, existing := range s.notificationBindings {
-			if existing.OwnerID == binding.OwnerID && existing.Channel == binding.Channel && existing.ID != binding.ID {
-				existing.DefaultForChannel = false
-				existing.UpdatedAt = now
-				s.notificationBindings[id] = existing
-			}
-		}
-	}
-	s.notificationBindings[binding.ID] = binding
-	s.appendAuditLocked("notification_binding."+binding.Status, "", "", "owner", binding.Channel, map[string]any{
-		"binding_id": binding.ID,
-		"channel":    binding.Channel,
-		"provider":   binding.Provider,
-		"default":    binding.DefaultForChannel,
-	})
-	s.appendEventLocked("notification_binding."+binding.Status, "", "", binding)
-	return binding
-}
-
 func normalizeConnectorOwner(ownerID string) string {
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID == "" {
@@ -1613,57 +1522,6 @@ func normalizeConnectorChannel(channel string) string {
 
 func connectorSettingKey(ownerID, channel string) string {
 	return normalizeConnectorOwner(ownerID) + "\x1f" + normalizeConnectorChannel(channel)
-}
-
-func (s *MemoryStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	binding, ok := s.notificationBindings[id]
-	return binding, ok
-}
-
-func (s *MemoryStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []app.NotificationBinding{}
-	for _, binding := range s.notificationBindings {
-		if channel != "" && binding.Channel != channel {
-			continue
-		}
-		if status != "" && binding.Status != status {
-			continue
-		}
-		out = append(out, binding)
-	}
-	slices.SortFunc(out, func(a, b app.NotificationBinding) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
-	})
-	return out
-}
-
-func (s *MemoryStore) RevokeNotificationBinding(id string) (app.NotificationBinding, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	binding, ok := s.notificationBindings[id]
-	if !ok {
-		return app.NotificationBinding{}, errors.New("notification binding not found")
-	}
-	if binding.Status == "revoked" {
-		return binding, nil
-	}
-	now := time.Now().UTC()
-	binding.Status = "revoked"
-	binding.RevokedAt = &now
-	binding.UpdatedAt = now
-	binding.DefaultForChannel = false
-	s.notificationBindings[id] = binding
-	s.appendAuditLocked("notification_binding.revoked", "", "", "owner", binding.Channel, map[string]any{
-		"binding_id": binding.ID,
-		"channel":    binding.Channel,
-		"provider":   binding.Provider,
-	})
-	s.appendEventLocked("notification_binding.revoked", "", "", binding)
-	return binding, nil
 }
 
 func (s *MemoryStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
@@ -1894,13 +1752,7 @@ func (s *MemoryStore) SaveExternalChatSession(session app.ExternalChatSession) a
 		session.ExternalChatID = session.ExternalUserID
 	}
 	if strings.TrimSpace(session.AuthorizedOwnerID) == "" {
-		if binding, ok := s.notificationBindings[session.BindingID]; ok {
-			session.AuthorizedOwnerID = binding.OwnerID
-			session.AuthorizedActorID = binding.ActorID
-		}
-		if session.AuthorizedOwnerID == "" {
-			session.AuthorizedOwnerID = session.OwnerID
-		}
+		session.AuthorizedOwnerID = session.OwnerID
 	}
 	if strings.TrimSpace(session.AuthorizedActorID) == "" {
 		session.AuthorizedActorID = session.AuthorizedOwnerID

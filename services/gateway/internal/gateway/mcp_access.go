@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -53,7 +54,11 @@ func (s *Server) listMCPAccessCatalog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
-	transport := s.mcpTransportStatus(principalForRequest(r).OwnerID)
+	transport, err := s.mcpTransportStatus(r.Context(), principalForRequest(r).OwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scope":              app.MCPAccessConversation,
 		"business_tool":      "sparkclaw.conversation.send",
@@ -72,15 +77,11 @@ func (s *Server) mcpAccessDomainID() string {
 	return s.cfg.MCPAccess.LocalDomainID
 }
 
-func (s *Server) mcpTransportStatus(ownerID string) app.ConnectorStatus {
+func (s *Server) mcpTransportStatus(ctx context.Context, ownerID string) (app.ConnectorStatus, error) {
 	if s.connectors == nil {
-		return app.ConnectorStatus{}
+		return app.ConnectorStatus{}, errors.New("connector control is unavailable")
 	}
-	status, err := s.connectors.Status(ownerID, "mcp")
-	if err != nil {
-		return app.ConnectorStatus{}
-	}
-	return status
+	return s.connectors.Status(ctx, ownerID, "mcp")
 }
 
 func (s *Server) updateMCPTransports(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +229,12 @@ func (s *Server) dispatchMCPBridgeRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 	principal := principalForRequest(r)
-	if !s.mcpTransportStatus(principal.OwnerID).ISCPEnabled {
+	transport, err := s.mcpTransportStatus(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	if !transport.ISCPEnabled {
 		writeError(w, http.StatusForbidden, errors.New("MCP over ISCP is disabled"))
 		return
 	}
@@ -314,7 +320,16 @@ func (s *Server) matchesBindOrigin(origin *url.URL) bool {
 }
 
 func (s *Server) dispatchLANDirectMCP(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpTransportStatus(app.DefaultOwnerID).LANAccessEnabled {
+	if s.connectors == nil {
+		http.NotFound(w, r)
+		return
+	}
+	transport, err := s.mcpTransportStatus(r.Context(), app.DefaultOwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	if !transport.LANAccessEnabled {
 		http.NotFound(w, r)
 		return
 	}

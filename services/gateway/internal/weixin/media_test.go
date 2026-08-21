@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
@@ -220,7 +221,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_1", OwnerID: app.DefaultOwnerID, Channel: "weixin", Status: "active", ExternalUserID: "wx-user", BaseURL: ts.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_1", OwnerID: app.DefaultOwnerID, Channel: "weixin", Status: "active", ExternalUserID: "wx-user", BaseURL: ts.URL})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
 		Enabled:  true,
 		Provider: "openclaw-weixin-qr",
@@ -298,7 +299,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 		LinkedSessionID: oldSession.ID,
 		Status:          "active",
 	})
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
 		Enabled:  true,
 		Provider: "openclaw-weixin-qr",
@@ -364,7 +365,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	approvalID := app.NewID("ap")
@@ -429,7 +430,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "docx.replace_paragraph", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}

@@ -13,12 +13,15 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type Registration struct {
 	Channel         string
 	SetupKind       string
 	Binding         binding.Adapter
+	BindingProvider string
+	CredentialKind  string
 	Provider        delivery.Provider
 	Runtime         connectorruntime.Runtime
 	CancelBinding   func(app.NotificationBinding)
@@ -34,7 +37,7 @@ func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {
 
 type Registry struct {
 	cfg            config.Config
-	store          connectorStore
+	store          store.ConnectorRepository
 	registrations  map[string]Registration
 	providers      *delivery.ProviderRegistry
 	settingsMu     sync.RWMutex
@@ -45,18 +48,19 @@ type Registry struct {
 	runtimeRuns    map[string]*runtimeRun
 	runtimeErrors  map[string]string
 	started        bool
+	credentials    CredentialLifecycle
+	bindingLocks   sync.Map
 }
 
-type connectorStore interface {
-	GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool)
-	ListConnectorSettings(ownerID string) []app.ConnectorSetting
-	ListAllConnectorSettings() ([]app.ConnectorSetting, error)
-	UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error)
-	ListNotificationBindings(channel, status string) []app.NotificationBinding
+type CredentialLifecycle interface {
+	Ready() error
+	Seal(context.Context, string, string, []byte) (string, error)
+	Delete(context.Context, string) error
+	AbortSeal(context.Context, string, string) error
 }
 
-func NewRegistry(cfg config.Config, stores ...connectorStore) *Registry {
-	var st connectorStore
+func NewRegistry(cfg config.Config, stores ...store.ConnectorRepository) *Registry {
+	var st store.ConnectorRepository
 	if len(stores) > 0 {
 		st = stores[0]
 	}
@@ -69,6 +73,11 @@ func NewRegistry(cfg config.Config, stores ...connectorStore) *Registry {
 		runtimeRuns:   map[string]*runtimeRun{},
 		runtimeErrors: map[string]string{},
 	}
+}
+
+func (r *Registry) WithCredentialLifecycle(credentials CredentialLifecycle) *Registry {
+	r.credentials = credentials
+	return r
 }
 
 func (r *Registry) Register(registration Registration) error {

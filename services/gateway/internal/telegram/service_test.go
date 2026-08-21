@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func telegramTestRuntimeScope() connectorruntime.RuntimeScope {
@@ -30,7 +31,7 @@ func telegramTestRuntimeScope() connectorruntime.RuntimeScope {
 func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(activeTelegramBinding("bind_order", 9, 9))
+	binding := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_order", 9, 9))
 	runtime := &recordingRuntime{}
 	dispatcher := NewDispatcher(st, runtime, cfg)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -48,7 +49,7 @@ func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 		if _, ok := st.FindChannelInboxUpdate(binding.ID, "42"); !ok {
 			t.Fatal("offset request happened before durable inbox insert")
 		}
-		stored, _ := st.GetNotificationBinding(binding.ID)
+		stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 		if stored.ProviderCursor != "43" || offset != 43 {
 			t.Fatalf("offset was not persisted after inbox insert: binding=%#v request=%d", stored, offset)
 		}
@@ -68,8 +69,8 @@ func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 func TestServicePollsEveryTelegramBinding(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	bindingA := st.SaveNotificationBinding(activeTelegramBinding("bind_poll_a", 1, 101))
-	bindingB := st.SaveNotificationBinding(activeTelegramBinding("bind_poll_b", 2, 202))
+	bindingA := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_poll_a", 1, 101))
+	bindingB := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_poll_b", 2, 202))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -106,7 +107,7 @@ func TestServicePollsEveryTelegramBinding(t *testing.T) {
 func TestServiceDeduplicatesTransportUpdates(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(activeTelegramBinding("bind_dedupe", 9, 9))
+	binding := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_dedupe", 9, 9))
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
 	update := Update{UpdateID: 55, Message: telegramTextMessage(8, 9, 9, "hello")}
 	if err := service.persistUpdate(binding, update); err != nil {
@@ -125,7 +126,7 @@ func TestServiceDeduplicatesTransportUpdates(t *testing.T) {
 func TestServiceRejectsUnknownUserBeforeDownloadOrAgent(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(activeTelegramBinding("bind_auth", 9, 9))
+	binding := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_auth", 9, 9))
 	runtime := &recordingRuntime{}
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
@@ -164,7 +165,7 @@ func TestServiceClaimsFirstFreshPrivateMessage(t *testing.T) {
 		CreatedAt:         createdAt,
 		UpdatedAt:         createdAt,
 	}
-	binding = st.SaveNotificationBinding(binding)
+	binding = storetest.MustCreateNotificationBinding(t, st, binding)
 	bot := &fakeBotAPI{}
 	runtime := &recordingRuntime{}
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, runtime, cfg)).
@@ -176,14 +177,14 @@ func TestServiceClaimsFirstFreshPrivateMessage(t *testing.T) {
 	group := Update{UpdateID: 2, Message: telegramTextMessage(2, 20, -20, "/start")}
 	group.Message.Chat.Type = "group"
 	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, group))
-	stored, _ := st.GetNotificationBinding(binding.ID)
+	stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 	if stored.ExternalUserID != "" || stored.ExternalChatID != "" || bot.sentCount() != 0 || runtime.callCount() != 0 {
 		t.Fatalf("stale or non-private message claimed binding: binding=%#v replies=%d calls=%d", stored, bot.sentCount(), runtime.callCount())
 	}
 
 	fresh := Update{UpdateID: 3, Message: telegramTextMessage(3, 11, 11, "/start")}
 	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, fresh))
-	stored, _ = st.GetNotificationBinding(binding.ID)
+	stored, _ = storetest.MustGetNotificationBinding(t, st, binding.ID)
 	if stored.Status != "active" || stored.ExternalUserID != "11" || stored.ExternalChatID != "11" || stored.ContextToken != "11" || !stored.DefaultForChannel {
 		t.Fatalf("fresh private message did not claim binding: %#v", stored)
 	}
@@ -204,7 +205,7 @@ func TestServiceDispatchesFirstOrdinaryMessageAfterClaim(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:            "bind_first_message",
 		OwnerID:       app.DefaultOwnerID,
 		Channel:       "telegram",
@@ -222,7 +223,7 @@ func TestServiceDispatchesFirstOrdinaryMessageAfterClaim(t *testing.T) {
 
 	update := Update{UpdateID: 1, Message: telegramTextMessage(1, 42, 42, "hello from phone")}
 	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, update))
-	stored, _ := st.GetNotificationBinding(binding.ID)
+	stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 	if stored.ExternalUserID != "42" || stored.ExternalChatID != "42" || runtime.callCount() != 1 || deliverer.callCount() != 1 || bot.sentCount() != 0 {
 		t.Fatalf("first ordinary message did not use exactly one result delivery: binding=%#v calls=%d deliveries=%d direct_replies=%d", stored, runtime.callCount(), deliverer.callCount(), bot.sentCount())
 	}
@@ -236,7 +237,7 @@ func TestServiceClaimBindingAllowsOnlyOneConcurrentChat(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:            "bind_race",
 		OwnerID:       app.DefaultOwnerID,
 		Channel:       "telegram",
@@ -252,14 +253,15 @@ func TestServiceClaimBindingAllowsOnlyOneConcurrentChat(t *testing.T) {
 		{UpdateID: 2, Message: telegramTextMessage(2, 202, 2002, "/start")},
 	}
 	claimed := make(chan bool, len(updates))
+	ctx := t.Context()
 	var wg sync.WaitGroup
 	for _, update := range updates {
 		update := update
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, authorized, claimedNow := service.claimBinding(binding.ID, update)
-			claimed <- authorized && claimedNow
+			_, authorized, claimedNow, err := service.claimBinding(ctx, binding.ID, update)
+			claimed <- err == nil && authorized && claimedNow
 		}()
 	}
 	wg.Wait()
@@ -270,7 +272,7 @@ func TestServiceClaimBindingAllowsOnlyOneConcurrentChat(t *testing.T) {
 			winners++
 		}
 	}
-	stored, _ := st.GetNotificationBinding(binding.ID)
+	stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 	if winners != 1 || (stored.ExternalUserID != "101" && stored.ExternalUserID != "202") {
 		t.Fatalf("concurrent claim winners=%d binding=%#v", winners, stored)
 	}
@@ -280,7 +282,7 @@ func TestServiceCursorUpdatePreservesConcurrentClaim(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	staleSnapshot := st.SaveNotificationBinding(app.NotificationBinding{
+	staleSnapshot := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:            "bind_cursor_claim",
 		OwnerID:       app.DefaultOwnerID,
 		Channel:       "telegram",
@@ -291,37 +293,20 @@ func TestServiceCursorUpdatePreservesConcurrentClaim(t *testing.T) {
 		UpdatedAt:     now,
 	})
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
-	_, authorized, claimed := service.claimBinding(staleSnapshot.ID, Update{
+	_, authorized, claimed, err := service.claimBinding(t.Context(), staleSnapshot.ID, Update{
 		UpdateID: 1,
 		Message:  telegramTextMessage(1, 77, 77, "/start"),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !authorized || !claimed {
 		t.Fatal("fixture claim failed")
 	}
-	service.saveBindingCursor(staleSnapshot, 2)
-	stored, _ := st.GetNotificationBinding(staleSnapshot.ID)
+	service.saveBindingCursor(t.Context(), staleSnapshot, 2)
+	stored, _ := storetest.MustGetNotificationBinding(t, st, staleSnapshot.ID)
 	if stored.ProviderCursor != "2" || stored.ExternalUserID != "77" || stored.ExternalChatID != "77" {
 		t.Fatalf("cursor update overwrote recipient claim: %#v", stored)
-	}
-}
-
-func TestServiceMigratesLegacyChallengeBindings(t *testing.T) {
-	cfg := telegramTestConfig(t)
-	st := store.NewMemoryStore()
-	expires := time.Now().UTC().Add(-time.Minute)
-	for _, fixture := range []app.NotificationBinding{
-		{ID: "bind_waiting", Channel: "telegram", Provider: "telegram-bot-api", Status: "waiting_confirm", CredentialRef: "cred_waiting", ProviderState: "sha256:legacy", QRCodeURL: "https://t.me/bot?start=legacy", DefaultForChannel: true, ExpiresAt: &expires},
-		{ID: "bind_expired", Channel: "telegram", Provider: "telegram-bot-api", Status: "expired", CredentialRef: "cred_expired", LastError: "expired", ExpiresAt: &expires},
-	} {
-		st.SaveNotificationBinding(fixture)
-	}
-	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
-	service.migrateLegacyDirectBindings()
-	for _, id := range []string{"bind_waiting", "bind_expired"} {
-		binding, _ := st.GetNotificationBinding(id)
-		if binding.Status != "active" || binding.ProviderState != "" || binding.QRCodeURL != "" || binding.ExpiresAt != nil || binding.LastError != "" || binding.DefaultForChannel {
-			t.Fatalf("legacy binding %s was not migrated: %#v", id, binding)
-		}
 	}
 }
 
@@ -329,7 +314,7 @@ func TestServiceClaimsMultipleBotsForDifferentUsers(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	newBinding := func(id, credentialRef string) app.NotificationBinding {
-		return st.SaveNotificationBinding(app.NotificationBinding{
+		return storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 			ID:            id,
 			OwnerID:       app.DefaultOwnerID,
 			Channel:       "telegram",
@@ -359,8 +344,8 @@ func TestServiceClaimsMultipleBotsForDifferentUsers(t *testing.T) {
 		Message:  telegramTextMessage(2, 202, 2002, "/start"),
 	}))
 
-	activatedA, _ := st.GetNotificationBinding(bindingA.ID)
-	activatedB, _ := st.GetNotificationBinding(bindingB.ID)
+	activatedA, _ := storetest.MustGetNotificationBinding(t, st, bindingA.ID)
+	activatedB, _ := storetest.MustGetNotificationBinding(t, st, bindingB.ID)
 	if activatedA.Status != "active" || activatedA.ExternalUserID != "101" || activatedA.ExternalChatID != "1001" || activatedA.CredentialRef != "cred_bot_a" {
 		t.Fatalf("first Telegram user activation mismatch: %#v", activatedA)
 	}
@@ -378,8 +363,8 @@ func TestServiceOrdersSameChatAndBoundsGlobalWorkers(t *testing.T) {
 	channel.MaxConcurrency = 2
 	channel.MaxPending = 8
 	st := store.NewMemoryStore()
-	bindingA := st.SaveNotificationBinding(activeTelegramBinding("bind_a", 1, 101))
-	bindingB := st.SaveNotificationBinding(activeTelegramBinding("bind_b", 2, 202))
+	bindingA := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_a", 1, 101))
+	bindingB := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_b", 2, 202))
 	runtime := newBlockingRuntime()
 	bot := &fakeBotAPI{}
 	service := NewService(st, channel, nil, NewDispatcher(st, runtime, cfg).WithResultDeliverer(&recordingWorkflowResultDeliverer{})).
@@ -417,7 +402,7 @@ func TestServiceOwnerGateDrainsDispatchedWorkAndSuspendsPendingInbox(t *testing.
 	st := store.NewMemoryStore()
 	binding := activeTelegramBinding("bind_owner_gate", 1, 101)
 	binding.OwnerID = "owner-a"
-	binding = st.SaveNotificationBinding(binding)
+	binding = storetest.MustCreateNotificationBinding(t, st, binding)
 	runtime := newBlockingRuntime()
 	service := NewService(st, channel, nil, NewDispatcher(st, runtime, cfg).WithResultDeliverer(&recordingWorkflowResultDeliverer{})).
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return &fakeBotAPI{}, nil })
@@ -429,7 +414,11 @@ func TestServiceOwnerGateDrainsDispatchedWorkAndSuspendsPendingInbox(t *testing.
 		Channel:      "telegram",
 		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-a" && enabled.Load() },
 	}
-	if bindings := service.pollingBindings(scope); len(bindings) != 1 || bindings[0].ID != binding.ID {
+	bindings, err := service.pollingBindings(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 1 || bindings[0].ID != binding.ID {
 		t.Fatalf("enabled owner polling bindings = %#v", bindings)
 	}
 	service.dispatchPending(context.Background(), scope)
@@ -437,7 +426,11 @@ func TestServiceOwnerGateDrainsDispatchedWorkAndSuspendsPendingInbox(t *testing.
 		t.Fatalf("first dispatched item = %q", started)
 	}
 	enabled.Store(false)
-	if bindings := service.pollingBindings(scope); len(bindings) != 0 {
+	bindings, err = service.pollingBindings(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 0 {
 		t.Fatalf("disabled owner remained pollable: %#v", bindings)
 	}
 	runtime.release <- struct{}{}
@@ -478,7 +471,7 @@ func TestServiceRecoversOnlyExpiredProcessingLeases(t *testing.T) {
 func TestServiceCancelBindingCancelsQueuedAndActiveUpdates(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(activeTelegramBinding("bind_cancel", 1, 1))
+	binding := storetest.MustCreateNotificationBinding(t, st, activeTelegramBinding("bind_cancel", 1, 1))
 	runtime := newBlockingRuntime()
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, runtime, cfg)).
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return &fakeBotAPI{}, nil })

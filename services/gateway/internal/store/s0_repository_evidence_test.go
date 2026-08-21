@@ -196,7 +196,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0RepositoryTest("ConnectorRepository", s0DimensionSuccess),
 		s0RepositoryTest("ConnectorRepository", s0DimensionAbsence),
 		s0Tests("TestMemoryStoreListsAllConnectorSettingsInStableOwnerChannelOrder@connector_settings_test.go"),
-		s0Tests("TestS0DefectEvidenceMutableAliases/ConnectorRepository@s0_repository_characterization_test.go"),
+		s0Tests("TestS0ConnectorRepositoryMutableValuesAreIsolated@s0_repository_characterization_test.go"),
 		s0RepositoryTest("ConnectorRepository", s0DimensionDuplicate),
 		s0Tests("TestMemoryStoreConnectorSettingUsesCASAndOwnerScope@connector_settings_test.go"),
 		s0LifecycleTest("ConnectorRepository"),

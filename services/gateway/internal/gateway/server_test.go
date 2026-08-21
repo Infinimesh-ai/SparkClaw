@@ -23,12 +23,14 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connector"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -911,7 +913,7 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-stream-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
@@ -1005,7 +1007,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 			ContentType: file.contentType, Bytes: len(file.content),
 		})
 	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-media-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
@@ -2712,9 +2714,16 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 		Recipient: "wx-user-123456",
 	}
 	st := store.NewMemoryStore()
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{
+		Channel: "weixin", SetupKind: app.ConnectorSetupQR,
+		Binding: binding.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"]),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime)
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -2724,7 +2733,8 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	}
 	defer startResp.Body.Close()
 	if startResp.StatusCode != http.StatusCreated {
-		t.Fatalf("start binding returned %d", startResp.StatusCode)
+		raw, _ := io.ReadAll(startResp.Body)
+		t.Fatalf("start binding returned %d: %s", startResp.StatusCode, raw)
 	}
 	var started map[string]any
 	if err := json.NewDecoder(startResp.Body).Decode(&started); err != nil {
@@ -2738,7 +2748,7 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 		t.Fatalf("new binding did not receive all messaging scopes: %#v", started["scopes"])
 	}
 
-	pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+	pollResp, err := http.Post(ts.URL+"/api/notification-bindings/"+id+"/poll", "application/json", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2766,16 +2776,16 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer revokeResp.Body.Close()
-	var unavailable map[string]any
-	if err := json.NewDecoder(revokeResp.Body).Decode(&unavailable); err != nil {
+	var revoked map[string]any
+	if err := json.NewDecoder(revokeResp.Body).Decode(&revoked); err != nil {
 		t.Fatal(err)
 	}
-	if revokeResp.StatusCode != http.StatusServiceUnavailable || unavailable["code"] != credential.CodeUnavailable {
-		t.Fatalf("expected unavailable revoke before the durable connector barrier, status=%d body=%#v", revokeResp.StatusCode, unavailable)
+	if revokeResp.StatusCode != http.StatusOK || revoked["status"] != app.NotificationBindingRevoked {
+		t.Fatalf("revoke did not reach the durable terminal state, status=%d body=%#v", revokeResp.StatusCode, revoked)
 	}
-	retained, ok := st.GetNotificationBinding(id)
-	if !ok || retained.Status != "active" || retained.CredentialRef == "" {
-		t.Fatalf("ambiguous revoke did not retain the active binding and credential: %#v ok=%v", retained, ok)
+	retained, ok := storetest.MustGetNotificationBinding(t, st, id)
+	if !ok || retained.Status != app.NotificationBindingRevoked || retained.DefaultForChannel {
+		t.Fatalf("revoke did not persist the terminal binding: %#v ok=%v", retained, ok)
 	}
 }
 
@@ -2790,8 +2800,14 @@ func TestNotificationBindingUsesInjectedProviderNeutralAdapter(t *testing.T) {
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	adapter := &genericBindingAdapter{}
-	router := binding.NewBaseRouter(cfg).WithAdapter("alpha", adapter)
-	server := New(cfg, st, tools, runtime, WithBindingRouter(router))
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{
+		Channel: "alpha", SetupKind: app.ConnectorSetupSecret,
+		Binding: adapter, BindingProvider: "alpha-http",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -2891,9 +2907,17 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	cfg.Tools.Notifications.Channels["telegram"] = channel
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: strings.Repeat("z", 32)})
+	registry := connector.NewRegistry(cfg, st).WithCredentialLifecycle(vault)
+	if err := registry.Register(connector.Registration{
+		Channel: "telegram", SetupKind: app.ConnectorSetupSecret,
+		Binding:         binding.NewTelegramAdapter("telegram", channel, vault),
+		BindingProvider: "telegram-bot-api", CredentialKind: "telegram-bot-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime, WithCredentialVault(vault))
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -2912,8 +2936,8 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if rejected.StatusCode != http.StatusBadRequest || !bytes.Contains(rejectedRaw, []byte(`"code":"invalid_bot_token"`)) || bytes.Contains(rejectedRaw, []byte(rejectedToken)) {
 		t.Fatalf("rejected token response was unsafe: status=%d body=%s", rejected.StatusCode, rejectedRaw)
 	}
-	if bindings := st.ListNotificationBindings("telegram", ""); len(bindings) != 0 {
-		t.Fatalf("rejected token persisted a binding: %#v", bindings)
+	if bindings := storetest.MustListNotificationBindings(t, st, "telegram", ""); len(bindings) != 1 || bindings[0].Status != app.NotificationBindingFailed || bindings[0].LastError != binding.CodeInvalidBotToken {
+		t.Fatalf("rejected token did not persist one safe terminal binding: %#v", bindings)
 	}
 
 	validBody := `{"bot_token":"` + validToken + `"}`
@@ -2934,7 +2958,7 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if id == "" || started["status"] != "active" || started["qr_code_url"] != "" || strings.Contains(fmt.Sprint(started), validToken) {
 		t.Fatalf("unexpected Telegram start response: %#v", started)
 	}
-	persisted, ok := st.GetNotificationBinding(id)
+	persisted, ok := storetest.MustGetNotificationBinding(t, st, id)
 	if !ok || persisted.CredentialRef == "" || persisted.ExternalUserID != "" || persisted.ExternalChatID != "" || persisted.ProviderState != "" || persisted.ExpiresAt != nil {
 		t.Fatalf("unexpected persisted Telegram binding: %#v ok=%v", persisted, ok)
 	}
@@ -2981,13 +3005,13 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if secondID == "" || secondID == id || second["display_name"] != "@sparkclaw_second_bot" || strings.Contains(fmt.Sprint(second), secondValidToken) {
 		t.Fatalf("unexpected second Telegram binding: %#v", second)
 	}
-	secondPersisted, ok := st.GetNotificationBinding(secondID)
+	secondPersisted, ok := storetest.MustGetNotificationBinding(t, st, secondID)
 	if !ok || secondPersisted.CredentialRef == "" || secondPersisted.CredentialRef == persisted.CredentialRef || secondPersisted.AccountID != "234567890" {
 		t.Fatalf("second Telegram binding was not isolated: %#v ok=%v", secondPersisted, ok)
 	}
-	bindings := st.ListNotificationBindings("telegram", "")
-	if len(bindings) != 2 {
-		t.Fatalf("Telegram binding count = %d, want 2: %#v", len(bindings), bindings)
+	bindings := storetest.MustListNotificationBindings(t, st, "telegram", "")
+	if len(bindings) != 3 {
+		t.Fatalf("Telegram binding count = %d, want 3 including the failed attempt: %#v", len(bindings), bindings)
 	}
 	connector = readTelegramConnector(t, ts.URL)
 	if connector["startable"] != true || connector["disabled_reason"] != "" {
@@ -3006,6 +3030,10 @@ func readNotificationConnector(t *testing.T, baseURL, channel string) map[string
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("read connector %q returned %d: %s", channel, resp.StatusCode, raw)
+	}
 	var configBody struct {
 		Tools struct {
 			Notifications struct {
@@ -3030,9 +3058,16 @@ func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
 		Recipient: "wx-default-recipient",
 	}
 	st := store.NewMemoryStore()
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{
+		Channel: "weixin", SetupKind: app.ConnectorSetupQR,
+		Binding: binding.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"]),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime)
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -3051,7 +3086,7 @@ func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := started["id"].(string)
-		pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+		pollResp, err := http.Post(ts.URL+"/api/notification-bindings/"+id+"/poll", "application/json", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3074,7 +3109,7 @@ func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
 	if second["default_for_channel"] == true {
 		t.Fatalf("second active binding should not steal default without explicit request: %#v", second)
 	}
-	bindings := st.ListNotificationBindings("weixin", "active")
+	bindings := storetest.MustListNotificationBindings(t, st, "weixin", app.NotificationBindingActive)
 	defaults := 0
 	for _, binding := range bindings {
 		if binding.DefaultForChannel {

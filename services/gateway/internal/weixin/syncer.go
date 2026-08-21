@@ -101,7 +101,12 @@ func (s *Syncer) Tick(ctx context.Context, scope connectorruntime.RuntimeScope) 
 }
 
 func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope) {
-	for _, binding := range s.store.ListNotificationBindings("weixin", "active") {
+	bindings, err := s.store.ListNotificationBindings(ctx, "weixin", "active")
+	if err != nil {
+		slog.Warn("weixin bindings unavailable", "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	for _, binding := range bindings {
 		if !scope.AllowsOwner(binding.OwnerID) {
 			continue
 		}
@@ -115,9 +120,11 @@ func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.Runti
 			continue
 		}
 		if err := s.syncBinding(ctx, workCtx, scope, binding); err != nil {
-			binding.LastError = err.Error()
-			binding.UpdatedAt = time.Now().UTC()
-			s.store.SaveNotificationBinding(binding)
+			replacement := binding
+			replacement.LastError = err.Error()
+			if _, updateErr := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement)); updateErr != nil {
+				slog.Warn("weixin binding error state could not be persisted", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(updateErr))
+			}
 			slog.Warn("weixin context sync failed", "binding_id", binding.ID, "error", err)
 		}
 	}
@@ -152,6 +159,7 @@ type inboundBatch struct {
 }
 
 func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope, binding app.NotificationBinding) error {
+	previous := binding
 	baseURL := strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/")
 	if baseURL == "" {
 		return nil
@@ -242,15 +250,18 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 			changed = true
 		}
 		if changed {
-			binding.UpdatedAt = time.Now().UTC()
-			s.store.SaveNotificationBinding(binding)
+			if _, err := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(previous, binding)); err != nil {
+				return err
+			}
 			slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
 		}
 		return nil
 	}
 	if changed {
-		binding.UpdatedAt = time.Now().UTC()
-		binding = s.store.SaveNotificationBinding(binding)
+		binding, err = s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(previous, binding))
+		if err != nil {
+			return err
+		}
 		slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
 	}
 	s.enqueueBatch(workCtx, scope, inboundBatch{Binding: binding, Cursor: decoded.GetUpdatesBuf, Msgs: envelopes})
@@ -358,21 +369,32 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 				"binding_id", binding.ID, "external_id", msg.ExternalID, "attempts", attempts, "error", err)
 		}
 	}
-	s.advanceCursor(binding.ID, batch.Cursor)
+	s.advanceCursor(ctx, binding.ID, batch.Cursor)
 }
 
-func (s *Syncer) advanceCursor(bindingID, cursor string) {
+func (s *Syncer) advanceCursor(ctx context.Context, bindingID, cursor string) {
 	if strings.TrimSpace(cursor) == "" {
 		return
 	}
-	// Reload so we don't clobber concurrent updates to the binding record.
-	binding, ok := s.store.GetNotificationBinding(bindingID)
-	if !ok || binding.ProviderCursor == cursor {
-		return
+	for attempt := 0; attempt < 3; attempt++ {
+		binding, ok, err := s.store.GetNotificationBinding(ctx, bindingID)
+		if err != nil {
+			slog.Warn("weixin binding cursor read failed", "binding_id", bindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		if !ok || binding.ProviderCursor == cursor {
+			return
+		}
+		replacement := binding
+		replacement.ProviderCursor = cursor
+		if _, err := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement)); err == nil {
+			return
+		} else if store.StoreErrorCodeOf(err) != store.StoreErrorConflict {
+			slog.Warn("weixin binding cursor update failed", "binding_id", bindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
 	}
-	binding.ProviderCursor = cursor
-	binding.UpdatedAt = time.Now().UTC()
-	s.store.SaveNotificationBinding(binding)
+	slog.Warn("weixin binding cursor update conflicted repeatedly", "binding_id", bindingID)
 }
 
 // recordDispatchAttempt persists a failed dispatch on the inbound message

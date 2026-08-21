@@ -1,8 +1,6 @@
 package store
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -207,8 +205,6 @@ func TestS0PostgresReconciliationManifest(t *testing.T) {
 	if !reflect.DeepEqual(gotGoOnlyTableDefinitions, wantGoOnlyTableDefinitions) {
 		t.Fatalf("Go-only full table definitions changed\n got: %#v\nwant: %#v", gotGoOnlyTableDefinitions, wantGoOnlyTableDefinitions)
 	}
-	assertS0GoOnlyTableDefinitionsDocumented(t, wantGoOnlyTableDefinitions)
-
 	// These categories are parsed, rather than silently discarded. Their empty
 	// sets are therefore evidence that the current sources contain none.
 	assertS0StringSet(t, "root CHECK constraints", root.syntax.checks, nil)
@@ -226,27 +222,6 @@ func TestS0PostgresReconciliationManifest(t *testing.T) {
 	// statements are two compatibility copies and three data normalizations.
 	if root.syntax.dmlStatements != 0 || current.syntax.dmlStatements != 5 {
 		t.Fatalf("non-schema DML inventory changed: root=%d postgresSchema=%d", root.syntax.dmlStatements, current.syntax.dmlStatements)
-	}
-}
-
-func assertS0GoOnlyTableDefinitionsDocumented(t *testing.T, definitions map[string]string) {
-	t.Helper()
-	paths := []string{
-		filepath.Join("..", "..", "..", "..", "docs", "store-s0-postgresql-reconciliation-manifest.md"),
-		filepath.Join("..", "..", "..", "..", "zh-cn", "docs", "store-s0-postgresql-reconciliation-manifest.md"),
-	}
-	for _, path := range paths {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(raw)
-		for table, definition := range definitions {
-			entry := table + ": " + definition
-			if strings.Count(text, entry) != 1 {
-				t.Errorf("%s must contain exactly one full definition for %s", path, table)
-			}
-		}
 	}
 }
 

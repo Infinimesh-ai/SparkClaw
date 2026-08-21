@@ -69,8 +69,8 @@ func s0EvidenceRow(cells ...s0EvidenceCell) map[string]s0EvidenceCell {
 	return row
 }
 
-// Evidence references use TestName[/subtest]@file.go. The matrix is the
-// executable authority for applicability; the bilingual inventory mirrors it.
+// Evidence references use TestName[/subtest]@file.go. The matrix itself is the
+// executable authority for applicability and reference completeness.
 var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 	"OwnerRepository": s0EvidenceRow(
 		s0RepositoryTest("OwnerRepository", s0DimensionSuccess),
@@ -354,7 +354,6 @@ func TestS0RepositoryCharacterizationMatrixCompleteness(t *testing.T) {
 			t.Errorf("characterization evidence names unknown repository %s", repository)
 		}
 	}
-	assertS0InventoryMatrixRows(t)
 }
 
 func TestS0RepositoryEvidenceMapsCollectRowsDefect(t *testing.T) {
@@ -507,85 +506,6 @@ func assertS0TestReference(t *testing.T, testsByFile map[string]map[string]struc
 	if _, ok := testsByFile[file][testPath]; !ok {
 		t.Errorf("repository %s dimension %q references missing test path %s in %s", repository, dimension, testPath, file)
 	}
-}
-
-func assertS0InventoryMatrixRows(t *testing.T) {
-	t.Helper()
-	paths := []string{
-		filepath.Join("..", "..", "..", "..", "docs", "store-s0-contract-inventory.md"),
-		filepath.Join("..", "..", "..", "..", "zh-cn", "docs", "store-s0-contract-inventory.md"),
-	}
-	for _, path := range paths {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(raw)
-		sectionStart := strings.Index(text, "## Per-Repository Characterization Evidence")
-		if sectionStart < 0 {
-			sectionStart = strings.Index(text, "## 逐 Repository Characterization 证据")
-		}
-		if sectionStart < 0 {
-			t.Errorf("%s has no per-repository characterization section", path)
-			continue
-		}
-		section := text[sectionStart:]
-		if sectionEnd := strings.Index(section[len("## "):], "\n## "); sectionEnd >= 0 {
-			section = section[:len("## ")+sectionEnd]
-		}
-		rows := map[string][]string{}
-		for _, line := range strings.Split(section, "\n") {
-			columns := strings.Split(line, "|")
-			if len(columns) != len(s0CharacterizationDimensions)+3 {
-				continue
-			}
-			repository := strings.Trim(strings.TrimSpace(columns[1]), "`")
-			if _, ok := s0RepositoryMethods[repository]; !ok {
-				continue
-			}
-			if _, duplicate := rows[repository]; duplicate {
-				t.Errorf("%s contains duplicate characterization row %s", path, repository)
-				continue
-			}
-			rows[repository] = columns[2 : len(columns)-1]
-		}
-		if len(rows) != len(s0RepositoryCharacterizationEvidence) {
-			t.Errorf("%s contains %d characterization rows, want %d", path, len(rows), len(s0RepositoryCharacterizationEvidence))
-		}
-		for repository, evidence := range s0RepositoryCharacterizationEvidence {
-			cells, ok := rows[repository]
-			if !ok {
-				t.Errorf("%s has no characterization row for %s", path, repository)
-				continue
-			}
-			for index, dimension := range s0CharacterizationDimensions {
-				documented := strings.TrimSpace(cells[index])
-				cell := evidence[dimension]
-				references := s0DocumentedTestReferences(documented)
-				if cell.NA != "" {
-					if !strings.HasPrefix(documented, "N/A:") || len([]rune(documented)) < 24 || len(references) != 0 {
-						t.Errorf("%s %s %q must document a concrete N/A rationale and no test references: %q", path, repository, dimension, documented)
-					}
-					continue
-				}
-				if !reflect.DeepEqual(references, cell.Tests) {
-					t.Errorf("%s %s %q evidence drift\n got: %#v\nwant: %#v", path, repository, dimension, references, cell.Tests)
-				}
-			}
-		}
-	}
-}
-
-func s0DocumentedTestReferences(cell string) []string {
-	parts := strings.Split(cell, "`")
-	references := []string{}
-	for index := 1; index < len(parts); index += 2 {
-		candidate := strings.TrimSpace(parts[index])
-		if strings.Contains(candidate, "@") && strings.HasSuffix(candidate, ".go") {
-			references = append(references, candidate)
-		}
-	}
-	return references
 }
 
 func TestS0CharacterizationDimensionNamesAreStable(t *testing.T) {

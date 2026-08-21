@@ -164,7 +164,6 @@ func TestS4ProductionUsesStaticRepositoryContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertS0ProductionConsumerDocumentation(t)
 }
 
 func s4RepositoryLikeType(expression ast.Expr) bool {

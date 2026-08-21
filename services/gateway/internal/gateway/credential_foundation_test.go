@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,15 +24,29 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
-type ambiguousCredentialBindingStore struct {
-	store.Store
+type fileFailureAfterSealVault struct {
+	credential.CredentialVault
+	stateDirectory  string
+	backupDirectory string
+	ref             string
+	sabotageErr     error
 }
 
-func (s *ambiguousCredentialBindingStore) SaveNotificationBinding(record app.NotificationBinding) app.NotificationBinding {
-	if strings.TrimSpace(record.CredentialRef) != "" {
-		return record
+func (v *fileFailureAfterSealVault) Seal(ctx context.Context, bindingID, kind string, plaintext []byte) (string, error) {
+	ref, err := v.CredentialVault.Seal(ctx, bindingID, kind, plaintext)
+	if err != nil {
+		return "", err
 	}
-	return s.Store.SaveNotificationBinding(record)
+	v.ref = ref
+	if err := os.Rename(v.stateDirectory, v.backupDirectory); err != nil {
+		v.sabotageErr = fmt.Errorf("move durable state before binding failure: %w", err)
+		return "", &credential.Error{Code: credential.CodeUnavailable}
+	}
+	if err := os.WriteFile(v.stateDirectory, []byte("not a directory"), 0o600); err != nil {
+		v.sabotageErr = fmt.Errorf("block binding state directory: %w", err)
+		return "", &credential.Error{Code: credential.CodeUnavailable}
+	}
+	return ref, nil
 }
 
 type credentialPollAdapter struct {
@@ -64,9 +80,18 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 	cfg.Tools.Notifications.Channels["credential-test"] = config.NotificationChannelConfig{
 		Enabled: true, Provider: "credential-test",
 	}
-	base := store.NewMemoryStore()
-	st := &ambiguousCredentialBindingStore{Store: base}
-	vault := credential.New(st, credential.Options{Key: strings.Repeat("g", 32)})
+	stateDirectory := filepath.Join(t.TempDir(), "state")
+	statePath := filepath.Join(stateDirectory, "sparkclaw.json")
+	st, err := store.NewFileStore(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseVault := credential.New(st, credential.Options{Key: strings.Repeat("g", 32)})
+	vault := &fileFailureAfterSealVault{
+		CredentialVault: baseVault,
+		stateDirectory:  stateDirectory,
+		backupDirectory: stateDirectory + "-committed",
+	}
 	router := binding.NewBaseRouter(cfg).WithAdapter("credential-test", &credentialPollAdapter{secret: secret})
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -102,22 +127,35 @@ func TestCredentialFoundationRetainsSecretWhenBindingSaveIsAmbiguous(t *testing.
 	if pollResponse.StatusCode != http.StatusServiceUnavailable || projected["code"] != credential.CodeUnavailable {
 		t.Fatalf("ambiguous binding save status=%d body=%#v", pollResponse.StatusCode, projected)
 	}
+	if vault.sabotageErr != nil {
+		t.Fatal(vault.sabotageErr)
+	}
 	if strings.Contains(fmt.Sprint(projected), secret) || strings.Contains(fmt.Sprint(projected), "provider-pending") {
 		t.Fatalf("ambiguous binding response disclosed credential material: %#v", projected)
 	}
-	retained, found := base.GetNotificationBinding(started.ID)
+	retained, found := st.GetNotificationBinding(started.ID)
 	if !found || retained.Status != "waiting_confirm" || retained.CredentialRef != "" {
 		t.Fatalf("durable binding crossed the unverified save: %#v found=%v", retained, found)
 	}
-	ref, err := vault.Seal(t.Context(), started.ID, "openclaw-weixin-bot-token", []byte(secret))
+	if err := os.Remove(stateDirectory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(vault.backupDirectory, stateDirectory); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := store.NewFileStore(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, found, err := base.GetCredentialSecret(t.Context(), ref)
+	durable, found := reloaded.GetNotificationBinding(started.ID)
+	if !found || durable.Status != "waiting_confirm" || durable.CredentialRef != "" {
+		t.Fatalf("restart observed an uncommitted active binding: %#v found=%v", durable, found)
+	}
+	stored, found, err := reloaded.GetCredentialSecret(t.Context(), vault.ref)
 	if err != nil || !found || stored.Value == "" || strings.Contains(stored.Value, secret) {
 		t.Fatalf("sealed credential was not retained safely: %#v found=%v err=%v", stored, found, err)
 	}
-	for _, audit := range base.ListAudit("") {
+	for _, audit := range reloaded.ListAudit("") {
 		if audit.Type == "credential_secret.deleted" {
 			t.Fatalf("ambiguous binding save deleted its credential: %#v", audit)
 		}

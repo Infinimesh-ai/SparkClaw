@@ -944,8 +944,12 @@ func (s *FileStore) UpdateConnectorSetting(setting app.ConnectorSetting, expecte
 
 func (s *FileStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
 	defer s.admitLegacyCommand()()
+	rollback := s.captureFileRollback()
 	out := s.inner.SaveNotificationBinding(binding)
-	s.persist()
+	if err := s.persistSnapshot(); err != nil {
+		s.restoreFileRollback(rollback)
+		return app.NotificationBinding{}
+	}
 	return out
 }
 

@@ -38,6 +38,53 @@ func TestFileStorePersistsDocumentRecords(t *testing.T) {
 	}
 }
 
+func TestFileStoreNotificationBindingSaveRollsBackOnPersistenceFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind-file-rollback", OwnerID: "owner-file-rollback", Channel: "weixin", Status: "waiting_confirm",
+	})
+	if initial.ID == "" {
+		t.Fatal("initial notification binding was not persisted")
+	}
+	initialAuditCount := len(st.ListAudit(""))
+	initialEventCount := len(st.inner.snapshot().Events)
+
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("block"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.path = filepath.Join(blocker, "state.json")
+	candidate := initial
+	candidate.Status = "active"
+	candidate.CredentialRef = "cred_must_remain_uncommitted"
+	if saved := st.SaveNotificationBinding(candidate); saved.ID != "" {
+		t.Fatalf("failed persistence returned a committed binding: %#v", saved)
+	}
+	got, found := st.GetNotificationBinding(initial.ID)
+	if !found || got.Status != initial.Status || got.CredentialRef != "" {
+		t.Fatalf("failed persistence remained visible in memory: %#v found=%v", got, found)
+	}
+	if got := len(st.ListAudit("")); got != initialAuditCount {
+		t.Fatalf("failed persistence retained audit entries: got %d want %d", got, initialAuditCount)
+	}
+	if got := len(st.inner.snapshot().Events); got != initialEventCount {
+		t.Fatalf("failed persistence retained events: got %d want %d", got, initialEventCount)
+	}
+
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	durable, found := reloaded.GetNotificationBinding(initial.ID)
+	if !found || durable.Status != initial.Status || durable.CredentialRef != "" {
+		t.Fatalf("failed persistence changed the durable binding: %#v found=%v", durable, found)
+	}
+}
+
 func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "approval-state.json")
 	st, err := NewFileStore(path)

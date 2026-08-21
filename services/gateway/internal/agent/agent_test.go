@@ -52,7 +52,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	if runs := st.ListRuns(session.ID); len(runs) != 1 || runs[0].ID != "tg_run_42" {
 		t.Fatalf("duplicate Agent run was created: %#v", runs)
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 2 || messages[0].ID != "tg_message_42" || messages[1].RunID != "tg_run_42" {
 		t.Fatalf("duplicate or unstable messages were created: %#v", messages)
 	}
@@ -2109,7 +2109,10 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 	if err != nil || route.Status == app.RouteMatched {
 		t.Fatalf("missing follow-up file must not bypass deterministic preflight: route=%#v err=%v", route, err)
 	}
-	snapshot := runtime.buildAgentContextSnapshot(session.ID, "run_current", "把张三的学号改为6")
+	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, "run_current", "把张三的学号改为6")
+	if err != nil {
+		t.Fatal(err)
+	}
 	contextText := snapshot.ForIntentRouting()
 	if !strings.Contains(contextText, "Recent tool results") ||
 		!strings.Contains(contextText, "张三") ||
@@ -2540,7 +2543,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		StartedAt: now,
 	}
 	st.SaveRun(run)
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Role:      "user",

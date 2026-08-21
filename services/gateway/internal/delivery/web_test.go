@@ -1,6 +1,9 @@
 package delivery
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +12,19 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
+
+type failingWebMessageStore struct {
+	listErr error
+	addErr  error
+}
+
+func (s failingWebMessageStore) ListMessages(context.Context, string) ([]app.Message, error) {
+	return nil, s.listErr
+}
+
+func (s failingWebMessageStore) AddMessage(_ context.Context, message app.Message) (app.Message, error) {
+	return message, s.addErr
+}
 
 func TestPersistentWebDeliveryProjectsAndPersistsMessageOnce(t *testing.T) {
 	st := store.NewMemoryStore()
@@ -35,7 +51,7 @@ func TestPersistentWebDeliveryProjectsAndPersistsMessageOnce(t *testing.T) {
 		}
 	}
 
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 1 || messages[0].Role != "assistant" || messages[0].Content != "Completed." || messages[0].RunID != request.RunID {
 		t.Fatalf("web delivery did not persist exactly one assistant message: %#v", messages)
 	}
@@ -70,8 +86,8 @@ func TestPersistentWebDeliveryRejectsIdempotencyConflict(t *testing.T) {
 	request.ID = "delivery-web-2"
 	request.Content.Parts[0].Text = "different"
 	receipt, err := gateway.Deliver(t.Context(), request)
-	if err == nil || ErrorCode(err) != CodeIdempotencyConflict || receipt.Status != app.DeliveryFailed || len(st.ListMessages(session.ID)) != 1 {
-		t.Fatalf("idempotency conflict was not rejected: receipt=%#v messages=%#v err=%v", receipt, st.ListMessages(session.ID), err)
+	if err == nil || ErrorCode(err) != CodeIdempotencyConflict || receipt.Status != app.DeliveryFailed || len(storetest.MustListMessages(t, st, session.ID)) != 1 {
+		t.Fatalf("idempotency conflict was not rejected: receipt=%#v messages=%#v err=%v", receipt, storetest.MustListMessages(t, st, session.ID), err)
 	}
 }
 
@@ -81,14 +97,44 @@ func TestPersistentWebDeliveryReusesMatchingRuntimeMessage(t *testing.T) {
 	endpointID := messagecontrol.WebEndpointID(session.ID)
 	request := webTextRequest(endpointID, "delivery-web-runtime", "runtime-key", "already persisted")
 	request.RunID = "run-runtime"
-	st.AddMessage(app.Message{SessionID: session.ID, RunID: request.RunID, Role: "assistant", Content: "already persisted"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, RunID: request.RunID, Role: "assistant", Content: "already persisted"})
 
 	gateway := NewGateway(messagecontrol.NewEndpointRegistry(st), nil, NewPersistentWebDelivery(st))
 	if receipt, err := gateway.Deliver(t.Context(), request); err != nil || receipt.Status != app.DeliverySucceeded {
 		t.Fatalf("matching runtime message was not reused: receipt=%#v err=%v", receipt, err)
 	}
-	if messages := st.ListMessages(session.ID); len(messages) != 1 {
+	if messages := storetest.MustListMessages(t, st, session.ID); len(messages) != 1 {
 		t.Fatalf("matching runtime message was duplicated: %#v", messages)
+	}
+}
+
+func TestPersistentWebDeliveryRedactsPersistenceFailuresAndPreservesCause(t *testing.T) {
+	privateCause := errors.New("private postgres host and statement")
+	persistenceErr := &store.StoreError{
+		Code: store.StoreErrorUnavailable, Operation: store.OperationConversationAddMessage, Err: privateCause,
+	}
+	for _, testCase := range []struct {
+		name  string
+		store failingWebMessageStore
+	}{
+		{name: "list", store: failingWebMessageStore{listErr: persistenceErr}},
+		{name: "append", store: failingWebMessageStore{addErr: persistenceErr}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			endpoint := app.MessageEndpoint{ID: "web-endpoint", Kind: app.EndpointKindWeb, SessionID: "session-web"}
+			receipt, err := NewPersistentWebDelivery(testCase.store).Deliver(
+				t.Context(), endpoint, webTextRequest(endpoint.ID, "delivery-failure", "failure-key", "hello"),
+			)
+			if err == nil || !errors.Is(err, privateCause) {
+				t.Fatalf("persistence cause was not preserved: %v", err)
+			}
+			if ErrorCode(err) != CodeProviderRetryable || receipt.ErrorCode != CodeProviderRetryable || receipt.RetryState != "retryable" {
+				t.Fatalf("unexpected retry projection: receipt=%#v err=%v", receipt, err)
+			}
+			if err.Error() != "web delivery is temporarily unavailable" || receipt.Error != err.Error() || strings.Contains(receipt.Error, privateCause.Error()) {
+				t.Fatalf("persistence failure was not redacted: receipt=%#v err=%v", receipt, err)
+			}
+		})
 	}
 }
 

@@ -372,7 +372,7 @@ func TestAttachmentPromptIsRetriedWithoutDuplicatingContext(t *testing.T) {
 	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyAttachmentPrompt {
 		t.Fatalf("attachment clarification should be retryable: %#v ok=%v", failed, ok)
 	}
-	contextMessages := len(st.ListMessages(chatSession.LinkedSessionID))
+	contextMessages := len(storetest.MustListMessages(t, st, chatSession.LinkedSessionID))
 
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
 		t.Fatalf("clarification resend should succeed: %v", err)
@@ -381,7 +381,7 @@ func TestAttachmentPromptIsRetriedWithoutDuplicatingContext(t *testing.T) {
 	if retried.Status != "needs_user_instruction" || retried.PendingReply != "" {
 		t.Fatalf("successful resend should restore the pending-instruction state: %#v", retried)
 	}
-	if got := len(st.ListMessages(chatSession.LinkedSessionID)); got != contextMessages {
+	if got := len(storetest.MustListMessages(t, st, chatSession.LinkedSessionID)); got != contextMessages {
 		t.Fatalf("retry must not duplicate the pending attachment context: before=%d after=%d", contextMessages, got)
 	}
 	if got := runtime.handledCount(); got != 0 {

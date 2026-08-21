@@ -134,7 +134,10 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	if err != nil {
 		return Result{}, true, err
 	}
-	assistant := r.persistWorkflowAssistantMessage(run, workflowResult, now)
+	assistant, err := r.persistWorkflowAssistantMessage(ctx, run, workflowResult, now)
+	if err != nil {
+		return Result{}, true, fmt.Errorf("persist resumed workflow response: %w", err)
+	}
 	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType, Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	return Result{
@@ -217,7 +220,10 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 		run.Summary += " " + strings.TrimSpace(route.Reason)
 	}
 	r.store.SaveRun(run)
-	assistant := r.store.AddMessage(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
+	assistant, err := r.store.AddMessage(ctx, app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
+	if err != nil {
+		return Result{}, fmt.Errorf("persist terminal route response: %w", err)
+	}
 	episode := summarizeEpisode(goal, run, nil, nil, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, &episode)
@@ -659,11 +665,11 @@ func (r Runtime) messageWithWorkflowResult(message app.Message, result *app.Work
 	return message
 }
 
-func (r Runtime) persistWorkflowAssistantMessage(run app.AgentRun, result *app.WorkflowResult, now time.Time) app.Message {
+func (r Runtime) persistWorkflowAssistantMessage(ctx context.Context, run app.AgentRun, result *app.WorkflowResult, now time.Time) (app.Message, error) {
 	if isEndpointMediaPublication(run) {
-		return app.Message{}
+		return app.Message{}, nil
 	}
-	return r.store.AddMessage(r.messageWithWorkflowResult(app.Message{
+	return r.store.AddMessage(ctx, r.messageWithWorkflowResult(app.Message{
 		SessionID: run.SessionID,
 		RunID:     run.ID,
 		Role:      "assistant",

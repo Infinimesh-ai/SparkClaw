@@ -92,12 +92,14 @@ type DeliveryError struct {
 	Code    string
 	Message string
 	State   string
+	cause   error
 }
 
 func (e DeliveryError) Error() string      { return e.Message }
 func (e DeliveryError) RetryState() string { return e.State }
 func (e DeliveryError) ErrorCode() string  { return e.Code }
 func (e DeliveryError) Retryable() bool    { return e.State == "retryable" }
+func (e DeliveryError) Unwrap() error      { return e.cause }
 
 const (
 	CodeBindingUnavailable  = app.DeliveryCodeBindingUnavailable
@@ -114,6 +116,10 @@ const (
 
 func NewError(code, message, retryState string) error {
 	return DeliveryError{Code: code, Message: message, State: retryState}
+}
+
+func newErrorWithCause(code, message, retryState string, cause error) error {
+	return DeliveryError{Code: code, Message: message, State: retryState, cause: cause}
 }
 
 func ErrorCode(err error) string {

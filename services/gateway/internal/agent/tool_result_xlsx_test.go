@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestXLSXStructuredEvidencePrioritizesExplicitTailTarget(t *testing.T) {
@@ -80,7 +81,7 @@ func TestWorkflowXLSXEvidenceUsesOwnerRequestAndAuditsSelectionCounts(t *testing
 	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
 	defer closeRuntime()
 	now := time.Now().UTC()
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "Update Data!B80 to 900", CreatedAt: now.Add(-time.Second),
 	})
 	run, call := archivedEvidenceFixture(t, runtime, st, session.ID, "files.read", xlsxProjectionFixture(80))

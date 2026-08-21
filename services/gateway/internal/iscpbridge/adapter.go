@@ -329,11 +329,20 @@ func (a *GatewayAdapter) sendMessage(ctx context.Context, req Request, principal
 			a.mu.Unlock()
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
 		}
-		if run.SessionID != req.SessionID || !a.storedMessageMatches(run.SessionID, messageID, content) {
+		matches, messageErr := a.storedMessageMatches(ctx, run.SessionID, messageID, content)
+		if messageErr != nil {
+			a.mu.Unlock()
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "conversation state is temporarily unavailable", true), now)
+		}
+		if run.SessionID != req.SessionID || !matches {
 			a.mu.Unlock()
 			return newResponse(req, "error", nil, nil, bridgeError(CodeConflict, "idempotency key was reused for a different message", false), now)
 		}
-		operation := a.operationFromRun(run, req.RequestID)
+		operation, err := a.operationFromRun(ctx, run, req.RequestID)
+		if err != nil {
+			a.mu.Unlock()
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "conversation state is temporarily unavailable", true), now)
+		}
 		a.mu.Unlock()
 		return newResponse(req, "accepted", nil, &operation, nil, now)
 	}
@@ -621,19 +630,26 @@ func (a *GatewayAdapter) operationStatus(ctx context.Context, req Request, princ
 		if err := a.requireSession(ctx, run.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
-		operation := a.operationFromRun(run, req.RequestID)
+		operation, err := a.operationFromRun(ctx, run, req.RequestID)
+		if err != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "conversation state is temporarily unavailable", true), now)
+		}
 		return newResponse(req, "ok", nil, &operation, nil, now)
 	}
 	return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "operation not found", false), now)
 }
 
-func (a *GatewayAdapter) operationFromRun(run app.AgentRun, requestID string) Operation {
+func (a *GatewayAdapter) operationFromRun(ctx context.Context, run app.AgentRun, requestID string) (Operation, error) {
 	result := map[string]any{
 		"run":        run,
 		"tool_calls": toolCallsForRun(a.store.ListToolCalls(run.SessionID), run.ID),
 		"approvals":  approvalsForRun(a.store.ListApprovals(""), run.ID),
 	}
-	for _, message := range a.store.ListMessages(run.SessionID) {
+	messages, err := a.store.ListMessages(ctx, run.SessionID)
+	if err != nil {
+		return Operation{}, err
+	}
+	for _, message := range messages {
 		if message.RunID == run.ID && message.Role == "assistant" {
 			result["message"] = message
 		}
@@ -646,7 +662,7 @@ func (a *GatewayAdapter) operationFromRun(run app.AgentRun, requestID string) Op
 	return Operation{
 		ID: run.ID, RequestID: requestID, SessionID: run.SessionID, RunID: run.ID,
 		State: operationStateForRun(run), Result: result, CreatedAt: createdAt, UpdatedAt: updatedAt,
-	}
+	}, nil
 }
 
 func (a *GatewayAdapter) updateOperation(id string, update func(*Operation)) {
@@ -735,13 +751,17 @@ func (a *GatewayAdapter) findApproval(id string) (app.Approval, bool) {
 	return app.Approval{}, false
 }
 
-func (a *GatewayAdapter) storedMessageMatches(sessionID, messageID, content string) bool {
-	for _, message := range a.store.ListMessages(sessionID) {
+func (a *GatewayAdapter) storedMessageMatches(ctx context.Context, sessionID, messageID, content string) (bool, error) {
+	messages, err := a.store.ListMessages(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	for _, message := range messages {
 		if message.ID == messageID {
-			return message.Role == "user" && message.Content == content
+			return message.Role == "user" && message.Content == content, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func ApprovalPreviewHash(approval app.Approval) string {

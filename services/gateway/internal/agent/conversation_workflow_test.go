@@ -11,6 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestConversationSemanticRoutingCoversOnlySimpleNoEvidenceRequests(t *testing.T) {
@@ -140,7 +141,7 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.message_completed") {
 		t.Fatalf("multipart publication used a chat answer model or missed its typed completion audit: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 1 || messages[0].Role != "user" {
 		t.Fatalf("external media publication persisted an assistant result in WebChat: %#v", messages)
 	}
@@ -149,8 +150,8 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 		t.Fatalf("media result did not enter the shared delivery request: request=%#v deliverable=%v err=%v", request, deliverable, err)
 	}
 	replayed, err := runtime.HandleMessageWithIngress(t.Context(), session.ID, "message_publish", "run_publish", "", attachments, ingress)
-	if err != nil || replayed.Message.ID != "" || len(st.ListMessages(session.ID)) != 1 {
-		t.Fatalf("idempotent media publication recreated a WebChat result: result=%#v err=%v messages=%#v", replayed, err, st.ListMessages(session.ID))
+	if err != nil || replayed.Message.ID != "" || len(storetest.MustListMessages(t, st, session.ID)) != 1 {
+		t.Fatalf("idempotent media publication recreated a WebChat result: result=%#v err=%v messages=%#v", replayed, err, storetest.MustListMessages(t, st, session.ID))
 	}
 }
 
@@ -253,7 +254,7 @@ func TestMCPConversationMediaLocatorResolvesExactPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPendingMCPWorkspaceApproval(t, st, result)
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 1 || strings.TrimSpace(messages[0].Content) != "" || len(messages[0].Attachments) != 0 ||
 		len(messages[0].RequestedMedia) != 1 || messages[0].RequestedMedia[0].Path != "exports/report.pdf" ||
 		messages[0].RequestedMedia[0].Caption != "Annual report" {

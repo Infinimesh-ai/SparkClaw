@@ -51,7 +51,7 @@ func TestJingSiLANIsDisabledByDefault(t *testing.T) {
 func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 	server, st, session, ts := newJingSiTestServer(t)
 	_ = server
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "before first connection"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "before first connection"})
 
 	var head struct {
 		Version string `json:"version"`
@@ -63,8 +63,8 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 	}
 
 	other := storetest.MustCreateSession(t, st, "other")
-	st.AddMessage(app.Message{SessionID: other.ID, Role: "assistant", Content: "must stay hidden"})
-	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "idle update"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: other.ID, Role: "assistant", Content: "must stay hidden"})
+	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "idle update"})
 
 	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + head.Cursor + "&limit=100")
 	if err != nil {
@@ -107,8 +107,8 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 func TestJingSiLANRejectsWrongSessionCursor(t *testing.T) {
 	_, st, _, ts := newJingSiTestServer(t)
 	other := storetest.MustCreateSession(t, st, "other")
-	st.AddMessage(app.Message{SessionID: other.ID, Role: "user", Content: "other"})
-	cursor, err := st.MessageEventHead(other.ID)
+	storetest.MustAddMessage(t, st, app.Message{SessionID: other.ID, Role: "user", Content: "other"})
+	cursor, err := st.MessageEventHead(t.Context(), other.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestJingSiLANCatchUpAdvancesAcrossFilteredMessageRoles(t *testing.T) {
 		Cursor string `json:"cursor"`
 	}
 	getJSON(t, ts.URL+"/api/client-events/v0/head", &head)
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "tool", Content: "internal result"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "tool", Content: "internal result"})
 
 	var page struct {
 		Events     []jingSiClientEvent `json:"events"`
@@ -190,7 +190,7 @@ func TestJingSiLANCatchUpAdvancesAcrossFilteredMessageRoles(t *testing.T) {
 		t.Fatalf("filtered message did not advance page cursor: %#v", page)
 	}
 
-	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "visible"})
+	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "visible"})
 	getJSON(t, ts.URL+"/api/client-events/v0?after="+page.NextCursor, &page)
 	if len(page.Events) != 1 || page.Events[0].Message.ID != wanted.ID {
 		t.Fatalf("visible message after filtered cursor = %#v", page)
@@ -218,7 +218,7 @@ func TestJingSiLANSSEReceivesIdleMessage(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("SSE returned %d", response.StatusCode)
 	}
-	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "arrived while idle"})
+	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "arrived while idle"})
 
 	scanner := bufio.NewScanner(response.Body)
 	var eventName, eventID, data string

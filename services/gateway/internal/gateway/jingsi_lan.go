@@ -73,7 +73,7 @@ func (s *Server) headJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("unsupported query parameter"))
 		return
 	}
-	cursor, err := s.store.MessageEventHead(session.ID)
+	cursor, err := s.store.MessageEventHead(r.Context(), session.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, errors.New("message event head is unavailable"))
 		return
@@ -108,7 +108,7 @@ func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 
-	page, err := s.store.MessageEventsAfter(session.ID, internalJingSiCursor(session.ID, rawAfter), limit)
+	page, err := s.store.MessageEventsAfter(r.Context(), session.ID, internalJingSiCursor(session.ID, rawAfter), limit)
 	if errors.Is(err, store.ErrMessageEventCursorInvalid) {
 		writeJingSiCursorReset(w)
 		return
@@ -149,7 +149,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		rawAfter = headerAfter
 	}
 	if rawAfter == "" {
-		head, err := s.store.MessageEventHead(session.ID)
+		head, err := s.store.MessageEventHead(r.Context(), session.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, errors.New("message event head is unavailable"))
 			return
@@ -157,7 +157,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		rawAfter = publicJingSiCursor(session.ID, head)
 	}
 	after := internalJingSiCursor(session.ID, rawAfter)
-	if _, err := s.store.MessageEventsAfter(session.ID, after, 1); errors.Is(err, store.ErrMessageEventCursorInvalid) {
+	if _, err := s.store.MessageEventsAfter(r.Context(), session.ID, after, 1); errors.Is(err, store.ErrMessageEventCursorInvalid) {
 		writeJingSiCursorReset(w)
 		return
 	} else if err != nil {
@@ -179,7 +179,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 			return false
 		}
 		for {
-			page, err := s.store.MessageEventsAfter(session.ID, after, store.MessageEventPageLimit)
+			page, err := s.store.MessageEventsAfter(r.Context(), session.ID, after, store.MessageEventPageLimit)
 			if err != nil {
 				return false
 			}

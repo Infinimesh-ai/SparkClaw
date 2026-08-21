@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestScheduleSemanticRoutingTreatsTemporalChineseReminderAsCreate(t *testing.T) {
@@ -75,7 +76,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatal(err)
 	}
 	started := time.Now().UTC()
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "修改定时任务", CreatedAt: started})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "修改定时任务", CreatedAt: started})
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "received", Risk: app.RiskReversible, StartedAt: started,
 		MessageContext: &app.MessageRunContext{OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID}, Route: route},

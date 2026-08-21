@@ -261,7 +261,19 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 			}
 		}
 	}
-	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForWorkflowStep()
+	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
+	if err != nil {
+		if ctx.Err() != nil {
+			return workflowExecutionResult{
+				Halted: true, Cancelled: true,
+				FinalAnswer: workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", nil, nil),
+			}
+		}
+		result := workflowExecutionResult{}
+		result.fail(workflowFailureEvidenceUnavailable, err)
+		return result
+	}
+	contextText := contextSnapshot.ForWorkflowStep()
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),
 		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),

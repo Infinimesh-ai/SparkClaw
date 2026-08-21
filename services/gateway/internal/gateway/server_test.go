@@ -182,7 +182,7 @@ func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
 			t.Fatalf("MCP conversation message write %s returned %d, want %d: %s", path, response.Code, http.StatusConflict, response.Body.String())
 		}
 	}
-	if messages := st.ListMessages(session.ID); len(messages) != 0 {
+	if messages := storetest.MustListMessages(t, st, session.ID); len(messages) != 0 {
 		t.Fatalf("ordinary session API wrote into an MCP conversation: %#v", messages)
 	}
 }
@@ -202,7 +202,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 		BindingRevision: 1, RequesterDeviceID: "device-async-approval",
 	}
 	runID := "run-async-approval"
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "Continue after approval"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "Continue after approval"})
 	st.SaveRun(app.AgentRun{
 		ID: runID, SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{MCP: ref},

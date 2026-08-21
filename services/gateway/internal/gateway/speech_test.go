@@ -152,7 +152,7 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	if fake.input.SessionID != session.ID || fake.input.RequestID != "voice-request-1" || fake.input.DurationMS != 500 {
 		t.Fatalf("unexpected transcriber input: %#v", fake.input)
 	}
-	if messages := st.ListMessages(session.ID); len(messages) != 0 {
+	if messages := storetest.MustListMessages(t, st, session.ID); len(messages) != 0 {
 		t.Fatalf("speech transcription must not create messages: %#v", messages)
 	}
 	if artifacts := st.ListArtifactObjects(0); len(artifacts) != 0 {

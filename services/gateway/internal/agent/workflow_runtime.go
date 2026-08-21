@@ -441,7 +441,7 @@ func containsTargetKind(values []app.TargetKind, expected app.TargetKind) bool {
 	return false
 }
 
-func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal string, setupErr error) Result {
+func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal string, setupErr error) (Result, error) {
 	now := time.Now().UTC()
 	if run.Workflow != nil {
 		run.Workflow.Status = app.WorkflowStatusBlocked
@@ -451,17 +451,20 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	run.Summary = publicWorkflowFailureMessage(workflowFailureSetup)
 	r.store.SaveRun(run)
 	r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.blocked", workflowFailureSetup, workflowFailureDiagnostic(setupErr), nil)
-	assistant := r.store.AddMessage(app.Message{
+	assistant, err := r.store.AddMessage(ctx, app.Message{
 		SessionID: run.SessionID,
 		RunID:     run.ID,
 		Role:      "assistant",
 		Content:   run.Summary,
 		CreatedAt: now,
 	})
+	if err != nil {
+		return Result{}, fmt.Errorf("persist workflow setup failure: %w", err)
+	}
 	episode := summarizeEpisode(goal, run, nil, nil, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, &episode)
-	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
+	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
 }
 
 func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {

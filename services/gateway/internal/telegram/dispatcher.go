@@ -149,14 +149,17 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	if text == "" {
 		contextText := attachmentContext(attachments)
 		inbound := d.saveInbound(chatSession, binding, externalID, contextText, "needs_user_instruction", "")
-		d.store.AddMessage(app.Message{
+		if _, err := d.store.AddMessage(ctx, app.Message{
 			ID:          stableTelegramID("message", binding.ID, externalID),
 			SessionID:   chatSession.LinkedSessionID,
 			Role:        "user",
 			Content:     contextText,
 			Attachments: attachments,
 			CreatedAt:   telegramMessageTime(message),
-		})
+		}); err != nil {
+			receives.Advance(receive, "failed", inbound.ID, "")
+			return NewConnectorError("message_store_unavailable", true, err)
+		}
 		receives.Advance(receive, "processed", inbound.ID, "")
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID,
 			"I received the attachment. Tell me whether to read, summarize, extract, modify, or inspect it.", "attachment-help:"+externalID, "", nil)

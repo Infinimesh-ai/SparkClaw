@@ -266,7 +266,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
 
 	request := "Edit paragraph 1 in report.docx and make its text bold"
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: request, CreatedAt: time.Now().UTC()})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: request, CreatedAt: time.Now().UTC()})
 	route, err := runtime.routeIntentForTest(session.ID, user.ID, request, agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)

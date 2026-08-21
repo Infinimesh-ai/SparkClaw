@@ -227,7 +227,7 @@ func TestGatewayAdapterMessageReplayAfterRestartChecksOriginalInput(t *testing.T
 	idempotencyKey := "message-persisted"
 	runID := stableID("run_iscp", endpointID, idempotencyKey)
 	messageID := stableID("m_iscp", endpointID, idempotencyKey)
-	st.AddMessage(app.Message{ID: messageID, SessionID: sessionRecord.ID, Role: "user", Content: "original"})
+	storetest.MustAddMessage(t, st, app.Message{ID: messageID, SessionID: sessionRecord.ID, Role: "user", Content: "original"})
 	st.SaveRun(app.AgentRun{
 		ID: runID, SessionID: sessionRecord.ID, State: "completed", StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{Source: app.MessageSourceContext{

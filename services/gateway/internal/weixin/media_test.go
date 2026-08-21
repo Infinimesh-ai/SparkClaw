@@ -252,7 +252,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	if !ok {
 		t.Fatal("expected weixin chat session")
 	}
-	agentMessages := st.ListMessages(chatSession.LinkedSessionID)
+	agentMessages := storetest.MustListMessages(t, st, chatSession.LinkedSessionID)
 	if len(agentMessages) != 1 || len(agentMessages[0].Attachments) != 1 || !strings.Contains(agentMessages[0].Content, "uploads/20260707/report.docx") {
 		t.Fatalf("expected pending attachment in local agent context: %#v", agentMessages)
 	}
@@ -288,7 +288,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	st := store.NewMemoryStore()
 	root := t.TempDir()
 	oldSession := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", root, "weixin", true)
-	st.AddMessage(app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
 	st.SaveEpisodeSummary(app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
 	st.SaveToolCall(app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
 	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
@@ -324,7 +324,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	if updated.LinkedSessionID == "" || updated.LinkedSessionID == oldSession.ID {
 		t.Fatalf("clear should link to a fresh Agent session: old=%s updated=%#v", oldSession.ID, updated)
 	}
-	if messages := st.ListMessages(updated.LinkedSessionID); len(messages) != 0 {
+	if messages := storetest.MustListMessages(t, st, updated.LinkedSessionID); len(messages) != 0 {
 		t.Fatalf("fresh Agent session should not carry old messages: %#v", messages)
 	}
 	if episodes := st.ListEpisodeSummaries(updated.LinkedSessionID); len(episodes) != 0 {

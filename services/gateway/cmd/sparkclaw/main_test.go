@@ -379,7 +379,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "message-runtime" {
 		t.Fatalf("scheduled Web delivery did not complete: %#v", deliveries)
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 2 || messages[0].Role != "user" || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
 		t.Fatalf("scheduled Web delivery did not enter the conversation: %#v", messages)
 	}
@@ -391,7 +391,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if messages := reloaded.ListMessages(session.ID); len(messages) != 2 || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
+	if messages := storetest.MustListMessages(t, reloaded, session.ID); len(messages) != 2 || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
 		t.Fatalf("scheduled Web message did not survive file-state reload: %#v", messages)
 	}
 }

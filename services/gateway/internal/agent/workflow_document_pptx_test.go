@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestPPTXScopeGroundingAndDirectoryFiltering(t *testing.T) {
@@ -634,7 +635,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 
 	request := "Improve slide 3 in deck.pptx"
 	started := time.Now().UTC()
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: request, CreatedAt: started})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: request, CreatedAt: started})
 	route, err := runtime.routeIntentForTest(session.ID, user.ID, request, agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)

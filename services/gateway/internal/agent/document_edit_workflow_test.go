@@ -23,7 +23,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 
 	goal := "Replace Original reflection in notes.md"
 	started := time.Now().UTC()
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: goal, CreatedAt: started})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: goal, CreatedAt: started})
 	route, err := runtime.routeIntentForTest(session.ID, user.ID, goal, agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)

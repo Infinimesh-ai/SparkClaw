@@ -60,7 +60,10 @@ func TestWorkflowFailureProjectionKeepsDiagnosticsOutOfPublicResults(t *testing.
 			run.Summary = publicWorkflowFailureMessage(execution.FailureCode)
 			st.SaveRun(run)
 			workflowResult := mustWorkflowResultForRun(t, runtime, run, route, app.ReturnRoute{Mode: app.ReturnToSource}, run.Summary, execution.FailureCode)
-			assistant := runtime.persistWorkflowAssistantMessage(run, workflowResult, time.Now().UTC())
+			assistant, err := runtime.persistWorkflowAssistantMessage(t.Context(), run, workflowResult, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			publicValues := []any{execution.FinalAnswer, run.Summary, assistant, workflowResult}
 			for _, value := range publicValues {

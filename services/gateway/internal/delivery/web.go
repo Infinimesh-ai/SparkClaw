@@ -16,8 +16,8 @@ import (
 const webProviderRef = "web-session"
 
 type webMessageStore interface {
-	AddMessage(app.Message) app.Message
-	ListMessages(string) []app.Message
+	AddMessage(context.Context, app.Message) (app.Message, error)
+	ListMessages(context.Context, string) ([]app.Message, error)
 }
 
 type PersistentWebDelivery struct {
@@ -56,7 +56,11 @@ func (d *PersistentWebDelivery) Deliver(ctx context.Context, endpoint app.Messag
 		message.CreatedAt = time.Now().UTC()
 	}
 
-	for _, existing := range d.store.ListMessages(endpoint.SessionID) {
+	existingMessages, err := d.store.ListMessages(ctx, endpoint.SessionID)
+	if err != nil {
+		return webDeliveryFailure(endpoint, request, webPersistenceError(err))
+	}
+	for _, existing := range existingMessages {
 		switch {
 		case existing.ID == message.ID:
 			if !sameWebMessage(existing, message) {
@@ -70,11 +74,18 @@ func (d *PersistentWebDelivery) Deliver(ctx context.Context, endpoint app.Messag
 		}
 	}
 
-	stored := d.store.AddMessage(message)
+	stored, err := d.store.AddMessage(ctx, message)
+	if err != nil {
+		return webDeliveryFailure(endpoint, request, webPersistenceError(err))
+	}
 	if !sameWebMessage(stored, message) {
 		return webDeliveryFailure(endpoint, request, NewError(CodeIdempotencyConflict, "web delivery message identity conflicts with persisted content", "blocked"))
 	}
 	return webDeliverySuccess(endpoint, request), nil
+}
+
+func webPersistenceError(cause error) error {
+	return newErrorWithCause(CodeProviderRetryable, "web delivery is temporarily unavailable", "retryable", cause)
 }
 
 func ProjectWebMessageContent(content app.MessageContent, fallback string) (string, []app.MessageAttachment) {
@@ -169,5 +180,9 @@ func webDeliverySuccess(endpoint app.MessageEndpoint, request app.DeliveryReques
 func webDeliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, err error) (app.DeliveryReceipt, error) {
 	receipt := failedReceipt(endpoint, request, err.Error())
 	receipt.ErrorCode = ErrorCode(err)
+	var stated interface{ RetryState() string }
+	if errors.As(err, &stated) {
+		receipt.RetryState = stated.RetryState()
+	}
 	return receipt, err
 }

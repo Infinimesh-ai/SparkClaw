@@ -36,7 +36,11 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 	}
 	stageLimit := r.workflowStageEvidenceLimit()
 	remaining := stageLimit
-	ownerRequest := requestContentForRun(r.store.ListMessages(run.SessionID), run)
+	messages, err := r.store.ListMessages(ctx, run.SessionID)
+	if err != nil {
+		return provisionedWorkflowEvidence{}, fmt.Errorf("load workflow evidence messages: %w", err)
+	}
+	ownerRequest := requestContentForRun(messages, run)
 	sections := make([]string, 0, len(requirements))
 	compactSections := make([]string, 0, len(requirements))
 	minimalSections := make([]string, 0, len(requirements))

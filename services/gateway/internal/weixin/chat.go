@@ -331,13 +331,15 @@ func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound In
 		Status:            "needs_user_instruction",
 		CreatedAt:         receivedAt,
 	})
-	d.store.AddMessage(app.Message{
+	if _, err := d.store.AddMessage(ctx, app.Message{
 		SessionID:   chatSession.LinkedSessionID,
 		Role:        "user",
 		Content:     inboundContent,
 		Attachments: inbound.Attachments,
 		CreatedAt:   receivedAt,
-	})
+	}); err != nil {
+		return inboundMsg, fmt.Errorf("persist attachment-only conversation message: %w", err)
+	}
 	answer := attachmentClarificationPrompt(inbound.Attachments)
 	return d.finishControlReply(ctx, inbound, chatSession, inboundMsg, answer, "", "needs_user_instruction")
 }

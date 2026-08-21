@@ -534,7 +534,7 @@ MOCK_WEATHER_RENDER_RESPONSE:{"type":"action","tool":"media.render_weather_card"
 		result.Message.Attachments[0].Source != "workflow_result" {
 		t.Fatalf("web message did not consume the unified weather image result: message=%#v part=%#v", result.Message, imagePart)
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) == 0 || len(messages[len(messages)-1].Attachments) != 1 || messages[len(messages)-1].Attachments[0].RelPath != imagePart.Resource.Ref {
 		t.Fatalf("unified weather image was not persisted for WebChat history: %#v", messages)
 	}

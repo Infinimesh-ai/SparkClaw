@@ -200,12 +200,30 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		result.fail(workflowFailureEvidenceUnavailable, provisionErr)
 		return result
 	}
-	contextSnapshot := r.buildAgentContextSnapshot(sessionID, run.ID, content)
-	task := workflowStepModelTask(run, stageContext)
-	stageBudget := r.newWorkflowStageBudget()
 	if runBudget == nil {
 		runBudget = r.newWorkflowRunBudget(seedCalls)
 	}
+	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
+	if err != nil {
+		if ctx.Err() != nil {
+			result.Halted = true
+			result.Cancelled = true
+			result.FinalAnswer = workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", result.ToolCalls, workflowObservationTexts(result.Observations))
+			r.store.AddAudit(app.AuditEvent{
+				SessionID: sessionID, RunID: run.ID, Actor: "runtime", Type: "workflow_step.budget_stopped",
+				Summary: "运行已被取消或请求上下文已结束。",
+				Fields: map[string]any{
+					"stage_tool_calls": 0, "run_tool_calls": runBudget.ToolCalls,
+					"observation_bytes": observationsBytes(result.Observations), "no_progress_actions": 0,
+				},
+			})
+			return result
+		}
+		result.fail(workflowFailureEvidenceUnavailable, err)
+		return result
+	}
+	task := workflowStepModelTask(run, stageContext)
+	stageBudget := r.newWorkflowStageBudget()
 	noProgressActions := 0
 	requiredToolFinalResponses := 0
 	semanticRepairAttempts := 0

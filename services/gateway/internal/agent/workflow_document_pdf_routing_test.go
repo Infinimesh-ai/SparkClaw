@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestPDFRoutingCalibrationBoundaries(t *testing.T) {
@@ -102,7 +103,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 	defer closeRuntime()
 
 	goal := "Transform report.pdf into a new PDF copy containing only page 2"
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: goal, CreatedAt: time.Now().UTC()})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: goal, CreatedAt: time.Now().UTC()})
 	routing, err := runtime.routeIntent(context.Background(), session.ID, user.ID, goal)
 	if err != nil {
 		t.Fatal(err)

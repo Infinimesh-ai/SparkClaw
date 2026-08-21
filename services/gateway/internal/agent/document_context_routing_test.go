@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestRoutedMessageUsesOwnerRequestWithoutNormalization(t *testing.T) {
@@ -161,7 +162,7 @@ func TestRecentAttachedDocumentRoutesFollowUpWithoutPriorToolCall(t *testing.T) 
 	})
 	defer closeRuntime()
 
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID,
 		Role:      "user",
 		Content:   "这个里面讲了什么",
@@ -171,9 +172,9 @@ func TestRecentAttachedDocumentRoutesFollowUpWithoutPriorToolCall(t *testing.T) 
 			ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		}},
 	})
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "这是一份通识选修课说明。"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "这是一份通识选修课说明。"})
 	current := "对于23级的选课有什么注意事项"
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: current})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
 	routingContext := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
 	if !strings.Contains(routingContext, "student-notice.docx") ||
@@ -195,15 +196,15 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 	})
 	defer closeRuntime()
 
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "请看一下这份通识选修课说明"})
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "已读取说明文档"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "请看一下这份通识选修课说明"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "已读取说明文档"})
 	st.SaveToolCall(app.ToolCall{
 		ID: "tc_student_notice", SessionID: session.ID, RunID: "run_previous",
 		Tool: "files.read", Risk: app.RiskRead, Status: "completed",
 		Arguments: map[string]any{"path": "student-notice.docx"},
 	})
 	current := "作为23级学生要注意什么"
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: current})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
 	context := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
 	if !strings.Contains(context, "student-notice.docx") || !strings.Contains(context, "已读取说明文档") ||
@@ -237,7 +238,7 @@ func TestRecentDocumentResolverPrefersDurableRecordMetadata(t *testing.T) {
 		Source: app.DocumentSourceToolOutput, SourceToolCallID: "tc_edit",
 		LastActivity: app.DocumentActivityEdited, LastActivityID: "tc_edit", LastActivityAt: observedAt,
 	})
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", CreatedAt: observedAt.Add(-time.Minute),
 		Attachments: []app.MessageAttachment{{Name: "旧报告.pdf", RelPath: "old.pdf"}},
 	})
@@ -287,7 +288,7 @@ func TestRecentDocumentResolverPrefersNewestSource(t *testing.T) {
 		Arguments:          map[string]any{"path": "old.docx"},
 		ObservationSummary: "Read old.docx.",
 	})
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "", CreatedAt: base.Add(20 * time.Second),
 		Attachments: []app.MessageAttachment{
 			{Name: "first.docx", RelPath: "first.docx"},
@@ -310,7 +311,7 @@ func TestRecentDocumentResolverPrefersNewerToolOutput(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	base := time.Now().UTC().Add(-time.Minute)
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "修改这份文档", CreatedAt: base,
 		Attachments: []app.MessageAttachment{{Name: "input.docx", RelPath: "input.docx"}},
 	})
@@ -334,7 +335,7 @@ func TestRecentDocumentResolverPrefersNewerToolOutput(t *testing.T) {
 func TestRecentDocumentResolverKeepsCurrentExplicitPathAuthoritative(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "旧文档",
 		Attachments: []app.MessageAttachment{{Name: "old.docx", RelPath: "old.docx"}},
 	})

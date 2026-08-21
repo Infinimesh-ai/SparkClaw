@@ -395,7 +395,11 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	}
 	goal := strings.TrimSpace(block.OriginalGoal)
 	if goal == "" {
-		goal = requestContentForRun(r.store.ListMessages(sessionID), run)
+		messages, err := r.store.ListMessages(ctx, sessionID)
+		if err != nil {
+			return Result{}, true, fmt.Errorf("load browser resume messages: %w", err)
+		}
+		goal = requestContentForRun(messages, run)
 	}
 	if goal == "" {
 		goal = userReply
@@ -874,7 +878,10 @@ func (r Runtime) finishBrowserLoginBlockedRun(ctx context.Context, run app.Agent
 			return Result{}, err
 		}
 	}
-	assistant := r.store.AddMessage(workflowResultMessage(run, workflowResult, run.Summary, now))
+	assistant, err := r.store.AddMessage(ctx, workflowResultMessage(run, workflowResult, run.Summary, now))
+	if err != nil {
+		return Result{}, fmt.Errorf("persist browser login response: %w", err)
+	}
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, allToolCalls, allApprovals, feedback, &episode)
 	if len(calls) == 0 {
 		calls = allToolCalls
@@ -917,7 +924,10 @@ func (r Runtime) finishBrowserLoginCanceledRun(ctx context.Context, run app.Agen
 			return Result{}, err
 		}
 	}
-	assistant := r.store.AddMessage(workflowResultMessage(run, workflowResult, run.Summary, now))
+	assistant, err := r.store.AddMessage(ctx, workflowResultMessage(run, workflowResult, run.Summary, now))
+	if err != nil {
+		return Result{}, fmt.Errorf("persist canceled browser login response: %w", err)
+	}
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, r.store.ListRunFeedback(run.ID), &episode)
 	return Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, WorkflowResult: workflowResult}, nil
 }
@@ -1263,7 +1273,10 @@ func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNod
 }
 
 func (r Runtime) blockPersistedWorkflowResume(ctx context.Context, run app.AgentRun, goal string, err error) (Result, error) {
-	result := r.blockWorkflowSetup(ctx, run, goal, err)
+	result, blockErr := r.blockWorkflowSetup(ctx, run, goal, err)
+	if blockErr != nil {
+		return Result{}, blockErr
+	}
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route

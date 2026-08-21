@@ -449,7 +449,12 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	modelLatencyTotal := int64(0)
 	modelTokensTotal := 0
 	for _, session := range sessions {
-		messages += len(s.store.ListMessages(session.ID))
+		storedMessages, err := s.store.ListMessages(r.Context(), session.ID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		messages += len(storedMessages)
 		runs += len(s.store.ListRuns(session.ID))
 	}
 	for _, call := range allModelCalls {
@@ -1333,7 +1338,12 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"messages": s.store.ListMessages(r.PathValue("id"))})
+	messages, err := s.store.ListMessages(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeConversationError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
 }
 
 func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
@@ -1381,11 +1391,11 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		result, err = s.runtime.HandleMessageWithIngress(r.Context(), sessionID, "", "", input.Content, sanitizeMessageAttachments(input.Attachments), ingress)
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeConversationError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if _, err := s.deliverAgentResult(r.Context(), result); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		writeConversationError(w, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -1551,7 +1561,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if result.err != nil {
-				_ = send("error", map[string]string{"error": result.err.Error(), "session_id": sessionID})
+				_ = send("error", map[string]string{"error": publicConversationError(result.err).Error(), "session_id": sessionID})
 				return
 			}
 			if result.deliveryErr != nil {
@@ -1560,7 +1570,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 				// apps/webchat/src/lib/messageStream.ts: a plain "error"
 				// event on an accepted stream would be presented as a benign
 				// stream detach, hiding the delivery failure.
-				_ = send("message.stream.delivery_failed", map[string]string{"error": result.deliveryErr.Error(), "session_id": sessionID})
+				_ = send("message.stream.delivery_failed", map[string]string{"error": publicConversationError(result.deliveryErr).Error(), "session_id": sessionID})
 				return
 			}
 			_ = send("message.stream.final", result.result)
@@ -2376,6 +2386,11 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 		toolCalls := toolCallsForRun(s.store.ListToolCalls(run.SessionID), run.ID)
 		approvals := approvalsForRun(s.store.ListApprovals(""), run.ID)
 		modelCalls := s.store.ListModelCalls(run.SessionID, run.ID)
+		messages, err := s.store.ListMessages(r.Context(), run.SessionID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
 		meta := app.TraceMetadata{
 			RunID:          run.ID,
 			SessionID:      run.SessionID,
@@ -2385,7 +2400,7 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 			Summary:        run.Summary,
 			StartedAt:      run.StartedAt,
 			CompletedAt:    run.CompletedAt,
-			MessageCount:   len(s.store.ListMessages(run.SessionID)),
+			MessageCount:   len(messages),
 			ToolCallCount:  len(toolCalls),
 			ApprovalCount:  len(approvals),
 			ModelCallCount: len(modelCalls),
@@ -2799,7 +2814,12 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 	current.ToolCalls = toolCallsForRun(s.store.ListToolCalls(run.SessionID), run.ID)
 	current.Approvals = approvalsForRun(s.store.ListApprovals(""), run.ID)
 	current.Feedback = s.store.ListRunFeedback(run.ID)
-	current.Messages = s.store.ListMessages(run.SessionID)
+	messages, err := s.store.ListMessages(ctx, run.SessionID)
+	if err != nil {
+		slog.Warn("trace message refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	current.Messages = messages
 	current.Audit = s.store.ListAudit(run.SessionID)
 	object, _ := s.traces.WriteRunObject(ctx, current)
 	if object != nil {
@@ -3294,6 +3314,43 @@ func writeSessionStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusGatewayTimeout, errors.New("session operation timed out"))
 	default:
 		writeError(w, http.StatusServiceUnavailable, errors.New("session service is unavailable"))
+	}
+}
+
+func writeConversationError(w http.ResponseWriter, fallbackStatus int, err error) {
+	status, publicErr, ok := conversationErrorProjection(err)
+	if !ok {
+		writeError(w, fallbackStatus, err)
+		return
+	}
+	writeError(w, status, publicErr)
+}
+
+func publicConversationError(err error) error {
+	_, publicErr, ok := conversationErrorProjection(err)
+	if ok {
+		return publicErr
+	}
+	return err
+}
+
+func conversationErrorProjection(err error) (int, error, bool) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		return http.StatusBadRequest, errors.New("conversation request is invalid"), true
+	case store.StoreErrorNotFound:
+		return http.StatusNotFound, errors.New("conversation not found"), true
+	case store.StoreErrorConflict:
+		return http.StatusConflict, errors.New("conversation cannot be changed"), true
+	case store.StoreErrorCanceled:
+		return http.StatusRequestTimeout, errors.New("conversation request was canceled"), true
+	case store.StoreErrorTimeout:
+		return http.StatusGatewayTimeout, errors.New("conversation operation timed out"), true
+	case store.StoreErrorUnavailable, store.StoreErrorDurability, store.StoreErrorUnknownOutcome,
+		store.StoreErrorCorrupt, store.StoreErrorInternal:
+		return http.StatusServiceUnavailable, errors.New("conversation service is unavailable"), true
+	default:
+		return 0, nil, false
 	}
 }
 

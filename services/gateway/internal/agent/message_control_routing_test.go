@@ -377,7 +377,7 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 		ID: "ap_document_edit", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: definition.Name,
 		Risk: app.RiskReversible, Status: "approved", Summary: "Approve document edit", CreatedAt: dispatch.Run.StartedAt, ResolvedAt: &completedAt,
 	})
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, RunID: run.ID, Role: "user", Content: "Replace a paragraph in note.docx", CreatedAt: dispatch.Run.StartedAt,
 	})
 	st.SaveModelCall(app.ModelCall{

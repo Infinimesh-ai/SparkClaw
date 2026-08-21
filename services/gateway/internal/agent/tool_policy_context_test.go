@@ -112,7 +112,7 @@ func TestExternalMCPWorkspaceDerivativePolicyUsesCapabilityNotToolName(t *testin
 func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID,
 		RunID:     "run_prior_document",
 		Role:      "assistant",
@@ -130,7 +130,10 @@ func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing
 	run := externalMCPPolicyTestRun(session, "run_external_context")
 	st.SaveRun(run)
 
-	snapshot := runtime.buildAgentContextSnapshot(session.ID, run.ID, "what did the file say?")
+	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, run.ID, "what did the file say?")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := snapshot.ForIntentRouting(); got != "" {
 		t.Fatalf("external MCP routing inherited prior session data: %q", got)
 	}

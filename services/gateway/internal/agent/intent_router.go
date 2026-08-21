@@ -508,7 +508,10 @@ func deliveryBusinessProjection(content string, evidence externalSendEvidence) s
 }
 
 func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, currentOwnerText string, resources []app.MessagePart, documents ...documentContextResolution) (string, error) {
-	snapshot := r.buildAgentContextSnapshot(sessionID, runID, currentOwnerText)
+	snapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, runID, currentOwnerText)
+	if err != nil {
+		return "", err
+	}
 	snapshot.Messages = withoutCurrentOwnerMessage(snapshot.Messages, currentOwnerText)
 	sections := make([]string, 0, 3)
 	if resourceContext := messageplane.ResourceProjection(resources); resourceContext != "" {
@@ -518,7 +521,6 @@ func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, c
 	if len(documents) > 0 {
 		documentResolution = documents[0]
 	} else {
-		var err error
 		documentResolution, err = r.resolveDocumentContext(ctx, sessionID, runID, currentOwnerText, resources)
 		if err != nil {
 			return "", err

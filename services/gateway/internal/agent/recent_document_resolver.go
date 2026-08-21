@@ -87,7 +87,10 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 		return documentContextResolution{References: references}, nil
 	}
 
-	snapshot := r.buildAgentContextSnapshot(sessionID, runID, content)
+	snapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, runID, content)
+	if err != nil {
+		return documentContextResolution{}, err
+	}
 	toolReferences := recentDocumentToolReferences(r.store.ListToolCalls(sessionID), workspaceRoot)
 	messageReferences := recentDocumentMessageReferences(snapshot.Messages)
 	switch {

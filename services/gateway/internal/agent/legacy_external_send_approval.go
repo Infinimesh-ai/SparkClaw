@@ -24,7 +24,11 @@ func (r Runtime) legacyExternalSendApprovalForRun(runID string) *app.Approval {
 }
 
 func (r Runtime) blockLegacyExternalSendApproval(ctx context.Context, run app.AgentRun, approval app.Approval) (Result, error) {
-	result, err := r.blockPersistedWorkflowResume(ctx, run, requestContentForRun(r.store.ListMessages(run.SessionID), run),
+	messages, err := r.store.ListMessages(ctx, run.SessionID)
+	if err != nil {
+		return Result{}, err
+	}
+	result, err := r.blockPersistedWorkflowResume(ctx, run, requestContentForRun(messages, run),
 		errors.New("legacy external-send approval is retired; submit a fresh instruction"))
 	if err != nil {
 		return Result{}, err

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -33,7 +34,11 @@ func mustRouteIntentOutput(t *testing.T, runtime Runtime, sessionID, content str
 		runtime.store = store.NewMemoryStore()
 	}
 	if runtime.tools == nil {
-		runtime.tools = toolhub.New(cfg, runtime.store)
+		toolRepository, ok := runtime.store.(toolhub.Repository)
+		if !ok {
+			t.Fatal("agent test repository does not provide ToolHub contracts")
+		}
+		runtime.tools = toolhub.New(cfg, toolRepository)
 	}
 	if runtime.capabilities.Revision() == "" {
 		runtime.capabilities = capability.MustDefaultCatalog()
@@ -71,7 +76,11 @@ func (runtime Runtime) routeIntentOutputForTest(sessionID, runID, content string
 		runtime.store = store.NewMemoryStore()
 	}
 	if runtime.tools == nil {
-		runtime.tools = toolhub.New(cfg, runtime.store)
+		toolRepository, ok := runtime.store.(toolhub.Repository)
+		if !ok {
+			return IntentRoutingOutput{}, errors.New("agent test repository does not provide ToolHub contracts")
+		}
+		runtime.tools = toolhub.New(cfg, toolRepository)
 	}
 	if runtime.capabilities.Revision() == "" {
 		runtime.capabilities = capability.MustDefaultCatalog()

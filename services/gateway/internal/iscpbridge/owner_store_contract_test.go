@@ -10,7 +10,7 @@ import (
 )
 
 type bridgeOwnerFailureStore struct {
-	store.Store
+	Repository
 	seen context.Context
 	err  error
 }
@@ -22,7 +22,7 @@ func (s *bridgeOwnerFailureStore) GetOwnerProfileByID(ctx context.Context, _ str
 
 func TestGatewayAdapterSessionCreatePropagatesContextAndReturnsRetryableOwnerFailure(t *testing.T) {
 	privateCause := errors.New("private owner backend detail")
-	wrapper := &bridgeOwnerFailureStore{Store: store.NewMemoryStore(), err: privateCause}
+	wrapper := &bridgeOwnerFailureStore{Repository: store.NewMemoryStore(), err: privateCause}
 	adapter := NewGatewayAdapter(wrapper, func() AgentRuntime { return &adapterRuntime{started: make(chan struct{}, 1)} })
 	request := validRequest(TypeSessionCreate, "request-owner-failure", "endpoint-app", "", "create-owner-failure", SessionCreatePayload{Title: "Owner context"})
 

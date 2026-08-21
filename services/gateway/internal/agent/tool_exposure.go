@@ -35,7 +35,7 @@ type exposureViewState struct {
 }
 
 type toolExposureEngine struct {
-	store  store.Store
+	store  toolExposureRepository
 	tools  *toolhub.ToolHub
 	policy policy.Engine
 	secret []byte
@@ -44,7 +44,11 @@ type toolExposureEngine struct {
 	latest map[string]exposureViewState
 }
 
-func newToolExposureEngine(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine) *toolExposureEngine {
+type toolExposureRepository interface {
+	store.RunRepository
+}
+
+func newToolExposureEngine(st toolExposureRepository, tools *toolhub.ToolHub, policyEngine policy.Engine) *toolExposureEngine {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		panic("tool exposure: failed to initialize view signer")

@@ -21,6 +21,7 @@ type scheduleStore interface {
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
 	ListExternalChatSessions(context.Context, string, string) ([]app.ExternalChatSession, error)
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
 }
 
 type SchedulePatch struct {

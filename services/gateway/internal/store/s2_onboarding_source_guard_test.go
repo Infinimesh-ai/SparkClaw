@@ -58,7 +58,7 @@ func TestS2OnboardingMigrationSourceGuard(t *testing.T) {
 			}
 		}
 	}
-	if repositoryMethods != len(s2PilotMethodSignatures) || embeddedRepositories != 1 || repeatedMethods != 0 {
+	if repositoryMethods != len(s2PilotMethodSignatures) || embeddedRepositories != 0 || repeatedMethods != 0 {
 		t.Fatalf("repository methods=%d embedded=%d repeated=%d", repositoryMethods, embeddedRepositories, repeatedMethods)
 	}
 

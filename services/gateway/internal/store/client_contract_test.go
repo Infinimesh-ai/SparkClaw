@@ -320,10 +320,10 @@ func TestClientRepositoryOrderingLifecycleAndEventPointerIsolation(t *testing.T)
 
 	for _, backend := range []struct {
 		name string
-		new  func(*testing.T) Store
+		new  func(*testing.T) testBackend
 	}{
-		{name: "memory", new: func(*testing.T) Store { return NewMemoryStore() }},
-		{name: "file", new: func(t *testing.T) Store {
+		{name: "memory", new: func(*testing.T) testBackend { return NewMemoryStore() }},
+		{name: "file", new: func(t *testing.T) testBackend {
 			return mustNewClientFileStore(t, FileStoreOptions{Path: filepath.Join(t.TempDir(), "events.json")})
 		}},
 	} {

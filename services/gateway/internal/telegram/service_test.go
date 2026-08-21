@@ -523,7 +523,7 @@ func TestServiceCancelBindingCancelsQueuedAndActiveUpdates(t *testing.T) {
 }
 
 type failingInboxListStore struct {
-	store.Store
+	ServiceRepository
 	err error
 }
 
@@ -534,7 +534,7 @@ func (s failingInboxListStore) ListChannelInboxUpdates(context.Context, string, 
 func TestServiceCancelBindingStopsActiveUpdateWhenInboxStoreFails(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	base := store.NewMemoryStore()
-	service := NewService(failingInboxListStore{Store: base, err: errors.New("inbox unavailable")}, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(base, &recordingRuntime{}, cfg))
+	service := NewService(failingInboxListStore{ServiceRepository: base, err: errors.New("inbox unavailable")}, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(base, &recordingRuntime{}, cfg))
 	activeCtx, activeCancel := context.WithCancel(t.Context())
 	service.registerActive("binding-failure", "inbox-active", activeCancel)
 	service.CancelBinding("binding-failure")
@@ -772,7 +772,7 @@ func telegramTextMessage(messageID, userID, chatID int64, text string) *Message 
 	return &Message{MessageID: messageID, From: &User{ID: userID, FirstName: text}, Chat: Chat{ID: chatID, Type: "private"}, Text: text, Date: time.Now().Unix()}
 }
 
-func saveInboxFixture(t *testing.T, st store.Store, bindingID string, update Update) app.ChannelInboxUpdate {
+func saveInboxFixture(t *testing.T, st store.DeliveryRecordRepository, bindingID string, update Update) app.ChannelInboxUpdate {
 	t.Helper()
 	raw, err := json.Marshal(update)
 	if err != nil {
@@ -795,7 +795,7 @@ func hasAuditType(events []app.AuditEvent, eventType string) bool {
 	return false
 }
 
-func waitForInboxStatus(t *testing.T, st store.Store, id, status string) {
+func waitForInboxStatus(t *testing.T, st store.DeliveryRecordRepository, id, status string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

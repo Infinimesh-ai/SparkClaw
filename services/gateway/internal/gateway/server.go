@@ -57,9 +57,29 @@ const (
 
 type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, app.MessageIngressContext, agent.StreamHandler) (agent.Result, error)
 
+type Repository interface {
+	store.ISCPOnboardingRepository
+	store.OwnerRepository
+	store.ClientRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.EvaluationRepository
+	store.ArtifactMetadataRepository
+	store.MemoryRepository
+	store.ScheduleRepository
+	store.PassiveNotificationRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type Server struct {
 	cfg                      config.Config
-	store                    store.Store
+	store                    Repository
 	tools                    *toolhub.ToolHub
 	runtime                  agent.Runtime
 	models                   modelrouter.Router
@@ -173,11 +193,11 @@ func WithMessageDelivery(endpoints *messagecontrol.EndpointRegistry, providers *
 	}
 }
 
-func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, options ...Option) *Server {
+func New(cfg config.Config, st Repository, tools *toolhub.ToolHub, runtime agent.Runtime, options ...Option) *Server {
 	return NewWithTrace(cfg, st, tools, runtime, trace.NewWriterFromConfig(cfg), options...)
 }
 
-func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
+func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
 	artifacts := tools.ArtifactStore()
 	if artifacts == nil {
 		artifacts = artifact.NewStore(cfg.Storage)
@@ -2267,7 +2287,7 @@ func (s *Server) recordMCPApprovalExecutionFailure(ctx context.Context, runID, c
 	}
 }
 
-func runHasPendingApproval(ctx context.Context, st store.Store, runID string) (bool, error) {
+func runHasPendingApproval(ctx context.Context, st store.ApprovalRepository, runID string) (bool, error) {
 	approvals, err := st.ListApprovals(ctx, "pending")
 	if err != nil {
 		return false, err

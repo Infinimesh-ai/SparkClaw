@@ -33,7 +33,7 @@ const (
 )
 
 type Syncer struct {
-	store       store.Store
+	store       SyncerRepository
 	dispatcher  *Dispatcher
 	client      *http.Client
 	cfg         config.Config
@@ -47,6 +47,16 @@ type Syncer struct {
 	busy map[string]bool
 }
 
+type SyncerRepository interface {
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ArtifactMetadataRepository
+	store.AuditRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type updateTextItem struct {
 	Text string `json:"text"`
 }
@@ -58,7 +68,7 @@ type updateItem struct {
 	FileItem  fileItem       `json:"file_item"`
 }
 
-func NewSyncer(st store.Store) *Syncer {
+func NewSyncer(st SyncerRepository) *Syncer {
 	return &Syncer{
 		store:  st,
 		client: &http.Client{Timeout: 40 * time.Second},

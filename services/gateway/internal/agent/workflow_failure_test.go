@@ -14,7 +14,7 @@ import (
 )
 
 type workflowSessionFailureStore struct {
-	store.Store
+	Repository
 	err error
 }
 
@@ -133,7 +133,7 @@ func TestWorkflowSetupFailureDoesNotSuppressSessionStoreFailure(t *testing.T) {
 	base := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, base, "setup failure store error")
 	rawCause := errors.New("session backend unavailable")
-	failing := &workflowSessionFailureStore{Store: base, err: &store.StoreError{
+	failing := &workflowSessionFailureStore{Repository: base, err: &store.StoreError{
 		Code: store.StoreErrorUnavailable, Operation: store.OperationSessionGet, Err: rawCause,
 	}}
 	route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched}

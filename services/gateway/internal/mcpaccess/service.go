@@ -34,8 +34,15 @@ type operationExecution struct {
 	cancel context.CancelFunc
 }
 
+type Repository interface {
+	store.MCPRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+}
+
 type Service struct {
-	store            store.Store
+	store            Repository
 	runtime          Runtime
 	deliver          ResultDeliverer
 	mu               sync.Mutex
@@ -58,7 +65,7 @@ func (s *Service) WithExecutionContext(executionContext func() context.Context) 
 	return s
 }
 
-func New(st store.Store, runtime Runtime, deliver ResultDeliverer) *Service {
+func New(st Repository, runtime Runtime, deliver ResultDeliverer) *Service {
 	return &Service{store: st, runtime: runtime, deliver: deliver, cancels: map[string]*operationExecution{}}
 }
 
@@ -623,7 +630,7 @@ func (s *Service) registerOperationExecutionLocked(fallback context.Context, ope
 	}
 }
 
-func finalizeRevokedOperations(ctx context.Context, st store.Store, operations []app.MCPOperation) error {
+func finalizeRevokedOperations(ctx context.Context, st Repository, operations []app.MCPOperation) error {
 	for _, operation := range operations {
 		if operation.State != app.MCPOperationRevoked {
 			continue

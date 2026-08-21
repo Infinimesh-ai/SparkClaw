@@ -13,7 +13,7 @@ import (
 )
 
 type failingArtifactMetadataStore struct {
-	store.Store
+	Repository
 	err error
 }
 
@@ -32,8 +32,8 @@ func (s failingArtifactMetadataStore) FindArtifactObjectByURI(context.Context, s
 func TestArtifactListProjectsStoreFailure(t *testing.T) {
 	backendCause := errors.New("private artifact metadata backend detail")
 	repository := failingArtifactMetadataStore{
-		Store: store.NewMemoryStore(),
-		err:   &store.StoreError{Code: store.StoreErrorUnavailable, Operation: store.OperationArtifactMetadataList, Err: backendCause},
+		Repository: store.NewMemoryStore(),
+		err:        &store.StoreError{Code: store.StoreErrorUnavailable, Operation: store.OperationArtifactMetadataList, Err: backendCause},
 	}
 	response := httptest.NewRecorder()
 	(&Server{store: repository}).listArtifacts(response, httptest.NewRequest(http.MethodGet, "/api/artifacts", nil))

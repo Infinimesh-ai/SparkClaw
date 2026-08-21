@@ -110,7 +110,7 @@ func TestFileStoreReadsLegacyWeixinChatSnapshot(t *testing.T) {
 	}
 }
 
-func testExternalChatAndInboxParity(t *testing.T, st Store) {
+func testExternalChatAndInboxParity(t *testing.T, st testBackend) {
 	t.Helper()
 	linked := mustCreateSessionWithScope(t, st, "Telegram session", app.DefaultOwnerID, t.TempDir(), "telegram", true)
 	chat, err := st.SaveExternalChatSession(t.Context(), app.ExternalChatSession{

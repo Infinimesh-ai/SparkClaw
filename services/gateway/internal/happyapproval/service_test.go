@@ -14,7 +14,7 @@ import (
 )
 
 type approvalRepositoryFaultStore struct {
-	store.Store
+	Repository
 	listErr      error
 	saveErr      error
 	contextKey   any
@@ -28,7 +28,7 @@ func (s *approvalRepositoryFaultStore) ListApprovals(ctx context.Context, status
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
-	return s.Store.ListApprovals(ctx, status)
+	return s.Repository.ListApprovals(ctx, status)
 }
 
 func (s *approvalRepositoryFaultStore) SaveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
@@ -38,7 +38,7 @@ func (s *approvalRepositoryFaultStore) SaveApproval(ctx context.Context, approva
 	if s.saveErr != nil {
 		return app.Approval{}, s.saveErr
 	}
-	return s.Store.SaveApproval(ctx, approval)
+	return s.Repository.SaveApproval(ctx, approval)
 }
 
 type recordedCall struct {
@@ -104,7 +104,7 @@ func TestSyncPropagatesApprovalRepositoryFailuresAndCallerContext(t *testing.T) 
 	key := struct{ name string }{"approval-context"}
 	t.Run("list", func(t *testing.T) {
 		fault := &approvalRepositoryFaultStore{
-			Store: store.NewMemoryStore(), listErr: &store.StoreError{
+			Repository: store.NewMemoryStore(), listErr: &store.StoreError{
 				Code: store.StoreErrorUnavailable, Operation: store.OperationApprovalList, Err: privateCause,
 			}, contextKey: key,
 		}
@@ -121,7 +121,7 @@ func TestSyncPropagatesApprovalRepositoryFailuresAndCallerContext(t *testing.T) 
 	})
 	t.Run("save", func(t *testing.T) {
 		fault := &approvalRepositoryFaultStore{
-			Store: store.NewMemoryStore(), saveErr: &store.StoreError{
+			Repository: store.NewMemoryStore(), saveErr: &store.StoreError{
 				Code: store.StoreErrorUnavailable, Operation: store.OperationApprovalSave, Err: privateCause,
 			}, contextKey: key,
 		}

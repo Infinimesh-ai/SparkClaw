@@ -13,14 +13,14 @@ import (
 )
 
 type s0RepositoryCharacterizationCase struct {
-	checks map[string]func(*testing.T, Store)
+	checks map[string]func(*testing.T, testBackend)
 }
 
-func s0RepositoryChecks(check func(*testing.T, Store, string), dimensions ...string) s0RepositoryCharacterizationCase {
+func s0RepositoryChecks(check func(*testing.T, testBackend, string), dimensions ...string) s0RepositoryCharacterizationCase {
 	if check == nil {
 		panic("S0 repository characterization check is nil")
 	}
-	checks := make(map[string]func(*testing.T, Store), len(dimensions))
+	checks := make(map[string]func(*testing.T, testBackend), len(dimensions))
 	for _, dimension := range dimensions {
 		if dimension == "" {
 			panic("S0 repository characterization dimension is empty")
@@ -29,7 +29,7 @@ func s0RepositoryChecks(check func(*testing.T, Store, string), dimensions ...str
 			panic("duplicate S0 repository characterization dimension: " + dimension)
 		}
 		dimension := dimension
-		checks[dimension] = func(t *testing.T, st Store) {
+		checks[dimension] = func(t *testing.T, st testBackend) {
 			check(t, st, dimension)
 		}
 	}
@@ -113,7 +113,7 @@ func newS0RepositoryBackends(t *testing.T) []s0CharacterizationBackend {
 	return []s0CharacterizationBackend{{name: "memory", store: NewMemoryStore()}, {name: "file", store: fileStore}}
 }
 
-func characterizeS0OwnerRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0OwnerRepository(t *testing.T, st testBackend, dimension string) {
 	profile := app.OwnerProfile{ID: "owner-s0", Source: "test", ExternalRef: "external-s0", DisplayName: "first"}
 	switch dimension {
 	case s0DimensionSuccess:
@@ -146,7 +146,7 @@ func characterizeS0OwnerRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0ClientRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ClientRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		client := mustClaimTestClient(t, st, app.Client{ID: "client-s0", Name: "client", TokenHash: "hash-s0"})
@@ -189,7 +189,7 @@ func characterizeS0ClientRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ISCPOnboardingRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -239,7 +239,7 @@ func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store, dimension st
 	}
 }
 
-func characterizeS0CredentialRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0CredentialRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})); err != nil {
@@ -279,7 +279,7 @@ func characterizeS0CredentialRepository(t *testing.T, st Store, dimension string
 	}
 }
 
-func characterizeS0SessionRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0SessionRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		session := mustCreateSession(t, st, "session")
@@ -310,7 +310,7 @@ func characterizeS0SessionRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0ConversationRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ConversationRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		session := mustCreateSession(t, st, "conversation")
@@ -334,7 +334,7 @@ func characterizeS0ConversationRepository(t *testing.T, st Store, dimension stri
 	}
 }
 
-func characterizeS0RunRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0RunRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -359,7 +359,7 @@ func characterizeS0RunRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0DocumentRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0DocumentRepository(t *testing.T, st testBackend, dimension string) {
 	record := app.DocumentRecord{ID: "document-s0", OwnerID: "owner-s0", SessionID: "session-s0", Name: "first", LastActivityAt: time.Now().UTC()}
 	switch dimension {
 	case s0DimensionSuccess:
@@ -383,7 +383,7 @@ func characterizeS0DocumentRepository(t *testing.T, st Store, dimension string) 
 	}
 }
 
-func characterizeS0ApprovalRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ApprovalRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -429,7 +429,7 @@ func characterizeS0ApprovalRepository(t *testing.T, st Store, dimension string) 
 	}
 }
 
-func characterizeS0ScheduleRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ScheduleRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -461,7 +461,7 @@ func characterizeS0ScheduleRepository(t *testing.T, st Store, dimension string) 
 	}
 }
 
-func characterizeS0ConnectorRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ConnectorRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		setting, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{OwnerID: "owner-s0", Channel: "telegram", Enabled: true}, 0)
@@ -489,7 +489,7 @@ func characterizeS0ConnectorRepository(t *testing.T, st Store, dimension string)
 	}
 }
 
-func characterizeS0PassiveNotificationRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0PassiveNotificationRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		notification := testPassiveNotification("passive-s0", "endpoint-s0", "delivery-s0", "fingerprint-s0")
@@ -507,7 +507,7 @@ func characterizeS0PassiveNotificationRepository(t *testing.T, st Store, dimensi
 	}
 }
 
-func characterizeS0ExternalChatRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ExternalChatRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -540,7 +540,7 @@ func characterizeS0ExternalChatRepository(t *testing.T, st Store, dimension stri
 	}
 }
 
-func characterizeS0DeliveryRecordRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0DeliveryRecordRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		record, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{ID: "receive-s0", OwnerID: "owner-s0", ActorID: "actor-s0", SourceEndpointID: "endpoint-s0", NativeMessageID: "native-s0", Status: "received"})
@@ -559,7 +559,7 @@ func characterizeS0DeliveryRecordRepository(t *testing.T, st Store, dimension st
 	}
 }
 
-func characterizeS0MCPRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0MCPRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(time.Now().UTC(), "mcp-s0-hash"))
@@ -578,7 +578,7 @@ func characterizeS0MCPRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0BrowserStateRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0BrowserStateRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		record := mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{ID: "browser-auth-s0", OwnerID: "owner-s0", BrowserProfileID: "profile-s0", SiteOrigin: "https://example.com"})
@@ -594,7 +594,7 @@ func characterizeS0BrowserStateRepository(t *testing.T, st Store, dimension stri
 	}
 }
 
-func characterizeS0MemoryRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0MemoryRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{ID: "candidate-s0", SessionID: "session-s0", RunID: "run-s0", Status: "pending", Content: "remember"})
@@ -610,7 +610,7 @@ func characterizeS0MemoryRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0AuditRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0AuditRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -644,7 +644,7 @@ func characterizeS0AuditRepository(t *testing.T, st Store, dimension string) {
 	}
 }
 
-func characterizeS0EvaluationRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0EvaluationRepository(t *testing.T, st testBackend, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
@@ -677,7 +677,7 @@ func characterizeS0EvaluationRepository(t *testing.T, st Store, dimension string
 	}
 }
 
-func characterizeS0ArtifactMetadataRepository(t *testing.T, st Store, dimension string) {
+func characterizeS0ArtifactMetadataRepository(t *testing.T, st testBackend, dimension string) {
 	switch dimension {
 	case s0DimensionSuccess:
 		object := app.ArtifactObject{ID: "artifact-s0", URI: "artifact://s0", Key: "s0", CreatedAt: time.Now().UTC()}
@@ -841,7 +841,7 @@ func TestS0DeliveryRecordRepositoryMutableValuesAreIsolated(t *testing.T) {
 	}
 }
 
-func s0ConversationAliasSafe(t *testing.T, st Store) bool {
+func s0ConversationAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	session := mustCreateSession(t, st, "alias")
 	mustAddMessage(t, st, app.Message{ID: "message-alias", SessionID: session.ID, Attachments: []app.MessageAttachment{{Name: "original"}}})
@@ -850,7 +850,7 @@ func s0ConversationAliasSafe(t *testing.T, st Store) bool {
 	return mustListMessages(t, st, session.ID)[0].Attachments[0].Name != "mutated"
 }
 
-func s0RunAliasSafe(t *testing.T, st Store) bool {
+func s0RunAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	testSaveToolCall(st, app.ToolCall{ID: "tool-alias", Arguments: map[string]any{"value": "original"}})
 	got, _ := testGetToolCall(st, "tool-alias")
@@ -859,7 +859,7 @@ func s0RunAliasSafe(t *testing.T, st Store) bool {
 	return again.Arguments["value"] != "mutated"
 }
 
-func s0ApprovalAliasSafe(t *testing.T, st Store) bool {
+func s0ApprovalAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	mustSaveApproval(t, st, app.Approval{ID: "approval-alias", Status: "pending", Arguments: map[string]any{"value": "original"}})
 	got, _ := mustGetApproval(t, st, "approval-alias")
@@ -868,7 +868,7 @@ func s0ApprovalAliasSafe(t *testing.T, st Store) bool {
 	return again.Arguments["value"] != "mutated"
 }
 
-func s0ScheduleAliasSafe(t *testing.T, st Store) bool {
+func s0ScheduleAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	sentAt := time.Now().UTC()
 	mustSaveReminder(t, st, app.Reminder{ID: "reminder-alias", Status: "sent", SentAt: &sentAt})
@@ -878,7 +878,7 @@ func s0ScheduleAliasSafe(t *testing.T, st Store) bool {
 	return !again.SentAt.Equal(*got.SentAt)
 }
 
-func s0ConnectorAliasSafe(t *testing.T, st Store) bool {
+func s0ConnectorAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-alias", Channel: "telegram", Status: "active", Scopes: []string{"original"}})
 	got, _ := mustGetNotificationBindingFixture(t, st, "binding-alias")
@@ -887,7 +887,7 @@ func s0ConnectorAliasSafe(t *testing.T, st Store) bool {
 	return again.Scopes[0] != "mutated"
 }
 
-func s0PassiveAliasSafe(t *testing.T, st Store) bool {
+func s0PassiveAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	notification := testPassiveNotification("passive-alias", "endpoint-alias", "delivery-alias", "fingerprint-alias")
 	created, _, err := st.CreatePassiveNotification(t.Context(), notification)
@@ -903,7 +903,7 @@ func s0PassiveAliasSafe(t *testing.T, st Store) bool {
 	return !again.ReadAt.Equal(*read.ReadAt)
 }
 
-func s0DeliveryAliasSafe(t *testing.T, st Store) bool {
+func s0DeliveryAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	if _, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{ID: "receive-alias", SourceEndpointID: "endpoint-alias", NativeMessageID: "native-alias", Status: "received"}); err != nil {
 		t.Fatal(err)
@@ -920,7 +920,7 @@ func s0DeliveryAliasSafe(t *testing.T, st Store) bool {
 	return again.Transitions[0].Status != "mutated"
 }
 
-func s0BrowserAliasSafe(t *testing.T, st Store) bool {
+func s0BrowserAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{ID: "browser-alias", ResumeArgs: map[string]any{"value": "original"}})
 	got, _ := mustGetBrowserLoginBlock(t, st, "browser-alias")
@@ -929,7 +929,7 @@ func s0BrowserAliasSafe(t *testing.T, st Store) bool {
 	return again.ResumeArgs["value"] != "mutated"
 }
 
-func s0MemoryAliasSafe(t *testing.T, st Store) bool {
+func s0MemoryAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	resolvedAt := time.Now().UTC()
 	mustAddMemoryCandidate(t, st, app.MemoryCandidate{ID: "candidate-alias", Status: "resolved", ResolvedAt: &resolvedAt})
@@ -939,7 +939,7 @@ func s0MemoryAliasSafe(t *testing.T, st Store) bool {
 	return !again[0].ResolvedAt.Equal(*got[0].ResolvedAt)
 }
 
-func s0AuditAliasSafe(t *testing.T, st Store) bool {
+func s0AuditAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	mustAddAudit(t, st, app.AuditEvent{ID: "audit-alias", Fields: map[string]any{"value": "original"}})
 	got := mustListAudit(t, st, "")
@@ -947,7 +947,7 @@ func s0AuditAliasSafe(t *testing.T, st Store) bool {
 	return mustListAudit(t, st, "")[0].Fields["value"] != "mutated"
 }
 
-func s0EvaluationAliasSafe(t *testing.T, st Store) bool {
+func s0EvaluationAliasSafe(t *testing.T, st testBackend) bool {
 	t.Helper()
 	mustSaveEvalRun(t, st, app.EvalRun{ID: "eval-alias", Cases: []app.EvalCase{{Name: "original"}}})
 	got, _ := mustGetEvalRun(t, st, "eval-alias")

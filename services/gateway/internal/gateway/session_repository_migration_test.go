@@ -16,7 +16,7 @@ import (
 )
 
 type sessionRepositoryFaultStore struct {
-	store.Store
+	Repository
 	createFn          func(context.Context, string) (app.Session, error)
 	createWithScopeFn func(context.Context, string, string, string, string, bool) (app.Session, error)
 	listFn            func(context.Context) ([]app.Session, error)
@@ -29,42 +29,42 @@ func (s *sessionRepositoryFaultStore) CreateSession(ctx context.Context, title s
 	if s.createFn != nil {
 		return s.createFn(ctx, title)
 	}
-	return s.Store.CreateSession(ctx, title)
+	return s.Repository.CreateSession(ctx, title)
 }
 
 func (s *sessionRepositoryFaultStore) CreateSessionWithScope(ctx context.Context, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
 	if s.createWithScopeFn != nil {
 		return s.createWithScopeFn(ctx, title, ownerID, workspaceRoot, source, hidden)
 	}
-	return s.Store.CreateSessionWithScope(ctx, title, ownerID, workspaceRoot, source, hidden)
+	return s.Repository.CreateSessionWithScope(ctx, title, ownerID, workspaceRoot, source, hidden)
 }
 
 func (s *sessionRepositoryFaultStore) ListSessions(ctx context.Context) ([]app.Session, error) {
 	if s.listFn != nil {
 		return s.listFn(ctx)
 	}
-	return s.Store.ListSessions(ctx)
+	return s.Repository.ListSessions(ctx)
 }
 
 func (s *sessionRepositoryFaultStore) GetSession(ctx context.Context, id string) (app.Session, bool, error) {
 	if s.getFn != nil {
 		return s.getFn(ctx, id)
 	}
-	return s.Store.GetSession(ctx, id)
+	return s.Repository.GetSession(ctx, id)
 }
 
 func (s *sessionRepositoryFaultStore) UpdateSessionTitle(ctx context.Context, id, title string) (app.Session, error) {
 	if s.updateFn != nil {
 		return s.updateFn(ctx, id, title)
 	}
-	return s.Store.UpdateSessionTitle(ctx, id, title)
+	return s.Repository.UpdateSessionTitle(ctx, id, title)
 }
 
 func (s *sessionRepositoryFaultStore) DeleteSession(ctx context.Context, id string) (app.Session, error) {
 	if s.deleteFn != nil {
 		return s.deleteFn(ctx, id)
 	}
-	return s.Store.DeleteSession(ctx, id)
+	return s.Repository.DeleteSession(ctx, id)
 }
 
 func TestSessionHTTPHandlersPropagateContextAndMapTypedErrors(t *testing.T) {
@@ -91,7 +91,7 @@ func TestSessionHTTPHandlersPropagateContextAndMapTypedErrors(t *testing.T) {
 			t.Run(operation+"/"+testCase.name, func(t *testing.T) {
 				base := store.NewMemoryStore()
 				session := storetest.MustCreateSession(t, base, "session")
-				fault := &sessionRepositoryFaultStore{Store: base}
+				fault := &sessionRepositoryFaultStore{Repository: base}
 				var seen context.Context
 				rawCause := errors.New("private database host and SQL statement")
 				failure := func(operation store.StoreOperation) error {

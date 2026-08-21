@@ -13,7 +13,7 @@ import (
 )
 
 type weixinOwnerFailureStore struct {
-	store.Store
+	DispatcherRepository
 	seen context.Context
 	err  error
 }
@@ -25,7 +25,7 @@ func (s *weixinOwnerFailureStore) GetOwnerProfileByID(ctx context.Context, _ str
 
 func TestHandleInboundPropagatesContextAndReturnsOwnerFailure(t *testing.T) {
 	privateCause := errors.New("private owner backend detail")
-	wrapper := &weixinOwnerFailureStore{Store: store.NewMemoryStore(), err: privateCause}
+	wrapper := &weixinOwnerFailureStore{DispatcherRepository: store.NewMemoryStore(), err: privateCause}
 	dispatcher := NewDispatcher(wrapper, &fakeAgentRuntime{}, config.NotificationChannelConfig{})
 	inbound := InboundMessage{
 		Binding:    app.NotificationBinding{ID: "binding-owner-failure", OwnerID: app.DefaultOwnerID},
@@ -54,7 +54,7 @@ func TestSyncerOwnerFailureDoesNotAdvanceProviderCursor(t *testing.T) {
 		Status: "active", ProviderCursor: "cursor-before",
 	})
 	privateCause := errors.New("owner backend unavailable")
-	wrapper := &weixinOwnerFailureStore{Store: base, err: privateCause}
+	wrapper := &weixinOwnerFailureStore{DispatcherRepository: base, err: privateCause}
 	runtime := &fakeAgentRuntime{}
 	dispatcher := NewDispatcher(wrapper, runtime, config.NotificationChannelConfig{})
 	syncer := NewSyncer(wrapper).WithDispatcher(dispatcher)

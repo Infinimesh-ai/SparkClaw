@@ -16,8 +16,8 @@ import (
 func TestBrowserStateRepositoryMemoryAndFileContract(t *testing.T) {
 	for _, backend := range []string{"memory", "file"} {
 		t.Run(backend, func(t *testing.T) {
-			var repository Store
-			var restart func() Store
+			var repository testBackend
+			var restart func() testBackend
 			switch backend {
 			case "memory":
 				repository = NewMemoryStore()
@@ -28,7 +28,7 @@ func TestBrowserStateRepositoryMemoryAndFileContract(t *testing.T) {
 					t.Fatal(err)
 				}
 				repository = file
-				restart = func() Store {
+				restart = func() testBackend {
 					reloaded, err := NewFileStore(path)
 					if err != nil {
 						t.Fatal(err)
@@ -41,7 +41,7 @@ func TestBrowserStateRepositoryMemoryAndFileContract(t *testing.T) {
 	}
 }
 
-func exerciseBrowserStateRepositoryContract(t *testing.T, repository Store, restart func() Store) {
+func exerciseBrowserStateRepositoryContract(t *testing.T, repository testBackend, restart func() testBackend) {
 	t.Helper()
 	expiresAt := time.Date(2026, 9, 21, 12, 0, 0, 123456789, time.FixedZone("contract", 8*60*60))
 	authB, err := repository.SaveBrowserAuthRecord(t.Context(), app.BrowserAuthRecord{

@@ -61,7 +61,7 @@ func TestS3OwnerMigrationSourceGuard(t *testing.T) {
 			}
 		}
 	}
-	if repositoryMethods != len(s3OwnerMethodSignatures) || embeddedRepositories != 1 || repeatedMethods != 0 {
+	if repositoryMethods != len(s3OwnerMethodSignatures) || embeddedRepositories != 0 || repeatedMethods != 0 {
 		t.Fatalf("repository methods=%d embedded=%d repeated=%d", repositoryMethods, embeddedRepositories, repeatedMethods)
 	}
 

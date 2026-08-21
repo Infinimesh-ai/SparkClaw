@@ -317,7 +317,7 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndByOwner(t *testing.T) {
 	})
 }
 
-func testMCPAccessRecordDeletion(t *testing.T, st Store) string {
+func testMCPAccessRecordDeletion(t *testing.T, st testBackend) string {
 	t.Helper()
 	now := time.Now().UTC()
 	expired := testMCPAccessTicket(now, "expired-delete-hash")

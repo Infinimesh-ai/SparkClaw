@@ -49,7 +49,15 @@ const (
 	TypingStatusCancel TypingStatus = 2
 )
 
-func SendWeixinText(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, messageText, dedupeKey string) (Result, error) {
+type Repository interface {
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ArtifactMetadataRepository
+	store.ScheduleRepository
+	store.ExternalChatRepository
+}
+
+func SendWeixinText(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, messageText, dedupeKey string) (Result, error) {
 	return NewWeixinAdapter("weixin", channelCfg, st, vault).Send(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
@@ -61,7 +69,7 @@ func SendWeixinText(ctx context.Context, st store.Store, vault credential.Creden
 	})
 }
 
-func SendWeixinImage(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, imagePath, caption, dedupeKey string) (Result, error) {
+func SendWeixinImage(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, imagePath, caption, dedupeKey string) (Result, error) {
 	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendImage(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
@@ -74,7 +82,7 @@ func SendWeixinImage(ctx context.Context, st store.Store, vault credential.Crede
 	})
 }
 
-func SendWeixinFile(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, filePath, fileName, caption, dedupeKey string) (Result, error) {
+func SendWeixinFile(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, filePath, fileName, caption, dedupeKey string) (Result, error) {
 	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendFile(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
@@ -88,7 +96,7 @@ func SendWeixinFile(ctx context.Context, st store.Store, vault credential.Creden
 	})
 }
 
-func SendWeixinTyping(ctx context.Context, st store.Store, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL string, status TypingStatus) (Result, error) {
+func SendWeixinTyping(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL string, status TypingStatus) (Result, error) {
 	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendTyping(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
@@ -113,13 +121,13 @@ type Result struct {
 type WeixinAdapter struct {
 	channel   string
 	cfg       config.NotificationChannelConfig
-	store     store.Store
+	store     Repository
 	vault     credential.CredentialVault
 	client    *http.Client
 	resources delivery.ResourceResolver
 }
 
-func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, st store.Store, vault credential.CredentialVault) *WeixinAdapter {
+func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, st Repository, vault credential.CredentialVault) *WeixinAdapter {
 	return &WeixinAdapter{
 		channel:   channel,
 		cfg:       cfg,

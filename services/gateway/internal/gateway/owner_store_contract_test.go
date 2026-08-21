@@ -19,7 +19,7 @@ import (
 )
 
 type gatewayOwnerFailureStore struct {
-	store.Store
+	runtimeTestRepository
 	err  error
 	seen context.Context
 }
@@ -46,7 +46,7 @@ func TestOwnerEndpointPropagatesRequestContextAndProjectsSafeStoreErrors(t *test
 			base := store.NewMemoryStore()
 			rawCause := "private database host and statement"
 			wrapped := &gatewayOwnerFailureStore{
-				Store: base,
+				runtimeTestRepository: base,
 				err: &store.StoreError{
 					Code: testCase.code, Operation: store.OperationOwnerProfileGet, Err: errors.New(rawCause),
 				},

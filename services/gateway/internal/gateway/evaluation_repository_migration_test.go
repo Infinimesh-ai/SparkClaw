@@ -13,7 +13,7 @@ import (
 )
 
 type failingEvaluationStore struct {
-	store.Store
+	Repository
 	err error
 }
 
@@ -32,8 +32,8 @@ func (s failingEvaluationStore) ListEvalRuns(context.Context) ([]app.EvalRun, er
 func TestEvaluationEndpointsProjectStoreFailures(t *testing.T) {
 	backendCause := errors.New("private evaluation backend detail")
 	repository := failingEvaluationStore{
-		Store: store.NewMemoryStore(),
-		err:   &store.StoreError{Code: store.StoreErrorUnavailable, Operation: store.OperationEvaluationList, Err: backendCause},
+		Repository: store.NewMemoryStore(),
+		err:        &store.StoreError{Code: store.StoreErrorUnavailable, Operation: store.OperationEvaluationList, Err: backendCause},
 	}
 	server := &Server{cfg: testConfig(t.TempDir()), store: repository}
 	for _, testCase := range []struct {

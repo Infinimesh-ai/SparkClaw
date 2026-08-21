@@ -16,7 +16,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixin"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -31,7 +30,7 @@ type connectorAssembly struct {
 
 func newConnectorAssembly(
 	cfg config.Config,
-	st store.Store,
+	st backend,
 	runtime connectorruntime.AgentRuntime,
 	transcriber speech.Transcriber,
 	endpoints *messagecontrol.EndpointRegistry,

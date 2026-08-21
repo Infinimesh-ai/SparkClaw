@@ -16,9 +16,6 @@ type endpointStore interface {
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
 	ListExternalChatSessions(context.Context, string, string) ([]app.ExternalChatSession, error)
-}
-
-type mcpEndpointStore interface {
 	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
 }
 
@@ -89,11 +86,7 @@ func (r *EndpointRegistry) get(ctx context.Context, id app.EndpointID, admittedS
 	}
 	if strings.HasPrefix(value, "mcp:") {
 		bindingID := strings.TrimSpace(strings.TrimPrefix(value, "mcp:"))
-		mcpStore, supported := r.store.(mcpEndpointStore)
-		if !supported {
-			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
-		}
-		binding, ok, err := mcpStore.GetMCPBinding(ctx, bindingID)
+		binding, ok, err := r.store.GetMCPBinding(ctx, bindingID)
 		if err != nil {
 			return app.MessageEndpoint{}, fmt.Errorf("read MCP endpoint %q: %w", value, err)
 		}

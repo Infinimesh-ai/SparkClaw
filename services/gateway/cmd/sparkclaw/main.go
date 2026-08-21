@@ -127,7 +127,30 @@ func main() {
 	slog.Info("sparkclaw gateway stopped")
 }
 
-func newStore(ctx context.Context, cfg config.Config) (store.Store, error) {
+type backend interface {
+	store.ISCPOnboardingRepository
+	store.OwnerRepository
+	store.ClientRepository
+	store.CredentialRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.DocumentRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.EvaluationRepository
+	store.ArtifactMetadataRepository
+	store.BrowserStateRepository
+	store.MemoryRepository
+	store.ScheduleRepository
+	store.PassiveNotificationRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
+func newStore(ctx context.Context, cfg config.Config) (backend, error) {
 	timeouts := store.OperationTimeouts{
 		Read:        time.Duration(cfg.State.ReadTimeoutSeconds) * time.Second,
 		Write:       time.Duration(cfg.State.WriteTimeoutSeconds) * time.Second,

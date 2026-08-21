@@ -19,7 +19,7 @@ import (
 )
 
 type approvalListFaultStore struct {
-	store.Store
+	runtimeTestRepository
 	err error
 }
 
@@ -31,8 +31,8 @@ func TestApprovalAPIRedactsRepositoryFailures(t *testing.T) {
 	privateCause := errors.New("private postgres host and approval SQL")
 	base := store.NewMemoryStore()
 	fault := approvalListFaultStore{
-		Store: base,
-		err:   &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationApprovalList, Err: privateCause},
+		runtimeTestRepository: base,
+		err:                   &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationApprovalList, Err: privateCause},
 	}
 	cfg := testConfig(t.TempDir())
 	tools := toolhub.New(cfg, fault)

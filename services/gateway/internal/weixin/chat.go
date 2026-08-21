@@ -40,8 +40,23 @@ const (
 	pendingReplyAttachmentPrompt = "attachment_prompt"
 )
 
+type DispatcherRepository interface {
+	store.OwnerRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.ScheduleRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type Dispatcher struct {
-	store             store.Store
+	store             DispatcherRepository
 	runtime           connectorruntime.AgentBridge
 	cfg               config.NotificationChannelConfig
 	workspaceBaseRoot string
@@ -73,11 +88,11 @@ type InboundMessage struct {
 	ReceiveRecord  app.MessageReceiveRecord
 }
 
-func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
+func NewDispatcher(st DispatcherRepository, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
 	return &Dispatcher{store: st, runtime: connectorruntime.NewAgentBridge(runtime), cfg: cfg}
 }
 
-func NewDispatcherWithConfig(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config) *Dispatcher {
+func NewDispatcherWithConfig(st DispatcherRepository, runtime connectorruntime.AgentRuntime, cfg config.Config) *Dispatcher {
 	return &Dispatcher{
 		store:             st,
 		runtime:           connectorruntime.NewAgentBridge(runtime),

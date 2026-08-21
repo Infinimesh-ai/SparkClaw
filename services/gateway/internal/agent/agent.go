@@ -20,9 +20,21 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
+type Repository interface {
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.DocumentRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.BrowserStateRepository
+	store.MemoryRepository
+}
+
 type Runtime struct {
 	instanceID     string
-	store          store.Store
+	store          Repository
 	tools          *toolhub.ToolHub
 	policy         policy.Engine
 	models         modelrouter.Router
@@ -50,7 +62,7 @@ type StreamHandler func(StreamEvent) error
 
 type MessageAttachment = app.MessageAttachment
 
-func NewRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) Runtime {
+func NewRuntime(st Repository, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) Runtime {
 	runtime, err := NewRuntimeWithContext(context.Background(), st, tools, policyEngine, models, traces)
 	if err != nil {
 		panic("initialize agent runtime: " + err.Error())
@@ -58,7 +70,7 @@ func NewRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engi
 	return runtime
 }
 
-func NewRuntimeWithContext(ctx context.Context, st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) (Runtime, error) {
+func NewRuntimeWithContext(ctx context.Context, st Repository, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) (Runtime, error) {
 	profiles := defaultWorkflowProfileRegistry()
 	catalog := capability.MustDefaultCatalog()
 	graph, err := profiles.SemanticGraph(catalog)

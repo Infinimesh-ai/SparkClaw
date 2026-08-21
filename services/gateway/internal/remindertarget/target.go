@@ -20,10 +20,15 @@ type Target struct {
 }
 
 type Resolver struct {
-	store store.Store
+	store Repository
 }
 
-func NewResolver(st store.Store) *Resolver {
+type Repository interface {
+	store.ConnectorRepository
+	store.ExternalChatRepository
+}
+
+func NewResolver(st Repository) *Resolver {
 	return &Resolver{store: st}
 }
 

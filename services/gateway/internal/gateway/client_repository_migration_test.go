@@ -16,7 +16,7 @@ import (
 )
 
 type clientRepositoryFaultStore struct {
-	store.Store
+	Repository
 
 	getClientFn    func(context.Context, string) (app.Client, bool, error)
 	listClientsFn  func(context.Context) ([]app.Client, error)
@@ -32,59 +32,59 @@ func (s *clientRepositoryFaultStore) GetClient(ctx context.Context, id string) (
 	if s.getClientFn != nil {
 		return s.getClientFn(ctx, id)
 	}
-	return s.Store.GetClient(ctx, id)
+	return s.Repository.GetClient(ctx, id)
 }
 
 func (s *clientRepositoryFaultStore) ListClients(ctx context.Context) ([]app.Client, error) {
 	if s.listClientsFn != nil {
 		return s.listClientsFn(ctx)
 	}
-	return s.Store.ListClients(ctx)
+	return s.Repository.ListClients(ctx)
 }
 
 func (s *clientRepositoryFaultStore) RevokeClient(ctx context.Context, id string) (app.Client, error) {
 	if s.revokeClientFn != nil {
 		return s.revokeClientFn(ctx, id)
 	}
-	return s.Store.RevokeClient(ctx, id)
+	return s.Repository.RevokeClient(ctx, id)
 }
 
 func (s *clientRepositoryFaultStore) FindClientByTokenHash(ctx context.Context, tokenHash string) (app.Client, bool, error) {
 	if s.findClientFn != nil {
 		return s.findClientFn(ctx, tokenHash)
 	}
-	return s.Store.FindClientByTokenHash(ctx, tokenHash)
+	return s.Repository.FindClientByTokenHash(ctx, tokenHash)
 }
 
 func (s *clientRepositoryFaultStore) TouchClient(ctx context.Context, id string) (app.Client, bool, error) {
 	if s.touchClientFn != nil {
 		return s.touchClientFn(ctx, id)
 	}
-	return s.Store.TouchClient(ctx, id)
+	return s.Repository.TouchClient(ctx, id)
 }
 
 func (s *clientRepositoryFaultStore) SavePairingCode(ctx context.Context, code app.PairingCode) (app.PairingCode, error) {
 	if s.savePairingFn != nil {
 		return s.savePairingFn(ctx, code)
 	}
-	return s.Store.SavePairingCode(ctx, code)
+	return s.Repository.SavePairingCode(ctx, code)
 }
 
 func (s *clientRepositoryFaultStore) GetPairingCode(ctx context.Context, id string) (app.PairingCode, bool, error) {
 	if s.getPairingFn != nil {
 		return s.getPairingFn(ctx, id)
 	}
-	return s.Store.GetPairingCode(ctx, id)
+	return s.Repository.GetPairingCode(ctx, id)
 }
 
 func (s *clientRepositoryFaultStore) ClaimPairingCode(ctx context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
 	if s.claimPairingFn != nil {
 		return s.claimPairingFn(ctx, id, client)
 	}
-	return s.Store.ClaimPairingCode(ctx, id, client)
+	return s.Repository.ClaimPairingCode(ctx, id, client)
 }
 
-func newClientRepositoryTestServer(t *testing.T, repository store.Store) *Server {
+func newClientRepositoryTestServer(t *testing.T, repository Repository) *Server {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Gateway.PairingRequired = true
@@ -202,7 +202,7 @@ func TestPairingStartUnknownCandidateReconciliation(t *testing.T) {
 		base := store.NewMemoryStore()
 		saveCalls := 0
 		getCalls := 0
-		faults := &clientRepositoryFaultStore{Store: base}
+		faults := &clientRepositoryFaultStore{Repository: base}
 		faults.savePairingFn = func(ctx context.Context, attempted app.PairingCode) (app.PairingCode, error) {
 			saveCalls++
 			saved, err := base.SavePairingCode(ctx, attempted)
@@ -231,7 +231,7 @@ func TestPairingStartUnknownCandidateReconciliation(t *testing.T) {
 		base := store.NewMemoryStore()
 		saveCalls := 0
 		getCalls := 0
-		faults := &clientRepositoryFaultStore{Store: base}
+		faults := &clientRepositoryFaultStore{Repository: base}
 		faults.savePairingFn = func(ctx context.Context, attempted app.PairingCode) (app.PairingCode, error) {
 			saveCalls++
 			saved, err := base.SavePairingCode(ctx, attempted)
@@ -280,7 +280,7 @@ func TestPairingStartZeroCandidateBarriers(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			base := store.NewMemoryStore()
 			var attempted app.PairingCode
-			faults := &clientRepositoryFaultStore{Store: base}
+			faults := &clientRepositoryFaultStore{Repository: base}
 			faults.savePairingFn = func(_ context.Context, code app.PairingCode) (app.PairingCode, error) {
 				attempted = code
 				return app.PairingCode{}, clientRepositoryStoreError(store.StoreErrorUnknownOutcome, store.OperationPairingCodeSave)
@@ -312,7 +312,7 @@ func TestPairingStartPendingDoesNotRegenerateAndDifferentOwnerConflicts(t *testi
 	base := store.NewMemoryStore()
 	saveCalls := 0
 	getCalls := 0
-	faults := &clientRepositoryFaultStore{Store: base}
+	faults := &clientRepositoryFaultStore{Repository: base}
 	faults.savePairingFn = func(ctx context.Context, attempted app.PairingCode) (app.PairingCode, error) {
 		saveCalls++
 		saved, err := base.SavePairingCode(ctx, attempted)
@@ -368,7 +368,7 @@ func TestPairingClaimUnknownCandidateReconciliation(t *testing.T) {
 			claimCalls := 0
 			postClaimReads := 0
 			claimCommitted := false
-			faults := &clientRepositoryFaultStore{Store: base}
+			faults := &clientRepositoryFaultStore{Repository: base}
 			faults.claimPairingFn = func(ctx context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
 				claimCalls++
 				claimedPairing, claimedClient, err := base.ClaimPairingCode(ctx, id, client)
@@ -428,7 +428,7 @@ func TestPairingClaimPendingValidatesCodeAndFingerprintBeforeRecovery(t *testing
 	claimCalls := 0
 	getCalls := 0
 	claimCommitted := false
-	faults := &clientRepositoryFaultStore{Store: base}
+	faults := &clientRepositoryFaultStore{Repository: base}
 	faults.claimPairingFn = func(ctx context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
 		claimCalls++
 		claimedPairing, claimedClient, err := base.ClaimPairingCode(ctx, id, client)
@@ -473,7 +473,7 @@ func TestPairingClaimZeroCandidateRollbackBarrier(t *testing.T) {
 	pairing := saveClientRepositoryPairing(t, base, "pair-rollback", plaintextCode, time.Now().UTC().Add(time.Hour))
 	var attemptedClient app.Client
 	getClientCalls := 0
-	faults := &clientRepositoryFaultStore{Store: base}
+	faults := &clientRepositoryFaultStore{Repository: base}
 	faults.claimPairingFn = func(_ context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
 		if id != pairing.ID {
 			t.Fatalf("claim pairing ID=%q, want %q", id, pairing.ID)
@@ -502,7 +502,7 @@ func TestPairingClaimZeroCandidateRollbackBarrier(t *testing.T) {
 func TestPairingCompletionExpiryNeverDisclosesSecret(t *testing.T) {
 	t.Run("start", func(t *testing.T) {
 		base := store.NewMemoryStore()
-		faults := &clientRepositoryFaultStore{Store: base}
+		faults := &clientRepositoryFaultStore{Repository: base}
 		server := newClientRepositoryTestServer(t, faults)
 		fakeNow := time.Now().UTC()
 		server.pairing.now = func() time.Time { return fakeNow }
@@ -524,7 +524,7 @@ func TestPairingCompletionExpiryNeverDisclosesSecret(t *testing.T) {
 		plaintextCode := "expiry-code"
 		fakeNow := time.Now().UTC()
 		pairing := saveClientRepositoryPairing(t, base, "pair-expiry", plaintextCode, fakeNow.Add(time.Hour))
-		faults := &clientRepositoryFaultStore{Store: base}
+		faults := &clientRepositoryFaultStore{Repository: base}
 		server := newClientRepositoryTestServer(t, faults)
 		server.pairing.now = func() time.Time { return fakeNow }
 		faults.claimPairingFn = func(ctx context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
@@ -652,7 +652,7 @@ func TestClientListAndRevokeSafeStoreFailureProjection(t *testing.T) {
 		{name: "list unknown", code: store.StoreErrorUnknownOutcome, wantStatus: http.StatusServiceUnavailable, wantError: "clients are temporarily unavailable"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			faults := &clientRepositoryFaultStore{Store: store.NewMemoryStore()}
+			faults := &clientRepositoryFaultStore{Repository: store.NewMemoryStore()}
 			faults.listClientsFn = func(context.Context) ([]app.Client, error) {
 				return nil, clientRepositoryStoreError(testCase.code, store.OperationClientList)
 			}
@@ -676,7 +676,7 @@ func TestClientListAndRevokeSafeStoreFailureProjection(t *testing.T) {
 		{name: "revoke unknown", code: store.StoreErrorUnknownOutcome, wantStatus: http.StatusServiceUnavailable, wantError: "clients are temporarily unavailable"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			faults := &clientRepositoryFaultStore{Store: store.NewMemoryStore()}
+			faults := &clientRepositoryFaultStore{Repository: store.NewMemoryStore()}
 			faults.revokeClientFn = func(context.Context, string) (app.Client, error) {
 				return app.Client{}, clientRepositoryStoreError(testCase.code, store.OperationClientRevoke)
 			}
@@ -705,7 +705,7 @@ func TestAuthenticationSafeStoreFailureProjection(t *testing.T) {
 			{name: "unknown", code: store.StoreErrorUnknownOutcome, wantStatus: http.StatusServiceUnavailable, wantError: "authentication is temporarily unavailable"},
 		} {
 			t.Run(stage+" "+testCase.name, func(t *testing.T) {
-				faults := &clientRepositoryFaultStore{Store: store.NewMemoryStore()}
+				faults := &clientRepositoryFaultStore{Repository: store.NewMemoryStore()}
 				client := app.Client{ID: "client-auth", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Name: "auth", CreatedAt: time.Now().UTC()}
 				if stage == "lookup" {
 					faults.findClientFn = func(context.Context, string) (app.Client, bool, error) {
@@ -741,7 +741,7 @@ func TestAuthenticationSafeStoreFailureProjection(t *testing.T) {
 		{name: "concurrently revoked", find: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			faults := &clientRepositoryFaultStore{Store: store.NewMemoryStore()}
+			faults := &clientRepositoryFaultStore{Repository: store.NewMemoryStore()}
 			client := app.Client{ID: "client-auth", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Name: "auth", CreatedAt: time.Now().UTC()}
 			faults.findClientFn = func(context.Context, string) (app.Client, bool, error) { return client, testCase.find, nil }
 			faults.touchClientFn = func(context.Context, string) (app.Client, bool, error) { return client, testCase.touch, nil }

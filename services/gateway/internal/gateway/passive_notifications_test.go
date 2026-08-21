@@ -152,13 +152,13 @@ func TestPassiveNotificationGlobalStreamEmitsNewInboxItem(t *testing.T) {
 // countingNotificationStore counts ListPassiveNotifications calls so tests can
 // prove the SSE loop short-circuits on an unchanged revision.
 type countingNotificationStore struct {
-	store.Store
+	runtimeTestRepository
 	listCalls atomic.Int64
 }
 
 func (s *countingNotificationStore) ListPassiveNotifications(ctx context.Context, ownerID, after string, limit int) ([]app.PassiveNotification, error) {
 	s.listCalls.Add(1)
-	return s.Store.ListPassiveNotifications(ctx, ownerID, after, limit)
+	return s.runtimeTestRepository.ListPassiveNotifications(ctx, ownerID, after, limit)
 }
 
 func TestPassiveNotificationStreamSkipsListingWhenRevisionUnchanged(t *testing.T) {
@@ -168,7 +168,7 @@ func TestPassiveNotificationStreamSkipsListingWhenRevisionUnchanged(t *testing.T
 
 	cfg := testConfig(t.TempDir())
 	inner := store.NewMemoryStore()
-	st := &countingNotificationStore{Store: inner}
+	st := &countingNotificationStore{runtimeTestRepository: inner}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())

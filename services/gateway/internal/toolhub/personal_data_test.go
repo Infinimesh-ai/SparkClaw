@@ -12,7 +12,7 @@ import (
 )
 
 type approvalSaveFaultStore struct {
-	store.Store
+	Repository
 	err        error
 	contextKey any
 	seen       any
@@ -53,7 +53,7 @@ func TestNotifyAskApprovalPropagatesApprovalSaveFailure(t *testing.T) {
 	privateCause := errors.New("private approval write failure")
 	key := struct{ name string }{"toolhub-approval-context"}
 	fault := &approvalSaveFaultStore{
-		Store: store.NewMemoryStore(), contextKey: key,
+		Repository: store.NewMemoryStore(), contextKey: key,
 		err: &store.StoreError{Code: store.StoreErrorUnavailable, Operation: store.OperationApprovalSave, Err: privateCause},
 	}
 	hub := New(config.Default(), fault)

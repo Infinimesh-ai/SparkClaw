@@ -18,8 +18,8 @@ import (
 func TestScheduleRepositoryMemoryAndFileContract(t *testing.T) {
 	for _, backend := range []string{"memory", "file"} {
 		t.Run(backend, func(t *testing.T) {
-			var repository Store
-			var restart func() Store
+			var repository testBackend
+			var restart func() testBackend
 			switch backend {
 			case "memory":
 				repository = NewMemoryStore()
@@ -30,7 +30,7 @@ func TestScheduleRepositoryMemoryAndFileContract(t *testing.T) {
 					t.Fatal(err)
 				}
 				repository = file
-				restart = func() Store {
+				restart = func() testBackend {
 					reloaded, err := NewFileStore(path)
 					if err != nil {
 						t.Fatal(err)
@@ -57,7 +57,7 @@ func TestPostgresScheduleRepositoryConfiguredContract(t *testing.T) {
 	exerciseScheduleRepositoryContract(t, repository, nil)
 }
 
-func exerciseScheduleRepositoryContract(t *testing.T, repository Store, restart func() Store) {
+func exerciseScheduleRepositoryContract(t *testing.T, repository testBackend, restart func() testBackend) {
 	t.Helper()
 	base := time.Date(2026, 8, 21, 14, 30, 0, 123456789, time.FixedZone("contract", 8*60*60))
 	firstInput := scheduleContractReminder("schedule-a", "pending", base.Add(time.Hour), base)

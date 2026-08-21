@@ -19,8 +19,23 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
+type DispatcherRepository interface {
+	store.OwnerRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.ScheduleRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type Dispatcher struct {
-	store       store.Store
+	store       DispatcherRepository
 	runtime     connectorruntime.AgentBridge
 	client      BotAPI
 	transcriber VoiceTranscriber
@@ -36,7 +51,7 @@ func (d *Dispatcher) WithResultDeliverer(deliverer connectorruntime.ResultDelive
 	return &copy
 }
 
-func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
+func NewDispatcher(st DispatcherRepository, runtime connectorruntime.AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
 	transcriber := VoiceTranscriber(DisabledVoiceTranscriber{})
 	if len(transcribers) > 0 && transcribers[0] != nil {
 		transcriber = transcribers[0]

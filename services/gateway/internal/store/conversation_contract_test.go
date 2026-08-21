@@ -11,8 +11,8 @@ import (
 )
 
 type conversationRepositoryHarness struct {
-	store   Store
-	restart func(testing.TB) Store
+	store   testBackend
+	restart func(testing.TB) testBackend
 }
 
 func newConversationRepositoryHarness(t testing.TB, backend string) conversationRepositoryHarness {
@@ -28,7 +28,7 @@ func newConversationRepositoryHarness(t testing.TB, backend string) conversation
 		}
 		return conversationRepositoryHarness{
 			store: file,
-			restart: func(t testing.TB) Store {
+			restart: func(t testing.TB) testBackend {
 				t.Helper()
 				restarted, err := NewFileStore(path)
 				if err != nil {

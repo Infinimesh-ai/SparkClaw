@@ -15,7 +15,7 @@ import (
 type deliveryRecordContractBackend struct {
 	name       string
 	repository DeliveryRecordRepository
-	store      Store
+	store      testBackend
 }
 
 func newDeliveryRecordContractBackends(t *testing.T) []deliveryRecordContractBackend {

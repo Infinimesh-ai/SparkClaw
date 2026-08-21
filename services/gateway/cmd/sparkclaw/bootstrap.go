@@ -14,7 +14,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -29,7 +28,7 @@ type gatewayServices struct {
 
 func newGatewayServices(
 	cfg config.Config,
-	st store.Store,
+	st backend,
 	tools *toolhub.ToolHub,
 	runtime agent.Runtime,
 	traces *trace.Writer,

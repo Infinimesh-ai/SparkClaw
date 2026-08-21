@@ -33,8 +33,12 @@ type MessagePublisher interface {
 	Publish(context.Context, app.MessageEnvelope) error
 }
 
+type Repository interface {
+	store.ScheduleRepository
+}
+
 type Scheduler struct {
-	store               store.Store
+	store               Repository
 	schedules           *messagecontrol.ScheduleRegistry
 	publisher           MessagePublisher
 	now                 func() time.Time
@@ -42,7 +46,7 @@ type Scheduler struct {
 	maxDeliveryAttempts int
 }
 
-func NewMessageScheduler(st store.Store, schedules *messagecontrol.ScheduleRegistry, publisher MessagePublisher, maxDeliveryAttempts int) *Scheduler {
+func NewMessageScheduler(st Repository, schedules *messagecontrol.ScheduleRegistry, publisher MessagePublisher, maxDeliveryAttempts int) *Scheduler {
 	if maxDeliveryAttempts <= 0 {
 		maxDeliveryAttempts = DefaultMaxDeliveryAttempts
 	}

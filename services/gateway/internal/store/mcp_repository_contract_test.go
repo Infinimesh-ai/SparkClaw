@@ -124,7 +124,7 @@ func TestMCPRemainingReconciliationRejectsUnprovenOutcomes(t *testing.T) {
 
 type mcpContractBackend struct {
 	name       string
-	repository Store
+	repository testBackend
 }
 
 func newMCPContractBackends(t *testing.T) []mcpContractBackend {
@@ -139,7 +139,7 @@ func newMCPContractBackends(t *testing.T) []mcpContractBackend {
 	}
 }
 
-func runMCPRepositoryConcurrencyContract(t *testing.T, repository Store) {
+func runMCPRepositoryConcurrencyContract(t *testing.T, repository testBackend) {
 	t.Helper()
 	now := time.Date(2026, 8, 22, 9, 0, 0, 123456789, time.FixedZone("contract", 8*60*60))
 	ticket, err := repository.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "mcp-contract-secret"))

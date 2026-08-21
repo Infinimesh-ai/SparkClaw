@@ -19,13 +19,21 @@ import (
 )
 
 type NotificationAdapter struct {
-	store     store.Store
+	store     NotificationRepository
 	vault     credential.CredentialVault
 	cfg       config.NotificationChannelConfig
 	resources delivery.ResourceResolver
 }
 
-func NewNotificationAdapter(st store.Store, vault credential.CredentialVault, cfg config.NotificationChannelConfig) *NotificationAdapter {
+type NotificationRepository interface {
+	store.ConnectorRepository
+	store.ScheduleRepository
+	store.SessionRepository
+	store.ExternalChatRepository
+	store.ArtifactMetadataRepository
+}
+
+func NewNotificationAdapter(st NotificationRepository, vault credential.CredentialVault, cfg config.NotificationChannelConfig) *NotificationAdapter {
 	return &NotificationAdapter{store: st, vault: vault, cfg: cfg, resources: delivery.NewStoreResourceResolver(st)}
 }
 

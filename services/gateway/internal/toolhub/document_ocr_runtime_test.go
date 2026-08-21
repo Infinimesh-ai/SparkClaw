@@ -28,7 +28,7 @@ type runtimeOCRAdapter struct {
 }
 
 type documentOCRSessionFailureStore struct {
-	store.Store
+	Repository
 	err error
 }
 
@@ -117,7 +117,7 @@ func TestDocumentOCRSessionStoreFailureStopsBeforeAdapterExecution(t *testing.T)
 	base := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, base, "OCR session failure")
 	rawCause := errors.New("session backend unavailable")
-	failing := &documentOCRSessionFailureStore{Store: base, err: &store.StoreError{
+	failing := &documentOCRSessionFailureStore{Repository: base, err: &store.StoreError{
 		Code: store.StoreErrorUnavailable, Operation: store.OperationSessionGet, Err: rawCause,
 	}}
 	adapter := &runtimeOCRAdapter{result: documentocr.Result{Markdown: "must not execute"}}
@@ -247,7 +247,7 @@ func TestDocumentOCRCacheIsBounded(t *testing.T) {
 	}
 }
 
-func newDocumentOCRRuntimeTestHub(state store.Store, adapter documentocr.Adapter) *ToolHub {
+func newDocumentOCRRuntimeTestHub(state Repository, adapter documentocr.Adapter) *ToolHub {
 	cfg := config.Default()
 	cfg.Adapters.DocumentOCR.Enabled = true
 	cfg.Adapters.DocumentOCR.Provider = "openai-http"

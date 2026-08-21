@@ -40,7 +40,7 @@ func TestPostgresApprovalRepositoryContract(t *testing.T) {
 	runApprovalRepositoryContract(t, repository)
 }
 
-func runApprovalRepositoryContract(t *testing.T, repository Store) {
+func runApprovalRepositoryContract(t *testing.T, repository testBackend) {
 	t.Helper()
 	ctx := t.Context()
 	created := time.Date(2026, 8, 21, 16, 0, 0, 123456789, time.FixedZone("contract", 8*60*60))
@@ -147,7 +147,7 @@ func approvalContractFixture(id, externalID string, created time.Time) app.Appro
 	}
 }
 
-func assertApprovalLifecycleContract(t *testing.T, repository Store) {
+func assertApprovalLifecycleContract(t *testing.T, repository testBackend) {
 	t.Helper()
 	auditCounts := map[string]int{}
 	for _, event := range mustListAudit(t, repository, "") {

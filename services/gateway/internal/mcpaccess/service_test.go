@@ -29,17 +29,17 @@ type fakeRuntime struct {
 }
 
 type terminalConflictStore struct {
-	store.Store
+	Repository
 	conflicted bool
 }
 
 type activeBindingOverrideStore struct {
-	store.Store
+	Repository
 	binding app.MCPBinding
 }
 
 type committedUnknownMCPStore struct {
-	store.Store
+	Repository
 	ticket atomic.Bool
 	create atomic.Bool
 	redeem atomic.Bool
@@ -47,7 +47,7 @@ type committedUnknownMCPStore struct {
 }
 
 func (s *committedUnknownMCPStore) RedeemMCPAccessTicket(ctx context.Context, secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error) {
-	candidate, err := s.Store.RedeemMCPAccessTicket(ctx, secretHash, peer, now)
+	candidate, err := s.Repository.RedeemMCPAccessTicket(ctx, secretHash, peer, now)
 	if err == nil && s.redeem.Swap(false) {
 		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPAccessTicketRedeem, Err: errors.New("redemption commit uncertain")}
 	}
@@ -55,7 +55,7 @@ func (s *committedUnknownMCPStore) RedeemMCPAccessTicket(ctx context.Context, se
 }
 
 func (s *committedUnknownMCPStore) SaveMCPAccessTicket(ctx context.Context, ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
-	candidate, err := s.Store.SaveMCPAccessTicket(ctx, ticket)
+	candidate, err := s.Repository.SaveMCPAccessTicket(ctx, ticket)
 	if err == nil && s.ticket.Swap(false) {
 		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPAccessTicketSave, Err: errors.New("ticket commit uncertain")}
 	}
@@ -63,7 +63,7 @@ func (s *committedUnknownMCPStore) SaveMCPAccessTicket(ctx context.Context, tick
 }
 
 func (s *committedUnknownMCPStore) CreateMCPOperation(ctx context.Context, operation app.MCPOperation) (app.MCPOperation, bool, error) {
-	candidate, created, err := s.Store.CreateMCPOperation(ctx, operation)
+	candidate, created, err := s.Repository.CreateMCPOperation(ctx, operation)
 	if err == nil && s.create.Swap(false) {
 		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPOperationCreate, Err: errors.New("operation commit uncertain")}
 	}
@@ -71,7 +71,7 @@ func (s *committedUnknownMCPStore) CreateMCPOperation(ctx context.Context, opera
 }
 
 func (s *committedUnknownMCPStore) UpdateMCPOperation(ctx context.Context, operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
-	candidate, err := s.Store.UpdateMCPOperation(ctx, operation, expectedVersion)
+	candidate, err := s.Repository.UpdateMCPOperation(ctx, operation, expectedVersion)
 	if err == nil && s.update.Swap(false) {
 		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPOperationUpdate, Err: errors.New("operation update commit uncertain")}
 	}
@@ -85,7 +85,7 @@ func (s *activeBindingOverrideStore) FindMCPBindingForPeer(context.Context, stri
 func (s *terminalConflictStore) UpdateMCPOperation(ctx context.Context, operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
 	if !s.conflicted {
 		s.conflicted = true
-		current, ok, err := s.Store.GetMCPOperation(ctx, operation.ID)
+		current, ok, err := s.Repository.GetMCPOperation(ctx, operation.ID)
 		if err != nil {
 			return app.MCPOperation{}, err
 		}
@@ -95,12 +95,12 @@ func (s *terminalConflictStore) UpdateMCPOperation(ctx context.Context, operatio
 		current.State = app.MCPOperationSucceeded
 		now := time.Now().UTC()
 		current.CompletedAt = &now
-		if _, err := s.Store.UpdateMCPOperation(ctx, current, current.Version); err != nil {
+		if _, err := s.Repository.UpdateMCPOperation(ctx, current, current.Version); err != nil {
 			return app.MCPOperation{}, err
 		}
 		return app.MCPOperation{}, store.ErrMCPOperationVersionConflict
 	}
-	return s.Store.UpdateMCPOperation(ctx, operation, expectedVersion)
+	return s.Repository.UpdateMCPOperation(ctx, operation, expectedVersion)
 }
 
 func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
@@ -111,7 +111,7 @@ func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(&terminalConflictStore{Store: base}, &fakeRuntime{}, nil)
+	service := New(&terminalConflictStore{Repository: base}, &fakeRuntime{}, nil)
 	updated, changed, err := updateOperationRecord(t.Context(), service.store, operation.ID, func(current *app.MCPOperation) bool {
 		if operationTerminal(current.State) {
 			return false
@@ -126,7 +126,7 @@ func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
 
 func TestServiceReconcilesCommittedUnknownMCPWrites(t *testing.T) {
 	t.Run("ticket issue", func(t *testing.T) {
-		wrapped := &committedUnknownMCPStore{Store: store.NewMemoryStore()}
+		wrapped := &committedUnknownMCPStore{Repository: store.NewMemoryStore()}
 		wrapped.ticket.Store(true)
 		service := New(wrapped, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
 		issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
@@ -155,7 +155,7 @@ func TestServiceReconcilesCommittedUnknownMCPWrites(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wrapped := &committedUnknownMCPStore{Store: base}
+		wrapped := &committedUnknownMCPStore{Repository: base}
 		wrapped.create.Store(true)
 		service := New(wrapped, &fakeRuntime{}, nil)
 		result, rpcErr := service.callTool(t.Context(), peer, binding, TransportRequest{
@@ -185,7 +185,7 @@ func TestServiceReconcilesCommittedUnknownMCPWrites(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wrapped := &committedUnknownMCPStore{Store: base}
+		wrapped := &committedUnknownMCPStore{Repository: base}
 		wrapped.redeem.Store(true)
 		service := New(wrapped, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
 		peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-reconcile", KeyThumbprint: "thumb-reconcile", ISCPSessionID: "iscp-reconcile"}
@@ -207,7 +207,7 @@ func TestServiceReconcilesCommittedUnknownMCPWrites(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wrapped := &committedUnknownMCPStore{Store: base}
+		wrapped := &committedUnknownMCPStore{Repository: base}
 		wrapped.update.Store(true)
 		updated, changed, err := updateOperationRecord(t.Context(), wrapped, operation.ID, func(current *app.MCPOperation) bool {
 			current.State = app.MCPOperationApprovalRequired
@@ -412,7 +412,7 @@ func TestActiveBindingForPeerRejectsLegacySchemaAndWrongScope(t *testing.T) {
 			t.Fatal(err)
 		}
 		mutate(&binding)
-		legacyService := New(&activeBindingOverrideStore{Store: st, binding: binding}, &fakeRuntime{}, nil).
+		legacyService := New(&activeBindingOverrideStore{Repository: st, binding: binding}, &fakeRuntime{}, nil).
 			WithChannelEnabled(func(string) bool { return true })
 		if _, ok := legacyService.ActiveBindingForPeer(t.Context(), peer); ok {
 			t.Fatalf("legacy MCP binding remained active: %#v", binding)
@@ -1067,7 +1067,7 @@ func toolListed(tools []Tool, name string) bool {
 }
 
 func mustJSON(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
-func bindingForPeer(t *testing.T, st store.Store, peer app.MCPPeerIdentity) app.MCPBinding {
+func bindingForPeer(t *testing.T, st Repository, peer app.MCPPeerIdentity) app.MCPBinding {
 	t.Helper()
 	binding, ok, _ := st.FindMCPBindingForPeer(t.Context(), peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
 	if !ok {
@@ -1076,7 +1076,7 @@ func bindingForPeer(t *testing.T, st store.Store, peer app.MCPPeerIdentity) app.
 	return binding
 }
 
-func waitForOperation(t *testing.T, st store.Store, bindingID, idempotencyKey string) app.MCPOperation {
+func waitForOperation(t *testing.T, st Repository, bindingID, idempotencyKey string) app.MCPOperation {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

@@ -176,7 +176,7 @@ helper，以及每个具名或匿名局部 Store-compatible 接口的展开 Stor
 | `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Run |
 | `store.ArchiveToolObservation` | helper | ArtifactMetadata |
 | `credential.Vault`, `credential.New` | constructor + field | Credential |
-| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |
+| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | ISCPOnboarding + Owner + Client + Connector + Session + Conversation + Run + Approval + Audit + Evaluation + ArtifactMetadata + Memory + Schedule + PassiveNotification + DeliveryRecord + ExternalChat + MCP |
 | `gateway.runHasPendingApproval` | helper | Approval |
 | `happyapproval.Service`, `New` | polling worker | Approval |
 | `iscpbridge.GatewayAdapter`, `NewGatewayAdapter` | adapter + field | Owner + Session + Conversation + Run + Approval + PassiveNotification + Audit |
@@ -190,12 +190,12 @@ helper，以及每个具名或匿名局部 Store-compatible 接口的展开 Stor
 | `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential + Session + ExternalChat + ArtifactMetadata |
 | `reminder.Scheduler`, `NewMessageScheduler` | worker + field | Schedule |
 | `remindertarget.Resolver`, `NewResolver` | resolver + field | ExternalChat + Connector |
-| `telegram.Dispatcher`, `NewDispatcher` | worker + field | Owner + Session + Conversation + Run + Approval + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
+| `telegram.Dispatcher`, `NewDispatcher` | worker + field | Owner + Connector + Session + Conversation + Run + Approval + Audit + ArtifactMetadata + Schedule + DeliveryRecord + ExternalChat + MCP |
 | `telegram.Service`, `NewService`, `hasDefaultActiveBinding` | worker + helper | Connector + DeliveryRecord + Audit |
 | `telegram.NotificationAdapter`, `NewNotificationAdapter` | adapter + field | Connector + Schedule + Session + ExternalChat + ArtifactMetadata；credential 来自独立 `CredentialVault`，不归其 Store 参数 |
-| `toolhub.ToolHub`, `New` | constructor + field | Session + Run + Approval + Schedule + Connector + ExternalChat + Memory + Audit + ArtifactMetadata |
-| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Session + Conversation + Run + Approval + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
-| `weixin.Syncer`, `NewSyncer`, `WithConfig` | polling worker + field + adapter assembly | Session + Connector + Credential + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
+| `toolhub.ToolHub`, `New` | constructor + field | Session + Run + Approval + Audit + ArtifactMetadata + Memory + Schedule + Connector + ExternalChat + MCP |
+| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Connector + Session + Conversation + Run + Approval + Audit + ArtifactMetadata + Schedule + DeliveryRecord + ExternalChat + MCP |
+| `weixin.Syncer`, `NewSyncer`, `WithConfig` | polling worker + field + adapter assembly | Connector + Session + ArtifactMetadata + Audit + DeliveryRecord + ExternalChat + MCP |
 | `weixin.MediaAdapter`, `NewMediaAdapter` | adapter + field | Session + ArtifactMetadata + Audit |
 | `cmd/sparkclaw.newStore` | backend factory | Owner + Client + ISCPOnboarding + Credential + Session + Conversation + Run + Document + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + BrowserState + Memory + Audit + Evaluation + ArtifactMetadata；组成单一 concrete backend 结果，S4 后任何生产消费者都不应再接收此宽类型 |
 | `cmd/sparkclaw.newGatewayServices` | assembly forwarding | Owner + Client + ISCPOnboarding + Credential + Session + Conversation + Run + Document + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + BrowserState + Memory + Audit + Evaluation + ArtifactMetadata |
@@ -207,9 +207,8 @@ helper，以及每个具名或匿名局部 Store-compatible 接口的展开 Stor
 | Package / symbol | 类型 | 已接受 repository 或 composite |
 |---|---|---|
 | `connector.Registry`, `connectorStore`, `NewRegistry` | field + 局部接口 + constructor | Connector |
-| `messagecontrol.EndpointRegistry`, `endpointStore`, `NewEndpointRegistry` | field + 局部接口 + constructor | Session + Connector + ExternalChat |
-| `messagecontrol.mcpEndpointStore`（位于 `EndpointRegistry.get`） | optional 局部 type assertion | MCP；当前 optional discovery 是已记录行为，迁移时必须改为显式的消费者自有 composite |
-| `messagecontrol.ScheduleRegistry`, `scheduleStore`, `NewScheduleRegistry` | field + 局部接口 + constructor | Schedule + Session + Connector + ExternalChat |
+| `messagecontrol.EndpointRegistry`, `endpointStore`, `NewEndpointRegistry` | field + 局部接口 + constructor | Session + Connector + ExternalChat + MCP |
+| `messagecontrol.ScheduleRegistry`, `scheduleStore`, `NewScheduleRegistry` | field + 局部接口 + constructor | Schedule + Session + Connector + ExternalChat + MCP |
 | `messagecontrol.ReceiveLifecycle`, `receiveStore`, `NewReceiveLifecycle` | field + 局部接口 + constructor | DeliveryRecord |
 | `delivery.PersistentWebDelivery`, `webMessageStore`, `NewPersistentWebDelivery` | field + 局部接口 + constructor | Conversation |
 | `delivery.EndpointResourceResolver`, `endpointResourceStore`, `NewEndpointResourceResolver` | resolver + 局部 composite + constructor | Session + ArtifactMetadata |

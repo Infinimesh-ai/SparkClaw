@@ -26,8 +26,12 @@ type ToolCaller interface {
 	CallTool(context.Context, string, string, map[string]any) (mcpclient.ToolResult, error)
 }
 
+type Repository interface {
+	store.ApprovalRepository
+}
+
 type Service struct {
-	store        store.Store
+	store        Repository
 	caller       ToolCaller
 	pollInterval time.Duration
 	syncTimeout  time.Duration
@@ -41,7 +45,7 @@ type task struct {
 	Status     string `json:"status"`
 }
 
-func New(st store.Store, caller ToolCaller, pollInterval time.Duration) *Service {
+func New(st Repository, caller ToolCaller, pollInterval time.Duration) *Service {
 	if pollInterval <= 0 {
 		pollInterval = defaultPollInterval
 	}

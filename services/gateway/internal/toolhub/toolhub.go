@@ -32,9 +32,22 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 )
 
+type Repository interface {
+	store.SessionRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.MemoryRepository
+	store.ScheduleRepository
+	store.ConnectorRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type ToolHub struct {
 	cfg                   config.Config
-	store                 store.Store
+	store                 Repository
 	registry              *runtimeToolRegistry
 	models                modelrouter.Router
 	runner                sandbox.Runner
@@ -94,7 +107,7 @@ type WeatherInfoAdapter interface {
 	Weather(context.Context, infinimeshinfo.WeatherRequest) (infinimeshinfo.WeatherResponse, error)
 }
 
-func New(cfg config.Config, st store.Store) *ToolHub {
+func New(cfg config.Config, st Repository) *ToolHub {
 	infoCfg := cfg.Plugins.Entries.InfinimeshInfo.Config
 	// A failed constructor must leave the interface field nil, not hold a
 	// typed-nil *Client that defeats the availability guard in lookupWeather.

@@ -19,10 +19,19 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-type Provider struct{ store store.Store }
+type ProviderRepository interface {
+	store.MCPRepository
+	store.RunRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.SessionRepository
+	store.ExternalChatRepository
+}
 
-func NewProvider(st store.Store) *Provider { return &Provider{store: st} }
-func (*Provider) Key() string              { return "mcp" }
+type Provider struct{ store ProviderRepository }
+
+func NewProvider(st ProviderRepository) *Provider { return &Provider{store: st} }
+func (*Provider) Key() string                     { return "mcp" }
 func (*Provider) Capabilities() app.DeliveryCapabilities {
 	return app.DeliveryCapabilities{
 		Kinds:        []app.MessagePartKind{app.MessagePartText, app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile},

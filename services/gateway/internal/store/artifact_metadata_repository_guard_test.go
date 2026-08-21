@@ -14,8 +14,8 @@ var artifactMetadataRepositoryMethodSignatures = map[string]struct {
 	parameters int
 	results    int
 }{
-	"SaveArtifactObject":       {parameters: 2, results: 2},
-	"ListArtifactObjects":      {parameters: 2, results: 2},
+	"SaveArtifactObject":      {parameters: 2, results: 2},
+	"ListArtifactObjects":     {parameters: 2, results: 2},
 	"FindArtifactObjectByURI": {parameters: 4, results: 3},
 }
 
@@ -70,7 +70,7 @@ func TestArtifactMetadataRepositoryMigrationSourceGuard(t *testing.T) {
 			}
 		}
 	}
-	if repositoryMethods != len(artifactMetadataRepositoryMethodSignatures) || embeddedRepositories != 1 || repeatedMethods != 0 {
+	if repositoryMethods != len(artifactMetadataRepositoryMethodSignatures) || embeddedRepositories != 0 || repeatedMethods != 0 {
 		t.Fatalf("repository methods=%d embedded=%d repeated=%d", repositoryMethods, embeddedRepositories, repeatedMethods)
 	}
 

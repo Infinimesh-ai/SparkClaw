@@ -16,8 +16,8 @@ import (
 func TestExternalChatRepositoryMemoryAndFileContract(t *testing.T) {
 	for _, backend := range []string{"memory", "file"} {
 		t.Run(backend, func(t *testing.T) {
-			var repository Store
-			var restart func() Store
+			var repository testBackend
+			var restart func() testBackend
 			switch backend {
 			case "memory":
 				repository = NewMemoryStore()
@@ -28,7 +28,7 @@ func TestExternalChatRepositoryMemoryAndFileContract(t *testing.T) {
 					t.Fatal(err)
 				}
 				repository = file
-				restart = func() Store {
+				restart = func() testBackend {
 					reloaded, err := NewFileStore(path)
 					if err != nil {
 						t.Fatal(err)
@@ -55,7 +55,7 @@ func TestPostgresExternalChatRepositoryConfiguredContract(t *testing.T) {
 	exerciseExternalChatRepositoryContract(t, repository, nil)
 }
 
-func exerciseExternalChatRepositoryContract(t *testing.T, repository Store, restart func() Store) {
+func exerciseExternalChatRepositoryContract(t *testing.T, repository testBackend, restart func() testBackend) {
 	t.Helper()
 	if sessions, err := repository.ListExternalChatSessions(t.Context(), "", ""); err != nil || sessions == nil || len(sessions) != 0 {
 		t.Fatalf("initial sessions = %#v err=%v", sessions, err)

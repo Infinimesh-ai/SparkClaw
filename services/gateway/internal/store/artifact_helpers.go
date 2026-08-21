@@ -11,7 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 )
 
-func ArchiveToolObservation(ctx context.Context, st Store, artifacts artifact.Store, call app.ToolCall, output any) string {
+func ArchiveToolObservation(ctx context.Context, st ArtifactMetadataRepository, artifacts artifact.Store, call app.ToolCall, output any) string {
 	if st == nil || artifacts == nil || call.ID == "" {
 		return ""
 	}

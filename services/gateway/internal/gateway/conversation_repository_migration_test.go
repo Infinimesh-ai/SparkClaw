@@ -21,7 +21,7 @@ import (
 )
 
 type conversationRepositoryFaultStore struct {
-	store.Store
+	runtimeTestRepository
 	addErr error
 }
 
@@ -36,7 +36,7 @@ func TestConversationMessageAPIsRedactStoreFailures(t *testing.T) {
 	session := storetest.MustCreateSession(t, base, "Conversation failure")
 	privateCause := errors.New("private postgres host and SQL statement")
 	fault := conversationRepositoryFaultStore{
-		Store: base,
+		runtimeTestRepository: base,
 		addErr: &store.StoreError{
 			Code: store.StoreErrorUnavailable, Operation: store.OperationConversationAddMessage, Err: privateCause,
 		},

@@ -13,7 +13,7 @@ import (
 
 type connectorContractBackend struct {
 	name  string
-	store Store
+	store testBackend
 }
 
 func newConnectorContractBackends(t *testing.T) []connectorContractBackend {
@@ -319,7 +319,7 @@ func TestConnectorRepositoryTimestampHighWaterSurvivesClockRollback(t *testing.T
 	}
 }
 
-func setConnectorContractClock(t *testing.T, st Store, now func() time.Time) {
+func setConnectorContractClock(t *testing.T, st testBackend, now func() time.Time) {
 	t.Helper()
 	switch concrete := st.(type) {
 	case *MemoryStore:

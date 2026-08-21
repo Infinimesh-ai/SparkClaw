@@ -26,8 +26,14 @@ const (
 
 type ClientFactory func(context.Context, app.NotificationBinding) (BotAPI, error)
 
+type ServiceRepository interface {
+	store.ConnectorRepository
+	store.DeliveryRecordRepository
+	store.AuditRepository
+}
+
 type Service struct {
-	store         store.Store
+	store         ServiceRepository
 	cfg           config.NotificationChannelConfig
 	vault         credential.CredentialVault
 	dispatcher    *Dispatcher
@@ -41,7 +47,7 @@ type Service struct {
 	lifecycleCtx  context.Context
 }
 
-func NewService(st store.Store, cfg config.NotificationChannelConfig, vault credential.CredentialVault, dispatcher *Dispatcher) *Service {
+func NewService(st ServiceRepository, cfg config.NotificationChannelConfig, vault credential.CredentialVault, dispatcher *Dispatcher) *Service {
 	if cfg.MaxConcurrency <= 0 {
 		cfg.MaxConcurrency = 1
 	}

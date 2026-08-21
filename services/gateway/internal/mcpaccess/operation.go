@@ -40,7 +40,7 @@ func applyWorkflowResultToOperation(operation *app.MCPOperation, status app.Work
 	operation.CompletedAt = &now
 }
 
-func updateOperationRecord(ctx context.Context, st store.Store, id string, mutate func(*app.MCPOperation) bool) (app.MCPOperation, bool, error) {
+func updateOperationRecord(ctx context.Context, st store.MCPRepository, id string, mutate func(*app.MCPOperation) bool) (app.MCPOperation, bool, error) {
 	for range maxOperationUpdateAttempts {
 		if err := ctx.Err(); err != nil {
 			return app.MCPOperation{}, false, err
@@ -77,7 +77,12 @@ func updateOperationRecord(ctx context.Context, st store.Store, id string, mutat
 	return operation, false, store.ErrMCPOperationVersionConflict
 }
 
-func rejectPendingApprovals(ctx context.Context, st store.Store, operation app.MCPOperation) error {
+type operationRejectionRepository interface {
+	store.RunRepository
+	store.ApprovalRepository
+}
+
+func rejectPendingApprovals(ctx context.Context, st operationRejectionRepository, operation app.MCPOperation) error {
 	approvals, err := st.ListApprovals(ctx, "pending")
 	if err != nil {
 		return err

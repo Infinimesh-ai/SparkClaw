@@ -59,11 +59,17 @@ type fileItem struct {
 
 type MediaAdapter struct {
 	cfg    config.Config
-	store  store.Store
+	store  MediaRepository
 	client *http.Client
 }
 
-func NewMediaAdapter(cfg config.Config, st store.Store) *MediaAdapter {
+type MediaRepository interface {
+	store.SessionRepository
+	store.ArtifactMetadataRepository
+	store.AuditRepository
+}
+
+func NewMediaAdapter(cfg config.Config, st MediaRepository) *MediaAdapter {
 	return &MediaAdapter{
 		cfg:    cfg,
 		store:  st,

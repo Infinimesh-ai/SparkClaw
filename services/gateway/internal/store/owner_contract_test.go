@@ -17,10 +17,10 @@ import (
 func TestOwnerRepositoryMemoryAndFileContract(t *testing.T) {
 	for _, backend := range []struct {
 		name string
-		new  func(testing.TB) Store
+		new  func(testing.TB) testBackend
 	}{
-		{name: "memory", new: func(testing.TB) Store { return NewMemoryStore() }},
-		{name: "file", new: func(t testing.TB) Store {
+		{name: "memory", new: func(testing.TB) testBackend { return NewMemoryStore() }},
+		{name: "file", new: func(t testing.TB) testBackend {
 			store, err := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 			if err != nil {
 				t.Fatal(err)

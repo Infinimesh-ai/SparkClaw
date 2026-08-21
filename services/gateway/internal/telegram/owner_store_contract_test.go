@@ -10,7 +10,7 @@ import (
 )
 
 type telegramOwnerFailureStore struct {
-	store.Store
+	DispatcherRepository
 	seen context.Context
 	err  error
 }
@@ -22,7 +22,7 @@ func (s *telegramOwnerFailureStore) GetOwnerProfileByID(ctx context.Context, _ s
 
 func TestHandleUpdatePropagatesContextAndReturnsRetryableOwnerFailure(t *testing.T) {
 	privateCause := errors.New("private owner backend detail")
-	wrapper := &telegramOwnerFailureStore{Store: store.NewMemoryStore(), err: privateCause}
+	wrapper := &telegramOwnerFailureStore{DispatcherRepository: store.NewMemoryStore(), err: privateCause}
 	dispatcher := NewDispatcher(wrapper, &recordingRuntime{}, telegramTestConfig(t)).WithClient(&fakeBotAPI{})
 	binding := activeTelegramBinding("binding-owner-failure", 9, 9)
 	update := Update{UpdateID: 1, Message: telegramTextMessage(1, 9, 9, "hello")}

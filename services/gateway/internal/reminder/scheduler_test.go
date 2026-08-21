@@ -63,7 +63,15 @@ type retryablePublishError struct{ error }
 
 func (retryablePublishError) RetryState() string { return "retryable" }
 
-func saveTestSchedule(t *testing.T, st store.Store, id string, due time.Time, recurrence string) app.MessageSchedule {
+type testScheduleRepository interface {
+	Repository
+	store.SessionRepository
+	store.ConnectorRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
+func saveTestSchedule(t *testing.T, st testScheduleRepository, id string, due time.Time, recurrence string) app.MessageSchedule {
 	t.Helper()
 	session := storetest.MustCreateSession(t, st, "Scheduled message")
 	schedule := app.MessageSchedule{

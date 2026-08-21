@@ -30,7 +30,7 @@ func TestFileStoreMessageLifecycleRoundTrip(t *testing.T) {
 	}
 }
 
-func testMessageLifecycleParity(t *testing.T, st Store) {
+func testMessageLifecycleParity(t *testing.T, st testBackend) {
 	t.Helper()
 	receive, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{
 		ID: "receive-a", OwnerID: "owner-a", ActorID: "actor-a", ProviderKey: "telegram",

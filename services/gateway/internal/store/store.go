@@ -276,30 +276,7 @@ func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository,
 	return app.OwnerProfile{}, writeErr
 }
 
-type Store interface {
-	ISCPOnboardingRepository
-	OwnerRepository
-	ClientRepository
-	CredentialRepository
-	ConnectorRepository
-	SessionRepository
-	ConversationRepository
-	RunRepository
-	DocumentRepository
-	ApprovalRepository
-	AuditRepository
-	EvaluationRepository
-	ArtifactMetadataRepository
-	BrowserStateRepository
-	MemoryRepository
-	ScheduleRepository
-	PassiveNotificationRepository
-	DeliveryRecordRepository
-	ExternalChatRepository
-	MCPRepository
-}
-
-// Compile-time checks that every backend implements the full Store interface.
+// Compile-time checks keep every repository available on all three backends.
 var (
 	_ ISCPOnboardingRepository   = (*MemoryStore)(nil)
 	_ ISCPOnboardingRepository   = (*FileStore)(nil)
@@ -316,6 +293,9 @@ var (
 	_ ConnectorRepository        = (*MemoryStore)(nil)
 	_ ConnectorRepository        = (*FileStore)(nil)
 	_ ConnectorRepository        = (*PostgresStore)(nil)
+	_ SessionRepository          = (*MemoryStore)(nil)
+	_ SessionRepository          = (*FileStore)(nil)
+	_ SessionRepository          = (*PostgresStore)(nil)
 	_ ConversationRepository     = (*MemoryStore)(nil)
 	_ ConversationRepository     = (*FileStore)(nil)
 	_ ConversationRepository     = (*PostgresStore)(nil)
@@ -355,7 +335,8 @@ var (
 	_ MCPRepository              = (*MemoryStore)(nil)
 	_ MCPRepository              = (*FileStore)(nil)
 	_ MCPRepository              = (*PostgresStore)(nil)
-	_ Store                      = (*MemoryStore)(nil)
-	_ Store                      = (*FileStore)(nil)
-	_ Store                      = (*PostgresStore)(nil)
 )
+
+var _ PassiveNotificationRepository = (*MemoryStore)(nil)
+var _ PassiveNotificationRepository = (*FileStore)(nil)
+var _ PassiveNotificationRepository = (*PostgresStore)(nil)

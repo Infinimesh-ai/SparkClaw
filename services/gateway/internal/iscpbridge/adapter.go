@@ -39,8 +39,18 @@ type AgentRuntime interface {
 
 type RuntimeProvider func() AgentRuntime
 
+type Repository interface {
+	store.OwnerRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.PassiveNotificationRepository
+}
+
 type GatewayAdapter struct {
-	store          store.Store
+	store          Repository
 	runtime        RuntimeProvider
 	manifest       Manifest
 	operationLimit time.Duration
@@ -122,7 +132,7 @@ type ApprovalView struct {
 	PreviewHash string `json:"preview_hash"`
 }
 
-func NewGatewayAdapter(st store.Store, runtime RuntimeProvider) *GatewayAdapter {
+func NewGatewayAdapter(st Repository, runtime RuntimeProvider) *GatewayAdapter {
 	return &GatewayAdapter{
 		store:          st,
 		runtime:        runtime,

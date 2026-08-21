@@ -17,8 +17,8 @@ import (
 func TestMemoryRepositoryMemoryAndFileContract(t *testing.T) {
 	for _, backend := range []string{"memory", "file"} {
 		t.Run(backend, func(t *testing.T) {
-			var repository Store
-			var restart func() Store
+			var repository testBackend
+			var restart func() testBackend
 			switch backend {
 			case "memory":
 				repository = NewMemoryStore()
@@ -29,7 +29,7 @@ func TestMemoryRepositoryMemoryAndFileContract(t *testing.T) {
 					t.Fatal(err)
 				}
 				repository = file
-				restart = func() Store {
+				restart = func() testBackend {
 					reloaded, err := NewFileStore(path)
 					if err != nil {
 						t.Fatal(err)
@@ -42,7 +42,7 @@ func TestMemoryRepositoryMemoryAndFileContract(t *testing.T) {
 	}
 }
 
-func exerciseMemoryRepositoryContract(t *testing.T, repository Store, restart func() Store) {
+func exerciseMemoryRepositoryContract(t *testing.T, repository testBackend, restart func() testBackend) {
 	t.Helper()
 	session := mustCreateSession(t, repository, "memory contract")
 	run := app.AgentRun{ID: "run-memory-contract", SessionID: session.ID, State: "completed", StartedAt: time.Now().UTC()}

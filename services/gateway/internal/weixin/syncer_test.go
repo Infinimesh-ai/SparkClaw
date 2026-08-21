@@ -31,7 +31,7 @@ import (
 )
 
 type unavailableWeixinCredentialStore struct {
-	store.Store
+	testRepository
 	err error
 }
 
@@ -54,7 +54,12 @@ func weixinTestRuntimeScope() connectorruntime.RuntimeScope {
 	}
 }
 
-func newWeixinTestResultDeliverer(t *testing.T, st store.Store, cfg config.Config) connectorruntime.ResultDeliverer {
+type testRepository interface {
+	DispatcherRepository
+	store.CredentialRepository
+}
+
+func newWeixinTestResultDeliverer(t *testing.T, st testRepository, cfg config.Config) connectorruntime.ResultDeliverer {
 	t.Helper()
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := delivery.NewProviderRegistry()
@@ -161,7 +166,7 @@ func TestSyncerStoresOnlyStableCredentialFailure(t *testing.T) {
 		ID: "binding-credential-failure", OwnerID: app.DefaultOwnerID, Channel: "weixin",
 		Provider: "openclaw-weixin-qr", Status: "active", CredentialRef: "credential-private-ref", BaseURL: server.URL,
 	})
-	st := &unavailableWeixinCredentialStore{Store: base, err: &store.StoreError{
+	st := &unavailableWeixinCredentialStore{testRepository: base, err: &store.StoreError{
 		Code: store.StoreErrorUnavailable, Operation: store.OperationCredentialSecretGet, Err: errors.New(canary),
 	}}
 	vault := credential.New(st, credential.Options{Key: strings.Repeat("u", 32)})

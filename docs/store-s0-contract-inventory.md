@@ -189,7 +189,7 @@ inventory and requires this matrix to be reviewed.
 | `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Run |
 | `store.ArchiveToolObservation` | helper | ArtifactMetadata |
 | `credential.Vault`, `credential.New` | constructor + field | Credential |
-| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |
+| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | ISCPOnboarding + Owner + Client + Connector + Session + Conversation + Run + Approval + Audit + Evaluation + ArtifactMetadata + Memory + Schedule + PassiveNotification + DeliveryRecord + ExternalChat + MCP |
 | `gateway.runHasPendingApproval` | helper | Approval |
 | `happyapproval.Service`, `New` | polling worker | Approval |
 | `iscpbridge.GatewayAdapter`, `NewGatewayAdapter` | adapter + field | Owner + Session + Conversation + Run + Approval + PassiveNotification + Audit |
@@ -203,12 +203,12 @@ inventory and requires this matrix to be reviewed.
 | `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential + Session + ExternalChat + ArtifactMetadata |
 | `reminder.Scheduler`, `NewMessageScheduler` | worker + field | Schedule |
 | `remindertarget.Resolver`, `NewResolver` | resolver + field | ExternalChat + Connector |
-| `telegram.Dispatcher`, `NewDispatcher` | worker + field | Owner + Session + Conversation + Run + Approval + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
+| `telegram.Dispatcher`, `NewDispatcher` | worker + field | Owner + Connector + Session + Conversation + Run + Approval + Audit + ArtifactMetadata + Schedule + DeliveryRecord + ExternalChat + MCP |
 | `telegram.Service`, `NewService`, `hasDefaultActiveBinding` | worker + helper | Connector + DeliveryRecord + Audit |
 | `telegram.NotificationAdapter`, `NewNotificationAdapter` | adapter + field | Connector + Schedule + Session + ExternalChat + ArtifactMetadata; credentials come from its separate `CredentialVault`, not its Store parameter |
-| `toolhub.ToolHub`, `New` | constructor + field | Session + Run + Approval + Schedule + Connector + ExternalChat + Memory + Audit + ArtifactMetadata |
-| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Session + Conversation + Run + Approval + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
-| `weixin.Syncer`, `NewSyncer`, `WithConfig` | polling worker + field + adapter assembly | Session + Connector + Credential + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
+| `toolhub.ToolHub`, `New` | constructor + field | Session + Run + Approval + Audit + ArtifactMetadata + Memory + Schedule + Connector + ExternalChat + MCP |
+| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Connector + Session + Conversation + Run + Approval + Audit + ArtifactMetadata + Schedule + DeliveryRecord + ExternalChat + MCP |
+| `weixin.Syncer`, `NewSyncer`, `WithConfig` | polling worker + field + adapter assembly | Connector + Session + ArtifactMetadata + Audit + DeliveryRecord + ExternalChat + MCP |
 | `weixin.MediaAdapter`, `NewMediaAdapter` | adapter + field | Session + ArtifactMetadata + Audit |
 | `cmd/sparkclaw.newStore` | backend factory | Owner + Client + ISCPOnboarding + Credential + Session + Conversation + Run + Document + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + BrowserState + Memory + Audit + Evaluation + ArtifactMetadata; one concrete backend result, and no production consumer should receive this broad type after S4 |
 | `cmd/sparkclaw.newGatewayServices` | assembly forwarding | Owner + Client + ISCPOnboarding + Credential + Session + Conversation + Run + Document + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + BrowserState + Memory + Audit + Evaluation + ArtifactMetadata |
@@ -220,9 +220,8 @@ The production-local Store-compatible consumers are:
 | Package / symbol | Kind | Accepted repository or composite |
 |---|---|---|
 | `connector.Registry`, `connectorStore`, `NewRegistry` | field + local interface + constructor | Connector |
-| `messagecontrol.EndpointRegistry`, `endpointStore`, `NewEndpointRegistry` | field + local interface + constructor | Session + Connector + ExternalChat |
-| `messagecontrol.mcpEndpointStore` in `EndpointRegistry.get` | optional local type assertion | MCP; current optional discovery is recorded behavior and must become an explicit consumer-owned composite during migration |
-| `messagecontrol.ScheduleRegistry`, `scheduleStore`, `NewScheduleRegistry` | field + local interface + constructor | Schedule + Session + Connector + ExternalChat |
+| `messagecontrol.EndpointRegistry`, `endpointStore`, `NewEndpointRegistry` | field + local interface + constructor | Session + Connector + ExternalChat + MCP |
+| `messagecontrol.ScheduleRegistry`, `scheduleStore`, `NewScheduleRegistry` | field + local interface + constructor | Schedule + Session + Connector + ExternalChat + MCP |
 | `messagecontrol.ReceiveLifecycle`, `receiveStore`, `NewReceiveLifecycle` | field + local interface + constructor | DeliveryRecord |
 | `delivery.PersistentWebDelivery`, `webMessageStore`, `NewPersistentWebDelivery` | field + local interface + constructor | Conversation |
 | `delivery.EndpointResourceResolver`, `endpointResourceStore`, `NewEndpointResourceResolver` | resolver + local composite + constructor | Session + ArtifactMetadata |

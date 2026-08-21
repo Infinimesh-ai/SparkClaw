@@ -13,12 +13,12 @@ import (
 )
 
 type cancelAfterBindingListStore struct {
-	store.Store
+	Repository
 	cancel context.CancelFunc
 }
 
 func (s *cancelAfterBindingListStore) ListNotificationBindings(ctx context.Context, channel, status string) ([]app.NotificationBinding, error) {
-	bindings, err := s.Store.ListNotificationBindings(ctx, channel, status)
+	bindings, err := s.Repository.ListNotificationBindings(ctx, channel, status)
 	s.cancel()
 	return bindings, err
 }
@@ -94,7 +94,7 @@ func TestRemindersCreateKeepsOwnedContextThroughScheduleSave(t *testing.T) {
 		ExternalUserID: "recipient", Scopes: []string{app.BindingScopeReminderSendSelf},
 	})
 	ctx, cancel := context.WithCancel(t.Context())
-	wrapped := &cancelAfterBindingListStore{Store: base, cancel: cancel}
+	wrapped := &cancelAfterBindingListStore{Repository: base, cancel: cancel}
 	hub := New(config.Default(), wrapped)
 	if _, err := hub.Execute(ctx, "reminders.create", map[string]any{
 		"text": "must not persist", "due_time": "2026-07-18T09:00:00+08:00", "channel": "alpha",

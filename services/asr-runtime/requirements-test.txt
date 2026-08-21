@@ -1,0 +1,8 @@
+anyio==4.10.0
+fastapi==0.116.1
+httpx==0.28.1
+numpy==2.2.6
+python-multipart==0.0.20
+soundfile==0.13.1
+starlette==0.47.3
+uvicorn==0.35.0

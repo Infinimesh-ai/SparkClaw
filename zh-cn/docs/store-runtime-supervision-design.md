@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/store-runtime-supervision-design.md) | 简体中文
 
-> 状态：S5 修订设计候选，2026-08-22。S4 实现 `a6fb4de` 已获得独立
-> `GO`；生产实现仍需等待本精确修订通过审查。
+> 状态：S5 设计与实现已于 2026-08-22 获得 `GO`。接受的实现为
+> `847a470`。
 
 ## 目标
 
@@ -137,5 +137,5 @@ PostgreSQL pool 只在一个位置拥有 close ownership。
 | 审查 | 修订/commit | 结论 | 证据和未解决风险 | 审查人/日期 |
 |---|---|---|---|---|
 | S4 前置门禁 | `a6fb4de` | `GO` | broad `store.Store` 与可选 MCP capability discovery 已删除；consumer 使用静态 minimum composite；独立 build/test/vet 与源码抽查均为绿色 | primary agent 在隔离审查 worktree / 2026-08-22 |
-| 设计 | pending | pending | pending | pending |
-| 实现 | pending | pending | pending | pending |
+| 设计 | `a895c5d` | `GO` | Close 在共享 operation admission 边界拒绝新工作，先停止 recovery 再关闭 backend，并受 caller context 限制；Runtime 保持仅供 assembly 使用 | 获 owner 授权的 primary agent / 2026-08-22 |
+| 实现 | `847a470` | `GO` | 独立 worktree 检查未发现 Runtime 逃逸、转发 mega-interface、动态 lookup 或无界 label；build、full test、vet、focused race 和完整 `go test -race ./...` 均通过 | primary agent 在隔离审查 worktree / 2026-08-22 |

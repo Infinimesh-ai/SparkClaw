@@ -151,3 +151,4 @@ S6 首先重新进行文件尺寸与职责盘点，只拆分在 S4/S5 后 owners
 | S3 验证策略 | owner 指示 | `GO` | 后续波次使用 P0/P1/P2 operation 风险和 aggregate boundary；已完成波次不重开，P1/P2 不再继承最高规格恢复与证据 | 用户 / 2026-08-21 |
 | S3 repository 迁移集合 | `c5f9525` 及之前各 repository commit | `GO` | 清单内全部 repository 与 consumer 已完成迁移，并具备与风险等级相称的三后端 contract 与 source guard | 获 owner 授权的 primary agent / 2026-08-22 |
 | S4 broad Store 删除 | `a6fb4de` | `GO` | broad interface 与可选 capability discovery 均不存在；保留静态 assembly 与 per-repository backend assertion；独立 build/test/vet 通过 | primary agent 在隔离审查 worktree / 2026-08-22 |
+| S5 Runtime/Supervisor | `847a470` | `GO` | 仅供 assembly 使用的 Runtime、有限 operation 监管、readiness、隔离 probe、recovery 和有界 close 符合已接受设计；独立 build/test/vet 与完整 race 通过 | primary agent 在隔离审查 worktree / 2026-08-22 |

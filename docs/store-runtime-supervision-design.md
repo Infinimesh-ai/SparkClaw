@@ -2,9 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-runtime-supervision-design.md)
 
-> Status: revised S5 design candidate, 2026-08-22. S4 implementation
-> `a6fb4de` received independent `GO`; implementation remains gated by review
-> of this exact revision.
+> Status: S5 design and implementation received `GO` on 2026-08-22. The
+> accepted implementation is `847a470`.
 
 ## Objective
 
@@ -152,5 +151,5 @@ above and proof that no consumer regained broad Store access.
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
 | S4 prerequisite | `a6fb4de` | `GO` | Broad `store.Store` and optional MCP capability discovery are removed; consumers use static minimum composites; independent build/test/vet and source inspection are green | Primary agent in isolated review worktree / 2026-08-22 |
-| Design | pending | pending | pending | pending |
-| Implementation | pending | pending | pending | pending |
+| Design | `a895c5d` | `GO` | Close rejects new work at the shared operation admission boundary, stops recovery before backend close, and remains bounded by the caller context; Runtime stays assembly-only | Primary agent under owner-delegated authority / 2026-08-22 |
+| Implementation | `847a470` | `GO` | Independent worktree inspection found no Runtime escape, forwarding mega-interface, dynamic lookup, or unbounded labels; build, full tests, vet, focused race, and full `go test -race ./...` passed | Primary agent in isolated review worktree / 2026-08-22 |

@@ -406,7 +406,7 @@ func TestAdmittedSourceReplyDrainsAfterOwnerDisablesConnector(t *testing.T) {
 		ID: "bind-alpha", OwnerID: "owner-a", ActorID: "owner-a", Channel: "alpha", Status: "active",
 		Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-alpha", OwnerID: "external-actor-a", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "owner-a",
 		BindingID: bindingRecord.ID, Channel: "alpha", ExternalUserID: "user-a", ExternalChatID: "chat-a", Status: "active",
 	})

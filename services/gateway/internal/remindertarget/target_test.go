@@ -30,7 +30,7 @@ func TestResolverUsesCurrentExternalSession(t *testing.T) {
 	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_alpha", Channel: "alpha", Status: "active", ExternalUserID: "binding-user", CredentialRef: "credential",
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		BindingID: "bind_alpha", Channel: "alpha", ExternalUserID: "session-user", ExternalChatID: "session-chat",
 		ExternalThreadID: "session-thread", LinkedSessionID: linked.ID, Status: "active",
 	})

@@ -19,7 +19,7 @@ func TestVoiceUsesNeutralTranscriberAndCleansTemporaryFiles(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
 		return File{FilePath: "voice/input.ogg", FileSize: 32}, nil
@@ -54,7 +54,7 @@ func TestVoiceUnavailableStopsBeforeTelegramDownload(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
 		bot.mu.Lock()
@@ -73,7 +73,7 @@ func TestAttachmentLimitsPathCleaningAndExecutableRejection(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
 		return File{FilePath: "docs/report.pdf", FileSize: 10}, nil
@@ -118,7 +118,7 @@ func TestOutboundResolutionRejectsUploadsAndUnregisteredAbsolutePaths(t *testing
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	dispatcher := NewDispatcher(st, &recordingRuntime{}, cfg)
 	uploadPath, _ := workspacePath(chat.WorkspaceRoot, "uploads/source.pdf")
 	outputPath, _ := workspacePath(chat.WorkspaceRoot, "outputs/result.pdf")
@@ -148,7 +148,7 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := activeTelegramBinding("bind_approval", 1, 1)
 	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	st.SaveExternalChatSession(app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
 	run := app.AgentRun{ID: "run_approval", SessionID: linked.ID, State: "approval_pending"}
 	testSaveRun(st, run)
 	call := app.ToolCall{ID: "call_approval", SessionID: linked.ID, RunID: run.ID, Status: "approval_pending"}

@@ -19,8 +19,8 @@ type scheduleStore interface {
 	ClaimDueReminders(context.Context, time.Time, time.Time, int) ([]app.Reminder, error)
 	GetSession(context.Context, string) (app.Session, bool, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
-	GetExternalChatSession(string) (app.ExternalChatSession, bool)
-	ListExternalChatSessions(string, string) []app.ExternalChatSession
+	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
+	ListExternalChatSessions(context.Context, string, string) ([]app.ExternalChatSession, error)
 }
 
 type SchedulePatch struct {

@@ -33,7 +33,11 @@ func (r *Resolver) Resolve(ctx context.Context, channel, sessionID, requestedRec
 		return Target{}, errors.New("notification target resolver is unavailable")
 	}
 	requestedRecipient = strings.TrimSpace(requestedRecipient)
-	if chatSession, ok := r.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok && normalizeChannel(chatSession.Channel) == channel {
+	chatSession, ok, err := r.store.FindExternalChatSessionByLinkedSessionID(ctx, sessionID)
+	if err != nil {
+		return Target{}, err
+	}
+	if ok && normalizeChannel(chatSession.Channel) == channel {
 		binding, bindingOK, err := r.store.GetNotificationBinding(ctx, strings.TrimSpace(chatSession.BindingID))
 		if err != nil {
 			return Target{}, err

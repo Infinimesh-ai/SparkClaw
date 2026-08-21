@@ -106,7 +106,9 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 		DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded,
 		ProviderRef: "mcp-operation:" + operation.ID, Attempt: 1, AttemptedAt: now, DeliveredAt: &now,
 	}
-	delivery.RecordExternalDelivery(p.store, endpoint, request, receipt)
+	if err := delivery.RecordExternalDelivery(ctx, p.store, endpoint, request, receipt); err != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "MCP delivery record could not be persisted", "outcome_unknown")
+	}
 	return receipt, nil
 }
 

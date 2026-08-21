@@ -457,6 +457,42 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationChannelInboxUpdateList, Repository: "DeliveryRecordRepository",
 			Method: "ListChannelInboxUpdates", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationExternalChatSessionSave: {
+			ID: OperationExternalChatSessionSave, Repository: "ExternalChatRepository",
+			Method: "SaveExternalChatSession", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationExternalChatSessionGet: {
+			ID: OperationExternalChatSessionGet, Repository: "ExternalChatRepository",
+			Method: "GetExternalChatSession", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationExternalChatSessionList: {
+			ID: OperationExternalChatSessionList, Repository: "ExternalChatRepository",
+			Method: "ListExternalChatSessions", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationExternalChatSessionFind: {
+			ID: OperationExternalChatSessionFind, Repository: "ExternalChatRepository",
+			Method: "FindExternalChatSession", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationExternalChatSessionFindLink: {
+			ID: OperationExternalChatSessionFindLink, Repository: "ExternalChatRepository",
+			Method: "FindExternalChatSessionByLinkedSessionID", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationExternalChatMessageSave: {
+			ID: OperationExternalChatMessageSave, Repository: "ExternalChatRepository",
+			Method: "SaveExternalChatMessage", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationExternalChatMessageGet: {
+			ID: OperationExternalChatMessageGet, Repository: "ExternalChatRepository",
+			Method: "GetExternalChatMessage", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationExternalChatMessageFind: {
+			ID: OperationExternalChatMessageFind, Repository: "ExternalChatRepository",
+			Method: "FindExternalChatMessageByExternalID", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationExternalChatMessageList: {
+			ID: OperationExternalChatMessageList, Repository: "ExternalChatRepository",
+			Method: "ListExternalChatMessages", Mode: operationRead, Timeout: timeoutRead,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

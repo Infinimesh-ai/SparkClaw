@@ -124,7 +124,7 @@ func saveMessageControlEndpoint(t testing.TB, st *store.MemoryStore, bindingID, 
 		ID: bindingID, OwnerID: ownerID, ActorID: actorID, Channel: channel, Provider: channel + "-provider",
 		Status: string(app.EndpointActive), DisplayName: channel + " account", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: chatID, OwnerID: actorID, AuthorizedOwnerID: ownerID, AuthorizedActorID: actorID,
 		BindingID: bindingID, Channel: channel, ExternalUserID: externalUserID, ExternalChatID: externalChatID,
 		DisplayName: displayName, Status: string(app.EndpointActive),

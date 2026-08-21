@@ -97,7 +97,7 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 		Status: app.NotificationBindingActive, DisplayName: "weixin account",
 		Scopes: []string{app.BindingScopeMessageSendSelf}, ExpiresAt: &expired,
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-expired", OwnerID: "source-user-2", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "actor-a",
 		BindingID: "bind-expired", Channel: "weixin", ExternalUserID: "user-2", ExternalChatID: "chat-2",
 		DisplayName: "Chen", Status: "active",
@@ -169,7 +169,7 @@ func saveEndpointFixture(t testing.TB, st *store.MemoryStore, bindingID, chatID,
 		ID: bindingID, OwnerID: ownerID, ActorID: actorID, Channel: channel, Provider: channel + "-provider",
 		Status: "active", DisplayName: channel + " account", Scopes: scopes,
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: chatID, OwnerID: "source-" + externalUserID, AuthorizedOwnerID: ownerID, AuthorizedActorID: actorID,
 		BindingID: bindingID, Channel: channel, ExternalUserID: externalUserID, ExternalChatID: externalChatID,
 		DisplayName: displayName, Status: "active",

@@ -194,11 +194,11 @@ func (a *WeixinAdapter) Capabilities() app.DeliveryCapabilities {
 
 func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	if a.store == nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked", nil)
 	}
 	binding, err := a.deliveryBinding(ctx, endpoint, request)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
 	resources := delivery.ResourceResolver(a.resources)
 	if endpoint.SessionID != "" {
@@ -206,7 +206,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeArtifactInvalid, "weixin delivery resource is invalid", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeArtifactInvalid, "weixin delivery resource is invalid", "blocked", nil)
 	}
 	attemptedAt := time.Now().UTC()
 	providerRef := "openclaw-weixin-compatible"
@@ -250,7 +250,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 				}
 				partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: remaining.Part.ID, Status: "not_attempted", Representation: remainingRepresentation, ErrorCode: code})
 			}
-			return a.deliveryFailure(endpoint, request, code, weixinDeliveryMessage(request.Origin, result.Error), state, partReceipts)
+			return a.deliveryFailure(ctx, endpoint, request, code, weixinDeliveryMessage(request.Origin, result.Error), state, partReceipts)
 		}
 		if result.Provider != "" {
 			providerRef = result.Provider
@@ -259,7 +259,9 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	}
 	deliveredAt := time.Now().UTC()
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, Attempt: 1, PartReceipts: partReceipts, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
-	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	if err := delivery.RecordExternalDelivery(ctx, a.store, endpoint, request, receipt); err != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "weixin delivery record could not be persisted", "outcome_unknown")
+	}
 	return receipt, nil
 }
 
@@ -311,7 +313,7 @@ func (a *WeixinAdapter) deliveryBinding(ctx context.Context, endpoint app.Messag
 	}, nil
 }
 
-func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
+func (a *WeixinAdapter) deliveryFailure(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
 	err := delivery.DeliveryError{Code: code, Message: message, State: retryState}
 	status := app.DeliveryFailed
 	for _, part := range parts {
@@ -324,7 +326,9 @@ func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request ap
 		status = app.DeliveryOutcomeUnknown
 	}
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: status, Error: message, ErrorCode: code, RetryState: retryState, Attempt: 1, PartReceipts: parts, AttemptedAt: time.Now().UTC()}
-	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	if persistErr := delivery.RecordExternalDelivery(ctx, a.store, endpoint, request, receipt); persistErr != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "weixin delivery failure record could not be persisted", "outcome_unknown")
+	}
 	return receipt, err
 }
 

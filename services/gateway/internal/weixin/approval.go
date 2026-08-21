@@ -24,7 +24,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 	// retried as a plain resend instead of re-entering this flow (where the
 	// approval would no longer be pending and the reply would leak to the
 	// agent as an ordinary message).
-	record := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	record, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -37,6 +37,9 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
+	if err != nil {
+		return true, fmt.Errorf("persist weixin approval reply: %w", err)
+	}
 	decision, ok := parseApprovalReply(text)
 	if !ok {
 		_, err := d.finishControlReply(ctx, inbound, chatSession, record, weixinApprovalPrompt(approval), approval.RunID, "needs_clear_approval_reply")

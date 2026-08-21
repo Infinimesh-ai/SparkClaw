@@ -1140,53 +1140,89 @@ func (s *FileStore) PassiveNotificationRevision(ctx context.Context, ownerID str
 	return s.inner.PassiveNotificationRevision(ctx, ownerID)
 }
 
-func (s *FileStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveExternalChatSession(session)
-	s.persist()
-	return out
+func (s *FileStore) SaveExternalChatSession(ctx context.Context, session app.ExternalChatSession) (app.ExternalChatSession, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatSessionSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationExternalChatSessionSave, func(ctx context.Context) (app.ExternalChatSession, error) {
+		return s.inner.SaveExternalChatSession(ctx, session)
+	})
 }
 
-func (s *FileStore) GetExternalChatSession(id string) (app.ExternalChatSession, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetExternalChatSession(id)
+func (s *FileStore) GetExternalChatSession(ctx context.Context, id string) (app.ExternalChatSession, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatSessionGet, 1)
+	if err != nil {
+		return app.ExternalChatSession{}, false, err
+	}
+	defer release()
+	return s.inner.GetExternalChatSession(ctx, id)
 }
 
-func (s *FileStore) ListExternalChatSessions(channel, status string) []app.ExternalChatSession {
-	defer s.admitLegacyRead()()
-	return s.inner.ListExternalChatSessions(channel, status)
+func (s *FileStore) ListExternalChatSessions(ctx context.Context, channel, status string) ([]app.ExternalChatSession, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatSessionList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListExternalChatSessions(ctx, channel, status)
 }
 
-func (s *FileStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindExternalChatSession(bindingID, externalChatID, externalThreadID)
+func (s *FileStore) FindExternalChatSession(ctx context.Context, bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatSessionFind, 1)
+	if err != nil {
+		return app.ExternalChatSession{}, false, err
+	}
+	defer release()
+	return s.inner.FindExternalChatSession(ctx, bindingID, externalChatID, externalThreadID)
 }
 
-func (s *FileStore) FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindExternalChatSessionByLinkedSessionID(sessionID)
+func (s *FileStore) FindExternalChatSessionByLinkedSessionID(ctx context.Context, sessionID string) (app.ExternalChatSession, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatSessionFindLink, 1)
+	if err != nil {
+		return app.ExternalChatSession{}, false, err
+	}
+	defer release()
+	return s.inner.FindExternalChatSessionByLinkedSessionID(ctx, sessionID)
 }
 
-func (s *FileStore) SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveExternalChatMessage(message)
-	s.persist()
-	return out
+func (s *FileStore) SaveExternalChatMessage(ctx context.Context, message app.ExternalChatMessage) (app.ExternalChatMessage, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatMessageSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.ExternalChatMessage{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationExternalChatMessageSave, func(ctx context.Context) (app.ExternalChatMessage, error) {
+		return s.inner.SaveExternalChatMessage(ctx, message)
+	})
 }
 
-func (s *FileStore) GetExternalChatMessage(id string) (app.ExternalChatMessage, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetExternalChatMessage(id)
+func (s *FileStore) GetExternalChatMessage(ctx context.Context, id string) (app.ExternalChatMessage, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatMessageGet, 1)
+	if err != nil {
+		return app.ExternalChatMessage{}, false, err
+	}
+	defer release()
+	return s.inner.GetExternalChatMessage(ctx, id)
 }
 
-func (s *FileStore) FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
+func (s *FileStore) FindExternalChatMessageByExternalID(ctx context.Context, chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatMessageFind, 1)
+	if err != nil {
+		return app.ExternalChatMessage{}, false, err
+	}
+	defer release()
+	return s.inner.FindExternalChatMessageByExternalID(ctx, chatSessionID, externalMessageID)
 }
 
-func (s *FileStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
-	defer s.admitLegacyRead()()
-	return s.inner.ListExternalChatMessages(chatSessionID, limit)
+func (s *FileStore) ListExternalChatMessages(ctx context.Context, chatSessionID string, limit int) ([]app.ExternalChatMessage, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationExternalChatMessageList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListExternalChatMessages(ctx, chatSessionID, limit)
 }
 
 func (s *FileStore) SaveMessageReceive(ctx context.Context, record app.MessageReceiveRecord) (app.MessageReceiveRecord, error) {
@@ -1637,10 +1673,6 @@ func (s *FileStore) ListEpisodeSummaries(ctx context.Context, sessionID string) 
 	}
 	defer release()
 	return s.inner.ListEpisodeSummaries(ctx, sessionID)
-}
-
-func (s *FileStore) persist() {
-	_ = s.persistSnapshot()
 }
 
 func (s *FileStore) persistSnapshot() error {

@@ -112,6 +112,15 @@ const (
 	OperationChannelInboxUpdateGet       StoreOperation = "channel_inbox_update.get"
 	OperationChannelInboxUpdateFind      StoreOperation = "channel_inbox_update.find"
 	OperationChannelInboxUpdateList      StoreOperation = "channel_inbox_update.list"
+	OperationExternalChatSessionSave     StoreOperation = "external_chat_session.save"
+	OperationExternalChatSessionGet      StoreOperation = "external_chat_session.get"
+	OperationExternalChatSessionList     StoreOperation = "external_chat_session.list"
+	OperationExternalChatSessionFind     StoreOperation = "external_chat_session.find"
+	OperationExternalChatSessionFindLink StoreOperation = "external_chat_session.find_linked_session"
+	OperationExternalChatMessageSave     StoreOperation = "external_chat_message.save"
+	OperationExternalChatMessageGet      StoreOperation = "external_chat_message.get"
+	OperationExternalChatMessageFind     StoreOperation = "external_chat_message.find_external_id"
+	OperationExternalChatMessageList     StoreOperation = "external_chat_message.list"
 	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
 	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
 	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
@@ -650,6 +659,42 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationNotificationBindingUpdate: {
 		ID: OperationNotificationBindingUpdate, Repository: "ConnectorRepository",
 		Method: "UpdateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationExternalChatSessionSave: {
+		ID: OperationExternalChatSessionSave, Repository: "ExternalChatRepository",
+		Method: "SaveExternalChatSession", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationExternalChatSessionGet: {
+		ID: OperationExternalChatSessionGet, Repository: "ExternalChatRepository",
+		Method: "GetExternalChatSession", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationExternalChatSessionList: {
+		ID: OperationExternalChatSessionList, Repository: "ExternalChatRepository",
+		Method: "ListExternalChatSessions", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationExternalChatSessionFind: {
+		ID: OperationExternalChatSessionFind, Repository: "ExternalChatRepository",
+		Method: "FindExternalChatSession", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationExternalChatSessionFindLink: {
+		ID: OperationExternalChatSessionFindLink, Repository: "ExternalChatRepository",
+		Method: "FindExternalChatSessionByLinkedSessionID", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationExternalChatMessageSave: {
+		ID: OperationExternalChatMessageSave, Repository: "ExternalChatRepository",
+		Method: "SaveExternalChatMessage", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationExternalChatMessageGet: {
+		ID: OperationExternalChatMessageGet, Repository: "ExternalChatRepository",
+		Method: "GetExternalChatMessage", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationExternalChatMessageFind: {
+		ID: OperationExternalChatMessageFind, Repository: "ExternalChatRepository",
+		Method: "FindExternalChatMessageByExternalID", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationExternalChatMessageList: {
+		ID: OperationExternalChatMessageList, Repository: "ExternalChatRepository",
+		Method: "ListExternalChatMessages", Mode: operationRead, Timeout: timeoutRead,
 	},
 }
 

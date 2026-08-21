@@ -356,7 +356,11 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 			return
 		}
 		if !fresh {
-			existing, ok := s.store.FindExternalChatMessageByExternalID(chatSession.ID, inbound.ExternalID)
+			existing, ok, err := s.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, inbound.ExternalID)
+			if err != nil {
+				slog.Warn("weixin external chat state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(err))
+				return
+			}
 			if !ok || (existing.Status != "failed" && existing.Status != "delivery_failed") {
 				continue
 			}
@@ -380,7 +384,11 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 					"binding_id", binding.ID, "external_id", msg.ExternalID, "error", err)
 				continue
 			}
-			attempts := s.recordDispatchAttempt(chatSession.ID, binding.ID, inbound.ExternalID)
+			attempts, persistErr := s.recordDispatchAttempt(ctx, chatSession.ID, binding.ID, inbound.ExternalID)
+			if persistErr != nil {
+				slog.Warn("weixin dispatch retry state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(persistErr))
+				return
+			}
 			if attempts < maxDispatchAttempts {
 				// Keep the old cursor so the provider redelivers this
 				// message (and everything after it) on the next poll.
@@ -425,19 +433,25 @@ func (s *Syncer) advanceCursor(ctx context.Context, bindingID, cursor string) {
 // the message itself, so nothing lingers in syncer memory for bindings that
 // are later revoked. A successful dispatch resets the count when the
 // dispatcher finalizes the record.
-func (s *Syncer) recordDispatchAttempt(chatSessionID, bindingID, externalID string) int {
-	record, ok := s.store.FindExternalChatMessageByExternalID(chatSessionID, externalID)
+func (s *Syncer) recordDispatchAttempt(ctx context.Context, chatSessionID, bindingID, externalID string) (int, error) {
+	record, ok, err := s.store.FindExternalChatMessageByExternalID(ctx, chatSessionID, externalID)
+	if err != nil {
+		return 0, err
+	}
 	if !ok {
 		// The dispatch failed before anything was persisted, so there is no
 		// durable place for a budget; treat the message as exhausted rather
 		// than blocking the binding's cursor indefinitely.
 		slog.Warn("weixin inbound failed without a persisted record; dropping",
 			"binding_id", bindingID, "external_id", externalID)
-		return maxDispatchAttempts
+		return maxDispatchAttempts, nil
 	}
 	record.DispatchAttempts++
-	record = s.store.SaveExternalChatMessage(record)
-	return record.DispatchAttempts
+	record, err = s.store.SaveExternalChatMessage(ctx, record)
+	if err != nil {
+		return 0, err
+	}
+	return record.DispatchAttempts, nil
 }
 
 func (s *Syncer) downloadInboundAttachments(ctx context.Context, binding app.NotificationBinding, items []updateItem, sessionID, nameSeed string) []app.MessageAttachment {

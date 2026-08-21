@@ -133,11 +133,11 @@ func TestHandleInboundDeliveryRetryDoesNotRerunRuntime(t *testing.T) {
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
 		t.Fatal("expected the failed delivery to surface an error")
 	}
-	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, binding.ID, "wx-user-1", "")
 	if !ok {
 		t.Fatal("chat session missing")
 	}
-	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-pending")
+	failed, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-pending")
 	if !ok || failed.Status != "delivery_failed" {
 		t.Fatalf("inbound record should be delivery_failed: %#v ok=%v", failed, ok)
 	}
@@ -164,7 +164,7 @@ func TestHandleInboundDeliveryRetryDoesNotRerunRuntime(t *testing.T) {
 	if delivered[1].RunID != "run_pending" || len(delivered[1].Content.Parts) != 1 || delivered[1].Content.Parts[0].Text != "答案" {
 		t.Fatalf("retried delivery should reuse the persisted reply: %#v", delivered[1])
 	}
-	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-pending")
+	retried, _ := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-pending")
 	if retried.Status != "processed" || retried.Error != "" || retried.PendingReplyKind != "" || retried.PendingReply != "" {
 		t.Fatalf("successful retry should finalize the record: %#v", retried)
 	}
@@ -211,11 +211,11 @@ func TestHandleInboundMarksBlockedDeliveryTerminal(t *testing.T) {
 	if !delivery.IsBlocked(err) {
 		t.Fatalf("expected the blocked delivery error to surface, got %v", err)
 	}
-	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, binding.ID, "wx-user-1", "")
 	if !ok {
 		t.Fatal("chat session missing")
 	}
-	blocked, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-blocked")
+	blocked, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-blocked")
 	if !ok || blocked.Status != "delivery_blocked" {
 		t.Fatalf("blocked delivery should be terminal on the record: %#v ok=%v", blocked, ok)
 	}
@@ -313,12 +313,12 @@ func TestClearConversationReplyIsRetriedWithoutRepeatingTheClear(t *testing.T) {
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
 		t.Fatal("expected the failed confirmation send to surface an error")
 	}
-	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, binding.ID, "wx-user-1", "")
 	if !ok {
 		t.Fatal("chat session missing")
 	}
 	clearedSessionID := chatSession.LinkedSessionID
-	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-clear")
+	failed, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-clear")
 	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyControlText {
 		t.Fatalf("clear-conversation confirmation should be retryable: %#v ok=%v", failed, ok)
 	}
@@ -326,14 +326,14 @@ func TestClearConversationReplyIsRetriedWithoutRepeatingTheClear(t *testing.T) {
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
 		t.Fatalf("confirmation resend should succeed: %v", err)
 	}
-	chatSession, _ = st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	chatSession, _ = storetest.MustFindExternalChatSession(t, st, binding.ID, "wx-user-1", "")
 	if chatSession.LinkedSessionID != clearedSessionID {
 		t.Fatalf("retry must not clear the conversation again: %q -> %q", clearedSessionID, chatSession.LinkedSessionID)
 	}
 	if got := runtime.handledCount(); got != 0 {
 		t.Fatalf("clear-conversation must never reach the agent, got %d handles", got)
 	}
-	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-clear")
+	retried, _ := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-clear")
 	if retried.Status != "processed" || retried.PendingReply != "" {
 		t.Fatalf("successful resend should finalize the record: %#v", retried)
 	}
@@ -364,11 +364,11 @@ func TestAttachmentPromptIsRetriedWithoutDuplicatingContext(t *testing.T) {
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
 		t.Fatal("expected the failed clarification send to surface an error")
 	}
-	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, binding.ID, "wx-user-1", "")
 	if !ok {
 		t.Fatal("chat session missing")
 	}
-	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-attach")
+	failed, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-attach")
 	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyAttachmentPrompt {
 		t.Fatalf("attachment clarification should be retryable: %#v ok=%v", failed, ok)
 	}
@@ -377,7 +377,7 @@ func TestAttachmentPromptIsRetriedWithoutDuplicatingContext(t *testing.T) {
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
 		t.Fatalf("clarification resend should succeed: %v", err)
 	}
-	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-attach")
+	retried, _ := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-attach")
 	if retried.Status != "needs_user_instruction" || retried.PendingReply != "" {
 		t.Fatalf("successful resend should restore the pending-instruction state: %#v", retried)
 	}
@@ -428,7 +428,7 @@ func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
 	if got := runtime.executedCount(); got != 1 {
 		t.Fatalf("approved tool should run exactly once, got %d", got)
 	}
-	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-approve")
+	failed, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-approve")
 	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyControlText || failed.LinkedRunID != "run_appr" {
 		t.Fatalf("approval confirmation should be retryable: %#v ok=%v", failed, ok)
 	}
@@ -442,7 +442,7 @@ func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
 	if got := runtime.handledCount(); got != 0 {
 		t.Fatalf("approval reply must not leak to the agent as a normal message, got %d handles", got)
 	}
-	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-approve")
+	retried, _ := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-approve")
 	if retried.Status != "processed" || retried.PendingReply != "" {
 		t.Fatalf("successful resend should finalize the record: %#v", retried)
 	}

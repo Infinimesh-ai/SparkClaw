@@ -158,7 +158,7 @@ func TestServiceRejectsUnknownUserBeforeDownloadOrAgent(t *testing.T) {
 	if stored.Status != "completed" || runtime.callCount() != 0 || bot.fileCalls() != 0 {
 		t.Fatalf("unknown user crossed isolation boundary: inbox=%#v calls=%d files=%d", stored, runtime.callCount(), bot.fileCalls())
 	}
-	if sessions := st.ListExternalChatMessages("", 10); len(sessions) != 0 {
+	if sessions := storetest.MustListExternalChatMessages(t, st, "", 10); len(sessions) != 0 {
 		t.Fatalf("unknown user created chat state: %#v", sessions)
 	}
 }

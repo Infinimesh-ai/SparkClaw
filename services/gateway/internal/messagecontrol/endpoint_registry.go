@@ -14,8 +14,8 @@ import (
 type endpointStore interface {
 	GetSession(context.Context, string) (app.Session, bool, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
-	GetExternalChatSession(string) (app.ExternalChatSession, bool)
-	ListExternalChatSessions(string, string) []app.ExternalChatSession
+	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
+	ListExternalChatSessions(context.Context, string, string) ([]app.ExternalChatSession, error)
 }
 
 type mcpEndpointStore interface {
@@ -110,7 +110,11 @@ func (r *EndpointRegistry) get(ctx context.Context, id app.EndpointID, admittedS
 			Status: app.EndpointActive, CreatedAt: binding.CreatedAt, UpdatedAt: binding.UpdatedAt,
 		}, nil
 	}
-	if chat, chatOK := r.store.GetExternalChatSession(value); chatOK {
+	chat, chatOK, err := r.store.GetExternalChatSession(ctx, value)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read external chat endpoint %q: %w", value, err)
+	}
+	if chatOK {
 		return r.endpointForChat(ctx, id, chat, admittedSource)
 	}
 	binding, ok, err := r.store.GetNotificationBinding(ctx, value)
@@ -204,7 +208,11 @@ func (r *EndpointRegistry) List(ctx context.Context, ownerID, actorID string) ([
 		return nil, newTargetError(CodeCrossUserDenied, "delivery owner and actor are required")
 	}
 	endpoints := []app.MessageEndpoint{}
-	for _, chat := range r.store.ListExternalChatSessions("", string(app.EndpointActive)) {
+	chats, err := r.store.ListExternalChatSessions(ctx, "", string(app.EndpointActive))
+	if err != nil {
+		return nil, fmt.Errorf("list external chat endpoints: %w", err)
+	}
+	for _, chat := range chats {
 		binding, ok, err := r.store.GetNotificationBinding(ctx, chat.BindingID)
 		if err != nil {
 			return nil, err
@@ -320,7 +328,10 @@ func (r *EndpointRegistry) GetForMessageSend(ctx context.Context, id app.Endpoin
 		return app.MessageEndpoint{}, errors.New("endpoint registry is unavailable")
 	}
 	value := strings.TrimSpace(string(id))
-	chat, ok := r.store.GetExternalChatSession(value)
+	chat, ok, err := r.store.GetExternalChatSession(ctx, value)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read external chat endpoint %q: %w", value, err)
+	}
 	if !ok {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "message delivery requires an exact recipient endpoint")
 	}

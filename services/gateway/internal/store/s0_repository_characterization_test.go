@@ -511,19 +511,28 @@ func characterizeS0ExternalChatRepository(t *testing.T, st Store, dimension stri
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
-		chat := st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-s0", BindingID: "binding-s0", Channel: "telegram", ExternalChatID: "chat", Status: "active"})
-		if got, ok := st.GetExternalChatSession(chat.ID); !ok || got.Channel != "telegram" {
+		chat, err := st.SaveExternalChatSession(t.Context(), app.ExternalChatSession{ID: "chat-s0", BindingID: "binding-s0", Channel: "telegram", ExternalChatID: "chat", Status: "active"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok, err := st.GetExternalChatSession(t.Context(), chat.ID); err != nil || !ok || got.Channel != "telegram" {
 			t.Fatalf("external chat session save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetExternalChatSession("missing"); ok {
+		if _, ok, err := st.GetExternalChatSession(t.Context(), "missing"); err != nil || ok {
 			t.Fatal("missing external chat session was found")
 		}
 	case s0DimensionOrderScope:
-		st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-old", BindingID: "binding-old", Channel: "telegram", ExternalChatID: "old", Status: "active", UpdatedAt: base})
-		st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-new", BindingID: "binding-new", Channel: "telegram", ExternalChatID: "new", Status: "active", UpdatedAt: base.Add(time.Minute)})
-		st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-other", BindingID: "binding-other", Channel: "weixin", ExternalChatID: "other", Status: "revoked", UpdatedAt: base.Add(2 * time.Minute)})
-		if got := st.ListExternalChatSessions("telegram", "active"); len(got) != 2 || got[0].ID != "chat-new" || got[1].ID != "chat-old" {
+		for _, chat := range []app.ExternalChatSession{
+			{ID: "chat-old", BindingID: "binding-old", Channel: "telegram", ExternalChatID: "old", Status: "active", UpdatedAt: base},
+			{ID: "chat-new", BindingID: "binding-new", Channel: "telegram", ExternalChatID: "new", Status: "active", UpdatedAt: base.Add(time.Minute)},
+			{ID: "chat-other", BindingID: "binding-other", Channel: "weixin", ExternalChatID: "other", Status: "revoked", UpdatedAt: base.Add(2 * time.Minute)},
+		} {
+			if _, err := st.SaveExternalChatSession(t.Context(), chat); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got, err := st.ListExternalChatSessions(t.Context(), "telegram", "active"); err != nil || len(got) != 2 || got[0].ID != "chat-new" || got[1].ID != "chat-old" {
 			t.Fatalf("external chat order/scope = %#v", got)
 		}
 	default:

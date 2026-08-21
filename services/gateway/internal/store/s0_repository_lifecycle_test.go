@@ -88,8 +88,10 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "notification.received",
 	},
 	"ExternalChatRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveExternalChatSession(app.ExternalChatSession{ID: "external-lifecycle", BindingID: "binding-lifecycle", Channel: "telegram", Status: "active"})
+		mutate: func(t *testing.T, st Store) {
+			if _, err := st.SaveExternalChatSession(t.Context(), app.ExternalChatSession{ID: "external-lifecycle", BindingID: "binding-lifecycle", Channel: "telegram", Status: "active"}); err != nil {
+				t.Fatal(err)
+			}
 		},
 		auditType: "external_chat_session.active", eventType: "external_chat_session.active",
 	},

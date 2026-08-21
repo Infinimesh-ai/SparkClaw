@@ -85,6 +85,11 @@ var migratedFileAdmissions = map[string]string{
 	"FindMessageDeliveryByIdempotency": "admitMigrated", "ListMessageDeliveries": "admitMigrated",
 	"SaveChannelInboxUpdate": "admitMigrated", "GetChannelInboxUpdate": "admitMigrated",
 	"FindChannelInboxUpdate": "admitMigrated", "ListChannelInboxUpdates": "admitMigrated",
+	"SaveExternalChatSession": "admitMigrated", "GetExternalChatSession": "admitMigrated",
+	"ListExternalChatSessions": "admitMigrated", "FindExternalChatSession": "admitMigrated",
+	"FindExternalChatSessionByLinkedSessionID": "admitMigrated",
+	"SaveExternalChatMessage":                  "admitMigrated", "GetExternalChatMessage": "admitMigrated",
+	"FindExternalChatMessageByExternalID": "admitMigrated", "ListExternalChatMessages": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {

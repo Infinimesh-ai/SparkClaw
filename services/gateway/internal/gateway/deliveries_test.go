@@ -204,7 +204,7 @@ func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *stor
 		ID: "bind-direct", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "testchat", Status: "active",
 		DisplayName: "Personal account", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-direct", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID, AuthorizedActorID: app.DefaultOwnerID,
 		BindingID: binding.ID, Channel: "testchat", ExternalUserID: "external-user-raw", ExternalChatID: "external-chat-raw",
 		DisplayName: "Alex", LastContextToken: "ctx-secret", Status: "active",
@@ -269,7 +269,7 @@ func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
 		ID: "bind-delivery-failed", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-delivery-failed", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
 		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
 		ExternalUserID: "user", ExternalChatID: "chat", DisplayName: "Selected recipient", Status: "active",

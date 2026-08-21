@@ -119,7 +119,11 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	// provider (the cursor is only advanced after successful dispatch); reuse
 	// its record so the retry does not duplicate the chat history.
 	retryID := ""
-	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
+	existing, ok, err := d.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, externalID)
+	if err != nil {
+		return fmt.Errorf("read weixin external chat message: %w", err)
+	}
+	if ok {
 		if existing.Status != "failed" && existing.Status != statusDeliveryFailed {
 			return nil
 		}
@@ -159,7 +163,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		}
 		return err
 	}
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -171,9 +175,15 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
+	if err != nil {
+		return fmt.Errorf("persist weixin inbound message: %w", err)
+	}
 	processing := inboundMsg
 	processing.Status = "processing"
-	processing = d.store.SaveExternalChatMessage(processing)
+	processing, err = d.store.SaveExternalChatMessage(ctx, processing)
+	if err != nil {
+		return fmt.Errorf("persist weixin processing message: %w", err)
+	}
 	receive, err = receives.Advance(ctx, receive, "routed", inboundMsg.ID, "")
 	if err != nil {
 		return fmt.Errorf("weixin receive state unavailable: %w", err)
@@ -214,7 +224,9 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if err != nil {
 		processing.Status = "failed"
 		processing.Error = err.Error()
-		d.store.SaveExternalChatMessage(processing)
+		if _, persistErr := d.store.SaveExternalChatMessage(ctx, processing); persistErr != nil {
+			return errors.Join(err, fmt.Errorf("persist weixin failed message: %w", persistErr))
+		}
 		if _, persistErr := receives.Advance(ctx, receive, "failed", inboundMsg.ID, ""); persistErr != nil {
 			return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
 		}
@@ -247,8 +259,8 @@ func (d *Dispatcher) finishControlReply(ctx context.Context, inbound InboundMess
 	if successStatus == "needs_user_instruction" {
 		kind = pendingReplyAttachmentPrompt
 	}
-	record = d.recordReplyOutcome(record, kind, answer, successStatus, sendErr)
-	return record, sendErr
+	record, persistErr := d.recordReplyOutcome(ctx, record, kind, answer, successStatus, sendErr)
+	return record, errors.Join(sendErr, persistErr)
 }
 
 // finishWorkflowReply hands a produced workflow result to the delivery layer
@@ -259,7 +271,8 @@ func (d *Dispatcher) finishWorkflowReply(ctx context.Context, record app.Externa
 	if err != nil {
 		// Nothing deliverable was produced; without a payload a retry falls
 		// back to the full (idempotent) dispatch path.
-		return d.recordReplyOutcome(record, "", "", "processed", err), err
+		persisted, persistErr := d.recordReplyOutcome(ctx, record, "", "", "processed", err)
+		return persisted, errors.Join(err, persistErr)
 	}
 	kind, payload := "", ""
 	if raw, marshalErr := json.Marshal(workflowResult); marshalErr == nil {
@@ -267,8 +280,8 @@ func (d *Dispatcher) finishWorkflowReply(ctx context.Context, record app.Externa
 	}
 	record.LinkedRunID = result.Run.ID
 	deliveryErr := d.deliverWorkflowResult(ctx, workflowResult)
-	record = d.recordReplyOutcome(record, kind, payload, "processed", deliveryErr)
-	return record, deliveryErr
+	record, persistErr := d.recordReplyOutcome(ctx, record, kind, payload, "processed", deliveryErr)
+	return record, errors.Join(deliveryErr, persistErr)
 }
 
 // retryPendingReply re-sends a reply that a previous dispatch of the same
@@ -287,7 +300,10 @@ func (d *Dispatcher) retryPendingReply(ctx context.Context, inbound InboundMessa
 	default:
 		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, msg.PendingReply, msg.LinkedRunID)
 	}
-	msg = d.recordReplyOutcome(msg, msg.PendingReplyKind, msg.PendingReply, retrySuccessStatus(msg.PendingReplyKind), deliveryErr)
+	msg, persistErr := d.recordReplyOutcome(ctx, msg, msg.PendingReplyKind, msg.PendingReply, retrySuccessStatus(msg.PendingReplyKind), deliveryErr)
+	if persistErr != nil {
+		return errors.Join(deliveryErr, persistErr)
+	}
 	if _, persistErr := receives.Advance(ctx, receive, msg.Status, msg.ID, msg.LinkedRunID); persistErr != nil {
 		return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
 	}
@@ -308,7 +324,7 @@ func retrySuccessStatus(kind string) string {
 // inbound message record. Retryable failures keep the reply payload so the
 // next redelivery retries only the provider send; blocked failures are
 // terminal and record the reason.
-func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, payload, successStatus string, deliveryErr error) app.ExternalChatMessage {
+func (d *Dispatcher) recordReplyOutcome(ctx context.Context, msg app.ExternalChatMessage, kind, payload, successStatus string, deliveryErr error) (app.ExternalChatMessage, error) {
 	switch {
 	case deliveryErr == nil:
 		msg.Status = successStatus
@@ -324,7 +340,7 @@ func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, paylo
 		msg.Error = deliveryErr.Error()
 		msg.PendingReplyKind, msg.PendingReply = kind, payload
 	}
-	return d.store.SaveExternalChatMessage(msg)
+	return d.store.SaveExternalChatMessage(ctx, msg)
 }
 
 // handleControlText intercepts text-only messages that must not reach the
@@ -341,7 +357,7 @@ func (d *Dispatcher) handleControlText(ctx context.Context, inbound InboundMessa
 // context and asks the user what to do with it instead of invoking the agent.
 func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID string, receivedAt time.Time) (app.ExternalChatMessage, error) {
 	inboundContent := pendingAttachmentContext(inbound.Attachments)
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -353,6 +369,9 @@ func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound In
 		Status:            "needs_user_instruction",
 		CreatedAt:         receivedAt,
 	})
+	if err != nil {
+		return app.ExternalChatMessage{}, fmt.Errorf("persist weixin attachment message: %w", err)
+	}
 	if _, err := d.store.AddMessage(ctx, app.Message{
 		SessionID:   chatSession.LinkedSessionID,
 		Role:        "user",
@@ -368,7 +387,7 @@ func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound In
 
 func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) error {
 	oldSessionID := chatSession.LinkedSessionID
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -380,6 +399,9 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
+	if err != nil {
+		return fmt.Errorf("persist weixin clear request: %w", err)
+	}
 	session, err := d.store.CreateSessionWithScope(ctx, "微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
 	if err != nil {
 		return err
@@ -391,7 +413,10 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 	if inbound.ContextToken != "" {
 		chatSession.LastContextToken = inbound.ContextToken
 	}
-	chatSession = d.store.SaveExternalChatSession(chatSession)
+	chatSession, err = d.store.SaveExternalChatSession(ctx, chatSession)
+	if err != nil {
+		return fmt.Errorf("persist weixin chat session reset: %w", err)
+	}
 	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: session.ID,
 		Actor:     "gateway",
@@ -494,8 +519,8 @@ func (d *Dispatcher) sendControlResult(ctx context.Context, inbound InboundMessa
 	} else if sendResult.Status != "" {
 		outbound.Status = sendResult.Status
 	}
-	d.store.SaveExternalChatMessage(outbound)
-	return sendErr
+	_, persistErr := d.store.SaveExternalChatMessage(ctx, outbound)
+	return errors.Join(sendErr, persistErr)
 }
 
 func weixinIngress(inbound InboundMessage, chatSession app.ExternalChatSession, nativeMessageID string) app.MessageIngressContext {
@@ -635,7 +660,11 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 	}
 	ownerID := profile.ID
 	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
-	if existing, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
+	existing, ok, err := d.store.FindExternalChatSession(ctx, inbound.Binding.ID, externalUserID, "")
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	if ok {
 		changed := false
 		if existing.OwnerID != ownerID && ownerID != "" {
 			existing.OwnerID = ownerID
@@ -659,7 +688,7 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 			changed = true
 		}
 		if changed {
-			return d.store.SaveExternalChatSession(existing), nil
+			return d.store.SaveExternalChatSession(ctx, existing)
 		}
 		return existing, nil
 	}
@@ -667,7 +696,7 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 	if err != nil {
 		return app.ExternalChatSession{}, err
 	}
-	return d.store.SaveExternalChatSession(app.ExternalChatSession{
+	return d.store.SaveExternalChatSession(ctx, app.ExternalChatSession{
 		OwnerID:           ownerID,
 		AuthorizedOwnerID: inbound.Binding.OwnerID,
 		AuthorizedActorID: inbound.Binding.ActorID,
@@ -682,7 +711,7 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessa
 		Status:            "active",
 		ProviderCursor:    inbound.ProviderCursor,
 		LastContextToken:  inbound.ContextToken,
-	}), nil
+	})
 }
 
 func (d *Dispatcher) ensureOwnerProfile(ctx context.Context, inbound InboundMessage, externalUserID string) (app.OwnerProfile, error) {

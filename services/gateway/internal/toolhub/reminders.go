@@ -26,7 +26,11 @@ func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sess
 	}
 	channel := strings.TrimSpace(stringArg(args, "channel", ""))
 	if channel == "" {
-		if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok {
+		chatSession, ok, err := h.store.FindExternalChatSessionByLinkedSessionID(ctx, sessionID)
+		if err != nil {
+			return Result{}, err
+		}
+		if ok {
 			channel = chatSession.Channel
 			if strings.TrimSpace(channel) == "" {
 				if binding, bindingOK, err := h.store.GetNotificationBinding(ctx, strings.TrimSpace(chatSession.BindingID)); err != nil {

@@ -360,7 +360,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	if binding.ContextToken != "ctx-1" || binding.ProviderCursor != "cursor-2" {
 		t.Fatalf("binding context was not synced: %#v", binding)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 	if !ok || chatSession.LinkedSessionID == "" {
 		t.Fatalf("weixin chat session not saved: %#v", chatSession)
 	}
@@ -377,7 +377,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 			t.Fatalf("weixin linked session should not appear in normal session list: %#v", session)
 		}
 	}
-	messages := st.ListExternalChatMessages(chatSession.ID, 10)
+	messages := storetest.MustListExternalChatMessages(t, st, chatSession.ID, 10)
 	if len(messages) != 2 {
 		t.Fatalf("expected inbound and outbound chat messages, got %#v", messages)
 	}
@@ -467,8 +467,8 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	if strings.Join(sentRecipients, ",") != "wx-user-a,wx-user-b" {
 		t.Fatalf("expected replies to separate weixin users, got %#v", sentRecipients)
 	}
-	sessionA, okA := st.FindExternalChatSession("bind_1", "wx-user-a", "")
-	sessionB, okB := st.FindExternalChatSession("bind_1", "wx-user-b", "")
+	sessionA, okA := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-a", "")
+	sessionB, okB := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-b", "")
 	if !okA || !okB {
 		t.Fatalf("expected separate weixin chat sessions, got A=%#v ok=%v B=%#v ok=%v", sessionA, okA, sessionB, okB)
 	}
@@ -734,11 +734,11 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if attemptsAfterFirstTick != 1 {
 		t.Fatalf("expected one send attempt on first tick, got %d", attemptsAfterFirstTick)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 	if !ok {
 		t.Fatal("weixin chat session missing after failed delivery")
 	}
-	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
+	failed, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-1")
 	if !ok || failed.Status != "delivery_failed" {
 		t.Fatalf("failed reply was not retained for delivery retry: %#v ok=%v", failed, ok)
 	}
@@ -762,7 +762,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if runsAfterRetry := len(testListRuns(st, chatSession.LinkedSessionID)); runsAfterRetry != runsAfterFirstTick {
 		t.Fatalf("delivery retry reran the agent: before=%d after=%d", runsAfterFirstTick, runsAfterRetry)
 	}
-	delivered, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
+	delivered, _ := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-1")
 	if delivered.Status != "processed" || delivered.Error != "" {
 		t.Fatalf("successful reply retry did not finalize the inbound record: %#v", delivered)
 	}
@@ -852,10 +852,10 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 	if !aObservedB.Load() {
 		t.Fatal("binding B's dispatch should complete while binding A's dispatch is still running")
 	}
-	if _, ok := st.FindExternalChatSession("bind_a", "wx-user-a", ""); !ok {
+	if _, ok := storetest.MustFindExternalChatSession(t, st, "bind_a", "wx-user-a", ""); !ok {
 		t.Fatal("binding A chat session missing")
 	}
-	if _, ok := st.FindExternalChatSession("bind_b", "wx-user-b", ""); !ok {
+	if _, ok := storetest.MustFindExternalChatSession(t, st, "bind_b", "wx-user-b", ""); !ok {
 		t.Fatal("binding B chat session missing")
 	}
 }
@@ -928,7 +928,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed := st.SaveExternalChatMessage(app.WeixinChatMessage{
+	failed := storetest.MustSaveExternalChatMessage(t, st, app.WeixinChatMessage{
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
 		Direction:         "inbound",
@@ -943,7 +943,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	retried, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-retry")
+	retried, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-retry")
 	if !ok {
 		t.Fatal("inbound message missing after retry")
 	}
@@ -954,7 +954,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatalf("retried message should be processed, got %q", retried.Status)
 	}
 	inboundCount := 0
-	for _, message := range st.ListExternalChatMessages(chatSession.ID, 20) {
+	for _, message := range storetest.MustListExternalChatMessages(t, st, chatSession.ID, 20) {
 		if message.Direction == "inbound" {
 			inboundCount++
 		}
@@ -1043,12 +1043,12 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 		syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 		syncer.Tick(t.Context(), weixinTestRuntimeScope())
 		syncer.Wait()
-		chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+		chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 		if !ok {
 			t.Fatalf("tick %d: chat session missing", tick)
 		}
 		chatSessionID = chatSession.ID
-		record, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-stubborn")
+		record, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-stubborn")
 		if !ok || record.DispatchAttempts != wantAttempts {
 			t.Fatalf("tick %d: attempts should persist across restarts, want %d got %#v ok=%v", tick, wantAttempts, record, ok)
 		}
@@ -1067,7 +1067,7 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 	if got := len(deliverer.deliveredResults()); got != 3 {
 		t.Fatalf("each dispatch should retry only the delivery step, got %d deliveries", got)
 	}
-	record, _ := st.FindExternalChatMessageByExternalID(chatSessionID, "provider-msg-stubborn")
+	record, _ := storetest.MustFindExternalChatMessage(t, st, chatSessionID, "provider-msg-stubborn")
 	if record.Status != "delivery_failed" || record.Error == "" {
 		t.Fatalf("dropped message should keep its failure state for later redeliveries: %#v", record)
 	}
@@ -1150,11 +1150,11 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 	if updated.ProviderCursor != "cursor-2" {
 		t.Fatalf("cursor must advance past a blocked delivery, got %q", updated.ProviderCursor)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 	if !ok {
 		t.Fatal("chat session missing")
 	}
-	blocked, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-blocked")
+	blocked, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-blocked")
 	if !ok || blocked.Status != "delivery_blocked" || blocked.Error == "" {
 		t.Fatalf("blocked message should be terminal with a recorded reason: %#v ok=%v", blocked, ok)
 	}

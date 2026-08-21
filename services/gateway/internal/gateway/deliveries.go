@@ -319,7 +319,12 @@ func (s *Server) listMessageHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, record := range receives {
 		content := ""
-		if message, ok := s.store.GetExternalChatMessage(record.LinkedMessageID); ok {
+		message, ok, err := s.store.GetExternalChatMessage(r.Context(), record.LinkedMessageID)
+		if err != nil {
+			writeDeliveryStoreError(w, err)
+			return
+		}
+		if ok {
 			content = message.Content
 		}
 		items = append(items, historyItem{ID: record.ID, Direction: record.Direction, Status: record.Status,

@@ -922,7 +922,7 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 		ID: "bind-stream-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-stream-target", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
 		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
 		ExternalUserID: "user", ExternalChatID: "chat", DisplayName: "Selected recipient", Status: "active",
@@ -1016,7 +1016,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 		ID: "bind-media-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-media-target", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
 		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
 		ExternalUserID: "selected-user", ExternalChatID: "selected-chat", DisplayName: "Selected recipient", Status: "active",

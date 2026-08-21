@@ -175,7 +175,11 @@ func (d *Dispatcher) workspaceSessionPath(ctx context.Context, relPath string, i
 		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
 	}
 	root := ""
-	if chatSession, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
+	chatSession, ok, err := d.store.FindExternalChatSession(ctx, inbound.Binding.ID, externalUserID, "")
+	if err != nil {
+		return "", false, err
+	}
+	if ok {
 		root = strings.TrimSpace(chatSession.WorkspaceRoot)
 		if root == "" {
 			session, ok, err := d.store.GetSession(ctx, chatSession.LinkedSessionID)

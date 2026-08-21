@@ -134,7 +134,12 @@ func (s *Server) unavailableScheduleEndpoint(ctx context.Context, endpointID app
 		}
 		return projection
 	}
-	if chat, ok := s.store.GetExternalChatSession(value); ok {
+	chat, ok, chatErr := s.store.GetExternalChatSession(ctx, value)
+	if chatErr != nil {
+		slog.Warn("schedule chat projection unavailable", "chat_session_id", value, "code", store.StoreErrorCodeOf(chatErr))
+		return publicScheduleEndpoint{Kind: app.EndpointKindThirdPartyDevice, Status: "unavailable"}
+	}
+	if ok {
 		binding, _, err := s.store.GetNotificationBinding(ctx, chat.BindingID)
 		if err != nil {
 			slog.Warn("schedule binding projection unavailable", "binding_id", chat.BindingID, "code", store.StoreErrorCodeOf(err))

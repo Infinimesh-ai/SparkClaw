@@ -225,6 +225,18 @@ type DeliveryRecordRepository interface {
 	ListChannelInboxUpdates(context.Context, string, string, time.Time, int) ([]app.ChannelInboxUpdate, error)
 }
 
+type ExternalChatRepository interface {
+	SaveExternalChatSession(context.Context, app.ExternalChatSession) (app.ExternalChatSession, error)
+	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
+	ListExternalChatSessions(context.Context, string, string) ([]app.ExternalChatSession, error)
+	FindExternalChatSession(context.Context, string, string, string) (app.ExternalChatSession, bool, error)
+	FindExternalChatSessionByLinkedSessionID(context.Context, string) (app.ExternalChatSession, bool, error)
+	SaveExternalChatMessage(context.Context, app.ExternalChatMessage) (app.ExternalChatMessage, error)
+	GetExternalChatMessage(context.Context, string) (app.ExternalChatMessage, bool, error)
+	FindExternalChatMessageByExternalID(context.Context, string, string) (app.ExternalChatMessage, bool, error)
+	ListExternalChatMessages(context.Context, string, int) ([]app.ExternalChatMessage, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -261,6 +273,7 @@ type Store interface {
 	ScheduleRepository
 	PassiveNotificationRepository
 	DeliveryRecordRepository
+	ExternalChatRepository
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -280,15 +293,6 @@ type Store interface {
 	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
 	ListMCPOperations(bindingID string) []app.MCPOperation
 	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
-	SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession
-	GetExternalChatSession(id string) (app.ExternalChatSession, bool)
-	ListExternalChatSessions(channel, status string) []app.ExternalChatSession
-	FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool)
-	FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool)
-	SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage
-	GetExternalChatMessage(id string) (app.ExternalChatMessage, bool)
-	FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool)
-	ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage
 }
 
 // Compile-time checks that every backend implements the full Store interface.
@@ -341,6 +345,9 @@ var (
 	_ DeliveryRecordRepository   = (*MemoryStore)(nil)
 	_ DeliveryRecordRepository   = (*FileStore)(nil)
 	_ DeliveryRecordRepository   = (*PostgresStore)(nil)
+	_ ExternalChatRepository     = (*MemoryStore)(nil)
+	_ ExternalChatRepository     = (*FileStore)(nil)
+	_ ExternalChatRepository     = (*PostgresStore)(nil)
 	_ Store                      = (*MemoryStore)(nil)
 	_ Store                      = (*FileStore)(nil)
 	_ Store                      = (*PostgresStore)(nil)

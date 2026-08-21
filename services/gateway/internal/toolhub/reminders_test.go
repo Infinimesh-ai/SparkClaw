@@ -237,7 +237,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
-	st.SaveExternalChatSession(app.WeixinChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{
 		BindingID:        "bind_weixin",
 		Channel:          "weixin",
 		Provider:         "openclaw-weixin-qr",
@@ -277,7 +277,7 @@ func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
 		CredentialRef: "cred_telegram", BaseURL: "https://api.telegram.org",
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		BindingID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api",
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
 		LinkedSessionID: linked.ID, Status: "active",

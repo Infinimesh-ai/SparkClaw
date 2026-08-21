@@ -58,12 +58,12 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 		ID: "bind-source", OwnerID: "owner-a", ActorID: "web-actor", Channel: "fake", Status: "active",
 		Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-source", OwnerID: "external-actor-a", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "web-actor",
 		BindingID: binding.ID, Channel: "fake", ExternalUserID: "user-a", ExternalChatID: "chat-a",
 		ExternalThreadID: "thread-a", LastContextToken: "context-a", DisplayName: "Alex", Status: "active",
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-other", OwnerID: "external-actor-b", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "web-actor",
 		BindingID: binding.ID, Channel: "fake", ExternalUserID: "user-b", ExternalChatID: "chat-b",
 		ExternalThreadID: "thread-b", LastContextToken: "context-b", DisplayName: "Alex", Status: "active",

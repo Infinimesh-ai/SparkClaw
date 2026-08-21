@@ -650,14 +650,10 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 	return decoded[key]
 }
 
-func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
+func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreClosed(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 2 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 2", got)
-	}
-	body := sourceFunctionBody(t, "file.go", "persist")
-	if !strings.Contains(body, "_ = s.persistSnapshot()") {
-		t.Fatal("legacy File persist no longer matches the recorded error-discard defect; replace this evidence in the owning migration stage")
+	if strings.Contains(source, "s.persist()") || strings.Contains(source, "_ = s.persistSnapshot()") {
+		t.Fatal("legacy File persistence error discard returned after ExternalChatRepository migration")
 	}
 }
 
@@ -700,8 +696,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 5 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 5", count)
+	if count != 2 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 2", count)
 	}
 }
 

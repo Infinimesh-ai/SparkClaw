@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -124,7 +125,11 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			return NewConnectorError("receive_store_unavailable", true, err)
 		}
 	}
-	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
+	existing, ok, err := d.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, externalID)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	if ok {
 		switch existing.Status {
 		case "processed":
 			return d.resumeOutbound(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, existing.LinkedRunID)
@@ -138,7 +143,10 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 	if ok {
 		if decision, parsed := parseApprovalDecision(text); parsed {
-			inbound := d.saveInbound(chatSession, binding, externalID, text, "received", approval.RunID)
+			inbound, err := d.saveInbound(ctx, chatSession, binding, externalID, text, "received", approval.RunID)
+			if err != nil {
+				return NewConnectorError("external_chat_store_unavailable", true, err)
+			}
 			if _, err := receives.Advance(ctx, receive, "processed", inbound.ID, approval.RunID); err != nil {
 				return NewConnectorError("receive_store_unavailable", true, err)
 			}
@@ -171,7 +179,10 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 	if text == "" {
 		contextText := attachmentContext(attachments)
-		inbound := d.saveInbound(chatSession, binding, externalID, contextText, "needs_user_instruction", "")
+		inbound, err := d.saveInbound(ctx, chatSession, binding, externalID, contextText, "needs_user_instruction", "")
+		if err != nil {
+			return NewConnectorError("external_chat_store_unavailable", true, err)
+		}
 		if _, err := d.store.AddMessage(ctx, app.Message{
 			ID:          stableTelegramID("message", binding.ID, externalID),
 			SessionID:   chatSession.LinkedSessionID,
@@ -193,7 +204,10 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 
 	runID := stableTelegramID("run", binding.ID, externalID)
-	inbound := d.saveInbound(chatSession, binding, externalID, text, "processing", runID)
+	inbound, err := d.saveInbound(ctx, chatSession, binding, externalID, text, "processing", runID)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	receive, err = receives.Advance(ctx, receive, "routed", inbound.ID, runID)
 	if err != nil {
 		return NewConnectorError("receive_store_unavailable", true, err)
@@ -211,7 +225,9 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	if err != nil {
 		inbound.Status = "failed"
 		inbound.Error = connectorErrorCode(err)
-		d.store.SaveExternalChatMessage(inbound)
+		if _, persistErr := d.store.SaveExternalChatMessage(ctx, inbound); persistErr != nil {
+			return errors.Join(err, NewConnectorError("external_chat_store_unavailable", true, persistErr))
+		}
 		if _, persistErr := receives.Advance(ctx, receive, "failed", inbound.ID, runID); persistErr != nil {
 			return NewConnectorError("receive_store_unavailable", true, persistErr)
 		}
@@ -219,7 +235,9 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 	inbound.Status = "processed"
 	inbound.LinkedRunID = result.Run.ID
-	d.store.SaveExternalChatMessage(inbound)
+	if _, err := d.store.SaveExternalChatMessage(ctx, inbound); err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	if _, err := receives.Advance(ctx, receive, "processed", inbound.ID, result.Run.ID); err != nil {
 		return NewConnectorError("receive_store_unavailable", true, err)
 	}
@@ -255,7 +273,9 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 	if err := d.client.AnswerCallbackQuery(ctx, query.ID, "Received"); err != nil {
 		return err
 	}
-	d.saveInbound(chatSession, binding, "callback:"+query.ID, query.Data, "received", approval.RunID)
+	if _, err := d.saveInbound(ctx, chatSession, binding, "callback:"+query.ID, query.Data, "received", approval.RunID); err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	return d.resolveApproval(ctx, binding, chatSession, query.Message.Chat.ID, query.Message.MessageThreadID, approval, parts[2] == "approve", "Telegram button")
 }
 
@@ -344,7 +364,9 @@ func telegramIngress(binding app.NotificationBinding, chatSession app.ExternalCh
 
 func (d *Dispatcher) resetConversation(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, message *Message) error {
 	externalID := inboundMessageExternalID(message)
-	d.saveInbound(chatSession, binding, externalID, message.Text, "received", "")
+	if _, err := d.saveInbound(ctx, chatSession, binding, externalID, message.Text, "received", ""); err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	session, err := d.store.CreateSessionWithScope(ctx, "Telegram conversation", chatSession.OwnerID, chatSession.WorkspaceRoot, "telegram", true)
 	if err != nil {
 		return err
@@ -353,7 +375,10 @@ func (d *Dispatcher) resetConversation(ctx context.Context, binding app.Notifica
 	chatSession.Status = "active"
 	chatSession.AuthorizedOwnerID = binding.OwnerID
 	chatSession.AuthorizedActorID = binding.ActorID
-	d.store.SaveExternalChatSession(chatSession)
+	chatSession, err = d.store.SaveExternalChatSession(ctx, chatSession)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, "A new conversation has started.", "cmd-new:"+externalID, "", nil)
 }
 
@@ -363,34 +388,38 @@ func (d *Dispatcher) sendAndRecord(ctx context.Context, binding app.Notification
 	}
 	if keyboard == nil {
 		if sent, err := d.sendMediaAnswer(ctx, chatSession, chatID, threadID, answer); sent {
-			return d.recordOutbound(chatSession, binding, "out:"+sourceID+":media", answer, runID, err)
+			return d.recordOutbound(ctx, chatSession, binding, "out:"+sourceID+":media", answer, runID, err)
 		}
 	}
 	for index, chunk := range splitTelegramText(answer, 4000) {
 		externalID := fmt.Sprintf("out:%s:%d", sourceID, index)
-		if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok && existing.Status == "sent" {
+		existing, ok, err := d.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, externalID)
+		if err != nil {
+			return NewConnectorError("external_chat_store_unavailable", true, err)
+		}
+		if ok && existing.Status == "sent" {
 			continue
 		}
 		markup := keyboard
 		if index > 0 {
 			markup = nil
 		}
-		_, err := d.client.SendMessage(ctx, chatID, threadID, chunk, markup)
-		if recordErr := d.recordOutbound(chatSession, binding, externalID, chunk, runID, err); recordErr != nil {
+		_, err = d.client.SendMessage(ctx, chatID, threadID, chunk, markup)
+		if recordErr := d.recordOutbound(ctx, chatSession, binding, externalID, chunk, runID, err); recordErr != nil {
 			return recordErr
 		}
 	}
 	return nil
 }
 
-func (d *Dispatcher) recordOutbound(chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, runID string, sendErr error) error {
+func (d *Dispatcher) recordOutbound(ctx context.Context, chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, runID string, sendErr error) error {
 	status := "sent"
 	errorCode := ""
 	if sendErr != nil {
 		status = "failed"
 		errorCode = connectorErrorCode(sendErr)
 	}
-	d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	_, persistErr := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                stableTelegramID("outbound", chatSession.ID, externalID),
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
@@ -403,11 +432,15 @@ func (d *Dispatcher) recordOutbound(chatSession app.ExternalChatSession, binding
 		Status:            status,
 		Error:             errorCode,
 	})
-	return sendErr
+	return errors.Join(sendErr, persistErr)
 }
 
 func (d *Dispatcher) resumeOutbound(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, chatID, threadID int64, runID string) error {
-	for _, message := range d.store.ListExternalChatMessages(chatSession.ID, 100) {
+	messages, err := d.store.ListExternalChatMessages(ctx, chatSession.ID, 100)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	for _, message := range messages {
 		if message.Direction != "outbound" || message.LinkedRunID != runID || message.Status == "sent" {
 			continue
 		}
@@ -420,8 +453,8 @@ func (d *Dispatcher) resumeOutbound(ctx context.Context, binding app.Notificatio
 	return nil
 }
 
-func (d *Dispatcher) saveInbound(chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, status, runID string) app.ExternalChatMessage {
-	return d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+func (d *Dispatcher) saveInbound(ctx context.Context, chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, status, runID string) (app.ExternalChatMessage, error) {
+	return d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                stableTelegramID("inbound", chatSession.ID, externalID),
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
@@ -439,7 +472,11 @@ func (d *Dispatcher) saveInbound(chatSession app.ExternalChatSession, binding ap
 func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.NotificationBinding, user User, chatID, threadID int64) (app.ExternalChatSession, error) {
 	externalChatID := strconv.FormatInt(chatID, 10)
 	externalThreadID := threadIDString(threadID)
-	if existing, ok := d.store.FindExternalChatSession(binding.ID, externalChatID, externalThreadID); ok {
+	existing, ok, err := d.store.FindExternalChatSession(ctx, binding.ID, externalChatID, externalThreadID)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	if ok {
 		return existing, nil
 	}
 	ownerID := strings.TrimSpace(binding.OwnerID)
@@ -464,7 +501,7 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.Notifica
 	if err != nil {
 		return app.ExternalChatSession{}, err
 	}
-	return d.store.SaveExternalChatSession(app.ExternalChatSession{
+	return d.store.SaveExternalChatSession(ctx, app.ExternalChatSession{
 		OwnerID:           profile.ID,
 		AuthorizedOwnerID: binding.OwnerID,
 		AuthorizedActorID: binding.ActorID,
@@ -480,7 +517,7 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.Notifica
 		Status:            "active",
 		ProviderCursor:    binding.ProviderCursor,
 		LastContextToken:  binding.ContextToken,
-	}), nil
+	})
 }
 
 func (d *Dispatcher) pendingApproval(ctx context.Context, sessionID string) (app.Approval, bool, error) {

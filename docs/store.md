@@ -57,7 +57,12 @@ identify the stable operation or candidate identity that proves the outcome.
 Every repository method accepts `context.Context` first and returns `error`
 last. Callers propagate their request, worker, or shutdown context and inspect
 the error; production code must not replace it with `context.Background()` or
-discard it.
+discard it. A lookup never turns backend failure into absence or an empty
+list.
+
+Repository interfaces expose no pgx, SQL, filesystem, encryption, or
+supervisor types. A consumer that needs several repositories declares a local
+composite interface next to its own code instead of widening `store`.
 
 The package exposes bounded error codes through `StoreError`:
 
@@ -72,6 +77,11 @@ The package exposes bounded error codes through `StoreError`:
 | `unknown_outcome` | Submission may have committed; the caller must reconcile by stable identity before retrying. |
 | `corrupt` | Persisted state differs from every valid expected state. |
 | `internal` | A classified internal failure that does not fit a more specific public code. |
+
+Store errors preserve their raw causes for internal diagnostics and support
+`errors.Is`/`errors.As`; public projections expose only the bounded codes and
+safe copy. A caller cancellation is reported as `canceled` and never relabeled
+as `timeout`.
 
 Mutations return the canonical persisted record. If a backend has produced a
 candidate but cannot prove whether it committed, it returns that candidate with
@@ -98,9 +108,11 @@ a durability outcome does not make its Runtime unready.
 
 `FileStore` is a write-through decorator around `MemoryStore`. All operations
 enter one context-aware admission gate: reads take shared capacity and commands
-take the full capacity. A command captures the complete rollback state, applies
-the memory mutation, encodes one snapshot, and commits it through a
-same-directory temporary file:
+take the full capacity. A read therefore observes either the complete state
+before a command or the complete state after it committed durably, never a
+tentative in-memory mutation. A command captures the complete rollback state,
+applies the memory mutation, encodes one snapshot, and commits it through a
+unique same-directory temporary file created with mode `0600`:
 
 ```text
 encode -> create temp -> write all -> fsync temp -> close
@@ -150,12 +162,22 @@ Checksum drift, unknown or gapped versions, ambiguous legacy identities, and
 catalog drift fail startup. PostgreSQL integration tests retain the existing
 `SPARKCLAW_TEST_POSTGRES_DSN` gate and skip when it is not configured.
 
+## Configuration
+
+Store settings fail during `config.Load`, not at the first persistence
+operation: the state backend must be exactly `memory`, `file`, or `postgres`;
+the File backend requires a non-empty state path; PostgreSQL requires a
+non-empty DSN; File encryption requires exactly one usable key source. Tests
+that need non-durable state use `MemoryStore`, not a pathless File Store. DSNs
+and encryption keys never appear in public projections or logs.
+
 ## Runtime And Supervision
 
 `store.NewRuntime` constructs exactly one backend and repository set. Startup
 is successful only after the backend probe passes. The runtime owns:
 
-- default read, write, and transaction budgets of 10, 30, and 60 seconds;
+- default read, write, and transaction budgets of 10, 30, and 60 seconds,
+  with a 180-second budget for startup and schema operations;
 - one finite-operation registry mapping every method to repository, mode, and
   timeout class;
 - active-operation admission, bounded outcome counters, and total duration;
@@ -165,8 +187,9 @@ is successful only after the backend probe passes. The runtime owns:
 The states are `starting`, `ready`, `unready`, `closing`, and `closed`. A corrupt
 outcome immediately makes Runtime unready. On a durable backend,
 `durability_failed` or `unknown_outcome` also makes it unready. Three consecutive
-`timeout` or `unavailable` outcomes for the same operation make it unready. A
-successful probe restores readiness and clears failure streaks.
+`timeout` or `unavailable` outcomes for the same operation make it unready.
+Only a successful recovery probe restores readiness and clears failure
+streaks; unrelated successful operations do not clear degradation.
 
 Memory probes verify initialized maps. File probes perform and clean up a
 write/fsync/rename/directory-fsync/read cycle beside the snapshot. PostgreSQL
@@ -177,11 +200,13 @@ reason code.
 `/readyz` fails closed when Store is unready. `/metrics` exports only bounded
 backend, repository, operation, mode, and outcome labels through
 `sparkclaw_store_*` metrics. It never exports paths, DSNs, owners, record IDs,
-or raw errors.
+or raw errors. Store telemetry never writes through the Store being
+supervised.
 
 At shutdown Runtime stops recovery, rejects new operations, waits for admitted
-operations within the close context, and then closes the backend. Callers must
-not retain a repository past Runtime shutdown.
+operations within the close context, and then closes the backend. Close is
+idempotent and bounded. Callers must not retain a repository past Runtime
+shutdown.
 
 ## Source Layout
 

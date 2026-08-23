@@ -265,7 +265,7 @@ func documentTargetPreparation(state *app.WorkflowState) (workflowPreparation, e
 
 func terminalGenericAssessment(outcome app.ToolOutcome, completedReason, failedReason string) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
-	if outcome.Status == "completed" || outcome.Status == "completed_after_approval" {
+	if outcome.Status.Completed() {
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, completedReason
 	} else {
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, failedReason

@@ -558,7 +558,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 }
 
 func workflowSupportCallExecuted(call app.ToolCall, admitted bool) bool {
-	return admitted && (call.Status == "completed" || call.Status == "failed")
+	return admitted && (call.Status == app.ToolCallStatusCompleted || call.Status == app.ToolCallStatusFailed)
 }
 
 func workflowStageRequiredTools(run app.AgentRun, nodeID app.WorkflowNodeID, visibleTools []app.ToolDefinition) []app.ToolDefinition {
@@ -936,10 +936,10 @@ func (r Runtime) compactWorkflowObservationsIfNeeded(ctx context.Context, sessio
 }
 
 func toolCallAdvancedRun(call app.ToolCall, observation string) bool {
-	if call.Status == "completed" {
+	if call.Status == app.ToolCallStatusCompleted {
 		return strings.TrimSpace(observation) != ""
 	}
-	if call.Status == "approval_pending" || call.Status == "pending" || call.Status == "repaired" {
+	if call.Status == app.ToolCallStatusApprovalPending || call.Status == app.ToolCallStatusPending || call.Status == app.ToolCallStatusRepaired {
 		return true
 	}
 	return false
@@ -950,14 +950,14 @@ func repeatedFailedToolCall(calls []app.ToolCall, threshold int) bool {
 		return false
 	}
 	last := calls[len(calls)-1]
-	if last.Status != "failed" || strings.TrimSpace(last.Tool) == "" {
+	if last.Status != app.ToolCallStatusFailed || strings.TrimSpace(last.Tool) == "" {
 		return false
 	}
 	count := 0
 	lastArgs := compactToolArgsFingerprint(last.Arguments)
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
-		if call.Tool != last.Tool || call.Status != "failed" || compactToolArgsFingerprint(call.Arguments) != lastArgs {
+		if call.Tool != last.Tool || call.Status != app.ToolCallStatusFailed || compactToolArgsFingerprint(call.Arguments) != lastArgs {
 			break
 		}
 		count++
@@ -1248,7 +1248,7 @@ func workflowStepBudgetLimitMessage(goal, reason string, calls []app.ToolCall, o
 	if len(calls) > 0 {
 		lines = append(lines, "Completed/attempted tools:")
 		for _, call := range calls {
-			item := "- " + call.Tool + ": " + call.Status
+			item := "- " + call.Tool + ": " + string(call.Status)
 			if call.Error != "" {
 				item += " (" + call.Error + ")"
 			}

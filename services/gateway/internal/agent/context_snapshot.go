@@ -439,7 +439,7 @@ func formatContextToolResultsWithLimit(calls []app.ToolCall, summaryLimit int) s
 		fields := []string{
 			"tool_call_id=" + quoteEpisodeField(call.ID, 80),
 			"tool=" + quoteEpisodeField(call.Tool, 80),
-			"status=" + quoteEpisodeField(call.Status, 60),
+			"status=" + quoteEpisodeField(string(call.Status), 60),
 			"summary=" + quoteEpisodeField(summary, summaryLimit),
 		}
 		lines = append(lines, "- "+strings.Join(fields, " "))
@@ -484,7 +484,7 @@ func persistedModelVisibleToolSummary(call app.ToolCall, fallback string) string
 		return modelVisibleToolSummary(call, nil, fallback)
 	}
 	if modelProjectionRestrictedTool(call) {
-		status := strings.TrimSpace(call.Status)
+		status := strings.TrimSpace(string(call.Status))
 		if status == "" {
 			status = "unavailable"
 		}
@@ -494,7 +494,7 @@ func persistedModelVisibleToolSummary(call app.ToolCall, fallback string) string
 }
 
 func compactToolResultMessageForContext(decoded toolResultMessage) string {
-	parts := []string{"tool=" + decoded.Tool, "status=" + decoded.Status, "compacted=true"}
+	parts := []string{"tool=" + decoded.Tool, "status=" + string(decoded.Status), "compacted=true"}
 	if decoded.Category != "" {
 		parts = append(parts, "category="+decoded.Category)
 	}
@@ -539,7 +539,7 @@ func modelProjectionRestrictedTool(call app.ToolCall) bool {
 }
 
 func compactRestrictedLegacyToolSummary(call app.ToolCall) string {
-	status := strings.TrimSpace(call.Status)
+	status := strings.TrimSpace(string(call.Status))
 	if status == "" {
 		status = "persisted"
 	}

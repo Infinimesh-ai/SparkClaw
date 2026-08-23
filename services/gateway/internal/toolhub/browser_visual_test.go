@@ -91,7 +91,7 @@ func newBrowserVisualHub(t *testing.T, postPageGeneration uint64) (*store.Memory
 
 func seedBrowserVisualSnapshot(st *store.MemoryStore) {
 	testSaveToolCall(st, app.ToolCall{
-		ID: "snapshot_call", SessionID: "session", RunID: "run", Tool: "browser.snapshot", Status: "completed",
+		ID: "snapshot_call", SessionID: "session", RunID: "run", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 		StartedAt: time.Now().UTC(),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
 			"snapshot_id": "snapshot_1", "page_id": "page_1", "url": "https://example.com/dashboard",

@@ -25,7 +25,7 @@ func TestObservationReadIsSessionScopedAndWindowed(t *testing.T) {
 	now := time.Now().UTC()
 	call := app.ToolCall{
 		ID: "tc_source", SessionID: ownerSession.ID, RunID: "run_source", Tool: "pdf.extract_text",
-		Status: "completed", StartedAt: now, CompletedAt: &now,
+		Status: app.ToolCallStatusCompleted, StartedAt: now, CompletedAt: &now,
 	}
 	uri := store.ArchiveToolObservation(context.Background(), st, artifacts, call, map[string]any{
 		"content": "alpha beta 世界 gamma delta", "truncated": false,
@@ -87,7 +87,7 @@ func TestObservationReadTrimsTrailingPartialRune(t *testing.T) {
 	now := time.Now().UTC()
 	call := app.ToolCall{
 		ID: "tc_trim", SessionID: session.ID, RunID: "run_trim", Tool: "pdf.extract_text",
-		Status: "completed", StartedAt: now, CompletedAt: &now,
+		Status: app.ToolCallStatusCompleted, StartedAt: now, CompletedAt: &now,
 	}
 	uri := store.ArchiveToolObservation(context.Background(), st, artifacts, call, map[string]any{
 		"content": "alpha 世界 omega",

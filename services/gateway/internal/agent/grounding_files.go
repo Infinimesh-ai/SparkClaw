@@ -77,7 +77,7 @@ func groundedFileSearchSummary(goal, fallback string, calls []app.ToolCall) (str
 func fileSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
-		if call.Tool != "files.search" || call.Status != "completed" {
+		if call.Tool != "files.search" || call.Status != app.ToolCallStatusCompleted {
 			continue
 		}
 		result, ok := anyMap(call.Result)

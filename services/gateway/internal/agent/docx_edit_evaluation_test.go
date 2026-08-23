@@ -320,7 +320,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if editApproval == nil || editCall.Status != "approval_pending" {
+	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("real DOCX mutation did not wait for approval: call=%#v approval=%#v", editCall, editApproval)
 	}
 	if editCall.Arguments["path"] != "report.docx" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.docx" ||
@@ -338,12 +338,12 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC(),
 	})
 
-	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "owner approved file-backed DOCX style edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, app.ApprovalStatusApproved, "owner approved file-backed DOCX style edit")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "completed_after_approval" {
+	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("approved real DOCX mutation failed: call=%#v err=%v", executed, err)
 	}
 	executedResult, _ := anyMap(executed.Result)
@@ -396,9 +396,9 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	}
 	persistedRun, ok := testGetRun(reloaded, run.ID)
 	documentRecords := mustListAgentDocumentRecords(t, reloaded, session.OwnerID, session.ID, 10)
-	if !ok || persistedRun.State != "completed" || len(storetest.MustListApprovals(t, reloaded, "approved")) != 1 ||
+	if !ok || persistedRun.State != "completed" || len(storetest.MustListApprovals(t, reloaded, app.ApprovalStatusApproved)) != 1 ||
 		len(documentRecords) < 2 {
-		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, storetest.MustListApprovals(t, reloaded, "approved"), documentRecords)
+		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, storetest.MustListApprovals(t, reloaded, app.ApprovalStatusApproved), documentRecords)
 	}
 }
 

@@ -85,7 +85,7 @@ func TestBrowserFormDraftSettleAllowsRedactedValueDigestToRemainStable(t *testin
 
 func TestAdaptBrowserFormOutcomePreservesFrozenDraftLineage(t *testing.T) {
 	outcome := adaptBrowserFormOutcome(app.ToolCall{
-		ID: "tc_type", Tool: "browser.type", Status: "completed_after_approval",
+		ID: "tc_type", Tool: "browser.type", Status: app.ToolCallStatusCompletedAfterApproval,
 		Arguments: map[string]any{
 			"uid": "snapshot_1:e1:name", "page_id": "page_1", "snapshot_id": "snapshot_1",
 			"session_generation": "1785922510882919", "page_generation": "9",
@@ -245,7 +245,7 @@ func TestBrowserFormDraftQueuesIndependentRedactedApprovals(t *testing.T) {
 		Capability: app.ToolCapabilityBrowserFormSelect,
 	})
 	if typeApproval == nil || selectApproval == nil || typeApproval.ID == selectApproval.ID ||
-		typeApproval.ToolCallID == selectApproval.ToolCallID || typeCall.Status != "approval_pending" || selectCall.Status != "approval_pending" {
+		typeApproval.ToolCallID == selectApproval.ToolCallID || typeCall.Status != app.ToolCallStatusApprovalPending || selectCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("draft actions did not receive independent approvals: type_call=%#v type=%#v select_call=%#v select=%#v", typeCall, typeApproval, selectCall, selectApproval)
 	}
 	for _, approval := range []*app.Approval{typeApproval, selectApproval} {

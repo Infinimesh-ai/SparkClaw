@@ -66,7 +66,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		RunID:     runID,
 		Tool:      name,
 		Risk:      def.Risk,
-		Status:    "started",
+		Status:    app.ToolCallStatusStarted,
 		Arguments: args,
 		StartedAt: now,
 	}
@@ -84,7 +84,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}); err != nil {
 			return ManualInvocation{}, fmt.Errorf("persist denied manual run: %w", err)
 		}
-		call.Status = "blocked"
+		call.Status = app.ToolCallStatusBlocked
 		call.Error = decision.Reason
 		call.CompletedAt = &done
 		if _, err := r.saveToolCall(ctx, call); err != nil {
@@ -116,14 +116,14 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			ToolCallID: call.ID,
 			Tool:       name,
 			Risk:       def.Risk,
-			Status:     "pending",
+			Status:     app.ApprovalStatusPending,
 			Summary:    summary,
 			Reason:     reason,
 			Resources:  []string{},
 			Arguments:  args,
 			CreatedAt:  time.Now().UTC(),
 		}
-		call.Status = "approval_pending"
+		call.Status = app.ToolCallStatusApprovalPending
 		call.ApprovalID = approval.ID
 		if _, err := r.saveToolCall(ctx, call); err != nil {
 			return ManualInvocation{}, fmt.Errorf("persist manual approval tool call: %w", err)
@@ -146,7 +146,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 	if decision.RequiresApproval {
 		if err := validateApprovalArgumentPersistence(def, args); err != nil {
 			done := time.Now().UTC()
-			call.Status = "blocked"
+			call.Status = app.ToolCallStatusBlocked
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 			call.Arguments = redactedRejectedApprovalArguments(args)
@@ -200,14 +200,14 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			ToolCallID: call.ID,
 			Tool:       name,
 			Risk:       def.Risk,
-			Status:     "pending",
+			Status:     app.ApprovalStatusPending,
 			Summary:    "Manual tool invocation requires approval: " + name,
 			Reason:     decision.Reason,
 			Resources:  decision.Resources,
 			Arguments:  approvalArgs,
 			CreatedAt:  time.Now().UTC(),
 		}
-		call.Status = "approval_pending"
+		call.Status = app.ToolCallStatusApprovalPending
 		call.ApprovalID = approval.ID
 		if _, err := r.saveToolCall(ctx, call); err != nil {
 			return ManualInvocation{}, fmt.Errorf("persist pending manual tool call: %w", err)
@@ -234,7 +234,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}); saveErr != nil {
 			return ManualInvocation{}, fmt.Errorf("persist failed manual run: %w", saveErr)
 		}
-		call.Status = "failed"
+		call.Status = app.ToolCallStatusFailed
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		call.Result = output.Output
@@ -247,7 +247,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		return ManualInvocation{Call: call, Result: output.Output}, ManualExecutionError{Err: err}
 	}
-	call.Status = "completed"
+	call.Status = app.ToolCallStatusCompleted
 	call.Result = output.Output
 	call.ObservationSummary = CompressObservation(name, output.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))

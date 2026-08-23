@@ -170,7 +170,7 @@ func TestScheduleDeleteWorkflowRejectsChangedTargetBeforeMutation(t *testing.T) 
 		t.Fatal(err)
 	}
 	state := newWorkflowState(route, app.ReturnRoute{Mode: app.ReturnToSource}, app.IntentEnvelope{}, plan)
-	outcome := app.ToolOutcome{NodeID: "schedule_manage", Status: "completed", Signals: []app.OutcomeSignal{app.OutcomeSignalSchedulesListed}, Refs: []app.ResourceRef{{
+	outcome := app.ToolOutcome{NodeID: "schedule_manage", Status: app.ToolCallStatusCompleted, Signals: []app.OutcomeSignal{app.OutcomeSignalSchedulesListed}, Refs: []app.ResourceRef{{
 		Kind: "schedule", Ref: "reminder-1", Attributes: map[string]string{"status": "pending", "updated_at": "2026-07-23T10:01:00Z"},
 	}}}
 	assessment := profile.Assess(state, outcome)

@@ -210,7 +210,7 @@ func weatherPayloadFromResponse(requestedLocation string, response infinimeshinf
 }
 
 func weatherPayloadFromCall(call app.ToolCall) (weatherPayload, error) {
-	if call.Tool != "weather.lookup" || call.Status != "completed" {
+	if call.Tool != "weather.lookup" || call.Status != app.ToolCallStatusCompleted {
 		return weatherPayload{}, errors.New("weather card requires a completed dedicated weather lookup")
 	}
 	var payload weatherPayload

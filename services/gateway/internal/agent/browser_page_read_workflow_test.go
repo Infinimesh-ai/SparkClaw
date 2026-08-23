@@ -48,7 +48,7 @@ func TestBrowserPageReadRunsFixedHiddenManagedBrowserChain(t *testing.T) {
 func TestBrowserPageReadFallbackReturnsBoundedExtractedContent(t *testing.T) {
 	content := strings.Repeat("页面读取内容。", 2500)
 	answer := browserReadFallbackFailure([]app.ToolCall{{
-		Tool: "browser.read", Status: "completed",
+		Tool: "browser.read", Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"title": "Example article", "final_url": "https://example.com/article",
 			"text": content, "truncated": false,

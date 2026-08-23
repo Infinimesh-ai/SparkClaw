@@ -90,14 +90,14 @@ func (r Runtime) approvedWorkspaceContractCoversTool(ctx context.Context, run ap
 	if err != nil {
 		return false, err
 	}
-	if call == nil || call.Status != "completed_after_approval" {
+	if call == nil || call.Status != app.ToolCallStatusCompletedAfterApproval {
 		return false, nil
 	}
 	approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
 	if err != nil {
 		return false, err
 	}
-	return ok && approval.Status == "approved" && r.validateWorkspaceDataAccessApproval(ctx, *call, approval) == nil, nil
+	return ok && approval.Status == app.ApprovalStatusApproved && r.validateWorkspaceDataAccessApproval(ctx, *call, approval) == nil, nil
 }
 
 func (r Runtime) workspaceObservationSourceCall(ctx context.Context, run app.AgentRun, artifactURI string) (*app.ToolCall, error) {
@@ -153,9 +153,9 @@ func toolDefinitionHasCapability(definition app.ToolDefinition, name string) boo
 	return false
 }
 
-func toolPolicyOutputClass(definition app.ToolDefinition, args map[string]any) string {
+func toolPolicyOutputClass(definition app.ToolDefinition, args map[string]any) app.PolicyOutputClass {
 	if output := strings.TrimSpace(stringValue(args["output_class"])); output != "" {
-		return output
+		return app.PolicyOutputClass(output)
 	}
 	values := make([]string, 0, len(definition.Directory.OutputKinds))
 	for _, kind := range definition.Directory.OutputKinds {
@@ -164,12 +164,12 @@ func toolPolicyOutputClass(definition app.ToolDefinition, args map[string]any) s
 		}
 	}
 	if len(values) > 0 {
-		return strings.Join(values, ",")
+		return app.PolicyOutputClass(strings.Join(values, ","))
 	}
 	if definition.OutcomeAdapter != "" {
-		return string(definition.OutcomeAdapter)
+		return app.PolicyOutputClass(definition.OutcomeAdapter)
 	}
-	return "tool_result"
+	return app.PolicyOutputToolResult
 }
 
 func policyExecutionContractDigest(tool string, args map[string]any, execution app.PolicyExecutionContext) string {

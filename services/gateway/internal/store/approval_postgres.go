@@ -85,8 +85,8 @@ func approvalActor(approval app.Approval) string {
 	return "integration"
 }
 
-func approvalResolutionActor(status string) string {
-	if status == "resolved_elsewhere" {
+func approvalResolutionActor(status app.ApprovalStatus) string {
+	if status == app.ApprovalStatusResolvedElsewhere {
 		return "integration"
 	}
 	return "owner"
@@ -111,7 +111,7 @@ func appendApprovalLifecycle(transaction onboardingPostgresTx, ctx context.Conte
 	if _, err := transaction.Exec(ctx, `
 		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
 		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6, $7, $8)
-	`, app.NewID("audit"), normalizeApprovalTime(time.Now()), "approval."+approval.Status, approval.SessionID,
+	`, app.NewID("audit"), normalizeApprovalTime(time.Now()), "approval."+string(approval.Status), approval.SessionID,
 		approval.RunID, actor, approval.Summary, optionalJSON(approvalLifecycleFields(approval))); err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func appendApprovalEvent(transaction onboardingPostgresTx, ctx context.Context, 
 	_, err := transaction.Exec(ctx, `
 		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
 		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6)
-	`, app.NewID("evt"), normalizeApprovalTime(time.Now()), "approval."+approval.Status,
+	`, app.NewID("evt"), normalizeApprovalTime(time.Now()), "approval."+string(approval.Status),
 		approval.SessionID, approval.RunID, mustJSON(approval))
 	return err
 }
@@ -186,7 +186,7 @@ func (s *PostgresStore) SaveApproval(ctx context.Context, approval app.Approval)
 		VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), nullif($7, ''), $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''), $18, $19)
 	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID,
-		approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary,
+		approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), string(approval.Status), approval.Summary,
 		approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt,
 		approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext), optionalJSON(approval.Presentation)); err != nil {
 		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, approval, session, transaction, release, err)
@@ -279,7 +279,7 @@ func (s *PostgresStore) UpdatePendingApproval(ctx context.Context, command Appro
 	return commitApprovalPostgres(ctx, OperationApprovalUpdatePending, approval, session, transaction, release)
 }
 
-func (s *PostgresStore) ResolveApproval(ctx context.Context, id, status, note string) (app.Approval, error) {
+func (s *PostgresStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
 	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
@@ -322,7 +322,7 @@ func (s *PostgresStore) ResolveApproval(ctx context.Context, id, status, note st
 	if _, err := transaction.Exec(ctx, `
 		UPDATE approvals SET status = $2, resolved_at = $3, resolution_note = nullif($4, '')
 		WHERE id = $1 AND status = 'pending'
-	`, approval.ID, approval.Status, approval.ResolvedAt, approval.ResolutionNote); err != nil {
+	`, approval.ID, string(approval.Status), approval.ResolvedAt, approval.ResolutionNote); err != nil {
 		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, approval, session, transaction, release, err)
 	}
 	if err := appendApprovalLifecycle(transaction, ctx, approval, approvalResolutionActor(approval.Status)); err != nil {
@@ -331,7 +331,7 @@ func (s *PostgresStore) ResolveApproval(ctx context.Context, id, status, note st
 	return commitApprovalPostgres(ctx, OperationApprovalResolve, approval, session, transaction, release)
 }
 
-func (s *PostgresStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+func (s *PostgresStore) ListApprovals(ctx context.Context, status app.ApprovalStatus) ([]app.Approval, error) {
 	ctx, cancel := operationContext(ctx, OperationApprovalList, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalList, ctx); err != nil {
@@ -340,7 +340,7 @@ func (s *PostgresStore) ListApprovals(ctx context.Context, status string) ([]app
 	rows, err := s.approvalPostgres.Query(ctx, approvalSelectSQL+`
 		WHERE $1 = '' OR status = $1
 		ORDER BY created_at DESC, id ASC
-	`, status)
+	`, string(status))
 	if err != nil {
 		return nil, classifyApprovalPostgresError(OperationApprovalList, ctx, err)
 	}

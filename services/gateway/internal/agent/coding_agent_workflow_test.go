@@ -49,7 +49,7 @@ func TestCodingAgentChatUsesNamespacedMCPReadTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			calls := testListToolCalls(st, session.ID)
-			if executions != 1 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "completed" {
+			if executions != 1 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != app.ToolCallStatusCompleted {
 				t.Fatalf("coding MCP chat execution = %d calls=%#v", executions, calls)
 			}
 			if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || result.Run.Workflow == nil ||
@@ -98,8 +98,8 @@ func TestCodingAgentMutationsStopForApprovalBeforeRemoteExecution(t *testing.T) 
 				t.Fatal(err)
 			}
 			calls := testListToolCalls(st, session.ID)
-			approvals := storetest.MustListApprovals(t, st, "pending")
-			if executions != 0 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "approval_pending" || len(approvals) != 1 {
+			approvals := storetest.MustListApprovals(t, st, app.ApprovalStatusPending)
+			if executions != 0 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != app.ToolCallStatusApprovalPending || len(approvals) != 1 {
 				t.Fatalf("mutation did not stop at approval: executions=%d calls=%#v approvals=%#v result=%#v", executions, calls, approvals, result)
 			}
 		})

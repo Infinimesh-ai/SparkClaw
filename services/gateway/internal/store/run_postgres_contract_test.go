@@ -135,7 +135,7 @@ func TestPostgresRunAndToolWritesAreAtomicLifecycleTransactions(t *testing.T) {
 		{
 			name: "tool call",
 			invoke: func(repository *PostgresStore) error {
-				_, err := repository.SaveToolCall(t.Context(), app.ToolCall{ID: "tool-atomic", SessionID: "session", RunID: "run", Tool: "files.read", Status: "completed", Arguments: map[string]any{"path": "a.txt"}})
+				_, err := repository.SaveToolCall(t.Context(), app.ToolCall{ID: "tool-atomic", SessionID: "session", RunID: "run", Tool: "files.read", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"path": "a.txt"}})
 				return err
 			},
 			wantSQL: []string{"pg_advisory_xact_lock", "INSERT INTO tool_calls", "INSERT INTO audit_events", "INSERT INTO events"},
@@ -212,7 +212,7 @@ func TestPostgresToolCallUnknownOutcomesReturnReconciliationCandidate(t *testing
 			transaction := &fakeRunPostgresTx{execErrors: test.execErrors, commitErr: test.commitErr}
 			repository, session := newFakeRunPostgresStore(transaction)
 			candidate, err := repository.SaveToolCall(t.Context(), app.ToolCall{
-				ID: "tool-fault", SessionID: "session", RunID: "run", Tool: "files.read", Status: "completed",
+				ID: "tool-fault", SessionID: "session", RunID: "run", Tool: "files.read", Status: app.ToolCallStatusCompleted,
 				Arguments: map[string]any{"path": "a.txt"},
 			})
 			if candidate.ID != "tool-fault" || candidate.StartedAt.IsZero() || StoreErrorCodeOf(err) != StoreErrorUnknownOutcome || !errors.Is(err, test.wantCause) {

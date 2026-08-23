@@ -179,7 +179,7 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		Tool:       call.Tool,
 		NodeID:     nodeID,
 		Status:     call.Status,
-		Retryable:  call.Status == "failed",
+		Retryable:  call.Status == app.ToolCallStatusFailed,
 	}
 	if output, ok := anyMap(call.Result); ok {
 		if ref := firstNonEmptyString(output["output_path"], output["screenshot_path"], output["path"]); ref != "" {

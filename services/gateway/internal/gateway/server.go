@@ -123,7 +123,7 @@ type MCPController interface {
 }
 
 type ExternalApprovalResolver interface {
-	Resolve(context.Context, app.Approval, string) (resolvedElsewhere bool, err error)
+	Resolve(context.Context, app.Approval, app.ApprovalStatus) (resolvedElsewhere bool, err error)
 }
 
 type ManagedBrowserWindowController interface {

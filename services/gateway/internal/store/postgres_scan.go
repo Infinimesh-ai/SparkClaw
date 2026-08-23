@@ -271,15 +271,17 @@ func scanModelCall(row scanner) (app.ModelCall, error) {
 func scanToolCall(row scanner) (app.ToolCall, error) {
 	var call app.ToolCall
 	var risk string
+	var status string
 	var args []byte
 	var result []byte
 	var policyContext []byte
 	err := row.Scan(&call.ID, &call.SessionID, &call.RunID, &call.WorkflowID, &call.WorkflowNodeID, &call.ScopeRevision, &call.Capability,
-		&call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ErrorCode, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary, &policyContext)
+		&call.Tool, &risk, &status, &args, &result, &call.Error, &call.ErrorCode, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary, &policyContext)
 	if err != nil {
 		return app.ToolCall{}, err
 	}
 	call.Risk = app.RiskLevel(risk)
+	call.Status = app.ToolCallStatus(status)
 	call.Arguments = map[string]any{}
 	if err := json.Unmarshal(args, &call.Arguments); err != nil {
 		return app.ToolCall{}, fmt.Errorf("%w: tool arguments: %v", errRunJSONDecode, err)
@@ -332,6 +334,7 @@ func scanApproval(row scanner) (app.Approval, error) {
 	var approval app.Approval
 	var source string
 	var risk string
+	var status string
 	var externalContext []byte
 	var resources []byte
 	var args []byte
@@ -339,13 +342,14 @@ func scanApproval(row scanner) (app.Approval, error) {
 	var presentation []byte
 	err := row.Scan(&approval.ID, &source, &approval.ExternalID, &externalContext,
 		&approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk,
-		&approval.Status, &approval.Summary, &approval.Reason, &resources, &args,
+		&status, &approval.Summary, &approval.Reason, &resources, &args,
 		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext, &presentation)
 	if err != nil {
 		return app.Approval{}, err
 	}
 	approval.Source = app.ApprovalSource(source)
 	approval.Risk = app.RiskLevel(risk)
+	approval.Status = app.ApprovalStatus(status)
 	if len(externalContext) > 0 && string(externalContext) != "null" {
 		approval.ExternalContext = &app.ExternalApprovalContext{}
 		if err := json.Unmarshal(externalContext, approval.ExternalContext); err != nil {

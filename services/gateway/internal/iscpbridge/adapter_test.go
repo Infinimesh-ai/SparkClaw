@@ -258,7 +258,7 @@ func TestGatewayAdapterApprovalRequiresCurrentPreview(t *testing.T) {
 	sessionRecord := storetest.MustCreateSession(t, st, "Approval")
 	approval := app.Approval{
 		ID: "approval-1", SessionID: sessionRecord.ID, RunID: "run-1", ToolCallID: "call-1",
-		Tool: "files.write", Risk: app.RiskReversible, Status: "pending", Summary: "Write output",
+		Tool: "files.write", Risk: app.RiskReversible, Status: app.ApprovalStatusPending, Summary: "Write output",
 		Arguments: map[string]any{"path": "out.txt"}, CreatedAt: time.Now().UTC(),
 	}
 	storetest.MustSaveApproval(t, st, approval)

@@ -41,14 +41,14 @@ type genericBindingAdapter struct {
 
 type fakeExternalApprovalResolver struct {
 	approval          app.Approval
-	status            string
+	status            app.ApprovalStatus
 	resolvedElsewhere bool
 	err               error
 	started           chan struct{}
 	release           chan struct{}
 }
 
-func (r *fakeExternalApprovalResolver) Resolve(_ context.Context, approval app.Approval, status string) (bool, error) {
+func (r *fakeExternalApprovalResolver) Resolve(_ context.Context, approval app.Approval, status app.ApprovalStatus) (bool, error) {
 	r.approval = approval
 	r.status = status
 	if r.started != nil {
@@ -210,13 +210,13 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 
 	call := app.ToolCall{
 		ID: "call-async-approval", SessionID: session.ID, RunID: runID, Tool: "notify.ask_approval", Risk: app.RiskRead,
-		Status: "approval_pending", Arguments: map[string]any{"summary": "Continue"}, StartedAt: time.Now().UTC(),
+		Status: app.ToolCallStatusApprovalPending, Arguments: map[string]any{"summary": "Continue"}, StartedAt: time.Now().UTC(),
 		ApprovalID: "approval-async",
 	}
 	testSaveToolCall(st, call)
 	storetest.MustSaveApproval(t, st, app.Approval{
 		ID: call.ApprovalID, Source: app.ApprovalSourceTool, SessionID: session.ID, RunID: runID, ToolCallID: call.ID,
-		Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
+		Tool: call.Tool, Risk: call.Risk, Status: app.ApprovalStatusPending, Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
 		CreatedAt: time.Now().UTC(),
 	})
 	if _, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
@@ -253,7 +253,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 	}
 	storedApproval, _ := storetest.MustGetApproval(t, st, call.ApprovalID)
 	operation, _, _ := st.GetMCPOperation(t.Context(), ref.OperationID)
-	if storedApproval.Status != "approved" || operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_resume_unavailable" {
+	if storedApproval.Status != app.ApprovalStatusApproved || operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_resume_unavailable" {
 		t.Fatalf("background failure was conflated with the durable approval: approval=%#v operation=%#v", storedApproval, operation)
 	}
 }
@@ -551,7 +551,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		RunID:     run.ID,
 		Tool:      "memory.write_sensitive",
 		Risk:      app.RiskDangerous,
-		Status:    "pending",
+		Status:    app.ApprovalStatusPending,
 		Summary:   "Write sensitive memory",
 		CreatedAt: created,
 	})
@@ -561,7 +561,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		RunID:     run.ID,
 		Tool:      "file.delete",
 		Risk:      app.RiskDangerous,
-		Status:    "pending",
+		Status:    app.ApprovalStatusPending,
 		Summary:   "Move file to trash",
 		CreatedAt: created,
 	})
@@ -569,7 +569,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	cfg.Model.Mock = true
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 
-	if _, err := st.ResolveApproval(t.Context(), "ap_one", "approved", "ok"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "ap_one", app.ApprovalStatusApproved, "ok"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
@@ -582,7 +582,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	if pendingRun.State != "approval_pending" || pendingRun.CompletedAt != nil {
 		t.Fatalf("run completed before all approvals resolved: %#v", pendingRun)
 	}
-	if _, err := st.ResolveApproval(t.Context(), "ap_two", "rejected", "no"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "ap_two", app.ApprovalStatusRejected, "no"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
@@ -1050,7 +1050,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 			t.Fatalf("provider received command text or the wrong media part: index=%d part=%#v", index, part)
 		}
 	}
-	if approvals := storetest.MustListApprovals(t, st, "pending"); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, app.ApprovalStatusPending); len(approvals) != 0 {
 		t.Fatalf("external media publication unexpectedly requested approval: %#v", approvals)
 	}
 	messagesResponse, err := http.Get(ts.URL + "/api/sessions/" + session.ID + "/messages")
@@ -1481,7 +1481,7 @@ func TestManualToolInvokeRequiresApprovalForDangerousTool(t *testing.T) {
 		t.Fatalf("expected pending shell approval, got %#v", approvals)
 	}
 	calls := testListToolCalls(st, sessionID)
-	if len(calls) != 1 || calls[0].Status != "approval_pending" {
+	if len(calls) != 1 || calls[0].Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("expected approval-pending tool call, got %#v", calls)
 	}
 	verifier, ok := approvals[0]["arguments"].(map[string]any)["_verifier"].(map[string]any)
@@ -1565,14 +1565,14 @@ func TestManualNotifyApprovalCanBeConfirmed(t *testing.T) {
 	defer approvedResp.Body.Close()
 	var approved struct {
 		ToolCall struct {
-			Status string         `json:"status"`
-			Result map[string]any `json:"result"`
+			Status app.ToolCallStatus `json:"status"`
+			Result map[string]any     `json:"result"`
 		} `json:"tool_call"`
 	}
 	if err := json.NewDecoder(approvedResp.Body).Decode(&approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.ToolCall.Status != "completed_after_approval" || approved.ToolCall.Result["status"] != "approval_confirmed" {
+	if approved.ToolCall.Status != app.ToolCallStatusCompletedAfterApproval || approved.ToolCall.Result["status"] != "approval_confirmed" {
 		t.Fatalf("notify approval did not complete cleanly: %#v", approved)
 	}
 }
@@ -1597,12 +1597,12 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	}
 	call := app.ToolCall{
 		ID: "tc_context_modify", SessionID: session.ID, RunID: run.ID, Tool: app.ToolWorkspaceDataAccess,
-		Risk: app.RiskRead, Status: "approval_pending", Arguments: map[string]any{"request_digest": "frozen"},
+		Risk: app.RiskRead, Status: app.ToolCallStatusApprovalPending, Arguments: map[string]any{"request_digest": "frozen"},
 		PolicyContext: policyContext, StartedAt: time.Now().UTC(),
 	}
 	approval := app.Approval{
 		ID: "ap_context_modify", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
-		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
+		Risk: app.RiskRead, Status: app.ApprovalStatusPending, Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
 	testSaveToolCall(st, call)
@@ -1636,7 +1636,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	approval := app.Approval{
 		ID: "ap_happy_gateway", Source: app.ApprovalSourceHappyTeamPlan,
 		ExternalID: "task-gateway", Tool: "happy-team.review_plan",
-		Risk: app.RiskDangerous, Status: "pending", Summary: "Review Happy plan",
+		Risk: app.RiskDangerous, Status: app.ApprovalStatusPending, Summary: "Review Happy plan",
 		ExternalContext: &app.ExternalApprovalContext{
 			Provider: "happy-team", Title: "Gateway task", GoalPrompt: "Test approval",
 			Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
@@ -1666,7 +1666,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 		t.Fatalf("Happy plan approval returned %d", approved.StatusCode)
 	}
 	stored, _ = storetest.MustGetApproval(t, st, approval.ID)
-	if resolver.status != "approved" || resolver.approval.ExternalContext == nil || resolver.approval.ExternalContext.Plan != "Owner-edited plan" || stored.Status != "approved" {
+	if resolver.status != app.ApprovalStatusApproved || resolver.approval.ExternalContext == nil || resolver.approval.ExternalContext.Plan != "Owner-edited plan" || stored.Status != app.ApprovalStatusApproved {
 		t.Fatalf("remote-first approval mismatch resolver=%#v stored=%#v", resolver, stored)
 	}
 	if calls := testListToolCalls(st, ""); len(calls) != 0 {
@@ -1688,7 +1688,7 @@ func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
 	approval := app.Approval{
 		ID: "ap_happy_gateway_failure", Source: app.ApprovalSourceHappyTeamPlan,
 		ExternalID: "task-failure", Tool: "happy-team.review_plan",
-		Risk: app.RiskDangerous, Status: "pending", Summary: "Review failed Happy plan",
+		Risk: app.RiskDangerous, Status: app.ApprovalStatusPending, Summary: "Review failed Happy plan",
 		ExternalContext: &app.ExternalApprovalContext{
 			Provider: "happy-team", Plan: "Plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
@@ -1704,7 +1704,7 @@ func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
 		t.Fatalf("remote failure returned %d", resp.StatusCode)
 	}
 	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
-	if stored.Status != "pending" || stored.ResolvedAt != nil {
+	if stored.Status != app.ApprovalStatusPending || stored.ResolvedAt != nil {
 		t.Fatalf("remote failure resolved local approval: %#v", stored)
 	}
 }
@@ -1723,7 +1723,7 @@ func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
 	approval := app.Approval{
 		ID: "ap_happy_gateway_race", Source: app.ApprovalSourceHappyTeamPlan,
 		ExternalID: "task-race", Tool: "happy-team.review_plan",
-		Risk: app.RiskDangerous, Status: "pending", Summary: "Review racing Happy plan",
+		Risk: app.RiskDangerous, Status: app.ApprovalStatusPending, Summary: "Review racing Happy plan",
 		ExternalContext: &app.ExternalApprovalContext{
 			Provider: "happy-team", Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
@@ -1764,7 +1764,7 @@ func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
 		t.Fatalf("late plan edit returned %d", status)
 	}
 	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
-	if resolver.approval.ExternalContext.Plan != "Original plan" || stored.ExternalContext.Plan != "Original plan" || stored.Status != "approved" {
+	if resolver.approval.ExternalContext.Plan != "Original plan" || stored.ExternalContext.Plan != "Original plan" || stored.Status != app.ApprovalStatusApproved {
 		t.Fatalf("racing edit changed approved plan: resolver=%#v stored=%#v", resolver.approval, stored)
 	}
 }
@@ -2038,14 +2038,14 @@ func TestFileDeleteRequiresApprovalAndMovesToTrash(t *testing.T) {
 	}
 	var approved struct {
 		ToolCall struct {
-			Status string         `json:"status"`
-			Result map[string]any `json:"result"`
+			Status app.ToolCallStatus `json:"status"`
+			Result map[string]any     `json:"result"`
 		} `json:"tool_call"`
 	}
 	if err := json.NewDecoder(approvedResp.Body).Decode(&approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.ToolCall.Status != "completed_after_approval" || approved.ToolCall.Result["status"] != "moved_to_trash" {
+	if approved.ToolCall.Status != app.ToolCallStatusCompletedAfterApproval || approved.ToolCall.Result["status"] != "moved_to_trash" {
 		t.Fatalf("unexpected approved file.delete result: %#v", approved.ToolCall)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
@@ -2099,7 +2099,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&queued); err != nil {
 		t.Fatal(err)
 	}
-	if queued.ToolCall.Status != "approval_pending" || queued.Approval.Tool != "memory.write_sensitive" {
+	if queued.ToolCall.Status != app.ToolCallStatusApprovalPending || queued.Approval.Tool != "memory.write_sensitive" {
 		t.Fatalf("unexpected queued sensitive memory approval: %#v", queued)
 	}
 	if memories := mustSearchMemories(t, st, "sk-approved-sensitive-test"); len(memories) != 0 {
@@ -2132,7 +2132,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if err := json.NewDecoder(approvedResp.Body).Decode(&approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.ToolCall.Status != "completed_after_approval" {
+	if approved.ToolCall.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("sensitive memory did not complete after approval: %#v", approved.ToolCall)
 	}
 	memories := mustSearchMemories(t, st, "sk-approved-sensitive-test")
@@ -2157,7 +2157,7 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if err := json.NewDecoder(refreshedTraceResp.Body).Decode(&refreshed); err != nil {
 		t.Fatal(err)
 	}
-	if refreshed.Run.State != "completed" || len(refreshed.ToolCalls) != 1 || refreshed.ToolCalls[0].Status != "completed_after_approval" {
+	if refreshed.Run.State != "completed" || len(refreshed.ToolCalls) != 1 || refreshed.ToolCalls[0].Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("refreshed sensitive memory trace incomplete: %#v", refreshed)
 	}
 }

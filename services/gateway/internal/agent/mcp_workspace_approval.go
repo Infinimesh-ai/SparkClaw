@@ -34,7 +34,7 @@ func (r Runtime) queueMCPWorkspaceDataApproval(ctx context.Context, run *app.Age
 	if err != nil {
 		return call, app.Approval{}, false, err
 	}
-	if approval == nil || call.Status != "approval_pending" {
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending {
 		if call.Error != "" {
 			return call, app.Approval{}, false, errors.New(call.Error)
 		}
@@ -174,9 +174,9 @@ func documentAccessArguments(run app.AgentRun) (map[string]any, error) {
 	args["access_class"] = string(app.PolicyAccessWorkspaceSourceRead)
 	switch run.Workflow.Route.Slots.Operation {
 	case app.RouteOperationEdit, app.RouteOperationTransform:
-		args["output_class"] = "document_derivative"
+		args["output_class"] = string(app.PolicyOutputDocumentDerivative)
 	default:
-		args["output_class"] = "document_content"
+		args["output_class"] = string(app.PolicyOutputDocumentContent)
 	}
 	return sealWorkspaceAccessArguments(args)
 }
@@ -195,7 +195,7 @@ func responseMediaAccessArguments(run app.AgentRun, locators []app.MessageMediaL
 	args["contract_revision"] = responseMediaAccessContractRevision
 	args["locators"] = locatorValues
 	args["access_class"] = string(app.PolicyAccessWorkspaceDerivativeDisclosure)
-	args["output_class"] = "response_media"
+	args["output_class"] = string(app.PolicyOutputResponseMedia)
 	return sealWorkspaceAccessArguments(args)
 }
 
@@ -288,10 +288,10 @@ func (r Runtime) resumeMCPWorkspaceDataApproval(ctx context.Context, run app.Age
 	if err != nil {
 		return Result{}, false, err
 	}
-	if !ok || approval.Status != "approved" {
+	if !ok || approval.Status != app.ApprovalStatusApproved {
 		return Result{}, false, nil
 	}
-	if call.Status != "completed_after_approval" {
+	if call.Status != app.ToolCallStatusCompletedAfterApproval {
 		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, errors.New("workspace data approval did not complete safely"))
 		return result, true, resultErr
 	}

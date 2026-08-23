@@ -410,7 +410,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"�
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Run.State != "completed" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Status != "completed" {
+	if result.Run.State != "completed" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Status != app.ToolCallStatusCompleted {
 		t.Fatalf("canonical search should complete, got %#v", result)
 	}
 	want := "今天杭州新闻 " + currentSearchDateForTimezone(time.Now(), "")
@@ -636,7 +636,7 @@ MOCK_WEATHER_LOOKUP_RESPONSE:{"type":"action","tool":"weather.lookup","arguments
 		t.Fatal(err)
 	}
 	if result.Run.State != "blocked" || len(result.ToolCalls) != 1 ||
-		result.ToolCalls[0].Tool != "weather.lookup" || result.ToolCalls[0].Status != "failed" ||
+		result.ToolCalls[0].Tool != "weather.lookup" || result.ToolCalls[0].Status != app.ToolCallStatusFailed ||
 		!strings.Contains(result.ToolCalls[0].Error, "missing daily forecast") {
 		t.Fatalf("incomplete dedicated weather response did not fail explicitly: %#v", result)
 	}
@@ -862,7 +862,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		t.Fatal("docx editor definition is unavailable")
 	}
 	call := app.ToolCall{
-		ID: "tc_document_edit", SessionID: session.ID, RunID: dispatch.Run.ID, Tool: definition.Name, Status: "completed", Result: map[string]any{
+		ID: "tc_document_edit", SessionID: session.ID, RunID: dispatch.Run.ID, Tool: definition.Name, Status: app.ToolCallStatusCompleted, Result: map[string]any{
 			"output_path":    "note-sparkclaw-edit.docx",
 			"change_summary": map[string]any{"operation": "replace_paragraph", "original_unchanged": true, "changed": 1},
 		},
@@ -936,7 +936,7 @@ func TestWorkflowImageOutputIsInlineAndProjectsWithoutAttachmentText(t *testing.
 		t.Fatal("weather image definition is unavailable")
 	}
 	call := app.ToolCall{
-		ID: "tc_weather_image", SessionID: session.ID, RunID: "run_weather_image", Tool: definition.Name, Status: "completed",
+		ID: "tc_weather_image", SessionID: session.ID, RunID: "run_weather_image", Tool: definition.Name, Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{"path": filepath.Join(session.WorkspaceRoot, "media", "weather.png"), "content_type": "image/png", "bytes": 2048, "width": 1400, "height": 900, "summary": "杭州天气"},
 	}
 	testSaveToolCall(st, call)

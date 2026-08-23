@@ -95,7 +95,7 @@ func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
 	mustSaveApproval(t, st, app.Approval{
 		ID: "ap_happy_task_file", Source: app.ApprovalSourceHappyTeamPlan,
 		ExternalID: "task-file", Tool: "mcp.happy-tasks.approve_plan",
-		Risk: app.RiskDangerous, Status: "pending", Summary: "Review file-backed plan",
+		Risk: app.RiskDangerous, Status: app.ApprovalStatusPending, Summary: "Review file-backed plan",
 		ExternalContext: &app.ExternalApprovalContext{
 			Provider: "happy-team", Title: "File task", GoalPrompt: "Persist this",
 			Plan: "Persisted plan", PlanAvailability: app.ExternalPlanAvailable, PlanEdited: true,
@@ -109,7 +109,7 @@ func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
 	if !ok || got.ExternalContext == nil || got.ExternalContext.Plan != "Persisted plan" || !got.ExternalContext.PlanEdited {
 		t.Fatalf("external approval context did not survive file reload: %#v ok=%v", got, ok)
 	}
-	if _, err := reloaded.ResolveApproval(t.Context(), got.ID, "approved", "done"); err != nil {
+	if _, err := reloaded.ResolveApproval(t.Context(), got.ID, app.ApprovalStatusApproved, "done"); err != nil {
 		t.Fatal(err)
 	}
 	got.ExternalContext.Plan = "stale update"
@@ -121,7 +121,7 @@ func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	finalApproval, _ := mustGetApproval(t, finalStore, got.ID)
-	if finalApproval.Status != "approved" || finalApproval.ExternalContext.Plan != "Persisted plan" {
+	if finalApproval.Status != app.ApprovalStatusApproved || finalApproval.ExternalContext.Plan != "Persisted plan" {
 		t.Fatalf("resolved file-backed approval changed after stale update: %#v", finalApproval)
 	}
 }
@@ -519,7 +519,7 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		Capability:     "web.page.read",
 		Tool:           "browser.read",
 		Risk:           app.RiskRead,
-		Status:         "completed",
+		Status:         app.ToolCallStatusCompleted,
 		Arguments:      map[string]any{"url": "https://example.com/source"},
 	})
 
@@ -561,19 +561,19 @@ func TestFileStorePersistsPolicyExecutionContext(t *testing.T) {
 		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
 		RunID: run.ID, WorkflowID: app.WorkflowDocumentRead, WorkflowRevision: 4,
-		PlanDigest: "plan-digest", OutputClass: "document_content", ContractDigest: "contract-digest",
+		PlanDigest: "plan-digest", OutputClass: app.PolicyOutputDocumentContent, ContractDigest: "contract-digest",
 		MCP: &app.MCPInvocationRef{
 			InvocationID: "inv-file", OperationID: "op-file", BindingRef: "binding-file", BindingRevision: 1, RequesterDeviceID: "device-file",
 		},
 	}
 	call := app.ToolCall{
 		ID: "tc_policy_context", SessionID: session.ID, RunID: run.ID, Tool: app.ToolWorkspaceDataAccess,
-		Risk: app.RiskRead, Status: "approval_pending", Arguments: map[string]any{"request_digest": "digest"},
+		Risk: app.RiskRead, Status: app.ToolCallStatusApprovalPending, Arguments: map[string]any{"request_digest": "digest"},
 		PolicyContext: policyContext, StartedAt: time.Now().UTC(),
 	}
 	approval := app.Approval{
 		ID: "ap_policy_context", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
-		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
+		Risk: app.RiskRead, Status: app.ApprovalStatusPending, Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
 	testSaveToolCall(st, call)

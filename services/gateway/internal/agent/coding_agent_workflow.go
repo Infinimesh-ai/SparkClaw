@@ -75,10 +75,9 @@ func (codingAgentManageProfile) Prepare(*app.WorkflowState) (workflowPreparation
 
 func (codingAgentManageProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
-	switch outcome.Status {
-	case "completed", "completed_after_approval":
+	if outcome.Status.Completed() {
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "coding_agent_tool_completed"
-	default:
+	} else {
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "coding_agent_tool_failed"
 	}
 	return assessment

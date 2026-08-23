@@ -178,7 +178,7 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		ToolCallID: call.ID,
 		Tool:       call.Tool,
 		NodeID:     nodeID,
-		Status:     string(call.Status),
+		Status:     call.Status,
 		Retryable:  call.Status == app.ToolCallStatusFailed,
 	}
 	if output, ok := anyMap(call.Result); ok {

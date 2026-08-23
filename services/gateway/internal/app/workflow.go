@@ -401,7 +401,7 @@ type ToolOutcome struct {
 	ToolCallID string          `json:"tool_call_id"`
 	Tool       string          `json:"tool"`
 	NodeID     WorkflowNodeID  `json:"node_id"`
-	Status     string          `json:"status"`
+	Status     ToolCallStatus  `json:"status"`
 	Signals    []OutcomeSignal `json:"signals,omitempty"`
 	Refs       []ResourceRef   `json:"refs,omitempty"`
 	Retryable  bool            `json:"retryable,omitempty"`

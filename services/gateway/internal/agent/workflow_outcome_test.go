@@ -46,7 +46,7 @@ func TestApplyWorkflowOutcomeRestoresEmptyTransitionActivationMap(t *testing.T) 
 			},
 		},
 	}}
-	outcome := app.ToolOutcome{ID: "outcome_1", ToolCallID: "tc_1", NodeID: nodeID, Status: "completed"}
+	outcome := app.ToolOutcome{ID: "outcome_1", ToolCallID: "tc_1", NodeID: nodeID, Status: app.ToolCallStatusCompleted}
 	assessment := app.NodeAssessment{
 		OutcomeID: outcome.ID,
 		NodeID:    nodeID,

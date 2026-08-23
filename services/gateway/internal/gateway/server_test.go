@@ -1565,14 +1565,14 @@ func TestManualNotifyApprovalCanBeConfirmed(t *testing.T) {
 	defer approvedResp.Body.Close()
 	var approved struct {
 		ToolCall struct {
-			Status string         `json:"status"`
-			Result map[string]any `json:"result"`
+			Status app.ToolCallStatus `json:"status"`
+			Result map[string]any     `json:"result"`
 		} `json:"tool_call"`
 	}
 	if err := json.NewDecoder(approvedResp.Body).Decode(&approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.ToolCall.Status != "completed_after_approval" || approved.ToolCall.Result["status"] != "approval_confirmed" {
+	if approved.ToolCall.Status != app.ToolCallStatusCompletedAfterApproval || approved.ToolCall.Result["status"] != "approval_confirmed" {
 		t.Fatalf("notify approval did not complete cleanly: %#v", approved)
 	}
 }
@@ -2038,14 +2038,14 @@ func TestFileDeleteRequiresApprovalAndMovesToTrash(t *testing.T) {
 	}
 	var approved struct {
 		ToolCall struct {
-			Status string         `json:"status"`
-			Result map[string]any `json:"result"`
+			Status app.ToolCallStatus `json:"status"`
+			Result map[string]any     `json:"result"`
 		} `json:"tool_call"`
 	}
 	if err := json.NewDecoder(approvedResp.Body).Decode(&approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.ToolCall.Status != "completed_after_approval" || approved.ToolCall.Result["status"] != "moved_to_trash" {
+	if approved.ToolCall.Status != app.ToolCallStatusCompletedAfterApproval || approved.ToolCall.Result["status"] != "moved_to_trash" {
 		t.Fatalf("unexpected approved file.delete result: %#v", approved.ToolCall)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {

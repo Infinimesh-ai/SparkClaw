@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { APIError, api } from "../api/client";
+import { api } from "../api/client";
 import type { SpeechStatus, SpeechTranscriptionResult } from "../api/types";
-import { enumerateMicrophones, loadPreferredMicrophone, savePreferredMicrophone } from "../audio/microphones";
-import type { MicrophoneDevice } from "../audio/microphones";
 import { PCMInputCapture, VoiceCaptureError } from "../audio/pcmCapture";
 import type { CapturedPCM } from "../audio/pcmCapture";
 import { SpeechRealtimeClient } from "../audio/realtimeSpeech";
@@ -13,7 +11,9 @@ import {
   SilenceDetector
 } from "../audio/silenceDetector";
 import type { SilenceMode } from "../audio/silenceDetector";
-import { encodeSpeechWAV, VoiceAudioError } from "../audio/wav";
+import { encodeSpeechWAV } from "../audio/wav";
+import { voiceFailure } from "../lib/voiceErrors";
+import { useMicrophoneDevices } from "./useMicrophoneDevices";
 import {
   initialVoiceOperationState,
   reduceVoiceOperation,
@@ -76,23 +76,23 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   const [elapsedMs, setElapsedMs] = useState(0);
   const [partial, setPartial] = useState<VoicePartial | null>(null);
   const [silenceMode, setSilenceModeState] = useState<SilenceMode>(() => loadSilenceMode());
-  const [devices, setDevices] = useState<MicrophoneDevice[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState(() => loadPreferredMicrophone());
-  const [deviceFallback, setDeviceFallback] = useState(false);
-  const [previewState, setPreviewState] = useState<"idle" | "starting" | "active">("idle");
-  const [previewLevel, setPreviewLevel] = useState(0);
-  const [previewErrorCode, setPreviewErrorCode] = useState("");
   const operation = useRef<VoiceOperation | null>(null);
-  const previewCapture = useRef<PCMInputCapture | null>(null);
   const generation = useRef(0);
-  const previewGeneration = useRef(0);
-  const mounted = useRef(true);
   const recoverRef = useRef<((current: VoiceOperation, failure: unknown, captured?: CapturedPCM) => Promise<void>) | undefined>(undefined);
   const stopRef = useRef<((reason?: "manual_stop" | "silence_stop" | "max_duration") => Promise<void>) | undefined>(undefined);
   const noSpeechRef = useRef<((current: VoiceOperation) => Promise<void>) | undefined>(undefined);
   const supported = PCMInputCapture.supported();
   const capabilityReady = Boolean(speech?.enabled && speech.ready);
   const maxAudioSeconds = speech?.max_audio_seconds ?? 60;
+  const previewBlocked = useCallback(() => operation.current !== null, []);
+  const microphone = useMicrophoneDevices({ supported, previewBlocked });
+  const {
+    refreshDevices,
+    stopPreview,
+    noteDefaultFallback,
+    clearDeviceFallback,
+    selectedDeviceId
+  } = microphone;
   const realtimeReady = Boolean(
     capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
     speech.realtime.sample_rate === 16_000 && speech.realtime.channels === 1 && speech.realtime.bits_per_sample === 16
@@ -111,82 +111,10 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     }
   }, []);
 
-  const refreshDevices = useCallback(async () => {
-    try {
-      const next = await enumerateMicrophones();
-      if (mounted.current) setDevices(next);
-    } catch {
-      if (mounted.current) setDevices([]);
-    }
-  }, []);
-
-  const stopPreview = useCallback(async () => {
-    previewGeneration.current += 1;
-    const capture = previewCapture.current;
-    previewCapture.current = null;
-    await capture?.cancel().catch(() => undefined);
-    if (mounted.current) {
-      setPreviewState("idle");
-      setPreviewLevel(0);
-    }
-  }, []);
-
-  const selectDevice = useCallback((deviceId: string) => {
-    void stopPreview();
-    setSelectedDeviceId(deviceId);
-    savePreferredMicrophone(deviceId);
-    setDeviceFallback(false);
-    setPreviewErrorCode("");
-  }, [stopPreview]);
-
   const setSilenceMode = useCallback((mode: SilenceMode) => {
     setSilenceModeState(mode);
     saveSilenceMode(mode);
   }, []);
-
-  const startPreview = useCallback(async () => {
-    if (!supported || operation.current || previewState !== "idle") return;
-    const id = ++previewGeneration.current;
-    setPreviewState("starting");
-    setPreviewErrorCode("");
-    try {
-      const capture = await PCMInputCapture.start({
-        deviceId: selectedDeviceId,
-        retainSamples: false,
-        onLevel: setPreviewLevel,
-        onFailure: (error) => {
-          if (previewGeneration.current !== id) return;
-          previewCapture.current = null;
-          setPreviewState("idle");
-          setPreviewLevel(0);
-          setPreviewErrorCode(error.code);
-        }
-      });
-      if (previewGeneration.current !== id || operation.current) {
-        await capture.cancel();
-        return;
-      }
-      previewCapture.current = capture;
-      if (capture.usedDefaultFallback) {
-        setSelectedDeviceId("");
-        savePreferredMicrophone("");
-        setDeviceFallback(true);
-      }
-      setPreviewState("active");
-      void refreshDevices();
-    } catch (error) {
-      if (previewGeneration.current !== id) return;
-      const failure = voiceFailure(error);
-      setPreviewState("idle");
-      setPreviewLevel(0);
-      setPreviewErrorCode(failure.code);
-    }
-  }, [previewState, refreshDevices, selectedDeviceId, supported]);
-
-  const togglePreview = useCallback(() => {
-    if (previewState === "idle") void startPreview();
-    else void stopPreview();
-  }, [previewState, startPreview, stopPreview]);
 
   const releaseUnusedTicket = useCallback(async (current: VoiceOperation) => {
     const ticketId = current.ticketId;
@@ -210,9 +138,9 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     setLevel(0);
     setElapsedMs(0);
     setPartial(null);
-    setDeviceFallback(false);
+    clearDeviceFallback();
     dispatch({ type: "reset" });
-  }, [clearTimers, releaseUnusedTicket]);
+  }, [clearDeviceFallback, clearTimers, releaseUnusedTicket]);
 
   const failOperation = useCallback((current: VoiceOperation, error: unknown) => {
     if (operation.current !== current) return;
@@ -432,7 +360,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       startedAt: Date.now()
     };
     operation.current = current;
-    setDeviceFallback(false);
+    clearDeviceFallback();
     setElapsedMs(0);
     setLevel(0);
     setPartial(null);
@@ -457,11 +385,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
           }
         }
       });
-      if (current.capture.usedDefaultFallback) {
-        setSelectedDeviceId("");
-        savePreferredMicrophone("");
-        setDeviceFallback(true);
-      }
+      if (current.capture.usedDefaultFallback) noteDefaultFallback();
     } catch (error) {
       failOperation(current, error);
       return;
@@ -542,7 +466,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       dispatch({ type: "realtime_unavailable" });
       await startBatchCapture(current);
     }
-  }, [capabilityReady, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported]);
+  }, [capabilityReady, clearDeviceFallback, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, noteDefaultFallback, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported]);
 
   const retry = useCallback(() => {
     const current = operation.current;
@@ -576,14 +500,6 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [cancel, machine.phase, start, stop]);
 
   useEffect(() => {
-    void refreshDevices();
-    const mediaDevices = navigator.mediaDevices;
-    const onDeviceChange = () => void refreshDevices();
-    mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
-    return () => mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
-  }, [refreshDevices]);
-
-  useEffect(() => {
     if (operation.current && operation.current.anchor.sessionId !== sessionId) void cancel();
     void stopPreview();
   }, [cancel, sessionId, stopPreview]);
@@ -602,11 +518,8 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [cancel]);
 
   useEffect(() => {
-    mounted.current = true;
     return () => {
-      mounted.current = false;
       generation.current += 1;
-      previewGeneration.current += 1;
       const current = operation.current;
       operation.current = null;
       clearTimers(current);
@@ -615,8 +528,6 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       void current?.capture?.cancel();
       void current?.realtime?.cancel();
       if (current) void releaseUnusedTicket(current);
-      void previewCapture.current?.cancel();
-      previewCapture.current = null;
     };
   }, [clearTimers, releaseUnusedTicket]);
 
@@ -633,16 +544,16 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     disabled: externallyDisabled || state === "disabled",
     retryable: machine.phase === "retryable_error",
     hasPendingTranscript: machine.phase === "pending_insert",
-    devices,
+    devices: microphone.devices,
     selectedDeviceId,
-    deviceFallback,
-    previewState,
-    previewLevel,
-    previewErrorCode,
+    deviceFallback: microphone.deviceFallback,
+    previewState: microphone.previewState,
+    previewLevel: microphone.previewLevel,
+    previewErrorCode: microphone.previewErrorCode,
     refreshDevices,
-    selectDevice,
+    selectDevice: microphone.selectDevice,
     setSilenceMode,
-    togglePreview,
+    togglePreview: microphone.togglePreview,
     stopPreview,
     toggle,
     retry,
@@ -654,40 +565,4 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
 function createRequestID() {
   const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `voice-${suffix}`;
-}
-
-function voiceFailure(error: unknown) {
-  if (error instanceof VoiceAudioError || error instanceof VoiceCaptureError) {
-    return { code: error.code, detail: error.message, retryable: false };
-  }
-  if (error instanceof APIError) {
-    return { code: error.code || "speech_inference_failed", detail: error.message, retryable: error.retryable };
-  }
-  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
-    return {
-      code: error.code || "speech_inference_failed",
-      detail: "detail" in error && typeof error.detail === "string" ? error.detail : "",
-      retryable: "retryable" in error && error.retryable === true
-    };
-  }
-  if (error instanceof DOMException) {
-    if (error.name === "NotAllowedError" || error.name === "SecurityError") {
-      return { code: "voice_permission_denied", detail: error.message, retryable: false };
-    }
-    if (error.name === "NotFoundError" || error.name === "OverconstrainedError") {
-      return { code: "voice_no_device", detail: error.message, retryable: false };
-    }
-    if (error.name === "NotReadableError" || error.name === "AbortError") {
-      return { code: "voice_capture_failed", detail: error.message, retryable: false };
-    }
-  }
-  if (error instanceof TypeError) {
-    return { code: "speech_model_unavailable", detail: error.message, retryable: true };
-  }
-  const detail = error instanceof Error ? error.message : String(error ?? "");
-  return {
-    code: detail === "voice_capture_unsupported" ? detail : "speech_inference_failed",
-    detail,
-    retryable: false
-  };
 }

@@ -266,6 +266,56 @@ describe("useVoiceInput", () => {
     expect(onTranscript).toHaveBeenLastCalledWith(result, currentAnchor);
   });
 
+  it("cancels capture and the realtime client when unmounted mid-recording", async () => {
+    const currentCapture = capture();
+    const currentRealtime = realtime();
+    pcmMocks.prepare.mockResolvedValue(currentCapture);
+    vi.spyOn(api, "createSpeechRealtimeSession").mockResolvedValue(ticket);
+    const cancelSession = vi.spyOn(api, "cancelSpeechRealtimeSession").mockResolvedValue({ cancelled: true });
+    realtimeMocks.connect.mockResolvedValue(currentRealtime);
+    const hook = renderHook(realtimeSpeech);
+
+    act(() => hook.value().toggle(anchor));
+    await settle();
+    expect(hook.value().state).toBe("recording_realtime");
+
+    act(() => { for (const root of roots.splice(0)) root.unmount(); });
+
+    expect(currentCapture.cancel).toHaveBeenCalled();
+    expect(currentRealtime.cancel).toHaveBeenCalled();
+    // The ticket was consumed by the successful connect: no spurious release.
+    expect(cancelSession).not.toHaveBeenCalled();
+  });
+
+  it("releases a pending realtime ticket and cancels the late client on unmount", async () => {
+    const currentCapture = capture();
+    const currentRealtime = realtime();
+    pcmMocks.prepare.mockResolvedValue(currentCapture);
+    vi.spyOn(api, "createSpeechRealtimeSession").mockResolvedValue(ticket);
+    const cancelSession = vi.spyOn(api, "cancelSpeechRealtimeSession").mockResolvedValue({ cancelled: true });
+    let resolveConnect: ((client: ReturnType<typeof realtime>) => void) | undefined;
+    realtimeMocks.connect.mockReturnValue(new Promise((resolve) => { resolveConnect = resolve; }));
+    const hook = renderHook(realtimeSpeech);
+
+    act(() => hook.value().toggle(anchor));
+    await settle();
+    expect(hook.value().state).toBe("connecting_realtime");
+
+    act(() => { for (const root of roots.splice(0)) root.unmount(); });
+    await act(async () => {
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+
+    expect(currentCapture.cancel).toHaveBeenCalled();
+    expect(cancelSession).toHaveBeenCalledWith(ticket.id);
+
+    await act(async () => {
+      resolveConnect?.(currentRealtime);
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    expect(currentRealtime.cancel).toHaveBeenCalled();
+  });
+
   it("ignores a transcription result that arrives after cancellation", async () => {
     pcmMocks.prepare.mockResolvedValue(capture());
     let resolveTranscription: ((value: SpeechTranscriptionResult) => void) | undefined;

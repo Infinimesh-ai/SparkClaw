@@ -125,7 +125,9 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 
 	externalID := inboundMessageExternalID(message)
-	endpoint, err := messagecontrol.NewEndpointRegistry(d.store).Get(ctx, app.EndpointID(chatSession.ID))
+	// Inbound work was admitted by the running telegram connector; resolving
+	// its own source endpoint must not re-check the enable gate.
+	endpoint, err := messagecontrol.NewEndpointRegistry(d.store).GetAdmittedSource(ctx, app.EndpointID(chatSession.ID))
 	if err != nil {
 		return err
 	}

@@ -12,9 +12,10 @@ import (
 
 type EndpointRegistry interface {
 	Get(context.Context, app.EndpointID) (app.MessageEndpoint, error)
-}
-
-type admittedSourceEndpointRegistry interface {
+	// GetAdmittedSource resolves a source endpoint for work admitted while
+	// its connector was enabled, without re-applying a later owner opt-out.
+	// Part of the interface so an implementation cannot silently fall back
+	// to the wrong semantics.
 	GetAdmittedSource(context.Context, app.EndpointID) (app.MessageEndpoint, error)
 }
 
@@ -45,11 +46,7 @@ func (g *Gateway) Deliver(ctx context.Context, request app.DeliveryRequest) (app
 	var endpoint app.MessageEndpoint
 	var err error
 	if request.Origin == app.DeliveryOriginSourceReply && request.SourceAdmitted {
-		if admitted, ok := g.endpoints.(admittedSourceEndpointRegistry); ok {
-			endpoint, err = admitted.GetAdmittedSource(ctx, request.Target)
-		} else {
-			endpoint, err = g.endpoints.Get(ctx, request.Target)
-		}
+		endpoint, err = g.endpoints.GetAdmittedSource(ctx, request.Target)
 	} else {
 		endpoint, err = g.endpoints.Get(ctx, request.Target)
 	}

@@ -95,7 +95,9 @@ func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSch
 	if route.Mode == app.ReturnToSource {
 		endpointID = route.SourceEndpointID
 	}
-	endpoint, err := messagecontrol.NewEndpointRegistry(s.store).Get(r.Context(), endpointID)
+	// Read-only projection of a stored schedule's endpoint for display; the
+	// admitted-source form keeps the projection visible after an opt-out.
+	endpoint, err := messagecontrol.NewEndpointRegistry(s.store).GetAdmittedSource(r.Context(), endpointID)
 	if err != nil {
 		return s.unavailableScheduleEndpoint(r.Context(), endpointID, schedule.SessionID)
 	}

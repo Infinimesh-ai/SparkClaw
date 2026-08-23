@@ -932,7 +932,7 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 	if err := providers.Register(provider); err != nil {
 		t.Fatal(err)
 	}
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -1026,7 +1026,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 	if err := providers.Register(provider); err != nil {
 		t.Fatal(err)
 	}
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))

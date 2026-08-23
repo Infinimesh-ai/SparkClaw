@@ -61,6 +61,15 @@ type ToolHub struct {
 	ocrRuntime            *documentOCRRuntime
 	documents             *document.Pipeline
 	lifecycle             *toolHubLifecycle
+	connectorGate         func(ownerID, channel string) bool
+}
+
+// WithConnectorGate wires the owner connector opt-in check (usually
+// connector.Registry.Enabled) so schedule admission through reminder tools
+// enforces it. Without the gate, third-party return routes fail closed.
+func (h *ToolHub) WithConnectorGate(gate func(ownerID, channel string) bool) *ToolHub {
+	h.connectorGate = gate
+	return h
 }
 
 type toolHubLifecycle struct {

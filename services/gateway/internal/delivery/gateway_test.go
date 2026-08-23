@@ -68,7 +68,7 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 		BindingID: binding.ID, Channel: "fake", ExternalUserID: "user-b", ExternalChatID: "chat-b",
 		ExternalThreadID: "thread-b", LastContextToken: "context-b", DisplayName: "Alex", Status: "active",
 	})
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	routes := messagecontrol.NewReturnRouteResolver(endpoints)
 	content := app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "reply"}}}
 	request, deliver, err := RequestFromWorkflowResult(t.Context(), app.WorkflowResult{
@@ -152,7 +152,7 @@ func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_fake", Channel: "fake", Provider: "anything", Status: "active"})
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{
 		Kinds:        []app.MessagePartKind{app.MessagePartText, app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile},
@@ -180,7 +180,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_text", Channel: "text-only", Status: "active"})
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "text-only", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
 	if err := providers.Register(fake); err != nil {
@@ -206,7 +206,7 @@ func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 func TestWorkflowAndExplicitSendShareDeliveryRequest(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "Web")
-	routes := messagecontrol.NewReturnRouteResolver(messagecontrol.NewEndpointRegistry(st))
+	routes := messagecontrol.NewReturnRouteResolver(messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true }))
 	content := app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "done"}}}
 	route := app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: messagecontrol.WebEndpointID(session.ID)}
 	result := app.WorkflowResult{SchemaVersion: app.WorkflowResultSchemaVersion, ID: "result_1", OwnerID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Content: content, ReturnRoute: route}
@@ -239,7 +239,7 @@ func TestGatewayRejectsEndpointOwnedByAnotherPrincipal(t *testing.T) {
 		OwnerID: "owner-a", ActorID: "owner-a", Authorization: app.MessageAuthorization{PrincipalID: "owner-a"}, Target: app.EndpointID(binding.ID),
 		Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "private"}}},
 	}
-	_, err := NewGateway(messagecontrol.NewEndpointRegistry(st), providers, nil).Deliver(t.Context(), request)
+	_, err := NewGateway(messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true }), providers, nil).Deliver(t.Context(), request)
 	if err == nil || len(fake.requests) != 0 {
 		t.Fatalf("cross-owner endpoint was delivered: requests=%#v err=%v", fake.requests, err)
 	}

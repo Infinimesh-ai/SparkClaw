@@ -964,6 +964,10 @@ func (r fixedWorkflowResultEndpoint) Get(context.Context, app.EndpointID) (app.M
 	return r.endpoint, nil
 }
 
+func (r fixedWorkflowResultEndpoint) GetAdmittedSource(context.Context, app.EndpointID) (app.MessageEndpoint, error) {
+	return r.endpoint, nil
+}
+
 func (r fixedWorkflowResultEndpoint) Resolve(context.Context, app.ReturnRoute) (app.MessageEndpoint, bool, error) {
 	return r.endpoint, true, nil
 }

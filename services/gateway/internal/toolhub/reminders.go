@@ -11,6 +11,17 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 )
 
+// scheduleRegistry builds the schedule registry with the connector-gated
+// endpoint registry so schedule admission honors the owner's opt-out; with no
+// gate wired, third-party return routes fail closed.
+func (h *ToolHub) scheduleRegistry() *messagecontrol.ScheduleRegistry {
+	endpoints := messagecontrol.NewEndpointRegistry(h.store)
+	if h.connectorGate != nil {
+		endpoints.WithChannelEnabled(h.connectorGate)
+	}
+	return messagecontrol.NewScheduleRegistry(h.store).WithEndpoints(endpoints)
+}
+
 func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	text := strings.TrimSpace(stringArg(args, "text", ""))
 	if text == "" {
@@ -106,7 +117,7 @@ func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sess
 		DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence, DedupeKey: reminder.DedupeKey,
 		Status: reminder.Status, CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
 	}
-	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(ctx, schedule); err != nil {
+	if _, err := h.scheduleRegistry().Save(ctx, schedule); err != nil {
 		return Result{}, err
 	}
 	reminder, ok, err := h.store.GetReminder(ctx, reminder.ID)
@@ -206,7 +217,7 @@ func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sess
 	if err != nil {
 		return Result{}, err
 	}
-	registry := messagecontrol.NewScheduleRegistry(h.store)
+	registry := h.scheduleRegistry()
 	schedule, ok, err := registry.Get(ctx, app.ScheduleID(id))
 	if err != nil {
 		return Result{}, err
@@ -302,7 +313,7 @@ func (h *ToolHub) remindersCancel(ctx context.Context, args map[string]any, sess
 	if err != nil {
 		return Result{}, err
 	}
-	canceled, err := messagecontrol.NewScheduleRegistry(h.store).CancelPending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
+	canceled, err := h.scheduleRegistry().CancelPending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
 	if err != nil {
 		return Result{}, err
 	}

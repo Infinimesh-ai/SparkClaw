@@ -46,10 +46,13 @@ func newGatewayServices(
 	if err != nil {
 		return nil, err
 	}
+	// Schedule admission through reminder tools must honor the owner's
+	// connector opt-out; without this gate third-party routes fail closed.
+	tools.WithConnectorGate(connectors.registry.Enabled)
 
 	var reminderScheduler *reminder.Scheduler
 	if cfg.Tools.Reminders.Enabled {
-		schedules := messagecontrol.NewScheduleRegistry(st)
+		schedules := messagecontrol.NewScheduleRegistry(st).WithEndpoints(connectors.endpoints)
 		routes := messagecontrol.NewReturnRouteResolver(connectors.endpoints)
 		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery), cfg.Tools.Reminders.MaxDeliveryAttempts)
 	}

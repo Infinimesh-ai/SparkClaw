@@ -117,7 +117,10 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	receives := messagecontrol.NewReceiveLifecycle(d.store)
 	receive := inbound.ReceiveRecord
 	if receive.ID == "" {
-		endpoint, err := messagecontrol.NewEndpointRegistry(d.store).Get(ctx, app.EndpointID(chatSession.ID))
+		// Inbound work was admitted by the running weixin connector; resolving
+		// its own source endpoint must not re-check the enable gate (a disable
+		// mid-drain would otherwise strand the admitted message).
+		endpoint, err := messagecontrol.NewEndpointRegistry(d.store).GetAdmittedSource(ctx, app.EndpointID(chatSession.ID))
 		if err != nil {
 			return err
 		}

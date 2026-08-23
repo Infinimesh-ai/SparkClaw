@@ -26,7 +26,7 @@ func (s *cancelAfterBindingListStore) ListNotificationBindings(ctx context.Conte
 func TestRemindersCreateListCancel(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
-	hub := New(cfg, st)
+	hub := New(cfg, st).WithConnectorGate(func(string, string) bool { return true })
 	session := storetest.MustCreateSession(t, st, "Reminder test")
 
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
@@ -163,7 +163,7 @@ func TestRemindersCreateRequiresRecipientWhenWebSessionHasMultipleWeixinBindings
 	} {
 		storetest.MustCreateNotificationBinding(t, st, binding)
 	}
-	hub := New(cfg, st)
+	hub := New(cfg, st).WithConnectorGate(func(string, string) bool { return true })
 	_, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text":     "喝水",
 		"due_time": "2026-07-01T09:00:00+08:00",
@@ -203,7 +203,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
-	hub := New(cfg, st)
+	hub := New(cfg, st).WithConnectorGate(func(string, string) bool { return true })
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text":      "喝水",
 		"due_time":  "2026-07-01T09:00:00+08:00",
@@ -248,7 +248,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	})
-	hub := New(cfg, st)
+	hub := New(cfg, st).WithConnectorGate(func(string, string) bool { return true })
 
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text":     "喝水",
@@ -282,7 +282,7 @@ func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
 		LinkedSessionID: linked.ID, Status: "active",
 	})
-	hub := New(cfg, st)
+	hub := New(cfg, st).WithConnectorGate(func(string, string) bool { return true })
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text": "喝水", "due_time": "2026-07-01T09:00:00+08:00",
 	}, linked.ID, "run_telegram")

@@ -22,7 +22,7 @@ func TestEndpointMessageControlRouterMapsTypedDirectivesToCanonicalResolution(t 
 	saveMessageControlEndpoint(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1")
 	saveMessageControlEndpoint(t, st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2")
 	saveMessageControlEndpoint(t, st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3")
-	router := endpointMessageControlRouter{endpoints: messagecontrol.NewEndpointRegistry(st)}
+	router := endpointMessageControlRouter{endpoints: messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })}
 
 	webRequest := agent.MessageControlRouteRequest{
 		SessionID: web.ID, Source: app.MessageSourceContext{Kind: app.MessageSourceWeb, EndpointID: messagecontrol.WebEndpointID(web.ID)},
@@ -71,7 +71,7 @@ func TestEndpointMessageControlRouterMapsTypedDirectivesToCanonicalResolution(t 
 }
 
 func TestEndpointMessageControlRouterRejectsMismatchedSourceRoute(t *testing.T) {
-	router := endpointMessageControlRouter{endpoints: messagecontrol.NewEndpointRegistry(store.NewMemoryStore())}
+	router := endpointMessageControlRouter{endpoints: messagecontrol.NewEndpointRegistry(store.NewMemoryStore()).WithChannelEnabled(func(string, string) bool { return true })}
 	_, err := router.ResolveMessageControl(context.Background(), agent.MessageControlRouteRequest{
 		SessionID: "session", Source: app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, EndpointID: "chat-a"},
 		ActorID: "actor-a", Authorization: app.MessageAuthorization{PrincipalID: "actor-a"},
@@ -89,7 +89,7 @@ func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
 	defer tools.Close()
 	session := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
 	saveMessageControlEndpoint(t, st, "bind-c", "chat-c", "owner-a", "owner-a", "weixin", "Chen", "user-3", "chat-3")
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil).
 		WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
 

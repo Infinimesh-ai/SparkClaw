@@ -33,11 +33,27 @@ type SchedulePatch struct {
 }
 
 type ScheduleRegistry struct {
-	store scheduleStore
+	store     scheduleStore
+	endpoints *EndpointRegistry
 }
 
 func NewScheduleRegistry(st scheduleStore) *ScheduleRegistry {
 	return &ScheduleRegistry{store: st}
+}
+
+// WithEndpoints wires the connector-gated endpoint registry so schedule
+// admission enforces the owner's connector opt-out. Without it the fallback
+// registry fails closed for third-party return routes.
+func (r *ScheduleRegistry) WithEndpoints(endpoints *EndpointRegistry) *ScheduleRegistry {
+	r.endpoints = endpoints
+	return r
+}
+
+func (r *ScheduleRegistry) endpointRegistry() *EndpointRegistry {
+	if r.endpoints != nil {
+		return r.endpoints
+	}
+	return NewEndpointRegistry(r.store)
 }
 
 func (r *ScheduleRegistry) Save(ctx context.Context, schedule app.MessageSchedule) (app.MessageSchedule, error) {
@@ -150,7 +166,7 @@ func (r *ScheduleRegistry) reminderForSchedule(ctx context.Context, schedule app
 		return app.Reminder{}, err
 	}
 	if schedule.Spec.ReturnRoute.Mode != app.ReturnNowhere {
-		endpoint, deliver, err := NewReturnRouteResolver(NewEndpointRegistry(r.store)).Resolve(ctx, schedule.Spec.ReturnRoute)
+		endpoint, deliver, err := NewReturnRouteResolver(r.endpointRegistry()).Resolve(ctx, schedule.Spec.ReturnRoute)
 		if err != nil || !deliver {
 			return app.Reminder{}, firstError(err, errors.New("schedule return endpoint is unavailable"))
 		}
@@ -263,7 +279,10 @@ func (r *ScheduleRegistry) applyTargetProjection(ctx context.Context, reminder *
 		reminder.BindingID, reminder.Recipient, reminder.RecipientBinding, reminder.CredentialRef, reminder.BaseURL = "", "", "", "", ""
 		return nil
 	}
-	endpoint, endpointErr := NewEndpointRegistry(r.store).Get(ctx, endpointID)
+	// The route was gated at admission (reminderForSchedule); projecting the
+	// already-admitted schedule into delivery fields must not re-apply a later
+	// connector opt-out, mirroring GetAdmittedSource semantics.
+	endpoint, endpointErr := r.endpointRegistry().GetAdmittedSource(ctx, endpointID)
 	if endpointErr == nil && endpoint.Kind == app.EndpointKindThirdPartyDevice {
 		reminder.Channel, reminder.BindingID = endpoint.ProviderKey, endpoint.BindingRef
 		reminder.Recipient = firstValue(endpoint.Address, reminder.Recipient)

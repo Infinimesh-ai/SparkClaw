@@ -325,10 +325,12 @@ const (
 )
 
 // migrateLegacyBrowserLoginBlock upgrades a schema-v1 block persisted by an
-// older build to the v2 shape. It runs once at snapshot load — never on read
-// paths — and preserves the stored time points while canonicalizing their UTC
-// microsecond representation. The postgres schema performs the same status
-// mapping in SQL; keep the two in sync.
+// older build to the v2 shape, preserving the stored time points while
+// canonicalizing their UTC microsecond representation. Memory/File run it
+// once at snapshot load. Postgres runs it on every read path because SQL
+// migration 0002 remaps only status/schema_version/version and does not
+// backfill the resume_tool/resume_args defaults injected below; the read-path
+// calls stay until a SQL migration materializes those defaults.
 func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
 	block = cloneBrowserLoginBlock(block)
 	switch strings.TrimSpace(block.Status) {

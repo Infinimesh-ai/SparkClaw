@@ -226,7 +226,7 @@ func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *stor
 	if err := providers.Register(provider); err != nil {
 		t.Fatal(err)
 	}
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	deliveryGateway := delivery.NewGateway(endpoints, providers, nil)
 	tools := toolhub.New(cfg, st)
 	t.Cleanup(func() { _ = tools.Close() })
@@ -279,7 +279,7 @@ func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
 	if err := providers.Register(provider); err != nil {
 		t.Fatal(err)
 	}
-	endpoints := messagecontrol.NewEndpointRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))

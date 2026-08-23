@@ -10,9 +10,10 @@ import (
 
 type EndpointResolver interface {
 	Get(context.Context, app.EndpointID) (app.MessageEndpoint, error)
-}
-
-type admittedSourceEndpointResolver interface {
+	// GetAdmittedSource resolves a source endpoint for work admitted while
+	// its connector was enabled, without re-applying a later owner opt-out.
+	// Part of the interface so an implementation cannot silently fall back
+	// to the wrong semantics.
 	GetAdmittedSource(context.Context, app.EndpointID) (app.MessageEndpoint, error)
 }
 
@@ -45,11 +46,7 @@ func (r *ReturnRouteResolver) Resolve(ctx context.Context, route app.ReturnRoute
 	var endpoint app.MessageEndpoint
 	var err error
 	if route.Mode == app.ReturnToSource && route.SourceAdmitted {
-		if admitted, ok := r.endpoints.(admittedSourceEndpointResolver); ok {
-			endpoint, err = admitted.GetAdmittedSource(ctx, id)
-		} else {
-			endpoint, err = r.endpoints.Get(ctx, id)
-		}
+		endpoint, err = r.endpoints.GetAdmittedSource(ctx, id)
 	} else {
 		endpoint, err = r.endpoints.Get(ctx, id)
 	}

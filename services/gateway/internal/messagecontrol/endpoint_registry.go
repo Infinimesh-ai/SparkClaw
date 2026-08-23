@@ -371,11 +371,12 @@ func (e *TargetError) ErrorCode() string { return e.Code }
 
 func newTargetError(code, message string) error { return &TargetError{Code: code, Message: message} }
 
+// connectorEnabled fails closed for every channel: a registry without a wired
+// gate refuses new third-party work instead of silently bypassing the owner's
+// connector opt-out. Admitted-source resolution (GetAdmittedSource) is the
+// only ungated path, reserved for work admitted while the connector was on.
 func (r *EndpointRegistry) connectorEnabled(ownerID, channel string) bool {
-	if channel == "mcp" {
-		return r.channelEnabled != nil && r.channelEnabled(ownerID, channel)
-	}
-	return r.channelEnabled == nil || r.channelEnabled(ownerID, channel)
+	return r.channelEnabled != nil && r.channelEnabled(ownerID, channel)
 }
 
 func bindingUsable(binding app.NotificationBinding, now time.Time) bool {

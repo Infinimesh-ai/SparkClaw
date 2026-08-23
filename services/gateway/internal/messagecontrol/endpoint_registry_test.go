@@ -20,7 +20,7 @@ func TestEndpointRegistryResolvesWebAndProviderNeutralBinding(t *testing.T) {
 		Provider: "vendor-specific-protocol",
 		Status:   "active",
 	})
-	registry := NewEndpointRegistry(st)
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 
 	web, err := registry.Get(t.Context(), WebEndpointID(session.ID))
 	if err != nil || web.Kind != app.EndpointKindWeb || web.ProviderKey != "" {
@@ -41,7 +41,7 @@ func TestEndpointRegistryListsOnlyActorScopedExactSendEndpoints(t *testing.T) {
 	saveEndpointFixture(t, st, "bind-b", "chat-b", "owner-a", "actor-b", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
 	saveEndpointFixture(t, st, "bind-reminder", "chat-reminder", "owner-a", "actor-a", "weixin", "Only reminder", "user-3", "chat-3", []string{app.BindingScopeReminderSendSelf})
 
-	registry := NewEndpointRegistry(st)
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 	endpoints, err := registry.List(t.Context(), "owner-a", "actor-a")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestEndpointRegistryDeterministicTargetResolution(t *testing.T) {
 	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
 	saveEndpointFixture(t, st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
 	saveEndpointFixture(t, st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3", []string{app.BindingScopeMessageSendSelf})
-	registry := NewEndpointRegistry(st)
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 
 	selection, err := registry.ResolveTarget(t.Context(), TargetRequest{OwnerID: "owner-a", ActorID: "actor-a", WebSessionID: web.ID})
 	if err != nil || selection.Status != app.TargetDefaultWeb || selection.ResolvedEndpointID != WebEndpointID(web.ID) {
@@ -102,7 +102,7 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 		BindingID: "bind-expired", Channel: "weixin", ExternalUserID: "user-2", ExternalChatID: "chat-2",
 		DisplayName: "Chen", Status: "active",
 	})
-	registry := NewEndpointRegistry(st)
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 
 	_, err := registry.GetForMessageSend(t.Context(), "chat-a", "owner-a", "actor-a")
 	var targetErr *TargetError
@@ -122,7 +122,7 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 func TestEndpointRegistryMessageSendRejectsBindingFallback(t *testing.T) {
 	st := store.NewMemoryStore()
 	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
-	registry := NewEndpointRegistry(st)
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
 
 	_, err := registry.GetForMessageSend(t.Context(), "bind-a", "owner-a", "actor-a")
 	var targetErr *TargetError

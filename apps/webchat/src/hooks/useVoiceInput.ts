@@ -92,6 +92,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   const noSpeechRef = useRef<((current: VoiceOperation) => Promise<void>) | undefined>(undefined);
   const supported = PCMInputCapture.supported();
   const capabilityReady = Boolean(speech?.enabled && speech.ready);
+  const maxAudioSeconds = speech?.max_audio_seconds ?? 60;
   const realtimeReady = Boolean(
     capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
     speech.realtime.sample_rate === 16_000 && speech.realtime.channels === 1 && speech.realtime.bits_per_sample === 16
@@ -287,7 +288,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     try {
       current.wav = encodeSpeechWAV(
         captured,
-        speech?.max_audio_seconds ?? 60,
+        maxAudioSeconds,
         speech?.max_upload_bytes ?? 3 * 1024 * 1024
       );
       dispatch({ type: "encoded" });
@@ -295,7 +296,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     } catch (error) {
       failOperation(current, error);
     }
-  }, [failOperation, speech?.max_audio_seconds, speech?.max_upload_bytes, transcribe]);
+  }, [failOperation, maxAudioSeconds, speech?.max_upload_bytes, transcribe]);
 
   const recoverBatch = useCallback((current: VoiceOperation, _failure: unknown, captured?: CapturedPCM) => {
     if (current.recovery) return current.recovery;
@@ -319,7 +320,10 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     })().catch((error) => failOperation(current, error));
     return current.recovery;
   }, [clearTimers, encodeAndTranscribe, failOperation]);
-  recoverRef.current = recoverBatch;
+
+  useEffect(() => {
+    recoverRef.current = recoverBatch;
+  }, [recoverBatch]);
 
   const stop = useCallback(async (reason: "manual_stop" | "silence_stop" | "max_duration" = "manual_stop") => {
     const current = operation.current;
@@ -361,7 +365,10 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       failOperation(current, error);
     }
   }, [applyResult, clearTimers, encodeAndTranscribe, failOperation, recoverBatch]);
-  stopRef.current = stop;
+
+  useEffect(() => {
+    stopRef.current = stop;
+  }, [stop]);
 
   const noSpeechCancel = useCallback(async (current: VoiceOperation) => {
     if (operation.current !== current) return;
@@ -378,13 +385,16 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     setPartial(null);
     dispatch({ type: "failure", code: "speech_no_speech", detail: "" });
   }, [clearTimers, releaseUnusedTicket]);
-  noSpeechRef.current = noSpeechCancel;
+
+  useEffect(() => {
+    noSpeechRef.current = noSpeechCancel;
+  }, [noSpeechCancel]);
 
   const startCaptureTimers = useCallback((current: VoiceOperation) => {
     current.startedAt = Date.now();
     current.interval = window.setInterval(() => setElapsedMs(Date.now() - current.startedAt), 250);
-    current.timeout = window.setTimeout(() => void stopRef.current?.("max_duration"), (speech?.max_audio_seconds ?? 60) * 1000);
-  }, [speech?.max_audio_seconds]);
+    current.timeout = window.setTimeout(() => void stopRef.current?.("max_duration"), maxAudioSeconds * 1000);
+  }, [maxAudioSeconds]);
 
   const handleCapturedSamples = useCallback((current: VoiceOperation, samples: Int16Array) => {
     if (operation.current !== current || generation.current !== current.id || current.recovery) return;

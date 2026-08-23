@@ -68,8 +68,8 @@ export function VoiceInputControl({
   }, [active, open]);
 
   useEffect(() => {
-    if (open) return;
-    onClosePicker();
+    if (!open) return;
+    return () => onClosePicker();
   }, [onClosePicker, open]);
 
   return (

@@ -22,10 +22,10 @@ func TestPostgresMigrationManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 5 {
-		t.Fatalf("migration count = %d, want 5", len(migrations))
+	if len(migrations) != 6 {
+		t.Fatalf("migration count = %d, want 6", len(migrations))
 	}
-	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql", "0005_approval_repository.sql"}
+	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql", "0005_approval_repository.sql", "0006_browser_state_read_defaults.sql"}
 	for index, migration := range migrations {
 		if migration.Version != index+1 || migration.Filename != wantNames[index] {
 			t.Fatalf("migration %d = %#v", index, migration)
@@ -135,10 +135,12 @@ INSERT INTO external_chat_messages (
 INSERT INTO sessions (id, title) VALUES ('browser-session', 'browser migration');
 INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level)
 VALUES ('browser-run', 'browser-session', 'waiting', 'fast', 'read');
-INSERT INTO browser_login_blocks (id, session_id, run_id, schema_version, version, status)
+INSERT INTO browser_login_blocks (id, session_id, run_id, schema_version, version, status, resume_tool, resume_args)
 VALUES
-  ('browser-waiting', 'browser-session', 'browser-run', 1, 0, 'waiting'),
-  ('browser-resuming', 'browser-session', 'browser-run', 1, -1, 'resuming');
+  ('browser-waiting', 'browser-session', 'browser-run', 1, 0, 'waiting', E' \t', 'null'::jsonb),
+  ('browser-resuming', 'browser-session', 'browser-run', 1, -1, 'resuming', 'browser.click', '{"selector": "#login"}');
+INSERT INTO browser_auth_records (id, owner_id, browser_profile_id, site_origin, site_realm, account_hint, auth_strategy, status)
+VALUES (' legacy-auth ', ' ', E'\t', ' HTTPS://Example.COM// ', ' realm ', ' User@Example.COM ', ' ', E' \n');
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -677,30 +679,47 @@ SELECT content FROM external_chat_messages WHERE id = 'legacy-message-copy'
 		t.Fatalf("missing message content = %q", copiedContent)
 	}
 	rows, err := pool.Query(context.Background(), `
-SELECT status, schema_version, version FROM browser_login_blocks ORDER BY id
+SELECT status, schema_version, version, resume_tool, resume_args::text FROM browser_login_blocks ORDER BY id
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
-	wantStatuses := []string{"validating_visible", "waiting_owner"}
+	wantBrowserRows := []struct {
+		status, resumeTool, resumeArgs string
+	}{
+		{status: "validating_visible", resumeTool: "browser.click", resumeArgs: `{"selector": "#login"}`},
+		{status: "waiting_owner", resumeTool: "browser.read", resumeArgs: `{}`},
+	}
 	index := 0
 	for rows.Next() {
 		var schemaVersion, version int
-		var gotStatus string
-		if err := rows.Scan(&gotStatus, &schemaVersion, &version); err != nil {
+		var gotStatus, resumeTool, resumeArgs string
+		if err := rows.Scan(&gotStatus, &schemaVersion, &version, &resumeTool, &resumeArgs); err != nil {
 			t.Fatal(err)
 		}
-		if index >= len(wantStatuses) || gotStatus != wantStatuses[index] || schemaVersion != 2 || version != 1 {
-			t.Fatalf("browser row %d = status %q schema %d version %d", index, gotStatus, schemaVersion, version)
+		if index >= len(wantBrowserRows) || gotStatus != wantBrowserRows[index].status || schemaVersion != 2 || version != 1 ||
+			resumeTool != wantBrowserRows[index].resumeTool || resumeArgs != wantBrowserRows[index].resumeArgs {
+			t.Fatalf("browser row %d = status %q schema %d version %d resume %q args %q", index, gotStatus, schemaVersion, version, resumeTool, resumeArgs)
 		}
 		index++
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if index != len(wantStatuses) {
+	if index != len(wantBrowserRows) {
 		t.Fatalf("browser row count = %d", index)
+	}
+	var authFields [8]string
+	if err := pool.QueryRow(context.Background(), `
+SELECT id, owner_id, browser_profile_id, site_origin, site_realm, account_hint, auth_strategy, status
+FROM browser_auth_records WHERE id = 'legacy-auth'
+`).Scan(&authFields[0], &authFields[1], &authFields[2], &authFields[3], &authFields[4], &authFields[5], &authFields[6], &authFields[7]); err != nil {
+		t.Fatal(err)
+	}
+	wantAuthFields := [8]string{"legacy-auth", "owner", "default", "https://example.com", "realm", "user@example.com", "session_restore", "active"}
+	if authFields != wantAuthFields {
+		t.Fatalf("normalized auth record = %q, want %q", authFields, wantAuthFields)
 	}
 	assertPostgresLedgerCount(t, pool, embeddedPostgresMigrationCount(t))
 }

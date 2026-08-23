@@ -288,6 +288,10 @@ func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.Browse
 	return cloneBrowserAuthRecord(record)
 }
 
+// migrateLegacyBrowserAuthRecord normalizes a legacy auth record field by
+// field. Memory/File run it at snapshot load and on every write (via
+// normalizeBrowserAuthRecord); Postgres applies the same normalization in SQL
+// migration 0006, so its read paths return stored rows verbatim.
 func migrateLegacyBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
 	record.ID = strings.TrimSpace(record.ID)
 	record.OwnerID = normalizeBrowserAuthOwnerID(record.OwnerID)
@@ -327,10 +331,10 @@ const (
 // migrateLegacyBrowserLoginBlock upgrades a schema-v1 block persisted by an
 // older build to the v2 shape, preserving the stored time points while
 // canonicalizing their UTC microsecond representation. Memory/File run it
-// once at snapshot load. Postgres runs it on every read path because SQL
-// migration 0002 remaps only status/schema_version/version and does not
-// backfill the resume_tool/resume_args defaults injected below; the read-path
-// calls stay until a SQL migration materializes those defaults.
+// once at snapshot load. Postgres does not call it at all: SQL migration 0006
+// materializes the resume_tool/resume_args defaults injected below (0002
+// already remapped status/schema_version/version), so its read paths return
+// stored rows verbatim.
 func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
 	block = cloneBrowserLoginBlock(block)
 	switch strings.TrimSpace(block.Status) {

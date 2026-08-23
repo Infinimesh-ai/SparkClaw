@@ -97,7 +97,7 @@ func (s *PostgresStore) GetBrowserAuthRecord(ctx context.Context, id string) (ap
 	if err != nil {
 		return app.BrowserAuthRecord{}, false, classifyBrowserStatePostgresError(OperationBrowserAuthGet, ctx, err)
 	}
-	return migrateLegacyBrowserAuthRecord(record), true, nil
+	return record, true, nil
 }
 
 func (s *PostgresStore) FindBrowserAuthRecord(ctx context.Context, ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool, error) {
@@ -125,7 +125,7 @@ func (s *PostgresStore) FindBrowserAuthRecord(ctx context.Context, ownerID, brow
 	if err != nil {
 		return app.BrowserAuthRecord{}, false, classifyBrowserStatePostgresError(OperationBrowserAuthFind, ctx, err)
 	}
-	return migrateLegacyBrowserAuthRecord(record), true, nil
+	return record, true, nil
 }
 
 func (s *PostgresStore) ListBrowserAuthRecords(ctx context.Context, ownerID, browserProfileID string) ([]app.BrowserAuthRecord, error) {
@@ -156,7 +156,7 @@ func (s *PostgresStore) ListBrowserAuthRecords(ctx context.Context, ownerID, bro
 		if err != nil {
 			return nil, classifyBrowserStatePostgresError(OperationBrowserAuthList, ctx, err)
 		}
-		records = append(records, migrateLegacyBrowserAuthRecord(record))
+		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, classifyBrowserStatePostgresError(OperationBrowserAuthList, ctx, err)
@@ -182,7 +182,6 @@ func (s *PostgresStore) RevokeBrowserAuthRecord(ctx context.Context, id, reason 
 	if err != nil {
 		return app.BrowserAuthRecord{}, finishBrowserStatePostgresStatement(ctx, OperationBrowserAuthRevoke, session, transaction, release, err)
 	}
-	record = migrateLegacyBrowserAuthRecord(record)
 	now := postgresTime(time.Now().UTC())
 	record.Status = app.BrowserAuthStatusRevoked
 	record.RevokedAt = &now
@@ -358,7 +357,7 @@ func (s *PostgresStore) GetBrowserLoginBlock(ctx context.Context, id string) (ap
 	if err != nil {
 		return app.BrowserLoginBlock{}, false, classifyBrowserStatePostgresError(OperationBrowserLoginBlockGet, ctx, err)
 	}
-	return migrateLegacyBrowserLoginBlock(block), true, nil
+	return block, true, nil
 }
 
 func (s *PostgresStore) FindActiveBrowserLoginBlock(ctx context.Context, sessionID string) (app.BrowserLoginBlock, bool, error) {
@@ -378,7 +377,7 @@ func (s *PostgresStore) FindActiveBrowserLoginBlock(ctx context.Context, session
 	if err != nil {
 		return app.BrowserLoginBlock{}, false, classifyBrowserStatePostgresError(OperationBrowserLoginBlockFindActive, ctx, err)
 	}
-	return migrateLegacyBrowserLoginBlock(block), true, nil
+	return block, true, nil
 }
 
 func (s *PostgresStore) ListBrowserLoginBlocks(ctx context.Context, sessionID, status string) ([]app.BrowserLoginBlock, error) {
@@ -401,7 +400,7 @@ func (s *PostgresStore) ListBrowserLoginBlocks(ctx context.Context, sessionID, s
 		if err != nil {
 			return nil, classifyBrowserStatePostgresError(OperationBrowserLoginBlockList, ctx, err)
 		}
-		blocks = append(blocks, migrateLegacyBrowserLoginBlock(block))
+		blocks = append(blocks, block)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, classifyBrowserStatePostgresError(OperationBrowserLoginBlockList, ctx, err)

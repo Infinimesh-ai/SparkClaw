@@ -466,8 +466,14 @@ func scanBrowserAuthRecord(row scanner) (app.BrowserAuthRecord, error) {
 		&record.RevokedAt,
 	)
 	if lastVerifiedAt != nil {
-		record.LastVerifiedAt = *lastVerifiedAt
+		record.LastVerifiedAt = postgresTime(*lastVerifiedAt)
 	}
+	// pgx decodes timestamptz into the process-local zone; canonicalize the
+	// scanned instants to UTC microseconds as the repository contract expects.
+	record.CreatedAt = postgresTime(record.CreatedAt)
+	record.UpdatedAt = postgresTime(record.UpdatedAt)
+	record.ExpiresAt = normalizeBrowserTimePointer(record.ExpiresAt)
+	record.RevokedAt = normalizeBrowserTimePointer(record.RevokedAt)
 	return record, err
 }
 
@@ -529,6 +535,12 @@ func scanBrowserLoginBlock(row scanner) (app.BrowserLoginBlock, error) {
 	if block.ResumeArgs == nil {
 		block.ResumeArgs = map[string]any{}
 	}
+	// pgx decodes timestamptz into the process-local zone; canonicalize the
+	// scanned instants to UTC microseconds as the repository contract expects.
+	block.CreatedAt = postgresTime(block.CreatedAt)
+	block.UpdatedAt = postgresTime(block.UpdatedAt)
+	block.TransitionLeaseUntil = normalizeBrowserTimePointer(block.TransitionLeaseUntil)
+	block.ResolvedAt = normalizeBrowserTimePointer(block.ResolvedAt)
 	return cloneBrowserLoginBlock(block), nil
 }
 

@@ -412,3 +412,35 @@ func getJSON(t *testing.T, url string, destination any) {
 		t.Fatal(err)
 	}
 }
+
+func TestJingSiLANStreamConcurrencyIsBounded(t *testing.T) {
+	srv, _, session, ts := newJingSiTestServer(t)
+	for i := 0; i < maxPassiveNotificationStreamsPerOwner; i++ {
+		if !srv.acquirePassiveNotificationStream(jingsiStreamKey(session.ID)) {
+			t.Fatalf("stream slot %d unexpectedly denied", i)
+		}
+	}
+	response, err := http.Get(ts.URL + "/api/client-events/v0/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("saturated stream budget returned %d, want 429", response.StatusCode)
+	}
+	srv.releasePassiveNotificationStream(jingsiStreamKey(session.ID))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/client-events/v0/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	freed, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer freed.Body.Close()
+	if freed.StatusCode != http.StatusOK {
+		t.Fatalf("freed stream slot returned %d, want 200", freed.StatusCode)
+	}
+}

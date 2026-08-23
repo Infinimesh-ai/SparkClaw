@@ -130,6 +130,12 @@ func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// jingsiStreamKey namespaces JingSi SSE streams into the shared per-key
+// stream budget (same 4-stream bound as the notification inbox); each stream
+// costs a 750ms poll loop plus a per-tick session read, and the LAN surface
+// must not admit unbounded pollers.
+func jingsiStreamKey(sessionID string) string { return "jingsi:" + sessionID }
+
 func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
@@ -139,6 +145,11 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("unsupported query parameter"))
 		return
 	}
+	if !s.acquirePassiveNotificationStream(jingsiStreamKey(session.ID)) {
+		writeError(w, http.StatusTooManyRequests, errors.New("too many concurrent event streams"))
+		return
+	}
+	defer s.releasePassiveNotificationStream(jingsiStreamKey(session.ID))
 	rawAfter := strings.TrimSpace(r.URL.Query().Get("after"))
 	headerAfter := strings.TrimSpace(r.Header.Get("Last-Event-ID"))
 	if rawAfter != "" && headerAfter != "" && rawAfter != headerAfter {

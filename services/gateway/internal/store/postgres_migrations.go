@@ -690,6 +690,31 @@ LEFT JOIN external_chat_messages AS target ON target.id = source.id`,
 			name:  "browser login block positive versions",
 			query: `SELECT NOT EXISTS (SELECT 1 FROM browser_login_blocks WHERE version <= 0)`,
 		},
+		{
+			name:  "browser login block positive schema versions",
+			query: `SELECT NOT EXISTS (SELECT 1 FROM browser_login_blocks WHERE schema_version <= 0)`,
+		},
+		{
+			name: "browser login block materialized resume defaults",
+			query: `SELECT NOT EXISTS (
+  SELECT 1 FROM browser_login_blocks
+  WHERE btrim(resume_tool, E' \t\n\r\f\013') = '' OR resume_args = 'null'::jsonb
+)`,
+		},
+		{
+			name: "browser auth record normalized fields",
+			query: `SELECT NOT EXISTS (
+  SELECT 1 FROM browser_auth_records
+  WHERE id <> btrim(id, E' \t\n\r\f\013')
+     OR owner_id = '' OR owner_id <> btrim(owner_id, E' \t\n\r\f\013')
+     OR browser_profile_id = '' OR browser_profile_id <> btrim(browser_profile_id, E' \t\n\r\f\013')
+     OR site_origin <> lower(rtrim(btrim(site_origin, E' \t\n\r\f\013'), '/'))
+     OR site_realm <> btrim(site_realm, E' \t\n\r\f\013')
+     OR account_hint <> lower(btrim(account_hint, E' \t\n\r\f\013'))
+     OR auth_strategy = '' OR auth_strategy <> btrim(auth_strategy, E' \t\n\r\f\013')
+     OR status = '' OR status <> btrim(status, E' \t\n\r\f\013')
+)`,
+		},
 	}
 	for _, check := range checks {
 		var valid bool

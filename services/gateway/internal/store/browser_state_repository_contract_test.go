@@ -445,5 +445,15 @@ func TestPostgresBrowserStateRepositoryConfiguredContract(t *testing.T) {
 	}
 	defer repository.Close()
 	truncatePostgresStore(t, repository)
+	// Memory/File keep no referential constraints; Postgres enforces the
+	// sessions/agent_runs foreign keys the contract blocks point at.
+	if _, err := repository.db.Exec(context.Background(), `
+INSERT INTO sessions (id, title) VALUES ('session-browser', 'browser contract');
+INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level) VALUES
+  ('run-browser', 'session-browser', 'waiting', 'fast', 'read'),
+  ('run-a', 'session-browser', 'waiting', 'fast', 'read');
+`); err != nil {
+		t.Fatal(err)
+	}
 	exerciseBrowserStateRepositoryContract(t, repository, nil)
 }

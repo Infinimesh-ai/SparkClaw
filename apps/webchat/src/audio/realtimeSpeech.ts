@@ -47,6 +47,8 @@ export class SpeechRealtimeClient {
   private readyResolve: (() => void) | null = null;
   private readyReject: ((reason: SpeechRealtimeFailure) => void) | null = null;
   private closeResolve: (() => void) | null = null;
+  private readyTimer = 0;
+  private finalTimer = 0;
 
   private constructor(ticket: SpeechRealtimeTicket, handlers: Handlers) {
     this.ticket = ticket;
@@ -104,7 +106,7 @@ export class SpeechRealtimeClient {
       captured_ms: Math.round((this.sentSamples / SPEECH_REALTIME_SAMPLE_RATE) * 1000),
       reason
     }));
-    window.setTimeout(() => {
+    this.finalTimer = window.setTimeout(() => {
       if (!this.finishReject || this.terminal) return;
       this.fail({ code: "speech_timeout", retryable: true });
     }, FINAL_TIMEOUT_MS);
@@ -119,14 +121,21 @@ export class SpeechRealtimeClient {
       this.socket.send(JSON.stringify({ event: "cancel", last_sequence: Math.max(0, this.nextSequence - 1) }));
     }
     this.socket.close(1000, "fallback");
-    await Promise.race([
-      closed,
-      new Promise<void>((resolve) => window.setTimeout(resolve, RELEASE_TIMEOUT_MS))
-    ]);
+    this.clearTimers();
+    let releaseTimer = 0;
+    try {
+      await Promise.race([
+        closed,
+        new Promise<void>((resolve) => { releaseTimer = window.setTimeout(resolve, RELEASE_TIMEOUT_MS); })
+      ]);
+    } finally {
+      window.clearTimeout(releaseTimer);
+    }
   }
 
   async cancel() {
     this.terminal = true;
+    this.clearTimers();
     this.tail = new Int16Array();
     if (this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({ event: "cancel", last_sequence: Math.max(0, this.nextSequence - 1) }));
@@ -138,11 +147,18 @@ export class SpeechRealtimeClient {
     return new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
-      window.setTimeout(() => {
+      this.readyTimer = window.setTimeout(() => {
         if (this.ready || this.terminal) return;
         this.fail({ code: "speech_timeout", retryable: true });
       }, READY_TIMEOUT_MS);
     });
+  }
+
+  private clearTimers() {
+    window.clearTimeout(this.readyTimer);
+    window.clearTimeout(this.finalTimer);
+    this.readyTimer = 0;
+    this.finalTimer = 0;
   }
 
   private sendFrame(samples: Int16Array) {
@@ -181,6 +197,8 @@ export class SpeechRealtimeClient {
         return;
       }
       this.ready = true;
+      window.clearTimeout(this.readyTimer);
+      this.readyTimer = 0;
       this.readyResolve?.();
       this.readyResolve = null;
       this.readyReject = null;
@@ -215,6 +233,7 @@ export class SpeechRealtimeClient {
         }
         this.revision = revision;
         this.terminal = true;
+        this.clearTimers();
         this.finishResolve({
           revision,
           text: event.text,
@@ -242,6 +261,7 @@ export class SpeechRealtimeClient {
     if (this.terminal) return;
     const wasReady = this.ready;
     this.terminal = true;
+    this.clearTimers();
     this.readyReject?.(failure);
     this.readyResolve = null;
     this.readyReject = null;

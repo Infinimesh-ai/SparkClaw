@@ -12,19 +12,29 @@ if (configFile.error) {
 const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath));
 const program = ts.createProgram(parsed.fileNames, parsed.options);
 const checker = program.getTypeChecker();
-const englishPath = path.join(root, "src", "i18n", "en.ts");
-const englishSource = program.getSourceFile(englishPath);
-if (!englishSource) throw new Error("src/i18n/en.ts is not part of the TypeScript program");
 
-const englishDeclaration = englishSource.statements.find((statement) =>
-  ts.isVariableStatement(statement) && statement.declarationList.declarations.some((declaration) =>
-    ts.isIdentifier(declaration.name) && declaration.name.text === "en"
-  )
-);
-const englishVariable = englishDeclaration?.declarationList.declarations.find((declaration) =>
-  ts.isIdentifier(declaration.name) && declaration.name.text === "en"
-);
-if (!englishVariable?.initializer) throw new Error("src/i18n/en.ts must export const en");
+function dictionaryInitializer(relativePath, name) {
+  const sourceFile = program.getSourceFile(path.join(root, ...relativePath.split("/")));
+  if (!sourceFile) throw new Error(`${relativePath} is not part of the TypeScript program`);
+  const statement = sourceFile.statements.find((candidate) =>
+    ts.isVariableStatement(candidate) && candidate.declarationList.declarations.some((declaration) =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === name
+    )
+  );
+  const variable = statement?.declarationList.declarations.find((declaration) =>
+    ts.isIdentifier(declaration.name) && declaration.name.text === name
+  );
+  if (!variable?.initializer) throw new Error(`${relativePath} must export const ${name}`);
+  // Look through `satisfies` so we see the keys the literal actually carries,
+  // not the type it was checked against.
+  const initializer = ts.isSatisfiesExpression(variable.initializer)
+    ? variable.initializer.expression
+    : variable.initializer;
+  return { sourceFile, initializer };
+}
+
+const { sourceFile: englishSource, initializer: englishInitializer } = dictionaryInitializer("src/i18n/en.ts", "en");
+const { sourceFile: chineseSource, initializer: chineseInitializer } = dictionaryInitializer("src/i18n/zh.ts", "zh");
 
 function declarationFor(symbol) {
   return symbol.valueDeclaration ?? symbol.declarations?.[0];
@@ -63,7 +73,45 @@ function collect(type, prefix = []) {
   return collected;
 }
 
-collect(checker.getTypeAtLocation(englishVariable.initializer));
+collect(checker.getTypeAtLocation(englishInitializer));
+
+// zh/en key-set parity: `satisfies typeof en` only excess-checks direct
+// object literals, so assert deep key-set equality here as well.
+function collectLeafPaths(type, sourceFile, prefix, out) {
+  const properties = checker.getPropertiesOfType(type).filter((symbol) => {
+    const declaration = declarationFor(symbol);
+    return Boolean(declaration && declaration.getSourceFile() === sourceFile);
+  });
+  for (const symbol of properties) {
+    const declaration = declarationFor(symbol);
+    const propertyType = checker.getTypeOfSymbolAtLocation(symbol, declaration);
+    const dottedPath = [...prefix, symbol.name];
+    const children = checker.getPropertiesOfType(propertyType).filter((child) => {
+      const childDeclaration = declarationFor(child);
+      return Boolean(childDeclaration && childDeclaration.getSourceFile() === sourceFile);
+    });
+    if (children.length === 0) out.add(dottedPath.join("."));
+    else collectLeafPaths(propertyType, sourceFile, dottedPath, out);
+  }
+  return out;
+}
+
+const englishLeafPaths = new Set(leaves.values());
+const chineseLeafPaths = collectLeafPaths(checker.getTypeAtLocation(chineseInitializer), chineseSource, [], new Set());
+const missingInChinese = [...englishLeafPaths].filter((dottedPath) => !chineseLeafPaths.has(dottedPath)).sort();
+const extraInChinese = [...chineseLeafPaths].filter((dottedPath) => !englishLeafPaths.has(dottedPath)).sort();
+if (missingInChinese.length > 0 || extraInChinese.length > 0) {
+  if (missingInChinese.length > 0) {
+    console.error("English translation keys missing from zh:");
+    for (const dottedPath of missingInChinese) console.error(`  ${dottedPath}`);
+  }
+  if (extraInChinese.length > 0) {
+    console.error("Excess zh translation keys with no English counterpart:");
+    for (const dottedPath of extraInChinese) console.error(`  ${dottedPath}`);
+  }
+  process.exitCode = 1;
+}
+
 const used = new Set();
 
 function markLeaf(symbol) {
@@ -120,6 +168,6 @@ if (unused.length > 0) {
   console.error("Unused English translation keys:");
   for (const dottedPath of unused) console.error(`  ${dottedPath}`);
   process.exitCode = 1;
-} else {
-  console.log(`Checked ${leaves.size} translation keys; all are used by production code.`);
+} else if (process.exitCode !== 1) {
+  console.log(`Checked ${leaves.size} translation keys; all are used by production code and zh/en key sets match.`);
 }

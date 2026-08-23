@@ -11,7 +11,7 @@ import type { Copy as CopyText, Language } from "../i18n";
 import { isImageAttachment, isImageContentType, WorkspaceFileImage } from "./messages";
 import { VoiceInputControl, VoiceInputStatus } from "./VoiceInputButton";
 import type { useVoiceInput } from "../hooks/useVoiceInput";
-import type { VoiceInputState } from "../hooks/useVoiceInput";
+import { voiceInputLabel } from "../lib/voiceLabels";
 import {
   fileKindLabel,
   fileNameFromPath,
@@ -69,7 +69,6 @@ export function ComposerDock({
     [availableDocuments, documentUsage]
   );
   const voiceLabel = voiceInputLabel(voice.state, voice.errorCode, voice.errorDetail, voice.deviceFallback, text);
-  const voiceTitle = voiceInputTitle(voice.state, voiceLabel, text);
 
   function currentVoiceAnchor() {
     const input = composerInputRef.current;
@@ -243,23 +242,9 @@ export function ComposerDock({
             <FileSearch size={18} />
           </button>
           <VoiceInputControl
-            state={voice.state}
-            disabled={voice.disabled}
-            active={voice.active}
-            title={voiceTitle}
-            devices={voice.devices}
-            selectedDeviceId={voice.selectedDeviceId}
-            silenceMode={voice.silenceMode}
-            previewState={voice.previewState}
-            previewLevel={voice.previewLevel}
-            previewError={voiceCaptureFailureLabel(voice.previewErrorCode, "", text)}
+            voice={voice}
             text={text}
-            onClick={() => voice.toggle(currentVoiceAnchor())}
-            onRefreshDevices={() => void voice.refreshDevices()}
-            onSelectDevice={voice.selectDevice}
-            onSelectSilenceMode={voice.setSilenceMode}
-            onTogglePreview={voice.togglePreview}
-            onClosePicker={voice.stopPreview}
+            onToggle={() => voice.toggle(currentVoiceAnchor())}
           />
           <textarea
             ref={composerInputRef}
@@ -342,71 +327,4 @@ export function ComposerDock({
       )}
     </>
   );
-}
-
-function voiceInputTitle(state: VoiceInputState, label: string, text: CopyText) {
-  if (state === "recording_realtime" || state === "recording_batch_only") return text.chat.voiceStop;
-  if (state !== "idle" && state !== "disabled" && state !== "error" && state !== "retryable_error" && state !== "pending_insert") {
-    return text.chat.voiceCancel;
-  }
-  if (state === "disabled") return label;
-  return text.chat.voiceStart;
-}
-
-function voiceInputLabel(state: VoiceInputState, errorCode: string, errorDetail: string, deviceFallback: boolean, text: CopyText) {
-  if (state === "acquiring_microphone") return text.chat.voiceRequesting;
-  if (state === "connecting_realtime") return text.chat.voiceConnectingRealtime;
-  if (state === "starting_capture") return text.chat.voiceStarting;
-  if (state === "starting_batch_capture") return text.chat.voiceStartingBatch;
-  if (state === "recording_realtime") return deviceFallback ? `${text.chat.voiceRecordingRealtime} · ${text.chat.voiceFallback}` : text.chat.voiceRecordingRealtime;
-  if (state === "recording_batch_only") return deviceFallback ? `${text.chat.voiceRecordingBatch} · ${text.chat.voiceFallback}` : text.chat.voiceRecordingBatch;
-  if (state === "finalizing_realtime") return text.chat.voiceFinalizingRealtime;
-  if (state === "recovering_batch") return text.chat.voiceRecoveringBatch;
-  if (state === "encoding") return text.chat.voicePreparing;
-  if (state === "transcribing") return text.chat.voiceTranscribing;
-  if (state === "pending_insert") return text.chat.voicePendingInsert;
-  if (state === "retryable_error") return voiceCaptureFailureLabel(errorCode, errorDetail, text);
-  return voiceCaptureFailureLabel(errorCode, errorDetail, text, state);
-}
-
-function voiceCaptureFailureLabel(errorCode: string, errorDetail: string, text: CopyText, state?: VoiceInputState) {
-  switch (errorCode) {
-    case "voice_capture_unsupported":
-      return text.chat.voiceUnsupported;
-    case "voice_permission_denied":
-      return text.chat.voicePermissionDenied;
-    case "voice_no_device":
-      return text.chat.voiceNoDevice;
-    case "voice_capture_failed":
-      return text.chat.voiceCaptureFailed;
-    case "voice_capture_start_timeout":
-      return text.chat.voiceCaptureStartTimeout;
-    case "voice_device_disconnected":
-      return text.chat.voiceDeviceDisconnected;
-    case "voice_capture_interrupted":
-      return text.chat.voiceCaptureInterrupted;
-    case "speech_too_short":
-      return text.chat.voiceTooShort;
-    case "speech_no_speech":
-      return text.chat.voiceNoSpeech;
-    case "speech_too_large":
-      return text.chat.voiceTooLarge;
-    case "speech_busy":
-      return text.chat.voiceBusy;
-    case "speech_disabled":
-    case "speech_model_unavailable":
-      return state === "disabled" ? text.chat.voiceUnavailable : errorDetail || text.chat.voiceUnavailable;
-    case "speech_timeout":
-      return text.chat.voiceTimeout;
-    case "speech_stream_overrun":
-      return text.chat.voiceStreamOverrun;
-    case "speech_stream_protocol_error":
-      return text.chat.voiceStreamFailed;
-    case "speech_retry_expired":
-      return text.chat.voiceRetryExpired;
-    case "speech_inference_failed":
-      return errorDetail || text.chat.voiceFailed;
-    default:
-      return state === "error" ? errorDetail || text.chat.voiceFailed : errorDetail;
-  }
 }

@@ -145,17 +145,23 @@ export class PCMInputCapture {
     this.firstSampleResolve?.();
     this.firstSampleResolve = null;
     this.stream.getTracks().forEach((track) => track.stop());
-    await this.flushWorklet();
-    const tail = this.resampler?.flush() ?? new Int16Array();
-    if (tail.length > 0) this.acceptCanonicalSamples(tail);
-    this.accepting = false;
-    const samples = mergePCM16Chunks(this.chunks);
-    await this.teardown();
-    return {
-      samples,
-      sampleRate: CANONICAL_SAMPLE_RATE,
-      durationMs: Math.round((samples.length / CANONICAL_SAMPLE_RATE) * 1000)
-    };
+    try {
+      await this.flushWorklet();
+      const tail = this.resampler?.flush() ?? new Int16Array();
+      if (tail.length > 0) this.acceptCanonicalSamples(tail);
+      const samples = mergePCM16Chunks(this.chunks);
+      return {
+        samples,
+        sampleRate: CANONICAL_SAMPLE_RATE,
+        durationMs: Math.round((samples.length / CANONICAL_SAMPLE_RATE) * 1000)
+      };
+    } finally {
+      // Release the AudioContext even when the flush/merge path throws;
+      // otherwise `stopped` stays false and the context leaks (cancel()
+      // only awaits the already-rejected stop promise).
+      this.accepting = false;
+      await this.teardown();
+    }
   }
 
   private handleWorkletMessage(event: MessageEvent<WorkletMessage>) {

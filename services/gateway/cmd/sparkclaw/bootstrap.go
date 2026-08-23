@@ -113,6 +113,7 @@ func newISCPPairingService(cfg config.Config, st iscppairing.Repository) (*iscpp
 
 func (s *gatewayServices) Start(ctx context.Context) error {
 	s.server.BindLifecycleContext(ctx)
+	s.server.StartRetentionSweeps(ctx)
 	s.connectors.credentials.BindLifecycle(ctx)
 	if err := s.connectors.registry.Start(ctx); err != nil {
 		return err

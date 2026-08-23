@@ -1,6 +1,7 @@
 package toolhub
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -8,13 +9,25 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
+
+type cancelAfterBindingListStore struct {
+	Repository
+	cancel context.CancelFunc
+}
+
+func (s *cancelAfterBindingListStore) ListNotificationBindings(ctx context.Context, channel, status string) ([]app.NotificationBinding, error) {
+	bindings, err := s.Repository.ListNotificationBindings(ctx, channel, status)
+	s.cancel()
+	return bindings, err
+}
 
 func TestRemindersCreateListCancel(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	hub := New(cfg, st)
-	session := st.CreateSession("Reminder test")
+	session := storetest.MustCreateSession(t, st, "Reminder test")
 
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text":     "带伞",
@@ -56,7 +69,7 @@ func TestRemindersCreateListCancel(t *testing.T) {
 
 func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Scheduled browser request")
+	session := storetest.MustCreateSession(t, st, "Scheduled browser request")
 	hub := New(config.Default(), st)
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text": "search tomorrow's weather", "due_time": "2026-07-18T09:00:00+08:00",
@@ -64,7 +77,7 @@ func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, created.Output.(map[string]any)["reminder_id"].(string))
 	if !ok || reminder.ScheduleSpec == nil {
 		t.Fatalf("runtime schedule was not persisted: %#v", reminder)
 	}
@@ -73,11 +86,31 @@ func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	}
 }
 
+func TestRemindersCreateKeepsOwnedContextThroughScheduleSave(t *testing.T) {
+	base := store.NewMemoryStore()
+	session := storetest.MustCreateSession(t, base, "Canceled schedule")
+	storetest.MustCreateNotificationBinding(t, base, app.NotificationBinding{
+		ID: "binding-cancel-schedule", Channel: "alpha", Status: app.NotificationBindingActive,
+		ExternalUserID: "recipient", Scopes: []string{app.BindingScopeReminderSendSelf},
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	wrapped := &cancelAfterBindingListStore{Repository: base, cancel: cancel}
+	hub := New(config.Default(), wrapped)
+	if _, err := hub.Execute(ctx, "reminders.create", map[string]any{
+		"text": "must not persist", "due_time": "2026-07-18T09:00:00+08:00", "channel": "alpha",
+	}, session.ID, "run_canceled_schedule"); err == nil {
+		t.Fatal("canceled reminder schedule was persisted")
+	}
+	if reminders := mustToolhubListReminders(t, base, app.ReminderFilter{}); len(reminders) != 0 {
+		t.Fatalf("canceled reminder persisted: %#v", reminders)
+	}
+}
+
 func TestRemindersListIgnoresRemovedLegacyScheduleSchema(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Schedule schema cutoff")
+	session := storetest.MustCreateSession(t, st, "Schedule schema cutoff")
 	now := time.Now().UTC()
-	st.SaveReminder(app.Reminder{
+	mustToolhubSaveReminder(t, st, app.Reminder{
 		ID: "legacy-reminder", SessionID: session.ID, Text: "old literal payload", DueTime: now.Add(time.Hour),
 		Status: "pending", CreatedAt: now, UpdatedAt: now,
 		ScheduleSpec: &app.ScheduleSpec{SchemaVersion: app.ScheduleSpecSchemaVersion - 1},
@@ -95,7 +128,7 @@ func TestRemindersListIgnoresRemovedLegacyScheduleSchema(t *testing.T) {
 
 func TestRemindersUpdateRejectsStaleListVersion(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Schedule edit")
+	session := storetest.MustCreateSession(t, st, "Schedule edit")
 	hub := New(config.Default(), st)
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text": "first", "due_time": "2026-07-18T09:00:00+08:00",
@@ -128,7 +161,7 @@ func TestRemindersCreateRequiresRecipientWhenWebSessionHasMultipleWeixinBindings
 		{ID: "bind_a", Channel: "weixin", Provider: "openclaw-weixin-qr", Status: "active", DisplayName: "用户A", ExternalUserID: "wx-a", ContextToken: "ctx-a", CredentialRef: "cred-a", CreatedAt: now, UpdatedAt: now},
 		{ID: "bind_b", Channel: "weixin", Provider: "openclaw-weixin-qr", Status: "active", DisplayName: "用户B", ExternalUserID: "wx-b", ContextToken: "ctx-b", CredentialRef: "cred-b", CreatedAt: now, UpdatedAt: now},
 	} {
-		st.SaveNotificationBinding(binding)
+		storetest.MustCreateNotificationBinding(t, st, binding)
 	}
 	hub := New(cfg, st)
 	_, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
@@ -145,7 +178,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:             "bind_a",
 		Channel:        "weixin",
 		Provider:       "openclaw-weixin-qr",
@@ -158,7 +191,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:             "bind_b",
 		Channel:        "weixin",
 		Provider:       "openclaw-weixin-qr",
@@ -181,7 +214,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 		t.Fatal(err)
 	}
 	out := created.Output.(map[string]any)
-	reminder, ok := st.GetReminder(out["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, out["reminder_id"].(string))
 	if !ok {
 		t.Fatal("reminder missing")
 	}
@@ -193,8 +226,8 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
-	linked := st.CreateSession("微信会话")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	linked := storetest.MustCreateSession(t, st, "微信会话")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:            "bind_weixin",
 		Channel:       "weixin",
 		Provider:      "openclaw-weixin-qr",
@@ -204,7 +237,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
-	st.SaveExternalChatSession(app.WeixinChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{
 		BindingID:        "bind_weixin",
 		Channel:          "weixin",
 		Provider:         "openclaw-weixin-qr",
@@ -226,7 +259,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := created.Output.(map[string]any)
-	reminder, ok := st.GetReminder(out["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, out["reminder_id"].(string))
 	if !ok {
 		t.Fatal("reminder missing")
 	}
@@ -238,13 +271,13 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
-	linked := st.CreateSession("Telegram conversation")
-	st.SaveNotificationBinding(app.NotificationBinding{
+	linked := storetest.MustCreateSession(t, st, "Telegram conversation")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api", Status: "active",
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
 		CredentialRef: "cred_telegram", BaseURL: "https://api.telegram.org",
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		BindingID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api",
 		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
 		LinkedSessionID: linked.ID, Status: "active",
@@ -256,7 +289,7 @@ func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
+	reminder, ok := mustToolhubGetReminder(t, st, created.Output.(map[string]any)["reminder_id"].(string))
 	if !ok {
 		t.Fatal("reminder missing")
 	}

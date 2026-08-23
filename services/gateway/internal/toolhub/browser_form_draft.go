@@ -22,14 +22,20 @@ func (h *ToolHub) selectBrowserFormDraft(ctx context.Context, args map[string]an
 }
 
 func (h *ToolHub) executeBrowserFormDraft(ctx context.Context, operation string, args map[string]any, sessionID, runID string) (Result, error) {
-	run, ok := h.store.GetRun(runID)
+	run, ok, err := h.store.GetRun(ctx, runID)
+	if err != nil {
+		return Result{}, draftForbiddenError("browser form workflow state is unavailable")
+	}
 	if !ok || run.SessionID != sessionID || run.Workflow == nil || run.Workflow.Plan.ProfileID != app.WorkflowBrowserFormDraft {
 		return Result{}, draftForbiddenError("browser form mutation is available only inside browser.form_draft")
 	}
 	snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
 	pageID := strings.TrimSpace(browserAutomationStringValue(args["page_id"]))
 	elementRef := strings.TrimSpace(browserAutomationStringValue(args["uid"]))
-	calls := h.store.ListToolCalls(sessionID)
+	calls, err := h.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return Result{}, draftForbiddenError("browser form evidence is unavailable")
+	}
 	snapshot, found := findBrowserSnapshotRecord(calls, runID, snapshotID)
 	latest, latestFound := latestBrowserSnapshotRecord(calls, runID)
 	if !found || !latestFound || latest.SnapshotID != snapshotID || snapshot.PageID != pageID || !snapshot.Refs[elementRef] ||

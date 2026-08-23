@@ -39,15 +39,21 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 	if _, required, err := mcpResponseMediaAccessRequest(run); err != nil {
 		return err
 	} else if required {
-		call := r.workspaceDataAccessCallForRun(run.ID)
+		call, err := r.workspaceDataAccessCallForRun(ctx, run.ID)
+		if err != nil {
+			return err
+		}
 		if call == nil || call.Status != "completed_after_approval" {
 			return errors.New("external MCP workspace data access requires owner approval")
 		}
-		approval, ok := r.store.GetApproval(call.ApprovalID)
+		approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+		if err != nil {
+			return err
+		}
 		if !ok || approval.Status != "approved" {
 			return errors.New("external MCP workspace data access approval is unavailable")
 		}
-		if err := r.validateWorkspaceDataAccessApproval(*call, approval); err != nil {
+		if err := r.validateWorkspaceDataAccessApproval(ctx, *call, approval); err != nil {
 			return err
 		}
 	}
@@ -69,13 +75,18 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 	if len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != "answer" {
 		return errors.New("conversation response-media detection did not activate the answer node")
 	}
-	r.store.SaveRun(*run)
-	r.store.AddAudit(app.AuditEvent{
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.response_media_detected",
 		Summary: string(decision.Status), Fields: map[string]any{
 			"reason_code": decision.ReasonCode, "resource_count": len(decision.Resources), "locator_count": len(run.MessageContext.MediaLocators),
 		},
 	})
+
 	return nil
 }
 
@@ -90,7 +101,7 @@ func (r Runtime) detectConversationResponseMedia(ctx context.Context, run app.Ag
 			}
 		}
 		if len(media) > 0 {
-			return r.governResponseMediaParts(run, media, "current_turn_attachment")
+			return r.governResponseMediaParts(ctx, run, media, "current_turn_attachment")
 		}
 		if len(locators) == 0 {
 			if locator, ok := implicitResponseMediaLocator(run.Workflow.Route.Slots.Query); ok {
@@ -121,10 +132,10 @@ func (r Runtime) detectConversationResponseMedia(ctx context.Context, run app.Ag
 		part := responseMediaPart(index, candidate.relPath, locator.Caption)
 		parts = append(parts, part)
 	}
-	return r.governResponseMediaParts(run, parts, "media_locator")
+	return r.governResponseMediaParts(ctx, run, parts, "media_locator")
 }
 
-func (r Runtime) governResponseMediaParts(run app.AgentRun, parts []app.MessagePart, provenance string) (app.ResponseMediaDecision, app.MessageContent) {
+func (r Runtime) governResponseMediaParts(ctx context.Context, run app.AgentRun, parts []app.MessagePart, provenance string) (app.ResponseMediaDecision, app.MessageContent) {
 	if len(parts) == 0 {
 		return app.ResponseMediaDecision{Status: app.ResponseMediaNone}, app.MessageContent{}
 	}
@@ -140,7 +151,7 @@ func (r Runtime) governResponseMediaParts(run app.AgentRun, parts []app.MessageP
 	}
 	totalBytes := 0
 	for _, source := range parts {
-		part, err := r.governWorkflowRequestPart(run, source)
+		part, err := r.governWorkflowRequestPart(ctx, run, source)
 		if err != nil {
 			return app.ResponseMediaDecision{Status: app.ResponseMediaBlocked, ReasonCode: "response_media_invalid"}, app.MessageContent{}
 		}
@@ -163,7 +174,11 @@ func (r Runtime) governResponseMediaParts(run app.AgentRun, parts []app.MessageP
 }
 
 func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentRun, locator app.MessageMediaLocator) (responseMediaCandidate, string, error) {
-	root, err := governedResponseMediaRoot(r.workspaceRootForSession(run.SessionID))
+	workspaceRoot, err := r.workspaceRootForSession(ctx, run.SessionID)
+	if err != nil {
+		return responseMediaCandidate{}, "file_lookup_failed", err
+	}
+	root, err := governedResponseMediaRoot(workspaceRoot)
 	if err != nil {
 		return responseMediaCandidate{}, "file_lookup_failed", err
 	}
@@ -194,10 +209,10 @@ func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentR
 		},
 	})
 	if err != nil {
-		r.auditResponseMediaLookup(run, mode, term, workspacefiles.SearchResult{}, err)
+		r.auditResponseMediaLookup(ctx, run, mode, term, workspacefiles.SearchResult{}, err)
 		return responseMediaCandidate{}, "file_lookup_failed", err
 	}
-	r.auditResponseMediaLookup(run, mode, term, result, nil)
+	r.auditResponseMediaLookup(ctx, run, mode, term, result, nil)
 	if !result.Complete {
 		return responseMediaCandidate{}, "file_lookup_incomplete", errors.New("workspace traversal did not complete")
 	}
@@ -211,10 +226,10 @@ func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentR
 			},
 		})
 		if err != nil {
-			r.auditResponseMediaLookup(run, workspacefiles.MatchFuzzy, exactName, workspacefiles.SearchResult{}, err)
+			r.auditResponseMediaLookup(ctx, run, workspacefiles.MatchFuzzy, exactName, workspacefiles.SearchResult{}, err)
 			return responseMediaCandidate{}, "file_lookup_failed", err
 		}
-		r.auditResponseMediaLookup(run, workspacefiles.MatchFuzzy, exactName, result, nil)
+		r.auditResponseMediaLookup(ctx, run, workspacefiles.MatchFuzzy, exactName, result, nil)
 		if !result.Complete {
 			return responseMediaCandidate{}, "file_lookup_incomplete", errors.New("workspace traversal did not complete")
 		}
@@ -225,7 +240,7 @@ func (r Runtime) resolveResponseMediaLocator(ctx context.Context, run app.AgentR
 	return responseMediaCandidate{relPath: result.Matches[0].RelPath, name: result.Matches[0].Name}, "", nil
 }
 
-func (r Runtime) auditResponseMediaLookup(run app.AgentRun, mode workspacefiles.MatchMode, term string, result workspacefiles.SearchResult, searchErr error) {
+func (r Runtime) auditResponseMediaLookup(ctx context.Context, run app.AgentRun, mode workspacefiles.MatchMode, term string, result workspacefiles.SearchResult, searchErr error) {
 	digest := sha256.Sum256([]byte(strings.TrimSpace(term)))
 	fields := map[string]any{
 		"query_digest": hex.EncodeToString(digest[:]), "stage": mode, "match_count": result.Total,
@@ -239,10 +254,11 @@ func (r Runtime) auditResponseMediaLookup(run app.AgentRun, mode workspacefiles.
 	if searchErr != nil {
 		fields["reason_code"] = "file_lookup_failed"
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.response_media_lookup",
 		Summary: string(mode), Fields: fields,
 	})
+
 }
 
 func governedResponseMediaRoot(root string) (string, error) {
@@ -328,7 +344,7 @@ func responseMediaPart(index int, relPath, caption string) app.MessagePart {
 	}
 }
 
-func (r Runtime) runConversationResponseContentStep(run app.AgentRun) workflowExecutionResult {
+func (r Runtime) runConversationResponseContentStep(ctx context.Context, run app.AgentRun) workflowExecutionResult {
 	if run.MessageContext == nil || run.MessageContext.ResponseMedia == nil {
 		return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: the response-media decision is unavailable."}
 	}
@@ -343,10 +359,14 @@ func (r Runtime) runConversationResponseContentStep(run app.AgentRun) workflowEx
 			content = cloneMessageContent(run.MessageContext.RequestContent)
 		}
 		run.MessageContext.ResponseContent = content
-		r.store.SaveRun(run)
+		if _, err := r.saveRun(ctx, run); err != nil {
+			result := workflowExecutionResult{Halted: true}
+			result.fail(workflowFailureStateInvalid, err)
+			return result
+		}
 		return workflowExecutionResult{FinalAnswer: publishedMessageSummary(content), Completed: true}
 	case app.ResponseMediaSelected:
-		if err := r.revalidateFrozenResponseMedia(&run); err != nil {
+		if err := r.revalidateFrozenResponseMedia(ctx, &run); err != nil {
 			return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: response media changed after it was selected."}
 		}
 		return workflowExecutionResult{FinalAnswer: publishedMessageSummary(run.MessageContext.ResponseContent), Completed: true}
@@ -355,18 +375,22 @@ func (r Runtime) runConversationResponseContentStep(run app.AgentRun) workflowEx
 	}
 }
 
-func (r Runtime) revalidateFrozenResponseMedia(run *app.AgentRun) error {
+func (r Runtime) revalidateFrozenResponseMedia(ctx context.Context, run *app.AgentRun) error {
 	if run == nil || run.MessageContext == nil || run.MessageContext.ResponseMedia == nil ||
 		run.MessageContext.ResponseMedia.Status != app.ResponseMediaSelected {
 		return errors.New("selected response media is unavailable")
 	}
-	decision, content := r.governResponseMediaParts(*run, run.MessageContext.ResponseContent.Parts, "response_media_frozen")
+	decision, content := r.governResponseMediaParts(ctx, *run, run.MessageContext.ResponseContent.Parts, "response_media_frozen")
 	if decision.Status != app.ResponseMediaSelected || !sameFrozenResponseMedia(*run.MessageContext.ResponseMedia, decision) {
 		return errors.New("selected response media changed")
 	}
 	run.MessageContext.ResponseMedia = &decision
 	run.MessageContext.ResponseContent = content
-	r.store.SaveRun(*run)
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
 	return nil
 }
 

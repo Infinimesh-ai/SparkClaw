@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,30 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
+func TestPassiveNotificationStoreErrorProjection(t *testing.T) {
+	privateCause := errors.New("private passive notification backend path")
+	tests := []struct {
+		code       store.StoreErrorCode
+		wantStatus int
+		wantCopy   string
+	}{
+		{code: store.StoreErrorInvalid, wantStatus: http.StatusBadRequest, wantCopy: "notification request is invalid"},
+		{code: store.StoreErrorNotFound, wantStatus: http.StatusNotFound, wantCopy: "notification was not found"},
+		{code: store.StoreErrorConflict, wantStatus: http.StatusConflict, wantCopy: "notification conflicts with existing state"},
+		{code: store.StoreErrorCanceled, wantStatus: http.StatusRequestTimeout, wantCopy: "notification request was canceled"},
+		{code: store.StoreErrorTimeout, wantStatus: http.StatusGatewayTimeout, wantCopy: "notification operation timed out"},
+		{code: store.StoreErrorUnavailable, wantStatus: http.StatusServiceUnavailable, wantCopy: "notification service is unavailable"},
+		{code: store.StoreErrorCorrupt, wantStatus: http.StatusServiceUnavailable, wantCopy: "notification service is unavailable"},
+	}
+	for _, test := range tests {
+		response := httptest.NewRecorder()
+		writePassiveNotificationStoreError(response, &store.StoreError{Code: test.code, Operation: store.OperationPassiveNotificationList, Err: privateCause})
+		if response.Code != test.wantStatus || !strings.Contains(response.Body.String(), test.wantCopy) || strings.Contains(response.Body.String(), privateCause.Error()) {
+			t.Fatalf("code=%q response=%d body=%s", test.code, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestPassiveNotificationAPIScopesAndPersistsReadState(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	st := store.NewMemoryStore()
@@ -31,10 +56,10 @@ func TestPassiveNotificationAPIScopesAndPersistsReadState(t *testing.T) {
 
 	defaultNotification := gatewayTestNotification("notification-default", app.DefaultOwnerID)
 	otherNotification := gatewayTestNotification("notification-other", "other-owner")
-	if _, _, err := st.CreatePassiveNotification(defaultNotification); err != nil {
+	if _, _, err := st.CreatePassiveNotification(t.Context(), defaultNotification); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.CreatePassiveNotification(otherNotification); err != nil {
+	if _, _, err := st.CreatePassiveNotification(t.Context(), otherNotification); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,7 +87,10 @@ func TestPassiveNotificationAPIScopesAndPersistsReadState(t *testing.T) {
 	if markRead.StatusCode != http.StatusOK {
 		t.Fatalf("mark read returned %d", markRead.StatusCode)
 	}
-	reloaded, ok := st.GetPassiveNotification(app.DefaultOwnerID, defaultNotification.ID)
+	reloaded, ok, err := st.GetPassiveNotification(t.Context(), app.DefaultOwnerID, defaultNotification.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || reloaded.ReadAt == nil {
 		t.Fatalf("read state was not stored: %#v", reloaded)
 	}
@@ -92,7 +120,7 @@ func TestPassiveNotificationGlobalStreamEmitsNewInboxItem(t *testing.T) {
 	}
 
 	notification := gatewayTestNotification("notification-live", app.DefaultOwnerID)
-	if _, _, err := st.CreatePassiveNotification(notification); err != nil {
+	if _, _, err := st.CreatePassiveNotification(t.Context(), notification); err != nil {
 		t.Fatal(err)
 	}
 	scanner := bufio.NewScanner(response.Body)
@@ -124,13 +152,13 @@ func TestPassiveNotificationGlobalStreamEmitsNewInboxItem(t *testing.T) {
 // countingNotificationStore counts ListPassiveNotifications calls so tests can
 // prove the SSE loop short-circuits on an unchanged revision.
 type countingNotificationStore struct {
-	store.Store
+	runtimeTestRepository
 	listCalls atomic.Int64
 }
 
-func (s *countingNotificationStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
+func (s *countingNotificationStore) ListPassiveNotifications(ctx context.Context, ownerID, after string, limit int) ([]app.PassiveNotification, error) {
 	s.listCalls.Add(1)
-	return s.Store.ListPassiveNotifications(ownerID, after, limit)
+	return s.runtimeTestRepository.ListPassiveNotifications(ctx, ownerID, after, limit)
 }
 
 func TestPassiveNotificationStreamSkipsListingWhenRevisionUnchanged(t *testing.T) {
@@ -140,7 +168,7 @@ func TestPassiveNotificationStreamSkipsListingWhenRevisionUnchanged(t *testing.T
 
 	cfg := testConfig(t.TempDir())
 	inner := store.NewMemoryStore()
-	st := &countingNotificationStore{Store: inner}
+	st := &countingNotificationStore{runtimeTestRepository: inner}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
@@ -167,7 +195,7 @@ func TestPassiveNotificationStreamSkipsListingWhenRevisionUnchanged(t *testing.T
 	}
 
 	notification := gatewayTestNotification("notification-counter", app.DefaultOwnerID)
-	if _, _, err := st.CreatePassiveNotification(notification); err != nil {
+	if _, _, err := st.CreatePassiveNotification(t.Context(), notification); err != nil {
 		t.Fatal(err)
 	}
 	scanner := bufio.NewScanner(response.Body)

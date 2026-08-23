@@ -19,13 +19,21 @@ import (
 )
 
 type NotificationAdapter struct {
-	store     store.Store
+	store     NotificationRepository
 	vault     credential.CredentialVault
 	cfg       config.NotificationChannelConfig
 	resources delivery.ResourceResolver
 }
 
-func NewNotificationAdapter(st store.Store, vault credential.CredentialVault, cfg config.NotificationChannelConfig) *NotificationAdapter {
+type NotificationRepository interface {
+	store.ConnectorRepository
+	store.ScheduleRepository
+	store.SessionRepository
+	store.ExternalChatRepository
+	store.ArtifactMetadataRepository
+}
+
+func NewNotificationAdapter(st NotificationRepository, vault credential.CredentialVault, cfg config.NotificationChannelConfig) *NotificationAdapter {
 	return &NotificationAdapter{store: st, vault: vault, cfg: cfg, resources: delivery.NewStoreResourceResolver(st)}
 }
 
@@ -44,9 +52,9 @@ func (a *NotificationAdapter) Capabilities() app.DeliveryCapabilities {
 }
 
 func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	binding, err := a.deliveryBinding(endpoint, request)
+	binding, err := a.deliveryBinding(ctx, endpoint, request)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
 	resources := delivery.ResourceResolver(a.resources)
 	if endpoint.SessionID != "" {
@@ -54,18 +62,18 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeArtifactInvalid, "telegram delivery resource is invalid", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeArtifactInvalid, "telegram delivery resource is invalid", "blocked", nil)
 	}
 	chatID, threadID, err := telegramDeliveryAddress(endpoint, binding)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, err.Error(), "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeBindingUnavailable, err.Error(), "blocked", nil)
 	}
 	if a.vault == nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "telegram credential is unavailable", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeBindingUnavailable, "telegram credential is unavailable", "blocked", nil)
 	}
 	token, err := a.vault.Open(ctx, binding.CredentialRef)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "telegram credential is unavailable", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeBindingUnavailable, "telegram credential is unavailable", "blocked", nil)
 	}
 	defer clear(token)
 	baseURL := strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/")
@@ -73,7 +81,7 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 		baseURL = strings.TrimRight(strings.TrimSpace(a.cfg.BaseURL), "/")
 	}
 	if baseURL == "" {
-		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "telegram provider is unavailable", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeBindingUnavailable, "telegram provider is unavailable", "blocked", nil)
 	}
 	client := NewClient(baseURL, string(token), &http.Client{Timeout: 15 * time.Second})
 	attemptedAt := time.Now().UTC()
@@ -103,18 +111,24 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 			for _, remaining := range prepared[index+1:] {
 				partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: remaining.Part.ID, Status: "not_attempted", Representation: telegramRepresentation(remaining), ErrorCode: code})
 			}
-			return a.deliveryFailure(endpoint, request, code, "telegram delivery failed", state, partReceipts)
+			return a.deliveryFailure(ctx, endpoint, request, code, "telegram delivery failed", state, partReceipts)
 		}
 		partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: item.Part.ID, Status: "sent", Representation: representation, ProviderRef: strconv.FormatInt(sent.MessageID, 10)})
 	}
 	deliveredAt := time.Now().UTC()
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", Attempt: 1, PartReceipts: partReceipts, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
-	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	if err := delivery.RecordExternalDelivery(ctx, a.store, endpoint, request, receipt); err != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "telegram delivery record could not be persisted", "outcome_unknown")
+	}
 	return receipt, nil
 }
 
-func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
-	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
+func (a *NotificationAdapter) deliveryBinding(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
+	binding, ok, err := a.store.GetNotificationBinding(ctx, strings.TrimSpace(endpoint.BindingRef))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding could not be read", "retryable")
+	}
+	if ok &&
 		binding.Status == "active" && binding.Channel == a.Key() {
 		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
@@ -142,7 +156,10 @@ func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, requ
 	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 	}
-	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
+	reminder, ok, err := a.store.GetReminder(ctx, strings.TrimSpace(request.ResultID))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram reminder binding could not be read", "retryable")
+	}
 	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), a.Key()) {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 	}
@@ -168,7 +185,7 @@ func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.Notificat
 	return chatID, threadID, nil
 }
 
-func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
+func (a *NotificationAdapter) deliveryFailure(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
 	err := delivery.DeliveryError{Code: code, Message: message, State: retryState}
 	status := app.DeliveryFailed
 	for _, part := range parts {
@@ -181,7 +198,9 @@ func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, requ
 		status = app.DeliveryOutcomeUnknown
 	}
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: status, Error: message, ErrorCode: code, RetryState: retryState, Attempt: 1, PartReceipts: parts, AttemptedAt: time.Now().UTC()}
-	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	if persistErr := delivery.RecordExternalDelivery(ctx, a.store, endpoint, request, receipt); persistErr != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "telegram delivery failure record could not be persisted", "outcome_unknown")
+	}
 	return receipt, err
 }
 
@@ -234,7 +253,10 @@ func firstNonEmpty(values ...string) string {
 }
 
 func (a *NotificationAdapter) Send(ctx context.Context, request notification.Notification) (notification.Result, error) {
-	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(request.BindingID))
+	binding, ok, err := a.store.GetNotificationBinding(ctx, strings.TrimSpace(request.BindingID))
+	if err != nil {
+		return a.failed(request, "telegram binding could not be read", "retryable")
+	}
 	if !ok || binding.Channel != "telegram" || binding.Status != "active" {
 		return a.failed(request, "telegram binding is unavailable", "blocked")
 	}

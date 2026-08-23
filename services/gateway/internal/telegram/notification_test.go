@@ -17,6 +17,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestNotificationAdapterUsesBoundEncryptedCredential(t *testing.T) {
@@ -43,11 +44,11 @@ func TestNotificationAdapterUsesBoundEncryptedCredential(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(7)})
-	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte(token))
+	ref, err := vault.Seal(t.Context(), "bind_notification", "telegram-bot-token", []byte(token))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind_notification", Channel: "telegram", Provider: "telegram-bot-api", Status: "active",
 		ExternalChatID: "99", ExternalThreadID: "7", CredentialRef: ref, BaseURL: server.URL,
 	})
@@ -62,7 +63,10 @@ func TestNotificationAdapterUsesBoundEncryptedCredential(t *testing.T) {
 	if gotChatID != 99 || gotThreadID != 7 || gotText != "scheduled reminder" {
 		t.Fatalf("unexpected Telegram payload: chat=%d thread=%d text=%q", gotChatID, gotThreadID, gotText)
 	}
-	stored, ok := st.GetCredentialSecret(ref)
+	stored, ok, err := st.GetCredentialSecret(t.Context(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || strings.Contains(stored.Value, token) {
 		t.Fatalf("credential was not encrypted at rest: %#v", stored)
 	}
@@ -79,11 +83,11 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(9)})
-	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte("123456:AA-multimedia"))
+	ref, err := vault.Seal(t.Context(), "bind_multimedia", "telegram-bot-token", []byte("123456:AA-multimedia"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_multimedia", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_multimedia", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
 	parts := []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "hello"}}
 	for _, item := range []struct {
 		id, name, content string
@@ -99,7 +103,7 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 		if err := os.WriteFile(path, []byte(item.content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		st.SaveArtifactObject(app.ArtifactObject{ID: item.id, Path: path, Key: item.name})
+		storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: item.id, Path: path, Key: item.name})
 		parts = append(parts, app.MessagePart{ID: item.id, Kind: item.kind, Disposition: item.disposition, ArtifactID: item.id, Name: item.name})
 	}
 	adapter := NewNotificationAdapter(st, vault, config.Default().Tools.Notifications.Channels["telegram"])
@@ -144,11 +148,11 @@ func TestNotificationAdapterSanitizesProviderFailure(t *testing.T) {
 	defer server.Close()
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(8)})
-	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte(token))
+	ref, err := vault.Seal(t.Context(), "bind_failure", "telegram-bot-token", []byte(token))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_failure", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_failure", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL})
 	result, sendErr := NewNotificationAdapter(st, vault, config.Default().Tools.Notifications.Channels["telegram"]).Send(t.Context(), notification.Notification{
 		Channel: "telegram", BindingID: binding.ID, Recipient: "99", CredentialRef: ref, MessageText: "reminder",
 	})

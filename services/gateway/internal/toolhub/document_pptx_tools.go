@@ -32,7 +32,10 @@ func (h *ToolHub) PreflightPPTXLayout(ctx context.Context, name string, args map
 	if err := h.Validate(name, args); err != nil {
 		return err
 	}
-	h = h.forSession(sessionID)
+	h, err := h.forSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
 	root := h.cfg.Workspaces.DefaultRoot
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err

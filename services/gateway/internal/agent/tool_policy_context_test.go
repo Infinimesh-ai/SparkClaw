@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -19,9 +20,9 @@ func TestExternalMCPWorkspaceToolQueuesApprovalBeforeFilesystemAccess(t *testing
 		t.Fatal(err)
 	}
 	run := externalMCPPolicyTestRun(session, "run_external_workspace")
-	st.SaveRun(run)
+	testSaveRun(st, run)
 
-	call, approval, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
 	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil || approval.PolicyContext == nil ||
@@ -40,9 +41,9 @@ func TestLocalWorkflowWorkspaceToolKeepsRegisteredPolicy(t *testing.T) {
 		ID: "run_local_workspace", SessionID: session.ID, State: "executing", StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID}},
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 
-	call, approval, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
 	if approval != nil || call.Status != "completed" || call.PolicyContext != nil {
@@ -54,12 +55,15 @@ func TestExternalMCPWeatherToolDoesNotGainWorkspaceApproval(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
 	run := externalMCPPolicyTestRun(session, "run_external_weather")
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	definition, ok := runtime.tools.Definition("weather.lookup")
 	if !ok {
 		t.Fatal("weather.lookup is unavailable in policy test runtime")
 	}
-	execution := runtime.toolPolicyExecutionContext(run.ID, definition, map[string]any{"location": "Shanghai"})
+	execution, err := runtime.toolPolicyExecutionContext(t.Context(), run.ID, definition, map[string]any{"location": "Shanghai"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	decision := runtime.policy.DecideWithContext(definition, map[string]any{"location": "Shanghai"}, execution)
 	if execution.PrincipalClass != app.PolicyPrincipalExternalMCPAI || execution.ResourceClass != "" || decision.RequiresApproval {
 		t.Fatalf("external MCP weather lookup gained workspace approval: context=%#v decision=%#v", execution, decision)
@@ -70,13 +74,13 @@ func TestExternalMCPWorkspaceDerivativeReadUsesSameEscalation(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
 	run := externalMCPPolicyTestRun(session, "run_external_derivative")
-	st.SaveRun(run)
-	st.SaveToolCall(app.ToolCall{
+	testSaveRun(st, run)
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_workspace_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
 		ObservationRef: "artifact://sparkclaw/observations/source.json", StartedAt: time.Now().UTC(),
 	})
 
-	call, approval, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "observation.read", Args: map[string]any{"artifact_uri": "artifact://sparkclaw/observations/source.json", "max_bytes": 100},
 	})
 	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil ||
@@ -89,19 +93,23 @@ func TestExternalMCPWorkspaceDerivativePolicyUsesCapabilityNotToolName(t *testin
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
 	run := externalMCPPolicyTestRun(session, "run_external_derivative_capability")
-	st.SaveRun(run)
-	st.SaveToolCall(app.ToolCall{
+	testSaveRun(st, run)
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_workspace_capability_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
 		ObservationRef: "artifact://sparkclaw/observations/capability-source.json", StartedAt: time.Now().UTC(),
 	})
+
 	definition, ok := runtime.tools.Definition("observation.read")
 	if !ok {
 		t.Fatal("observation.read is unavailable in policy test runtime")
 	}
 	definition.Name = "support.evidence.read"
-	execution := runtime.toolPolicyExecutionContext(run.ID, definition, map[string]any{
+	execution, err := runtime.toolPolicyExecutionContext(t.Context(), run.ID, definition, map[string]any{
 		"artifact_uri": "artifact://sparkclaw/observations/capability-source.json", "max_bytes": 100,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if execution.ResourceClass != app.PolicyResourceSparkClawWorkspaceData ||
 		execution.AccessClass != app.PolicyAccessWorkspaceSourceRead || execution.ContractDigest == "" {
 		t.Fatalf("renamed observation capability bypassed workspace policy: %#v", execution)
@@ -111,13 +119,13 @@ func TestExternalMCPWorkspaceDerivativePolicyUsesCapabilityNotToolName(t *testin
 func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID,
 		RunID:     "run_prior_document",
 		Role:      "assistant",
 		Content:   "private workspace-derived summary",
 	})
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:                 "tc_prior_document",
 		SessionID:          session.ID,
 		RunID:              "run_prior_document",
@@ -126,10 +134,14 @@ func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing
 		ObservationSummary: "private workspace-derived tool evidence",
 		StartedAt:          time.Now().UTC(),
 	})
-	run := externalMCPPolicyTestRun(session, "run_external_context")
-	st.SaveRun(run)
 
-	snapshot := runtime.buildAgentContextSnapshot(session.ID, run.ID, "what did the file say?")
+	run := externalMCPPolicyTestRun(session, "run_external_context")
+	testSaveRun(st, run)
+
+	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, run.ID, "what did the file say?")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := snapshot.ForIntentRouting(); got != "" {
 		t.Fatalf("external MCP routing inherited prior session data: %q", got)
 	}
@@ -142,20 +154,20 @@ func TestContextBoundApprovalRejectsChangedMCPIdentity(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
 	run := externalMCPPolicyTestRun(session, "run_changed_mcp_identity")
-	st.SaveRun(run)
-	call, pending, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
+	testSaveRun(st, run)
+	call, pending, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
 	if pending == nil {
 		t.Fatal("external MCP workspace search did not queue approval")
 	}
-	approved, err := st.ResolveApproval(pending.ID, "approved", "owner approved")
+	approved, err := st.ResolveApproval(t.Context(), pending.ID, "approved", "owner approved")
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, _ := st.GetRun(run.ID)
+	changed, _ := testGetRun(st, run.ID)
 	changed.MessageContext.MCP.RequesterDeviceID = "different-device"
-	st.SaveRun(changed)
+	testSaveRun(st, changed)
 	executed, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
 	if err != nil || executed.ID != call.ID || executed.Status != "failed_after_approval" || executed.ErrorCode != string(app.ToolErrorPolicyBlocked) {
 		t.Fatalf("changed MCP identity reused contextual approval: call=%#v err=%v", executed, err)
@@ -166,20 +178,20 @@ func TestContextBoundApprovalRejectsChangedAuthorizationPrincipal(t *testing.T) 
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
 	run := externalMCPPolicyTestRun(session, "run_changed_authorization")
-	st.SaveRun(run)
-	call, pending, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
+	testSaveRun(st, run)
+	call, pending, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
 	if pending == nil {
 		t.Fatal("external MCP workspace search did not queue approval")
 	}
-	approved, err := st.ResolveApproval(pending.ID, "approved", "owner approved")
+	approved, err := st.ResolveApproval(t.Context(), pending.ID, "approved", "owner approved")
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, _ := st.GetRun(run.ID)
+	changed, _ := testGetRun(st, run.ID)
 	changed.MessageContext.Authorization.PrincipalID = "different-principal"
-	st.SaveRun(changed)
+	testSaveRun(st, changed)
 	executed, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
 	if err != nil || executed.ID != call.ID || executed.Status != "failed_after_approval" || executed.ErrorCode != string(app.ToolErrorPolicyBlocked) {
 		t.Fatalf("changed authorization principal reused contextual approval: call=%#v err=%v", executed, err)
@@ -190,8 +202,8 @@ func TestApprovedToolExecutionUsesPersistedResolvedApproval(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()
 	run := externalMCPPolicyTestRun(session, "run_persisted_approval_authority")
-	st.SaveRun(run)
-	call, pending, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
+	testSaveRun(st, run)
+	call, pending, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
 	if pending == nil || call.Status != "approval_pending" {
@@ -206,7 +218,7 @@ func TestApprovedToolExecutionUsesPersistedResolvedApproval(t *testing.T) {
 	if _, err := runtime.ExecuteApprovedToolCall(t.Context(), forged); err == nil {
 		t.Fatal("non-persisted approval identity was accepted as executable authority")
 	}
-	if current, ok := st.GetToolCall(call.ID); !ok || current.Status != "approval_pending" {
+	if current, ok := testGetToolCall(st, call.ID); !ok || current.Status != "approval_pending" {
 		t.Fatalf("invalid approval attempt changed the tool call: %#v ok=%v", current, ok)
 	}
 }
@@ -221,7 +233,7 @@ func TestLegacyExternalSendApprovalCannotResumeDelivery(t *testing.T) {
 			ReturnRoute: app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "legacy-target"},
 		},
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	call := app.ToolCall{
 		ID: "tc_legacy_external_send", SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval",
 		Status: "approval_pending", Arguments: map[string]any{"message_control_action": legacyExternalSendApprovalAction}, StartedAt: time.Now().UTC(),
@@ -231,9 +243,9 @@ func TestLegacyExternalSendApprovalCannotResumeDelivery(t *testing.T) {
 		Status: "pending", Arguments: call.Arguments, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
-	st.SaveToolCall(call)
-	st.SaveApproval(approval)
-	approved, err := st.ResolveApproval(approval.ID, "approved", "old approval")
+	testSaveToolCall(st, call)
+	storetest.MustSaveApproval(t, st, approval)
+	approved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "old approval")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +268,7 @@ func newToolPolicyTestRuntime(t *testing.T) (Runtime, *store.MemoryStore, app.Se
 	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_test"
 	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_test.test-key"
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("policy test", app.DefaultOwnerID, root, "web", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "policy test", app.DefaultOwnerID, root, "web", true)
 	hub := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
 	return runtime, st, session, func() { _ = hub.Close() }

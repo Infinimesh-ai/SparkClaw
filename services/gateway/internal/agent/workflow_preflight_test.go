@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -315,8 +316,8 @@ func TestDocumentContentMutationRoutesToEditR6ThenSelectsXLSXEditor(t *testing.T
 	if !exactVisibleToolNames(dispatch.Tools, "xlsx.append_row", "observation.read") {
 		t.Fatalf("XLSX content mutation exposed the wrong editor: %#v", visibleToolNames(dispatch.Tools))
 	}
-	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) ||
-		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.decision_resolved") {
+	if !hasModelCallOperation(testListModelCalls(st, session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) ||
+		!hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.decision_resolved") {
 		t.Fatalf("XLSX editor was not selected through the explicit document decision node")
 	}
 }
@@ -433,16 +434,16 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 		t.Fatalf("selected test editor %q operation %q is outside the edit scope", selectedTool, selectedOperation)
 	}
 	dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("document operation decision did not resolve: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run.SessionID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refreshed, ok := st.GetRun(dispatch.Run.ID); ok {
+	if refreshed, ok := testGetRun(st, dispatch.Run.ID); ok {
 		dispatch.Run = refreshed
 	}
 	return dispatch.Run, tools
@@ -468,7 +469,7 @@ func advanceDocumentEditToDecision(t *testing.T, runtime Runtime, st *store.Memo
 		Call: call, Output: call.Result, ObservationRef: call.ObservationRef,
 		MaxBytes: runtime.tools.Config().Runtime.ObservationSummaryMaxBytes,
 	})
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	outcome, err := adaptWorkflowOutcome(definition, call)
 	if err != nil {
 		t.Fatal(err)
@@ -478,7 +479,7 @@ func advanceDocumentEditToDecision(t *testing.T, runtime Runtime, st *store.Memo
 	if err != nil || !changed {
 		t.Fatalf("document read did not activate the operation decision: changed=%t assessment=%#v err=%v", changed, assessment, err)
 	}
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 	return dispatch.Run
 }
 
@@ -506,7 +507,7 @@ func newDocumentDispatchRuntime(t *testing.T, root string) (Runtime, *store.Memo
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("document dispatch", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "document dispatch", app.DefaultOwnerID, root, "web", false)
 	hub := toolhub.New(cfg, st)
 	return NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil), st, session, func() { _ = hub.Close() }
 }

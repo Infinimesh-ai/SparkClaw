@@ -47,6 +47,7 @@
 | [模型基线](../benchmarks/model_baseline.md) | 模型端点实测证据和运行边界 |
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
+| [Store](store.md) | 类型化 repository、风险分级可靠性、三 backend、内嵌 PostgreSQL migration、Runtime 监管、source layout 与验证 |
 | [Store 可靠性迁移路线图](store-contract-reliability-migration-design.md) | Store 阶段顺序和强制设计/实现审查门禁草案；大型文件拆分推迟到 Store 收尾后 |
 | [Store 契约基础](store-contract-foundation-design.md) | S0 盘点、repository 归属、错误/context 契约、mutation 矩阵和行为刻画门禁 |
 | [File Store 持久性](store-file-durability-design.md) | S2 读隔离、context-aware transaction gate、pilot repository、持久 replacement、回滚和 unknown-outcome 契约 |

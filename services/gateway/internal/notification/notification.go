@@ -21,6 +21,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -48,8 +49,16 @@ const (
 	TypingStatusCancel TypingStatus = 2
 )
 
-func SendWeixinText(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, messageText, dedupeKey string) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).Send(ctx, Notification{
+type Repository interface {
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ArtifactMetadataRepository
+	store.ScheduleRepository
+	store.ExternalChatRepository
+}
+
+func SendWeixinText(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, messageText, dedupeKey string) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).Send(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -60,8 +69,8 @@ func SendWeixinText(ctx context.Context, st store.Store, channelCfg config.Notif
 	})
 }
 
-func SendWeixinImage(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, imagePath, caption, dedupeKey string) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).SendImage(ctx, Notification{
+func SendWeixinImage(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, imagePath, caption, dedupeKey string) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendImage(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -73,8 +82,8 @@ func SendWeixinImage(ctx context.Context, st store.Store, channelCfg config.Noti
 	})
 }
 
-func SendWeixinFile(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, filePath, fileName, caption, dedupeKey string) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).SendFile(ctx, Notification{
+func SendWeixinFile(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL, filePath, fileName, caption, dedupeKey string) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendFile(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -87,8 +96,8 @@ func SendWeixinFile(ctx context.Context, st store.Store, channelCfg config.Notif
 	})
 }
 
-func SendWeixinTyping(ctx context.Context, st store.Store, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL string, status TypingStatus) (Result, error) {
-	return NewWeixinAdapter("weixin", channelCfg, st).SendTyping(ctx, Notification{
+func SendWeixinTyping(ctx context.Context, st Repository, vault credential.CredentialVault, channelCfg config.NotificationChannelConfig, recipient, contextToken, credentialRef, baseURL string, status TypingStatus) (Result, error) {
+	return NewWeixinAdapter("weixin", channelCfg, st, vault).SendTyping(ctx, Notification{
 		Channel:          "weixin",
 		BaseURL:          baseURL,
 		Recipient:        recipient,
@@ -112,22 +121,56 @@ type Result struct {
 type WeixinAdapter struct {
 	channel   string
 	cfg       config.NotificationChannelConfig
-	store     store.Store
+	store     Repository
+	vault     credential.CredentialVault
 	client    *http.Client
 	resources delivery.ResourceResolver
 }
 
-func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, stores ...store.Store) *WeixinAdapter {
-	var st store.Store
-	if len(stores) > 0 {
-		st = stores[0]
-	}
+func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, st Repository, vault credential.CredentialVault) *WeixinAdapter {
 	return &WeixinAdapter{
 		channel:   channel,
 		cfg:       cfg,
 		store:     st,
+		vault:     vault,
 		client:    &http.Client{Timeout: 15 * time.Second},
 		resources: delivery.NewStoreResourceResolver(st),
+	}
+}
+
+func (a *WeixinAdapter) openToken(ctx context.Context, credentialRef string) (string, func(), error) {
+	if token := strings.TrimSpace(a.cfg.Token); token != "" {
+		return token, func() {}, nil
+	}
+	if strings.TrimSpace(credentialRef) == "" {
+		return "", func() {}, errors.New("openclaw-weixin token is not configured")
+	}
+	if a.vault == nil {
+		return "", func() {}, &credential.Error{Code: credential.CodeKeyUnavailable}
+	}
+	raw, err := a.vault.Open(ctx, credentialRef)
+	if err != nil {
+		return "", func() {}, err
+	}
+	release := func() {
+		for index := range raw {
+			raw[index] = 0
+		}
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		release()
+		return "", func() {}, &credential.Error{Code: credential.CodeUnsealFailed}
+	}
+	return token, release, nil
+}
+
+func credentialRetryState(err error) string {
+	switch credential.ErrorCode(err) {
+	case credential.CodeCanceled, credential.CodeUnavailable:
+		return "retryable"
+	default:
+		return "blocked"
 	}
 }
 
@@ -159,11 +202,11 @@ func (a *WeixinAdapter) Capabilities() app.DeliveryCapabilities {
 
 func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	if a.store == nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked", nil)
 	}
-	binding, err := a.deliveryBinding(endpoint, request)
+	binding, err := a.deliveryBinding(ctx, endpoint, request)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
 	resources := delivery.ResourceResolver(a.resources)
 	if endpoint.SessionID != "" {
@@ -171,7 +214,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, delivery.CodeArtifactInvalid, "weixin delivery resource is invalid", "blocked", nil)
+		return a.deliveryFailure(ctx, endpoint, request, delivery.CodeArtifactInvalid, "weixin delivery resource is invalid", "blocked", nil)
 	}
 	attemptedAt := time.Now().UTC()
 	providerRef := "openclaw-weixin-compatible"
@@ -215,7 +258,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 				}
 				partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: remaining.Part.ID, Status: "not_attempted", Representation: remainingRepresentation, ErrorCode: code})
 			}
-			return a.deliveryFailure(endpoint, request, code, weixinDeliveryMessage(request.Origin, result.Error), state, partReceipts)
+			return a.deliveryFailure(ctx, endpoint, request, code, weixinDeliveryMessage(request.Origin, result.Error), state, partReceipts)
 		}
 		if result.Provider != "" {
 			providerRef = result.Provider
@@ -224,12 +267,18 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	}
 	deliveredAt := time.Now().UTC()
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, Attempt: 1, PartReceipts: partReceipts, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
-	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	if err := delivery.RecordExternalDelivery(ctx, a.store, endpoint, request, receipt); err != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "weixin delivery record could not be persisted", "outcome_unknown")
+	}
 	return receipt, nil
 }
 
-func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
-	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
+func (a *WeixinAdapter) deliveryBinding(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
+	binding, ok, err := a.store.GetNotificationBinding(ctx, strings.TrimSpace(endpoint.BindingRef))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding could not be read", "retryable")
+	}
+	if ok &&
 		binding.Status == "active" && strings.EqualFold(strings.TrimSpace(binding.Channel), strings.TrimSpace(a.channel)) {
 		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
@@ -258,7 +307,10 @@ func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request ap
 	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 	}
-	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
+	reminder, ok, err := a.store.GetReminder(ctx, strings.TrimSpace(request.ResultID))
+	if err != nil {
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin reminder binding could not be read", "retryable")
+	}
 	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), strings.TrimSpace(a.channel)) {
 		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 	}
@@ -269,7 +321,7 @@ func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request ap
 	}, nil
 }
 
-func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
+func (a *WeixinAdapter) deliveryFailure(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
 	err := delivery.DeliveryError{Code: code, Message: message, State: retryState}
 	status := app.DeliveryFailed
 	for _, part := range parts {
@@ -282,7 +334,9 @@ func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request ap
 		status = app.DeliveryOutcomeUnknown
 	}
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: status, Error: message, ErrorCode: code, RetryState: retryState, Attempt: 1, PartReceipts: parts, AttemptedAt: time.Now().UTC()}
-	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	if persistErr := delivery.RecordExternalDelivery(ctx, a.store, endpoint, request, receipt); persistErr != nil {
+		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "weixin delivery failure record could not be persisted", "outcome_unknown")
+	}
 	return receipt, err
 }
 
@@ -327,15 +381,11 @@ func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Re
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")
@@ -420,15 +470,11 @@ func (a *WeixinAdapter) SendImage(ctx context.Context, notification Notification
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")
@@ -505,15 +551,11 @@ func (a *WeixinAdapter) SendFile(ctx context.Context, notification Notification)
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")
@@ -643,15 +685,11 @@ func (a *WeixinAdapter) SendTyping(ctx context.Context, notification Notificatio
 	if baseURL == "" {
 		return a.failed(notification, "openclaw-weixin baseUrl is not configured", "blocked")
 	}
-	token := strings.TrimSpace(a.cfg.Token)
-	if token == "" && strings.TrimSpace(notification.CredentialRef) != "" && a.store != nil {
-		if secret, ok := a.store.GetCredentialSecret(strings.TrimSpace(notification.CredentialRef)); ok {
-			token = strings.TrimSpace(secret.Value)
-		}
+	token, releaseToken, err := a.openToken(ctx, notification.CredentialRef)
+	if err != nil {
+		return a.failed(notification, err.Error(), credentialRetryState(err))
 	}
-	if token == "" {
-		return a.failed(notification, "openclaw-weixin token is not configured", "blocked")
-	}
+	defer releaseToken()
 	recipient := strings.TrimSpace(notification.Recipient)
 	if recipient == "" {
 		return a.failed(notification, "weixin recipient binding is not configured", "blocked")

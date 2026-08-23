@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
@@ -78,7 +79,7 @@ func TestMediaAdapterDownloadsInboundImageAsAttachment(t *testing.T) {
 	if string(raw) != string(png) {
 		t.Fatal("saved image content does not match decrypted plaintext")
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) != 1 || objects[0].Kind != "weixin_image_upload" {
 		t.Fatalf("expected weixin image artifact, got %#v", objects)
 	}
@@ -154,7 +155,7 @@ func TestSendAssistantAnswerUploadsAbsoluteWeatherCardArtifact(t *testing.T) {
 	}
 
 	st := store.NewMemoryStore()
-	st.SaveArtifactObject(app.ArtifactObject{
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_weather",
 		Kind:        "media_weather_card",
 		Backend:     "workspace",
@@ -220,7 +221,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_1", OwnerID: app.DefaultOwnerID, Channel: "weixin", Status: "active", ExternalUserID: "wx-user", BaseURL: ts.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_1", OwnerID: app.DefaultOwnerID, Channel: "weixin", Status: "active", ExternalUserID: "wx-user", BaseURL: ts.URL})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
 		Enabled:  true,
 		Provider: "openclaw-weixin-qr",
@@ -247,15 +248,15 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	if !strings.Contains(sentText, "你想让我") || !strings.Contains(sentText, "总结内容") {
 		t.Fatalf("expected clarification reply, got %q", sentText)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user", "")
 	if !ok {
 		t.Fatal("expected weixin chat session")
 	}
-	agentMessages := st.ListMessages(chatSession.LinkedSessionID)
+	agentMessages := storetest.MustListMessages(t, st, chatSession.LinkedSessionID)
 	if len(agentMessages) != 1 || len(agentMessages[0].Attachments) != 1 || !strings.Contains(agentMessages[0].Content, "uploads/20260707/report.docx") {
 		t.Fatalf("expected pending attachment in local agent context: %#v", agentMessages)
 	}
-	if runs := st.ListRuns(chatSession.LinkedSessionID); len(runs) != 0 {
+	if runs := testListRuns(st, chatSession.LinkedSessionID); len(runs) != 0 {
 		t.Fatalf("attachment-only clarification should not run agent: %#v", runs)
 	}
 }
@@ -286,11 +287,11 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	root := t.TempDir()
-	oldSession := st.CreateSessionWithScope("wx", "owner", root, "weixin", true)
-	st.AddMessage(app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
-	st.SaveEpisodeSummary(app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
-	st.SaveToolCall(app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
-	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
+	oldSession := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", root, "weixin", true)
+	storetest.MustAddMessage(t, st, app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
+	testSaveEpisodeSummary(st, app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
+	testSaveToolCall(st, app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
+	chatSession := storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{
 		OwnerID:         "owner",
 		WorkspaceRoot:   root,
 		BindingID:       "bind_1",
@@ -298,7 +299,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 		LinkedSessionID: oldSession.ID,
 		Status:          "active",
 	})
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
 		Enabled:  true,
 		Provider: "openclaw-weixin-qr",
@@ -316,20 +317,20 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, ok := st.FindExternalChatSession("bind_1", "wx-user", "")
+	updated, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user", "")
 	if !ok {
 		t.Fatal("expected weixin chat session")
 	}
 	if updated.LinkedSessionID == "" || updated.LinkedSessionID == oldSession.ID {
 		t.Fatalf("clear should link to a fresh Agent session: old=%s updated=%#v", oldSession.ID, updated)
 	}
-	if messages := st.ListMessages(updated.LinkedSessionID); len(messages) != 0 {
+	if messages := storetest.MustListMessages(t, st, updated.LinkedSessionID); len(messages) != 0 {
 		t.Fatalf("fresh Agent session should not carry old messages: %#v", messages)
 	}
-	if episodes := st.ListEpisodeSummaries(updated.LinkedSessionID); len(episodes) != 0 {
+	if episodes := testListEpisodeSummaries(st, updated.LinkedSessionID); len(episodes) != 0 {
 		t.Fatalf("fresh Agent session should not carry old episodes: %#v", episodes)
 	}
-	if calls := st.ListToolCalls(updated.LinkedSessionID); len(calls) != 0 {
+	if calls := testListToolCalls(st, updated.LinkedSessionID); len(calls) != 0 {
 		t.Fatalf("fresh Agent session should not carry old tool results: %#v", calls)
 	}
 	if !strings.Contains(sentText, "后续消息会从新的上下文开始") {
@@ -362,16 +363,16 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
-	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
+	session := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", t.TempDir(), "weixin", true)
+	chatSession := storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	approvalID := app.NewID("ap")
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval", Risk: app.RiskReversible, Status: "approval_pending", ApprovalID: approvalID, StartedAt: time.Now().UTC()}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	approval := app.Approval{ID: approvalID, SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve notify", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	cfg := config.Default()
 	cfg.Model.Mock = true
@@ -389,11 +390,11 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _ := st.GetToolCall(call.ID)
+	resolved, _ := testGetToolCall(st, call.ID)
 	if resolved.Status != "completed_after_approval" {
-		t.Fatalf("expected approved call to execute, got %#v sent=%q approvals=%#v", resolved, sentText, st.ListApprovals(""))
+		t.Fatalf("expected approved call to execute, got %#v sent=%q approvals=%#v", resolved, sentText, storetest.MustListApprovals(t, st, ""))
 	}
-	approvals := st.ListApprovals("")
+	approvals := storetest.MustListApprovals(t, st, "")
 	if len(approvals) != 1 || approvals[0].Status != "approved" {
 		t.Fatalf("expected approved approval, got %#v", approvals)
 	}
@@ -427,15 +428,15 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
-	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
+	session := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", t.TempDir(), "weixin", true)
+	chatSession := storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "docx.replace_paragraph", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	approval := app.Approval{ID: app.NewID("ap"), SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve docx", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	cfg := config.Default()
 	cfg.Model.Mock = true
@@ -453,11 +454,11 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected, _ := st.GetToolCall(call.ID)
+	rejected, _ := testGetToolCall(st, call.ID)
 	if rejected.Status != "rejected" {
 		t.Fatalf("expected call rejection, got %#v", rejected)
 	}
-	approvals := st.ListApprovals("")
+	approvals := storetest.MustListApprovals(t, st, "")
 	if len(approvals) != 1 || approvals[0].Status != "rejected" {
 		t.Fatalf("expected rejected approval, got %#v", approvals)
 	}
@@ -481,8 +482,8 @@ func TestWorkspaceFilePathOnlyReturnsLikelyOutputFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("wx", "owner", root, "weixin", true)
-	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
+	session := storetest.MustCreateSessionWithScope(t, st, "wx", "owner", root, "weixin", true)
+	chatSession := storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{
 		BindingID:       "bind_1",
 		ExternalUserID:  "wx-user",
 		LinkedSessionID: session.ID,
@@ -491,14 +492,20 @@ func TestWorkspaceFilePathOnlyReturnsLikelyOutputFiles(t *testing.T) {
 	})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{})
 	inbound := InboundMessage{Binding: app.NotificationBinding{ID: chatSession.BindingID}, FromUserID: chatSession.ExternalUserID}
-	if _, _, ok := dispatcher.workspaceFilePath("已读取 uploads/source.docx，内容如下。", inbound); ok {
+	if _, _, ok, err := dispatcher.workspaceFilePath(t.Context(), "已读取 uploads/source.docx，内容如下。", inbound); err != nil || ok {
 		t.Fatal("read-only uploads path should not be treated as a file reply")
 	}
-	path, name, ok := dispatcher.workspaceFilePath("输出文件：outputs/edited.docx", inbound)
+	path, name, ok, err := dispatcher.workspaceFilePath(t.Context(), "输出文件：outputs/edited.docx", inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || name != "edited.docx" || !strings.HasSuffix(path, filepath.Join("outputs", "edited.docx")) {
 		t.Fatalf("expected output file path, got path=%q name=%q ok=%v", path, name, ok)
 	}
-	path, name, ok = dispatcher.workspaceFilePath("修改好的文件：outputs/edited.docx", inbound)
+	path, name, ok, err = dispatcher.workspaceFilePath(t.Context(), "修改好的文件：outputs/edited.docx", inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || name != "edited.docx" || !strings.HasSuffix(path, filepath.Join("outputs", "edited.docx")) {
 		t.Fatalf("expected modified file path, got path=%q name=%q ok=%v", path, name, ok)
 	}
@@ -594,7 +601,7 @@ func TestMediaAdapterDownloadsInboundFileAsUploadAttachment(t *testing.T) {
 	if string(raw) != string(content) {
 		t.Fatal("saved file content does not match decrypted plaintext")
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) != 1 || objects[0].Kind != "weixin_file_upload" {
 		t.Fatalf("expected weixin file artifact, got %#v", objects)
 	}

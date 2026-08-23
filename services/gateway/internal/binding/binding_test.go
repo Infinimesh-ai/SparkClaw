@@ -71,8 +71,28 @@ func TestWeixinQRAdapterStartAndPoll(t *testing.T) {
 	if polled.Status != "active" || polled.ExternalUserID != "user-1" || polled.AccountID != "account-1" {
 		t.Fatalf("unexpected poll result: %#v", polled)
 	}
-	if polled.CredentialRef == "" || polled.CredentialRef == "bot-secret" {
-		t.Fatalf("credential ref should not be raw empty/plain token: %#v", polled)
+	if polled.CredentialRef != "" || polled.CredentialKind != "openclaw-weixin-bot-token" || polled.CredentialSecret != "bot-secret" {
+		t.Fatalf("QR adapter should return plaintext only to the lifecycle sealing boundary: %#v", polled)
+	}
+}
+
+func TestWeixinQRAdapterRejectsActiveWithoutCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"retcode": 0,
+			"data":    map[string]any{"status": "confirmed", "account_id": "account-without-token"},
+		})
+	}))
+	defer server.Close()
+
+	adapter := NewWeixinQRAdapter("weixin", config.NotificationChannelConfig{
+		Provider: "openclaw-weixin-qr",
+		BaseURL:  server.URL,
+	})
+	result, err := adapter.Poll(t.Context(), app.NotificationBinding{ID: "binding-without-token", ProviderSessionID: "qr-session"})
+	var bindingErr *BindingError
+	if !errors.As(err, &bindingErr) || bindingErr.Code != CodeConnectorUnavailable || result.Status != "" || result.CredentialRef != "" {
+		t.Fatalf("active-without-token result=%#v err=%#v", result, err)
 	}
 }
 
@@ -109,7 +129,10 @@ func TestTelegramAdapterVerifiesBeforeSealing(t *testing.T) {
 	if started.QRCodeURL != "" || started.QRCodeImage != "" || started.ProviderState != "" || started.ExpiresAt != nil || started.ContextToken != "" {
 		t.Fatalf("Telegram bot verification should not create QR or challenge state: %#v", started)
 	}
-	stored, ok := st.GetCredentialSecret(started.CredentialRef)
+	stored, ok, err := st.GetCredentialSecret(t.Context(), started.CredentialRef)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || strings.Contains(stored.Value, token) || stored.Value == token {
 		t.Fatalf("Telegram token reached store in plaintext: %#v ok=%v", stored, ok)
 	}
@@ -133,7 +156,11 @@ func TestTelegramAdapterDoesNotPersistRejectedToken(t *testing.T) {
 	if !errors.As(err, &bindingErr) || bindingErr.Code != CodeInvalidBotToken {
 		t.Fatalf("unexpected rejected-token error: %v", err)
 	}
-	if secrets := st.ListNotificationBindings("telegram", ""); len(secrets) != 0 {
+	secrets, listErr := st.ListNotificationBindings(t.Context(), "telegram", "")
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(secrets) != 0 {
 		t.Fatalf("rejected token created binding state: %#v", secrets)
 	}
 }

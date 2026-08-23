@@ -331,14 +331,18 @@ type StorageConfig struct {
 }
 
 type StateConfig struct {
-	Backend           string `json:"backend"`
-	Path              string `json:"path"`
-	DSN               string `json:"dsn"`
-	EncryptAtRest     bool   `json:"encrypt_at_rest"`
-	EncryptionKey     string `json:"encryption_key,omitempty"`
-	EncryptionKeyFile string `json:"encryption_key_file,omitempty"`
-	CredentialKey     string `json:"credential_key,omitempty"`
-	CredentialKeyFile string `json:"credential_key_file,omitempty"`
+	Backend                   string `json:"backend"`
+	Path                      string `json:"path"`
+	DSN                       string `json:"dsn"`
+	StartupTimeoutSeconds     int    `json:"startup_timeout_seconds"`
+	ReadTimeoutSeconds        int    `json:"read_timeout_seconds"`
+	WriteTimeoutSeconds       int    `json:"write_timeout_seconds"`
+	TransactionTimeoutSeconds int    `json:"transaction_timeout_seconds"`
+	EncryptAtRest             bool   `json:"encrypt_at_rest"`
+	EncryptionKey             string `json:"encryption_key,omitempty"`
+	EncryptionKeyFile         string `json:"encryption_key_file,omitempty"`
+	CredentialKey             string `json:"credential_key,omitempty"`
+	CredentialKeyFile         string `json:"credential_key_file,omitempty"`
 }
 
 type RuntimeConfig struct {
@@ -445,7 +449,9 @@ func Load(path string) (Config, error) {
 			return Config{}, err
 		}
 	}
-	applyEnv(&cfg)
+	if err := applyEnv(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := applyInfinimeshInfoCredentials(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -457,6 +463,9 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Gateway.Port <= 0 {
 		return Config{}, errors.New("gateway.port must be positive")
+	}
+	if err := normalizeStateConfig(&cfg.State); err != nil {
+		return Config{}, err
 	}
 	cfg.JingSiLAN.SessionID = strings.TrimSpace(cfg.JingSiLAN.SessionID)
 	if cfg.JingSiLAN.MaxMessageBytes <= 0 {
@@ -1414,14 +1423,18 @@ func Default() Config {
 			S3Region:        "us-east-1",
 		},
 		State: StateConfig{
-			Backend:           "file",
-			Path:              "./data/memory/gateway-state.json",
-			DSN:               "",
-			EncryptAtRest:     false,
-			EncryptionKey:     "",
-			EncryptionKeyFile: "",
-			CredentialKey:     "",
-			CredentialKeyFile: "./data/memory/gateway-credentials.key",
+			Backend:                   "file",
+			Path:                      "./data/memory/gateway-state.json",
+			DSN:                       "",
+			StartupTimeoutSeconds:     180,
+			ReadTimeoutSeconds:        10,
+			WriteTimeoutSeconds:       30,
+			TransactionTimeoutSeconds: 60,
+			EncryptAtRest:             false,
+			EncryptionKey:             "",
+			EncryptionKeyFile:         "",
+			CredentialKey:             "",
+			CredentialKeyFile:         "./data/memory/gateway-credentials.key",
 		},
 		Runtime: RuntimeConfig{
 			ObservationSummaryMaxBytes:    2400,
@@ -1442,7 +1455,7 @@ func Default() Config {
 	}
 }
 
-func applyEnv(cfg *Config) {
+func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_BIND"); v != "" {
 		cfg.Gateway.Bind = v
 	}
@@ -1545,8 +1558,40 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_POSTGRES_DSN"); v != "" {
 		cfg.State.DSN = v
 	}
+	if v := os.Getenv("SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS"); v != "" {
+		seconds, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS must be an integer: %w", err)
+		}
+		cfg.State.StartupTimeoutSeconds = seconds
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_READ_TIMEOUT_SECONDS"); v != "" {
+		seconds, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SPARKCLAW_STATE_READ_TIMEOUT_SECONDS must be an integer: %w", err)
+		}
+		cfg.State.ReadTimeoutSeconds = seconds
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS"); v != "" {
+		seconds, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS must be an integer: %w", err)
+		}
+		cfg.State.WriteTimeoutSeconds = seconds
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS"); v != "" {
+		seconds, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS must be an integer: %w", err)
+		}
+		cfg.State.TransactionTimeoutSeconds = seconds
+	}
 	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPT_AT_REST"); v != "" {
-		cfg.State.EncryptAtRest = parseBool(v)
+		enabled, err := parseStoreBoolOverride("SPARKCLAW_STATE_ENCRYPT_AT_REST", v)
+		if err != nil {
+			return err
+		}
+		cfg.State.EncryptAtRest = enabled
 	}
 	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPTION_KEY"); v != "" {
 		cfg.State.EncryptionKey = v
@@ -1984,16 +2029,6 @@ func applyEnv(cfg *Config) {
 			cfg.Runtime.RunMaxObservationBytes = maxBytes
 		}
 	}
-	if cfg.State.Path != "" {
-		if abs, err := filepath.Abs(cfg.State.Path); err == nil {
-			cfg.State.Path = abs
-		}
-	}
-	if cfg.State.EncryptionKeyFile != "" {
-		if abs, err := filepath.Abs(cfg.State.EncryptionKeyFile); err == nil {
-			cfg.State.EncryptionKeyFile = abs
-		}
-	}
 	if cfg.State.CredentialKeyFile != "" {
 		if abs, err := filepath.Abs(cfg.State.CredentialKeyFile); err == nil {
 			cfg.State.CredentialKeyFile = abs
@@ -2003,6 +2038,86 @@ func applyEnv(cfg *Config) {
 		if abs, err := filepath.Abs(cfg.Storage.ArtifactDir); err == nil {
 			cfg.Storage.ArtifactDir = abs
 		}
+	}
+	return nil
+}
+
+func parseStoreBoolOverride(name, value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on", "required":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be one of 1, true, yes, on, required, 0, false, no, or off", name)
+	}
+}
+
+func normalizeStateConfig(state *StateConfig) error {
+	state.Backend = strings.ToLower(strings.TrimSpace(state.Backend))
+	state.DSN = strings.TrimSpace(state.DSN)
+	state.Path = strings.TrimSpace(state.Path)
+	state.EncryptionKeyFile = strings.TrimSpace(state.EncryptionKeyFile)
+	if state.StartupTimeoutSeconds < 1 || state.StartupTimeoutSeconds > 900 {
+		return errors.New("state.startup_timeout_seconds must be between 1 and 900")
+	}
+	if state.ReadTimeoutSeconds < 1 || state.ReadTimeoutSeconds > 900 {
+		return errors.New("state.read_timeout_seconds must be between 1 and 900")
+	}
+	if state.WriteTimeoutSeconds < 1 || state.WriteTimeoutSeconds > 900 {
+		return errors.New("state.write_timeout_seconds must be between 1 and 900")
+	}
+	if state.TransactionTimeoutSeconds < 1 || state.TransactionTimeoutSeconds > 900 {
+		return errors.New("state.transaction_timeout_seconds must be between 1 and 900")
+	}
+	switch state.Backend {
+	case "memory":
+		return nil
+	case "postgres":
+		if state.DSN == "" {
+			return errors.New("state.dsn is required when state.backend is postgres")
+		}
+		return nil
+	case "file":
+		if state.Path == "" {
+			return errors.New("state.path is required when state.backend is file")
+		}
+		path, err := filepath.Abs(state.Path)
+		if err != nil {
+			return fmt.Errorf("resolve state.path: %w", err)
+		}
+		state.Path = filepath.Clean(path)
+		if !filepath.IsAbs(state.Path) {
+			return errors.New("state.path must resolve to an absolute path")
+		}
+		if state.EncryptionKeyFile != "" {
+			keyFile, err := filepath.Abs(state.EncryptionKeyFile)
+			if err != nil {
+				return fmt.Errorf("resolve state.encryption_key_file: %w", err)
+			}
+			state.EncryptionKeyFile = filepath.Clean(keyFile)
+		}
+		if !state.EncryptAtRest {
+			return nil
+		}
+		directConfigured := strings.TrimSpace(state.EncryptionKey) != ""
+		fileConfigured := state.EncryptionKeyFile != ""
+		if directConfigured == fileConfigured {
+			return errors.New("encrypted file state requires exactly one of state.encryption_key or state.encryption_key_file")
+		}
+		if !fileConfigured {
+			return nil
+		}
+		raw, err := os.ReadFile(state.EncryptionKeyFile)
+		if err != nil {
+			return fmt.Errorf("read state.encryption_key_file: %w", err)
+		}
+		if strings.TrimSpace(string(raw)) == "" {
+			return errors.New("state.encryption_key_file must not be empty")
+		}
+		return nil
+	default:
+		return errors.New("state.backend must be memory, file, or postgres")
 	}
 }
 

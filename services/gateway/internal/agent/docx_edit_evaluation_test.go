@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -57,7 +58,7 @@ func TestDOCXEditBilingualRouteAndOperationSelectionMatrix(t *testing.T) {
 			dispatch.Run = advanceDocumentEditToDecision(t, runtime, st, dispatch, route.Slots.TargetRef)
 			selectedEntry := docxEvaluationEntryID(t, runtime, dispatch.Run, tc.tool, tc.operation)
 			dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-			st.SaveRun(dispatch.Run)
+			testSaveRun(st, dispatch.Run)
 
 			if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
 				t.Fatalf("operation selection failed: changed=%t err=%v", changed, err)
@@ -68,7 +69,7 @@ func TestDOCXEditBilingualRouteAndOperationSelectionMatrix(t *testing.T) {
 				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierOperation] != tc.operation {
 				t.Fatalf("operation selection did not persist the expected frozen entry: %#v", decision)
 			}
-			if countModelCalls(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 1 {
+			if countModelCalls(testListModelCalls(st, session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 1 {
 				t.Fatalf("multi-operation DOCX decision did not use exactly one bounded selection call")
 			}
 		})
@@ -137,7 +138,7 @@ func TestDOCXUnsupportedTargetsBlockWithoutApproval(t *testing.T) {
 			}
 			dispatch.Run = advanceDocumentEditToDecision(t, runtime, st, dispatch, route.Slots.TargetRef)
 			dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionNoMatchResponse()
-			st.SaveRun(dispatch.Run)
+			testSaveRun(st, dispatch.Run)
 			if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
 				t.Fatalf("unsupported selection did not reach a terminal block: changed=%t err=%v", changed, err)
 			}
@@ -147,8 +148,8 @@ func TestDOCXUnsupportedTargetsBlockWithoutApproval(t *testing.T) {
 				len(decision.OutcomeRefs) != 0 {
 				t.Fatalf("unsupported target did not fail closed: %#v", decision)
 			}
-			if len(st.ListApprovals("")) != 0 || len(toolCallsForRun(st.ListToolCalls(session.ID), dispatch.Run.ID)) != 1 {
-				t.Fatalf("unsupported target created mutation state: approvals=%#v calls=%#v", st.ListApprovals(""), st.ListToolCalls(session.ID))
+			if len(storetest.MustListApprovals(t, st, "")) != 0 || len(toolCallsForRun(testListToolCalls(st, session.ID), dispatch.Run.ID)) != 1 {
+				t.Fatalf("unsupported target created mutation state: approvals=%#v calls=%#v", storetest.MustListApprovals(t, st, ""), testListToolCalls(st, session.ID))
 			}
 		})
 	}
@@ -169,7 +170,7 @@ func TestRealFastDOCXSectionImprovementSelection(t *testing.T) {
 	state := dispatch.Run.Workflow.Nodes[node.ID]
 	view, err := runtime.exposure.Search(t.Context(), app.ExposureRequest{
 		RunID: dispatch.Run.ID, WorkflowID: dispatch.Run.Workflow.Plan.ProfileID, NodeID: node.ID,
-		ScopeRevision: state.ScopeRevision, ActorRef: runtime.workflowActorRef(dispatch.Run.SessionID), Limit: 32,
+		ScopeRevision: state.ScopeRevision, ActorRef: runtime.workflowActorRef(dispatch.Run), Limit: 32,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -259,13 +260,13 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSessionWithScope("file-backed DOCX evaluation", app.DefaultOwnerID, workspace, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "file-backed DOCX evaluation", app.DefaultOwnerID, workspace, "web", false)
 	hub := toolhub.New(cfg, st)
 	defer func() { _ = hub.Close() }()
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
 
 	request := "Edit paragraph 1 in report.docx and make its text bold"
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: request, CreatedAt: time.Now().UTC()})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: request, CreatedAt: time.Now().UTC()})
 	route, err := runtime.routeIntentForTest(session.ID, user.ID, request, agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +285,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": "report.docx"}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: documentLocateEvidenceNodeID, ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -296,24 +297,24 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, _ := st.GetRun(dispatch.Run.ID)
+	run, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(run.Workflow, outcome)
 	if changed, err := applyWorkflowOutcome(&run, outcome, assessment); err != nil || !changed {
 		t.Fatalf("real DOCX read did not activate selection: changed=%t err=%v", changed, err)
 	}
 	selectedEntry := docxEvaluationEntryID(t, runtime, run, "docx.set_text_style", "set_text_style")
 	run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &run, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("real DOCX operation selection failed: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil || !exactVisibleToolNames(editTools, "docx.set_text_style", "observation.read") {
 		t.Fatalf("selected DOCX style editor did not materialize: tools=%#v err=%v", visibleToolNames(editTools), err)
 	}
 
-	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	editCall, editApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name: "docx.set_text_style", Args: map[string]any{
 			"paragraph_index": 1, "style": map[string]any{"bold": true},
 		},
@@ -329,15 +330,15 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
 		t.Fatalf("DOCX output existed before approval: %v", err)
 	}
-	run, _ = st.GetRun(run.ID)
+	run, _ = testGetRun(st, run.ID)
 	run.State = "approval_pending"
-	st.SaveRun(run)
-	st.SaveModelCall(app.ModelCall{
+	testSaveRun(st, run)
+	testSaveModelCall(st, app.ModelCall{
 		ID: app.NewID("mcall"), SessionID: session.ID, RunID: run.ID,
 		Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC(),
 	})
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved file-backed DOCX style edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "owner approved file-backed DOCX style edit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,8 +383,8 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		result.Message.Attachments[0].RelPath != "report-sparkclaw-edit.docx" {
 		t.Fatalf("approved DOCX workflow did not resume with its output copy: resumed=%t result=%#v err=%v", resumed, result, err)
 	}
-	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow.decision_resolved") ||
-		!hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.evidence_provisioned") {
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.decision_resolved") ||
+		!hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.evidence_provisioned") {
 		t.Fatalf("real DOCX path omitted decision/evidence audit records")
 	}
 	if _, err := os.Stat(statePath); err != nil {
@@ -393,10 +394,11 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	persistedRun, ok := reloaded.GetRun(run.ID)
-	if !ok || persistedRun.State != "completed" || len(reloaded.ListApprovals("approved")) != 1 ||
-		len(reloaded.ListDocumentRecords(session.OwnerID, session.ID, 10)) < 2 {
-		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, reloaded.ListApprovals("approved"), reloaded.ListDocumentRecords(session.OwnerID, session.ID, 10))
+	persistedRun, ok := testGetRun(reloaded, run.ID)
+	documentRecords := mustListAgentDocumentRecords(t, reloaded, session.OwnerID, session.ID, 10)
+	if !ok || persistedRun.State != "completed" || len(storetest.MustListApprovals(t, reloaded, "approved")) != 1 ||
+		len(documentRecords) < 2 {
+		t.Fatalf("file-backed reload lost DOCX workflow state: run=%#v approvals=%#v documents=%#v", persistedRun, storetest.MustListApprovals(t, reloaded, "approved"), documentRecords)
 	}
 }
 

@@ -38,10 +38,13 @@ type docxReadEvidence struct {
 	SourcePath          string
 }
 
-func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, operation string, args map[string]any) map[string]any {
-	evidence, ok := r.currentDOCXReadEvidence(run, args)
+func (r Runtime) bindDOCXMutationEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) (map[string]any, error) {
+	evidence, ok, err := r.currentDOCXReadEvidence(ctx, run, args)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
-		return args
+		return args, nil
 	}
 	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) == "" {
 		args[app.DocumentSourceSHA256Argument] = evidence.SourceSHA256
@@ -53,16 +56,16 @@ func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, operation string, ar
 		if len(documentAnySliceFromAny(args["evidence_targets"])) == 0 {
 			args["evidence_targets"] = docxReplacementEvidence(evidence.Blocks, args)
 		}
-		return args
+		return args, nil
 	}
 	position := strings.ToLower(cleanOptionalString(args["position"]))
 	if operation == app.DocumentOperationInsertParagraph && (position == "start" || position == "end") {
 		args["document_boundary"] = position
-		return args
+		return args, nil
 	}
 	paragraph, ok := matchDOCXParagraphEvidence(evidence.Blocks, mustDOCXParagraphTarget(args))
 	if !ok {
-		return args
+		return args, nil
 	}
 	args["location"] = canonicalDOCXParagraphLocation(paragraph)
 	args["paragraph_index"] = paragraph.Index
@@ -75,11 +78,14 @@ func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, operation string, ar
 	if operation == app.DocumentOperationSetTextStyle && cleanOptionalString(args["before_format_sha256"]) == "" {
 		args["before_format_sha256"] = docxParagraphFormatSHA256(evidence.Paragraphs, paragraph)
 	}
-	return args
+	return args, nil
 }
 
-func (r Runtime) validateDOCXMutationEvidence(run app.AgentRun, toolName, operation string, args map[string]any) error {
-	evidence, ok := r.currentDOCXReadEvidence(run, args)
+func (r Runtime) validateDOCXMutationEvidence(ctx context.Context, run app.AgentRun, toolName, operation string, args map[string]any) error {
+	evidence, ok, err := r.currentDOCXReadEvidence(ctx, run, args)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return fmt.Errorf("%s does not have current workflow localization evidence", toolName)
 	}
@@ -149,27 +155,30 @@ func validateDOCXMutationTargetAgainstEvidence(toolName, operation string, args 
 	return nil
 }
 
-func (r Runtime) currentDOCXReadEvidence(run app.AgentRun, args map[string]any) (docxReadEvidence, bool) {
+func (r Runtime) currentDOCXReadEvidence(ctx context.Context, run app.AgentRun, args map[string]any) (docxReadEvidence, bool, error) {
 	if run.Workflow == nil || r.store == nil {
-		return docxReadEvidence{}, false
+		return docxReadEvidence{}, false, nil
 	}
 	locateState, ok := run.Workflow.Nodes[documentLocateEvidenceNodeID]
 	if !ok || locateState.Status != app.WorkflowNodeSucceeded || len(locateState.ToolCallIDs) != 1 {
-		return docxReadEvidence{}, false
+		return docxReadEvidence{}, false, nil
 	}
-	call, ok := r.store.GetToolCall(locateState.ToolCallIDs[0])
+	call, ok, err := r.store.GetToolCall(ctx, locateState.ToolCallIDs[0])
+	if err != nil {
+		return docxReadEvidence{}, false, err
+	}
 	if !ok || call.RunID != run.ID || call.SessionID != run.SessionID ||
 		call.WorkflowID != app.WorkflowDocumentEdit || call.WorkflowNodeID != documentLocateEvidenceNodeID ||
 		call.ScopeRevision != locateState.ScopeRevision || call.Tool != "files.read" || !toolCallCompleted(call) {
-		return docxReadEvidence{}, false
+		return docxReadEvidence{}, false, nil
 	}
 	result, ok := anyMap(call.Result)
 	if !ok || !sameDocumentReadPath(strings.TrimSpace(stringValue(args["path"])), call, result) {
-		return docxReadEvidence{}, false
+		return docxReadEvidence{}, false, nil
 	}
 	evidence, ok := docxReadEvidenceFromResult(result)
 	if !ok {
-		return docxReadEvidence{}, false
+		return docxReadEvidence{}, false, nil
 	}
 	evidence.SourceToolCallID = call.ID
 	evidence.SourceNodeID = call.WorkflowNodeID
@@ -177,7 +186,7 @@ func (r Runtime) currentDOCXReadEvidence(run app.AgentRun, args map[string]any) 
 	evidence.SourceSessionID = call.SessionID
 	evidence.SourceRunID = call.RunID
 	evidence.SourcePath = strings.TrimSpace(stringValue(firstNonNil(result["rel_path"], call.Arguments["path"])))
-	return evidence, true
+	return evidence, true, nil
 }
 
 func docxReadEvidenceFromResult(result map[string]any) (docxReadEvidence, bool) {
@@ -386,11 +395,17 @@ func normalizeDOCXEvidenceText(value string) string {
 }
 
 func (r Runtime) revalidateApprovedDOCXMutation(ctx context.Context, call app.ToolCall, operation string) error {
-	run, ok := r.store.GetRun(call.RunID)
+	run, ok, err := r.store.GetRun(ctx, call.RunID)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("approved DOCX mutation run is unavailable")
 	}
-	initial, ok := r.currentDOCXReadEvidence(run, call.Arguments)
+	initial, ok, err := r.currentDOCXReadEvidence(ctx, run, call.Arguments)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("approved DOCX mutation lost its workflow localization evidence")
 	}

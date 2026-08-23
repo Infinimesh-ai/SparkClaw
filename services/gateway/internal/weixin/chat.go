@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
@@ -39,17 +40,39 @@ const (
 	pendingReplyAttachmentPrompt = "attachment_prompt"
 )
 
+type DispatcherRepository interface {
+	store.OwnerRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.ScheduleRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type Dispatcher struct {
-	store             store.Store
+	store             DispatcherRepository
 	runtime           connectorruntime.AgentBridge
 	cfg               config.NotificationChannelConfig
 	workspaceBaseRoot string
 	results           connectorruntime.ResultDeliverer
+	credentials       credential.CredentialVault
 }
 
 func (d *Dispatcher) WithResultDeliverer(deliverer connectorruntime.ResultDeliverer) *Dispatcher {
 	copy := *d
 	copy.results = deliverer
+	return &copy
+}
+
+func (d *Dispatcher) WithCredentialVault(vault credential.CredentialVault) *Dispatcher {
+	copy := *d
+	copy.credentials = vault
 	return &copy
 }
 
@@ -65,11 +88,11 @@ type InboundMessage struct {
 	ReceiveRecord  app.MessageReceiveRecord
 }
 
-func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
+func NewDispatcher(st DispatcherRepository, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
 	return &Dispatcher{store: st, runtime: connectorruntime.NewAgentBridge(runtime), cfg: cfg}
 }
 
-func NewDispatcherWithConfig(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config) *Dispatcher {
+func NewDispatcherWithConfig(st DispatcherRepository, runtime connectorruntime.AgentRuntime, cfg config.Config) *Dispatcher {
 	return &Dispatcher{
 		store:             st,
 		runtime:           connectorruntime.NewAgentBridge(runtime),
@@ -83,7 +106,10 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if text == "" && len(inbound.Attachments) == 0 {
 		return nil
 	}
-	chatSession := d.ensureChatSession(inbound)
+	chatSession, err := d.ensureChatSession(ctx, inbound)
+	if err != nil {
+		return fmt.Errorf("weixin owner profile is temporarily unavailable: %w", err)
+	}
 	externalID := strings.TrimSpace(inbound.ExternalID)
 	if externalID == "" {
 		externalID = stableInboundID(inbound)
@@ -95,14 +121,24 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		if err != nil {
 			return err
 		}
-		receive, _ = receives.Begin(endpoint, externalID)
-		receive = receives.Advance(receive, "authorized", "", "")
+		receive, _, err = receives.Begin(ctx, endpoint, externalID)
+		if err != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", err)
+		}
+		receive, err = receives.Advance(ctx, receive, "authorized", "", "")
+		if err != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", err)
+		}
 	}
 	// A message whose previous dispatch failed may be delivered again by the
 	// provider (the cursor is only advanced after successful dispatch); reuse
 	// its record so the retry does not duplicate the chat history.
 	retryID := ""
-	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
+	existing, ok, err := d.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, externalID)
+	if err != nil {
+		return fmt.Errorf("read weixin external chat message: %w", err)
+	}
+	if ok {
 		if existing.Status != "failed" && existing.Status != statusDeliveryFailed {
 			return nil
 		}
@@ -119,23 +155,30 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if receivedAt.IsZero() {
 		receivedAt = time.Now().UTC()
 	}
-	receive = receives.Advance(receive, "normalized", "", "")
+	receive, err = receives.Advance(ctx, receive, "normalized", "", "")
+	if err != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", err)
+	}
 	if text != "" && len(inbound.Attachments) == 0 {
 		if handled, err := d.handleControlText(ctx, inbound, chatSession, externalID, retryID, text, receivedAt); handled {
 			status := "processed"
 			if err != nil {
 				status = "failed"
 			}
-			receives.Advance(receive, status, "", "")
+			if _, persistErr := receives.Advance(ctx, receive, status, "", ""); persistErr != nil {
+				return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+			}
 			return err
 		}
 	}
 	if text == "" && len(inbound.Attachments) > 0 {
 		inboundMsg, err := d.handleAttachmentOnlyInbound(ctx, inbound, chatSession, externalID, retryID, receivedAt)
-		receives.Advance(receive, inboundMsg.Status, inboundMsg.ID, "")
+		if _, persistErr := receives.Advance(ctx, receive, inboundMsg.Status, inboundMsg.ID, ""); persistErr != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+		}
 		return err
 	}
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -147,29 +190,40 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
+	if err != nil {
+		return fmt.Errorf("persist weixin inbound message: %w", err)
+	}
 	processing := inboundMsg
 	processing.Status = "processing"
-	processing = d.store.SaveExternalChatMessage(processing)
-	receive = receives.Advance(receive, "routed", inboundMsg.ID, "")
+	processing, err = d.store.SaveExternalChatMessage(ctx, processing)
+	if err != nil {
+		return fmt.Errorf("persist weixin processing message: %w", err)
+	}
+	receive, err = receives.Advance(ctx, receive, "routed", inboundMsg.ID, "")
+	if err != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", err)
+	}
 	recipient := d.replyRecipient(inbound)
-	if _, err := notification.SendWeixinTyping(ctx, d.store, d.cfg,
+	if _, err := notification.SendWeixinTyping(ctx, d.store, d.credentials, d.cfg,
 		recipient,
 		inbound.ContextToken,
 		inbound.Binding.CredentialRef,
 		inbound.Binding.BaseURL,
 		notification.TypingStatusTyping,
 	); err != nil {
-		d.auditTypingFailure(chatSession, inbound, "start", err)
+		d.auditTypingFailure(ctx, chatSession, inbound, "start", err)
 	}
 	defer func() {
-		if _, err := notification.SendWeixinTyping(context.Background(), d.store, d.cfg,
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if _, err := notification.SendWeixinTyping(cleanupCtx, d.store, d.credentials, d.cfg,
 			recipient,
 			inbound.ContextToken,
 			inbound.Binding.CredentialRef,
 			inbound.Binding.BaseURL,
 			notification.TypingStatusCancel,
 		); err != nil {
-			d.auditTypingFailure(chatSession, inbound, "cancel", err)
+			d.auditTypingFailure(ctx, chatSession, inbound, "cancel", err)
 		}
 	}()
 
@@ -185,8 +239,12 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if err != nil {
 		processing.Status = "failed"
 		processing.Error = err.Error()
-		d.store.SaveExternalChatMessage(processing)
-		receives.Advance(receive, "failed", inboundMsg.ID, "")
+		if _, persistErr := d.store.SaveExternalChatMessage(ctx, processing); persistErr != nil {
+			return errors.Join(err, fmt.Errorf("persist weixin failed message: %w", persistErr))
+		}
+		if _, persistErr := receives.Advance(ctx, receive, "failed", inboundMsg.ID, ""); persistErr != nil {
+			return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+		}
 		return err
 	}
 	processing.LinkedRunID = result.Run.ID
@@ -197,7 +255,9 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	} else {
 		processing, deliveryErr = d.finishWorkflowReply(ctx, processing, result, ingress)
 	}
-	receives.Advance(receive, processing.Status, inboundMsg.ID, result.Run.ID)
+	if _, persistErr := receives.Advance(ctx, receive, processing.Status, inboundMsg.ID, result.Run.ID); persistErr != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+	}
 	return deliveryErr
 }
 
@@ -214,8 +274,8 @@ func (d *Dispatcher) finishControlReply(ctx context.Context, inbound InboundMess
 	if successStatus == "needs_user_instruction" {
 		kind = pendingReplyAttachmentPrompt
 	}
-	record = d.recordReplyOutcome(record, kind, answer, successStatus, sendErr)
-	return record, sendErr
+	record, persistErr := d.recordReplyOutcome(ctx, record, kind, answer, successStatus, sendErr)
+	return record, errors.Join(sendErr, persistErr)
 }
 
 // finishWorkflowReply hands a produced workflow result to the delivery layer
@@ -226,7 +286,8 @@ func (d *Dispatcher) finishWorkflowReply(ctx context.Context, record app.Externa
 	if err != nil {
 		// Nothing deliverable was produced; without a payload a retry falls
 		// back to the full (idempotent) dispatch path.
-		return d.recordReplyOutcome(record, "", "", "processed", err), err
+		persisted, persistErr := d.recordReplyOutcome(ctx, record, "", "", "processed", err)
+		return persisted, errors.Join(err, persistErr)
 	}
 	kind, payload := "", ""
 	if raw, marshalErr := json.Marshal(workflowResult); marshalErr == nil {
@@ -234,8 +295,8 @@ func (d *Dispatcher) finishWorkflowReply(ctx context.Context, record app.Externa
 	}
 	record.LinkedRunID = result.Run.ID
 	deliveryErr := d.deliverWorkflowResult(ctx, workflowResult)
-	record = d.recordReplyOutcome(record, kind, payload, "processed", deliveryErr)
-	return record, deliveryErr
+	record, persistErr := d.recordReplyOutcome(ctx, record, kind, payload, "processed", deliveryErr)
+	return record, errors.Join(deliveryErr, persistErr)
 }
 
 // retryPendingReply re-sends a reply that a previous dispatch of the same
@@ -254,8 +315,13 @@ func (d *Dispatcher) retryPendingReply(ctx context.Context, inbound InboundMessa
 	default:
 		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, msg.PendingReply, msg.LinkedRunID)
 	}
-	msg = d.recordReplyOutcome(msg, msg.PendingReplyKind, msg.PendingReply, retrySuccessStatus(msg.PendingReplyKind), deliveryErr)
-	receives.Advance(receive, msg.Status, msg.ID, msg.LinkedRunID)
+	msg, persistErr := d.recordReplyOutcome(ctx, msg, msg.PendingReplyKind, msg.PendingReply, retrySuccessStatus(msg.PendingReplyKind), deliveryErr)
+	if persistErr != nil {
+		return errors.Join(deliveryErr, persistErr)
+	}
+	if _, persistErr := receives.Advance(ctx, receive, msg.Status, msg.ID, msg.LinkedRunID); persistErr != nil {
+		return fmt.Errorf("weixin receive state unavailable: %w", persistErr)
+	}
 	return deliveryErr
 }
 
@@ -273,7 +339,7 @@ func retrySuccessStatus(kind string) string {
 // inbound message record. Retryable failures keep the reply payload so the
 // next redelivery retries only the provider send; blocked failures are
 // terminal and record the reason.
-func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, payload, successStatus string, deliveryErr error) app.ExternalChatMessage {
+func (d *Dispatcher) recordReplyOutcome(ctx context.Context, msg app.ExternalChatMessage, kind, payload, successStatus string, deliveryErr error) (app.ExternalChatMessage, error) {
 	switch {
 	case deliveryErr == nil:
 		msg.Status = successStatus
@@ -289,7 +355,7 @@ func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, paylo
 		msg.Error = deliveryErr.Error()
 		msg.PendingReplyKind, msg.PendingReply = kind, payload
 	}
-	return d.store.SaveExternalChatMessage(msg)
+	return d.store.SaveExternalChatMessage(ctx, msg)
 }
 
 // handleControlText intercepts text-only messages that must not reach the
@@ -306,7 +372,7 @@ func (d *Dispatcher) handleControlText(ctx context.Context, inbound InboundMessa
 // context and asks the user what to do with it instead of invoking the agent.
 func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID string, receivedAt time.Time) (app.ExternalChatMessage, error) {
 	inboundContent := pendingAttachmentContext(inbound.Attachments)
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -318,20 +384,25 @@ func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound In
 		Status:            "needs_user_instruction",
 		CreatedAt:         receivedAt,
 	})
-	d.store.AddMessage(app.Message{
+	if err != nil {
+		return app.ExternalChatMessage{}, fmt.Errorf("persist weixin attachment message: %w", err)
+	}
+	if _, err := d.store.AddMessage(ctx, app.Message{
 		SessionID:   chatSession.LinkedSessionID,
 		Role:        "user",
 		Content:     inboundContent,
 		Attachments: inbound.Attachments,
 		CreatedAt:   receivedAt,
-	})
+	}); err != nil {
+		return inboundMsg, fmt.Errorf("persist attachment-only conversation message: %w", err)
+	}
 	answer := attachmentClarificationPrompt(inbound.Attachments)
 	return d.finishControlReply(ctx, inbound, chatSession, inboundMsg, answer, "", "needs_user_instruction")
 }
 
 func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) error {
 	oldSessionID := chatSession.LinkedSessionID
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -343,14 +414,25 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
-	session := d.store.CreateSessionWithScope("微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
+	if err != nil {
+		return fmt.Errorf("persist weixin clear request: %w", err)
+	}
+	session, err := d.store.CreateSessionWithScope(ctx, "微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
+	if err != nil {
+		return err
+	}
 	chatSession.LinkedSessionID = session.ID
 	chatSession.Status = "active"
+	chatSession.AuthorizedOwnerID = inbound.Binding.OwnerID
+	chatSession.AuthorizedActorID = inbound.Binding.ActorID
 	if inbound.ContextToken != "" {
 		chatSession.LastContextToken = inbound.ContextToken
 	}
-	chatSession = d.store.SaveExternalChatSession(chatSession)
-	d.store.AddAudit(app.AuditEvent{
+	chatSession, err = d.store.SaveExternalChatSession(ctx, chatSession)
+	if err != nil {
+		return fmt.Errorf("persist weixin chat session reset: %w", err)
+	}
+	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: session.ID,
 		Actor:     "gateway",
 		Type:      "weixin_chat.cleared",
@@ -372,8 +454,12 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMessage, answer, runID string) (notification.Result, error) {
 	recipient := d.replyRecipient(inbound)
 	if mediaPath, ok := singleMediaMarkdownPath(answer); ok {
-		if imagePath, ok := d.workspaceMediaPath(mediaPath, inbound); ok {
-			return notification.SendWeixinImage(ctx, d.store, d.cfg,
+		imagePath, ok, err := d.workspaceMediaPath(ctx, mediaPath, inbound)
+		if err != nil {
+			return notification.Result{}, err
+		}
+		if ok {
+			return notification.SendWeixinImage(ctx, d.store, d.credentials, d.cfg,
 				recipient,
 				inbound.ContextToken,
 				inbound.Binding.CredentialRef,
@@ -384,8 +470,12 @@ func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMes
 			)
 		}
 	}
-	if filePath, fileName, ok := d.workspaceFilePath(answer, inbound); ok {
-		return notification.SendWeixinFile(ctx, d.store, d.cfg,
+	filePath, fileName, ok, err := d.workspaceFilePath(ctx, answer, inbound)
+	if err != nil {
+		return notification.Result{}, err
+	}
+	if ok {
+		return notification.SendWeixinFile(ctx, d.store, d.credentials, d.cfg,
 			recipient,
 			inbound.ContextToken,
 			inbound.Binding.CredentialRef,
@@ -396,7 +486,7 @@ func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMes
 			runID,
 		)
 	}
-	return notification.SendWeixinText(ctx, d.store, d.cfg,
+	return notification.SendWeixinText(ctx, d.store, d.credentials, d.cfg,
 		recipient,
 		inbound.ContextToken,
 		inbound.Binding.CredentialRef,
@@ -444,8 +534,8 @@ func (d *Dispatcher) sendControlResult(ctx context.Context, inbound InboundMessa
 	} else if sendResult.Status != "" {
 		outbound.Status = sendResult.Status
 	}
-	d.store.SaveExternalChatMessage(outbound)
-	return sendErr
+	_, persistErr := d.store.SaveExternalChatMessage(ctx, outbound)
+	return errors.Join(sendErr, persistErr)
 }
 
 func weixinIngress(inbound InboundMessage, chatSession app.ExternalChatSession, nativeMessageID string) app.MessageIngressContext {
@@ -559,8 +649,8 @@ func (d *Dispatcher) replyRecipient(inbound InboundMessage) string {
 	return strings.TrimSpace(inbound.Binding.ExternalUserID)
 }
 
-func (d *Dispatcher) auditTypingFailure(chatSession app.ExternalChatSession, inbound InboundMessage, phase string, err error) {
-	d.store.AddAudit(app.AuditEvent{
+func (d *Dispatcher) auditTypingFailure(ctx context.Context, chatSession app.ExternalChatSession, inbound InboundMessage, phase string, err error) {
+	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: chatSession.LinkedSessionID,
 		Actor:     "gateway",
 		Type:      "weixin_chat.typing_failed",
@@ -574,15 +664,22 @@ func (d *Dispatcher) auditTypingFailure(chatSession app.ExternalChatSession, inb
 	})
 }
 
-func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.ExternalChatSession {
+func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessage) (app.ExternalChatSession, error) {
 	externalUserID := strings.TrimSpace(inbound.FromUserID)
 	if externalUserID == "" {
 		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
 	}
-	profile := d.ensureOwnerProfile(inbound, externalUserID)
+	profile, err := d.ensureOwnerProfile(ctx, inbound, externalUserID)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
 	ownerID := profile.ID
 	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
-	if existing, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
+	existing, ok, err := d.store.FindExternalChatSession(ctx, inbound.Binding.ID, externalUserID, "")
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	if ok {
 		changed := false
 		if existing.OwnerID != ownerID && ownerID != "" {
 			existing.OwnerID = ownerID
@@ -600,43 +697,66 @@ func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.ExternalChatS
 			existing.ProviderCursor = inbound.ProviderCursor
 			changed = true
 		}
-		if changed {
-			return d.store.SaveExternalChatSession(existing)
+		if existing.AuthorizedOwnerID != inbound.Binding.OwnerID || existing.AuthorizedActorID != inbound.Binding.ActorID {
+			existing.AuthorizedOwnerID = inbound.Binding.OwnerID
+			existing.AuthorizedActorID = inbound.Binding.ActorID
+			changed = true
 		}
-		return existing
+		if changed {
+			return d.store.SaveExternalChatSession(ctx, existing)
+		}
+		return existing, nil
 	}
-	session := d.store.CreateSessionWithScope("微信会话", ownerID, workspaceRoot, "weixin", true)
-	return d.store.SaveExternalChatSession(app.ExternalChatSession{
-		OwnerID:          ownerID,
-		WorkspaceRoot:    workspaceRoot,
-		BindingID:        inbound.Binding.ID,
-		Channel:          "weixin",
-		Provider:         inbound.Binding.Provider,
-		ExternalUserID:   externalUserID,
-		ExternalChatID:   externalUserID,
-		DisplayName:      inbound.Binding.DisplayName,
-		LinkedSessionID:  session.ID,
-		Status:           "active",
-		ProviderCursor:   inbound.ProviderCursor,
-		LastContextToken: inbound.ContextToken,
+	session, err := d.store.CreateSessionWithScope(ctx, "微信会话", ownerID, workspaceRoot, "weixin", true)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	return d.store.SaveExternalChatSession(ctx, app.ExternalChatSession{
+		OwnerID:           ownerID,
+		AuthorizedOwnerID: inbound.Binding.OwnerID,
+		AuthorizedActorID: inbound.Binding.ActorID,
+		WorkspaceRoot:     workspaceRoot,
+		BindingID:         inbound.Binding.ID,
+		Channel:           "weixin",
+		Provider:          inbound.Binding.Provider,
+		ExternalUserID:    externalUserID,
+		ExternalChatID:    externalUserID,
+		DisplayName:       inbound.Binding.DisplayName,
+		LinkedSessionID:   session.ID,
+		Status:            "active",
+		ProviderCursor:    inbound.ProviderCursor,
+		LastContextToken:  inbound.ContextToken,
 	})
 }
 
-func (d *Dispatcher) ensureOwnerProfile(inbound InboundMessage, externalUserID string) app.OwnerProfile {
+func (d *Dispatcher) ensureOwnerProfile(ctx context.Context, inbound InboundMessage, externalUserID string) (app.OwnerProfile, error) {
 	externalRef := weixinExternalRef(inbound.Binding.ID, externalUserID)
-	if profile, ok := d.store.FindOwnerProfileByExternalRef("weixin", externalRef); ok {
+	ownerID := weixinOwnerID(inbound.Binding.ID, externalUserID)
+	if profile, ok, err := d.store.GetOwnerProfileByID(ctx, ownerID); err != nil {
+		return app.OwnerProfile{}, err
+	} else if ok {
 		if strings.TrimSpace(profile.WorkspaceRoot) == "" {
 			profile.WorkspaceRoot = d.weixinWorkspaceRoot(profile.ID)
-			profile = d.store.SaveOwnerProfile(profile)
+			candidate, err := d.store.SaveOwnerProfile(ctx, profile)
+			return store.ReconcileOwnerProfileWrite(ctx, d.store, candidate, err)
 		}
-		return profile
+		return profile, nil
 	}
-	ownerID := weixinOwnerID(inbound.Binding.ID, externalUserID)
+	if profile, ok, err := d.store.FindOwnerProfileByExternalRef(ctx, "weixin", externalRef); err != nil {
+		return app.OwnerProfile{}, err
+	} else if ok {
+		if strings.TrimSpace(profile.WorkspaceRoot) == "" {
+			profile.WorkspaceRoot = d.weixinWorkspaceRoot(profile.ID)
+			candidate, err := d.store.SaveOwnerProfile(ctx, profile)
+			return store.ReconcileOwnerProfileWrite(ctx, d.store, candidate, err)
+		}
+		return profile, nil
+	}
 	displayName := strings.TrimSpace(inbound.Binding.DisplayName)
 	if displayName == "" {
 		displayName = "微信用户"
 	}
-	return d.store.SaveOwnerProfile(app.OwnerProfile{
+	candidate, err := d.store.SaveOwnerProfile(ctx, app.OwnerProfile{
 		ID:               ownerID,
 		Source:           "weixin",
 		ExternalRef:      externalRef,
@@ -646,6 +766,7 @@ func (d *Dispatcher) ensureOwnerProfile(inbound InboundMessage, externalUserID s
 		DisplayName:      displayName,
 		Preferences:      map[string]string{},
 	})
+	return store.ReconcileOwnerProfileWrite(ctx, d.store, candidate, err)
 }
 
 func weixinExternalRef(bindingID, externalUserID string) string {

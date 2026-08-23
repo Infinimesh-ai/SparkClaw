@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -30,7 +31,7 @@ func TestConnectorAPIRequiresExplicitVersionedOptIn(t *testing.T) {
 	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime, WithBindingRouter(registry.BindingRouter()), WithConnectorController(registry))
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -59,7 +60,7 @@ func TestConnectorAPIRequiresExplicitVersionedOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabledBinding.Body.Close()
-	if disabledBinding.StatusCode != http.StatusConflict || len(st.ListNotificationBindings("alpha", "")) != 0 {
+	if disabledBinding.StatusCode != http.StatusConflict || len(storetest.MustListNotificationBindings(t, st, "alpha", "")) != 0 {
 		t.Fatalf("disabled connector accepted binding: status=%d", disabledBinding.StatusCode)
 	}
 
@@ -92,6 +93,7 @@ func TestConnectorAPIRequiresExplicitVersionedOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configRaw := readResponse(t, configResp)
 	var publicConfig struct {
 		Tools struct {
 			Notifications struct {
@@ -102,21 +104,19 @@ func TestConnectorAPIRequiresExplicitVersionedOptIn(t *testing.T) {
 			} `json:"notifications"`
 		} `json:"tools"`
 	}
-	if err := json.NewDecoder(configResp.Body).Decode(&publicConfig); err != nil {
-		configResp.Body.Close()
+	if err := json.Unmarshal(configRaw, &publicConfig); err != nil {
 		t.Fatal(err)
 	}
-	configResp.Body.Close()
 	alphaConfig := publicConfig.Tools.Notifications.Channels["alpha"]
 	if !alphaConfig.Enabled || alphaConfig.OperatorEnabled {
-		t.Fatalf("public config did not separate owner state from configured default: %#v", alphaConfig)
+		t.Fatalf("public config did not separate owner state from configured default: status=%d channel=%#v body=%s", configResp.StatusCode, alphaConfig, configRaw)
 	}
 	enabledBinding, err := http.Post(ts.URL+"/api/notification-bindings/alpha/start", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	enabledBinding.Body.Close()
-	if enabledBinding.StatusCode != http.StatusCreated || len(st.ListNotificationBindings("alpha", "")) != 1 {
+	if enabledBinding.StatusCode != http.StatusCreated || len(storetest.MustListNotificationBindings(t, st, "alpha", "")) != 1 {
 		t.Fatalf("enabled connector rejected binding: status=%d", enabledBinding.StatusCode)
 	}
 	staleResp, _ := patch(`{"enabled":false,"expected_version":0}`)

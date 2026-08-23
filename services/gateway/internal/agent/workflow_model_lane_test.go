@@ -21,7 +21,7 @@ func TestWorkflowModelStepHonorsExplicitLaneAndDefaultsDeep(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			workflowRun := app.AgentRun{ID: app.NewID("run_workflow_lane"), SessionID: session.ID, Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-			st.SaveRun(workflowRun)
+			testSaveRun(st, workflowRun)
 			workflowResult := runtime.runWorkflowModelStep(
 				t.Context(), session.ID, workflowRun,
 				`workflow goal
@@ -29,8 +29,8 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"done"}`,
 				workflowStageContext{WorkflowID: app.WorkflowBrowserInternetSearch, ModelLaneHint: test.laneHint}, nil, nil, nil, nil,
 			)
 			if workflowResult.Chat.Lane != test.wantLane ||
-				!hasModelCallOperation(st.ListModelCalls(session.ID, workflowRun.ID), "workflow_step_1", test.wantLane) {
-				t.Fatalf("workflow execution lane = %q, want %q: calls=%#v", workflowResult.Chat.Lane, test.wantLane, st.ListModelCalls(session.ID, workflowRun.ID))
+				!hasModelCallOperation(testListModelCalls(st, session.ID, workflowRun.ID), "workflow_step_1", test.wantLane) {
+				t.Fatalf("workflow execution lane = %q, want %q: calls=%#v", workflowResult.Chat.Lane, test.wantLane, testListModelCalls(st, session.ID, workflowRun.ID))
 			}
 		})
 	}

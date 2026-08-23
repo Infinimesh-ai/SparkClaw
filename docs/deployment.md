@@ -377,6 +377,10 @@ Useful options:
 ```bash
 SPARKCLAW_STATE_BACKEND=memory
 SPARKCLAW_STATE_PATH=/path/to/state.json
+SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS=180
+SPARKCLAW_STATE_READ_TIMEOUT_SECONDS=10
+SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS=30
+SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS=60
 SPARKCLAW_STATE_ENCRYPT_AT_REST=true
 SPARKCLAW_STATE_ENCRYPTION_KEY_FILE=/path/to/key
 ```
@@ -388,10 +392,47 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 
 SPARKCLAW_STATE_BACKEND=postgres \
 SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?sslmode=disable' \
+SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS=180 \
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
-Gateway applies the active core schema at startup. The project-standard data service image remains PostgreSQL 18 with pgvector available, but Gateway no longer creates or queries a document-chunk/vector schema while workspace knowledge/RAG is deferred.
+`state.backend` is case-insensitive after trimming and accepts only `memory`,
+`file`, or `postgres`. File state requires an absolute normalized path after
+load. When file encryption is enabled, configure exactly one of the direct key
+or a readable, non-empty key file. PostgreSQL requires a non-empty DSN;
+`SPARKCLAW_POSTGRES_DSN` remains a legacy override that wins over
+`SPARKCLAW_STATE_DSN` when both are set. Store startup defaults to 180 seconds
+and accepts values from 1 through 900. Read, write, and transaction operation
+budgets default to 10, 30, and 60 seconds; each accepts values from 1 through
+900 and preserves a shorter caller deadline.
+
+Gateway starts listening only after the selected backend probe succeeds.
+`/readyz` returns `503` with a bounded Store status when runtime supervision
+marks the backend unready. Recovery probes retry periodically. `/metrics`
+exports `sparkclaw_store_ready`, active operations, operation totals, and total
+duration with bounded backend/repository/operation/mode/outcome labels; it does
+not expose state paths, DSNs, owner IDs, record IDs, or raw errors. Shutdown
+rejects new Store operations, drains admitted work within its close deadline,
+and closes the backend. See [Store](store.md) for the complete state machine and
+failure contract.
+
+Gateway applies the embedded ordered schema before readiness. It serializes new
+runners with an advisory lock and records immutable filename/checksum rows in
+`sparkclaw_schema_migrations`. A database without a ledger is treated as an
+unversioned adoption candidate: all migrations, compatibility copies and
+normalizations, exact catalog validation, and ledger rows commit atomically.
+Checksum drift, unknown or gapped versions, incompatible legacy natural keys,
+or catalog drift fail startup without accepting a partial migration. The
+PostgreSQL image no longer copies schema SQL into `docker-entrypoint-initdb.d`.
+
+S1 is a non-rolling database upgrade. Stop every old Gateway process before
+starting a binary that owns these migrations. The migration also locks the four
+Weixin/external compatibility tables against old writes until commit, but that
+lock is a backstop rather than a rolling-upgrade protocol.
+
+The project-standard data service image remains PostgreSQL 18 with pgvector
+available, but Gateway does not create or query a document-chunk/vector schema
+while workspace knowledge/RAG is deferred.
 
 PostgreSQL 18 stores clusters under a major-version-specific subdirectory, so
 Compose mounts the versioned `sparkclaw_pg18` volume at

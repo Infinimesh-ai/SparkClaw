@@ -11,21 +11,21 @@ import (
 func TestMemoryStoreUpdatePendingReminderUsesCompareAndSwap(t *testing.T) {
 	st := NewMemoryStore()
 	now := time.Now().UTC()
-	stored := st.SaveReminder(app.Reminder{
+	stored := mustSaveReminder(t, st, app.Reminder{
 		ID: "reminder-cas", SessionID: "session-cas", Text: "before", DueTime: now.Add(time.Hour),
 		Status: "pending", CreatedAt: now, UpdatedAt: now,
 	})
 	updated := stored
 	updated.Text = "after"
 	updated.UpdatedAt = stored.UpdatedAt.Add(time.Nanosecond)
-	if _, err := st.UpdatePendingReminder(updated, stored.UpdatedAt); err != nil {
+	if _, err := testUpdatePendingReminder(t, st, updated, stored.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
 	updated.Text = "stale overwrite"
-	if _, err := st.UpdatePendingReminder(updated, stored.UpdatedAt); !errors.Is(err, ErrReminderConflict) {
+	if _, err := testUpdatePendingReminder(t, st, updated, stored.UpdatedAt); !errors.Is(err, ErrReminderConflict) {
 		t.Fatalf("expected stale compare-and-swap conflict, got %v", err)
 	}
-	current, _ := st.GetReminder(stored.ID)
+	current, _ := mustGetReminder(t, st, stored.ID)
 	if current.Text != "after" {
 		t.Fatalf("stale update changed reminder: %#v", current)
 	}
@@ -42,28 +42,28 @@ func TestMemoryStoreFindsExternalApprovalByStableReference(t *testing.T) {
 			Plan: "# Plan\n\nDo one.", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
-	found, ok := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-one")
+	mustSaveApproval(t, st, approval)
+	found, ok := mustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-one")
 	if !ok || found.ID != approval.ID || found.ExternalContext == nil || found.ExternalContext.Plan != approval.ExternalContext.Plan {
 		t.Fatalf("external approval lookup mismatch: %#v ok=%v", found, ok)
 	}
-	byID, ok := st.GetApproval(approval.ID)
+	byID, ok := mustGetApproval(t, st, approval.ID)
 	if !ok || byID.Source != app.ApprovalSourceHappyTeamPlan {
 		t.Fatalf("external approval id lookup mismatch: %#v ok=%v", byID, ok)
 	}
 	found.ExternalContext.Plan = "caller-only mutation"
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := mustGetApproval(t, st, approval.ID)
 	if stored.ExternalContext.Plan != approval.ExternalContext.Plan {
 		t.Fatalf("approval lookup leaked mutable external context: %#v", stored.ExternalContext)
 	}
-	if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "done"); err != nil {
 		t.Fatal(err)
 	}
 	approval.ExternalContext.Plan = "stale background update"
-	if _, err := st.UpdatePendingApproval(approval); err == nil {
+	if _, err := st.UpdatePendingApproval(t.Context(), NewApprovalUpdate(approval, approval)); err == nil {
 		t.Fatal("stale pending update reopened a resolved approval")
 	}
-	stored, _ = st.GetApproval(approval.ID)
+	stored, _ = mustGetApproval(t, st, approval.ID)
 	if stored.Status != "approved" || stored.ExternalContext.Plan != "# Plan\n\nDo one." {
 		t.Fatalf("resolved approval changed after stale update: %#v", stored)
 	}
@@ -71,41 +71,41 @@ func TestMemoryStoreFindsExternalApprovalByStableReference(t *testing.T) {
 
 func TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("documents")
+	session := mustCreateSession(t, st, "documents")
 	older := time.Now().UTC().Add(-time.Minute)
-	st.SaveDocumentRecord(app.DocumentRecord{
+	mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_old", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "old.pdf", Name: "old.pdf", Format: app.DocumentFormatPDF,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceAttachment,
 		LastActivity: app.DocumentActivityAttached, LastActivityID: "m_old", LastActivityAt: older,
 	})
-	latest := st.SaveDocumentRecord(app.DocumentRecord{
+	latest := mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_new", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "new.docx", Name: "new.docx", Format: app.DocumentFormatDOCX,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceToolOutput,
 		LastActivity: app.DocumentActivityEdited, LastActivityID: "tc_new", LastActivityAt: older.Add(time.Minute),
 	})
-	records := st.ListDocumentRecords(session.OwnerID, session.ID, 1)
+	records := mustListDocumentRecords(t, st, session.OwnerID, session.ID, 1)
 	if len(records) != 1 || records[0].ID != latest.ID {
 		t.Fatalf("document records were not returned by recent activity: %#v", records)
 	}
-	if got, ok := st.GetDocumentRecord(latest.ID); !ok || got.GovernedPath != "new.docx" {
+	if got, ok := mustGetDocumentRecord(t, st, latest.ID); !ok || got.GovernedPath != "new.docx" {
 		t.Fatalf("document record did not round trip: %#v ok=%v", got, ok)
 	}
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if records := st.ListDocumentRecords("", session.ID, 10); len(records) != 0 {
+	if records := mustListDocumentRecords(t, st, "", session.ID, 10); len(records) != 0 {
 		t.Fatalf("session deletion retained document records: %#v", records)
 	}
 }
 
 func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("Memory editor")
+	session := mustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	testSaveRun(st, run)
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -113,7 +113,8 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,39 +122,39 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		t.Fatal("accepted candidate did not create a memory")
 	}
 
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "SparkClaw likes edited memory")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "SparkClaw likes edited memory")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Kind != "procedural" || updated.Content != "SparkClaw likes edited memory" || updated.SourceID != run.ID {
 		t.Fatalf("memory did not update cleanly: %#v", updated)
 	}
-	if oldMatches := st.SearchMemories("old memory"); len(oldMatches) != 0 {
+	if oldMatches := mustSearchMemories(t, st, "old memory"); len(oldMatches) != 0 {
 		t.Fatalf("old memory content still searchable: %#v", oldMatches)
 	}
-	if newMatches := st.SearchMemories("edited memory"); len(newMatches) != 1 || newMatches[0].ID != memory.ID {
+	if newMatches := mustSearchMemories(t, st, "edited memory"); len(newMatches) != 1 || newMatches[0].ID != memory.ID {
 		t.Fatalf("updated memory not searchable: %#v", newMatches)
 	}
 
-	deleted, err := st.DeleteMemory(memory.ID)
+	deleted, err := testDeleteMemory(t, st, memory.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted.ID != memory.ID {
 		t.Fatalf("delete returned wrong memory: %#v", deleted)
 	}
-	if matches := st.SearchMemories("edited memory"); len(matches) != 0 {
+	if matches := mustSearchMemories(t, st, "edited memory"); len(matches) != 0 {
 		t.Fatalf("deleted memory still searchable: %#v", matches)
 	}
-	if _, err := st.UpdateMemory(memory.ID, "profile", "missing"); err == nil {
+	if _, err := testUpdateMemory(t, st, memory.ID, "profile", "missing"); err == nil {
 		t.Fatal("expected updating a deleted memory to fail")
 	}
 
-	audit := st.ListAudit(session.ID)
+	audit := mustListAudit(t, st, session.ID)
 	if !hasAuditType(audit, "memory.updated") || !hasAuditType(audit, "memory.deleted") {
 		t.Fatalf("memory editor events missing from audit: %#v", audit)
 	}
-	events := st.EventsAfter(session.ID, "")
+	events := mustEventsAfter(t, st, session.ID, "")
 	if !hasEventType(events, "memory.updated") || !hasEventType(events, "memory.deleted") {
 		t.Fatalf("memory editor events missing from event stream: %#v", events)
 	}
@@ -161,12 +162,12 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 
 func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 	st := NewMemoryStore()
-	initial := st.GetOwnerProfile()
+	initial := mustGetOwnerProfile(t, st)
 	if initial.ID != app.DefaultOwnerID || initial.DisplayName == "" {
 		t.Fatalf("default owner profile missing: %#v", initial)
 	}
 
-	updated := st.UpdateOwnerProfile(app.OwnerProfile{
+	updated := mustUpdateOwnerProfile(t, st, app.OwnerProfile{
 		DisplayName: "Ada Owner",
 		Email:       "ada@example.test",
 		Preferences: map[string]string{"tone": "concise", "locale": "en-US"},
@@ -179,18 +180,18 @@ func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 	}
 
 	updated.Preferences["tone"] = "mutated"
-	reloaded := st.GetOwnerProfile()
+	reloaded := mustGetOwnerProfile(t, st)
 	if reloaded.Preferences["tone"] != "concise" {
 		t.Fatalf("owner profile preferences were not cloned: %#v", reloaded)
 	}
-	if !hasAuditType(st.ListAudit(""), "owner_profile.updated") || !hasEventType(st.EventsAfter("", ""), "owner_profile.updated") {
+	if !hasAuditType(mustListAudit(t, st, ""), "owner_profile.updated") || !hasEventType(mustEventsAfter(t, st, "", ""), "owner_profile.updated") {
 		t.Fatalf("owner profile update was not audited")
 	}
 }
 
 func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 	st := NewMemoryStore()
-	profile := st.SaveOwnerProfile(app.OwnerProfile{
+	profile := mustSaveOwnerProfile(t, st, app.OwnerProfile{
 		ID:               "wx_owner",
 		Source:           "weixin",
 		ExternalRef:      "bind:user",
@@ -203,14 +204,14 @@ func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 	if profile.ID != "wx_owner" || profile.Source != "weixin" || profile.WorkspaceRoot == "" {
 		t.Fatalf("profile did not save extended fields: %#v", profile)
 	}
-	found, ok := st.FindOwnerProfileByExternalRef("weixin", "bind:user")
+	found, ok := mustFindOwnerProfileByExternalRef(t, st, "weixin", "bind:user")
 	if !ok || found.ID != profile.ID {
 		t.Fatalf("profile external ref lookup failed: %#v ok=%v", found, ok)
 	}
-	if _, ok := st.GetOwnerProfileByID("missing"); ok {
+	if _, ok := mustGetOwnerProfileByID(t, st, "missing"); ok {
 		t.Fatalf("missing profile should not be found")
 	}
-	profiles := st.ListOwnerProfiles()
+	profiles := mustListOwnerProfiles(t, st)
 	if len(profiles) != 2 {
 		t.Fatalf("expected default and weixin profiles, got %#v", profiles)
 	}
@@ -218,7 +219,7 @@ func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 
 func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) {
 	st := NewMemoryStore()
-	record := st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
+	record := mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{
 		OwnerID:          "owner-a",
 		BrowserProfileID: "work",
 		SiteOrigin:       "https://Example.COM/",
@@ -229,7 +230,7 @@ func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) 
 	if record.ID == "" || record.Status != app.BrowserAuthStatusActive || record.SiteOrigin != "https://example.com" || record.AccountHint != "ada@example.com" {
 		t.Fatalf("browser auth record was not normalized: %#v", record)
 	}
-	if found, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); !ok || found.ID != record.ID {
+	if found, ok := mustFindBrowserAuthRecord(t, st, "owner-a", "work", "https://example.com", "", "ada@example.com"); !ok || found.ID != record.ID {
 		t.Fatalf("expected scoped browser auth record, got %#v ok=%v", found, ok)
 	}
 	for _, tc := range []struct {
@@ -242,31 +243,31 @@ func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) 
 		{name: "other profile", ownerID: "owner-a", browserProfileID: "personal", accountHint: "ada@example.com"},
 		{name: "other account", ownerID: "owner-a", browserProfileID: "work", accountHint: "other@example.com"},
 	} {
-		if found, ok := st.FindBrowserAuthRecord(tc.ownerID, tc.browserProfileID, "https://example.com", "", tc.accountHint); ok {
+		if found, ok := mustFindBrowserAuthRecord(t, st, tc.ownerID, tc.browserProfileID, "https://example.com", "", tc.accountHint); ok {
 			t.Fatalf("%s should not match browser auth record: %#v", tc.name, found)
 		}
 	}
-	revoked, err := st.RevokeBrowserAuthRecord(record.ID, "owner requested")
+	revoked, err := st.RevokeBrowserAuthRecord(t.Context(), record.ID, "owner requested")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if revoked.Status != app.BrowserAuthStatusRevoked || revoked.RevokedAt == nil {
 		t.Fatalf("record was not revoked: %#v", revoked)
 	}
-	if _, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); ok {
+	if _, ok := mustFindBrowserAuthRecord(t, st, "owner-a", "work", "https://example.com", "", "ada@example.com"); ok {
 		t.Fatalf("revoked browser auth record should not be active")
 	}
-	if !hasAuditType(st.ListAudit(""), "browser_auth.record_saved") || !hasAuditType(st.ListAudit(""), "browser_auth.record_revoked") {
-		t.Fatalf("browser auth audit events missing: %#v", st.ListAudit(""))
+	if !hasAuditType(mustListAudit(t, st, ""), "browser_auth.record_saved") || !hasAuditType(mustListAudit(t, st, ""), "browser_auth.record_revoked") {
+		t.Fatalf("browser auth audit events missing: %#v", mustListAudit(t, st, ""))
 	}
 }
 
 func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("login block")
+	session := mustCreateSession(t, st, "login block")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	testSaveRun(st, run)
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:          session.ID,
 		RunID:              run.ID,
 		OriginalGoal:       "Read https://example.com/protected",
@@ -282,31 +283,31 @@ func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	if block.ID == "" || block.Status != app.BrowserLoginBlockStatusWaiting || block.SiteOrigin != "https://example.com" || block.LastVisiblePageID != "page-2" {
 		t.Fatalf("browser login block was not normalized: %#v", block)
 	}
-	if found, ok := st.FindActiveBrowserLoginBlock(session.ID); !ok || found.ID != block.ID {
+	if found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID); !ok || found.ID != block.ID {
 		t.Fatalf("expected active browser login block, got %#v ok=%v", found, ok)
 	}
 	now := time.Now().UTC()
 	block.Status = app.BrowserLoginBlockStatusResolved
 	block.ResolvedAt = &now
-	st.SaveBrowserLoginBlock(block)
-	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
+	mustSaveBrowserLoginBlock(t, st, block)
+	if _, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID); ok {
 		t.Fatalf("resolved browser login block should not remain active")
 	}
-	if blocks := st.ListBrowserLoginBlocks(session.ID, app.BrowserLoginBlockStatusResolved); len(blocks) != 1 || blocks[0].ID != block.ID {
+	if blocks := mustListBrowserLoginBlocks(t, st, session.ID, app.BrowserLoginBlockStatusResolved); len(blocks) != 1 || blocks[0].ID != block.ID {
 		t.Fatalf("resolved browser login block should be listed: %#v", blocks)
 	}
 }
 
 func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("browser handoff CAS")
+	session := mustCreateSession(t, st, "browser handoff CAS")
 	run := app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
 		WorkflowID: app.WorkflowBrowserAutomation, WorkflowRevision: app.BrowserWorkflowRevision2,
 		WorkflowNodeID: "browser_result", SessionGeneration: 7,
@@ -327,7 +328,7 @@ func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	}
 	update := block
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := st.UpdateBrowserLoginBlock(update, block.Version)
+	updated, err := st.UpdateBrowserLoginBlock(t.Context(), update, block.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,10 +339,10 @@ func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	}
 	stale := block
 	stale.LastError = "stale overwrite"
-	if _, err := st.UpdateBrowserLoginBlock(stale, block.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), stale, block.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
 		t.Fatalf("stale browser handoff update error = %v", err)
 	}
-	current, _ := st.GetBrowserLoginBlock(block.ID)
+	current, _ := mustGetBrowserLoginBlock(t, st, block.ID)
 	if current.Version != updated.Version || current.LastError == "stale overwrite" {
 		t.Fatalf("stale browser handoff update changed current state: %#v", current)
 	}
@@ -355,13 +356,13 @@ func TestMemoryStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *t
 	)
 	for _, status := range statuses {
 		st := NewMemoryStore()
-		session := st.CreateSession("active predicate " + status)
+		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-		st.SaveRun(run)
-		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		testSaveRun(st, run)
+		block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
 		})
-		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 		if want := app.BrowserHandoffStatusActive(status); ok != want {
 			t.Fatalf("status %q: FindActiveBrowserLoginBlock ok=%v, shared predicate active=%v", status, ok, want)
 		} else if ok && found.ID != block.ID {
@@ -372,28 +373,28 @@ func TestMemoryStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *t
 
 func TestMemoryStoreBrowserLoginBlockReadsDoNotMutateStoredState(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("read stability")
+	session := mustCreateSession(t, st, "read stability")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	testSaveRun(st, run)
+	saved := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
 	})
 	time.Sleep(2 * time.Millisecond)
 	for i := 0; i < 3; i++ {
-		listed := st.ListBrowserLoginBlocks(session.ID, "")
+		listed := mustListBrowserLoginBlocks(t, st, session.ID, "")
 		if len(listed) != 1 || listed[0].Version != saved.Version ||
 			listed[0].SchemaVersion != saved.SchemaVersion || !listed[0].UpdatedAt.Equal(saved.UpdatedAt) {
 			t.Fatalf("list read did not return stored values: %#v want %#v", listed, saved)
 		}
-		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 		if !ok || found.Version != saved.Version || !found.UpdatedAt.Equal(saved.UpdatedAt) {
 			t.Fatalf("find-active read did not return stored values: %#v ok=%v want %#v", found, ok, saved)
 		}
 	}
-	found, _ := st.FindActiveBrowserLoginBlock(session.ID)
+	found, _ := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 	update := found
 	update.Status = app.BrowserHandoffStatusValidatingVisible
-	if _, err := st.UpdateBrowserLoginBlock(update, found.Version); err != nil {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), update, found.Version); err != nil {
 		t.Fatalf("version observed on a read path failed CAS: %v", err)
 	}
 }
@@ -436,12 +437,12 @@ func TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate(t *testin
 		},
 	})
 	for i := 0; i < 5; i++ {
-		active, ok := st.FindActiveBrowserLoginBlock("s1")
+		active, ok := mustFindActiveBrowserLoginBlock(t, st, "s1")
 		if !ok || active.ID != "blogin-new" || active.Version != 4 ||
 			!active.UpdatedAt.Equal(base.Add(2*time.Minute)) {
 			t.Fatalf("find-active did not pick newest stored active block: %#v ok=%v", active, ok)
 		}
-		tie, ok := st.FindActiveBrowserLoginBlock("s2")
+		tie, ok := mustFindActiveBrowserLoginBlock(t, st, "s2")
 		if !ok || tie.ID != "blogin-tie-b" {
 			t.Fatalf("find-active tie-break is not deterministic: %#v ok=%v", tie, ok)
 		}
@@ -450,36 +451,36 @@ func TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate(t *testin
 
 func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("trim id")
+	session := mustCreateSession(t, st, "trim id")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	testSaveRun(st, run)
+	saved := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		ID: "  blogin-trim  ", SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
 	})
 	if saved.ID != "blogin-trim" {
 		t.Fatalf("save did not trim block ID: %q", saved.ID)
 	}
-	if _, ok := st.GetBrowserLoginBlock("blogin-trim"); !ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, "blogin-trim"); !ok {
 		t.Fatal("block is not stored under the trimmed ID")
 	}
-	resaved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	resaved := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		ID: " blogin-trim ", SessionID: session.ID, RunID: run.ID,
 		Status: app.BrowserHandoffStatusValidatingVisible, SiteOrigin: "https://example.com",
 	})
 	if resaved.Version != saved.Version+1 {
 		t.Fatalf("padded-ID save forked a new record instead of updating: %#v", resaved)
 	}
-	if blocks := st.ListBrowserLoginBlocks(session.ID, ""); len(blocks) != 1 {
+	if blocks := mustListBrowserLoginBlocks(t, st, session.ID, ""); len(blocks) != 1 {
 		t.Fatalf("padded-ID writes produced duplicate records: %#v", blocks)
 	}
 	update := resaved
 	update.ID = "  blogin-trim "
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := st.UpdateBrowserLoginBlock(update, resaved.Version)
+	updated, err := st.UpdateBrowserLoginBlock(t.Context(), update, resaved.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, ok := st.GetBrowserLoginBlock("blogin-trim")
+	current, ok := mustGetBrowserLoginBlock(t, st, "blogin-trim")
 	if !ok || updated.ID != "blogin-trim" || current.Version != updated.Version ||
 		current.Status != app.BrowserHandoffStatusTransferring {
 		t.Fatalf("padded-ID CAS update wrote back under the wrong key: %#v ok=%v", current, ok)
@@ -488,70 +489,72 @@ func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
 
 func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("delete blocked browser session")
+	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	testSaveRun(st, run)
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		SiteOrigin: "https://example.com",
 	})
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, block.ID); ok {
 		t.Fatal("session deletion retained browser login block")
 	}
-	if _, ok := st.GetRun(run.ID); ok {
+	if _, ok := testGetRun(st, run.ID); ok {
 		t.Fatal("session deletion retained agent run")
 	}
-	if _, ok := st.GetSession(session.ID); ok {
+	if _, ok := mustGetSession(t, st, session.ID); ok {
 		t.Fatal("session deletion retained session")
 	}
 }
 
 func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("Feedback")
+	session := mustCreateSession(t, st, "Feedback")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	message := st.AddMessage(app.Message{SessionID: session.ID, RunID: run.ID, Role: "assistant", Content: "first answer"})
+	testSaveRun(st, run)
+	message := mustAddMessage(t, st, app.Message{SessionID: session.ID, RunID: run.ID, Role: "assistant", Content: "first answer"})
 
-	feedback := st.SaveRunFeedback(app.RunFeedback{
+	feedback := testSaveRunFeedback(st, app.RunFeedback{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		MessageID:  message.ID,
 		Rating:     "down",
 		Correction: "Use the cited file.",
 	})
+
 	if feedback.ID == "" || feedback.Rating != "down" || feedback.Correction == "" {
 		t.Fatalf("feedback did not save: %#v", feedback)
 	}
-	updated := st.SaveRunFeedback(app.RunFeedback{
+	updated := testSaveRunFeedback(st, app.RunFeedback{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		MessageID: message.ID,
 		Rating:    "up",
 		Note:      "looks better",
 	})
+
 	if updated.ID != feedback.ID || updated.CreatedAt != feedback.CreatedAt {
 		t.Fatalf("feedback should update existing message feedback: %#v vs %#v", updated, feedback)
 	}
-	items := st.ListRunFeedback(run.ID)
+	items := testListRunFeedback(st, run.ID)
 	if len(items) != 1 || items[0].Rating != "up" || items[0].Note != "looks better" {
 		t.Fatalf("feedback did not list cleanly: %#v", items)
 	}
-	if !hasAuditType(st.ListAudit(session.ID), "run_feedback.saved") || !hasEventType(st.EventsAfter(session.ID, ""), "run_feedback.saved") {
+	if !hasAuditType(mustListAudit(t, st, session.ID), "run_feedback.saved") || !hasEventType(mustEventsAfter(t, st, session.ID, ""), "run_feedback.saved") {
 		t.Fatalf("feedback was not audited")
 	}
 }
 
 func TestMemoryStorePrunesExpiredMemories(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("Retention")
+	session := mustCreateSession(t, st, "Retention")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	old := app.Memory{
 		ID:        app.NewID("mem"),
 		Kind:      "profile",
@@ -569,14 +572,14 @@ func TestMemoryStorePrunesExpiredMemories(t *testing.T) {
 	st.memories[old.ID] = old
 	st.memories[fresh.ID] = fresh
 
-	pruned := st.PruneMemories(time.Now().UTC().AddDate(0, 0, -7))
+	pruned := mustPruneMemories(t, st, time.Now().UTC().AddDate(0, 0, -7))
 	if len(pruned) != 1 || pruned[0].ID != old.ID {
 		t.Fatalf("unexpected pruned memories: %#v", pruned)
 	}
-	if matches := st.SearchMemories("retention memory"); len(matches) != 1 || matches[0].ID != fresh.ID {
+	if matches := mustSearchMemories(t, st, "retention memory"); len(matches) != 1 || matches[0].ID != fresh.ID {
 		t.Fatalf("retention pruning left wrong memories: %#v", matches)
 	}
-	if !hasAuditType(st.ListAudit(session.ID), "memory.pruned") || !hasEventType(st.EventsAfter(session.ID, ""), "memory.pruned") {
+	if !hasAuditType(mustListAudit(t, st, session.ID), "memory.pruned") || !hasEventType(mustEventsAfter(t, st, session.ID, ""), "memory.pruned") {
 		t.Fatalf("memory retention pruning was not audited")
 	}
 }
@@ -601,21 +604,21 @@ func TestMemoryStoreListsArtifactObjectsNewestFirst(t *testing.T) {
 	newer.Key = "traces/run_new.json"
 	newer.URI = "artifact://sparkclaw/traces/run_new.json"
 	newer.CreatedAt = time.Now().UTC()
-	st.SaveArtifactObject(older)
-	st.SaveArtifactObject(newer)
+	mustSaveArtifactObject(t, st, older)
+	mustSaveArtifactObject(t, st, newer)
 
-	objects := st.ListArtifactObjects(1)
+	objects := mustListArtifactObjects(t, st, 1)
 	if len(objects) != 1 || objects[0].ID != "obj_new" {
 		t.Fatalf("artifact objects did not list newest first: %#v", objects)
 	}
-	if !hasAuditType(st.ListAudit(""), "artifact.saved") || !hasEventType(st.EventsAfter("", ""), "artifact.saved") {
+	if !hasAuditType(mustListAudit(t, st, ""), "artifact.saved") || !hasEventType(mustEventsAfter(t, st, "", ""), "artifact.saved") {
 		t.Fatalf("artifact save was not audited")
 	}
 }
 
 func TestMemoryStoreFindsArtifactObjectByURI(t *testing.T) {
 	st := NewMemoryStore()
-	session := st.CreateSession("artifact lookup")
+	session := mustCreateSession(t, st, "artifact lookup")
 	uri := "artifact://sparkclaw/observations/run_a/tc_1.json"
 	older := app.ArtifactObject{
 		ID:          "obj_a",
@@ -634,39 +637,39 @@ func TestMemoryStoreFindsArtifactObjectByURI(t *testing.T) {
 	newer.ID = "obj_b"
 	newer.RunID = "run_b"
 	newer.CreatedAt = time.Now().UTC()
-	st.SaveArtifactObject(older)
-	st.SaveArtifactObject(newer)
+	mustSaveArtifactObject(t, st, older)
+	mustSaveArtifactObject(t, st, newer)
 
-	if object, ok := st.FindArtifactObjectByURI(uri, session.ID, "run_a"); !ok || object.ID != "obj_a" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, "run_a"); !ok || object.ID != "obj_a" {
 		t.Fatalf("run-scoped artifact lookup failed: %#v ok=%v", object, ok)
 	}
-	if object, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); !ok || object.ID != "obj_b" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, ""); !ok || object.ID != "obj_b" {
 		t.Fatalf("session-scoped lookup did not pick the newest object: %#v ok=%v", object, ok)
 	}
-	if _, ok := st.FindArtifactObjectByURI(uri, "s_other", ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, uri, "s_other", ""); ok {
 		t.Fatal("artifact lookup crossed the session boundary")
 	}
-	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", session.ID, ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/missing.json", session.ID, ""); ok {
 		t.Fatal("missing URI lookup returned an object")
 	}
 
 	moved := newer
 	moved.URI = "artifact://sparkclaw/observations/run_b/tc_1.json"
-	st.SaveArtifactObject(moved)
-	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, "run_b"); ok {
+	mustSaveArtifactObject(t, st, moved)
+	if _, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, "run_b"); ok {
 		t.Fatal("stale URI index entry survived a re-save under a new URI")
 	}
-	if object, ok := st.FindArtifactObjectByURI(moved.URI, session.ID, "run_b"); !ok || object.ID != "obj_b" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, moved.URI, session.ID, "run_b"); !ok || object.ID != "obj_b" {
 		t.Fatalf("re-saved artifact lookup failed: %#v ok=%v", object, ok)
 	}
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, uri, session.ID, ""); ok {
 		t.Fatal("artifact lookup survived session deletion")
 	}
-	if _, ok := st.FindArtifactObjectByURI(moved.URI, "", ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, moved.URI, "", ""); ok {
 		t.Fatal("URI index entry survived session deletion")
 	}
 }

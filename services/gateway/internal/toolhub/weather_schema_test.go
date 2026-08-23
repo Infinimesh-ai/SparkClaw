@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type weatherInfoStub struct {
@@ -106,21 +107,26 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "weather", app.DefaultOwnerID, root, "web", false)
 	runID := "run_weather"
-	st.SaveRun(app.AgentRun{
+	testSaveRun(st, app.AgentRun{
 		ID: runID, SessionID: session.ID,
 		MessageContext: &app.MessageRunContext{ClientTimezone: "America/New_York"},
 	})
+
 	hub := New(cfg, st).WithWeatherInfoAdapter(&weatherInfoStub{response: dedicatedWeatherResponse()})
-	if got := hub.weatherCardDisplayLocation(runID, "Asia/Shanghai").String(); got != "America/New_York" {
+	location, err := hub.weatherCardDisplayLocation(t.Context(), runID, "Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := location.String(); got != "America/New_York" {
 		t.Fatalf("weather display timezone = %q; want client timezone", got)
 	}
 	lookup, err := hub.Execute(context.Background(), "weather.lookup", map[string]any{"location": "杭州"}, session.ID, runID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_weather", SessionID: session.ID, RunID: runID,
 		Tool: "weather.lookup", Status: "completed", Result: lookup.Output,
 	})
@@ -149,22 +155,24 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call, ok := reloaded.GetToolCall("tc_weather"); !ok || call.Tool != "weather.lookup" {
+	if call, ok := testGetToolCall(reloaded, "tc_weather"); !ok || call.Tool != "weather.lookup" {
 		t.Fatalf("default file backend did not persist the weather lookup boundary: %#v ok=%t", call, ok)
 	}
 }
 
 func TestRenderWeatherCardRejectsIncompleteOrLegacyPayloadReferences(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
+	session := storetest.MustCreateSessionWithScope(t, st, "weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_incomplete", SessionID: session.ID, RunID: "run", Tool: "weather.lookup", Status: "completed",
 		Result: weatherPayload{Status: "completed", SchemaVersion: WeatherPayloadSchemaVersion, RequestID: "request", Location: "杭州"},
 	})
-	st.SaveToolCall(app.ToolCall{
+
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_wrong_tool", SessionID: session.ID, RunID: "run", Tool: "web.search", Status: "completed",
 		Result: dedicatedWeatherResponse(),
 	})
+
 	hub := New(config.Default(), st)
 	for _, ref := range []string{"tc_incomplete", "tc_wrong_tool"} {
 		_, err := hub.Execute(context.Background(), "media.render_weather_card", map[string]any{

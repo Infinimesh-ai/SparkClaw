@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -8,20 +9,23 @@ import (
 )
 
 type externalDeliveryStore interface {
-	GetExternalChatSession(string) (app.ExternalChatSession, bool)
-	SaveExternalChatMessage(app.ExternalChatMessage) app.ExternalChatMessage
+	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
+	SaveExternalChatMessage(context.Context, app.ExternalChatMessage) (app.ExternalChatMessage, error)
 }
 
 // RecordExternalDelivery keeps provider delivery state separate from the
 // WorkflowResult business state. Binding-only schedule endpoints intentionally
 // have no chat timeline to update.
-func RecordExternalDelivery(st externalDeliveryStore, endpoint app.MessageEndpoint, request app.DeliveryRequest, receipt app.DeliveryReceipt) {
+func RecordExternalDelivery(ctx context.Context, st externalDeliveryStore, endpoint app.MessageEndpoint, request app.DeliveryRequest, receipt app.DeliveryReceipt) error {
 	if st == nil {
-		return
+		return nil
 	}
-	chat, ok := st.GetExternalChatSession(string(endpoint.ID))
+	chat, ok, err := st.GetExternalChatSession(ctx, string(endpoint.ID))
+	if err != nil {
+		return err
+	}
 	if !ok {
-		return
+		return nil
 	}
 	status := "sent"
 	if receipt.Status != app.DeliverySucceeded {
@@ -34,7 +38,7 @@ func RecordExternalDelivery(st externalDeliveryStore, endpoint app.MessageEndpoi
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
-	st.SaveExternalChatMessage(app.ExternalChatMessage{
+	_, err = st.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                "external_delivery_" + string(request.ID),
 		ChatSessionID:     chat.ID,
 		BindingID:         endpoint.BindingRef,
@@ -50,6 +54,7 @@ func RecordExternalDelivery(st externalDeliveryStore, endpoint app.MessageEndpoi
 		CreatedAt:         createdAt,
 		UpdatedAt:         createdAt,
 	})
+	return err
 }
 
 func deliveryContentSummary(content app.MessageContent) string {

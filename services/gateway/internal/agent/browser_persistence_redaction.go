@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -10,15 +11,17 @@ import (
 
 var browserPersistenceURLPattern = regexp.MustCompile(`https?://[^\s<>"'\]\)]+`)
 
-func (r Runtime) redactBrowserToolPersistence(runID, tool string, arguments map[string]any, output any) (map[string]any, any) {
+func (r Runtime) redactBrowserToolPersistence(ctx context.Context, runID, tool string, arguments map[string]any, output any) (map[string]any, any, error) {
 	if !strings.HasPrefix(strings.TrimSpace(tool), "browser.") {
-		return arguments, output
+		return arguments, output, nil
 	}
 	target := app.BrowserTargetDescriptor{QueryProvenance: app.BrowserQueryProviderVolatile}
-	if run, ok := r.store.GetRun(runID); ok && run.Workflow != nil && run.Workflow.Browser != nil {
+	if run, ok, err := r.store.GetRun(ctx, runID); err != nil {
+		return nil, nil, err
+	} else if ok && run.Workflow != nil && run.Workflow.Browser != nil {
 		target = run.Workflow.Browser.Target
 	}
-	return browserPersistenceMap(target, arguments), browserPersistenceValue(target, "", output)
+	return browserPersistenceMap(target, arguments), browserPersistenceValue(target, "", output), nil
 }
 
 func browserPersistenceMap(target app.BrowserTargetDescriptor, value map[string]any) map[string]any {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
@@ -75,7 +76,7 @@ type workflowEvidenceProjectionInput struct {
 	Step                      int
 }
 
-func (r Runtime) recordWorkflowEvidenceProjection(run app.AgentRun, input workflowEvidenceProjectionInput) workflowEvidenceProjectionRecord {
+func (r Runtime) recordWorkflowEvidenceProjection(ctx context.Context, run app.AgentRun, input workflowEvidenceProjectionInput) workflowEvidenceProjectionRecord {
 	payloadDigest := sha256.Sum256([]byte(input.Payload))
 	record := workflowEvidenceProjectionRecord{
 		ProjectionID:              app.NewID("evidence_projection"),
@@ -125,7 +126,7 @@ func (r Runtime) recordWorkflowEvidenceProjection(run app.AgentRun, input workfl
 		"model_operation":              input.ModelOperation,
 		"step":                         input.Step,
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID,
 		RunID:     run.ID,
 		Actor:     "runtime",
@@ -133,6 +134,7 @@ func (r Runtime) recordWorkflowEvidenceProjection(run app.AgentRun, input workfl
 		Summary:   "Created a consumer-scoped model evidence projection",
 		Fields:    fields,
 	})
+
 	return record
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
@@ -15,7 +16,7 @@ func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Timer")
+	session := storetest.MustCreateSession(t, st, "Timer")
 	now := time.Now().UTC()
 	schedule := app.MessageSchedule{
 		ID: "sched_request", SessionID: session.ID, DueTime: now.Add(time.Hour), Timezone: "UTC", DedupeKey: "request", Status: "pending", CreatedAt: now, UpdatedAt: now,
@@ -33,7 +34,10 @@ func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := NewScheduleRegistry(reloaded).Get(t.Context(), schedule.ID)
+	got, ok, err := NewScheduleRegistry(reloaded).Get(t.Context(), schedule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || got.Spec.Payload.Content.Parts[0].Text != "search the web tomorrow" {
 		t.Fatalf("schedule did not round trip: %#v", got)
 	}
@@ -41,8 +45,8 @@ func TestScheduleRegistryPersistsSpecInFileStore(t *testing.T) {
 
 func TestScheduleRegistryRejectsCrossOwnerReturnEndpoint(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Owner A", "owner-a", t.TempDir(), "webchat", false)
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_owner_b", OwnerID: "owner-b", Channel: "future", Status: "active"})
+	session := storetest.MustCreateSessionWithScope(t, st, "Owner A", "owner-a", t.TempDir(), "webchat", false)
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_owner_b", OwnerID: "owner-b", Channel: "future", Status: "active"})
 	now := time.Now().UTC()
 	schedule := app.MessageSchedule{
 		ID: "sched_cross_owner", SessionID: session.ID, DueTime: now.Add(time.Hour), Timezone: "UTC", DedupeKey: "cross", Status: "pending", CreatedAt: now, UpdatedAt: now,

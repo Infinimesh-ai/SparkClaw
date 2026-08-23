@@ -24,7 +24,10 @@ func (h *ToolHub) observationRead(ctx context.Context, args map[string]any, sess
 	if h.artifacts == nil {
 		return Result{}, errors.New("artifact store is unavailable")
 	}
-	object, ok := h.store.FindArtifactObjectByURI(artifactURI, sessionID, "")
+	object, ok, err := h.store.FindArtifactObjectByURI(ctx, artifactURI, sessionID, "")
+	if err != nil {
+		return Result{}, errors.New("artifact metadata is unavailable")
+	}
 	if !ok {
 		return Result{}, errors.New("artifact is unavailable in the current session")
 	}

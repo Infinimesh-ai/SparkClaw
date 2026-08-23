@@ -32,9 +32,22 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 )
 
+type Repository interface {
+	store.SessionRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.MemoryRepository
+	store.ScheduleRepository
+	store.ConnectorRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type ToolHub struct {
 	cfg                   config.Config
-	store                 store.Store
+	store                 Repository
 	registry              *runtimeToolRegistry
 	models                modelrouter.Router
 	runner                sandbox.Runner
@@ -71,6 +84,15 @@ type DynamicToolRegistration struct {
 	Execute    DynamicToolExecutor
 }
 
+func (h *ToolHub) addAudit(ctx context.Context, event app.AuditEvent) {
+	if h == nil || h.store == nil {
+		return
+	}
+	if err := h.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
+		slog.Warn("toolhub audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
+	}
+}
+
 type DynamicToolOrigin struct {
 	Source     string `json:"source"`
 	RemoteName string `json:"remote_name"`
@@ -85,7 +107,7 @@ type WeatherInfoAdapter interface {
 	Weather(context.Context, infinimeshinfo.WeatherRequest) (infinimeshinfo.WeatherResponse, error)
 }
 
-func New(cfg config.Config, st store.Store) *ToolHub {
+func New(cfg config.Config, st Repository) *ToolHub {
 	infoCfg := cfg.Plugins.Entries.InfinimeshInfo.Config
 	// A failed constructor must leave the interface field nil, not hold a
 	// typed-nil *Client that defeats the availability guard in lookupWeather.
@@ -314,17 +336,20 @@ func (h *ToolHub) Config() config.Config {
 	return h.cfg
 }
 
-func (h *ToolHub) forSession(sessionID string) *ToolHub {
+func (h *ToolHub) forSession(ctx context.Context, sessionID string) (*ToolHub, error) {
 	if strings.TrimSpace(sessionID) == "" || h.store == nil {
-		return h
+		return h, nil
 	}
-	session, ok := h.store.GetSession(sessionID)
+	session, ok, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tool session: %w", err)
+	}
 	if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
-		return h
+		return h, nil
 	}
 	root, err := filepath.Abs(session.WorkspaceRoot)
 	if err != nil {
-		return h
+		return h, nil
 	}
 	clone := *h
 	clone.cfg = h.cfg
@@ -333,7 +358,7 @@ func (h *ToolHub) forSession(sessionID string) *ToolHub {
 		clone.cfg.Workspaces.Allowlist = append(append([]string{}, clone.cfg.Workspaces.Allowlist...), root)
 	}
 	_ = os.MkdirAll(root, 0o755)
-	return &clone
+	return &clone, nil
 }
 
 func containsPathRoot(roots []string, root string) bool {
@@ -366,7 +391,14 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	if err := validateInput(def, args); err != nil {
 		return Result{}, err
 	}
-	h = h.forSession(sessionID)
+	var err error
+	h, err = h.forSession(ctx, sessionID)
+	if err != nil {
+		if strings.HasPrefix(name, "pptx.") {
+			return Result{}, wrapPPTXToolError(ctx, err)
+		}
+		return Result{}, err
+	}
 	h.registry.mu.RLock()
 	executor, ok := h.registry.executors[name]
 	h.registry.mu.RUnlock()
@@ -1741,14 +1773,26 @@ func (h *ToolHub) filesWriteDraft(ctx context.Context, args map[string]any) (Res
 	return Result{Output: map[string]any{"path": path, "bytes": len(content), "status": "draft_written"}}, nil
 }
 
-func (h *ToolHub) memorySearch(args map[string]any, sessionID string) (Result, error) {
-	h.applyMemoryRetention()
+func (h *ToolHub) memorySearch(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
+	if _, err := h.applyMemoryRetention(ctx); err != nil {
+		return Result{}, err
+	}
 	query := stringArg(args, "query", "")
-	memories := h.store.SearchMemories(query)
-	ownerID := h.ownerIDForSession(sessionID)
+	memories, err := h.store.SearchMemories(ctx, query)
+	if err != nil {
+		return Result{}, err
+	}
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	filtered := memories[:0]
 	for _, memory := range memories {
-		if h.memoryVisibleToOwner(memory, ownerID) {
+		visible, err := h.memoryVisibleToOwner(ctx, memory, ownerID)
+		if err != nil {
+			return Result{}, err
+		}
+		if visible {
 			filtered = append(filtered, memory)
 		}
 	}
@@ -1756,23 +1800,30 @@ func (h *ToolHub) memorySearch(args map[string]any, sessionID string) (Result, e
 	return Result{Output: map[string]any{"query": query, "results": memories, "count": len(memories)}}, nil
 }
 
-func (h *ToolHub) ownerIDForSession(sessionID string) string {
+func (h *ToolHub) ownerIDForSession(ctx context.Context, sessionID string) (string, error) {
 	if strings.TrimSpace(sessionID) == "" || h.store == nil {
-		return app.DefaultOwnerID
+		return app.DefaultOwnerID, nil
 	}
-	if session, ok := h.store.GetSession(sessionID); ok && strings.TrimSpace(session.OwnerID) != "" {
-		return strings.TrimSpace(session.OwnerID)
+	session, ok, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve session owner: %w", err)
 	}
-	return app.DefaultOwnerID
+	if ok && strings.TrimSpace(session.OwnerID) != "" {
+		return strings.TrimSpace(session.OwnerID), nil
+	}
+	return app.DefaultOwnerID, nil
 }
 
-func (h *ToolHub) sessionVisibleToOwner(sessionID, ownerID string) bool {
+func (h *ToolHub) sessionVisibleToOwner(ctx context.Context, sessionID, ownerID string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
-		return ownerID == "" || ownerID == app.DefaultOwnerID
+		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
-	session, ok := h.store.GetSession(sessionID)
+	session, ok, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, fmt.Errorf("resolve visible session: %w", err)
+	}
 	if !ok {
-		return ownerID == app.DefaultOwnerID
+		return ownerID == app.DefaultOwnerID, nil
 	}
 	sessionOwner := strings.TrimSpace(session.OwnerID)
 	if sessionOwner == "" {
@@ -1781,21 +1832,24 @@ func (h *ToolHub) sessionVisibleToOwner(sessionID, ownerID string) bool {
 	if strings.TrimSpace(ownerID) == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	return sessionOwner == ownerID
+	return sessionOwner == ownerID, nil
 }
 
-func (h *ToolHub) memoryVisibleToOwner(memory app.Memory, ownerID string) bool {
+func (h *ToolHub) memoryVisibleToOwner(ctx context.Context, memory app.Memory, ownerID string) (bool, error) {
 	if strings.TrimSpace(memory.SourceID) == "" {
-		return ownerID == "" || ownerID == app.DefaultOwnerID
+		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
-	run, ok := h.store.GetRun(memory.SourceID)
+	run, ok, err := h.store.GetRun(ctx, memory.SourceID)
+	if err != nil {
+		return false, fmt.Errorf("load memory source run: %w", err)
+	}
 	if !ok {
-		return ownerID == "" || ownerID == app.DefaultOwnerID
+		return ownerID == "" || ownerID == app.DefaultOwnerID, nil
 	}
-	return h.sessionVisibleToOwner(run.SessionID, ownerID)
+	return h.sessionVisibleToOwner(ctx, run.SessionID, ownerID)
 }
 
-func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) memoryWriteCandidate(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	content := stringArg(args, "content", "")
 	if content == "" {
 		return Result{}, errors.New("content cannot be empty")
@@ -1805,7 +1859,7 @@ func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID str
 			return Result{}, fmt.Errorf("memory candidate appears sensitive (%s); sensitive memory is disabled", pattern)
 		}
 	}
-	candidate := h.store.AddMemoryCandidate(app.MemoryCandidate{
+	candidate, err := h.store.AddMemoryCandidate(ctx, app.MemoryCandidate{
 		SessionID:   sessionID,
 		RunID:       runID,
 		Kind:        stringArg(args, "kind", "profile"),
@@ -1815,16 +1869,19 @@ func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID str
 		Status:      "pending",
 		CreatedAt:   time.Now().UTC(),
 	})
+	if err != nil {
+		return Result{}, err
+	}
 	return Result{Output: candidate}, nil
 }
 
-func (h *ToolHub) memoryWriteSensitive(args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) memoryWriteSensitive(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	content := stringArg(args, "content", "")
 	if content == "" {
 		return Result{}, errors.New("content cannot be empty")
 	}
 	kind := stringArg(args, "kind", "profile")
-	memoryCandidate := h.store.AddMemoryCandidate(app.MemoryCandidate{
+	memoryCandidate, err := h.store.AddMemoryCandidate(ctx, app.MemoryCandidate{
 		SessionID:   sessionID,
 		RunID:       runID,
 		Kind:        kind,
@@ -1834,7 +1891,10 @@ func (h *ToolHub) memoryWriteSensitive(args map[string]any, sessionID, runID str
 		Status:      "pending",
 		CreatedAt:   time.Now().UTC(),
 	})
-	candidate, memory, err := h.store.ResolveMemoryCandidate(memoryCandidate.ID, "accepted")
+	if err != nil {
+		return Result{}, err
+	}
+	candidate, memory, err := h.store.ResolveMemoryCandidate(ctx, memoryCandidate.ID, "accepted")
 	if err != nil {
 		return Result{}, err
 	}
@@ -1869,12 +1929,12 @@ func (h *ToolHub) memorySensitivePattern(content, sensitivity string) (string, b
 	return "", false
 }
 
-func (h *ToolHub) applyMemoryRetention() []app.Memory {
+func (h *ToolHub) applyMemoryRetention(ctx context.Context) ([]app.Memory, error) {
 	if h.cfg.Memory.RetentionDays <= 0 {
-		return []app.Memory{}
+		return []app.Memory{}, nil
 	}
 	cutoff := time.Now().UTC().AddDate(0, 0, -h.cfg.Memory.RetentionDays)
-	return h.store.PruneMemories(cutoff)
+	return h.store.PruneMemories(ctx, cutoff)
 }
 
 func (h *ToolHub) resolveRoot(root string) (string, error) {

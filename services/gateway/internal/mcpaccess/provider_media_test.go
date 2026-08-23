@@ -14,12 +14,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 	st := store.NewMemoryStore()
 	root := t.TempDir()
-	session := st.CreateSessionWithScope("MCP", app.DefaultOwnerID, root, "mcp", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "MCP", app.DefaultOwnerID, root, "mcp", true)
 	operation, ref := createProviderMediaOperation(t, st, session.ID, "operation-media")
 	parts := []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "Here are the files."}}
 	fixtures := []struct {
@@ -43,7 +44,7 @@ func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 			Backend: "workspace", Key: fixture.name, URI: "workspace://" + fixture.name, Path: path,
 			ContentType: fixture.contentType, Bytes: len(fixture.content), CreatedAt: time.Now().UTC(),
 		}
-		st.SaveArtifactObject(object)
+		storetest.MustSaveArtifactObject(t, st, object)
 		parts = append(parts, app.MessagePart{
 			ID: "part-" + fixture.name, Kind: fixture.kind, Disposition: app.MessageDispositionAttachment,
 			ArtifactID: object.ID, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: fixture.name, Provenance: "response_media_frozen"},
@@ -58,7 +59,7 @@ func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	var result CallToolResult
 	if stored.State != app.MCPOperationSucceeded || json.Unmarshal(stored.Result, &result) != nil || len(result.Content) != 4 {
 		t.Fatalf("MCP media result was not persisted as CallToolResult: operation=%#v result=%#v", stored, result)
@@ -79,7 +80,7 @@ func TestProviderEmbedsOrderedMCPMediaContentWithoutLocalPaths(t *testing.T) {
 func TestProviderMediaFailureDoesNotPersistPartialResult(t *testing.T) {
 	st := store.NewMemoryStore()
 	root := t.TempDir()
-	session := st.CreateSessionWithScope("MCP", app.DefaultOwnerID, root, "mcp", true)
+	session := storetest.MustCreateSessionWithScope(t, st, "MCP", app.DefaultOwnerID, root, "mcp", true)
 	operation, ref := createProviderMediaOperation(t, st, session.ID, "operation-atomic")
 	path := filepath.Join(root, "changed.pdf")
 	if err := os.WriteFile(path, []byte("changed"), 0o644); err != nil {
@@ -89,7 +90,7 @@ func TestProviderMediaFailureDoesNotPersistPartialResult(t *testing.T) {
 		ID: "object-changed", SessionID: session.ID, Backend: "workspace", Key: "changed.pdf", URI: "workspace://changed.pdf",
 		Path: path, ContentType: "application/pdf", Bytes: len("original"), CreatedAt: time.Now().UTC(),
 	}
-	st.SaveArtifactObject(object)
+	storetest.MustSaveArtifactObject(t, st, object)
 	_, err := NewProvider(st).Deliver(t.Context(), app.MessageEndpoint{
 		ProviderKey: "mcp", BindingRef: operation.BindingID, RequesterDeviceID: ref.RequesterDeviceID, SessionID: session.ID,
 	}, app.DeliveryRequest{
@@ -103,7 +104,7 @@ func TestProviderMediaFailureDoesNotPersistPartialResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("changed MCP media was delivered")
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationRunning || len(stored.Result) != 0 {
 		t.Fatalf("failed multipart delivery persisted a partial result: %#v", stored)
 	}
@@ -137,7 +138,7 @@ func TestProviderRawBinaryLimitReservesEncodedEnvelopeHeadroom(t *testing.T) {
 func createProviderMediaOperation(t *testing.T, st *store.MemoryStore, sessionID, id string) (app.MCPOperation, app.MCPInvocationRef) {
 	t.Helper()
 	ref := app.MCPInvocationRef{InvocationID: "inv-" + id, OperationID: id, BindingRef: "binding-media", BindingRevision: 1, RequesterDeviceID: "device-media"}
-	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: id, BindingID: ref.BindingRef, IdempotencyKey: id, Fingerprint: id,
 		Invocation: app.MCPInvocationContext{ID: ref.InvocationID, OperationID: id, BindingRef: ref.BindingRef, RequesterDeviceID: ref.RequesterDeviceID, RunID: "run-media"},
 		State:      app.MCPOperationRunning,

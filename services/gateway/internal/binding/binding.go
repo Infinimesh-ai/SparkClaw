@@ -286,6 +286,9 @@ func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBin
 	if err := a.vault.Ready(); err != nil {
 		return app.NotificationBinding{}, err
 	}
+	if binding.ID == "" {
+		binding.ID = app.NewID("bind")
+	}
 	token := []byte(strings.TrimSpace(options.CredentialSecret))
 	defer clear(token)
 	if !validTelegramToken(token) {
@@ -299,14 +302,11 @@ func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBin
 	if !bot.IsBot || strings.TrimSpace(bot.Username) == "" {
 		return app.NotificationBinding{}, &BindingError{Code: CodeInvalidBotToken}
 	}
-	credentialRef, err := a.vault.Seal(ctx, "telegram-bot-token", token)
+	credentialRef, err := a.vault.Seal(ctx, binding.ID, "telegram-bot-token", token)
 	if err != nil {
 		return app.NotificationBinding{}, err
 	}
 	now := time.Now().UTC()
-	if binding.ID == "" {
-		binding.ID = app.NewID("bind")
-	}
 	if binding.CreatedAt.IsZero() {
 		binding.CreatedAt = now
 	}
@@ -623,6 +623,9 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 	if botToken == "" {
 		botToken = strings.TrimSpace(decoded.BotToken)
 	}
+	if botToken == "" {
+		return PollResult{}, &BindingError{Code: CodeConnectorUnavailable}
+	}
 	baseURL := strings.TrimSpace(decoded.Data.BaseURL)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(decoded.BaseURL)
@@ -637,13 +640,11 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 	if nickname == "" {
 		nickname = strings.TrimSpace(decoded.Nickname)
 	}
-	credentialRef := "provider:" + weixinproto.QRProvider + ":" + binding.ID
 	return PollResult{
 		Status:           "active",
 		DisplayName:      nickname,
 		ExternalUserID:   userID,
 		AccountID:        accountID,
-		CredentialRef:    credentialRef,
 		CredentialKind:   "openclaw-weixin-bot-token",
 		CredentialSecret: botToken,
 		BaseURL:          baseURL,

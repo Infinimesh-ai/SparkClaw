@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type fakeRuntime struct {
@@ -27,47 +29,90 @@ type fakeRuntime struct {
 }
 
 type terminalConflictStore struct {
-	store.Store
+	Repository
 	conflicted bool
 }
 
 type activeBindingOverrideStore struct {
-	store.Store
+	Repository
 	binding app.MCPBinding
 }
 
-func (s *activeBindingOverrideStore) FindMCPBindingForPeer(_, _, _ string) (app.MCPBinding, bool) {
-	return s.binding, true
+type committedUnknownMCPStore struct {
+	Repository
+	ticket atomic.Bool
+	create atomic.Bool
+	redeem atomic.Bool
+	update atomic.Bool
 }
 
-func (s *terminalConflictStore) UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
+func (s *committedUnknownMCPStore) RedeemMCPAccessTicket(ctx context.Context, secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error) {
+	candidate, err := s.Repository.RedeemMCPAccessTicket(ctx, secretHash, peer, now)
+	if err == nil && s.redeem.Swap(false) {
+		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPAccessTicketRedeem, Err: errors.New("redemption commit uncertain")}
+	}
+	return candidate, err
+}
+
+func (s *committedUnknownMCPStore) SaveMCPAccessTicket(ctx context.Context, ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
+	candidate, err := s.Repository.SaveMCPAccessTicket(ctx, ticket)
+	if err == nil && s.ticket.Swap(false) {
+		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPAccessTicketSave, Err: errors.New("ticket commit uncertain")}
+	}
+	return candidate, err
+}
+
+func (s *committedUnknownMCPStore) CreateMCPOperation(ctx context.Context, operation app.MCPOperation) (app.MCPOperation, bool, error) {
+	candidate, created, err := s.Repository.CreateMCPOperation(ctx, operation)
+	if err == nil && s.create.Swap(false) {
+		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPOperationCreate, Err: errors.New("operation commit uncertain")}
+	}
+	return candidate, created, err
+}
+
+func (s *committedUnknownMCPStore) UpdateMCPOperation(ctx context.Context, operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
+	candidate, err := s.Repository.UpdateMCPOperation(ctx, operation, expectedVersion)
+	if err == nil && s.update.Swap(false) {
+		err = &store.StoreError{Code: store.StoreErrorUnknownOutcome, Operation: store.OperationMCPOperationUpdate, Err: errors.New("operation update commit uncertain")}
+	}
+	return candidate, err
+}
+
+func (s *activeBindingOverrideStore) FindMCPBindingForPeer(context.Context, string, string, string) (app.MCPBinding, bool, error) {
+	return s.binding, true, nil
+}
+
+func (s *terminalConflictStore) UpdateMCPOperation(ctx context.Context, operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
 	if !s.conflicted {
 		s.conflicted = true
-		current, ok := s.Store.GetMCPOperation(operation.ID)
+		current, ok, err := s.Repository.GetMCPOperation(ctx, operation.ID)
+		if err != nil {
+			return app.MCPOperation{}, err
+		}
 		if !ok {
 			return app.MCPOperation{}, errors.New("MCP operation not found")
 		}
 		current.State = app.MCPOperationSucceeded
 		now := time.Now().UTC()
 		current.CompletedAt = &now
-		if _, err := s.Store.UpdateMCPOperation(current, current.Version); err != nil {
+		if _, err := s.Repository.UpdateMCPOperation(ctx, current, current.Version); err != nil {
 			return app.MCPOperation{}, err
 		}
 		return app.MCPOperation{}, store.ErrMCPOperationVersionConflict
 	}
-	return s.Store.UpdateMCPOperation(operation, expectedVersion)
+	return s.Repository.UpdateMCPOperation(ctx, operation, expectedVersion)
 }
 
 func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
 	base := store.NewMemoryStore()
-	operation, _, err := base.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := base.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-conflict", BindingID: "binding-a", IdempotencyKey: "conflict", Fingerprint: "conflict",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(&terminalConflictStore{Store: base}, &fakeRuntime{}, nil)
-	updated, changed, err := updateOperationRecord(service.store, operation.ID, func(current *app.MCPOperation) bool {
+	service := New(&terminalConflictStore{Repository: base}, &fakeRuntime{}, nil)
+	updated, changed, err := updateOperationRecord(t.Context(), service.store, operation.ID, func(current *app.MCPOperation) bool {
 		if operationTerminal(current.State) {
 			return false
 		}
@@ -79,14 +124,109 @@ func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
 	}
 }
 
+func TestServiceReconcilesCommittedUnknownMCPWrites(t *testing.T) {
+	t.Run("ticket issue", func(t *testing.T) {
+		wrapped := &committedUnknownMCPStore{Repository: store.NewMemoryStore()}
+		wrapped.ticket.Store(true)
+		service := New(wrapped, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
+		issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+		if err != nil || issued.Secret == "" || issued.Ticket.ID == "" {
+			t.Fatalf("IssueTicket=%#v err=%v", issued, err)
+		}
+		stored, found, readErr := wrapped.GetMCPAccessTicket(t.Context(), issued.Ticket.ID)
+		if readErr != nil || !found || stored.SecretHash == "" {
+			t.Fatalf("stored ticket=%#v found=%t err=%v", stored, found, readErr)
+		}
+	})
+
+	t.Run("operation create", func(t *testing.T) {
+		base := store.NewMemoryStore()
+		now := time.Now().UTC()
+		ticket, err := base.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
+			SchemaVersion: app.MCPAccessTicketSchemaVersion, SecretHash: "service-create-hash", OwnerID: app.DefaultOwnerID,
+			ActorID: app.DefaultOwnerID, DomainID: "domain-a", Scope: app.MCPAccessConversation, Status: app.MCPAccessPending,
+			MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
+		binding, err := base.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, peer, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrapped := &committedUnknownMCPStore{Repository: base}
+		wrapped.create.Store(true)
+		service := New(wrapped, &fakeRuntime{}, nil)
+		result, rpcErr := service.callTool(t.Context(), peer, binding, TransportRequest{
+			SessionID: "mcp-session", IdempotencyKey: "unknown-create", Deadline: now.Add(time.Minute),
+		}, JSONRPCRequest{ID: json.RawMessage(`1`)}, CallToolParams{
+			Name: conversationToolName, Arguments: map[string]any{"text": "hello"},
+		})
+		if rpcErr != nil || result == nil {
+			t.Fatalf("callTool result=%#v rpcErr=%#v", result, rpcErr)
+		}
+		operation, found, readErr := wrapped.FindMCPOperationByIdempotency(t.Context(), binding.ID, "unknown-create")
+		if readErr != nil || !found || operation.ID == "" {
+			t.Fatalf("stored operation=%#v found=%t err=%v", operation, found, readErr)
+		}
+	})
+
+	t.Run("ticket redemption", func(t *testing.T) {
+		base := store.NewMemoryStore()
+		secret := "service-redemption-secret"
+		digest := sha256.Sum256([]byte(secret))
+		now := time.Now().UTC()
+		ticket, err := base.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
+			SchemaVersion: app.MCPAccessTicketSchemaVersion, SecretHash: hex.EncodeToString(digest[:]), OwnerID: app.DefaultOwnerID,
+			ActorID: app.DefaultOwnerID, DomainID: "domain-a", Scope: app.MCPAccessConversation, Status: app.MCPAccessPending,
+			MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrapped := &committedUnknownMCPStore{Repository: base}
+		wrapped.redeem.Store(true)
+		service := New(wrapped, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
+		peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-reconcile", KeyThumbprint: "thumb-reconcile", ISCPSessionID: "iscp-reconcile"}
+		binding, err := service.RedeemAccessTicket(t.Context(), secret, peer)
+		if err != nil || binding.ID == "" {
+			t.Fatalf("RedeemAccessTicket=%#v err=%v", binding, err)
+		}
+		stored, found, readErr := base.GetMCPAccessTicket(t.Context(), ticket.ID)
+		if readErr != nil || !found || stored.Status != app.MCPAccessConsumed || stored.UseCount != 1 {
+			t.Fatalf("stored ticket=%#v found=%t err=%v", stored, found, readErr)
+		}
+	})
+
+	t.Run("operation update", func(t *testing.T) {
+		base := store.NewMemoryStore()
+		operation, _, err := base.CreateMCPOperation(t.Context(), app.MCPOperation{
+			ID: "operation-unknown-update", BindingID: "binding-a", IdempotencyKey: "unknown-update", Fingerprint: "unknown-update",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrapped := &committedUnknownMCPStore{Repository: base}
+		wrapped.update.Store(true)
+		updated, changed, err := updateOperationRecord(t.Context(), wrapped, operation.ID, func(current *app.MCPOperation) bool {
+			current.State = app.MCPOperationApprovalRequired
+			return true
+		})
+		if err != nil || !changed || updated.Version != operation.Version+1 || updated.State != app.MCPOperationApprovalRequired {
+			t.Fatalf("updated=%#v changed=%t err=%v", updated, changed, err)
+		}
+	})
+}
+
 func TestApprovalExecutionStateTransitionsAreDurable(t *testing.T) {
 	st := store.NewMemoryStore()
 	ref := &app.MCPInvocationRef{
 		InvocationID: "inv-approval-state", OperationID: "operation-approval-state", BindingRef: "binding-approval-state",
 		BindingRevision: 2, RequesterDeviceID: "device-approval-state",
 	}
-	st.SaveRun(app.AgentRun{ID: "run-approval-state", MessageContext: &app.MessageRunContext{MCP: ref}})
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	testSaveRun(st, app.AgentRun{ID: "run-approval-state", MessageContext: &app.MessageRunContext{MCP: ref}})
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "approval-state", Fingerprint: "approval-state",
 		State: app.MCPOperationApprovalRequired, Result: json.RawMessage(`{"pending":true}`),
 		Invocation: app.MCPInvocationContext{
@@ -97,20 +237,24 @@ func TestApprovalExecutionStateTransitionsAreDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(st, &fakeRuntime{}, nil)
-	running, err := service.BeginApprovalExecution("run-approval-state")
+	running, err := service.BeginApprovalExecution(t.Context(), "run-approval-state")
 	if err != nil || running.State != app.MCPOperationRunning || len(running.Result) != 0 || running.Version <= operation.Version {
 		t.Fatalf("approval execution did not enter running: operation=%#v err=%v", running, err)
 	}
-	service.RestoreApprovalRequired("run-approval-state")
-	waiting, _ := st.GetMCPOperation(operation.ID)
+	if err := service.RestoreApprovalRequired(t.Context(), "run-approval-state"); err != nil {
+		t.Fatal(err)
+	}
+	waiting, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if waiting.State != app.MCPOperationApprovalRequired || waiting.CompletedAt != nil {
 		t.Fatalf("operation did not return to approval_required: %#v", waiting)
 	}
-	if _, err := service.BeginApprovalExecution("run-approval-state"); err != nil {
+	if _, err := service.BeginApprovalExecution(t.Context(), "run-approval-state"); err != nil {
 		t.Fatal(err)
 	}
-	service.FailApprovalExecution("run-approval-state", "delivery_failed", "Approved MCP result delivery failed")
-	failed, _ := st.GetMCPOperation(operation.ID)
+	if err := service.FailApprovalExecution(t.Context(), "run-approval-state", "delivery_failed", "Approved MCP result delivery failed"); err != nil {
+		t.Fatal(err)
+	}
+	failed, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if failed.State != app.MCPOperationFailed || failed.ErrorCode != "delivery_failed" || failed.CompletedAt == nil {
 		t.Fatalf("post-approval failure was not distinct from the approval decision: %#v", failed)
 	}
@@ -122,8 +266,8 @@ func TestApprovedExecutionRemainsBoundToOperationCancellation(t *testing.T) {
 		InvocationID: "inv-approval-cancel", OperationID: "operation-approval-cancel", BindingRef: "binding-approval-cancel",
 		BindingRevision: 1, RequesterDeviceID: "device-approval-cancel",
 	}
-	st.SaveRun(app.AgentRun{ID: "run-approval-cancel", MessageContext: &app.MessageRunContext{MCP: ref}})
-	_, _, err := st.CreateMCPOperation(app.MCPOperation{
+	testSaveRun(st, app.AgentRun{ID: "run-approval-cancel", MessageContext: &app.MessageRunContext{MCP: ref}})
+	_, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "approval-cancel", Fingerprint: "approval-cancel",
 		State: app.MCPOperationApprovalRequired,
 		Invocation: app.MCPInvocationContext{
@@ -135,12 +279,12 @@ func TestApprovedExecutionRemainsBoundToOperationCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(st, &fakeRuntime{}, nil)
-	operation, executionCtx, finishExecution, err := service.StartApprovalExecution("run-approval-cancel")
+	operation, executionCtx, finishExecution, err := service.StartApprovalExecution(t.Context(), "run-approval-cancel")
 	if err != nil || operation.State != app.MCPOperationRunning || executionCtx == nil || finishExecution == nil {
 		t.Fatalf("start approved execution: operation=%#v ctx=%v finish=%v err=%v", operation, executionCtx, finishExecution != nil, err)
 	}
 	defer finishExecution()
-	_, rpcErr := service.operationTool(app.MCPPeerIdentity{}, app.MCPBinding{ID: ref.BindingRef}, CallToolParams{
+	_, rpcErr := service.operationTool(t.Context(), app.MCPPeerIdentity{}, app.MCPBinding{ID: ref.BindingRef}, CallToolParams{
 		Name: "sparkclaw.operation.cancel", Arguments: map[string]any{"operation_id": ref.OperationID},
 	})
 	if rpcErr != nil {
@@ -151,7 +295,7 @@ func TestApprovedExecutionRemainsBoundToOperationCancellation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("operation cancellation did not cancel approved background execution")
 	}
-	stored, _ := st.GetMCPOperation(ref.OperationID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), ref.OperationID)
 	if stored.State != app.MCPOperationCancelled {
 		t.Fatalf("cancelled approved operation state = %q", stored.State)
 	}
@@ -163,8 +307,8 @@ func TestExpiredApprovedExecutionDoesNotStart(t *testing.T) {
 		InvocationID: "inv-approval-expired", OperationID: "operation-approval-expired", BindingRef: "binding-approval-expired",
 		BindingRevision: 1, RequesterDeviceID: "device-approval-expired",
 	}
-	st.SaveRun(app.AgentRun{ID: "run-approval-expired", MessageContext: &app.MessageRunContext{MCP: ref}})
-	_, _, err := st.CreateMCPOperation(app.MCPOperation{
+	testSaveRun(st, app.AgentRun{ID: "run-approval-expired", MessageContext: &app.MessageRunContext{MCP: ref}})
+	_, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "approval-expired", Fingerprint: "approval-expired",
 		State: app.MCPOperationApprovalRequired,
 		Invocation: app.MCPInvocationContext{
@@ -176,7 +320,7 @@ func TestExpiredApprovedExecutionDoesNotStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(st, &fakeRuntime{}, nil)
-	operation, executionCtx, finishExecution, err := service.StartApprovalExecution("run-approval-expired")
+	operation, executionCtx, finishExecution, err := service.StartApprovalExecution(t.Context(), "run-approval-expired")
 	if err == nil || executionCtx != nil || finishExecution != nil || operation.State != app.MCPOperationFailed || operation.ErrorCode != "approval_execution_expired" {
 		t.Fatalf("expired approved execution started: operation=%#v ctx=%v finish=%v err=%v", operation, executionCtx, finishExecution != nil, err)
 	}
@@ -184,29 +328,33 @@ func TestExpiredApprovedExecutionDoesNotStart(t *testing.T) {
 
 func TestStaleWaitingResultDoesNotRegressApprovedRunningOperation(t *testing.T) {
 	st := store.NewMemoryStore()
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-stale-waiting", BindingID: "binding-stale-waiting", IdempotencyKey: "stale-waiting", Fingerprint: "stale-waiting",
 		State: app.MCPOperationRunning, Invocation: app.MCPInvocationContext{RunID: "run-stale-waiting"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveApproval(app.Approval{ID: "approval-stale-waiting", RunID: "run-stale-waiting", Status: "approved"})
+	storetest.MustSaveApproval(t, st, app.Approval{ID: "approval-stale-waiting", RunID: "run-stale-waiting", Status: "approved"})
 	service := New(st, &fakeRuntime{}, nil)
-	service.syncOperationFromResult(operation.ID, agent.Result{
+	if err := service.syncOperationFromResult(t.Context(), operation.ID, agent.Result{
 		Run:            app.AgentRun{ID: "run-stale-waiting"},
 		WorkflowResult: &app.WorkflowResult{RunID: "run-stale-waiting", Status: app.WorkflowResultWaiting},
-	})
-	current, _ := st.GetMCPOperation(operation.ID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if current.State != app.MCPOperationRunning || len(current.Result) != 0 {
 		t.Fatalf("stale waiting result regressed approved execution: %#v", current)
 	}
-	st.SaveApproval(app.Approval{ID: "approval-next", RunID: "run-stale-waiting", Status: "pending"})
-	service.syncOperationFromResult(operation.ID, agent.Result{
+	storetest.MustSaveApproval(t, st, app.Approval{ID: "approval-next", RunID: "run-stale-waiting", Status: "pending"})
+	if err := service.syncOperationFromResult(t.Context(), operation.ID, agent.Result{
 		Run:            app.AgentRun{ID: "run-stale-waiting"},
 		WorkflowResult: &app.WorkflowResult{RunID: "run-stale-waiting", Status: app.WorkflowResultWaiting},
-	})
-	current, _ = st.GetMCPOperation(operation.ID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, _, _ = st.GetMCPOperation(t.Context(), operation.ID)
 	if current.State != app.MCPOperationApprovalRequired {
 		t.Fatalf("a new pending approval did not park the operation: %#v", current)
 	}
@@ -238,7 +386,7 @@ func TestServiceDefaultsAccessTicketTTLToOneDay(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Date(2026, time.August, 13, 8, 0, 0, 0, time.UTC)
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,19 +402,19 @@ func TestActiveBindingForPeerRejectsLegacySchemaAndWrongScope(t *testing.T) {
 	} {
 		st := store.NewMemoryStore()
 		service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-		issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+		issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 		if err != nil {
 			t.Fatal(err)
 		}
 		peer := app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
-		binding, err := service.RedeemAccessTicket(issued.Secret, peer)
+		binding, err := service.RedeemAccessTicket(t.Context(), issued.Secret, peer)
 		if err != nil {
 			t.Fatal(err)
 		}
 		mutate(&binding)
-		legacyService := New(&activeBindingOverrideStore{Store: st, binding: binding}, &fakeRuntime{}, nil).
+		legacyService := New(&activeBindingOverrideStore{Repository: st, binding: binding}, &fakeRuntime{}, nil).
 			WithChannelEnabled(func(string) bool { return true })
-		if _, ok := legacyService.ActiveBindingForPeer(peer); ok {
+		if _, ok := legacyService.ActiveBindingForPeer(t.Context(), peer); ok {
 			t.Fatalf("legacy MCP binding remained active: %#v", binding)
 		}
 	}
@@ -275,7 +423,7 @@ func TestActiveBindingForPeerRejectsLegacySchemaAndWrongScope(t *testing.T) {
 func TestServiceDoesNotStartAlreadyCancelledOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-cancelled-before-start", BindingID: "binding-a", IdempotencyKey: "cancelled-before-start", Fingerprint: "cancelled-before-start",
 		State: app.MCPOperationCancelled, CompletedAt: &now,
 	})
@@ -285,7 +433,7 @@ func TestServiceDoesNotStartAlreadyCancelledOperation(t *testing.T) {
 	runtime := &fakeRuntime{invoked: make(chan struct{}, 1)}
 	service := New(st, runtime, nil)
 	done := make(chan struct{})
-	go service.executeOperation(time.Now().Add(time.Minute), "session-a", "message-a", "run-a", operation.ID, app.MCPConversationRequest{}, app.MessageIngressContext{}, done)
+	go service.executeOperation(t.Context(), time.Now().Add(time.Minute), "session-a", "message-a", "run-a", operation.ID, app.MCPConversationRequest{}, app.MessageIngressContext{}, done)
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -310,7 +458,7 @@ func TestServiceLateResultCannotOverwriteCancelledOperation(t *testing.T) {
 	service := New(st, runtime, func(context.Context, agent.Result) error {
 		return errors.New("terminal delivery rejected")
 	}).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +486,7 @@ func TestServiceLateResultCannotOverwriteCancelledOperation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("late runtime did not finish")
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationCancelled {
 		t.Fatalf("late result overwrote cancellation: %#v", stored)
 	}
@@ -376,7 +524,7 @@ func TestServiceNegotiatesMCPVersionAndIgnoresBusinessNotifications(t *testing.T
 		t.Fatalf("unsupported MCP version was negotiated: %#v", wrong)
 	}
 
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +536,7 @@ func TestServiceNegotiatesMCPVersionAndIgnoresBusinessNotifications(t *testing.T
 	if err != nil || len(response.JSONRPC) != 0 {
 		t.Fatalf("business notification returned JSON-RPC data: response=%#v err=%v", response, err)
 	}
-	ticket, _ := st.GetMCPAccessTicket(issued.Ticket.ID)
+	ticket, _, _ := st.GetMCPAccessTicket(t.Context(), issued.Ticket.ID)
 	if ticket.Status != app.MCPAccessPending || ticket.UseCount != 0 {
 		t.Fatalf("business notification executed without a request ID: %#v", ticket)
 	}
@@ -399,7 +547,7 @@ func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Now().UTC()
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +557,7 @@ func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 	if issued.Ticket.ActorID != app.DefaultOwnerID {
 		t.Fatalf("management client became the MCP execution actor: %#v", issued.Ticket)
 	}
-	stored, _ := st.GetMCPAccessTicket(issued.Ticket.ID)
+	stored, _, _ := st.GetMCPAccessTicket(t.Context(), issued.Ticket.ID)
 	if stored.SecretHash == "" || stored.SecretHash == issued.Secret {
 		t.Fatal("store did not retain only a hash")
 	}
@@ -460,7 +608,7 @@ func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 func TestServiceRejectsOperationDeadlineBeyondMaximum(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,14 +630,14 @@ func TestServiceRejectsOperationDeadlineBeyondMaximum(t *testing.T) {
 	if rpc.Error == nil || rpc.Error.Code != -32602 {
 		t.Fatalf("long deadline response = %#v", rpc)
 	}
-	if _, ok := st.FindMCPOperationByIdempotency(binding.ID, "too-long"); ok {
+	if _, ok, _ := st.FindMCPOperationByIdempotency(t.Context(), binding.ID, "too-long"); ok {
 		t.Fatal("operation with an excessive deadline was persisted")
 	}
 }
 
 func TestProviderMapsBlockedResultToFailedOperation(t *testing.T) {
 	st := store.NewMemoryStore()
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-blocked", BindingID: "binding-a", IdempotencyKey: "blocked", Fingerprint: "blocked",
 		Invocation: app.MCPInvocationContext{ID: "inv-blocked", OperationID: "operation-blocked", BindingRef: "binding-a", ActorID: app.DefaultOwnerID},
 	})
@@ -504,7 +652,7 @@ func TestProviderMapsBlockedResultToFailedOperation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationFailed || stored.ErrorCode != "policy_blocked" || stored.CompletedAt == nil {
 		t.Fatalf("blocked Workflow result was not terminal failure: %#v", stored)
 	}
@@ -512,16 +660,16 @@ func TestProviderMapsBlockedResultToFailedOperation(t *testing.T) {
 
 func TestProviderParksWaitingResultForLocalApproval(t *testing.T) {
 	st := store.NewMemoryStore()
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-no-approval", BindingID: "binding-a", IdempotencyKey: "no-approval", Fingerprint: "no-approval",
 		Invocation: app.MCPInvocationContext{ID: "inv-no-approval", OperationID: "operation-no-approval", BindingRef: "binding-a", RunID: "run-no-approval"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveRun(app.AgentRun{ID: "run-no-approval", State: "approval_pending"})
-	st.SaveToolCall(app.ToolCall{ID: "call-no-approval", RunID: "run-no-approval", Status: "approval_pending"})
-	st.SaveApproval(app.Approval{ID: "approval-no-approval", RunID: "run-no-approval", ToolCallID: "call-no-approval", Status: "pending"})
+	testSaveRun(st, app.AgentRun{ID: "run-no-approval", State: "approval_pending"})
+	testSaveToolCall(st, app.ToolCall{ID: "call-no-approval", RunID: "run-no-approval", Status: "approval_pending"})
+	storetest.MustSaveApproval(t, st, app.Approval{ID: "approval-no-approval", RunID: "run-no-approval", ToolCallID: "call-no-approval", Status: "pending"})
 	_, err = NewProvider(st).Deliver(t.Context(), app.MessageEndpoint{ProviderKey: "mcp", BindingRef: "binding-a"}, app.DeliveryRequest{
 		ID: "delivery-no-approval", MCP: &app.MCPInvocationRef{InvocationID: "inv-no-approval", OperationID: operation.ID, BindingRef: "binding-a"},
 		ResultStatus: app.WorkflowResultWaiting,
@@ -529,7 +677,7 @@ func TestProviderParksWaitingResultForLocalApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationApprovalRequired || stored.CompletedAt != nil {
 		t.Fatalf("local approval was not preserved as waiting: operation=%#v", stored)
 	}
@@ -541,7 +689,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 		Status: app.WorkflowResultSucceeded, Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Text: "private result"}}},
 	}}}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +699,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 	_ = dispatchRPC(t, service, peer, "mcp", "audit-idempotency-secret", "tools/call", map[string]any{
 		"name": conversationToolName, "arguments": map[string]any{"text": "private argument"},
 	})
-	raw, err := json.Marshal(st.ListAudit(""))
+	raw, err := json.Marshal(mustMCPListAudit(t, st, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +719,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 func TestServiceRejectsDeviceSubstitutionAndRevocation(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +730,7 @@ func TestServiceRejectsDeviceSubstitutionAndRevocation(t *testing.T) {
 	if response := dispatchRPC(t, service, substitute, "", "", "tools/list", map[string]any{}); response.Error == nil {
 		t.Fatal("device substitution listed tools")
 	}
-	if _, err := st.RevokeMCPBinding(binding.ID, time.Now().UTC()); err != nil {
+	if _, err := st.RevokeMCPBinding(t.Context(), binding.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if response := dispatchRPC(t, service, peer, "", "", "tools/list", map[string]any{}); response.Error == nil {
@@ -594,7 +742,7 @@ func TestServiceBindingRevocationCancelsExecutionAndRejectsApproval(t *testing.T
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{block: make(chan struct{})}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,17 +756,17 @@ func TestServiceBindingRevocationCancelsExecutionAndRejectsApproval(t *testing.T
 		})
 	}()
 	running := waitForOperation(t, st, binding.ID, "revoke-running")
-	approvalOperation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	approvalOperation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: "revoke-approval", Fingerprint: "revoke-approval",
 		Invocation: app.MCPInvocationContext{RunID: "run-revoke-approval"}, State: app.MCPOperationApprovalRequired,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveRun(app.AgentRun{ID: "run-revoke-approval", State: "approval_pending"})
-	st.SaveToolCall(app.ToolCall{ID: "call-revoke-approval", RunID: "run-revoke-approval", Status: "approval_pending"})
-	st.SaveApproval(app.Approval{ID: "approval-revoke-approval", RunID: "run-revoke-approval", ToolCallID: "call-revoke-approval", Status: "pending"})
-	if _, err := service.RevokeBinding(binding.ID, time.Now().UTC()); err != nil {
+	testSaveRun(st, app.AgentRun{ID: "run-revoke-approval", State: "approval_pending"})
+	testSaveToolCall(st, app.ToolCall{ID: "call-revoke-approval", RunID: "run-revoke-approval", Status: "approval_pending"})
+	storetest.MustSaveApproval(t, st, app.Approval{ID: "approval-revoke-approval", RunID: "run-revoke-approval", ToolCallID: "call-revoke-approval", Status: "pending"})
+	if _, err := service.RevokeBinding(t.Context(), binding.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -626,11 +774,11 @@ func TestServiceBindingRevocationCancelsExecutionAndRejectsApproval(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("binding revocation did not cancel running execution")
 	}
-	storedRunning, _ := st.GetMCPOperation(running.ID)
-	storedApproval, _ := st.GetMCPOperation(approvalOperation.ID)
-	approval, _ := st.GetApproval("approval-revoke-approval")
-	call, _ := st.GetToolCall("call-revoke-approval")
-	run, _ := st.GetRun("run-revoke-approval")
+	storedRunning, _, _ := st.GetMCPOperation(t.Context(), running.ID)
+	storedApproval, _, _ := st.GetMCPOperation(t.Context(), approvalOperation.ID)
+	approval, _ := storetest.MustGetApproval(t, st, "approval-revoke-approval")
+	call, _ := testGetToolCall(st, "call-revoke-approval")
+	run, _ := testGetRun(st, "run-revoke-approval")
 	if storedRunning.State != app.MCPOperationRevoked || storedApproval.State != app.MCPOperationRevoked ||
 		approval.Status != "rejected" || call.Status != "rejected" || run.State != "blocked" {
 		t.Fatalf("revocation lifecycle incomplete: running=%#v approval_operation=%#v approval=%#v call=%#v run=%#v", storedRunning, storedApproval, approval, call, run)
@@ -641,7 +789,7 @@ func TestServiceDoesNotConsumeTicketWhileConnectorDisabled(t *testing.T) {
 	st := store.NewMemoryStore()
 	enabled := true
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return enabled })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +798,7 @@ func TestServiceDoesNotConsumeTicketWhileConnectorDisabled(t *testing.T) {
 	if response := dispatchRPC(t, service, peer, "", "", "sparkclaw/access/redeem", map[string]any{"ticket": issued.Secret}); response.Error == nil {
 		t.Fatal("disabled connector redeemed ticket")
 	}
-	ticket, _ := st.GetMCPAccessTicket(issued.Ticket.ID)
+	ticket, _, _ := st.GetMCPAccessTicket(t.Context(), issued.Ticket.ID)
 	if ticket.Status != app.MCPAccessPending || ticket.UseCount != 0 {
 		t.Fatalf("disabled redemption consumed ticket: %#v", ticket)
 	}
@@ -661,7 +809,7 @@ func TestServiceRejectsLegacyAccessTicketSchema(t *testing.T) {
 	now := time.Now().UTC()
 	secret := "legacy-ticket-secret"
 	secretDigest := sha256.Sum256([]byte(secret))
-	if _, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+	if _, err := st.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
 		ID: "legacy-ticket", SchemaVersion: 1,
 		SecretHash: hex.EncodeToString(secretDigest[:]), OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		DomainID: "domain-a", Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
@@ -673,7 +821,7 @@ func TestServiceRejectsLegacyAccessTicketSchema(t *testing.T) {
 func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +843,7 @@ func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 			InvocationID: "invocation-" + id, OperationID: id, BindingRef: binding.ID,
 			BindingRevision: binding.AuthorizationRevision, RequesterDeviceID: binding.RequesterDeviceID,
 		}
-		operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+		operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 			ID: id, BindingID: binding.ID, IdempotencyKey: "idem-" + id, Fingerprint: "fingerprint-" + id,
 			Invocation: app.MCPInvocationContext{
 				ID: ref.InvocationID, OperationID: id, BindingRef: binding.ID, BindingRevision: binding.AuthorizationRevision,
@@ -719,15 +867,15 @@ func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 	}
 
 	operation, ref := createOperation("operation-approved", "run-approved")
-	st.SaveRun(app.AgentRun{ID: "run-approved", SessionID: binding.LinkedSessionID, State: "approval_pending"})
+	testSaveRun(st, app.AgentRun{ID: "run-approved", SessionID: binding.LinkedSessionID, State: "approval_pending"})
 	if _, err := deliverer.DeliverWorkflowResult(t.Context(), result("waiting-result", "run-approved", ref, app.WorkflowResultWaiting, "approval required")); err != nil {
 		t.Fatal(err)
 	}
-	waiting, _ := st.GetMCPOperation(operation.ID)
+	waiting, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if waiting.State != app.MCPOperationApprovalRequired || waiting.CompletedAt != nil {
 		t.Fatalf("waiting result did not park the operation: %#v", waiting)
 	}
-	st.SaveRun(app.AgentRun{ID: "run-approved", SessionID: binding.LinkedSessionID, State: "completed"})
+	testSaveRun(st, app.AgentRun{ID: "run-approved", SessionID: binding.LinkedSessionID, State: "completed"})
 	if _, err := deliverer.DeliverWorkflowResult(t.Context(), result("completed-result", "run-approved", ref, app.WorkflowResultSucceeded, "approved result")); err != nil {
 		t.Fatal(err)
 	}
@@ -743,27 +891,31 @@ func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 	crossTargetOperation, crossTargetRef := createOperation("operation-cross-target", "run-cross-target")
 	crossTargetWaiting := result("cross-target-waiting", "run-cross-target", crossTargetRef, app.WorkflowResultWaiting, "approval required")
 	crossTargetWaiting.ReturnRoute = app.ReturnRoute{Mode: app.ReturnNowhere}
-	service.RecordWorkflowResult(agent.Result{Run: app.AgentRun{ID: "run-cross-target"}, WorkflowResult: &crossTargetWaiting})
-	waitingCrossTarget, _ := st.GetMCPOperation(crossTargetOperation.ID)
+	if err := service.RecordWorkflowResult(t.Context(), agent.Result{Run: app.AgentRun{ID: "run-cross-target"}, WorkflowResult: &crossTargetWaiting}); err != nil {
+		t.Fatal(err)
+	}
+	waitingCrossTarget, _, _ := st.GetMCPOperation(t.Context(), crossTargetOperation.ID)
 	if waitingCrossTarget.State != app.MCPOperationApprovalRequired || waitingCrossTarget.CompletedAt != nil {
 		t.Fatalf("suppressed cross-target waiting result did not park the MCP operation: %#v", waitingCrossTarget)
 	}
 	crossTargetCompleted := result("cross-target-completed", "run-cross-target", crossTargetRef, app.WorkflowResultSucceeded, "sent to target")
 	crossTargetCompleted.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "telegram:recipient"}
-	service.RecordWorkflowResult(agent.Result{Run: app.AgentRun{ID: "run-cross-target"}, WorkflowResult: &crossTargetCompleted})
-	completedCrossTarget, _ := st.GetMCPOperation(crossTargetOperation.ID)
+	if err := service.RecordWorkflowResult(t.Context(), agent.Result{Run: app.AgentRun{ID: "run-cross-target"}, WorkflowResult: &crossTargetCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	completedCrossTarget, _, _ := st.GetMCPOperation(t.Context(), crossTargetOperation.ID)
 	if completedCrossTarget.State != app.MCPOperationSucceeded || completedCrossTarget.CompletedAt == nil ||
 		strings.Contains(string(completedCrossTarget.Result), "sent to target") || !strings.Contains(string(completedCrossTarget.Result), `"delivery_recorded":true`) {
 		t.Fatalf("cross-target delivery did not complete the MCP operation: %#v", completedCrossTarget)
 	}
 
 	rejectedOperation, rejectedRef := createOperation("operation-rejected", "run-rejected")
-	st.SaveRun(app.AgentRun{ID: "run-rejected", SessionID: binding.LinkedSessionID, State: "approval_pending"})
-	st.SaveApproval(app.Approval{ID: "approval-rejected", SessionID: binding.LinkedSessionID, RunID: "run-rejected", Status: "pending", Tool: "test.write"})
+	testSaveRun(st, app.AgentRun{ID: "run-rejected", SessionID: binding.LinkedSessionID, State: "approval_pending"})
+	storetest.MustSaveApproval(t, st, app.Approval{ID: "approval-rejected", SessionID: binding.LinkedSessionID, RunID: "run-rejected", Status: "pending", Tool: "test.write"})
 	if _, err := deliverer.DeliverWorkflowResult(t.Context(), result("rejected-waiting-result", "run-rejected", rejectedRef, app.WorkflowResultWaiting, "approval required")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ResolveApproval("approval-rejected", "rejected", "owner rejected"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "approval-rejected", "rejected", "owner rejected"); err != nil {
 		t.Fatal(err)
 	}
 	rejected := operationFromRPCResult(t, dispatchRPC(t, restarted, peer, "mcp", "", "tools/call", map[string]any{
@@ -778,7 +930,7 @@ func TestServiceOperationCancelStopsRunningInvocation(t *testing.T) {
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{block: make(chan struct{})}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,7 +954,7 @@ func TestServiceOperationCancelStopsRunningInvocation(t *testing.T) {
 	var operation app.MCPOperation
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if found, ok := st.FindMCPOperationByIdempotency(binding.ID, "cancel-me"); ok {
+		if found, ok, _ := st.FindMCPOperationByIdempotency(t.Context(), binding.ID, "cancel-me"); ok {
 			operation = found
 			break
 		}
@@ -822,7 +974,7 @@ func TestServiceOperationCancelStopsRunningInvocation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("cancel did not stop invocation")
 	}
-	stored, _ := st.GetMCPOperation(operation.ID)
+	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationCancelled {
 		t.Fatalf("cancel was overwritten: %#v", stored)
 	}
@@ -915,20 +1067,20 @@ func toolListed(tools []Tool, name string) bool {
 }
 
 func mustJSON(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
-func bindingForPeer(t *testing.T, st store.Store, peer app.MCPPeerIdentity) app.MCPBinding {
+func bindingForPeer(t *testing.T, st Repository, peer app.MCPPeerIdentity) app.MCPBinding {
 	t.Helper()
-	binding, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	binding, ok, _ := st.FindMCPBindingForPeer(t.Context(), peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
 	if !ok {
 		t.Fatal("binding not found")
 	}
 	return binding
 }
 
-func waitForOperation(t *testing.T, st store.Store, bindingID, idempotencyKey string) app.MCPOperation {
+func waitForOperation(t *testing.T, st Repository, bindingID, idempotencyKey string) app.MCPOperation {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if operation, ok := st.FindMCPOperationByIdempotency(bindingID, idempotencyKey); ok {
+		if operation, ok, _ := st.FindMCPOperationByIdempotency(t.Context(), bindingID, idempotencyKey); ok {
 			return operation
 		}
 		time.Sleep(time.Millisecond)
@@ -947,7 +1099,7 @@ func TestServiceNilWorkflowResultReachesTerminalFailure(t *testing.T) {
 		deliverCalls++
 		return nil
 	}).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -960,7 +1112,7 @@ func TestServiceNilWorkflowResultReachesTerminalFailure(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var operation app.MCPOperation
 	for time.Now().Before(deadline) {
-		if found, ok := st.FindMCPOperationByIdempotency(binding.ID, "no-result"); ok && operationTerminal(found.State) {
+		if found, ok, _ := st.FindMCPOperationByIdempotency(t.Context(), binding.ID, "no-result"); ok && operationTerminal(found.State) {
 			operation = found
 			break
 		}
@@ -980,7 +1132,7 @@ func TestServiceNilWorkflowResultReachesTerminalFailure(t *testing.T) {
 func TestIssueTicketRecordsIssuingActor(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-actor", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	issued, err := service.IssueTicket(t.Context(), app.DefaultOwnerID, "management-actor", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

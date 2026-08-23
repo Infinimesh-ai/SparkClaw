@@ -73,7 +73,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 	decision := r.policy.Decide(def, args)
 	if !decision.Allowed {
 		done := time.Now().UTC()
-		r.store.SaveRun(app.AgentRun{
+		if _, err := r.saveRun(ctx, app.AgentRun{
 			ID:          runID,
 			SessionID:   sessionID,
 			State:       "failed",
@@ -81,11 +81,15 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			StartedAt:   now,
 			CompletedAt: &done,
 			Summary:     decision.Reason,
-		})
+		}); err != nil {
+			return ManualInvocation{}, fmt.Errorf("persist denied manual run: %w", err)
+		}
 		call.Status = "blocked"
 		call.Error = decision.Reason
 		call.CompletedAt = &done
-		r.store.SaveToolCall(call)
+		if _, err := r.saveToolCall(ctx, call); err != nil {
+			return ManualInvocation{}, fmt.Errorf("persist denied manual tool call: %w", err)
+		}
 		return ManualInvocation{Call: call}, ManualInvocationDenied{Reason: decision.Reason}
 	}
 	if name == "notify.ask_approval" {
@@ -94,14 +98,16 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		if reason == "" {
 			reason = "Manual confirmation requested."
 		}
-		r.store.SaveRun(app.AgentRun{
+		if _, err := r.saveRun(ctx, app.AgentRun{
 			ID:        runID,
 			SessionID: sessionID,
 			State:     "approval_pending",
 			Risk:      def.Risk,
 			StartedAt: now,
 			Summary:   summary,
-		})
+		}); err != nil {
+			return ManualInvocation{}, fmt.Errorf("persist manual approval run: %w", err)
+		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
 			Source:     app.ApprovalSourceTool,
@@ -119,8 +125,14 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		call.Status = "approval_pending"
 		call.ApprovalID = approval.ID
-		r.store.SaveToolCall(call)
-		r.store.SaveApproval(approval)
+		if _, err := r.saveToolCall(ctx, call); err != nil {
+			return ManualInvocation{}, fmt.Errorf("persist manual approval tool call: %w", err)
+		}
+		persistedApproval, saveErr := r.saveApproval(ctx, approval)
+		if saveErr != nil {
+			return ManualInvocation{}, fmt.Errorf("persist manual approval: %w", saveErr)
+		}
+		approval = persistedApproval
 		return ManualInvocation{
 			Call:     call,
 			Approval: &approval,
@@ -139,26 +151,32 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 			call.Arguments = redactedRejectedApprovalArguments(args)
 			call.CompletedAt = &done
-			r.store.SaveToolCall(call)
-			r.store.SaveRun(app.AgentRun{
+			if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+				return ManualInvocation{}, fmt.Errorf("persist unsafe manual tool call: %w", saveErr)
+			}
+			if _, saveErr := r.saveRun(ctx, app.AgentRun{
 				ID: runID, SessionID: sessionID, State: "failed", Risk: def.Risk,
 				StartedAt: now, CompletedAt: &done, Summary: err.Error(),
-			})
+			}); saveErr != nil {
+				return ManualInvocation{}, fmt.Errorf("persist unsafe manual run: %w", saveErr)
+			}
 			return ManualInvocation{Call: call}, ManualExecutionError{Err: err}
 		}
-		r.store.SaveRun(app.AgentRun{
+		if _, err := r.saveRun(ctx, app.AgentRun{
 			ID:        runID,
 			SessionID: sessionID,
 			State:     "approval_pending",
 			Risk:      def.Risk,
 			StartedAt: now,
 			Summary:   "Manual tool invocation requires approval: " + name,
-		})
+		}); err != nil {
+			return ManualInvocation{}, fmt.Errorf("persist pending manual run: %w", err)
+		}
 		approvalArgs := args
 		if verifier, ok := policy.VerifierDecision(def, decision, time.Now().UTC()); ok {
 			approvalArgs = policy.AttachVerifier(args, verifier)
 			call.Arguments = approvalArgs
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     runID,
 				Actor:     "verifier",
@@ -172,6 +190,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 					"manual":        true,
 				},
 			})
+
 		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
@@ -190,15 +209,21 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		call.Status = "approval_pending"
 		call.ApprovalID = approval.ID
-		r.store.SaveToolCall(call)
-		r.store.SaveApproval(approval)
+		if _, err := r.saveToolCall(ctx, call); err != nil {
+			return ManualInvocation{}, fmt.Errorf("persist pending manual tool call: %w", err)
+		}
+		persistedApproval, saveErr := r.saveApproval(ctx, approval)
+		if saveErr != nil {
+			return ManualInvocation{}, fmt.Errorf("persist pending manual approval: %w", saveErr)
+		}
+		approval = persistedApproval
 		return ManualInvocation{Call: call, Approval: &approval}, nil
 	}
 	output, err := r.tools.Execute(ctx, name, args, sessionID, runID)
 	done := time.Now().UTC()
 	call.CompletedAt = &done
 	if err != nil {
-		r.store.SaveRun(app.AgentRun{
+		if _, saveErr := r.saveRun(ctx, app.AgentRun{
 			ID:          runID,
 			SessionID:   sessionID,
 			State:       "failed",
@@ -206,7 +231,9 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			StartedAt:   now,
 			CompletedAt: &done,
 			Summary:     err.Error(),
-		})
+		}); saveErr != nil {
+			return ManualInvocation{}, fmt.Errorf("persist failed manual run: %w", saveErr)
+		}
 		call.Status = "failed"
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
@@ -215,15 +242,19 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))
 			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.observationSummaryLimit()})
 		}
-		r.store.SaveToolCall(call)
+		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+			return ManualInvocation{}, fmt.Errorf("persist failed manual tool call: %w", saveErr)
+		}
 		return ManualInvocation{Call: call, Result: output.Output}, ManualExecutionError{Err: err}
 	}
 	call.Status = "completed"
 	call.Result = output.Output
 	call.ObservationSummary = CompressObservation(name, output.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))
-	r.store.SaveToolCall(call)
-	r.store.SaveRun(app.AgentRun{
+	if _, err := r.saveToolCall(ctx, call); err != nil {
+		return ManualInvocation{}, fmt.Errorf("persist completed manual tool call: %w", err)
+	}
+	if _, err := r.saveRun(ctx, app.AgentRun{
 		ID:          runID,
 		SessionID:   sessionID,
 		State:       "completed",
@@ -231,6 +262,8 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		StartedAt:   now,
 		CompletedAt: &done,
 		Summary:     call.ObservationSummary,
-	})
+	}); err != nil {
+		return ManualInvocation{}, fmt.Errorf("persist completed manual run: %w", err)
+	}
 	return ManualInvocation{Call: call, Result: output.Output}, nil
 }

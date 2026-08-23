@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -50,7 +51,7 @@ func TestJingSiLANIsDisabledByDefault(t *testing.T) {
 func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 	server, st, session, ts := newJingSiTestServer(t)
 	_ = server
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "before first connection"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "before first connection"})
 
 	var head struct {
 		Version string `json:"version"`
@@ -61,9 +62,9 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 		t.Fatalf("unexpected head: %#v", head)
 	}
 
-	other := st.CreateSession("other")
-	st.AddMessage(app.Message{SessionID: other.ID, Role: "assistant", Content: "must stay hidden"})
-	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "idle update"})
+	other := storetest.MustCreateSession(t, st, "other")
+	storetest.MustAddMessage(t, st, app.Message{SessionID: other.ID, Role: "assistant", Content: "must stay hidden"})
+	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "idle update"})
 
 	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + head.Cursor + "&limit=100")
 	if err != nil {
@@ -105,9 +106,9 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 
 func TestJingSiLANRejectsWrongSessionCursor(t *testing.T) {
 	_, st, _, ts := newJingSiTestServer(t)
-	other := st.CreateSession("other")
-	st.AddMessage(app.Message{SessionID: other.ID, Role: "user", Content: "other"})
-	cursor, err := st.MessageEventHead(other.ID)
+	other := storetest.MustCreateSession(t, st, "other")
+	storetest.MustAddMessage(t, st, app.Message{SessionID: other.ID, Role: "user", Content: "other"})
+	cursor, err := st.MessageEventHead(t.Context(), other.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestJingSiLANEmptyHeadCursorIsBoundToConfiguredSession(t *testing.T) {
 		t.Fatalf("empty head cursor is not opaque: %q", head.Cursor)
 	}
 
-	other := st.CreateSessionWithScope("other", app.DefaultOwnerID, server.cfg.Workspaces.DefaultRoot, "webchat", false)
+	other := storetest.MustCreateSessionWithScope(t, st, "other", app.DefaultOwnerID, server.cfg.Workspaces.DefaultRoot, "webchat", false)
 	server.cfg.JingSiLAN.SessionID = other.ID
 	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + head.Cursor)
 	if err != nil {
@@ -177,7 +178,7 @@ func TestJingSiLANCatchUpAdvancesAcrossFilteredMessageRoles(t *testing.T) {
 		Cursor string `json:"cursor"`
 	}
 	getJSON(t, ts.URL+"/api/client-events/v0/head", &head)
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "tool", Content: "internal result"})
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "tool", Content: "internal result"})
 
 	var page struct {
 		Events     []jingSiClientEvent `json:"events"`
@@ -189,7 +190,7 @@ func TestJingSiLANCatchUpAdvancesAcrossFilteredMessageRoles(t *testing.T) {
 		t.Fatalf("filtered message did not advance page cursor: %#v", page)
 	}
 
-	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "visible"})
+	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "visible"})
 	getJSON(t, ts.URL+"/api/client-events/v0?after="+page.NextCursor, &page)
 	if len(page.Events) != 1 || page.Events[0].Message.ID != wanted.ID {
 		t.Fatalf("visible message after filtered cursor = %#v", page)
@@ -217,7 +218,7 @@ func TestJingSiLANSSEReceivesIdleMessage(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("SSE returned %d", response.StatusCode)
 	}
-	wanted := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "arrived while idle"})
+	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "arrived while idle"})
 
 	scanner := bufio.NewScanner(response.Body)
 	var eventName, eventID, data string
@@ -360,7 +361,7 @@ func TestJingSiLANRequiresVisibleDefaultOwnerWebChatSession(t *testing.T) {
 			cfg := testConfig(t.TempDir())
 			st := store.NewMemoryStore()
 			if session.ID == "" {
-				created := st.CreateSessionWithScope("invalid", session.OwnerID, "", session.Source, session.Hidden)
+				created := storetest.MustCreateSessionWithScope(t, st, "invalid", session.OwnerID, "", session.Source, session.Hidden)
 				session.ID = created.ID
 			}
 			cfg.JingSiLAN = config.JingSiLANConfig{Enabled: true, SessionID: session.ID, MaxMessageBytes: 1024}
@@ -385,7 +386,7 @@ func newJingSiTestServer(t *testing.T) (*Server, *store.MemoryStore, app.Session
 	t.Helper()
 	cfg := testConfig(t.TempDir())
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("JingSi LAN", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "JingSi LAN", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "webchat", false)
 	cfg.JingSiLAN = config.JingSiLANConfig{Enabled: true, SessionID: session.ID, MaxMessageBytes: 64 << 10}
 	tools := toolhub.New(cfg, st)
 	t.Cleanup(func() { _ = tools.Close() })

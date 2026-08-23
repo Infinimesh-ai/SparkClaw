@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -221,8 +222,8 @@ func TestResolvedMessageControlCannotExecuteUnmatchedBusinessRoute(t *testing.T)
 	if result.Run.MessageContext == nil || result.Run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || result.Run.MessageContext.ReturnRoute.EndpointID != "endpoint_exact" {
 		t.Fatalf("resolved endpoint was not frozen in ReturnRoute: %#v", result.Run.MessageContext)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "message.control.routed", "status", TargetResolved) {
-		t.Fatalf("typed message control audit is missing: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "message.control.routed", "status", TargetResolved) {
+		t.Fatalf("typed message control audit is missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	if len(requests) != 1 || requests[0].SessionID != session.ID || requests[0].Directive != directive {
 		t.Fatalf("production handler did not pass the exact typed directive: %#v", requests)
@@ -279,7 +280,7 @@ func TestMessageControlClarificationStopsBeforeBusinessTools(t *testing.T) {
 			if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteClarify || len(result.ToolCalls) != 0 || len(result.Approvals) != 0 {
 				t.Fatalf("message control clarification entered a business workflow: %#v", result)
 			}
-			if calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID); len(calls) != 0 {
+			if calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID); len(calls) != 0 {
 				t.Fatalf("clarification performed tool calls: %#v", calls)
 			}
 		})
@@ -353,14 +354,16 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
-	st.AddAudit(app.AuditEvent{
+	if err := st.AddAudit(t.Context(), app.AuditEvent{
 		SessionID: session.ID, RunID: run.ID, Actor: "message_control", Type: "message.control.routed", Summary: string(TargetResolved),
 		Fields: map[string]any{
 			"status": TargetResolved, "resolved_endpoint_id": "endpoint_document", "owner_id": session.OwnerID,
 			"actor_id": session.OwnerID, "envelope_id": "env_document", "idempotency_key": "message_document",
 			"correlation_id": session.ID, "causation_id": "cause_document",
 		},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	definition, ok := runtime.tools.Definition("docx.replace_paragraph")
 	if !ok {
 		t.Fatal("docx editor definition is unavailable")
@@ -371,19 +374,20 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 		Result: map[string]any{"output_path": "note-sparkclaw-edit.docx"}, StartedAt: dispatch.Run.StartedAt, CompletedAt: &completedAt,
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
-	st.SaveToolCall(call)
-	st.SaveApproval(app.Approval{
+	testSaveToolCall(st, call)
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID: "ap_document_edit", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: definition.Name,
 		Risk: app.RiskReversible, Status: "approved", Summary: "Approve document edit", CreatedAt: dispatch.Run.StartedAt, ResolvedAt: &completedAt,
 	})
-	st.AddMessage(app.Message{
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, RunID: run.ID, Role: "user", Content: "Replace a paragraph in note.docx", CreatedAt: dispatch.Run.StartedAt,
 	})
-	st.SaveModelCall(app.ModelCall{
+	testSaveModelCall(st, app.ModelCall{
 		ID: "mc_document_edit", SessionID: session.ID, RunID: run.ID, Operation: "workflow_step_1", Status: "completed", StartedAt: dispatch.Run.StartedAt,
 	})
+
 	dispatch.Run.State = "approval_pending"
-	st.SaveRun(dispatch.Run)
+	testSaveRun(st, dispatch.Run)
 	frozenRoute := dispatch.Run.Workflow.Route
 	frozenPlanDigest := dispatch.Run.Workflow.PlanDigest
 	after, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, run.ID)
@@ -415,7 +419,7 @@ func defaultWorkflowRuntime(t *testing.T) (Runtime, *store.MemoryStore, app.Sess
 	t.Helper()
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("message control")
+	session := storetest.MustCreateSession(t, st, "message control")
 	hub := toolhub.New(cfg, st)
 	t.Cleanup(func() { _ = hub.Close() })
 	return NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil), st, session

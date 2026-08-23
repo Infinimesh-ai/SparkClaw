@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"path/filepath"
@@ -27,10 +28,10 @@ const (
 	strategySandboxShell       = "sandbox_shell_result"
 )
 
-func (r Runtime) applyGroundedSummary(sessionID, runID, goal, fallback string, calls []app.ToolCall) string {
+func (r Runtime) applyGroundedSummary(ctx context.Context, sessionID, runID, goal, fallback string, calls []app.ToolCall) string {
 	summary, strategy := groundedSummaryWithStrategy(goal, fallback, calls)
 	if summary != fallback && fallbackPolicyEligible(fallback) {
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,
 			RunID:     runID,
 			Actor:     "runtime",
@@ -43,6 +44,7 @@ func (r Runtime) applyGroundedSummary(sessionID, runID, goal, fallback string, c
 				"tools":            toolNamesForAudit(calls),
 			},
 		})
+
 	}
 	return summary
 }

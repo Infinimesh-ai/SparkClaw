@@ -227,19 +227,19 @@ func TestBrowserFormDraftQueuesIndependentRedactedApprovals(t *testing.T) {
 		ID: app.NewID("run"), SessionID: session.ID, State: "executing",
 		StartedAt: time.Now().UTC(), Workflow: state,
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 
-	typeCall, typeApproval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	typeCall, typeApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name: "browser.type", Args: map[string]any{"uid": "snapshot_1:e1:name", "text": "Alice Example"},
 		WorkflowID: app.WorkflowBrowserFormDraft, WorkflowNodeID: nodeID, ScopeRevision: node.ScopeRevision,
 		Capability: app.ToolCapabilityBrowserFormType,
 	})
-	stored, _ := st.GetRun(run.ID)
+	stored, _ := testGetRun(st, run.ID)
 	storedNode := stored.Workflow.Nodes[nodeID]
 	storedNode.SelectedEntries = []app.ToolDirectoryEntryID{browserFormDraftTestEntry(t, runtime, "browser.select", app.ToolCapabilityBrowserFormSelect)}
 	stored.Workflow.Nodes[nodeID] = storedNode
-	st.SaveRun(stored)
-	selectCall, selectApproval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	testSaveRun(st, stored)
+	selectCall, selectApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name: "browser.select", Args: map[string]any{"uid": "snapshot_1:e2:topic", "value": "Technical Support"},
 		WorkflowID: app.WorkflowBrowserFormDraft, WorkflowNodeID: nodeID, ScopeRevision: node.ScopeRevision,
 		Capability: app.ToolCapabilityBrowserFormSelect,
@@ -335,9 +335,9 @@ func TestBrowserFormDraftMaterializesCurrentSnapshotBindings(t *testing.T) {
 	}
 	state.Nodes[nodeID] = node
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, Workflow: state, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	stageContext := (browserFormDraftProfile{}).StageContext(state)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestBrowserFormDraftMaterializesCurrentSnapshotBindings(t *testing.T) {
 		}
 	}
 
-	materialized := runtime.materializeWorkflowBoundArguments(run.ID, toolPlan{
+	materialized, err := runtime.materializeWorkflowBoundArguments(t.Context(), run.ID, toolPlan{
 		Name: "browser.select", Args: map[string]any{
 			"uid": "snapshot_current:e4:topic", "value": "Technical Support",
 			"page_id": "page_wrong", "snapshot_id": "snapshot_wrong",
@@ -367,6 +367,9 @@ func TestBrowserFormDraftMaterializesCurrentSnapshotBindings(t *testing.T) {
 		WorkflowID: app.WorkflowBrowserFormDraft, WorkflowNodeID: nodeID, ScopeRevision: 15,
 		Capability: app.ToolCapabilityBrowserFormSelect,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]any{
 		"page_id": "page_1", "snapshot_id": "snapshot_current",
 		"session_generation": "1785923761219871", "page_generation": "3",

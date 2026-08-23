@@ -31,7 +31,7 @@ func TestConversationAnswerStreamsItsOnlyFinalGeneration(t *testing.T) {
 	if got := streamedText(events); got != result.Message.Content || got != "巴黎。" {
 		t.Fatalf("streamed answer = %q, final message = %q", got, result.Message.Content)
 	}
-	assertSingleFinalGeneration(t, st.ListModelCalls(session.ID, result.Run.ID), "workflow_answer")
+	assertSingleFinalGeneration(t, testListModelCalls(st, session.ID, result.Run.ID), "workflow_answer")
 	assertStreamSpan(t, events, session.ID, result.Run.ID, "workflow_answer")
 }
 
@@ -61,7 +61,7 @@ MOCK_WORKFLOW_FINAL_RESPONSE:{"type":"final","answer":"The workflow answer was s
 	if got := streamedText(events); got != result.Message.Content || got != "The workflow answer was streamed once." {
 		t.Fatalf("streamed answer = %q, final message = %q", got, result.Message.Content)
 	}
-	assertSingleFinalGeneration(t, st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer")
+	assertSingleFinalGeneration(t, testListModelCalls(st, session.ID, result.Run.ID), "workflow_final_answer")
 	assertStreamSpan(t, events, session.ID, result.Run.ID, "workflow_final_answer")
 }
 

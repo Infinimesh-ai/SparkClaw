@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestBrowserPageReadRunsFixedHiddenManagedBrowserChain(t *testing.T) {
@@ -25,7 +26,7 @@ func TestBrowserPageReadRunsFixedHiddenManagedBrowserChain(t *testing.T) {
 		result.Run.Workflow.Plan.ProfileID != app.WorkflowBrowserPageRead || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("explicit page read did not complete browser.page_read: %#v", result)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID)
 	want := []string{"browser.status", "browser.open", "browser.read"}
 	if len(calls) != len(want) {
 		t.Fatalf("page-read chain length = %d, want %d: %#v", len(calls), len(want), calls)
@@ -80,7 +81,7 @@ func TestBrowserPageReadLoginResumeRestartsRevision1HealthOpenReadChain(t *testi
 		first.Run.Workflow.Plan.ProfileID != app.WorkflowBrowserPageRead || adapter.readCalls != 1 {
 		t.Fatalf("page-read authentication did not pause revision 1 after its read stage: result=%#v adapter=%#v", first, adapter)
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID)
 	if !ok || block.WorkflowID != app.WorkflowBrowserPageRead || block.WorkflowRevision != browserPageReadRevision1 {
 		t.Fatalf("page-read handoff lost its revision identity: %#v", block)
 	}
@@ -93,7 +94,7 @@ func TestBrowserPageReadLoginResumeRestartsRevision1HealthOpenReadChain(t *testi
 		second.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("page-read handoff did not resume the original revision-1 run: %#v", second)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), first.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), first.Run.ID)
 	counts := map[string]int{}
 	for _, call := range calls {
 		counts[call.Tool]++
@@ -101,7 +102,7 @@ func TestBrowserPageReadLoginResumeRestartsRevision1HealthOpenReadChain(t *testi
 	if counts["browser.status"] != 2 || counts["browser.open"] != 2 || counts["browser.read"] != 2 || adapter.readCalls != 2 {
 		t.Fatalf("login resume did not restart the fixed health/open/read chain: counts=%#v adapter=%#v", counts, adapter)
 	}
-	blocks := st.ListBrowserLoginBlocks(session.ID, "")
+	blocks := storetest.MustListBrowserLoginBlocks(t, st, session.ID, "")
 	if len(blocks) != 1 || blocks[0].Status != app.BrowserHandoffStatusResolved {
 		t.Fatalf("page-read handoff did not resolve after the fresh hidden chain: %#v", blocks)
 	}

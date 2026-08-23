@@ -49,6 +49,7 @@ documentation tree.
 | [Model baseline](../benchmarks/model_baseline.md) | Measured model endpoint evidence and operating limits |
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
+| [Store](store.md) | Typed repositories, risk-tiered reliability, three backends, embedded PostgreSQL migrations, Runtime supervision, source layout, and verification |
 | [Store reliability migration roadmap](store-contract-reliability-migration-design.md) | Draft stage order and mandatory design/implementation review gates; large-file splits are deferred until Store closeout |
 | [Store contract foundation](store-contract-foundation-design.md) | S0 inventory, repository ownership, error/context contract, mutation matrix, and characterization gate |
 | [File Store durability](store-file-durability-design.md) | S2 read isolation, context-aware transaction gate, pilot repository, durable replacement, rollback, and unknown-outcome contract |

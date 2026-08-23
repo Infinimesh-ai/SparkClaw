@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode"
@@ -14,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type IntentRoutingOutput struct {
@@ -72,7 +74,7 @@ func (r Runtime) routeIntent(ctx context.Context, sessionID, runID, content stri
 }
 
 func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, error) {
-	if routing, mediaOnly, err := r.routeMediaOnlyMessage(sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
+	if routing, mediaOnly, err := r.routeMediaOnlyMessage(ctx, sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
 		return routing, err
 	}
 	if r.semanticRouter == nil || r.semanticRouter.graph == nil {
@@ -85,7 +87,10 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 		return IntentRoutingOutput{}, err
 	}
 	clientTimezone := ""
-	run, hasRun := r.store.GetRun(runID)
+	run, hasRun, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return IntentRoutingOutput{}, fmt.Errorf("load intent run: %w", err)
+	}
 	if hasRun && run.MessageContext != nil {
 		clientTimezone = run.MessageContext.ClientTimezone
 	}
@@ -93,10 +98,19 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if hasRun && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
 		documents = resolveExternalMCPDocumentContext(groundingContent, resources)
 	} else {
-		documents = r.resolveDocumentContext(sessionID, runID, groundingContent, resources)
+		documents, err = r.resolveDocumentContext(ctx, sessionID, runID, groundingContent, resources)
+		if err != nil {
+			return IntentRoutingOutput{}, err
+		}
 	}
-	grounding := r.projectIntentGrounding(sessionID, runID, groundingContent, documents)
-	routingContext := r.semanticRoutingContext(sessionID, runID, ownerText, resources, documents)
+	grounding, err := r.projectIntentGrounding(ctx, sessionID, runID, groundingContent, documents)
+	if err != nil {
+		return IntentRoutingOutput{}, err
+	}
+	routingContext, err := r.semanticRoutingContext(ctx, sessionID, runID, ownerText, resources, documents)
+	if err != nil {
+		return IntentRoutingOutput{}, err
+	}
 	channelInputs := newSemanticChannelInputs(businessContent, routingContext)
 	eligible := r.semanticRouter.graph.EligibleCandidates(sourceKind)
 	if len(eligible) == 0 {
@@ -134,14 +148,14 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	}
 	decision = enforceDeliveryFusionBoundary(decision, delivery)
 	fusion := persistedIntentFusion(r.semanticRouter, channels, decision)
-	route, err := r.routeFromFusionDecision(content, grounding, decision, clientTimezone)
+	route, err := r.routeFromFusionDecision(ctx, content, grounding, decision, clientTimezone)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
 	if err := r.capabilities.ValidateDecision(route); err != nil {
 		return IntentRoutingOutput{}, err
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: runID, Actor: "semantic-router", Type: "capability.routed",
 		Summary: decision.ReasonCode,
 		Fields: map[string]any{
@@ -151,10 +165,11 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 			"capability_path": route.CapabilityPath, "explicit_external": delivery.ExplicitExternal,
 		},
 	})
+
 	return IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion}, nil
 }
 
-func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
+func (r Runtime) routeMediaOnlyMessage(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
 	if strings.TrimSpace(ownerText) != "" || (len(resources) == 0 && len(locators) == 0) {
 		return IntentRoutingOutput{}, false, nil
 	}
@@ -182,7 +197,7 @@ func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resou
 	if err := r.capabilities.ValidateDecision(route); err != nil {
 		return IntentRoutingOutput{}, true, err
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: runID, Actor: "message-router", Type: "capability.routed",
 		Summary: "media_only_message",
 		Fields: map[string]any{
@@ -190,6 +205,7 @@ func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resou
 			"route_status": route.Status, "capability_path": route.CapabilityPath, "route_source": "message_content",
 		},
 	})
+
 	return IntentRoutingOutput{Route: route}, true, nil
 }
 
@@ -239,7 +255,9 @@ func (r Runtime) scoreEmbeddingChannel(ctx context.Context, sessionID, runID, qu
 	inputs := []string{query}
 	result, callErr := r.models.Embed(callCtx, inputs)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromEmbedding(sessionID, runID, "intent_embedding", result, callErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromEmbedding(sessionID, runID, "intent_embedding", result, callErr, started, completed)); saveErr != nil {
+		slog.Warn("intent embedding model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if callErr != nil {
 		return embeddingChannelResult{state: state}
 	}
@@ -316,7 +334,9 @@ func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query, 
 	started := time.Now().UTC()
 	chat, callErr := r.models.ChatWithProfile(callCtx, "fast", system, user)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, runID, "intent_tree_graph", chat, callErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, runID, "intent_tree_graph", chat, callErr, started, completed)); saveErr != nil {
+		slog.Warn("intent tree model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if callErr != nil {
 		return treeChannelResult{state: state}
 	}
@@ -363,7 +383,9 @@ func (r Runtime) repairTreeRoutingOutput(ctx context.Context, sessionID, runID, 
 	started := time.Now().UTC()
 	chat, callErr := r.models.ChatWithProfile(ctx, "fast", system, user)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, runID, "intent_tree_graph_repair", chat, callErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, runID, "intent_tree_graph_repair", chat, callErr, started, completed)); saveErr != nil {
+		slog.Warn("intent tree repair model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if callErr != nil {
 		return treeRoutingOutput{}, callErr
 	}
@@ -498,8 +520,11 @@ func deliveryBusinessProjection(content string, evidence externalSendEvidence) s
 	return content
 }
 
-func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText string, resources []app.MessagePart, documents ...documentContextResolution) string {
-	snapshot := r.buildAgentContextSnapshot(sessionID, runID, currentOwnerText)
+func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, currentOwnerText string, resources []app.MessagePart, documents ...documentContextResolution) (string, error) {
+	snapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, runID, currentOwnerText)
+	if err != nil {
+		return "", err
+	}
 	snapshot.Messages = withoutCurrentOwnerMessage(snapshot.Messages, currentOwnerText)
 	sections := make([]string, 0, 3)
 	if resourceContext := messageplane.ResourceProjection(resources); resourceContext != "" {
@@ -509,7 +534,10 @@ func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText strin
 	if len(documents) > 0 {
 		documentResolution = documents[0]
 	} else {
-		documentResolution = r.resolveDocumentContext(sessionID, runID, currentOwnerText, resources)
+		documentResolution, err = r.resolveDocumentContext(ctx, sessionID, runID, currentOwnerText, resources)
+		if err != nil {
+			return "", err
+		}
 	}
 	if documentContext := formatDocumentRoutingContext(documentResolution); documentContext != "" {
 		sections = append(sections, "Resolved governed document context:\n"+documentContext)
@@ -517,7 +545,7 @@ func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText strin
 	if context := snapshot.ForIntentRouting(); context != "" {
 		sections = append(sections, "Recent Agent context:\n"+trimForEpisode(context, 12000))
 	}
-	return strings.Join(sections, "\n\n")
+	return strings.Join(sections, "\n\n"), nil
 }
 
 func withoutCurrentOwnerMessage(messages []app.Message, currentOwnerText string) []app.Message {

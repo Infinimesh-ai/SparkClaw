@@ -57,22 +57,39 @@ const (
 
 type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, app.MessageIngressContext, agent.StreamHandler) (agent.Result, error)
 
+type Repository interface {
+	store.ISCPOnboardingRepository
+	store.OwnerRepository
+	store.ClientRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.EvaluationRepository
+	store.ArtifactMetadataRepository
+	store.MemoryRepository
+	store.ScheduleRepository
+	store.PassiveNotificationRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type Server struct {
 	cfg                      config.Config
-	store                    store.Store
+	store                    Repository
 	tools                    *toolhub.ToolHub
 	runtime                  agent.Runtime
 	models                   modelrouter.Router
 	traces                   *trace.Writer
 	artifacts                artifact.Store
 	policies                 policy.Engine
-	bindings                 binding.Router
 	speech                   speech.Transcriber
 	speechRealtimeMu         sync.Mutex
 	speechRealtimeTickets    map[string]*speechRealtimeTicket
 	speechRealtimeTicketIDs  map[string]string
-	credentials              credential.CredentialVault
-	cancelBinding            func(app.NotificationBinding)
 	managedBrowserWindows    ManagedBrowserWindowController
 	delivery                 *delivery.Gateway
 	endpoints                *messagecontrol.EndpointRegistry
@@ -84,7 +101,6 @@ type Server struct {
 	externalApprovalResolver ExternalApprovalResolver
 	bridge                   *iscpbridge.GatewayAdapter
 	deliveryMu               sync.Mutex
-	bindingsSet              bool
 	mux                      *http.ServeMux
 	started                  time.Time
 	limiter                  *rateLimiter
@@ -95,15 +111,32 @@ type Server struct {
 	streamMessage            streamMessageExecutor
 	streamWG                 sync.WaitGroup
 	approvalLocks            sync.Map
+	pairing                  *pairingCoordinator
+	storeRuntime             StoreRuntimeMonitor
+}
+
+func (s *Server) addAudit(ctx context.Context, event app.AuditEvent) {
+	if err := s.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
+		slog.Warn("gateway audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
+	}
 }
 
 type Option func(*Server)
 
+type StoreRuntimeMonitor interface {
+	Status() store.RuntimeStatus
+	Metrics() []store.OperationMetric
+}
+
 type ConnectorController interface {
-	ListStatus(ownerID string) []app.ConnectorStatus
-	Status(ownerID, channel string) (app.ConnectorStatus, error)
+	Enabled(ownerID, channel string) bool
+	ListStatus(context.Context, string) ([]app.ConnectorStatus, error)
+	Status(context.Context, string, string) (app.ConnectorStatus, error)
 	SetEnabled(ctx context.Context, ownerID, actorID, channel string, enabled bool, expectedVersion int64) (app.ConnectorStatus, error)
 	SetMCPTransports(ctx context.Context, ownerID, actorID string, iscpEnabled, lanAccessEnabled bool, expectedVersion int64) (app.ConnectorStatus, error)
+	StartNotificationBinding(context.Context, app.NotificationBinding, binding.StartOptions) (app.NotificationBinding, error)
+	PollNotificationBinding(context.Context, string) (app.NotificationBinding, error)
+	RevokeNotificationBinding(context.Context, string) (app.NotificationBinding, error)
 }
 
 type MCPController interface {
@@ -152,30 +185,15 @@ func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
 	}
 }
 
-func WithCredentialVault(vault credential.CredentialVault) Option {
-	return func(server *Server) {
-		if vault != nil {
-			server.credentials = vault
-		}
-	}
-}
-
-func WithBindingRouter(router binding.Router) Option {
-	return func(server *Server) {
-		server.bindings = router
-		server.bindingsSet = true
-	}
-}
-
-func WithNotificationBindingCancellation(cancel func(app.NotificationBinding)) Option {
-	return func(server *Server) {
-		server.cancelBinding = cancel
-	}
-}
-
 func WithManagedBrowserWindows(controller ManagedBrowserWindowController) Option {
 	return func(server *Server) {
 		server.managedBrowserWindows = controller
+	}
+}
+
+func WithStoreRuntime(runtime StoreRuntimeMonitor) Option {
+	return func(server *Server) {
+		server.storeRuntime = runtime
 	}
 }
 
@@ -187,30 +205,26 @@ func WithMessageDelivery(endpoints *messagecontrol.EndpointRegistry, providers *
 	}
 }
 
-func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, options ...Option) *Server {
+func New(cfg config.Config, st Repository, tools *toolhub.ToolHub, runtime agent.Runtime, options ...Option) *Server {
 	return NewWithTrace(cfg, st, tools, runtime, trace.NewWriterFromConfig(cfg), options...)
 }
 
-func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
+func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
 	artifacts := tools.ArtifactStore()
 	if artifacts == nil {
 		artifacts = artifact.NewStore(cfg.Storage)
 		tools.WithArtifactStore(artifacts)
 	}
 	s := &Server{
-		cfg:       cfg,
-		store:     st,
-		tools:     tools,
-		runtime:   runtime,
-		models:    modelrouter.New(cfg),
-		traces:    traces,
-		artifacts: artifacts,
-		policies:  policy.New(cfg),
-		speech:    speech.NewDisabled(cfg.Speech),
-		credentials: credential.New(st, credential.Options{
-			Key:     cfg.State.CredentialKey,
-			KeyFile: cfg.State.CredentialKeyFile,
-		}),
+		cfg:                     cfg,
+		store:                   st,
+		tools:                   tools,
+		runtime:                 runtime,
+		models:                  modelrouter.New(cfg),
+		traces:                  traces,
+		artifacts:               artifacts,
+		policies:                policy.New(cfg),
+		speech:                  speech.NewDisabled(cfg.Speech),
 		mux:                     http.NewServeMux(),
 		started:                 time.Now().UTC(),
 		limiter:                 newRateLimiter(cfg.Gateway.RateLimit),
@@ -218,6 +232,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		passiveStreams:          map[string]int{},
 		speechRealtimeTickets:   map[string]*speechRealtimeTicket{},
 		speechRealtimeTicketIDs: map[string]string{},
+		pairing:                 newPairingCoordinator(),
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
@@ -243,14 +258,9 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 	}
 	if s.connectors != nil {
 		s.mcpAccess.WithChannelEnabled(func(ownerID string) bool {
-			status, err := s.connectors.Status(ownerID, "mcp")
-			return err == nil && status.Enabled
+			return s.connectors.Enabled(ownerID, "mcp")
 		})
 	}
-	if !s.bindingsSet {
-		s.bindings = binding.NewRouter(cfg, s.credentials)
-	}
-	s.applyMemoryRetention()
 	s.routes()
 	return s
 }
@@ -344,6 +354,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
+	s.mux.HandleFunc("POST /api/notification-bindings/{id}/poll", s.pollNotificationBinding)
 	s.mux.HandleFunc("POST /api/notification-bindings/{id}/browser", s.openNotificationBindingBrowser)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
 	s.mux.HandleFunc("GET /api/delivery-endpoints", s.listDeliveryEndpoints)
@@ -427,6 +438,15 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	var storeStatus *store.RuntimeStatus
+	if s.storeRuntime != nil {
+		status := s.storeRuntime.Status()
+		storeStatus = &status
+		if !status.Ready {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "store": status})
+			return
+		}
+	}
 	if err := os.MkdirAll(s.cfg.Storage.TraceDir, 0o755); err != nil {
 		writeError(w, http.StatusServiceUnavailable, err)
 		return
@@ -442,7 +462,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	speechStatus := s.speech.Status(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"ok":               true,
 		"workspace_root":   s.cfg.Workspaces.DefaultRoot,
 		"trace_dir":        s.cfg.Storage.TraceDir,
@@ -457,22 +477,57 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		"model_mode":       modelMode(s.cfg),
 		"gateway_binding":  s.Addr(),
 		"speech":           speechStatus,
-	})
+	}
+	if storeStatus != nil {
+		payload["store"] = storeStatus
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	sessions := s.store.ListSessions()
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	sessions, err := s.store.ListSessions(r.Context())
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	messages := 0
 	runs := 0
-	allModelCalls := s.store.ListModelCalls("", "")
+	allModelCalls, err := s.store.ListModelCalls(r.Context(), "", "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	allToolCalls, err := s.store.ListToolCalls(r.Context(), "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	allEpisodes, err := s.store.ListEpisodeSummaries(r.Context(), "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	modelCalls := len(allModelCalls)
 	modelErrors := 0
 	modelLatencyTotal := int64(0)
 	modelTokensTotal := 0
 	for _, session := range sessions {
-		messages += len(s.store.ListMessages(session.ID))
-		runs += len(s.store.ListRuns(session.ID))
+		storedMessages, err := s.store.ListMessages(r.Context(), session.ID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		messages += len(storedMessages)
+		storedRuns, err := s.store.ListRuns(r.Context(), session.ID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		runs += len(storedRuns)
 	}
 	for _, call := range allModelCalls {
 		if call.Status == "failed" {
@@ -485,7 +540,11 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	if modelCalls > 0 {
 		modelLatencyAverage = float64(modelLatencyTotal) / float64(modelCalls)
 	}
-	approvals := s.store.ListApprovals("")
+	approvals, err := s.store.ListApprovals(r.Context(), "")
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	pendingApprovals := 0
 	rateLimited := 0
 	for _, approval := range approvals {
@@ -495,6 +554,16 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.limiter != nil {
 		rateLimited = s.limiter.rejectedCount()
+	}
+	memoryCandidates, err := s.store.ListMemoryCandidates(r.Context(), "")
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	memories, err := s.store.SearchMemories(r.Context(), "")
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
 	}
 	lines := []string{
 		"# HELP sparkclaw_gateway_uptime_seconds Gateway process uptime in seconds.",
@@ -529,7 +598,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_model_call_tokens_total %d", modelTokensTotal),
 		"# HELP sparkclaw_tool_calls_total Current tool call count.",
 		"# TYPE sparkclaw_tool_calls_total gauge",
-		fmt.Sprintf("sparkclaw_tool_calls_total %d", len(s.store.ListToolCalls(""))),
+		fmt.Sprintf("sparkclaw_tool_calls_total %d", len(allToolCalls)),
 		"# HELP sparkclaw_approvals_total Current approval count.",
 		"# TYPE sparkclaw_approvals_total gauge",
 		fmt.Sprintf("sparkclaw_approvals_total %d", len(approvals)),
@@ -538,22 +607,55 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_approvals_pending %d", pendingApprovals),
 		"# HELP sparkclaw_memory_candidates_total Current memory candidate count.",
 		"# TYPE sparkclaw_memory_candidates_total gauge",
-		fmt.Sprintf("sparkclaw_memory_candidates_total %d", len(s.store.ListMemoryCandidates(""))),
+		fmt.Sprintf("sparkclaw_memory_candidates_total %d", len(memoryCandidates)),
 		"# HELP sparkclaw_memories_total Current accepted memory count.",
 		"# TYPE sparkclaw_memories_total gauge",
-		fmt.Sprintf("sparkclaw_memories_total %d", len(s.store.SearchMemories(""))),
+		fmt.Sprintf("sparkclaw_memories_total %d", len(memories)),
 		"# HELP sparkclaw_episode_summaries_total Current episode summary count.",
 		"# TYPE sparkclaw_episode_summaries_total gauge",
-		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(s.store.ListEpisodeSummaries(""))),
+		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(allEpisodes)),
 	}
 	lines = append(lines, s.tools.DocumentMetrics()...)
+	lines = append(lines, s.storeOperationMetrics()...)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(strings.Join(lines, "\n") + "\n"))
 }
 
+func (s *Server) storeOperationMetrics() []string {
+	if s.storeRuntime == nil {
+		return nil
+	}
+	status := s.storeRuntime.Status()
+	lines := []string{
+		"# HELP sparkclaw_store_ready Whether the selected Store backend is ready.",
+		"# TYPE sparkclaw_store_ready gauge",
+		fmt.Sprintf("sparkclaw_store_ready{backend=%q} %d", status.Backend, boolMetric(status.Ready)),
+		"# HELP sparkclaw_store_active_operations Current admitted Store operations.",
+		"# TYPE sparkclaw_store_active_operations gauge",
+		fmt.Sprintf("sparkclaw_store_active_operations{backend=%q} %d", status.Backend, status.Active),
+		"# HELP sparkclaw_store_operations_total Completed Store operations by bounded result.",
+		"# TYPE sparkclaw_store_operations_total counter",
+		"# HELP sparkclaw_store_operation_duration_seconds_total Total Store operation duration by bounded result.",
+		"# TYPE sparkclaw_store_operation_duration_seconds_total counter",
+	}
+	for _, metric := range s.storeRuntime.Metrics() {
+		labels := fmt.Sprintf("backend=%q,repository=%q,operation=%q,mode=%q,outcome=%q", status.Backend, metric.Repository, metric.Operation, metric.Mode, metric.Outcome)
+		lines = append(lines,
+			fmt.Sprintf("sparkclaw_store_operations_total{%s} %d", labels, metric.Count),
+			fmt.Sprintf("sparkclaw_store_operation_duration_seconds_total{%s} %.6f", labels, metric.DurationSeconds),
+		)
+	}
+	return lines
+}
+
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
+	toolsConfig, err := s.publicToolsConfig(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"gateway":             publicGatewayConfig(s.cfg.Gateway),
 		"model":               publicModelConfig(s.cfg.Model),
@@ -566,7 +668,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"storage":             publicStorageConfig(s.cfg.Storage),
 		"state":               publicStateConfig(s.cfg.State),
 		"adapters":            publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
-		"tools":               s.publicToolsConfig(principal.OwnerID),
+		"tools":               toolsConfig,
 		"mcp_server_statuses": s.mcpServerStatuses(),
 		"memory":              s.cfg.Memory,
 		"runtime":             s.cfg.Runtime,
@@ -599,7 +701,12 @@ func (s *Server) mcpServerStatuses() []mcpintegration.Status {
 }
 
 func (s *Server) getOwnerProfile(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.GetOwnerProfile())
+	profile, err := s.store.GetOwnerProfile(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
 }
 
 func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
@@ -612,22 +719,41 @@ func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	current := s.store.GetOwnerProfile()
+	current, err := s.store.GetOwnerProfile(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	profile, err := normalizeOwnerProfileInput(current, input.DisplayName, input.Email, input.Preferences)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.UpdateOwnerProfile(profile))
+	updated, err := s.store.UpdateOwnerProfile(r.Context(), profile)
+	updated, err = store.ReconcileOwnerProfileWrite(r.Context(), s.store, updated, err)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"profiles": s.store.ListOwnerProfiles()})
+	profiles, err := s.store.ListOwnerProfiles(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
 }
 
 func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("owner_id"))
-	profile, ok := s.store.GetOwnerProfileByID(id)
+	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), id)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("profile not found"))
 		return
@@ -637,7 +763,11 @@ func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("owner_id"))
-	current, ok := s.store.GetOwnerProfileByID(id)
+	current, ok, err := s.store.GetOwnerProfileByID(r.Context(), id)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("profile not found"))
 		return
@@ -666,17 +796,47 @@ func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	profile.WorkspaceRoot = strings.TrimSpace(input.WorkspaceRoot)
 	profile.DefaultChannel = strings.TrimSpace(input.DefaultChannel)
 	profile.DefaultBindingID = strings.TrimSpace(input.DefaultBindingID)
-	writeJSON(w, http.StatusOK, s.store.SaveOwnerProfile(profile))
+	updated, err := s.store.SaveOwnerProfile(r.Context(), profile)
+	updated, err = store.ReconcileOwnerProfileWrite(r.Context(), s.store, updated, err)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func writeOwnerStoreError(w http.ResponseWriter, err error) {
+	if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
+		writeError(w, http.StatusGatewayTimeout, errors.New("owner profile request timed out"))
+		return
+	}
+	writeError(w, http.StatusServiceUnavailable, errors.New("owner profiles are temporarily unavailable"))
 }
 
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"clients": s.store.ListClients()})
+	clients, err := s.store.ListClients(r.Context())
+	if err != nil {
+		if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
+			writeError(w, http.StatusGatewayTimeout, errors.New("client list request timed out"))
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, errors.New("clients are temporarily unavailable"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
 }
 
 func (s *Server) revokeClient(w http.ResponseWriter, r *http.Request) {
-	client, err := s.store.RevokeClient(r.PathValue("id"))
+	client, err := s.store.RevokeClient(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+		switch store.StoreErrorCodeOf(err) {
+		case store.StoreErrorNotFound:
+			writeError(w, http.StatusNotFound, errors.New("client not found"))
+		case store.StoreErrorTimeout:
+			writeError(w, http.StatusGatewayTimeout, errors.New("client revoke request timed out"))
+		default:
+			writeError(w, http.StatusServiceUnavailable, errors.New("clients are temporarily unavailable"))
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, client)
@@ -715,7 +875,7 @@ func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Security.ApprovalRequiredTools = approvalRequired
 	s.policies = policy.New(s.cfg)
 	s.runtime = s.runtime.WithPolicy(s.policies)
-	s.store.AddAudit(app.AuditEvent{
+	s.addAudit(r.Context(), app.AuditEvent{
 		Actor:   "owner",
 		Type:    "tool_policy.updated",
 		Summary: "Tool policy updated",
@@ -762,7 +922,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	started := time.Now().UTC()
 	result, err := s.models.ChatWithProfile(r.Context(), profile, system, content)
 	completed := time.Now().UTC()
-	s.store.SaveModelCall(modelCallFromChat("", "", "direct_chat", result, err, started, completed))
+	if _, saveErr := s.store.SaveModelCall(r.Context(), modelCallFromChat("", "", "direct_chat", result, err, started, completed)); saveErr != nil {
+		slog.Warn("direct chat model call persistence unavailable", "code", store.StoreErrorCodeOf(saveErr))
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -782,24 +944,67 @@ func (s *Server) startPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errors.New("pairing can only be started locally"))
 		return
 	}
+	if err := s.pairing.gate.Acquire(r.Context(), 1); err != nil {
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
+	defer s.pairing.gate.Release(1)
+	principal := principalForRequest(r)
+	fingerprint := pairingStartFingerprint(principal.OwnerID)
+	if pending := s.pairing.pending; pending != nil {
+		if pending.kind != pairingPendingStart || pending.fingerprint != fingerprint {
+			writeError(w, http.StatusConflict, errors.New("another pairing request is pending"))
+			return
+		}
+		response, status, err := s.reconcilePendingStartLocked(r.Context(), pending)
+		if err != nil {
+			writeError(w, status, err)
+			return
+		}
+		writeJSON(w, status, response)
+		return
+	}
 	code, err := randomSecret(8)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	now := s.pairing.currentTime()
 	pairing := app.PairingCode{
 		ID:        app.NewID("pair"),
 		CodeHash:  hashSecret(code),
 		Status:    "pending",
-		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
-		CreatedAt: time.Now().UTC(),
+		ExpiresAt: now.Add(5 * time.Minute),
 	}
-	s.store.SavePairingCode(pairing)
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"pairing_id": pairing.ID,
-		"code":       code,
-		"expires_at": pairing.ExpiresAt,
-	})
+	pending := &pairingPending{
+		kind: pairingPendingStart, fingerprint: fingerprint, expiresAt: pairing.ExpiresAt,
+		plaintextCode: code, attemptedPairing: pairing,
+	}
+	s.installPairingPendingLocked(pending)
+	saved, err := s.store.SavePairingCode(r.Context(), pairing)
+	if saved.ID != "" {
+		pending.pairingCandidate = &saved
+	}
+	if err != nil {
+		if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+			response, status, reconcileErr := s.reconcilePendingStartLocked(r.Context(), pending)
+			if reconcileErr != nil {
+				writeError(w, status, reconcileErr)
+				return
+			}
+			writeJSON(w, status, response)
+			return
+		}
+		s.clearPairingPendingLocked()
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
+	response, status, err := s.completePendingStartLocked(pending, saved)
+	if err != nil {
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, status, response)
 }
 
 func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
@@ -813,19 +1018,57 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		ClientName string `json:"client_name"`
 	}
 	if err := readJSON(r, &input); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, http.StatusBadRequest, errors.New("invalid pairing request"))
 		return
 	}
-	pairing, ok := s.store.GetPairingCode(strings.TrimSpace(input.PairingID))
+	if err := s.pairing.gate.Acquire(r.Context(), 1); err != nil {
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
+	defer s.pairing.gate.Release(1)
+	pairingID := strings.TrimSpace(input.PairingID)
+	clientName := strings.TrimSpace(input.ClientName)
+	if clientName == "" {
+		clientName = "SparkClaw Client"
+	}
+	principal := principalForRequest(r)
+	submittedHash := hashSecret(input.Code)
+	fingerprint := pairingClaimFingerprint(principal.OwnerID, pairingID, submittedHash, clientName)
+	if pending := s.pairing.pending; pending != nil {
+		if pending.kind != pairingPendingClaim {
+			writeError(w, http.StatusConflict, errors.New("another pairing request is pending"))
+			return
+		}
+		if !pairingCodesMatch(pending.submittedCodeHash, submittedHash) {
+			writeError(w, http.StatusUnauthorized, errors.New("invalid pairing code"))
+			return
+		}
+		if pending.fingerprint != fingerprint {
+			writeError(w, http.StatusConflict, errors.New("another pairing request is pending"))
+			return
+		}
+		response, status, err := s.reconcilePendingClaimLocked(r.Context(), pending)
+		if err != nil {
+			writeError(w, status, err)
+			return
+		}
+		writeJSON(w, status, response)
+		return
+	}
+	pairing, ok, err := s.store.GetPairingCode(r.Context(), pairingID)
+	if err != nil {
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, errors.New("pairing code not found"))
 		return
 	}
-	if pairing.Status != "pending" || time.Now().UTC().After(pairing.ExpiresAt) {
+	if pairing.Status != "pending" || !pairing.ExpiresAt.After(s.pairing.currentTime()) {
 		writeError(w, http.StatusBadRequest, errors.New("pairing code is not active"))
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(pairing.CodeHash), []byte(hashSecret(input.Code))) != 1 {
+	if !pairingCodesMatch(pairing.CodeHash, submittedHash) {
 		writeError(w, http.StatusUnauthorized, errors.New("invalid pairing code"))
 		return
 	}
@@ -834,27 +1077,49 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	clientName := strings.TrimSpace(input.ClientName)
-	if clientName == "" {
-		clientName = "SparkClaw Client"
-	}
 	client := app.Client{
 		ID:        app.NewID("client"),
-		OwnerID:   app.DefaultOwnerID,
-		ActorID:   app.DefaultOwnerID,
+		OwnerID:   principal.OwnerID,
+		ActorID:   principal.ActorID,
 		Name:      clientName,
 		TokenHash: hashSecret(token),
-		CreatedAt: time.Now().UTC(),
 	}
-	s.store.SaveClient(client)
-	if _, err := s.store.ClaimPairingCode(pairing.ID, client.ID); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	pending := &pairingPending{
+		kind: pairingPendingClaim, fingerprint: fingerprint, expiresAt: pairing.ExpiresAt,
+		plaintextToken: token, preClaimPairing: pairing, attemptedClient: client, submittedCodeHash: pairing.CodeHash,
+	}
+	s.installPairingPendingLocked(pending)
+	claimedPairing, claimedClient, err := s.store.ClaimPairingCode(r.Context(), pairing.ID, client)
+	if claimedPairing.ID != "" {
+		pending.pairingCandidate = &claimedPairing
+	}
+	if claimedClient.ID != "" {
+		pending.clientCandidate = &claimedClient
+	}
+	if err != nil {
+		if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+			response, status, reconcileErr := s.reconcilePendingClaimLocked(r.Context(), pending)
+			if reconcileErr != nil {
+				writeError(w, status, reconcileErr)
+				return
+			}
+			writeJSON(w, status, response)
+			return
+		}
+		s.clearPairingPendingLocked()
+		if store.StoreErrorCodeOf(err) == store.StoreErrorConflict || store.StoreErrorCodeOf(err) == store.StoreErrorNotFound {
+			writeError(w, http.StatusConflict, errors.New("pairing state changed"))
+			return
+		}
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"client": client,
-		"token":  token,
-	})
+	response, status, err := s.completePendingClaimLocked(pending, claimedPairing, claimedClient)
+	if err != nil {
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, status, response)
 }
 
 func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request) {
@@ -862,7 +1127,12 @@ func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	principal := principalForRequest(r)
 	visible := []app.NotificationBinding{}
-	for _, binding := range s.store.ListNotificationBindings(channel, status) {
+	bindings, err := s.store.ListNotificationBindings(r.Context(), channel, status)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	for _, binding := range bindings {
 		actorID := strings.TrimSpace(binding.ActorID)
 		if actorID == "" {
 			actorID = binding.OwnerID
@@ -882,7 +1152,12 @@ func (s *Server) listConnectors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal := principalForRequest(r)
-	writeJSON(w, http.StatusOK, map[string]any{"connectors": s.connectors.ListStatus(principal.OwnerID)})
+	statuses, err := s.connectors.ListStatus(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connectors": statuses})
 }
 
 func (s *Server) updateConnector(w http.ResponseWriter, r *http.Request) {
@@ -918,6 +1193,10 @@ func (s *Server) updateConnector(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
 	channel := strings.ToLower(strings.TrimSpace(r.PathValue("channel")))
 	if channel == "" {
 		writeError(w, http.StatusBadRequest, errors.New("channel is required"))
@@ -936,38 +1215,20 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		}
 	}
 	principal := principalForRequest(r)
-	capability := s.bindings.CapabilityForOwner(principal.OwnerID, channel, s.store.ListNotificationBindings(channel, ""))
-	if !capability.Startable {
-		writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
-		return
-	}
-	now := time.Now().UTC()
-	pendingBinding := app.NotificationBinding{
-		ID:                app.NewID("bind"),
+	requested := app.NotificationBinding{
 		OwnerID:           principal.OwnerID,
 		ActorID:           principal.ActorID,
 		Channel:           channel,
-		Status:            "waiting_scan",
 		DefaultForChannel: input.DefaultForChannel,
 		Scopes:            app.DefaultMessagingBindingScopes(),
-		CreatedAt:         now,
-		UpdatedAt:         now,
 	}
 	credentialSecret := strings.TrimSpace(input.CredentialSecret)
 	if credentialSecret == "" {
 		credentialSecret = input.BotToken
 	}
-	started, err := s.bindings.Start(r.Context(), pendingBinding, binding.StartOptions{CredentialSecret: credentialSecret})
+	started, err := s.connectors.StartNotificationBinding(r.Context(), requested, binding.StartOptions{CredentialSecret: credentialSecret})
 	if err != nil {
-		writeError(w, connectorStartStatus(errorCode(err)), err)
-		return
-	}
-	started = s.store.SaveNotificationBinding(started)
-	if persisted, ok := s.store.GetNotificationBinding(started.ID); !ok || persisted.CredentialRef != started.CredentialRef {
-		if started.CredentialRef != "" {
-			_ = s.credentials.Delete(r.Context(), started.CredentialRef)
-		}
-		writeError(w, http.StatusInternalServerError, errors.New("notification binding could not be persisted"))
+		writeConnectorError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, publicNotificationBinding(started, true))
@@ -975,53 +1236,53 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 
 func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) {
 	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
 	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
-	if binding.Status == "waiting_scan" || binding.Status == "waiting_confirm" {
-		poll, err := s.bindings.Poll(r.Context(), binding)
-		if err == nil && poll.Status != "" && poll.Status != binding.Status {
-			binding.Status = poll.Status
-			binding.DisplayName = poll.DisplayName
-			binding.ExternalUserID = poll.ExternalUserID
-			binding.AccountID = poll.AccountID
-			binding.CredentialRef = poll.CredentialRef
-			binding.BaseURL = poll.BaseURL
-			binding.LastError = poll.LastError
-			binding.UpdatedAt = time.Now().UTC()
-			if poll.CredentialRef != "" && poll.CredentialSecret != "" {
-				s.store.SaveCredentialSecret(app.CredentialSecret{
-					Ref:   poll.CredentialRef,
-					Kind:  poll.CredentialKind,
-					Value: poll.CredentialSecret,
-				})
-			}
-			if binding.Status == "active" {
-				if binding.DefaultForChannel || !s.hasActiveDefaultNotificationBinding(binding.Channel, binding.ID) {
-					binding.DefaultForChannel = true
-				}
-				binding.QRCodeURL = ""
-				binding.QRCodeImage = ""
-			}
-			binding = s.store.SaveNotificationBinding(binding)
-			if !isPendingNotificationBinding(binding.Status) {
-				s.closeNotificationBindingBrowser(binding)
-			}
-		} else if err != nil {
-			binding.LastError = err.Error()
-			binding.UpdatedAt = time.Now().UTC()
-			binding = s.store.SaveNotificationBinding(binding)
-		}
-	}
 	writeJSON(w, http.StatusOK, publicNotificationBinding(binding))
+}
+
+func (s *Server) pollNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
+	bindingID := strings.TrimSpace(r.PathValue("id"))
+	current, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	principal := principalForRequest(r)
+	if !ok || current.OwnerID != principal.OwnerID || firstEndpointActor(current) != principal.ActorID {
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+		return
+	}
+	updated, err := s.connectors.PollNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
+	if !isPendingNotificationBinding(updated.Status) {
+		s.closeNotificationBindingBrowser(r.Context(), updated)
+	}
+	writeJSON(w, http.StatusOK, publicNotificationBinding(updated))
 }
 
 func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.Request) {
 	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
 	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
@@ -1055,52 +1316,50 @@ func isPendingNotificationBinding(status string) bool {
 	return status == "waiting_scan" || status == "waiting_confirm"
 }
 
-func (s *Server) closeNotificationBindingBrowser(binding app.NotificationBinding) {
+func (s *Server) closeNotificationBindingBrowser(ctx context.Context, binding app.NotificationBinding) {
 	if s.managedBrowserWindows == nil || binding.Channel != "weixin" || !weixinproto.IsQRLoginProvider(binding.Provider) {
 		return
 	}
-	if err := s.managedBrowserWindows.CloseManagedBrowserWindow(context.Background(), binding.OwnerID, binding.ID); err != nil {
+	if err := s.managedBrowserWindows.CloseManagedBrowserWindow(ctx, binding.OwnerID, binding.ID); err != nil {
 		slog.Warn("failed to close managed Weixin login window", "binding_id", binding.ID, "error", err)
 	}
 }
 
-func (s *Server) hasActiveDefaultNotificationBinding(channel, exceptID string) bool {
-	for _, binding := range s.store.ListNotificationBindings(channel, "active") {
-		if binding.ID != exceptID && binding.DefaultForChannel {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
 	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	if err != nil {
+		writeConnectorError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
 	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
-	_ = s.bindings.Cancel(r.Context(), binding)
-	revoked, err := s.store.RevokeNotificationBinding(bindingID)
+	revoked, err := s.connectors.RevokeNotificationBinding(r.Context(), bindingID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		s.closeNotificationBindingBrowser(r.Context(), binding)
+		writeConnectorError(w, err)
 		return
 	}
-	if s.cancelBinding != nil {
-		s.cancelBinding(binding)
-	}
-	s.closeNotificationBindingBrowser(binding)
-	if strings.TrimSpace(binding.CredentialRef) != "" {
-		_ = s.credentials.Delete(r.Context(), binding.CredentialRef)
-	}
+	s.closeNotificationBindingBrowser(r.Context(), binding)
 	writeJSON(w, http.StatusOK, publicNotificationBinding(revoked))
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	ownerID := queryOwnerID(r)
 	sessions := []app.Session{}
-	for _, session := range s.store.ListSessions() {
+	listed, err := s.store.ListSessions(r.Context())
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	for _, session := range listed {
 		if sessionOwnerID(session) == ownerID {
 			sessions = append(sessions, session)
 		}
@@ -1121,17 +1380,29 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	profile, ok := s.store.GetOwnerProfileByID(ownerID)
+	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), ownerID)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, errors.New("profile not found"))
 		return
 	}
-	session := s.store.CreateSessionWithScope(input.Title, profile.ID, profile.WorkspaceRoot, "webchat", false)
+	session, err := s.store.CreateSessionWithScope(r.Context(), input.Title, profile.ID, profile.WorkspaceRoot, "webchat", false)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, session)
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.store.GetSession(r.PathValue("id"))
+	session, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
@@ -1147,46 +1418,57 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if session, ok := s.store.GetSession(r.PathValue("id")); ok && session.Source == "mcp" {
+	current, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if ok && current.Source == "mcp" {
 		writeError(w, http.StatusConflict, errors.New("MCP conversation titles are managed by the MCP binding"))
 		return
 	}
-	session, err := s.store.UpdateSessionTitle(r.PathValue("id"), input.Title)
+	session, err := s.store.UpdateSessionTitle(r.Context(), r.PathValue("id"), input.Title)
 	if err != nil {
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err)
+		writeSessionStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if session, ok := s.store.GetSession(r.PathValue("id")); ok && session.Source == "mcp" {
+	current, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if ok && current.Source == "mcp" {
 		writeError(w, http.StatusConflict, errors.New("MCP conversations are managed by the MCP binding"))
 		return
 	}
-	session, err := s.store.DeleteSession(r.PathValue("id"))
+	session, err := s.store.DeleteSession(r.Context(), r.PathValue("id"))
 	if err != nil {
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err)
+		writeSessionStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"messages": s.store.ListMessages(r.PathValue("id"))})
+	messages, err := s.store.ListMessages(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeConversationError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
 }
 
 func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
@@ -1205,7 +1487,6 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var result agent.Result
-	var err error
 	if input.Schedule != nil {
 		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, "", input.ClientTimezone)
 		if ingressErr != nil {
@@ -1226,11 +1507,11 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		result, err = s.runtime.HandleMessageWithIngress(r.Context(), sessionID, "", "", input.Content, sanitizeMessageAttachments(input.Attachments), ingress)
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeConversationError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if _, err := s.deliverAgentResult(r.Context(), result); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		writeConversationError(w, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -1255,7 +1536,11 @@ func (input scheduleActionInput) agentAction() agent.ScheduleAction {
 
 func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
@@ -1282,7 +1567,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	after := lastEventID(s.store.EventsAfter(sessionID, ""))
+	initialEvents, err := s.store.EventsAfter(r.Context(), sessionID, "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	after := lastEventID(initialEvents)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, errors.New("message streaming is unavailable"))
@@ -1343,7 +1633,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	sendRuntimeEvents := func() bool {
-		for _, event := range s.store.EventsAfter(sessionID, after) {
+		events, err := s.store.EventsAfter(r.Context(), sessionID, after)
+		if err != nil {
+			slog.Warn("message stream events unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+			return false
+		}
+		for _, event := range events {
 			if event.ID == after {
 				continue
 			}
@@ -1392,7 +1687,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if result.err != nil {
-				_ = send("error", map[string]string{"error": result.err.Error(), "session_id": sessionID})
+				_ = send("error", map[string]string{"error": publicConversationError(result.err).Error(), "session_id": sessionID})
 				return
 			}
 			if result.deliveryErr != nil {
@@ -1401,7 +1696,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 				// apps/webchat/src/lib/messageStream.ts: a plain "error"
 				// event on an accepted stream would be presented as a benign
 				// stream detach, hiding the delivery failure.
-				_ = send("message.stream.delivery_failed", map[string]string{"error": result.deliveryErr.Error(), "session_id": sessionID})
+				_ = send("message.stream.delivery_failed", map[string]string{"error": publicConversationError(result.deliveryErr).Error(), "session_id": sessionID})
 				return
 			}
 			_ = send("message.stream.final", result.result)
@@ -1411,12 +1706,22 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"events": s.store.EventsAfter(r.PathValue("id"), r.URL.Query().Get("after"))})
+	events, err := s.store.EventsAfter(r.Context(), r.PathValue("id"), r.URL.Query().Get("after"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	if _, ok := s.store.GetSession(sessionID); !ok {
+	_, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
@@ -1435,7 +1740,12 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	send := func() bool {
-		for _, event := range s.store.EventsAfter(sessionID, after) {
+		events, err := s.store.EventsAfter(r.Context(), sessionID, after)
+		if err != nil {
+			slog.Warn("session events unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+			return false
+		}
+		for _, event := range events {
 			if event.ID == after {
 				continue
 			}
@@ -1472,28 +1782,57 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionToolCalls(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"tool_calls": s.store.ListToolCalls(r.PathValue("id"))})
+	toolCalls, err := s.store.ListToolCalls(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tool_calls": toolCalls})
 }
 
 func (s *Server) listSessionAudit(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"audit_events": s.store.ListAudit(r.PathValue("id"))})
+	events, err := s.store.ListAudit(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audit_events": events})
 }
 
 func (s *Server) listSessionEpisodes(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"episodes": s.store.ListEpisodeSummaries(r.PathValue("id"))})
+	episodes, err := s.store.ListEpisodeSummaries(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"episodes": episodes})
 }
 
 func (s *Server) listSessionModelCalls(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"model_calls": s.store.ListModelCalls(r.PathValue("id"), r.URL.Query().Get("run_id"))})
+	modelCalls, err := s.store.ListModelCalls(r.Context(), r.PathValue("id"), r.URL.Query().Get("run_id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"model_calls": modelCalls})
 }
 
 func (s *Server) listRunFeedback(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"feedback": s.store.ListRunFeedback(r.PathValue("id"))})
+	feedback, err := s.store.ListRunFeedback(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"feedback": feedback})
 }
 
 func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
-	run, ok := s.store.GetRun(runID)
+	run, ok, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("run not found"))
 		return
@@ -1513,7 +1852,7 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("feedback rating must be up, down, or corrected"))
 		return
 	}
-	feedback := s.store.SaveRunFeedback(app.RunFeedback{
+	feedback, err := s.store.SaveRunFeedback(r.Context(), app.RunFeedback{
 		SessionID:  run.SessionID,
 		RunID:      run.ID,
 		MessageID:  strings.TrimSpace(input.MessageID),
@@ -1521,6 +1860,10 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 		Note:       input.Note,
 		Correction: input.Correction,
 	})
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	s.refreshTrace(r.Context(), run.ID)
 	writeJSON(w, http.StatusOK, feedback)
 }
@@ -1566,7 +1909,11 @@ func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
-	call, ok := s.store.GetToolCall(r.PathValue("id"))
+	call, ok, err := s.store.GetToolCall(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
 		return
@@ -1575,33 +1922,46 @@ func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	approvals := s.store.ListApprovals(r.URL.Query().Get("status"))
+	approvals, err := s.store.ListApprovals(r.Context(), r.URL.Query().Get("status"))
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	for index := range approvals {
-		approvals[index].Presentation = s.approvalPresentation(approvals[index])
+		presentation, err := s.approvalPresentation(r.Context(), approvals[index])
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		approvals[index].Presentation = presentation
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"approvals": approvals})
 }
 
-func (s *Server) approvalPresentation(approval app.Approval) *app.ApprovalPresentation {
+func (s *Server) approvalPresentation(ctx context.Context, approval app.Approval) (*app.ApprovalPresentation, error) {
 	if approval.Tool != app.ToolWorkspaceDataAccess || approval.PolicyContext == nil ||
 		approval.PolicyContext.PrincipalClass != app.PolicyPrincipalExternalMCPAI ||
 		approval.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
-		return nil
+		return nil, nil
 	}
 	locatorsRaw, ok := approval.Arguments["locators"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	raw, err := json.Marshal(locatorsRaw)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	var locators []app.MessageMediaLocator
 	if err := json.Unmarshal(raw, &locators); err != nil || len(locators) == 0 {
-		return nil
+		return nil, nil
 	}
 	requester := "AI"
-	if session, ok := s.store.GetSession(approval.SessionID); ok && strings.TrimSpace(session.Title) != "" {
+	session, ok, err := s.store.GetSession(ctx, approval.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if ok && strings.TrimSpace(session.Title) != "" {
 		requester = session.Title
 	}
 	return &app.ApprovalPresentation{
@@ -1614,7 +1974,7 @@ func (s *Server) approvalPresentation(approval app.Approval) *app.ApprovalPresen
 		OutputClass:   approval.PolicyContext.OutputClass,
 		ReturnRoute:   approval.PolicyContext.ReturnRoute,
 		Scope:         "single_operation",
-	}
+	}, nil
 }
 
 func (s *Server) approveApproval(w http.ResponseWriter, r *http.Request) {
@@ -1642,7 +2002,11 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	if newArgs == nil {
 		newArgs = input.Args
 	}
-	approval, ok := s.findApproval(r.PathValue("id"))
+	approval, ok, err := s.findApproval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
@@ -1655,11 +2019,16 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		s.modifyHappyPlanApproval(w, r, approval, input.Plan, newArgs, input.Note)
 		return
 	}
+	expectedApproval := approval
 	if len(newArgs) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("modify requires args or arguments"))
 		return
 	}
-	call, ok := s.store.GetToolCall(approval.ToolCallID)
+	call, ok, err := s.store.GetToolCall(r.Context(), approval.ToolCallID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
 		return
@@ -1687,29 +2056,35 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	approval.Arguments = args
 	call.Arguments = args
-	s.store.SaveToolCall(call)
-	s.store.SaveApproval(approval)
-	s.store.AddAudit(app.AuditEvent{
-		SessionID: approval.SessionID,
-		RunID:     approval.RunID,
-		Actor:     "owner",
-		Type:      "approval.modified",
-		Summary:   approval.Summary,
-		Fields: map[string]any{
-			"tool": approval.Tool,
-			"note": input.Note,
-		},
-	})
+	persistedCall, saveErr := s.store.SaveToolCall(r.Context(), call)
+	persistedCall, saveErr = store.ReconcileToolCallWrite(r.Context(), s.store, persistedCall, saveErr)
+	if saveErr != nil {
+		writeSessionStoreError(w, saveErr)
+		return
+	}
+	call = persistedCall
+	approvalCandidate, approvalErr := s.store.UpdatePendingApproval(r.Context(), store.NewApprovalUpdateWithNote(expectedApproval, approval, input.Note))
+	approval, approvalErr = store.ReconcileApprovalWrite(r.Context(), s.store, approvalCandidate, approvalErr)
+	if approvalErr != nil {
+		writeApprovalStoreError(w, approvalErr)
+		return
+	}
 	s.refreshTrace(r.Context(), approval.RunID)
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
 }
 
-func (s *Server) validateMCPApproval(approval app.Approval) error {
-	run, ok := s.store.GetRun(approval.RunID)
+func (s *Server) validateMCPApproval(ctx context.Context, approval app.Approval) error {
+	run, ok, err := s.store.GetRun(ctx, approval.RunID)
+	if err != nil {
+		return err
+	}
 	if !ok || run.MessageContext == nil || run.MessageContext.MCP == nil {
 		return nil
 	}
-	operation, ok := s.store.GetMCPOperation(run.MessageContext.MCP.OperationID)
+	operation, ok, err := s.store.GetMCPOperation(ctx, run.MessageContext.MCP.OperationID)
+	if err != nil {
+		return err
+	}
 	if !ok || operation.Invocation.RunID != run.ID {
 		return errors.New("MCP operation is unavailable for this approval")
 	}
@@ -1734,19 +2109,17 @@ func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusConflict, errors.New("Happy task plan is temporarily unavailable; retry after the member machine reconnects"))
 		return
 	}
+	expectedApproval := approval
 	contextCopy := *approval.ExternalContext
 	contextCopy.Plan = *plan
 	contextCopy.PlanEdited = true
 	approval.ExternalContext = &contextCopy
-	approval, err := s.store.UpdatePendingApproval(approval)
+	candidate, err := s.store.UpdatePendingApproval(r.Context(), store.NewApprovalUpdateWithNote(expectedApproval, approval, note))
+	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
-		writeError(w, http.StatusConflict, err)
+		writeApprovalStoreError(w, err)
 		return
 	}
-	s.store.AddAudit(app.AuditEvent{
-		Actor: "owner", Type: "approval.modified", Summary: approval.Summary,
-		Fields: map[string]any{"source": approval.Source, "external_id": approval.ExternalID, "note": note},
-	})
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": nil})
 }
 
@@ -1757,7 +2130,11 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	_ = readJSON(r, &input)
 	unlock := s.lockApproval(r.PathValue("id"))
 	defer unlock()
-	approval, ok := s.findApproval(r.PathValue("id"))
+	approval, ok, err := s.findApproval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
@@ -1767,11 +2144,14 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	mcpRun := false
-	if run, ok := s.store.GetRun(approval.RunID); ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
+	if run, ok, err := s.store.GetRun(r.Context(), approval.RunID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	} else if ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
 		mcpRun = true
 	}
 	if status == "approved" {
-		if err := s.validateMCPApproval(approval); err != nil {
+		if err := s.validateMCPApproval(r.Context(), approval); err != nil {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
@@ -1780,13 +2160,14 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		s.resolveHappyPlanApproval(w, r, approval, status, input.Note)
 		return
 	}
-	approval, err := s.store.ResolveApproval(approval.ID, status, input.Note)
+	candidate, err := s.store.ResolveApproval(r.Context(), approval.ID, status, input.Note)
+	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeApprovalStoreError(w, err)
 		return
 	}
 	if status == "approved" && mcpRun && s.mcpAccess != nil {
-		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(approval.RunID)
+		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(r.Context(), approval.RunID)
 		if beginErr != nil {
 			s.refreshTrace(r.Context(), approval.RunID)
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -1837,20 +2218,35 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		}
 	}
 	if status == "rejected" {
-		if rejected, ok := s.store.GetToolCall(approval.ToolCallID); ok {
+		if rejected, ok, err := s.store.GetToolCall(r.Context(), approval.ToolCallID); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		} else if ok {
 			now := time.Now().UTC()
 			rejected.Status = "rejected"
 			rejected.Error = "owner rejected approval"
 			rejected.CompletedAt = &now
-			s.store.SaveToolCall(rejected)
+			persisted, saveErr := s.store.SaveToolCall(r.Context(), rejected)
+			persisted, saveErr = store.ReconcileToolCallWrite(r.Context(), s.store, persisted, saveErr)
+			if saveErr != nil {
+				writeError(w, http.StatusInternalServerError, saveErr)
+				return
+			}
+			rejected = persisted
 			call = &rejected
 		}
 	}
 	if !resumed {
-		s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
+		if err := s.runtime.CompleteRunIfApprovalsResolved(r.Context(), approval.RunID); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	if status == "rejected" && mcpRun && s.mcpAccess != nil {
-		s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_rejected", "The local owner rejected the pending action")
+		if err := s.mcpAccess.FailApprovalExecution(r.Context(), approval.RunID, "approval_rejected", "The local owner rejected the pending action"); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 		executionStatus = string(app.MCPOperationFailed)
 	}
 	s.refreshTrace(r.Context(), approval.RunID)
@@ -1869,7 +2265,7 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 
 		executed, err := s.runtime.ExecuteApprovedToolCall(executionCtx, approval)
 		if err != nil {
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_execution_failed", "Approved tool execution could not be started")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "approval_execution_failed", "Approved tool execution could not be started")
 			return
 		}
 		if err := executionCtx.Err(); err != nil {
@@ -1877,7 +2273,7 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 			return
 		}
 		if strings.HasPrefix(executed.Status, "failed") {
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_tool_failed", "The approved tool execution failed")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "approval_tool_failed", "The approved tool execution failed")
 			return
 		}
 		result, resumed, err := s.runtime.ResumeRunAfterApproval(executionCtx, approval.SessionID, approval.RunID)
@@ -1886,16 +2282,28 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 				s.failCancelledMCPApprovalExecution(approval.RunID, executionCtx.Err())
 				return
 			}
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "workflow_resume_failed", "SparkClaw workflow resume failed after approval")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "workflow_resume_failed", "SparkClaw workflow resume failed after approval")
 			return
 		}
 		if !resumed {
-			if runHasPendingApproval(s.store, approval.RunID) {
-				s.mcpAccess.RestoreApprovalRequired(approval.RunID)
+			pending, pendingErr := runHasPendingApproval(executionCtx, s.store, approval.RunID)
+			if pendingErr != nil {
+				slog.Error("failed to load pending MCP approvals", "run_id", approval.RunID, "code", store.StoreErrorCodeOf(pendingErr))
+				if err := s.mcpAccess.RestoreApprovalRequired(executionCtx, approval.RunID); err != nil {
+					slog.Error("failed to restore MCP approval-required state", "run_id", approval.RunID, "error", err)
+				}
 				return
 			}
-			s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "workflow_resume_unavailable", "SparkClaw workflow could not continue after approval")
+			if pending {
+				if err := s.mcpAccess.RestoreApprovalRequired(executionCtx, approval.RunID); err != nil {
+					slog.Error("failed to restore MCP approval-required state", "run_id", approval.RunID, "error", err)
+				}
+				return
+			}
+			if err := s.runtime.CompleteRunIfApprovalsResolved(executionCtx, approval.RunID); err != nil {
+				slog.Error("failed to complete MCP run after approval", "run_id", approval.RunID, "error", err)
+			}
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "workflow_resume_unavailable", "SparkClaw workflow could not continue after approval")
 			return
 		}
 		if err := executionCtx.Err(); err != nil {
@@ -1907,10 +2315,12 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 				s.failCancelledMCPApprovalExecution(approval.RunID, executionCtx.Err())
 				return
 			}
-			s.mcpAccess.FailApprovalExecution(approval.RunID, "delivery_failed", "Approved MCP result delivery failed")
+			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "delivery_failed", "Approved MCP result delivery failed")
 			return
 		}
-		s.mcpAccess.RecordWorkflowResult(result)
+		if err := s.mcpAccess.RecordWorkflowResult(executionCtx, result); err != nil {
+			slog.Error("failed to record MCP workflow result", "run_id", approval.RunID, "error", err)
+		}
 	}()
 }
 
@@ -1921,16 +2331,26 @@ func (s *Server) failCancelledMCPApprovalExecution(runID string, err error) {
 		code = "approval_execution_expired"
 		message = "Approved MCP execution exceeded the operation deadline"
 	}
-	s.mcpAccess.FailApprovalExecution(runID, code, message)
+	s.recordMCPApprovalExecutionFailure(context.WithoutCancel(s.lifecycleCtx), runID, code, message)
 }
 
-func runHasPendingApproval(st store.Store, runID string) bool {
-	for _, approval := range st.ListApprovals("pending") {
+func (s *Server) recordMCPApprovalExecutionFailure(ctx context.Context, runID, code, message string) {
+	if err := s.mcpAccess.FailApprovalExecution(context.WithoutCancel(ctx), runID, code, message); err != nil {
+		slog.Error("failed to persist MCP approval execution failure", "run_id", runID, "code", code, "error", err)
+	}
+}
+
+func runHasPendingApproval(ctx context.Context, st store.ApprovalRepository, runID string) (bool, error) {
+	approvals, err := st.ListApprovals(ctx, "pending")
+	if err != nil {
+		return false, err
+	}
+	for _, approval := range approvals {
 		if approval.RunID == runID {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, status, note string) {
@@ -1950,9 +2370,10 @@ func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request
 			note = "Happy task was already resolved elsewhere"
 		}
 	}
-	resolved, err := s.store.ResolveApproval(approval.ID, localStatus, note)
+	candidate, err := s.store.ResolveApproval(r.Context(), approval.ID, localStatus, note)
+	resolved, err := store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
-		writeError(w, http.StatusConflict, err)
+		writeApprovalStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1960,8 +2381,8 @@ func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (s *Server) findApproval(id string) (app.Approval, bool) {
-	return s.store.GetApproval(id)
+func (s *Server) findApproval(ctx context.Context, id string) (app.Approval, bool, error) {
+	return s.store.GetApproval(ctx, id)
 }
 
 func (s *Server) lockApproval(id string) func() {
@@ -1986,18 +2407,33 @@ func mergeApprovalArgs(current, patch map[string]any) map[string]any {
 }
 
 func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	writeJSON(w, http.StatusOK, map[string]any{"memories": s.store.SearchMemories(r.URL.Query().Get("query"))})
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	memories, err := s.store.SearchMemories(r.Context(), r.URL.Query().Get("query"))
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 func (s *Server) getMemoryExport(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	writeJSON(w, http.StatusOK, s.buildMemoryExport())
+	export, err := s.buildMemoryExport(r.Context())
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, export)
 }
 
 func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	export := s.buildMemoryExport()
+	export, err := s.buildMemoryExport(r.Context())
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
 	raw, err := json.MarshalIndent(export, "", "  ")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -2021,8 +2457,13 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 		Bytes:       object.Bytes,
 		CreatedAt:   now,
 	}
-	s.store.SaveArtifactObject(artifactObject)
-	s.store.AddAudit(app.AuditEvent{
+	stored, err := s.store.SaveArtifactObject(r.Context(), artifactObject)
+	if err != nil {
+		writeArtifactMetadataStoreError(w, err)
+		return
+	}
+	artifactObject = stored
+	s.addAudit(r.Context(), app.AuditEvent{
 		Type:    "memory.exported",
 		Actor:   "owner",
 		Summary: artifactObject.URI,
@@ -2037,20 +2478,35 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"export": export, "artifact": artifactObject})
 }
 
-func (s *Server) buildMemoryExport() app.MemoryExport {
-	s.applyMemoryRetention()
-	candidates := s.store.ListMemoryCandidates("")
+func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error) {
+	if _, err := s.applyMemoryRetention(ctx); err != nil {
+		return app.MemoryExport{}, err
+	}
+	candidates, err := s.store.ListMemoryCandidates(ctx, "")
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	pending := 0
 	for _, candidate := range candidates {
 		if candidate.Status == "pending" {
 			pending++
 		}
 	}
-	memories := s.store.SearchMemories("")
-	episodes := s.store.ListEpisodeSummaries("")
+	memories, err := s.store.SearchMemories(ctx, "")
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
+	episodes, err := s.store.ListEpisodeSummaries(ctx, "")
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
+	ownerProfile, err := s.store.GetOwnerProfile(ctx)
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	return app.MemoryExport{
 		GeneratedAt:      time.Now().UTC(),
-		OwnerProfile:     s.store.GetOwnerProfile(),
+		OwnerProfile:     ownerProfile,
 		Memories:         memories,
 		MemoryCandidates: candidates,
 		Episodes:         episodes,
@@ -2060,11 +2516,14 @@ func (s *Server) buildMemoryExport() app.MemoryExport {
 			PendingCandidates: pending,
 			Episodes:          len(episodes),
 		},
-	}
+	}, nil
 }
 
 func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
 	var req struct {
 		Kind    string `json:"kind"`
 		Content string `json:"content"`
@@ -2089,30 +2548,33 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	memory, err := s.store.UpdateMemory(r.PathValue("id"), req.Kind, req.Content)
+	memory, err := s.store.UpdateMemory(r.Context(), r.PathValue("id"), req.Kind, req.Content)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, memory)
 }
 
 func (s *Server) deleteMemory(w http.ResponseWriter, r *http.Request) {
-	s.applyMemoryRetention()
-	memory, err := s.store.DeleteMemory(r.PathValue("id"))
+	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	memory, err := s.store.DeleteMemory(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, memory)
 }
 
-func (s *Server) applyMemoryRetention() []app.Memory {
+func (s *Server) applyMemoryRetention(ctx context.Context) ([]app.Memory, error) {
 	if s.cfg.Memory.RetentionDays <= 0 {
-		return []app.Memory{}
+		return []app.Memory{}, nil
 	}
 	cutoff := time.Now().UTC().AddDate(0, 0, -s.cfg.Memory.RetentionDays)
-	return s.store.PruneMemories(cutoff)
+	return s.store.PruneMemories(ctx, cutoff)
 }
 
 func memorySensitivePattern(content string, patterns []string) (string, bool) {
@@ -2132,8 +2594,18 @@ func memorySensitivePattern(content string, patterns []string) (string, bool) {
 func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 	ownerID := queryOwnerID(r)
 	candidates := []app.MemoryCandidate{}
-	for _, candidate := range s.store.ListMemoryCandidates(r.URL.Query().Get("status")) {
-		if s.sessionIDVisibleToOwner(candidate.SessionID, ownerID) {
+	stored, err := s.store.ListMemoryCandidates(r.Context(), r.URL.Query().Get("status"))
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	for _, candidate := range stored {
+		visible, err := s.sessionIDVisibleToOwner(r.Context(), candidate.SessionID, ownerID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		if visible {
 			candidates = append(candidates, candidate)
 		}
 	}
@@ -2141,18 +2613,18 @@ func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) acceptMemoryCandidate(w http.ResponseWriter, r *http.Request) {
-	candidate, memory, err := s.store.ResolveMemoryCandidate(r.PathValue("id"), "accepted")
+	candidate, memory, err := s.store.ResolveMemoryCandidate(r.Context(), r.PathValue("id"), "accepted")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"candidate": candidate, "memory": memory})
 }
 
 func (s *Server) rejectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
-	candidate, _, err := s.store.ResolveMemoryCandidate(r.PathValue("id"), "rejected")
+	candidate, _, err := s.store.ResolveMemoryCandidate(r.Context(), r.PathValue("id"), "rejected")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, candidate)
@@ -2176,15 +2648,38 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	runs := s.store.ListRuns("")
+	runs, err := s.store.ListRuns(r.Context(), "")
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	storedApprovals, err := s.store.ListApprovals(r.Context(), "")
+	if err != nil {
+		writeApprovalStoreError(w, err)
+		return
+	}
 	out := make([]app.TraceMetadata, 0, min(limit, len(runs)))
 	for _, run := range runs {
 		if len(out) >= limit {
 			break
 		}
-		toolCalls := toolCallsForRun(s.store.ListToolCalls(run.SessionID), run.ID)
-		approvals := approvalsForRun(s.store.ListApprovals(""), run.ID)
-		modelCalls := s.store.ListModelCalls(run.SessionID, run.ID)
+		storedToolCalls, err := s.store.ListToolCalls(r.Context(), run.SessionID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		toolCalls := toolCallsForRun(storedToolCalls, run.ID)
+		approvals := approvalsForRun(storedApprovals, run.ID)
+		modelCalls, err := s.store.ListModelCalls(r.Context(), run.SessionID, run.ID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		messages, err := s.store.ListMessages(r.Context(), run.SessionID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
 		meta := app.TraceMetadata{
 			RunID:          run.ID,
 			SessionID:      run.SessionID,
@@ -2194,7 +2689,7 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 			Summary:        run.Summary,
 			StartedAt:      run.StartedAt,
 			CompletedAt:    run.CompletedAt,
-			MessageCount:   len(s.store.ListMessages(run.SessionID)),
+			MessageCount:   len(messages),
 			ToolCallCount:  len(toolCalls),
 			ApprovalCount:  len(approvals),
 			ModelCallCount: len(modelCalls),
@@ -2227,8 +2722,18 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerID := queryOwnerID(r)
 	objects := []app.ArtifactObject{}
-	for _, object := range s.store.ListArtifactObjects(0) {
-		if s.artifactVisibleToOwner(object, ownerID) {
+	storedObjects, err := s.store.ListArtifactObjects(r.Context(), 0)
+	if err != nil {
+		writeArtifactMetadataStoreError(w, err)
+		return
+	}
+	for _, object := range storedObjects {
+		visible, err := s.artifactVisibleToOwner(r.Context(), object, ownerID)
+		if err != nil {
+			writeSessionStoreError(w, err)
+			return
+		}
+		if visible {
 			objects = append(objects, object)
 		}
 		if limit > 0 && len(objects) >= limit {
@@ -2236,6 +2741,17 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"artifacts": objects})
+}
+
+func writeArtifactMetadataStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("artifact metadata request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("artifact metadata operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("artifact metadata service is unavailable"))
+	}
 }
 
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
@@ -2275,7 +2791,11 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	name = ensureUploadFilenameExtension(name, contentType, detectedContentType)
 	sessionID := strings.TrimSpace(r.FormValue("session_id"))
-	workspaceRoot := s.workspaceRootForSession(sessionID)
+	workspaceRoot, err := s.workspaceRootForSession(r.Context(), sessionID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	now := time.Now().UTC()
 	isImage := isImageContentType(contentType)
 	rootName := "uploads"
@@ -2319,8 +2839,13 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		Bytes:       int(bytesWritten),
 		CreatedAt:   now,
 	}
-	s.store.SaveArtifactObject(object)
-	s.store.AddAudit(app.AuditEvent{
+	stored, err := s.store.SaveArtifactObject(r.Context(), object)
+	if err != nil {
+		writeArtifactMetadataStoreError(w, err)
+		return
+	}
+	object = stored
+	s.addAudit(r.Context(), app.AuditEvent{
 		SessionID: sessionID,
 		Actor:     "owner",
 		Type:      uploadAuditType(isImage),
@@ -2349,7 +2874,11 @@ func (s *Server) listAvailableDocuments(w http.ResponseWriter, r *http.Request) 
 	}
 	out := []app.ArtifactObject{}
 	seen := map[string]bool{}
-	workspaceRoot := s.workspaceRootForSession(strings.TrimSpace(r.URL.Query().Get("session_id")))
+	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	for _, rootName := range []string{"uploads", "media"} {
 		if len(out) >= limit {
 			break
@@ -2461,7 +2990,11 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid document path"))
 		return
 	}
-	workspaceRoot := s.workspaceRootForSession(strings.TrimSpace(r.URL.Query().Get("session_id")))
+	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	path := filepath.Join(workspaceRoot, clean)
 	if !pathWithinRoot(workspaceRoot, path) {
 		writeError(w, http.StatusBadRequest, errors.New("document path escapes workspace"))
@@ -2471,13 +3004,17 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-func (s *Server) workspaceRootForSession(sessionID string) string {
+func (s *Server) workspaceRootForSession(ctx context.Context, sessionID string) (string, error) {
 	if strings.TrimSpace(sessionID) != "" {
-		if session, ok := s.store.GetSession(sessionID); ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
-			return strings.TrimSpace(session.WorkspaceRoot)
+		session, ok, err := s.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
+		if ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
+			return strings.TrimSpace(session.WorkspaceRoot), nil
 		}
 	}
-	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot)
+	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), nil
 }
 
 func (s *Server) getWorkspaceScreenshot(w http.ResponseWriter, r *http.Request) {
@@ -2566,7 +3103,11 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 	if s.traces == nil || runID == "" {
 		return
 	}
-	run, ok := s.store.GetRun(runID)
+	run, ok, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		slog.Warn("trace run refresh unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
 	if !ok {
 		return
 	}
@@ -2575,7 +3116,12 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		_ = json.Unmarshal(raw, &current)
 	}
 	if current.Episode == nil {
-		for _, episode := range s.store.ListEpisodeSummaries(run.SessionID) {
+		episodes, err := s.store.ListEpisodeSummaries(ctx, run.SessionID)
+		if err != nil {
+			slog.Warn("trace episode refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		for _, episode := range episodes {
 			if episode.RunID == run.ID {
 				current.Episode = &episode
 				break
@@ -2583,15 +3129,42 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		}
 	}
 	current.Run = run
-	current.ModelCalls = s.store.ListModelCalls(run.SessionID, run.ID)
-	current.ToolCalls = toolCallsForRun(s.store.ListToolCalls(run.SessionID), run.ID)
-	current.Approvals = approvalsForRun(s.store.ListApprovals(""), run.ID)
-	current.Feedback = s.store.ListRunFeedback(run.ID)
-	current.Messages = s.store.ListMessages(run.SessionID)
-	current.Audit = s.store.ListAudit(run.SessionID)
+	current.ModelCalls, err = s.store.ListModelCalls(ctx, run.SessionID, run.ID)
+	if err != nil {
+		slog.Warn("trace model call refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	storedToolCalls, err := s.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		slog.Warn("trace tool call refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	current.ToolCalls = toolCallsForRun(storedToolCalls, run.ID)
+	storedApprovals, err := s.store.ListApprovals(ctx, "")
+	if err != nil {
+		slog.Warn("trace approval refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	current.Approvals = approvalsForRun(storedApprovals, run.ID)
+	current.Feedback, err = s.store.ListRunFeedback(ctx, run.ID)
+	if err != nil {
+		slog.Warn("trace feedback refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	messages, err := s.store.ListMessages(ctx, run.SessionID)
+	if err != nil {
+		slog.Warn("trace message refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	current.Messages = messages
+	current.Audit, err = s.store.ListAudit(ctx, run.SessionID)
+	if err != nil {
+		slog.Warn("trace audit refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		return
+	}
 	object, _ := s.traces.WriteRunObject(ctx, current)
 	if object != nil {
-		s.store.SaveArtifactObject(app.ArtifactObject{
+		if _, err := s.store.SaveArtifactObject(ctx, app.ArtifactObject{
 			ID:          app.NewID("obj"),
 			Kind:        "trace",
 			RunID:       run.ID,
@@ -2604,7 +3177,9 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 			ContentType: object.ContentType,
 			Bytes:       object.Bytes,
 			CreatedAt:   time.Now().UTC(),
-		})
+		}); err != nil {
+			slog.Warn("trace artifact metadata unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
+		}
 	}
 }
 
@@ -2741,8 +3316,20 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
 			return
 		}
-		principal, ok := s.authenticateBearer(got)
-		if got == "" || !ok {
+		if got == "" {
+			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
+			return
+		}
+		principal, ok, err := s.authenticateBearer(r.Context(), got)
+		if err != nil {
+			if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
+				writeError(w, http.StatusGatewayTimeout, errors.New("authentication request timed out"))
+				return
+			}
+			writeError(w, http.StatusServiceUnavailable, errors.New("authentication is temporarily unavailable"))
+			return
+		}
+		if !ok {
 			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
 			return
 		}
@@ -2790,22 +3377,26 @@ func (s *Server) isPairingBootstrapRequest(r *http.Request) bool {
 	return false
 }
 
-func (s *Server) validBearerToken(token string) bool {
-	_, ok := s.authenticateBearer(token)
-	return ok
-}
-
-func (s *Server) authenticateBearer(token string) (requestPrincipal, bool) {
+func (s *Server) authenticateBearer(ctx context.Context, token string) (requestPrincipal, bool, error) {
 	if configured := strings.TrimSpace(s.cfg.Gateway.APIToken); configured != "" {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(configured)) == 1 {
-			return defaultRequestPrincipal(), true
+			return defaultRequestPrincipal(), true, nil
 		}
 	}
-	client, ok := s.store.FindClientByTokenHash(hashSecret(token))
-	if !ok {
-		return requestPrincipal{}, false
+	client, ok, err := s.store.FindClientByTokenHash(ctx, hashSecret(token))
+	if err != nil {
+		return requestPrincipal{}, false, err
 	}
-	s.store.TouchClient(client.ID)
+	if !ok {
+		return requestPrincipal{}, false, nil
+	}
+	client, ok, err = s.store.TouchClient(ctx, client.ID)
+	if err != nil {
+		return requestPrincipal{}, false, err
+	}
+	if !ok {
+		return requestPrincipal{}, false, nil
+	}
 	ownerID := strings.TrimSpace(client.OwnerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
@@ -2814,7 +3405,7 @@ func (s *Server) authenticateBearer(token string) (requestPrincipal, bool) {
 	if actorID == "" {
 		actorID = ownerID
 	}
-	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID}, true
+	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID}, true, nil
 }
 
 type requestPrincipalContextKey struct{}
@@ -2876,24 +3467,27 @@ func sessionOwnerID(session app.Session) string {
 	return strings.TrimSpace(session.OwnerID)
 }
 
-func (s *Server) sessionIDVisibleToOwner(sessionID, ownerID string) bool {
+func (s *Server) sessionIDVisibleToOwner(ctx context.Context, sessionID, ownerID string) (bool, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return ownerID == app.DefaultOwnerID
+		return ownerID == app.DefaultOwnerID, nil
 	}
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
 	if !ok {
-		return ownerID == app.DefaultOwnerID
+		return ownerID == app.DefaultOwnerID, nil
 	}
-	return sessionOwnerID(session) == ownerID
+	return sessionOwnerID(session) == ownerID, nil
 }
 
-func (s *Server) artifactVisibleToOwner(object app.ArtifactObject, ownerID string) bool {
-	return s.sessionIDVisibleToOwner(object.SessionID, ownerID)
+func (s *Server) artifactVisibleToOwner(ctx context.Context, object app.ArtifactObject, ownerID string) (bool, error) {
+	return s.sessionIDVisibleToOwner(ctx, object.SessionID, ownerID)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -3011,8 +3605,12 @@ func connectorStartStatus(code string) int {
 	case binding.CodeBindingInProgress, binding.CodeBindingActive:
 		return http.StatusConflict
 	case binding.CodeConnectorUnavailable:
-		return http.StatusNotImplemented
-	case credential.CodeKeyUnavailable:
+		return http.StatusServiceUnavailable
+	case credential.CodeInvalid:
+		return http.StatusBadRequest
+	case credential.CodeCanceled:
+		return http.StatusRequestTimeout
+	case credential.CodeUnavailable, credential.CodeKeyUnavailable, credential.CodeUnsealFailed:
 		return http.StatusServiceUnavailable
 	case binding.CodeInvalidBotToken:
 		return http.StatusBadRequest
@@ -3024,6 +3622,112 @@ func connectorStartStatus(code string) int {
 		return http.StatusBadGateway
 	default:
 		return http.StatusBadRequest
+	}
+}
+
+func writeConnectorError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("notification binding changed"))
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("notification binding request is invalid"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, &credential.Error{Code: credential.CodeCanceled})
+	case store.StoreErrorTimeout, store.StoreErrorUnavailable, store.StoreErrorDurability,
+		store.StoreErrorUnknownOutcome, store.StoreErrorCorrupt, store.StoreErrorInternal:
+		writeError(w, http.StatusServiceUnavailable, &binding.BindingError{Code: binding.CodeConnectorUnavailable})
+	default:
+		writeError(w, connectorStartStatus(errorCode(err)), err)
+	}
+}
+
+func writeSessionStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("session request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("session cannot be changed"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("session request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("session operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("session service is unavailable"))
+	}
+}
+
+func writeApprovalStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("approval request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("approval not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("approval changed or was already resolved"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("approval request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("approval operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("approval service is unavailable"))
+	}
+}
+
+func writeMemoryStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("memory request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("memory record not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("memory candidate was already resolved"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("memory request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("memory operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("memory service is unavailable"))
+	}
+}
+
+func writeConversationError(w http.ResponseWriter, fallbackStatus int, err error) {
+	status, publicErr, ok := conversationErrorProjection(err)
+	if !ok {
+		writeError(w, fallbackStatus, err)
+		return
+	}
+	writeError(w, status, publicErr)
+}
+
+func publicConversationError(err error) error {
+	_, publicErr, ok := conversationErrorProjection(err)
+	if ok {
+		return publicErr
+	}
+	return err
+}
+
+func conversationErrorProjection(err error) (int, error, bool) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		return http.StatusBadRequest, errors.New("conversation request is invalid"), true
+	case store.StoreErrorNotFound:
+		return http.StatusNotFound, errors.New("conversation not found"), true
+	case store.StoreErrorConflict:
+		return http.StatusConflict, errors.New("conversation cannot be changed"), true
+	case store.StoreErrorCanceled:
+		return http.StatusRequestTimeout, errors.New("conversation request was canceled"), true
+	case store.StoreErrorTimeout:
+		return http.StatusGatewayTimeout, errors.New("conversation operation timed out"), true
+	case store.StoreErrorUnavailable, store.StoreErrorDurability, store.StoreErrorUnknownOutcome,
+		store.StoreErrorCorrupt, store.StoreErrorInternal:
+		return http.StatusServiceUnavailable, errors.New("conversation service is unavailable"), true
+	default:
+		return 0, nil, false
 	}
 }
 
@@ -3127,12 +3831,16 @@ func publicStorageConfig(cfg config.StorageConfig) map[string]any {
 
 func publicStateConfig(cfg config.StateConfig) map[string]any {
 	return map[string]any{
-		"backend":             cfg.Backend,
-		"path":                cfg.Path,
-		"dsn":                 configuredStatus(cfg.DSN),
-		"encrypt_at_rest":     cfg.EncryptAtRest,
-		"encryption_key":      stateEncryptionStatus(cfg.EncryptionKey),
-		"encryption_key_file": stateEncryptionStatus(cfg.EncryptionKeyFile),
+		"backend":                     cfg.Backend,
+		"path":                        cfg.Path,
+		"dsn":                         configuredStatus(cfg.DSN),
+		"startup_timeout_seconds":     cfg.StartupTimeoutSeconds,
+		"read_timeout_seconds":        cfg.ReadTimeoutSeconds,
+		"write_timeout_seconds":       cfg.WriteTimeoutSeconds,
+		"transaction_timeout_seconds": cfg.TransactionTimeoutSeconds,
+		"encrypt_at_rest":             cfg.EncryptAtRest,
+		"encryption_key":              stateEncryptionStatus(cfg.EncryptionKey),
+		"encryption_key_file":         stateEncryptionStatus(cfg.EncryptionKeyFile),
 	}
 }
 
@@ -3164,8 +3872,18 @@ func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.Runt
 	}
 }
 
-func (s *Server) publicToolsConfig(ownerID string) map[string]any {
+func (s *Server) publicToolsConfig(ctx context.Context, ownerID string) (map[string]any, error) {
 	cfg := s.cfg
+	connectorStatuses := map[string]app.ConnectorStatus{}
+	if s.connectors != nil {
+		statuses, err := s.connectors.ListStatus(ctx, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		for _, status := range statuses {
+			connectorStatuses[status.Channel] = status
+		}
+	}
 	notificationChannels := map[string]any{}
 	for name, channel := range cfg.Tools.Notifications.Channels {
 		publicChannel := map[string]any{
@@ -3175,20 +3893,17 @@ func (s *Server) publicToolsConfig(ownerID string) map[string]any {
 			"token_configured": strings.TrimSpace(channel.Token) != "",
 			"recipient_set":    strings.TrimSpace(channel.Recipient) != "",
 		}
-		capability := s.bindings.CapabilityForOwner(ownerID, name, s.store.ListNotificationBindings(name, ""))
-		publicChannel["available"] = capability.Available
+		publicChannel["available"] = false
 		publicChannel["operator_enabled"] = channel.Enabled
-		publicChannel["binding_status"] = capability.BindingStatus
-		publicChannel["startable"] = capability.Startable
-		publicChannel["disabled_reason"] = capability.DisabledReason
-		if s.connectors != nil {
-			if status, err := s.connectors.Status(ownerID, name); err == nil {
-				publicChannel["enabled"] = status.Enabled
-				publicChannel["available"] = status.Available
-				publicChannel["binding_status"] = status.BindingStatus
-				publicChannel["startable"] = status.BindingStartable
-				publicChannel["disabled_reason"] = status.DisabledReason
-			}
+		publicChannel["binding_status"] = ""
+		publicChannel["startable"] = false
+		publicChannel["disabled_reason"] = binding.CodeConnectorUnavailable
+		if status, ok := connectorStatuses[name]; ok {
+			publicChannel["enabled"] = status.Enabled
+			publicChannel["available"] = status.Available
+			publicChannel["binding_status"] = status.BindingStatus
+			publicChannel["startable"] = status.BindingStartable
+			publicChannel["disabled_reason"] = status.DisabledReason
 		}
 		notificationChannels[name] = publicChannel
 	}
@@ -3212,7 +3927,7 @@ func (s *Server) publicToolsConfig(ownerID string) map[string]any {
 		"notifications": map[string]any{
 			"channels": notificationChannels,
 		},
-	}
+	}, nil
 }
 
 func webSearchConfigured(cfg config.Config) bool {

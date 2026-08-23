@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -42,12 +43,12 @@ func TestCodingAgentChatUsesNamespacedMCPReadTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
-			session := st.CreateSession(test.name)
+			session := storetest.MustCreateSession(t, st, test.name)
 			result, err := runtime.HandleMessage(context.Background(), session.ID, test.goal)
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := st.ListToolCalls(session.ID)
+			calls := testListToolCalls(st, session.ID)
 			if executions != 1 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "completed" {
 				t.Fatalf("coding MCP chat execution = %d calls=%#v", executions, calls)
 			}
@@ -55,7 +56,7 @@ func TestCodingAgentChatUsesNamespacedMCPReadTools(t *testing.T) {
 				result.Run.Workflow.Plan.ProfileID != app.WorkflowCodingAgentManage || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 				t.Fatalf("coding MCP chat did not complete through its workflow: route=%#v workflow=%#v", result.RouteDecision, result.Run.Workflow)
 			}
-			if approvals := st.ListApprovals(""); len(approvals) != 0 {
+			if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 				t.Fatalf("untrusted MCP output created approvals: %#v", approvals)
 			}
 			if strings.Contains(result.Message.Content, "approve_plan") || strings.Contains(result.Message.Content, "ignore previous") {
@@ -91,13 +92,13 @@ func TestCodingAgentMutationsStopForApprovalBeforeRemoteExecution(t *testing.T) 
 				t.Fatal(err)
 			}
 			runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
-			session := st.CreateSession(test.remoteName)
+			session := storetest.MustCreateSession(t, st, test.remoteName)
 			result, err := runtime.HandleMessage(context.Background(), session.ID, test.goal)
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := st.ListToolCalls(session.ID)
-			approvals := st.ListApprovals("pending")
+			calls := testListToolCalls(st, session.ID)
+			approvals := storetest.MustListApprovals(t, st, "pending")
 			if executions != 0 || len(calls) != 1 || calls[0].Tool != test.localName || calls[0].Status != "approval_pending" || len(approvals) != 1 {
 				t.Fatalf("mutation did not stop at approval: executions=%d calls=%#v approvals=%#v result=%#v", executions, calls, approvals, result)
 			}

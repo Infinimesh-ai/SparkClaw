@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type managedRuntime struct {
@@ -72,17 +73,17 @@ type countingConnectorStore struct {
 	listErr error
 }
 
-func (s *countingConnectorStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
+func (s *countingConnectorStore) GetConnectorSetting(ctx context.Context, ownerID, channel string) (app.ConnectorSetting, bool, error) {
 	s.gets.Add(1)
-	return s.MemoryStore.GetConnectorSetting(ownerID, channel)
+	return s.MemoryStore.GetConnectorSetting(ctx, ownerID, channel)
 }
 
-func (s *countingConnectorStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
+func (s *countingConnectorStore) ListAllConnectorSettings(ctx context.Context) ([]app.ConnectorSetting, error) {
 	s.lists.Add(1)
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
-	return s.MemoryStore.ListAllConnectorSettings()
+	return s.MemoryStore.ListAllConnectorSettings(ctx)
 }
 
 type managedTestProvider struct {
@@ -120,7 +121,7 @@ func TestRegistryDynamicallyReconcilesPersistedOptInAndGatesDelivery(t *testing.
 	if runtime.starts.Load() != 0 {
 		t.Fatal("disabled connector runtime started")
 	}
-	initial, err := registry.Status(app.DefaultOwnerID, "alpha")
+	initial, err := registry.Status(t.Context(), app.DefaultOwnerID, "alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ func TestRegistrySharesOneRuntimeWithoutCrossOwnerDisable(t *testing.T) {
 	}
 	st := store.NewMemoryStore()
 	for _, ownerID := range []string{"owner-a", "owner-b"} {
-		if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{
+		if _, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{
 			OwnerID: ownerID, Channel: "alpha", Enabled: true, UpdatedBy: ownerID,
 		}, 0); err != nil {
 			t.Fatal(err)
@@ -216,7 +217,7 @@ func TestRegistrySharesOneRuntimeWithoutCrossOwnerDisable(t *testing.T) {
 		t.Fatal("disabling owner-a stopped owner-b's shared runtime")
 	case <-time.After(50 * time.Millisecond):
 	}
-	statusB, err := registry.Status("owner-b", "alpha")
+	statusB, err := registry.Status(t.Context(), "owner-b", "alpha")
 	if err != nil || !statusB.Enabled || !statusB.Running {
 		t.Fatalf("owner-b lost runtime after owner-a disable: %#v err=%v", statusB, err)
 	}
@@ -239,7 +240,7 @@ func TestRegistryConfiguredDefaultRemainsFallbackPerOwner(t *testing.T) {
 		"alpha": {Enabled: true, Provider: "alpha-v1"},
 	}
 	st := store.NewMemoryStore()
-	if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{OwnerID: "owner-a", Channel: "alpha", Enabled: false}, 0); err != nil {
+	if _, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{OwnerID: "owner-a", Channel: "alpha", Enabled: false}, 0); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &managedRuntime{
@@ -259,7 +260,7 @@ func TestRegistryConfiguredDefaultRemainsFallbackPerOwner(t *testing.T) {
 	if scope.AllowsOwner("owner-a") || !scope.AllowsOwner("owner-without-setting") {
 		t.Fatalf("configured default fallback mismatch: owner-a=%v owner-without-setting=%v", scope.AllowsOwner("owner-a"), scope.AllowsOwner("owner-without-setting"))
 	}
-	statusA, err := registry.Status("owner-a", "alpha")
+	statusA, err := registry.Status(t.Context(), "owner-a", "alpha")
 	if err != nil || statusA.Enabled || statusA.Running {
 		t.Fatalf("explicit owner opt-out leaked shared runtime state: %#v err=%v", statusA, err)
 	}
@@ -271,7 +272,7 @@ func TestRegistryPreloadsSettingsAndKeepsHotPathInMemory(t *testing.T) {
 		"alpha": {Enabled: false, Provider: "alpha-v1"},
 	}
 	memory := store.NewMemoryStore()
-	if _, err := memory.UpdateConnectorSetting(app.ConnectorSetting{OwnerID: "owner-a", Channel: "alpha", Enabled: true}, 0); err != nil {
+	if _, err := memory.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{OwnerID: "owner-a", Channel: "alpha", Enabled: true}, 0); err != nil {
 		t.Fatal(err)
 	}
 	st := &countingConnectorStore{MemoryStore: memory}
@@ -286,7 +287,7 @@ func TestRegistryPreloadsSettingsAndKeepsHotPathInMemory(t *testing.T) {
 		if !registry.Enabled("owner-a", "alpha") {
 			t.Fatal("preloaded owner setting was not enabled")
 		}
-		if _, err := registry.Status("owner-a", "alpha"); err != nil {
+		if _, err := registry.Status(t.Context(), "owner-a", "alpha"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -396,16 +397,16 @@ func TestAdmittedSourceReplyDrainsAfterOwnerDisablesConnector(t *testing.T) {
 		"alpha": {Enabled: false, Provider: "alpha-v1"},
 	}
 	st := store.NewMemoryStore()
-	if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{
+	if _, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{
 		OwnerID: "owner-a", Channel: "alpha", Enabled: true, UpdatedBy: "owner-a",
 	}, 0); err != nil {
 		t.Fatal(err)
 	}
-	bindingRecord := st.SaveNotificationBinding(app.NotificationBinding{
+	bindingRecord := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-alpha", OwnerID: "owner-a", ActorID: "owner-a", Channel: "alpha", Status: "active",
 		Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-alpha", OwnerID: "external-actor-a", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "owner-a",
 		BindingID: bindingRecord.ID, Channel: "alpha", ExternalUserID: "user-a", ExternalChatID: "chat-a", Status: "active",
 	})
@@ -413,6 +414,11 @@ func TestAdmittedSourceReplyDrainsAfterOwnerDisablesConnector(t *testing.T) {
 	provider := &managedTestProvider{}
 	registry := NewRegistry(cfg, st)
 	if err := registry.Register(Registration{Channel: "alpha", Provider: provider}); err != nil {
+		t.Fatal(err)
+	}
+	lifecycleCtx, cancelLifecycle := context.WithCancel(t.Context())
+	defer cancelLifecycle()
+	if err := registry.Start(lifecycleCtx); err != nil {
 		t.Fatal(err)
 	}
 	providers, err := registry.ProviderRegistry()
@@ -475,14 +481,14 @@ func TestActiveBindingDoesNotAutoEnableConnector(t *testing.T) {
 		"alpha": {Enabled: false, Provider: "alpha-v1"},
 	}
 	st := store.NewMemoryStore()
-	st.SaveNotificationBinding(app.NotificationBinding{
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		OwnerID: app.DefaultOwnerID, Channel: "alpha", Provider: "alpha-v1", Status: "active",
 	})
 	registry := NewRegistry(cfg, st)
 	if err := registry.Register(Registration{Channel: "alpha", Binding: registryBindingAdapter{}}); err != nil {
 		t.Fatal(err)
 	}
-	status, err := registry.Status(app.DefaultOwnerID, "alpha")
+	status, err := registry.Status(t.Context(), app.DefaultOwnerID, "alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +514,7 @@ func TestConnectorStatusReportsAdapterAvailabilityFailure(t *testing.T) {
 	if err := registry.Register(Registration{Channel: "alpha", Binding: unavailableBindingAdapter{}}); err != nil {
 		t.Fatal(err)
 	}
-	status, err := registry.Status(app.DefaultOwnerID, "alpha")
+	status, err := registry.Status(t.Context(), app.DefaultOwnerID, "alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +529,7 @@ func TestRegistryRestoresNonDefaultOwnerPersistedConnector(t *testing.T) {
 		"alpha": {Enabled: false, Provider: "alpha-v1"},
 	}
 	st := store.NewMemoryStore()
-	if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{
+	if _, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{
 		OwnerID: "owner-b", Channel: "alpha", Enabled: true, UpdatedBy: "owner-b",
 	}, 0); err != nil {
 		t.Fatal(err)

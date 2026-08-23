@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strconv"
@@ -25,8 +26,14 @@ const (
 
 type ClientFactory func(context.Context, app.NotificationBinding) (BotAPI, error)
 
+type ServiceRepository interface {
+	store.ConnectorRepository
+	store.DeliveryRecordRepository
+	store.AuditRepository
+}
+
 type Service struct {
-	store         store.Store
+	store         ServiceRepository
 	cfg           config.NotificationChannelConfig
 	vault         credential.CredentialVault
 	dispatcher    *Dispatcher
@@ -37,9 +44,10 @@ type Service struct {
 	workers       sync.WaitGroup
 	busyChats     map[string]bool
 	activeCancels map[string]map[string]context.CancelFunc
+	lifecycleCtx  context.Context
 }
 
-func NewService(st store.Store, cfg config.NotificationChannelConfig, vault credential.CredentialVault, dispatcher *Dispatcher) *Service {
+func NewService(st ServiceRepository, cfg config.NotificationChannelConfig, vault credential.CredentialVault, dispatcher *Dispatcher) *Service {
 	if cfg.MaxConcurrency <= 0 {
 		cfg.MaxConcurrency = 1
 	}
@@ -71,8 +79,12 @@ func (s *Service) Run(ctx context.Context, scope connectorruntime.RuntimeScope) 
 	if s.store == nil || s.dispatcher == nil || s.clientFactory == nil {
 		return errors.New("Telegram service dependencies are incomplete")
 	}
-	s.migrateLegacyDirectBindings()
-	s.recoverExpiredLeases(time.Now().UTC())
+	s.mu.Lock()
+	s.lifecycleCtx = ctx
+	s.mu.Unlock()
+	if err := s.recoverExpiredLeases(ctx, time.Now().UTC()); err != nil {
+		return fmt.Errorf("recover Telegram inbox leases: %w", err)
+	}
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -87,13 +99,28 @@ func (s *Service) Run(ctx context.Context, scope connectorruntime.RuntimeScope) 
 func (s *Service) pollLoop(ctx context.Context, scope connectorruntime.RuntimeScope) {
 	backoff := time.Second
 	for ctx.Err() == nil {
-		if s.inboxDepth() >= s.cfg.MaxPending {
+		depth, depthErr := s.inboxDepth(ctx)
+		if depthErr != nil {
+			slog.Warn("Telegram inbox unavailable", "code", store.StoreErrorCodeOf(depthErr))
 			if !waitContext(ctx, time.Second) {
 				return
 			}
 			continue
 		}
-		bindings := s.pollingBindings(scope)
+		if depth >= s.cfg.MaxPending {
+			if !waitContext(ctx, time.Second) {
+				return
+			}
+			continue
+		}
+		bindings, err := s.pollingBindings(ctx, scope)
+		if err != nil {
+			slog.Warn("Telegram bindings unavailable", "code", store.StoreErrorCodeOf(err))
+			if !waitContext(ctx, time.Second) {
+				return
+			}
+			continue
+		}
 		if len(bindings) == 0 {
 			if !waitContext(ctx, time.Second) {
 				return
@@ -129,11 +156,12 @@ func (s *Service) pollLoop(ctx context.Context, scope connectorruntime.RuntimeSc
 			nextOffset := offset
 			persisted := true
 			for _, update := range updates {
-				if s.inboxDepth() >= s.cfg.MaxPending {
+				depth, depthErr := s.inboxDepth(ctx)
+				if depthErr != nil || depth >= s.cfg.MaxPending {
 					persisted = false
 					break
 				}
-				if err := s.persistUpdate(binding, update); err != nil {
+				if err := s.persistUpdate(ctx, binding, update); err != nil {
 					persisted = false
 					break
 				}
@@ -142,16 +170,18 @@ func (s *Service) pollLoop(ctx context.Context, scope connectorruntime.RuntimeSc
 				}
 			}
 			if persisted && nextOffset > offset {
-				s.saveBindingCursor(binding, nextOffset)
+				s.saveBindingCursor(ctx, binding, nextOffset)
 			}
 			s.signalWorker()
 		}
 	}
 }
 
-func (s *Service) persistUpdate(binding app.NotificationBinding, update Update) error {
+func (s *Service) persistUpdate(ctx context.Context, binding app.NotificationBinding, update Update) error {
 	externalID := strconv.FormatInt(update.UpdateID, 10)
-	if _, ok := s.store.FindChannelInboxUpdate(binding.ID, externalID); ok {
+	if _, ok, err := s.store.FindChannelInboxUpdate(ctx, binding.ID, externalID); err != nil {
+		return err
+	} else if ok {
 		return nil
 	}
 	raw, err := json.Marshal(update)
@@ -159,7 +189,7 @@ func (s *Service) persistUpdate(binding app.NotificationBinding, update Update) 
 		return err
 	}
 	chatID, threadID := updateChat(update)
-	saved := s.store.SaveChannelInboxUpdate(app.ChannelInboxUpdate{
+	saved, err := s.saveInbox(ctx, app.ChannelInboxUpdate{
 		BindingID:  binding.ID,
 		Channel:    "telegram",
 		ExternalID: externalID,
@@ -167,7 +197,13 @@ func (s *Service) persistUpdate(binding app.NotificationBinding, update Update) 
 		Payload:    raw,
 		Status:     "pending",
 	})
-	verified, ok := s.store.FindChannelInboxUpdate(binding.ID, externalID)
+	if err != nil {
+		return err
+	}
+	verified, ok, err := s.store.FindChannelInboxUpdate(ctx, binding.ID, externalID)
+	if err != nil {
+		return err
+	}
 	if !ok || verified.ID != saved.ID {
 		return errors.New("Telegram inbox update could not be persisted")
 	}
@@ -193,12 +229,29 @@ func (s *Service) workerLoop(ctx, workCtx context.Context, scope connectorruntim
 
 func (s *Service) dispatchPending(ctx context.Context, scope connectorruntime.RuntimeScope) {
 	now := time.Now().UTC()
-	s.recoverExpiredLeases(now)
-	ready := append(s.store.ListChannelInboxUpdates("telegram", "pending", now, s.cfg.MaxPending),
-		s.store.ListChannelInboxUpdates("telegram", "retry_wait", now, s.cfg.MaxPending)...)
+	if err := s.recoverExpiredLeases(ctx, now); err != nil {
+		slog.Warn("Telegram inbox lease recovery failed", "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	pending, err := s.store.ListChannelInboxUpdates(ctx, "telegram", "pending", now, s.cfg.MaxPending)
+	if err != nil {
+		slog.Warn("Telegram pending inbox unavailable", "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	retrying, err := s.store.ListChannelInboxUpdates(ctx, "telegram", "retry_wait", now, s.cfg.MaxPending)
+	if err != nil {
+		slog.Warn("Telegram retry inbox unavailable", "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	ready := append(pending, retrying...)
 	sort.SliceStable(ready, func(i, j int) bool { return ready[i].CreatedAt.Before(ready[j].CreatedAt) })
 	for _, inbox := range ready {
-		if binding, ok := s.store.GetNotificationBinding(inbox.BindingID); ok && !scope.AllowsOwner(binding.OwnerID) {
+		binding, ok, err := s.store.GetNotificationBinding(ctx, inbox.BindingID)
+		if err != nil {
+			slog.Warn("Telegram binding unavailable while dispatching", "binding_id", inbox.BindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		if ok && !scope.AllowsOwner(binding.OwnerID) {
 			continue
 		}
 		if ctx.Err() != nil || !s.reserveChat(inbox.ChatKey) {
@@ -213,7 +266,13 @@ func (s *Service) dispatchPending(ctx context.Context, scope connectorruntime.Ru
 		inbox.Status = "processing"
 		inbox.LastError = ""
 		inbox.AvailableAt = now.Add(inboxLeaseDuration)
-		inbox = s.store.SaveChannelInboxUpdate(inbox)
+		inbox, err = s.saveInbox(ctx, inbox)
+		if err != nil {
+			<-s.sem
+			s.releaseChat(inbox.ChatKey)
+			slog.Warn("Telegram inbox lease could not be persisted", "inbox_id", inbox.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
 		s.workers.Add(1)
 		go func() {
 			defer s.workers.Done()
@@ -238,17 +297,23 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 		cancel()
 		s.unregisterActive(inbox.BindingID, inbox.ID)
 	}()
-	binding, ok := s.store.GetNotificationBinding(inbox.BindingID)
+	binding, ok, bindingErr := s.store.GetNotificationBinding(ctx, inbox.BindingID)
+	if bindingErr != nil {
+		s.failInbox(ctx, inbox, NewConnectorError("binding_store_unavailable", true, bindingErr))
+		return
+	}
 	if !ok || binding.Status == "revoked" || binding.Status == "expired" || binding.Status == "failed" {
 		inbox.Status = "canceled"
 		inbox.LastError = CodeBindingUnavailable
 		inbox.Payload = nil
-		s.store.SaveChannelInboxUpdate(inbox)
+		if _, err := s.saveInbox(ctx, inbox); err != nil {
+			slog.Warn("Telegram canceled inbox could not be persisted", "inbox_id", inbox.ID, "code", store.StoreErrorCodeOf(err))
+		}
 		return
 	}
 	var update Update
 	if err := json.Unmarshal(inbox.Payload, &update); err != nil {
-		s.failInbox(inbox, NewConnectorError("invalid_persisted_update", false, err))
+		s.failInbox(ctx, inbox, NewConnectorError("invalid_persisted_update", false, err))
 		return
 	}
 	client, err := s.clientFactory(ctx, binding)
@@ -256,7 +321,11 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 		claimedNow := false
 		authorized := s.authorized(binding, update)
 		if binding.ExternalUserID == "" || binding.ExternalChatID == "" {
-			binding, authorized, claimedNow = s.claimBinding(binding.ID, update)
+			var claimErr error
+			binding, authorized, claimedNow, claimErr = s.claimBinding(ctx, binding.ID, update)
+			if claimErr != nil {
+				err = claimErr
+			}
 		}
 		if authorized {
 			if claimedNow && isStartCommand(update) {
@@ -271,28 +340,36 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 	}
 	if err != nil {
 		if ctx.Err() != nil {
-			if current, ok := s.store.GetChannelInboxUpdate(inbox.ID); ok && current.Status == "canceled" {
+			if current, ok, readErr := s.store.GetChannelInboxUpdate(ctx, inbox.ID); readErr == nil && ok && current.Status == "canceled" {
 				return
 			}
 			// Preserve processing state and payload during service shutdown. The
 			// lease recovery path will make the update runnable after restart.
 			return
 		}
-		s.failInbox(inbox, err)
+		s.failInbox(ctx, inbox, err)
 		return
 	}
-	if current, ok := s.store.GetChannelInboxUpdate(inbox.ID); ok && current.Status == "canceled" {
+	if current, ok, readErr := s.store.GetChannelInboxUpdate(ctx, inbox.ID); readErr != nil {
+		s.failInbox(ctx, inbox, NewConnectorError("inbox_store_unavailable", true, readErr))
+		return
+	} else if ok && current.Status == "canceled" {
 		return
 	}
-	if currentBinding, ok := s.store.GetNotificationBinding(inbox.BindingID); !ok || currentBinding.Status == "revoked" {
-		s.cancelInbox(inbox)
+	if currentBinding, ok, bindingErr := s.store.GetNotificationBinding(ctx, inbox.BindingID); bindingErr != nil {
+		s.failInbox(ctx, inbox, NewConnectorError("binding_store_unavailable", true, bindingErr))
+		return
+	} else if !ok || currentBinding.Status == "revoked" {
+		s.cancelInbox(ctx, inbox)
 		return
 	}
 	inbox.Status = "completed"
 	inbox.LastError = ""
 	inbox.Payload = nil
 	inbox.AvailableAt = time.Now().UTC()
-	s.store.SaveChannelInboxUpdate(inbox)
+	if _, err := s.saveInbox(ctx, inbox); err != nil {
+		slog.Warn("Telegram completed inbox could not be persisted", "inbox_id", inbox.ID, "code", store.StoreErrorCodeOf(err))
+	}
 }
 
 // CancelBinding stops active work and makes queued Telegram updates
@@ -302,30 +379,41 @@ func (s *Service) CancelBinding(bindingID string) {
 	if bindingID == "" {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.currentLifecycleContext()), 30*time.Second)
+	defer cancel()
+	s.mu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.activeCancels[bindingID]))
+	for _, activeCancel := range s.activeCancels[bindingID] {
+		cancels = append(cancels, activeCancel)
+	}
+	s.mu.Unlock()
+	defer func() {
+		for _, activeCancel := range cancels {
+			activeCancel()
+		}
+	}()
 	for _, status := range []string{"pending", "processing", "retry_wait"} {
-		for _, inbox := range s.store.ListChannelInboxUpdates("telegram", status, time.Time{}, s.cfg.MaxPending+1) {
+		inboxes, err := s.store.ListChannelInboxUpdates(ctx, "telegram", status, time.Time{}, s.cfg.MaxPending+1)
+		if err != nil {
+			slog.Warn("Telegram inbox unavailable while canceling binding", "binding_id", bindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		for _, inbox := range inboxes {
 			if inbox.BindingID == bindingID {
-				s.cancelInbox(inbox)
+				s.cancelInbox(ctx, inbox)
 			}
 		}
 	}
-	s.mu.Lock()
-	cancels := make([]context.CancelFunc, 0, len(s.activeCancels[bindingID]))
-	for _, cancel := range s.activeCancels[bindingID] {
-		cancels = append(cancels, cancel)
-	}
-	s.mu.Unlock()
-	for _, cancel := range cancels {
-		cancel()
-	}
 }
 
-func (s *Service) cancelInbox(inbox app.ChannelInboxUpdate) {
+func (s *Service) cancelInbox(ctx context.Context, inbox app.ChannelInboxUpdate) {
 	inbox.Status = "canceled"
 	inbox.LastError = CodeBindingUnavailable
 	inbox.Payload = nil
 	inbox.AvailableAt = time.Now().UTC()
-	s.store.SaveChannelInboxUpdate(inbox)
+	if _, err := s.saveInbox(ctx, inbox); err != nil {
+		slog.Warn("Telegram inbox cancellation could not be persisted", "inbox_id", inbox.ID, "code", store.StoreErrorCodeOf(err))
+	}
 }
 
 func (s *Service) registerActive(bindingID, inboxID string, cancel context.CancelFunc) {
@@ -346,7 +434,7 @@ func (s *Service) unregisterActive(bindingID, inboxID string) {
 	}
 }
 
-func (s *Service) failInbox(inbox app.ChannelInboxUpdate, err error) {
+func (s *Service) failInbox(ctx context.Context, inbox app.ChannelInboxUpdate, err error) {
 	inbox.Attempts++
 	inbox.LastError = connectorErrorCode(err)
 	if isRetryable(err) && inbox.Attempts < maxInboxAttempts {
@@ -358,49 +446,60 @@ func (s *Service) failInbox(inbox app.ChannelInboxUpdate, err error) {
 			inbox.LastError = CodeRetryExhausted
 		}
 	}
-	s.store.SaveChannelInboxUpdate(inbox)
+	if _, persistErr := s.saveInbox(ctx, inbox); persistErr != nil {
+		slog.Warn("Telegram inbox failure could not be persisted", "inbox_id", inbox.ID, "code", store.StoreErrorCodeOf(persistErr))
+	}
 }
 
-func (s *Service) claimBinding(bindingID string, update Update) (app.NotificationBinding, bool, bool) {
+func (s *Service) claimBinding(ctx context.Context, bindingID string, update Update) (app.NotificationBinding, bool, bool, error) {
 	message := update.Message
 	if message == nil || message.From == nil || message.Chat.Type != "private" {
-		return app.NotificationBinding{}, false, false
+		return app.NotificationBinding{}, false, false, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	binding, ok := s.store.GetNotificationBinding(bindingID)
+	binding, ok, err := s.store.GetNotificationBinding(ctx, bindingID)
+	if err != nil {
+		return app.NotificationBinding{}, false, false, err
+	}
 	if !ok || binding.Status != "active" {
-		return app.NotificationBinding{}, false, false
+		return app.NotificationBinding{}, false, false, nil
 	}
 	if binding.ExternalUserID != "" || binding.ExternalChatID != "" {
-		return binding, s.authorized(binding, update), false
+		return binding, s.authorized(binding, update), false, nil
 	}
 	if message.Date > 0 && !binding.CreatedAt.IsZero() && time.Unix(message.Date, 0).Before(binding.CreatedAt.Add(-30*time.Second)) {
-		return binding, false, false
+		return binding, false, false, nil
 	}
-	now := time.Now().UTC()
-	binding.Status = "active"
-	binding.ExternalUserID = strconv.FormatInt(message.From.ID, 10)
-	binding.ExternalChatID = strconv.FormatInt(message.Chat.ID, 10)
-	binding.ExternalThreadID = threadIDString(message.MessageThreadID)
-	binding.ContextToken = binding.ExternalChatID
-	binding.ProviderState = ""
-	binding.QRCodeURL = ""
-	binding.QRCodeImage = ""
-	binding.ExpiresAt = nil
-	binding.LastError = ""
-	binding.UpdatedAt = now
-	if !hasDefaultActiveBinding(s.store, binding.ID) {
-		binding.DefaultForChannel = true
+	replacement := binding
+	replacement.Status = "active"
+	replacement.ExternalUserID = strconv.FormatInt(message.From.ID, 10)
+	replacement.ExternalChatID = strconv.FormatInt(message.Chat.ID, 10)
+	replacement.ExternalThreadID = threadIDString(message.MessageThreadID)
+	replacement.ContextToken = replacement.ExternalChatID
+	replacement.ProviderState = ""
+	replacement.QRCodeURL = ""
+	replacement.QRCodeImage = ""
+	replacement.ExpiresAt = nil
+	replacement.LastError = ""
+	hasDefault, err := hasDefaultActiveBinding(ctx, s.store, binding.ID)
+	if err != nil {
+		return app.NotificationBinding{}, false, false, err
 	}
-	binding = s.store.SaveNotificationBinding(binding)
-	s.store.AddAudit(app.AuditEvent{
+	if !hasDefault {
+		replacement.DefaultForChannel = true
+	}
+	binding, err = s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement))
+	if err != nil {
+		return app.NotificationBinding{}, false, false, err
+	}
+	recordAudit(ctx, s.store, app.AuditEvent{
 		Actor:   "telegram",
 		Type:    "telegram.binding.claimed",
 		Summary: "Claimed Telegram binding from a private chat",
 		Fields:  map[string]any{"binding_id": binding.ID},
 	})
-	return binding, true, true
+	return binding, true, true, nil
 }
 
 func bindingConnectedMessage(languageCode string) string {
@@ -427,43 +526,18 @@ func (s *Service) authorized(binding app.NotificationBinding, update Update) boo
 		binding.ExternalThreadID == threadIDString(threadID)
 }
 
-func (s *Service) pollingBindings(scope connectorruntime.RuntimeScope) []app.NotificationBinding {
-	bindings := s.store.ListNotificationBindings("telegram", "active")
+func (s *Service) pollingBindings(ctx context.Context, scope connectorruntime.RuntimeScope) ([]app.NotificationBinding, error) {
+	bindings, err := s.store.ListNotificationBindings(ctx, "telegram", "active")
+	if err != nil {
+		return nil, err
+	}
 	eligible := make([]app.NotificationBinding, 0, len(bindings))
 	for _, binding := range bindings {
 		if scope.AllowsOwner(binding.OwnerID) {
 			eligible = append(eligible, binding)
 		}
 	}
-	return eligible
-}
-
-func (s *Service) migrateLegacyDirectBindings() {
-	now := time.Now().UTC()
-	for _, status := range []string{"waiting_confirm", "expired"} {
-		for _, binding := range s.store.ListNotificationBindings("telegram", status) {
-			if strings.TrimSpace(binding.CredentialRef) == "" {
-				continue
-			}
-			binding.Status = "active"
-			binding.ProviderState = ""
-			binding.QRCodeURL = ""
-			binding.QRCodeImage = ""
-			binding.ExpiresAt = nil
-			binding.LastError = ""
-			if binding.ExternalUserID == "" || binding.ExternalChatID == "" {
-				binding.DefaultForChannel = false
-			}
-			binding.UpdatedAt = now
-			s.store.SaveNotificationBinding(binding)
-			s.store.AddAudit(app.AuditEvent{
-				Actor:   "system",
-				Type:    "telegram.binding.direct_mode_migrated",
-				Summary: "Migrated Telegram binding to direct chat claim mode",
-				Fields:  map[string]any{"binding_id": binding.ID, "previous_status": status},
-			})
-		}
-	}
+	return eligible, nil
 }
 
 func (s *Service) vaultClient(ctx context.Context, binding app.NotificationBinding) (BotAPI, error) {
@@ -485,33 +559,70 @@ func (s *Service) vaultClient(ctx context.Context, binding app.NotificationBindi
 	return NewClient(baseURL, string(token), nil), nil
 }
 
-func (s *Service) recoverExpiredLeases(now time.Time) {
-	for _, update := range s.store.ListChannelInboxUpdates("telegram", "processing", now, s.cfg.MaxPending) {
+func (s *Service) recoverExpiredLeases(ctx context.Context, now time.Time) error {
+	updates, err := s.store.ListChannelInboxUpdates(ctx, "telegram", "processing", now, s.cfg.MaxPending)
+	if err != nil {
+		return err
+	}
+	for _, update := range updates {
 		update.Status = "pending"
 		update.AvailableAt = now
 		update.LastError = ""
-		s.store.SaveChannelInboxUpdate(update)
+		if _, err := s.saveInbox(ctx, update); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (s *Service) inboxDepth() int {
+func (s *Service) inboxDepth(ctx context.Context) (int, error) {
 	depth := 0
 	for _, status := range []string{"pending", "processing", "retry_wait"} {
-		depth += len(s.store.ListChannelInboxUpdates("telegram", status, time.Time{}, s.cfg.MaxPending+1))
+		updates, err := s.store.ListChannelInboxUpdates(ctx, "telegram", status, time.Time{}, s.cfg.MaxPending+1)
+		if err != nil {
+			return 0, err
+		}
+		depth += len(updates)
 	}
-	return depth
+	return depth, nil
 }
 
-func (s *Service) saveBindingCursor(binding app.NotificationBinding, offset int64) {
+func (s *Service) saveInbox(ctx context.Context, update app.ChannelInboxUpdate) (app.ChannelInboxUpdate, error) {
+	saved, err := s.store.SaveChannelInboxUpdate(ctx, update)
+	return store.ReconcileChannelInboxUpdateWrite(ctx, s.store, saved, err)
+}
+
+func (s *Service) currentLifecycleContext() context.Context {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, ok := s.store.GetNotificationBinding(binding.ID)
-	if !ok || bindingCursor(current) >= offset {
-		return
+	if s.lifecycleCtx != nil {
+		return s.lifecycleCtx
 	}
-	current.ProviderCursor = strconv.FormatInt(offset, 10)
-	current.UpdatedAt = time.Now().UTC()
-	s.store.SaveNotificationBinding(current)
+	return context.TODO()
+}
+
+func (s *Service) saveBindingCursor(ctx context.Context, binding app.NotificationBinding, offset int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for attempt := 0; attempt < 3; attempt++ {
+		current, ok, err := s.store.GetNotificationBinding(ctx, binding.ID)
+		if err != nil {
+			slog.Warn("Telegram binding cursor read failed", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		if !ok || bindingCursor(current) >= offset {
+			return
+		}
+		replacement := current
+		replacement.ProviderCursor = strconv.FormatInt(offset, 10)
+		if _, err := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(current, replacement)); err == nil {
+			return
+		} else if store.StoreErrorCodeOf(err) != store.StoreErrorConflict {
+			slog.Warn("Telegram binding cursor update failed", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+	}
+	slog.Warn("Telegram binding cursor update conflicted repeatedly", "binding_id", binding.ID)
 }
 
 func (s *Service) signalWorker() {
@@ -542,13 +653,17 @@ func bindingCursor(binding app.NotificationBinding) int64 {
 	return value
 }
 
-func hasDefaultActiveBinding(st store.Store, exceptID string) bool {
-	for _, binding := range st.ListNotificationBindings("telegram", "active") {
+func hasDefaultActiveBinding(ctx context.Context, st store.ConnectorRepository, exceptID string) (bool, error) {
+	bindings, err := st.ListNotificationBindings(ctx, "telegram", "active")
+	if err != nil {
+		return false, err
+	}
+	for _, binding := range bindings {
 		if binding.ID != exceptID && binding.DefaultForChannel {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func isStartCommand(update Update) bool {

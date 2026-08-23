@@ -19,14 +19,33 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
+
+type unavailableWeixinCredentialStore struct {
+	testRepository
+	err error
+}
+
+func (s *unavailableWeixinCredentialStore) SaveCredentialSecret(context.Context, store.CredentialSaveCommand) (app.CredentialSecret, error) {
+	return app.CredentialSecret{}, s.err
+}
+
+func (s *unavailableWeixinCredentialStore) GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error) {
+	return app.CredentialSecret{}, false, s.err
+}
+
+func (s *unavailableWeixinCredentialStore) DeleteCredentialSecret(context.Context, store.CredentialDeleteCondition) (app.CredentialSecret, error) {
+	return app.CredentialSecret{}, s.err
+}
 
 func weixinTestRuntimeScope() connectorruntime.RuntimeScope {
 	return connectorruntime.RuntimeScope{
@@ -35,11 +54,16 @@ func weixinTestRuntimeScope() connectorruntime.RuntimeScope {
 	}
 }
 
-func newWeixinTestResultDeliverer(t *testing.T, st store.Store, cfg config.Config) connectorruntime.ResultDeliverer {
+type testRepository interface {
+	DispatcherRepository
+	store.CredentialRepository
+}
+
+func newWeixinTestResultDeliverer(t *testing.T, st testRepository, cfg config.Config) connectorruntime.ResultDeliverer {
 	t.Helper()
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := delivery.NewProviderRegistry()
-	if err := providers.Register(notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st)); err != nil {
+	if err := providers.Register(notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st, newWeixinTestVault(t, st))); err != nil {
 		t.Fatal(err)
 	}
 	gateway := delivery.NewGateway(endpoints, providers, nil)
@@ -68,19 +92,16 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		ProviderCursor:    "cursor-1",
 		DefaultForChannel: true,
@@ -88,7 +109,7 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 
-	NewSyncer(st).Tick(t.Context(), weixinTestRuntimeScope())
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), weixinTestRuntimeScope())
 
 	if gotAuth != "Bearer bot-secret" {
 		t.Fatalf("expected auth header, got %q", gotAuth)
@@ -96,7 +117,7 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 	if gotCursor != "cursor-1" {
 		t.Fatalf("expected cursor to be sent, got %q", gotCursor)
 	}
-	binding, ok := st.GetNotificationBinding("bind_1")
+	binding, ok := storetest.MustGetNotificationBinding(t, st, "bind_1")
 	if !ok {
 		t.Fatal("binding missing")
 	}
@@ -114,11 +135,12 @@ func TestSyncerOwnerGateSkipsDisabledBindingAcquisition(t *testing.T) {
 	}))
 	defer ts.Close()
 	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
 	for _, ownerID := range []string{"owner-a", "owner-b"} {
-		credentialRef := "credential-" + ownerID
-		st.SaveCredentialSecret(app.CredentialSecret{Ref: credentialRef, Kind: "openclaw-weixin-bot-token", Value: "secret"})
-		st.SaveNotificationBinding(app.NotificationBinding{
-			ID: "binding-" + ownerID, OwnerID: ownerID, Channel: "weixin", Provider: "openclaw-weixin-qr",
+		bindingID := "binding-" + ownerID
+		credentialRef := sealWeixinTestCredential(t, vault, bindingID, "secret")
+		storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+			ID: bindingID, OwnerID: ownerID, Channel: "weixin", Provider: "openclaw-weixin-qr",
 			Status: "active", CredentialRef: credentialRef, BaseURL: ts.URL,
 		})
 	}
@@ -126,15 +148,63 @@ func TestSyncerOwnerGateSkipsDisabledBindingAcquisition(t *testing.T) {
 		Channel:      "weixin",
 		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-b" },
 	}
-	NewSyncer(st).Tick(t.Context(), scope)
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), scope)
 	if calls.Load() != 1 {
 		t.Fatalf("provider polls = %d, want only enabled owner-b", calls.Load())
 	}
 }
 
+func TestSyncerStoresOnlyStableCredentialFailure(t *testing.T) {
+	const canary = "private sync credential backend diagnostic"
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+	base := store.NewMemoryStore()
+	binding := storetest.MustCreateNotificationBinding(t, base, app.NotificationBinding{
+		ID: "binding-credential-failure", OwnerID: app.DefaultOwnerID, Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: "active", CredentialRef: "credential-private-ref", BaseURL: server.URL,
+	})
+	st := &unavailableWeixinCredentialStore{testRepository: base, err: &store.StoreError{
+		Code: store.StoreErrorUnavailable, Operation: store.OperationCredentialSecretGet, Err: errors.New(canary),
+	}}
+	vault := credential.New(st, credential.Options{Key: strings.Repeat("u", 32)})
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), weixinTestRuntimeScope())
+	stored, found := storetest.MustGetNotificationBinding(t, base, binding.ID)
+	if !found || stored.LastError != "credential is temporarily unavailable" {
+		t.Fatalf("stored credential error=%q found=%v", stored.LastError, found)
+	}
+	if strings.Contains(stored.LastError, canary) || strings.Contains(stored.LastError, binding.CredentialRef) || calls.Load() != 0 {
+		t.Fatalf("credential failure leaked details or reached provider: error=%q calls=%d", stored.LastError, calls.Load())
+	}
+}
+
+func TestSyncerStoresOnlyStableProviderFailure(t *testing.T) {
+	const canary = "provider-controlled private diagnostic"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":1,"errmsg":"` + canary + `"}`))
+	}))
+	defer server.Close()
+	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "binding-provider-failure", "bot-secret")
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-provider-failure", OwnerID: app.DefaultOwnerID, Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: app.NotificationBindingActive,
+		ExternalUserID: "recipient", CredentialRef: credentialRef, BaseURL: server.URL,
+	})
+	NewSyncer(st).WithCredentialVault(vault).Tick(t.Context(), weixinTestRuntimeScope())
+	stored, found := storetest.MustGetNotificationBinding(t, st, binding.ID)
+	if !found || stored.LastError != "weixin_sync_failed" || strings.Contains(stored.LastError, canary) {
+		t.Fatalf("stored provider error=%q found=%v", stored.LastError, found)
+	}
+}
+
 func TestSyncerOwnerGateRetainsUndispatchedBatchUntilReenabled(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "binding-owner-a", OwnerID: "owner-a", ActorID: "owner-a", Channel: "weixin",
 		Provider: "openclaw-weixin-qr", Status: "active", ExternalUserID: "wx-owner-a",
 		ProviderCursor: "cursor-1",
@@ -165,13 +235,13 @@ func TestSyncerOwnerGateRetainsUndispatchedBatchUntilReenabled(t *testing.T) {
 		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-a" && enabled.Load() },
 	}
 	syncer.processBatch(t.Context(), scope, batch)
-	unchanged, _ := st.GetNotificationBinding(binding.ID)
+	unchanged, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 	if runtime.handledCount() != 0 || unchanged.ProviderCursor != "cursor-1" {
 		t.Fatalf("disabled batch was consumed: handles=%d binding=%#v", runtime.handledCount(), unchanged)
 	}
 	enabled.Store(true)
 	syncer.processBatch(t.Context(), scope, batch)
-	resumed, _ := st.GetNotificationBinding(binding.ID)
+	resumed, _ := storetest.MustGetNotificationBinding(t, st, binding.ID)
 	if runtime.handledCount() != 1 || resumed.ProviderCursor != "cursor-2" {
 		t.Fatalf("reenabled batch did not resume: handles=%d binding=%#v", runtime.handledCount(), resumed)
 	}
@@ -257,28 +327,25 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
@@ -294,28 +361,28 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	if !strings.Contains(sentText, "你好，我是 SparkClaw") {
 		t.Fatalf("unexpected reply text: %q", sentText)
 	}
-	binding, _ := st.GetNotificationBinding("bind_1")
+	binding, _ := storetest.MustGetNotificationBinding(t, st, "bind_1")
 	if binding.ContextToken != "ctx-1" || binding.ProviderCursor != "cursor-2" {
 		t.Fatalf("binding context was not synced: %#v", binding)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 	if !ok || chatSession.LinkedSessionID == "" {
 		t.Fatalf("weixin chat session not saved: %#v", chatSession)
 	}
-	linkedSession, ok := st.GetSession(chatSession.LinkedSessionID)
+	linkedSession, ok := storetest.MustGetSession(t, st, chatSession.LinkedSessionID)
 	if !ok || linkedSession.Source != "weixin" || !linkedSession.Hidden {
 		t.Fatalf("linked session should be hidden weixin session: %#v", linkedSession)
 	}
-	runs := st.ListRuns(chatSession.LinkedSessionID)
+	runs := testListRuns(st, chatSession.LinkedSessionID)
 	if len(runs) != 1 || runs[0].MessageContext == nil || runs[0].MessageContext.OwnerID != chatSession.OwnerID || runs[0].MessageContext.ReturnRoute.SourceEndpointID != app.EndpointID(chatSession.ID) || runs[0].MessageContext.Route.Status != app.RouteMatched || len(runs[0].MessageContext.Route.CapabilityPath) != 2 || runs[0].MessageContext.Route.CapabilityPath[1] != app.CapabilityConversationAnswer || runs[0].Workflow == nil || runs[0].Workflow.Plan.ProfileID != app.WorkflowConversationAnswer {
 		t.Fatalf("weixin run did not persist the external endpoint route context: %#v", runs)
 	}
-	for _, session := range st.ListSessions() {
+	for _, session := range storetest.MustListSessions(t, st) {
 		if session.ID == chatSession.LinkedSessionID {
 			t.Fatalf("weixin linked session should not appear in normal session list: %#v", session)
 		}
 	}
-	messages := st.ListExternalChatMessages(chatSession.ID, 10)
+	messages := storetest.MustListExternalChatMessages(t, st, chatSession.ID, 10)
 	if len(messages) != 2 {
 		t.Fatalf("expected inbound and outbound chat messages, got %#v", messages)
 	}
@@ -381,35 +448,32 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	if strings.Join(sentRecipients, ",") != "wx-user-a,wx-user-b" {
 		t.Fatalf("expected replies to separate weixin users, got %#v", sentRecipients)
 	}
-	sessionA, okA := st.FindExternalChatSession("bind_1", "wx-user-a", "")
-	sessionB, okB := st.FindExternalChatSession("bind_1", "wx-user-b", "")
+	sessionA, okA := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-a", "")
+	sessionB, okB := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-b", "")
 	if !okA || !okB {
 		t.Fatalf("expected separate weixin chat sessions, got A=%#v ok=%v B=%#v ok=%v", sessionA, okA, sessionB, okB)
 	}
@@ -419,22 +483,28 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	if sessionA.OwnerID == "" || sessionB.OwnerID == "" || sessionA.OwnerID == sessionB.OwnerID {
 		t.Fatalf("weixin users should have isolated owner profiles: %#v %#v", sessionA, sessionB)
 	}
-	profileA, okA := st.GetOwnerProfileByID(sessionA.OwnerID)
-	profileB, okB := st.GetOwnerProfileByID(sessionB.OwnerID)
+	profileA, okA, err := st.GetOwnerProfileByID(context.Background(), sessionA.OwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileB, okB, err := st.GetOwnerProfileByID(context.Background(), sessionB.OwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !okA || !okB || profileA.Source != "weixin" || profileB.Source != "weixin" || profileA.ExternalRef == profileB.ExternalRef {
 		t.Fatalf("weixin users should have separate persisted profiles: %#v ok=%v %#v ok=%v", profileA, okA, profileB, okB)
 	}
 	if sessionA.WorkspaceRoot == "" || sessionB.WorkspaceRoot == "" || sessionA.WorkspaceRoot == sessionB.WorkspaceRoot {
 		t.Fatalf("weixin users should have isolated workspaces: %#v %#v", sessionA, sessionB)
 	}
-	linkedA, ok := st.GetSession(sessionA.LinkedSessionID)
+	linkedA, ok := storetest.MustGetSession(t, st, sessionA.LinkedSessionID)
 	if !ok || linkedA.OwnerID != sessionA.OwnerID || linkedA.WorkspaceRoot != sessionA.WorkspaceRoot {
 		t.Fatalf("linked session should carry weixin owner/workspace scope: %#v ok=%v chat=%#v", linkedA, ok, sessionA)
 	}
 	if sessionA.LastContextToken != "ctx-a" || sessionB.LastContextToken != "ctx-b" {
 		t.Fatalf("context tokens should be tracked per user: %#v %#v", sessionA, sessionB)
 	}
-	binding, _ := st.GetNotificationBinding("bind_1")
+	binding, _ := storetest.MustGetNotificationBinding(t, st, "bind_1")
 	if binding.ExternalUserID != "" {
 		t.Fatalf("binding should not be pinned to first chat user, got %#v", binding.ExternalUserID)
 	}
@@ -523,7 +593,7 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 		CDNBaseURL: ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveArtifactObject(app.ArtifactObject{
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_weather",
 		Kind:        "media_weather_card",
 		Backend:     "workspace",
@@ -534,28 +604,25 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 		Bytes:       len(rawImage),
 		CreatedAt:   time.Now().UTC(),
 	})
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		DefaultForChannel: true,
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"]).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"]).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
@@ -639,19 +706,16 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
-	st.SaveNotificationBinding(app.NotificationBinding{
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:                "bind_1",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "weixin",
 		Provider:          "openclaw-weixin-qr",
 		Status:            "active",
 		ExternalUserID:    "wx-user-1",
-		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:     credentialRef,
 		BaseURL:           ts.URL,
 		ProviderCursor:    "cursor-1",
 		DefaultForChannel: true,
@@ -659,13 +723,13 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
-	binding, _ := st.GetNotificationBinding("bind_1")
+	binding, _ := storetest.MustGetNotificationBinding(t, st, "bind_1")
 	if binding.ProviderCursor != "cursor-1" {
 		t.Fatalf("cursor should not advance past failed dispatch, got %q", binding.ProviderCursor)
 	}
@@ -675,20 +739,20 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if attemptsAfterFirstTick != 1 {
 		t.Fatalf("expected one send attempt on first tick, got %d", attemptsAfterFirstTick)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 	if !ok {
 		t.Fatal("weixin chat session missing after failed delivery")
 	}
-	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
+	failed, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-1")
 	if !ok || failed.Status != "delivery_failed" {
 		t.Fatalf("failed reply was not retained for delivery retry: %#v ok=%v", failed, ok)
 	}
-	runsAfterFirstTick := len(st.ListRuns(chatSession.LinkedSessionID))
+	runsAfterFirstTick := len(testListRuns(st, chatSession.LinkedSessionID))
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
-	binding, _ = st.GetNotificationBinding("bind_1")
+	binding, _ = storetest.MustGetNotificationBinding(t, st, "bind_1")
 	if binding.ProviderCursor != "cursor-2" {
 		t.Fatalf("cursor should advance once dispatch succeeds, got %q", binding.ProviderCursor)
 	}
@@ -700,10 +764,10 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if strings.Join(polledCursors, ",") != "cursor-1,cursor-1" {
 		t.Fatalf("second poll should reuse the unadvanced cursor: %#v", polledCursors)
 	}
-	if runsAfterRetry := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfterRetry != runsAfterFirstTick {
+	if runsAfterRetry := len(testListRuns(st, chatSession.LinkedSessionID)); runsAfterRetry != runsAfterFirstTick {
 		t.Fatalf("delivery retry reran the agent: before=%d after=%d", runsAfterFirstTick, runsAfterRetry)
 	}
-	delivered, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
+	delivered, _ := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-1")
 	if delivered.Status != "processed" || delivered.Error != "" {
 		t.Fatalf("successful reply retry did not finalize the inbound record: %#v", delivered)
 	}
@@ -768,27 +832,24 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 		Provider: "openclaw-weixin-qr",
 	}
 	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
 	for id, baseURL := range map[string]string{"bind_a": serverA.URL, "bind_b": serverB.URL} {
-		st.SaveCredentialSecret(app.CredentialSecret{
-			Ref:   "provider:openclaw-weixin-qr:" + id,
-			Kind:  "openclaw-weixin-bot-token",
-			Value: "bot-secret",
-		})
-		st.SaveNotificationBinding(app.NotificationBinding{
+		credentialRef := sealWeixinTestCredential(t, vault, id, "bot-secret")
+		storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 			ID:            id,
 			OwnerID:       app.DefaultOwnerID,
 			Channel:       "weixin",
 			Provider:      "openclaw-weixin-qr",
 			Status:        "active",
-			CredentialRef: "provider:openclaw-weixin-qr:" + id,
+			CredentialRef: credentialRef,
 			BaseURL:       baseURL,
 			CreatedAt:     time.Now().UTC(),
 			UpdatedAt:     time.Now().UTC(),
 		})
 	}
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
@@ -796,10 +857,10 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 	if !aObservedB.Load() {
 		t.Fatal("binding B's dispatch should complete while binding A's dispatch is still running")
 	}
-	if _, ok := st.FindExternalChatSession("bind_a", "wx-user-a", ""); !ok {
+	if _, ok := storetest.MustFindExternalChatSession(t, st, "bind_a", "wx-user-a", ""); !ok {
 		t.Fatal("binding A chat session missing")
 	}
-	if _, ok := st.FindExternalChatSession("bind_b", "wx-user-b", ""); !ok {
+	if _, ok := storetest.MustFindExternalChatSession(t, st, "bind_b", "wx-user-b", ""); !ok {
 		t.Fatal("binding B chat session missing")
 	}
 }
@@ -847,22 +908,19 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		BaseURL:  ts.URL,
 	}
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := app.NotificationBinding{
 		ID:            "bind_1",
 		Channel:       "weixin",
 		Provider:      "openclaw-weixin-qr",
 		Status:        "active",
-		CredentialRef: "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef: credentialRef,
 		BaseURL:       ts.URL,
 	}
-	st.SaveNotificationBinding(binding)
+	storetest.MustCreateNotificationBinding(t, st, binding)
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	inbound := InboundMessage{
 		Binding:      binding,
@@ -871,8 +929,11 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		Text:         "你好\nMOCK_CONVERSATION_RESPONSE:重试成功",
 		ExternalID:   "provider-msg-retry",
 	}
-	chatSession := dispatcher.ensureChatSession(inbound)
-	failed := st.SaveExternalChatMessage(app.WeixinChatMessage{
+	chatSession, err := dispatcher.ensureChatSession(context.Background(), inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := storetest.MustSaveExternalChatMessage(t, st, app.WeixinChatMessage{
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
 		Direction:         "inbound",
@@ -887,7 +948,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	retried, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-retry")
+	retried, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-retry")
 	if !ok {
 		t.Fatal("inbound message missing after retry")
 	}
@@ -898,7 +959,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatalf("retried message should be processed, got %q", retried.Status)
 	}
 	inboundCount := 0
-	for _, message := range st.ListExternalChatMessages(chatSession.ID, 20) {
+	for _, message := range storetest.MustListExternalChatMessages(t, st, chatSession.ID, 20) {
 		if message.Direction == "inbound" {
 			inboundCount++
 		}
@@ -912,11 +973,11 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatalf("expected one retry reply, got %#v", sentTexts)
 	}
 
-	runsBefore := len(st.ListRuns(chatSession.LinkedSessionID))
+	runsBefore := len(testListRuns(st, chatSession.LinkedSessionID))
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
 		t.Fatal(err)
 	}
-	if runsAfter := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfter != runsBefore {
+	if runsAfter := len(testListRuns(st, chatSession.LinkedSessionID)); runsAfter != runsBefore {
 		t.Fatalf("processed message must not run the agent again: before=%d after=%d", runsBefore, runsAfter)
 	}
 }
@@ -948,11 +1009,8 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := app.NotificationBinding{
 		ID:             "bind_1",
 		OwnerID:        app.DefaultOwnerID,
@@ -960,13 +1018,13 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 		Provider:       "openclaw-weixin-qr",
 		Status:         "active",
 		ExternalUserID: "wx-user-1",
-		CredentialRef:  "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:  credentialRef,
 		BaseURL:        ts.URL,
 		ProviderCursor: "cursor-1",
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}
-	st.SaveNotificationBinding(binding)
+	storetest.MustCreateNotificationBinding(t, st, binding)
 	runtime := &fakeAgentRuntime{result: agent.Result{
 		Run: app.AgentRun{ID: "run_stubborn", State: "completed"},
 		WorkflowResult: &app.WorkflowResult{
@@ -981,25 +1039,25 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 	}}
 	transient := errors.New("provider connection reset")
 	deliverer := &fakeResultDeliverer{errs: []error{transient, transient, transient}}
-	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithCredentialVault(vault).WithResultDeliverer(deliverer)
 
 	chatSessionID := ""
 	for tick, wantAttempts := range []int{1, 2, 3} {
 		// A fresh Syncer per tick simulates a gateway restart between polls:
 		// the retry budget must come from the store, not from syncer memory.
-		syncer := NewSyncer(st).WithDispatcher(dispatcher)
+		syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 		syncer.Tick(t.Context(), weixinTestRuntimeScope())
 		syncer.Wait()
-		chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+		chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 		if !ok {
 			t.Fatalf("tick %d: chat session missing", tick)
 		}
 		chatSessionID = chatSession.ID
-		record, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-stubborn")
+		record, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-stubborn")
 		if !ok || record.DispatchAttempts != wantAttempts {
 			t.Fatalf("tick %d: attempts should persist across restarts, want %d got %#v ok=%v", tick, wantAttempts, record, ok)
 		}
-		updated, _ := st.GetNotificationBinding("bind_1")
+		updated, _ := storetest.MustGetNotificationBinding(t, st, "bind_1")
 		wantCursor := "cursor-1"
 		if wantAttempts >= maxDispatchAttempts {
 			wantCursor = "cursor-2"
@@ -1014,7 +1072,7 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 	if got := len(deliverer.deliveredResults()); got != 3 {
 		t.Fatalf("each dispatch should retry only the delivery step, got %d deliveries", got)
 	}
-	record, _ := st.FindExternalChatMessageByExternalID(chatSessionID, "provider-msg-stubborn")
+	record, _ := storetest.MustFindExternalChatMessage(t, st, chatSessionID, "provider-msg-stubborn")
 	if record.Status != "delivery_failed" || record.Error == "" {
 		t.Fatalf("dropped message should keep its failure state for later redeliveries: %#v", record)
 	}
@@ -1056,11 +1114,8 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
-	st.SaveCredentialSecret(app.CredentialSecret{
-		Ref:   "provider:openclaw-weixin-qr:bind_1",
-		Kind:  "openclaw-weixin-bot-token",
-		Value: "bot-secret",
-	})
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "bind_1", "bot-secret")
 	binding := app.NotificationBinding{
 		ID:             "bind_1",
 		OwnerID:        app.DefaultOwnerID,
@@ -1068,13 +1123,13 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 		Provider:       "openclaw-weixin-qr",
 		Status:         "active",
 		ExternalUserID: "wx-user-1",
-		CredentialRef:  "provider:openclaw-weixin-qr:bind_1",
+		CredentialRef:  credentialRef,
 		BaseURL:        ts.URL,
 		ProviderCursor: "cursor-1",
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}
-	st.SaveNotificationBinding(binding)
+	storetest.MustCreateNotificationBinding(t, st, binding)
 	runtime := &fakeAgentRuntime{result: agent.Result{
 		Run: app.AgentRun{ID: "run_blocked_sync", State: "completed"},
 		WorkflowResult: &app.WorkflowResult{
@@ -1090,21 +1145,21 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 	deliverer := &fakeResultDeliverer{errs: []error{
 		delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked"),
 	}}
-	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
-	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithCredentialVault(vault).WithResultDeliverer(deliverer)
+	syncer := NewSyncer(st).WithCredentialVault(vault).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
-	updated, _ := st.GetNotificationBinding("bind_1")
+	updated, _ := storetest.MustGetNotificationBinding(t, st, "bind_1")
 	if updated.ProviderCursor != "cursor-2" {
 		t.Fatalf("cursor must advance past a blocked delivery, got %q", updated.ProviderCursor)
 	}
-	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	chatSession, ok := storetest.MustFindExternalChatSession(t, st, "bind_1", "wx-user-1", "")
 	if !ok {
 		t.Fatal("chat session missing")
 	}
-	blocked, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-blocked")
+	blocked, ok := storetest.MustFindExternalChatMessage(t, st, chatSession.ID, "provider-msg-blocked")
 	if !ok || blocked.Status != "delivery_blocked" || blocked.Error == "" {
 		t.Fatalf("blocked message should be terminal with a recorded reason: %#v ok=%v", blocked, ok)
 	}

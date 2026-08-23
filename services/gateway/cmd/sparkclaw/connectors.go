@@ -16,9 +16,9 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixin"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 type connectorAssembly struct {
@@ -30,7 +30,7 @@ type connectorAssembly struct {
 
 func newConnectorAssembly(
 	cfg config.Config,
-	st store.Store,
+	st backend,
 	runtime connectorruntime.AgentRuntime,
 	transcriber speech.Transcriber,
 	endpoints *messagecontrol.EndpointRegistry,
@@ -51,7 +51,7 @@ func newConnectorAssembly(
 		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
 	}
 
-	registry := connector.NewRegistry(cfg, st)
+	registry := connector.NewRegistry(cfg, st).WithCredentialLifecycle(vault)
 	endpoints.WithChannelEnabled(registry.Enabled)
 	providers, err := registry.ProviderRegistry()
 	if err != nil {
@@ -68,11 +68,13 @@ func newConnectorAssembly(
 		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}).WithResultDeliverer(resultDeliverer),
 	)
 	if err := registry.Register(connector.Registration{
-		Channel:   "telegram",
-		SetupKind: app.ConnectorSetupSecret,
-		Binding:   binding.NewTelegramAdapter("telegram", telegramConfig, vault),
-		Provider:  telegramNotifications,
-		Runtime:   telegramService,
+		Channel:         "telegram",
+		SetupKind:       app.ConnectorSetupSecret,
+		Binding:         binding.NewTelegramAdapter("telegram", telegramConfig, vault),
+		BindingProvider: "telegram-bot-api",
+		CredentialKind:  "telegram-bot-token",
+		Provider:        telegramNotifications,
+		Runtime:         telegramService,
 		CancelBinding: func(record app.NotificationBinding) {
 			telegramService.CancelBinding(record.ID)
 		},
@@ -87,16 +89,23 @@ func newConnectorAssembly(
 	}
 
 	weixinConfig := cfg.Tools.Notifications.Channels["weixin"]
+	weixinCredentialKind := ""
+	if weixinproto.IsQRLoginProvider(weixinConfig.Provider) {
+		weixinCredentialKind = "openclaw-weixin-bot-token"
+	}
 	weixinSyncer := weixin.NewSyncer(st).
+		WithCredentialVault(vault).
 		WithConfig(cfg).
-		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(resultDeliverer))
-	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
+		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithCredentialVault(vault).WithResultDeliverer(resultDeliverer))
+	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st, vault)
 	if err := registry.Register(connector.Registration{
-		Channel:   "weixin",
-		SetupKind: app.ConnectorSetupQR,
-		Binding:   binding.NewWeixinAdapter("weixin", weixinConfig),
-		Provider:  weixinNotifications,
-		Runtime:   weixinSyncer,
+		Channel:         "weixin",
+		SetupKind:       app.ConnectorSetupQR,
+		Binding:         binding.NewWeixinAdapter("weixin", weixinConfig),
+		BindingProvider: weixinproto.ProviderName(weixinConfig.Provider),
+		CredentialKind:  weixinCredentialKind,
+		Provider:        weixinNotifications,
+		Runtime:         weixinSyncer,
 	}); err != nil {
 		return nil, fmt.Errorf("register Weixin connector: %w", err)
 	}

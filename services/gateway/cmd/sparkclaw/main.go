@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -32,14 +31,17 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
-	st, err := newStore(cfg)
+	storeStartupCtx, cancelStoreStartup := context.WithTimeout(
+		context.Background(),
+		time.Duration(cfg.State.StartupTimeoutSeconds)*time.Second,
+	)
+	storeRuntime, err := newStore(storeStartupCtx, cfg)
+	cancelStoreStartup()
 	if err != nil {
 		slog.Error("failed to initialize store", "error", err)
 		os.Exit(1)
 	}
-	if closer, ok := st.(interface{ Close() }); ok {
-		defer closer.Close()
-	}
+	st := backendFromRuntime(storeRuntime)
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
 	defer tools.Close()
@@ -71,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 	runtime = runtime.WithArtifactStore(artifactStore)
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, transcriber)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, transcriber, storeRuntime)
 	if err != nil {
 		slog.Error("failed to initialize gateway services", "error", err)
 		os.Exit(1)
@@ -84,6 +86,7 @@ func main() {
 		slog.Error("failed to start gateway services", "error", err)
 		os.Exit(1)
 	}
+	storeRuntime.StartRecovery(serverCtx)
 	if localMindManager != nil {
 		go localMindManager.Run(serverCtx)
 	}
@@ -119,23 +122,85 @@ func main() {
 		slog.Error("gateway background work shutdown failed", "error", err)
 		os.Exit(1)
 	}
+	storeCloseCtx, cancelStoreClose := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := storeRuntime.Close(storeCloseCtx); err != nil {
+		cancelStoreClose()
+		slog.Error("store shutdown failed", "error", err)
+		os.Exit(1)
+	}
+	cancelStoreClose()
 	slog.Info("sparkclaw gateway stopped")
 }
 
-func newStore(cfg config.Config) (store.Store, error) {
+type backend struct {
+	store.ISCPOnboardingRepository
+	store.OwnerRepository
+	store.ClientRepository
+	store.CredentialRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.DocumentRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.EvaluationRepository
+	store.ArtifactMetadataRepository
+	store.BrowserStateRepository
+	store.MemoryRepository
+	store.ScheduleRepository
+	store.PassiveNotificationRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
+func newStore(ctx context.Context, cfg config.Config) (*store.Runtime, error) {
+	timeouts := store.OperationTimeouts{
+		Read:        time.Duration(cfg.State.ReadTimeoutSeconds) * time.Second,
+		Write:       time.Duration(cfg.State.WriteTimeoutSeconds) * time.Second,
+		Transaction: time.Duration(cfg.State.TransactionTimeoutSeconds) * time.Second,
+	}
 	switch cfg.State.Backend {
 	case "", "file":
-		return store.NewFileStoreWithOptions(store.FileStoreOptions{
-			Path:              cfg.State.Path,
-			EncryptAtRest:     cfg.State.EncryptAtRest,
-			EncryptionKey:     cfg.State.EncryptionKey,
-			EncryptionKeyFile: cfg.State.EncryptionKeyFile,
+		return store.NewRuntime(ctx, store.RuntimeOptions{
+			Backend:  store.BackendFile,
+			Timeouts: timeouts,
+			File: store.FileStoreOptions{
+				Path: cfg.State.Path, EncryptAtRest: cfg.State.EncryptAtRest,
+				EncryptionKey: cfg.State.EncryptionKey, EncryptionKeyFile: cfg.State.EncryptionKeyFile,
+			},
 		})
 	case "memory":
-		return store.NewMemoryStore(), nil
+		return store.NewRuntime(ctx, store.RuntimeOptions{Backend: store.BackendMemory, Timeouts: timeouts})
 	case "postgres":
-		return store.NewPostgresStore(context.Background(), cfg.State.DSN)
+		return store.NewRuntime(ctx, store.RuntimeOptions{Backend: store.BackendPostgres, Timeouts: timeouts, PostgresDSN: cfg.State.DSN})
 	default:
-		return nil, fmt.Errorf("unsupported state backend %q", cfg.State.Backend)
+		return store.NewRuntime(ctx, store.RuntimeOptions{Backend: store.BackendKind(cfg.State.Backend), Timeouts: timeouts})
+	}
+}
+
+func backendFromRuntime(runtime *store.Runtime) backend {
+	return backend{
+		ISCPOnboardingRepository:      runtime.ISCPOnboardingRepository(),
+		OwnerRepository:               runtime.OwnerRepository(),
+		ClientRepository:              runtime.ClientRepository(),
+		CredentialRepository:          runtime.CredentialRepository(),
+		ConnectorRepository:           runtime.ConnectorRepository(),
+		SessionRepository:             runtime.SessionRepository(),
+		ConversationRepository:        runtime.ConversationRepository(),
+		RunRepository:                 runtime.RunRepository(),
+		DocumentRepository:            runtime.DocumentRepository(),
+		ApprovalRepository:            runtime.ApprovalRepository(),
+		AuditRepository:               runtime.AuditRepository(),
+		EvaluationRepository:          runtime.EvaluationRepository(),
+		ArtifactMetadataRepository:    runtime.ArtifactMetadataRepository(),
+		BrowserStateRepository:        runtime.BrowserStateRepository(),
+		MemoryRepository:              runtime.MemoryRepository(),
+		ScheduleRepository:            runtime.ScheduleRepository(),
+		PassiveNotificationRepository: runtime.PassiveNotificationRepository(),
+		DeliveryRecordRepository:      runtime.DeliveryRecordRepository(),
+		ExternalChatRepository:        runtime.ExternalChatRepository(),
+		MCPRepository:                 runtime.MCPRepository(),
 	}
 }

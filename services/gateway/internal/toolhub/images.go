@@ -99,11 +99,15 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any, session
 	modelCtx, cancelModels := context.WithCancel(ctx)
 	defer cancelModels()
 	if ocrEnabled {
+		ownerID, err := h.ownerIDForSession(ctx, sessionID)
+		if err != nil {
+			return Result{}, err
+		}
 		results := make(chan imageOCRResult, 1)
 		ocrResult = results
 		go func() {
 			invocation := h.parseDocumentOCR(modelCtx, documentocr.Request{Content: imageForModel.Content, ContentType: imageForModel.ContentType}, documentOCRCallMetadata{
-				SessionID: sessionID, RunID: runID, PreprocessingVersion: "image_inspect_prepare_v1",
+				SessionID: sessionID, OwnerID: ownerID, RunID: runID, PreprocessingVersion: "image_inspect_prepare_v1",
 			})
 			results <- imageOCRResult{result: invocation.Result, err: invocation.Err}
 		}()

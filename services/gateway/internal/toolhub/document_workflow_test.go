@@ -288,7 +288,7 @@ func TestDocumentWorkflowRejectsMissingAmbiguousAndUnsupportedInputs(t *testing.
 	}
 }
 
-func newDocumentWorkflowHub(t *testing.T, root string, state store.Store) *ToolHub {
+func newDocumentWorkflowHub(t *testing.T, root string, state Repository) *ToolHub {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Workspaces.DefaultRoot = root

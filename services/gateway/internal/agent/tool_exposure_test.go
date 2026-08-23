@@ -30,7 +30,7 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 	if entry.Name != "web.search" || entry.Description == "" || entry.Capability.Name != app.ToolCapabilityWebDiscovery || entry.Capability.Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo || entry.Summary == "" {
 		t.Fatalf("unexpected directory entry: %#v", entry)
 	}
-	if run, ok := st.GetRun(request.RunID); !ok || run.Workflow.Nodes[request.NodeID].LastDirectory.ViewID != view.ViewID {
+	if run, ok := testGetRun(st, request.RunID); !ok || run.Workflow.Nodes[request.NodeID].LastDirectory.ViewID != view.ViewID {
 		t.Fatalf("directory binding was not persisted: %#v", run)
 	}
 
@@ -53,7 +53,7 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 
 func TestToolExposureMaterializesFrozenSupportEntryAlongsideBusinessSelection(t *testing.T) {
 	st, engine, request := newWebExposureFixture(t, nil)
-	run, _ := st.GetRun(request.RunID)
+	run, _ := testGetRun(st, request.RunID)
 	node := run.Workflow.Plan.Nodes[0]
 	node.InitialScope.SupportRequirements = []app.CapabilityRequirement{{Name: app.ToolCapabilityObservationRead}}
 	run.Workflow.Plan.Nodes[0] = node
@@ -61,7 +61,7 @@ func TestToolExposureMaterializesFrozenSupportEntryAlongsideBusinessSelection(t 
 	state.CurrentScope = node.InitialScope
 	run.Workflow.Nodes[request.NodeID] = state
 	run.Workflow.PlanDigest = workflowPlanDigest(run.Workflow.Plan)
-	st.SaveRun(run)
+	testSaveRun(st, run)
 
 	view, err := engine.Search(context.Background(), request)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestToolExposureMaterializesFrozenSupportEntryAlongsideBusinessSelection(t 
 	if !exactVisibleToolNames(exposure.Definitions, "web.search", "observation.read") {
 		t.Fatalf("business and support definitions were not materialized together: %#v", visibleToolNames(exposure.Definitions))
 	}
-	stored, _ := st.GetRun(request.RunID)
+	stored, _ := testGetRun(st, request.RunID)
 	if len(stored.Workflow.Nodes[request.NodeID].SelectedEntries) != 2 {
 		t.Fatalf("support entry was not frozen in selected entries: %#v", stored.Workflow.Nodes[request.NodeID].SelectedEntries)
 	}
@@ -173,7 +173,7 @@ func TestDynamicToolDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testi
 			Status: app.WorkflowNodeActive, Stage: "select", CurrentScope: plan.Nodes[0].InitialScope, ScopeRevision: 1,
 		}},
 	}
-	st.SaveRun(app.AgentRun{ID: "run_large_localmind", SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
+	testSaveRun(st, app.AgentRun{ID: "run_large_localmind", SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
 	engine := newToolExposureEngine(st, hub, policy.New(cfg))
 	request := app.ExposureRequest{
 		RunID: "run_large_localmind", WorkflowID: app.WorkflowCodingAgentManage, NodeID: nodeID,
@@ -348,7 +348,7 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 			node.Stage = "scan_tabs"
 			state.Nodes[nodeID] = node
 			runID := "run_browser_stage_" + strings.ReplaceAll(test.name, " ", "_")
-			st.SaveRun(app.AgentRun{ID: runID, SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
+			testSaveRun(st, app.AgentRun{ID: runID, SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
 			request := app.ExposureRequest{RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1, ActorRef: "owner"}
 			initial, err := engine.Search(context.Background(), request)
 			if err != nil {
@@ -376,12 +376,12 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			stored, _ := st.GetRun(runID)
+			stored, _ := testGetRun(st, runID)
 			assessment := profile.Assess(stored.Workflow, outcome)
 			if _, err := applyWorkflowOutcome(&stored, outcome, assessment); err != nil {
 				t.Fatal(err)
 			}
-			st.SaveRun(stored)
+			testSaveRun(st, stored)
 			if node := stored.Workflow.Nodes[nodeID]; node.ScopeRevision != 2 || node.Stage != test.wantStage || node.LastDirectory != nil || len(node.SelectedEntries) != 0 {
 				t.Fatalf("stage transition did not clear the old exposure view: %#v", node)
 			}
@@ -451,7 +451,7 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 			MaxAttempts:  2,
 		}},
 	}
-	st.SaveRun(app.AgentRun{
+	testSaveRun(st, app.AgentRun{
 		ID:        "run_web_exposure",
 		SessionID: "session_web_exposure",
 		State:     "routing",
@@ -473,6 +473,7 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 			},
 		},
 	})
+
 	return st, engine, app.ExposureRequest{
 		RunID:         "run_web_exposure",
 		WorkflowID:    app.WorkflowBrowserInternetSearch,

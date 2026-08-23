@@ -186,7 +186,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		provisioned, provisionErr = r.provisionWorkflowEvidence(ctx, run, stageContext.EvidenceRequirements)
 	}
 	if provisionErr != nil {
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
@@ -197,15 +197,35 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				"node_id":     stageContext.WorkflowNodeID,
 			},
 		})
+
 		result.fail(workflowFailureEvidenceUnavailable, provisionErr)
 		return result
 	}
-	contextSnapshot := r.buildAgentContextSnapshot(sessionID, run.ID, content)
-	task := workflowStepModelTask(run, stageContext)
-	stageBudget := r.newWorkflowStageBudget()
 	if runBudget == nil {
 		runBudget = r.newWorkflowRunBudget(seedCalls)
 	}
+	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
+	if err != nil {
+		if ctx.Err() != nil {
+			result.Halted = true
+			result.Cancelled = true
+			result.FinalAnswer = workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", result.ToolCalls, workflowObservationTexts(result.Observations))
+			r.addAudit(ctx, app.AuditEvent{
+				SessionID: sessionID, RunID: run.ID, Actor: "runtime", Type: "workflow_step.budget_stopped",
+				Summary: "运行已被取消或请求上下文已结束。",
+				Fields: map[string]any{
+					"stage_tool_calls": 0, "run_tool_calls": runBudget.ToolCalls,
+					"observation_bytes": observationsBytes(result.Observations), "no_progress_actions": 0,
+				},
+			})
+
+			return result
+		}
+		result.fail(workflowFailureEvidenceUnavailable, err)
+		return result
+	}
+	task := workflowStepModelTask(run, stageContext)
+	stageBudget := r.newWorkflowStageBudget()
 	noProgressActions := 0
 	requiredToolFinalResponses := 0
 	semanticRepairAttempts := 0
@@ -222,7 +242,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			result.Halted = true
 			result.Cancelled = ctx.Err() != nil
 			result.FinalAnswer = workflowStepBudgetLimitMessage(content, reason, result.ToolCalls, workflowObservationTexts(result.Observations))
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     run.ID,
 				Actor:     "runtime",
@@ -237,29 +257,36 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 					"repeated_tool_calls": runBudget.RepeatedRun.Count,
 				},
 			})
+
 			return result
 		}
-		result.Observations = r.compactWorkflowObservationsIfNeeded(sessionID, run.ID, result.Observations, runBudget)
+		result.Observations = r.compactWorkflowObservationsIfNeeded(ctx, sessionID, run.ID, result.Observations, runBudget)
 		attempts++
 		stepNumber := attempts
 		run.State = "workflow_step"
-		r.store.SaveRun(run)
+		if saved, saveErr := r.saveRun(ctx, run); saveErr != nil {
+			result.fail(workflowFailureStateInvalid, saveErr)
+			return result
+		} else {
+			run = saved
+		}
 		stepVisibleTools := visibleTools
 		if stageBudget.MaxObservationReads > 0 && stageBudget.ObservationReads >= stageBudget.MaxObservationReads {
 			stepVisibleTools = workflowDefinitionsWithoutSupport(run, stageContext.WorkflowNodeID, visibleTools)
 		}
-		system, user, evidencePayload, admissionErr := r.admitWorkflowStepPromptWithProjection(
+		system, user, evidencePayload, admissionErr := r.admitWorkflowStepPromptWithProjection(ctx,
 			sessionID, run.ID, stepNumber, task, content, result.Observations, stageContext,
 			stepVisibleTools, provisioned, contextSnapshot, workflowClientTimezone(run),
 		)
 		if admissionErr != nil {
 			result.Halted = true
 			result.fail(workflowFailurePromptFixedOversized, admissionErr)
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
 				Type: "workflow_step.prompt_admission_failed", Summary: admissionErr.Error(),
 				Fields: map[string]any{"step": stepNumber, "reason_code": workflowFailurePromptFixedOversized},
 			})
+
 			return result
 		}
 		coverage := provisioned.Coverage
@@ -272,7 +299,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			}
 		}
 		coverage = workflowProjectionCoverageForStage(run, stageContext, coverage)
-		projection := r.recordWorkflowEvidenceProjection(run, workflowEvidenceProjectionInput{
+		projection := r.recordWorkflowEvidenceProjection(ctx, run, workflowEvidenceProjectionInput{
 			Payload: evidencePayload, SourceEventIDs: provisioned.SourceEventIDs,
 			DerivedAssertionIDs: provisioned.DerivedAssertionIDs,
 			Consumer:            workflowEvidenceConsumerForStage(run, stageContext), Coverage: coverage,
@@ -282,11 +309,15 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			ValidationErrorCodes:      semanticRepairErrorCodes,
 			Reused:                    stepNumber > 1, ModelOperation: fmt.Sprintf("workflow_step_%d", stepNumber), Step: stepNumber,
 		})
+
 		started := time.Now().UTC()
 		chat, err := r.models.Chat(ctx, task, system, user)
 		completed := time.Now().UTC()
 		result.Chat = chat
-		r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, fmt.Sprintf("workflow_step_%d", stepNumber), chat, err, started, completed))
+		if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, run.ID, fmt.Sprintf("workflow_step_%d", stepNumber), chat, err, started, completed)); saveErr != nil {
+			result.fail(workflowFailureStateInvalid, saveErr)
+			return result
+		}
 		if err != nil {
 			result.Halted = true
 			result.Cancelled = ctx.Err() != nil
@@ -294,16 +325,21 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				result.FinalAnswer = workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", result.ToolCalls, workflowObservationTexts(result.Observations))
 			} else {
 				result.fail(workflowFailureModelUnavailable, err)
-				r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow_step.model_failed", result.FailureCode, result.FailureDiagnostic, map[string]any{"step": stepNumber})
+				r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow_step.model_failed", result.FailureCode, result.FailureDiagnostic, map[string]any{"step": stepNumber})
 			}
 			return result
 		}
 		run.ModelLane = chat.Lane
-		r.store.SaveRun(run)
+		if saved, saveErr := r.saveRun(ctx, run); saveErr != nil {
+			result.fail(workflowFailureStateInvalid, saveErr)
+			return result
+		} else {
+			run = saved
+		}
 		parsed, parseErr := parseWorkflowStepOutput(chat.Content, visibleTools)
 		if parseErr != nil {
 			observation := recoverableWorkflowStepParseObservation(parseErr, stepNumber)
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     run.ID,
 				Actor:     "runtime",
@@ -315,11 +351,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 					"recoverable": true,
 				},
 			})
+
 			result.Observations = append(result.Observations, workflowObservation{Text: observation})
 			noProgressActions++
 			continue
 		}
-		r.store.AddAudit(app.AuditEvent{
+		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
@@ -331,13 +368,14 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				"tool": parsed.Action.Tool,
 			},
 		})
+
 		if parsed.Kind == "final" {
 			requiredTools := workflowStageRequiredTools(run, stageContext.WorkflowNodeID, stepVisibleTools)
 			if stageContext.WorkflowID != "" && stageContext.RequiresToolEvidence && len(requiredTools) > 0 {
 				requiredToolFinalResponses++
 				noProgressActions++
 				result.Observations = append(result.Observations, workflowObservation{Text: requiredWorkflowToolCallObservation(requiredTools)})
-				r.store.AddAudit(app.AuditEvent{
+				r.addAudit(ctx, app.AuditEvent{
 					SessionID: sessionID,
 					RunID:     run.ID,
 					Actor:     "runtime",
@@ -352,6 +390,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 						"tools":        visibleToolNames(requiredTools),
 					},
 				})
+
 				if requiredToolFinalResponses >= maxRequiredToolFinalResponses {
 					result.fail(workflowFailureRequiredToolNotCalled, nil)
 					return result
@@ -371,12 +410,13 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			Capability:     stageContext.Capability,
 		}
 		if stageContext.WorkflowID != "" {
-			capability, err := r.materializedWorkflowCapability(run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, parsed.Action.Tool)
+			capability, err := r.materializedWorkflowCapability(ctx, run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, parsed.Action.Tool)
 			if err != nil {
 				result.fail(workflowFailureToolOutsideActiveScope, err)
-				r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow_step.tool_scope_rejected", result.FailureCode, result.FailureDiagnostic, map[string]any{
+				r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow_step.tool_scope_rejected", result.FailureCode, result.FailureDiagnostic, map[string]any{
 					"workflow_id": stageContext.WorkflowID, "node_id": stageContext.WorkflowNodeID, "tool": parsed.Action.Tool,
 				})
+
 				return result
 			}
 			plan.Capability = capability
@@ -389,7 +429,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				"workflow_protocol_violation: reason_code=%s count=%d limit=%d. Use already-read evidence or choose a business action.",
 				workflowFailureObservationReadLimit, stageBudget.ObservationReads, stageBudget.MaxObservationReads,
 			)})
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
 				Type: "workflow_step.observation_read_limited", Summary: "Rejected a support read after the stage quota was exhausted",
 				Fields: map[string]any{
@@ -397,6 +437,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 					"count": stageBudget.ObservationReads, "limit": stageBudget.MaxObservationReads,
 				},
 			})
+
 			if observationReadLimitViolations > 1 {
 				result.fail(workflowFailureObservationReadLimit, nil)
 				return result
@@ -407,16 +448,17 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		preparedPlan, semanticErr, prepareErr := r.prepareWorkflowSemanticPlan(ctx, run.ID, plan)
 		if prepareErr != nil {
 			result.fail(workflowFailureSemanticPreflight, prepareErr)
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
 				Type: "workflow.semantic_preflight.failed", Summary: prepareErr.Error(),
 				Fields: map[string]any{"projection_id": projection.ProjectionID, "tool": plan.Name},
 			})
+
 			return result
 		}
 		if semanticErr != nil {
 			request := newWorkflowSemanticRepairRequest(projection.ProjectionID, plan.Args, semanticErr)
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
 				Type: "workflow.semantic_output.rejected", Summary: semanticErr.Error(),
 				Fields: map[string]any{
@@ -425,6 +467,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 					"invalid_output_digest": semanticErr.Digest,
 				},
 			})
+
 			if semanticRepairAttempts >= 1 {
 				result.fail(workflowFailureSemanticOutputInvalid, semanticErr)
 				return result
@@ -442,7 +485,11 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				supportAdmitted = true
 			}
 		}
-		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
+		call, approval, observation, persistErr := r.runToolPlan(ctx, sessionID, run.ID, plan)
+		if persistErr != nil {
+			result.fail(workflowFailureStateInvalid, persistErr)
+			return result
+		}
 		result.ToolCalls = append(result.ToolCalls, call)
 		runBudget.observeToolCall(call)
 		if supportCall && workflowSupportCallExecuted(call, supportAdmitted) {
@@ -462,7 +509,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			noProgressActions++
 		}
 		if isManagedBrowserWorkflow(stageContext.WorkflowID) {
-			if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, content, plan, call); ok {
+			block, ok, err := r.recordBrowserLoginBlockFromToolCall(ctx, sessionID, run.ID, content, plan, call)
+			if err != nil {
+				result.fail(workflowFailureStateInvalid, err)
+				return result
+			}
+			if ok {
 				result.BrowserLoginBlock = &block
 				result.FinalAnswer = browserLoginBlockedMessage(block)
 				result.Completed = false
@@ -474,7 +526,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			return result
 		}
 		if supportCall {
-			r.store.AddAudit(app.AuditEvent{
+			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
 				Type: "workflow_step.support_assessed", Summary: "Assessed a support capability result without advancing the business workflow",
 				Fields: map[string]any{
@@ -483,6 +535,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 					"count": stageBudget.ObservationReads, "limit": stageBudget.MaxObservationReads,
 				},
 			})
+
 			continue
 		}
 		if stageContext.WorkflowID != "" {
@@ -554,6 +607,7 @@ func workflowStepModelTask(run app.AgentRun, stageContext workflowStageContext) 
 }
 
 func (r Runtime) admitWorkflowStepPrompt(
+	ctx context.Context,
 	sessionID, runID string,
 	step int,
 	task modelrouter.Task,
@@ -564,7 +618,7 @@ func (r Runtime) admitWorkflowStepPrompt(
 	provisioned provisionedWorkflowEvidence,
 	snapshot agentContextSnapshot,
 ) (string, string, error) {
-	system, user, _, err := r.admitWorkflowStepPromptWithProjection(
+	system, user, _, err := r.admitWorkflowStepPromptWithProjection(ctx,
 		sessionID, runID, step, task, goal, observations, stageContext,
 		visibleTools, provisioned, snapshot, "",
 	)
@@ -572,6 +626,7 @@ func (r Runtime) admitWorkflowStepPrompt(
 }
 
 func (r Runtime) admitWorkflowStepPromptWithProjection(
+	ctx context.Context,
 	sessionID, runID string,
 	step int,
 	task modelrouter.Task,
@@ -604,7 +659,7 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	if len(admission.SectionDecisions) == 0 {
 		return admission.System, admission.User, evidenceVariant, nil
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     runID,
 		Actor:     "runtime",
@@ -625,6 +680,7 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 			"evidence_bytes_after":   len([]byte(evidenceVariant)),
 		},
 	})
+
 	return admission.System, admission.User, evidenceVariant, nil
 }
 
@@ -832,7 +888,7 @@ func workflowObservationTexts(observations []workflowObservation) []string {
 	return out
 }
 
-func (r Runtime) compactWorkflowObservationsIfNeeded(sessionID, runID string, observations []workflowObservation, budget *workflowRunBudget) []workflowObservation {
+func (r Runtime) compactWorkflowObservationsIfNeeded(ctx context.Context, sessionID, runID string, observations []workflowObservation, budget *workflowRunBudget) []workflowObservation {
 	if budget == nil || budget.ObservationCompactionBytes <= 0 || observationsBytes(observations) < budget.ObservationCompactionBytes || len(observations) <= 2 {
 		return observations
 	}
@@ -864,7 +920,7 @@ func (r Runtime) compactWorkflowObservationsIfNeeded(sessionID, runID string, ob
 		return observations
 	}
 	after := observationsBytes(compacted)
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     runID,
 		Actor:     "runtime",
@@ -879,6 +935,7 @@ func (r Runtime) compactWorkflowObservationsIfNeeded(sessionID, runID string, ob
 			"hard_max_bytes":    budget.MaxObservationBytes,
 		},
 	})
+
 	return compacted
 }
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -20,7 +21,7 @@ func TestFileStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(now, "iscp_onboarding_file", app.DefaultOwnerID))
+	receipt, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(now, "iscp_onboarding_file", app.DefaultOwnerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +29,10 @@ func TestFileStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := reloaded.GetISCPOnboarding(receipt.ID)
+	got, ok, err := reloaded.GetISCPOnboarding(context.Background(), receipt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || got.AuthorityRef != receipt.AuthorityRef || got.TicketID != receipt.TicketID {
 		t.Fatalf("ISCP onboarding receipt did not survive restart: %#v ok=%v", got, ok)
 	}
@@ -50,17 +54,18 @@ func TestFileStoreDoesNotRetainISCPOnboardingWhenPersistenceFails(t *testing.T) 
 	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st := &FileStore{inner: NewMemoryStore(), path: filepath.Join(parentFile, "state.json")}
-	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(time.Now().UTC(), "iscp_onboarding_rollback", app.DefaultOwnerID))
-	if err == nil || receipt.ID != "" || len(st.ListISCPOnboardings("")) != 0 {
-		t.Fatalf("failed onboarding persistence returned or retained a receipt: receipt=%#v count=%d err=%v", receipt, len(st.ListISCPOnboardings("")), err)
+	st := newTestFileStore(filepath.Join(parentFile, "state.json"))
+	receipt, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(time.Now().UTC(), "iscp_onboarding_rollback", app.DefaultOwnerID))
+	listed, listErr := st.ListISCPOnboardings(context.Background(), "")
+	if err == nil || receipt.ID != "" || listErr != nil || len(listed) != 0 {
+		t.Fatalf("failed onboarding persistence returned or retained a receipt: receipt=%#v count=%d err=%v list_err=%v", receipt, len(listed), err, listErr)
 	}
 }
 
 func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
 	st := NewMemoryStore()
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "secret-hash"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "secret-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +77,7 @@ func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second))
+			_, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, peer, now.Add(time.Second))
 			results <- err
 		}()
 	}
@@ -89,17 +94,17 @@ func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
 	if succeeded != 1 {
 		t.Fatalf("successful redemptions = %d, want 1", succeeded)
 	}
-	binding, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	binding, ok := mustFindMCPBindingForPeer(t, st, peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
 	if !ok || binding.OwnerID != ticket.OwnerID || binding.ActorID != ticket.ActorID || binding.RequesterDeviceID == binding.ActorID {
 		t.Fatalf("binding did not preserve requester/executor separation: %#v ok=%v", binding, ok)
 	}
-	if session, ok := st.GetSession(binding.LinkedSessionID); !ok || session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
+	if session, ok := mustGetSession(t, st, binding.LinkedSessionID); !ok || session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
 		t.Fatalf("binding session was not created atomically: %#v ok=%v", session, ok)
 	}
-	if sessions := st.ListSessions(); len(sessions) != 1 || sessions[0].ID != binding.LinkedSessionID {
+	if sessions := mustListSessions(t, st); len(sessions) != 1 || sessions[0].ID != binding.LinkedSessionID {
 		t.Fatalf("binding conversation was not visible in the ordinary session list: %#v", sessions)
 	}
-	if _, ok := st.FindMCPBindingForPeer(peer.DomainID, "device-b", peer.KeyThumbprint); ok {
+	if _, ok := mustFindMCPBindingForPeer(t, st, peer.DomainID, "device-b", peer.KeyThumbprint); ok {
 		t.Fatal("device substitution found a binding")
 	}
 }
@@ -111,17 +116,17 @@ func TestFileStorePersistsMCPAccessWithoutPlaintextSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "sha256-only"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "sha256-only"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, app.MCPPeerIdentity{
 		DomainID: ticket.DomainID, DeviceID: "device-file", KeyThumbprint: "thumb-file", ISCPSessionID: "iscp-file",
 	}, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "mcp_operation_file", BindingID: binding.ID, IdempotencyKey: "idem-file", Fingerprint: "fp-file",
 		Invocation: app.MCPInvocationContext{SchemaVersion: app.MCPInvocationSchemaVersion, ID: "inv-file", RunID: "run-file"},
 	})
@@ -132,23 +137,23 @@ func TestFileStorePersistsMCPAccessWithoutPlaintextSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := reloaded.GetMCPBinding(binding.ID); !ok || got.RequesterDeviceID != binding.RequesterDeviceID {
+	if got, ok := mustGetMCPBinding(t, reloaded, binding.ID); !ok || got.RequesterDeviceID != binding.RequesterDeviceID {
 		t.Fatalf("binding did not persist: %#v ok=%v", got, ok)
 	}
-	if got, ok := reloaded.GetMCPOperation(operation.ID); !ok || got.Invocation.ID != "inv-file" {
+	if got, ok := mustGetMCPOperation(t, reloaded, operation.ID); !ok || got.Invocation.ID != "inv-file" {
 		t.Fatalf("operation did not persist: %#v ok=%v", got, ok)
 	}
-	if session, ok := reloaded.GetSession(binding.LinkedSessionID); !ok || session.Hidden || session.Title != "AI · device-file" {
+	if session, ok := mustGetSession(t, reloaded, binding.LinkedSessionID); !ok || session.Hidden || session.Title != "AI · device-file" {
 		t.Fatalf("visible MCP conversation did not survive restart: %#v ok=%v", session, ok)
 	}
-	if got, ok := reloaded.FindMCPAccessTicketBySecretHash(ticket.SecretHash); !ok || got.SecretHash != "sha256-only" {
+	if got, ok := mustFindMCPAccessTicketBySecretHash(t, reloaded, ticket.SecretHash); !ok || got.SecretHash != "sha256-only" {
 		t.Fatalf("ticket hash did not persist: %#v ok=%v", got, ok)
 	}
 }
 
 func TestFileStoreNormalizesLegacyHiddenMCPConversation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-mcp-state.json")
-	now := time.Now().UTC()
+	now := time.Date(2026, 8, 22, 9, 0, 0, 123456789, time.UTC)
 	binding := app.MCPBinding{
 		ID: "mcp_binding_legacy", OwnerID: app.DefaultOwnerID, RequesterDeviceID: "legacy-device-identifier",
 		LinkedSessionID: "s_mcp_binding_legacy", CreatedAt: now, UpdatedAt: now,
@@ -170,9 +175,46 @@ func TestFileStoreNormalizesLegacyHiddenMCPConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, ok := st.GetSession(binding.LinkedSessionID)
+	session, ok := mustGetSession(t, st, binding.LinkedSessionID)
 	if !ok || session.Hidden || session.Title != "AI · legacy-devic" || session.Source != "mcp" {
 		t.Fatalf("legacy MCP conversation was not normalized: %#v ok=%v", session, ok)
+	}
+	storedBinding, ok := mustGetMCPBinding(t, st, binding.ID)
+	if !ok || storedBinding.CreatedAt.Nanosecond()%1000 != 0 || storedBinding.UpdatedAt.Nanosecond()%1000 != 0 {
+		t.Fatalf("legacy MCP binding time was not normalized: %#v ok=%v", storedBinding, ok)
+	}
+}
+
+func TestFileStoreRejectsCorruptPersistedMCPIdentity(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name     string
+		snapshot Snapshot
+	}{
+		{name: "ticket key", snapshot: Snapshot{MCPAccessTickets: map[string]app.MCPAccessTicket{
+			"wrong": normalizeMCPAccessTicket(testMCPAccessTicket(now, "corrupt-ticket"), now),
+		}}},
+		{name: "binding key", snapshot: Snapshot{MCPBindings: map[string]app.MCPBinding{
+			"wrong": {ID: "binding", CreatedAt: now, UpdatedAt: now},
+		}}},
+		{name: "operation key", snapshot: Snapshot{MCPOperations: map[string]app.MCPOperation{
+			"wrong": {ID: "operation", CreatedAt: now, UpdatedAt: now},
+		}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.json")
+			raw, err := json.Marshal(test.snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewFileStore(path); err == nil || !strings.Contains(err.Error(), "validate MCP state") {
+				t.Fatalf("corrupt MCP state error=%v", err)
+			}
+		})
 	}
 }
 
@@ -182,8 +224,8 @@ func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, "", "mcp", false)
-	st.AddMessage(app.Message{
+	session := mustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, "", "mcp", false)
+	mustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "",
 		RequestedMedia: []app.MessageMediaLocator{{Name: "report.pdf", Caption: "Latest report"}},
 	})
@@ -191,7 +233,7 @@ func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages := reloaded.ListMessages(session.ID)
+	messages := mustListMessages(t, reloaded, session.ID)
 	if len(messages) != 1 || strings.TrimSpace(messages[0].Content) != "" || len(messages[0].Attachments) != 0 ||
 		len(messages[0].RequestedMedia) != 1 || messages[0].RequestedMedia[0].Name != "report.pdf" ||
 		messages[0].RequestedMedia[0].Caption != "Latest report" {
@@ -201,14 +243,14 @@ func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
 
 func TestMCPOperationIdempotencyRejectsChangedRequest(t *testing.T) {
 	st := NewMemoryStore()
-	first, created, err := st.CreateMCPOperation(app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-a"})
+	first, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-a"})
 	if err != nil || !created {
 		t.Fatalf("first operation: %#v created=%v err=%v", first, created, err)
 	}
-	if replay, created, err := st.CreateMCPOperation(app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-a"}); err != nil || created || replay.ID != first.ID {
+	if replay, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-a"}); err != nil || created || replay.ID != first.ID {
 		t.Fatalf("same replay mismatch: %#v created=%v err=%v", replay, created, err)
 	}
-	if _, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-b"}); !errors.Is(err, ErrMCPOperationConflict) {
+	if _, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-b"}); !errors.Is(err, ErrMCPOperationConflict) {
 		t.Fatalf("changed replay error = %v", err)
 	}
 }
@@ -216,37 +258,37 @@ func TestMCPOperationIdempotencyRejectsChangedRequest(t *testing.T) {
 func TestMCPBindingRevocationTerminatesOnlyNonterminalOperations(t *testing.T) {
 	st := NewMemoryStore()
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "revoke-binding-hash"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "revoke-binding-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, app.MCPPeerIdentity{
 		DomainID: ticket.DomainID, DeviceID: "device-revoke", KeyThumbprint: "thumb-revoke", ISCPSessionID: "iscp-revoke",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	running, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "running", Fingerprint: "running"})
+	running, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "running", Fingerprint: "running"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	completedAt := now.Add(-time.Second)
-	succeeded, _, err := st.CreateMCPOperation(app.MCPOperation{
+	succeeded, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: "succeeded", Fingerprint: "succeeded",
 		State: app.MCPOperationSucceeded, CompletedAt: &completedAt,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.RevokeMCPBinding(binding.ID, now.Add(time.Second)); err != nil {
+	if _, err := st.RevokeMCPBinding(t.Context(), binding.ID, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	running, _ = st.GetMCPOperation(running.ID)
+	running, _ = mustGetMCPOperation(t, st, running.ID)
 	if running.State != app.MCPOperationRevoked || running.ErrorCode != "binding_revoked" || running.CompletedAt == nil {
 		t.Fatalf("running operation did not become revoked: %#v", running)
 	}
-	succeeded, _ = st.GetMCPOperation(succeeded.ID)
-	if succeeded.State != app.MCPOperationSucceeded || succeeded.CompletedAt == nil || !succeeded.CompletedAt.Equal(completedAt) {
+	succeeded, _ = mustGetMCPOperation(t, st, succeeded.ID)
+	if succeeded.State != app.MCPOperationSucceeded || succeeded.CompletedAt == nil || !succeeded.CompletedAt.Equal(normalizeMCPTime(completedAt)) {
 		t.Fatalf("terminal operation changed during revocation: %#v", succeeded)
 	}
 }
@@ -266,92 +308,92 @@ func TestMCPAccessRecordsCanBeDeletedIndividuallyAndByOwner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(reloaded.ListMCPAccessTickets(app.DefaultOwnerID)) != 0 || len(reloaded.ListMCPBindings(app.DefaultOwnerID)) != 0 {
+		if len(mustListMCPAccessTickets(t, reloaded, app.DefaultOwnerID)) != 0 || len(mustListMCPBindings(t, reloaded, app.DefaultOwnerID)) != 0 {
 			t.Fatal("deleted MCP access records returned after FileStore restart")
 		}
-		if _, ok := reloaded.GetMCPAccessTicket(otherTicketID); !ok {
+		if _, ok := mustGetMCPAccessTicket(t, reloaded, otherTicketID); !ok {
 			t.Fatal("owner-scoped deletion removed another owner's ticket after restart")
 		}
 	})
 }
 
-func testMCPAccessRecordDeletion(t *testing.T, st Store) string {
+func testMCPAccessRecordDeletion(t *testing.T, st testBackend) string {
 	t.Helper()
 	now := time.Now().UTC()
 	expired := testMCPAccessTicket(now, "expired-delete-hash")
 	expired.Status = app.MCPAccessExpired
-	expired, err := st.SaveMCPAccessTicket(expired)
+	expired, err := st.SaveMCPAccessTicket(t.Context(), expired)
 	if err != nil {
 		t.Fatal(err)
 	}
-	deletedTicket, err := st.DeleteMCPAccessTicket(app.DefaultOwnerID, expired.ID)
+	deletedTicket, err := st.DeleteMCPAccessTicket(t.Context(), app.DefaultOwnerID, expired.ID)
 	if err != nil || deletedTicket.Status != app.MCPAccessExpired {
 		t.Fatalf("delete expired ticket: ticket=%#v err=%v", deletedTicket, err)
 	}
-	if _, ok := st.GetMCPAccessTicket(expired.ID); ok {
+	if _, ok := mustGetMCPAccessTicket(t, st, expired.ID); ok {
 		t.Fatal("deleted expired ticket is still available")
 	}
 
-	consumed, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "consumed-delete-hash"))
+	consumed, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "consumed-delete-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := st.RedeemMCPAccessTicket(consumed.SecretHash, app.MCPPeerIdentity{
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), consumed.SecretHash, app.MCPPeerIdentity{
 		DomainID: consumed.DomainID, DeviceID: "delete-device", KeyThumbprint: "delete-thumb", ISCPSessionID: "delete-iscp",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "delete", Fingerprint: "delete"})
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "delete", Fingerprint: "delete"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deletedBinding, err := st.DeleteMCPBinding(app.DefaultOwnerID, binding.ID)
+	deletedBinding, err := st.DeleteMCPBinding(t.Context(), app.DefaultOwnerID, binding.ID)
 	if err != nil || deletedBinding.ID != binding.ID {
 		t.Fatalf("delete binding: binding=%#v err=%v", deletedBinding, err)
 	}
-	if _, ok := st.GetMCPBinding(binding.ID); ok {
+	if _, ok := mustGetMCPBinding(t, st, binding.ID); ok {
 		t.Fatal("deleted binding is still available")
 	}
-	if _, ok := st.GetMCPOperation(operation.ID); ok {
+	if _, ok := mustGetMCPOperation(t, st, operation.ID); ok {
 		t.Fatal("binding deletion retained its MCP operation")
 	}
-	if _, ok := st.GetSession(binding.LinkedSessionID); !ok {
+	if _, ok := mustGetSession(t, st, binding.LinkedSessionID); !ok {
 		t.Fatal("binding record deletion removed conversation history")
 	}
 
-	activeTicket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "bulk-active-hash"))
+	activeTicket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "bulk-active-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	activeBinding, err := st.RedeemMCPAccessTicket(activeTicket.SecretHash, app.MCPPeerIdentity{
+	activeBinding, err := st.RedeemMCPAccessTicket(t.Context(), activeTicket.SecretHash, app.MCPPeerIdentity{
 		DomainID: activeTicket.DomainID, DeviceID: "bulk-device", KeyThumbprint: "bulk-thumb", ISCPSessionID: "bulk-iscp",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bulkOperation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: activeBinding.ID, IdempotencyKey: "bulk", Fingerprint: "bulk"})
+	bulkOperation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: activeBinding.ID, IdempotencyKey: "bulk", Fingerprint: "bulk"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	other := testMCPAccessTicket(now, "other-owner-hash")
 	other.OwnerID, other.ActorID = "owner-other", "owner-other"
-	other, err = st.SaveMCPAccessTicket(other)
+	other, err = st.SaveMCPAccessTicket(t.Context(), other)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	deleted, err := st.DeleteMCPAccessRecords(app.DefaultOwnerID)
+	deleted, err := st.DeleteMCPAccessRecords(t.Context(), app.DefaultOwnerID)
 	if err != nil || deleted.DeletedTickets != 2 || deleted.DeletedBindings != 1 {
 		t.Fatalf("delete all owner records: deleted=%#v err=%v", deleted, err)
 	}
-	if len(st.ListMCPAccessTickets(app.DefaultOwnerID)) != 0 || len(st.ListMCPBindings(app.DefaultOwnerID)) != 0 {
+	if len(mustListMCPAccessTickets(t, st, app.DefaultOwnerID)) != 0 || len(mustListMCPBindings(t, st, app.DefaultOwnerID)) != 0 {
 		t.Fatal("owner records remain after delete all")
 	}
-	if _, ok := st.GetMCPOperation(bulkOperation.ID); ok {
+	if _, ok := mustGetMCPOperation(t, st, bulkOperation.ID); ok {
 		t.Fatal("delete all retained an operation for a deleted binding")
 	}
-	if _, ok := st.GetMCPAccessTicket(other.ID); !ok {
+	if _, ok := mustGetMCPAccessTicket(t, st, other.ID); !ok {
 		t.Fatal("delete all removed another owner's ticket")
 	}
 	return other.ID
@@ -360,28 +402,28 @@ func testMCPAccessRecordDeletion(t *testing.T, st Store) string {
 func TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore(t *testing.T) {
 	st := NewMemoryStore()
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
 		SchemaVersion: app.MCPAccessTicketSchemaVersion, SecretHash: "clone-secret", DomainID: "domain-a", Scope: app.MCPAccessConversation,
 		Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedTicket, _ := st.GetMCPAccessTicket(ticket.ID)
+	storedTicket, _ := mustGetMCPAccessTicket(t, st, ticket.ID)
 	if storedTicket.Scope != app.MCPAccessConversation {
 		t.Fatalf("ticket mutation escaped Store boundary: %#v", storedTicket)
 	}
-	binding, err := st.RedeemMCPAccessTicket("clone-secret", app.MCPPeerIdentity{
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), "clone-secret", app.MCPPeerIdentity{
 		DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedBinding, _ := st.GetMCPBinding(binding.ID)
+	storedBinding, _ := mustGetMCPBinding(t, st, binding.ID)
 	if storedBinding.Scope != app.MCPAccessConversation {
 		t.Fatalf("binding mutation escaped Store boundary: %#v", storedBinding)
 	}
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: "clone-operation", Fingerprint: "clone-fingerprint",
 		Invocation: app.MCPInvocationContext{Arguments: map[string]any{
 			"nested": map[string]any{"value": "original"}, "items": []any{map[string]any{"value": "original"}},
@@ -394,7 +436,7 @@ func TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore(t *testing.T) {
 	operation.Invocation.Arguments["nested"].(map[string]any)["value"] = "changed"
 	operation.Invocation.Arguments["items"].([]any)[0].(map[string]any)["value"] = "changed"
 	operation.Result[0] = '['
-	storedOperation, _ := st.GetMCPOperation(operation.ID)
+	storedOperation, _ := mustGetMCPOperation(t, st, operation.ID)
 	if storedOperation.Invocation.Arguments["nested"].(map[string]any)["value"] != "original" ||
 		storedOperation.Invocation.Arguments["items"].([]any)[0].(map[string]any)["value"] != "original" ||
 		string(storedOperation.Result) != `{"value":"original"}` {
@@ -412,10 +454,10 @@ func TestFileStoreDoesNotReturnOrRetainTicketWhenPersistenceFails(t *testing.T) 
 		t.Fatal("FileStore unexpectedly opened a state path below a regular file")
 	}
 
-	st = &FileStore{inner: NewMemoryStore(), path: filepath.Join(parentFile, "state.json")}
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(time.Now().UTC(), "must-not-survive"))
-	if err == nil || ticket.ID != "" || len(st.ListMCPAccessTickets("")) != 0 {
-		t.Fatalf("failed ticket persistence returned or retained a ticket: ticket=%#v count=%d err=%v", ticket, len(st.ListMCPAccessTickets("")), err)
+	st = newTestFileStore(filepath.Join(parentFile, "state.json"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(time.Now().UTC(), "must-not-survive"))
+	if err == nil || ticket.ID != "" || len(mustListMCPAccessTickets(t, st, "")) != 0 {
+		t.Fatalf("failed ticket persistence returned or retained a ticket: ticket=%#v count=%d err=%v", ticket, len(mustListMCPAccessTickets(t, st, "")), err)
 	}
 }
 
@@ -426,7 +468,7 @@ func TestFileStoreRollsBackMCPStateWhenPersistenceFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "rollback-hash"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "rollback-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,14 +484,14 @@ func TestFileStoreRollsBackMCPStateWhenPersistenceFails(t *testing.T) {
 	}
 	st.path = filepath.Join(parentFile, "state.json")
 	peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
-	if binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second)); err == nil || binding.ID != "" {
+	if binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, peer, now.Add(time.Second)); err == nil || binding.ID != "" {
 		t.Fatalf("failed redemption returned a binding: binding=%#v err=%v", binding, err)
 	}
-	stored, ok := st.GetMCPAccessTicket(ticket.ID)
+	stored, ok := mustGetMCPAccessTicket(t, st, ticket.ID)
 	if !ok || stored.Status != app.MCPAccessPending || stored.UseCount != 0 {
 		t.Fatalf("failed redemption consumed the ticket: %#v ok=%v", stored, ok)
 	}
-	if _, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint); ok {
+	if _, ok := mustFindMCPBindingForPeer(t, st, peer.DomainID, peer.DeviceID, peer.KeyThumbprint); ok {
 		t.Fatal("failed redemption retained a binding")
 	}
 }
@@ -461,16 +503,16 @@ func TestFileStoreRollsBackBindingAndOperationsWhenRevocationPersistenceFails(t 
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "revoke-rollback-hash"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "revoke-rollback-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
-	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now)
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, peer, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "revoke-rollback", Fingerprint: "revoke-rollback"})
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "revoke-rollback", Fingerprint: "revoke-rollback"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,11 +521,11 @@ func TestFileStoreRollsBackBindingAndOperationsWhenRevocationPersistenceFails(t 
 		t.Fatal(err)
 	}
 	st.path = filepath.Join(parentFile, "state.json")
-	if revoked, err := st.RevokeMCPBinding(binding.ID, now.Add(time.Second)); err == nil || revoked.ID != "" {
+	if revoked, err := st.RevokeMCPBinding(t.Context(), binding.ID, now.Add(time.Second)); err == nil || revoked.ID != "" {
 		t.Fatalf("failed revocation returned a binding: binding=%#v err=%v", revoked, err)
 	}
-	storedBinding, _ := st.GetMCPBinding(binding.ID)
-	storedOperation, _ := st.GetMCPOperation(operation.ID)
+	storedBinding, _ := mustGetMCPBinding(t, st, binding.ID)
+	storedOperation, _ := mustGetMCPOperation(t, st, operation.ID)
 	if storedBinding.Status != app.MCPBindingActive || storedOperation.State != app.MCPOperationRunning {
 		t.Fatalf("failed revocation was retained: binding=%#v operation=%#v", storedBinding, storedOperation)
 	}
@@ -496,17 +538,17 @@ func TestFileStoreRollsBackMCPRecordDeletionWhenPersistenceFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "delete-rollback-hash"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "delete-rollback-hash"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, app.MCPPeerIdentity{
 		DomainID: ticket.DomainID, DeviceID: "delete-rollback-device", KeyThumbprint: "delete-rollback-thumb", ISCPSessionID: "delete-rollback-iscp",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "delete-rollback", Fingerprint: "delete-rollback"})
+	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "delete-rollback", Fingerprint: "delete-rollback"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,27 +557,90 @@ func TestFileStoreRollsBackMCPRecordDeletionWhenPersistenceFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.path = filepath.Join(parentFile, "state.json")
-	if deleted, err := st.DeleteMCPAccessTicket(app.DefaultOwnerID, ticket.ID); err == nil || deleted.ID != "" {
+	if deleted, err := st.DeleteMCPAccessTicket(t.Context(), app.DefaultOwnerID, ticket.ID); err == nil || deleted.ID != "" {
 		t.Fatalf("failed ticket deletion returned a record: ticket=%#v err=%v", deleted, err)
 	}
-	if _, ok := st.GetMCPAccessTicket(ticket.ID); !ok {
+	if _, ok := mustGetMCPAccessTicket(t, st, ticket.ID); !ok {
 		t.Fatal("failed persistence removed the access ticket")
 	}
-	if deleted, err := st.DeleteMCPBinding(app.DefaultOwnerID, binding.ID); err == nil || deleted.ID != "" {
+	if deleted, err := st.DeleteMCPBinding(t.Context(), app.DefaultOwnerID, binding.ID); err == nil || deleted.ID != "" {
 		t.Fatalf("failed binding deletion returned a record: binding=%#v err=%v", deleted, err)
 	}
-	if _, ok := st.GetMCPBinding(binding.ID); !ok {
+	if _, ok := mustGetMCPBinding(t, st, binding.ID); !ok {
 		t.Fatal("failed persistence removed the binding")
 	}
-	if _, ok := st.GetMCPOperation(operation.ID); !ok {
+	if _, ok := mustGetMCPOperation(t, st, operation.ID); !ok {
 		t.Fatal("failed persistence removed the binding operation")
 	}
-	if deleted, err := st.DeleteMCPAccessRecords(app.DefaultOwnerID); err == nil || deleted.DeletedTickets != 0 || deleted.DeletedBindings != 0 {
+	if deleted, err := st.DeleteMCPAccessRecords(t.Context(), app.DefaultOwnerID); err == nil || deleted.DeletedTickets != 0 || deleted.DeletedBindings != 0 {
 		t.Fatalf("failed bulk deletion returned counts: deleted=%#v err=%v", deleted, err)
 	}
-	if len(st.ListMCPAccessTickets(app.DefaultOwnerID)) != 1 || len(st.ListMCPBindings(app.DefaultOwnerID)) != 1 {
+	if len(mustListMCPAccessTickets(t, st, app.DefaultOwnerID)) != 1 || len(mustListMCPBindings(t, st, app.DefaultOwnerID)) != 1 {
 		t.Fatal("failed bulk persistence removed MCP access records")
 	}
+}
+
+func mustGetMCPAccessTicket(t testing.TB, repository MCPRepository, id string) (app.MCPAccessTicket, bool) {
+	t.Helper()
+	ticket, found, err := repository.GetMCPAccessTicket(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ticket, found
+}
+
+func mustFindMCPAccessTicketBySecretHash(t testing.TB, repository MCPRepository, secretHash string) (app.MCPAccessTicket, bool) {
+	t.Helper()
+	ticket, found, err := repository.FindMCPAccessTicketBySecretHash(t.Context(), secretHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ticket, found
+}
+
+func mustListMCPAccessTickets(t testing.TB, repository MCPRepository, ownerID string) []app.MCPAccessTicket {
+	t.Helper()
+	tickets, err := repository.ListMCPAccessTickets(t.Context(), ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tickets
+}
+
+func mustGetMCPBinding(t testing.TB, repository MCPRepository, id string) (app.MCPBinding, bool) {
+	t.Helper()
+	binding, found, err := repository.GetMCPBinding(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding, found
+}
+
+func mustFindMCPBindingForPeer(t testing.TB, repository MCPRepository, domainID, deviceID, thumbprint string) (app.MCPBinding, bool) {
+	t.Helper()
+	binding, found, err := repository.FindMCPBindingForPeer(t.Context(), domainID, deviceID, thumbprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding, found
+}
+
+func mustListMCPBindings(t testing.TB, repository MCPRepository, ownerID string) []app.MCPBinding {
+	t.Helper()
+	bindings, err := repository.ListMCPBindings(t.Context(), ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bindings
+}
+
+func mustGetMCPOperation(t testing.TB, repository MCPRepository, id string) (app.MCPOperation, bool) {
+	t.Helper()
+	operation, found, err := repository.GetMCPOperation(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return operation, found
 }
 
 func testMCPAccessTicket(now time.Time, secretHash string) app.MCPAccessTicket {

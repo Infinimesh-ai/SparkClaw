@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,11 +17,11 @@ import (
 )
 
 type governedArtifactStore interface {
-	ListArtifactObjects(int) []app.ArtifactObject
-	GetSession(string) (app.Session, bool)
+	ListArtifactObjects(context.Context, int) ([]app.ArtifactObject, error)
+	GetSession(context.Context, string) (app.Session, bool, error)
 }
 
-func ResolveBrowserContent(st governedArtifactStore, ownerID, defaultWorkspaceRoot string, content app.MessageContent) (app.MessageContent, error) {
+func ResolveBrowserContent(ctx context.Context, st governedArtifactStore, ownerID, defaultWorkspaceRoot string, content app.MessageContent) (app.MessageContent, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if st == nil || ownerID == "" {
 		return app.MessageContent{}, NewError(CodeArtifactInvalid, "artifact authorization is unavailable", "blocked")
@@ -36,11 +37,17 @@ func ResolveBrowserContent(st governedArtifactStore, ownerID, defaultWorkspaceRo
 		if artifactID == "" {
 			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("part %q requires an artifact", part.ID), "blocked")
 		}
-		object, ok := findArtifact(st, artifactID)
+		object, ok, err := findArtifact(ctx, st, artifactID)
+		if err != nil {
+			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("artifact for part %q cannot be resolved", part.ID), "blocked")
+		}
 		if !ok || strings.TrimSpace(object.SessionID) == "" {
 			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("artifact for part %q is unavailable", part.ID), "blocked")
 		}
-		session, ok := st.GetSession(object.SessionID)
+		session, ok, err := st.GetSession(ctx, object.SessionID)
+		if err != nil {
+			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("artifact for part %q cannot resolve its session", part.ID), "blocked")
+		}
 		if !ok || normalizedOwnerID(session.OwnerID) != ownerID {
 			return app.MessageContent{}, NewError(CodeCrossUserDenied, "artifact is outside the actor owner scope", "blocked")
 		}
@@ -87,13 +94,17 @@ func ContentDigest(target app.EndpointID, content app.MessageContent) (string, e
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func findArtifact(st governedArtifactStore, id string) (app.ArtifactObject, bool) {
-	for _, object := range st.ListArtifactObjects(0) {
+func findArtifact(ctx context.Context, st governedArtifactStore, id string) (app.ArtifactObject, bool, error) {
+	objects, err := st.ListArtifactObjects(ctx, 0)
+	if err != nil {
+		return app.ArtifactObject{}, false, err
+	}
+	for _, object := range objects {
 		if object.ID == id {
-			return object, true
+			return object, true, nil
 		}
 	}
-	return app.ArtifactObject{}, false
+	return app.ArtifactObject{}, false, nil
 }
 
 func validateArtifactPath(session app.Session, object app.ArtifactObject, defaultWorkspaceRoot string) (string, os.FileInfo, error) {

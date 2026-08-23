@@ -23,12 +23,14 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connector"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -134,7 +136,7 @@ func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	if !strings.Contains(string(raw), "SparkClaw document upload") {
 		t.Fatalf("uploaded file content mismatch: %q", raw)
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) == 0 || objects[0].Kind != "document_upload" {
 		t.Fatalf("upload artifact not stored: %#v", objects)
 	}
@@ -144,7 +146,7 @@ func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, root, "mcp", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, root, "mcp", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -164,7 +166,7 @@ func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
 	if deleteResponse.Code != http.StatusConflict {
 		t.Fatalf("MCP conversation delete returned %d, want %d", deleteResponse.Code, http.StatusConflict)
 	}
-	if current, ok := st.GetSession(session.ID); !ok || current.Title != session.Title {
+	if current, ok := storetest.MustGetSession(t, st, session.ID); !ok || current.Title != session.Title {
 		t.Fatalf("MCP conversation changed through the ordinary session API: %#v ok=%v", current, ok)
 	}
 
@@ -180,7 +182,7 @@ func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
 			t.Fatalf("MCP conversation message write %s returned %d, want %d: %s", path, response.Code, http.StatusConflict, response.Body.String())
 		}
 	}
-	if messages := st.ListMessages(session.ID); len(messages) != 0 {
+	if messages := storetest.MustListMessages(t, st, session.ID); len(messages) != 0 {
 		t.Fatalf("ordinary session API wrote into an MCP conversation: %#v", messages)
 	}
 }
@@ -189,7 +191,7 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, root, "mcp", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "AI · device", app.DefaultOwnerID, root, "mcp", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -200,23 +202,24 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 		BindingRevision: 1, RequesterDeviceID: "device-async-approval",
 	}
 	runID := "run-async-approval"
-	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "Continue after approval"})
-	st.SaveRun(app.AgentRun{
+	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "Continue after approval"})
+	testSaveRun(st, app.AgentRun{
 		ID: runID, SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{MCP: ref},
 	})
+
 	call := app.ToolCall{
 		ID: "call-async-approval", SessionID: session.ID, RunID: runID, Tool: "notify.ask_approval", Risk: app.RiskRead,
 		Status: "approval_pending", Arguments: map[string]any{"summary": "Continue"}, StartedAt: time.Now().UTC(),
 		ApprovalID: "approval-async",
 	}
-	st.SaveToolCall(call)
-	st.SaveApproval(app.Approval{
+	testSaveToolCall(st, call)
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID: call.ApprovalID, Source: app.ApprovalSourceTool, SessionID: session.ID, RunID: runID, ToolCallID: call.ID,
 		Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
 		CreatedAt: time.Now().UTC(),
 	})
-	if _, _, err := st.CreateMCPOperation(app.MCPOperation{
+	if _, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "async-approval", Fingerprint: "async-approval",
 		State: app.MCPOperationApprovalRequired,
 		Invocation: app.MCPInvocationContext{
@@ -248,8 +251,8 @@ func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *test
 	if err := server.WaitForBackgroundWork(waitCtx); err != nil {
 		t.Fatal(err)
 	}
-	storedApproval, _ := st.GetApproval(call.ApprovalID)
-	operation, _ := st.GetMCPOperation(ref.OperationID)
+	storedApproval, _ := storetest.MustGetApproval(t, st, call.ApprovalID)
+	operation, _, _ := st.GetMCPOperation(t.Context(), ref.OperationID)
 	if storedApproval.Status != "approved" || operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_resume_unavailable" {
 		t.Fatalf("background failure was conflated with the durable approval: approval=%#v operation=%#v", storedApproval, operation)
 	}
@@ -323,7 +326,7 @@ func TestUploadImageSavesUnderMedia(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	userRoot := filepath.Join(root, "users", "owner-a")
-	session := st.CreateSessionWithScope("user upload", "owner-a", userRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "user upload", "owner-a", userRoot, "webchat", false)
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)
@@ -398,7 +401,7 @@ func TestDocumentFileUsesAuthenticatedSessionWorkspace(t *testing.T) {
 	cfg.Gateway.APIToken = "secret-token"
 	st := store.NewMemoryStore()
 	userRoot := filepath.Join(root, "users", "owner-a")
-	session := st.CreateSessionWithScope("weather", "owner-a", userRoot, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "weather", "owner-a", userRoot, "webchat", false)
 	mediaPath := filepath.Join(userRoot, "media", "weather-card.png")
 	if err := os.MkdirAll(filepath.Dir(mediaPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -518,7 +521,7 @@ func TestUnregisteredPatchRequestBlocksBeforeApproval(t *testing.T) {
 	if len(approvals) != 0 {
 		t.Fatalf("unregistered patch request created approvals: %#v", approvals)
 	}
-	runs := st.ListRuns(sessionID)
+	runs := testListRuns(st, sessionID)
 	if len(runs) != 1 || runs[0].State != "blocked" || runs[0].MessageContext == nil || runs[0].MessageContext.Route.Status != app.RouteUnmatched {
 		t.Fatalf("unregistered patch request did not fail closed: %#v", runs)
 	}
@@ -526,8 +529,8 @@ func TestUnregisteredPatchRequestBlocksBeforeApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != "alpha\nbeta\ngamma" || len(st.ListToolCalls(sessionID)) != 0 {
-		t.Fatalf("blocked patch request mutated the workspace: raw=%q calls=%#v", raw, st.ListToolCalls(sessionID))
+	if string(raw) != "alpha\nbeta\ngamma" || len(testListToolCalls(st, sessionID)) != 0 {
+		t.Fatalf("blocked patch request mutated the workspace: raw=%q calls=%#v", raw, testListToolCalls(st, sessionID))
 	}
 }
 
@@ -540,9 +543,9 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		Risk:      app.RiskDangerous,
 		StartedAt: time.Now().UTC(),
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	created := time.Now().UTC()
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:        "ap_one",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
@@ -552,7 +555,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		Summary:   "Write sensitive memory",
 		CreatedAt: created,
 	})
-	st.SaveApproval(app.Approval{
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:        "ap_two",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
@@ -566,22 +569,26 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	cfg.Model.Mock = true
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 
-	if _, err := st.ResolveApproval("ap_one", "approved", "ok"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "ap_one", "approved", "ok"); err != nil {
 		t.Fatal(err)
 	}
-	runtime.CompleteRunIfApprovalsResolved(run.ID)
-	pendingRun, ok := st.GetRun(run.ID)
+	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	pendingRun, ok := testGetRun(st, run.ID)
 	if !ok {
 		t.Fatalf("run %q missing", run.ID)
 	}
 	if pendingRun.State != "approval_pending" || pendingRun.CompletedAt != nil {
 		t.Fatalf("run completed before all approvals resolved: %#v", pendingRun)
 	}
-	if _, err := st.ResolveApproval("ap_two", "rejected", "no"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), "ap_two", "rejected", "no"); err != nil {
 		t.Fatal(err)
 	}
-	runtime.CompleteRunIfApprovalsResolved(run.ID)
-	completedRun, ok := st.GetRun(run.ID)
+	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	completedRun, ok := testGetRun(st, run.ID)
 	if !ok {
 		t.Fatalf("run %q missing after approvals", run.ID)
 	}
@@ -728,10 +735,10 @@ func TestChatEndpointSupportsManualModelProfileWithoutTools(t *testing.T) {
 	if decoded.Model.Lane != "deep" || decoded.Model.Profile != cfg.Model.Deep.Name || !decoded.Model.Mock || decoded.Message == "" {
 		t.Fatalf("unexpected chat response: %#v", decoded)
 	}
-	if len(st.ListSessions()) != 0 || len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(storetest.MustListSessions(t, st)) != 0 || len(testListToolCalls(st, "")) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
 		t.Fatalf("direct chat should not mutate agent state")
 	}
-	calls := st.ListModelCalls("", "")
+	calls := testListModelCalls(st, "", "")
 	directCallRecorded := false
 	for _, call := range calls {
 		if call.Operation == "direct_chat" && call.Lane == "deep" && call.TotalTokens > 0 {
@@ -910,12 +917,12 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-stream-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-stream-target", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
 		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
 		ExternalUserID: "user", ExternalChatID: "chat", DisplayName: "Selected recipient", Status: "active",
@@ -981,7 +988,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
 	if err := os.MkdirAll(filepath.Join(root, "uploads"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1005,11 +1012,11 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 			ContentType: file.contentType, Bytes: len(file.content),
 		})
 	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-media-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-media-target", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
 		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
 		ExternalUserID: "selected-user", ExternalChatID: "selected-chat", DisplayName: "Selected recipient", Status: "active",
@@ -1043,7 +1050,7 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 			t.Fatalf("provider received command text or the wrong media part: index=%d part=%#v", index, part)
 		}
 	}
-	if approvals := st.ListApprovals("pending"); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, "pending"); len(approvals) != 0 {
 		t.Fatalf("external media publication unexpectedly requested approval: %#v", approvals)
 	}
 	messagesResponse, err := http.Get(ts.URL + "/api/sessions/" + session.ID + "/messages")
@@ -1095,10 +1102,10 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	cfg := testConfig(root)
 
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Memory editor")
+	session := storetest.MustCreateSession(t, st, "Memory editor")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	testSaveRun(st, run)
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -1106,7 +1113,8 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1177,7 +1185,7 @@ func TestMemoryEditorUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	if deleteResp.StatusCode != http.StatusOK {
 		t.Fatalf("memory delete returned %d", deleteResp.StatusCode)
 	}
-	if matches := st.SearchMemories("edited memory"); len(matches) != 0 {
+	if matches := mustSearchMemories(t, st, "edited memory"); len(matches) != 0 {
 		t.Fatalf("deleted memory still searchable: %#v", matches)
 	}
 	missingResp, err := http.Post(ts.URL+"/api/memories/"+memory.ID+"/delete", "application/json", bytes.NewBufferString(`{}`))
@@ -1195,13 +1203,18 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	cfg := testConfig(root)
 
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Memory export")
+	session := storetest.MustCreateSession(t, st, "Memory export")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	profile := st.GetOwnerProfile()
+	testSaveRun(st, run)
+	profile, err := st.GetOwnerProfile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	profile.DisplayName = "Export Owner"
-	st.UpdateOwnerProfile(profile)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	if _, err := st.UpdateOwnerProfile(context.Background(), profile); err != nil {
+		t.Fatal(err)
+	}
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -1209,7 +1222,8 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	st.SaveEpisodeSummary(app.EpisodeSummary{
+
+	testSaveEpisodeSummary(st, app.EpisodeSummary{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Goal:      "Export memory",
@@ -1219,11 +1233,12 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 		Summary:   "Memory export test episode.",
 		CreatedAt: time.Now().UTC(),
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "SparkClaw export keeps edited memory")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "SparkClaw export keeps edited memory")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1284,7 +1299,7 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	if !strings.Contains(string(raw), updated.Content) {
 		t.Fatalf("archived memory export missing edited memory: %s", string(raw))
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if !slices.ContainsFunc(objects, func(object app.ArtifactObject) bool {
 		return object.Kind == "memory_export" && object.URI == archived.Artifact.URI
 	}) {
@@ -1297,8 +1312,8 @@ func TestMemoryRetentionPrunesExpiredMemories(t *testing.T) {
 	cfg := testConfig(root)
 	cfg.Memory.RetentionDays = 7
 
-	now := time.Now().UTC()
-	session := app.Session{ID: "s_retention", Title: "Memory retention", CreatedAt: now, UpdatedAt: now}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	session := app.Session{ID: "s_retention", OwnerID: app.DefaultOwnerID, Title: "Memory retention", Source: "webchat", CreatedAt: now, UpdatedAt: now}
 	run := app.AgentRun{ID: "run_retention", SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskRead, StartedAt: now}
 	old := app.Memory{
 		ID:        "mem_old_retention",
@@ -1362,11 +1377,11 @@ func TestMemoryRetentionPrunesExpiredMemories(t *testing.T) {
 	if len(decoded.Memories) != 1 || decoded.Memories[0].ID != fresh.ID {
 		t.Fatalf("retention did not prune old memory: %#v", decoded.Memories)
 	}
-	if oldMatches := st.SearchMemories("old retention"); len(oldMatches) != 0 {
+	if oldMatches := mustSearchMemories(t, st, "old retention"); len(oldMatches) != 0 {
 		t.Fatalf("old memory remained in store: %#v", oldMatches)
 	}
-	if !hasGatewayAuditType(st.ListAudit(session.ID), "memory.pruned") {
-		t.Fatalf("retention prune was not audited: %#v", st.ListAudit(session.ID))
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, session.ID), "memory.pruned") {
+		t.Fatalf("retention prune was not audited: %#v", mustGatewayListAudit(t, st, session.ID))
 	}
 }
 
@@ -1432,8 +1447,8 @@ func TestRunFeedbackPersistsAndRefreshesTrace(t *testing.T) {
 	if len(refreshed.Feedback) != 1 || refreshed.Feedback[0].Correction != feedback.Correction {
 		t.Fatalf("trace did not include feedback: %#v", refreshed.Feedback)
 	}
-	if !hasGatewayAuditType(st.ListAudit(sessionID), "run_feedback.saved") {
-		t.Fatalf("feedback audit event missing: %#v", st.ListAudit(sessionID))
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, sessionID), "run_feedback.saved") {
+		t.Fatalf("feedback audit event missing: %#v", mustGatewayListAudit(t, st, sessionID))
 	}
 }
 
@@ -1465,7 +1480,7 @@ func TestManualToolInvokeRequiresApprovalForDangerousTool(t *testing.T) {
 	if len(approvals) != 1 || approvals[0]["tool"] != "shell.exec_sandboxed" {
 		t.Fatalf("expected pending shell approval, got %#v", approvals)
 	}
-	calls := st.ListToolCalls(sessionID)
+	calls := testListToolCalls(st, sessionID)
 	if len(calls) != 1 || calls[0].Status != "approval_pending" {
 		t.Fatalf("expected approval-pending tool call, got %#v", calls)
 	}
@@ -1476,8 +1491,8 @@ func TestManualToolInvokeRequiresApprovalForDangerousTool(t *testing.T) {
 	if verifier["lane"] != "deep" || verifier["required_user_confirmation"] != true {
 		t.Fatalf("manual verifier decision incomplete: %#v", verifier)
 	}
-	if !hasGatewayAuditType(st.ListAudit(sessionID), "verifier.deep_check") {
-		t.Fatalf("manual verifier audit event missing: %#v", st.ListAudit(sessionID))
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, sessionID), "verifier.deep_check") {
+		t.Fatalf("manual verifier audit event missing: %#v", mustGatewayListAudit(t, st, sessionID))
 	}
 }
 
@@ -1566,7 +1581,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("context approval", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "context approval", app.DefaultOwnerID, root, "web", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
@@ -1574,7 +1589,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 	run := app.AgentRun{ID: "run_context_modify", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	policyContext := &app.PolicyExecutionContext{
 		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
@@ -1590,8 +1605,8 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
-	st.SaveToolCall(call)
-	st.SaveApproval(approval)
+	testSaveToolCall(st, call)
+	storetest.MustSaveApproval(t, st, approval)
 
 	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"arguments":{"request_digest":"changed"}}`))
 	if err != nil {
@@ -1601,7 +1616,7 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("context-bound approval modify returned %d", resp.StatusCode)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.Arguments["request_digest"] != "frozen" {
 		t.Fatalf("context-bound approval was modified: %#v", stored)
 	}
@@ -1627,7 +1642,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 			Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	modified, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"plan":"Owner-edited plan"}`))
 	if err != nil {
@@ -1637,7 +1652,7 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	if modified.StatusCode != http.StatusOK {
 		t.Fatalf("Happy plan modify returned %d", modified.StatusCode)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.ExternalContext == nil || stored.ExternalContext.Plan != "Owner-edited plan" || !stored.ExternalContext.PlanEdited {
 		t.Fatalf("edited Happy plan was not persisted: %#v", stored)
 	}
@@ -1650,11 +1665,11 @@ func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	if approved.StatusCode != http.StatusOK {
 		t.Fatalf("Happy plan approval returned %d", approved.StatusCode)
 	}
-	stored, _ = st.GetApproval(approval.ID)
+	stored, _ = storetest.MustGetApproval(t, st, approval.ID)
 	if resolver.status != "approved" || resolver.approval.ExternalContext == nil || resolver.approval.ExternalContext.Plan != "Owner-edited plan" || stored.Status != "approved" {
 		t.Fatalf("remote-first approval mismatch resolver=%#v stored=%#v", resolver, stored)
 	}
-	if calls := st.ListToolCalls(""); len(calls) != 0 {
+	if calls := testListToolCalls(st, ""); len(calls) != 0 {
 		t.Fatalf("external approval created a local tool call: %#v", calls)
 	}
 }
@@ -1678,7 +1693,7 @@ func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
 			Provider: "happy-team", Plan: "Plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/approve", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
@@ -1688,7 +1703,7 @@ func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("remote failure returned %d", resp.StatusCode)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.Status != "pending" || stored.ResolvedAt != nil {
 		t.Fatalf("remote failure resolved local approval: %#v", stored)
 	}
@@ -1713,7 +1728,7 @@ func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
 			Provider: "happy-team", Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 
 	approved := make(chan int, 1)
 	go func() {
@@ -1748,7 +1763,7 @@ func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
 	if status := <-modified; status != http.StatusBadRequest {
 		t.Fatalf("late plan edit returned %d", status)
 	}
-	stored, _ := st.GetApproval(approval.ID)
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if resolver.approval.ExternalContext.Plan != "Original plan" || stored.ExternalContext.Plan != "Original plan" || stored.Status != "approved" {
 		t.Fatalf("racing edit changed approved plan: resolver=%#v stored=%#v", resolver.approval, stored)
 	}
@@ -1844,7 +1859,7 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 	cfg := testConfig(root)
 
 	st := store.NewMemoryStore()
-	ownerSession := st.CreateSession("Owner Memory")
+	ownerSession := storetest.MustCreateSession(t, st, "Owner Memory")
 	ownerRun := app.AgentRun{
 		ID:        "run_owner_memory",
 		SessionID: ownerSession.ID,
@@ -1853,8 +1868,8 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 		Risk:      app.RiskRead,
 		StartedAt: time.Now().UTC().AddDate(0, 0, -30),
 	}
-	st.SaveRun(ownerRun)
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	testSaveRun(st, ownerRun)
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   ownerSession.ID,
 		RunID:       ownerRun.ID,
 		Kind:        "profile",
@@ -1863,7 +1878,8 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 		Status:      "pending",
 		Reason:      "test setup",
 	})
-	if _, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted"); err != nil || memory == nil {
+
+	if _, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted"); err != nil || memory == nil {
 		t.Fatalf("setup memory failed memory=%#v err=%v", memory, err)
 	}
 
@@ -1888,10 +1904,10 @@ func TestSmokeEvalDoesNotPruneExistingMemories(t *testing.T) {
 	if run.Status != "passed" {
 		t.Fatalf("unexpected smoke eval result: %#v", run)
 	}
-	if memories := st.SearchMemories("owner memory should survive"); len(memories) != 1 {
+	if memories := mustSearchMemories(t, st, "owner memory should survive"); len(memories) != 1 {
 		t.Fatalf("smoke eval pruned existing memory: %#v", memories)
 	}
-	if candidates := st.ListMemoryCandidates("pending"); len(candidates) != 0 {
+	if candidates := mustListMemoryCandidates(t, st, "pending"); len(candidates) != 0 {
 		t.Fatalf("smoke eval left review candidates in main store: %#v", candidates)
 	}
 }
@@ -1937,8 +1953,8 @@ func TestFailedEvalArchivesFailureArtifact(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"eval_id"`)) || !bytes.Contains(raw, []byte(archive.CaseName)) {
 		t.Fatalf("archive file missing failure context: %s", raw)
 	}
-	if fetched, ok := st.GetEvalRun(run.ID); !ok || len(fetched.FailureArchives) != len(run.FailureArchives) {
-		t.Fatalf("persisted eval did not retain archives: %#v ok=%v", fetched, ok)
+	if fetched, ok, err := st.GetEvalRun(t.Context(), run.ID); err != nil || !ok || len(fetched.FailureArchives) != len(run.FailureArchives) {
+		t.Fatalf("persisted eval did not retain archives: %#v ok=%v err=%v", fetched, ok, err)
 	}
 
 	listResp, err := http.Get(ts.URL + "/api/evals")
@@ -2086,10 +2102,10 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if queued.ToolCall.Status != "approval_pending" || queued.Approval.Tool != "memory.write_sensitive" {
 		t.Fatalf("unexpected queued sensitive memory approval: %#v", queued)
 	}
-	if memories := st.SearchMemories("sk-approved-sensitive-test"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "sk-approved-sensitive-test"); len(memories) != 0 {
 		t.Fatalf("sensitive memory persisted before approval: %#v", memories)
 	}
-	pendingRun, ok := st.GetRun(queued.ToolCall.RunID)
+	pendingRun, ok := testGetRun(st, queued.ToolCall.RunID)
 	if !ok || pendingRun.State != "approval_pending" || pendingRun.CompletedAt != nil {
 		t.Fatalf("manual sensitive memory run should be approval pending: %#v", pendingRun)
 	}
@@ -2119,11 +2135,11 @@ func TestSensitiveMemoryRequiresApprovalBeforePersisting(t *testing.T) {
 	if approved.ToolCall.Status != "completed_after_approval" {
 		t.Fatalf("sensitive memory did not complete after approval: %#v", approved.ToolCall)
 	}
-	memories := st.SearchMemories("sk-approved-sensitive-test")
+	memories := mustSearchMemories(t, st, "sk-approved-sensitive-test")
 	if len(memories) != 1 || memories[0].Kind != "credential_note" || memories[0].SourceID != queued.ToolCall.RunID {
 		t.Fatalf("approved sensitive memory not persisted: %#v", memories)
 	}
-	completedRun, ok := st.GetRun(queued.ToolCall.RunID)
+	completedRun, ok := testGetRun(st, queued.ToolCall.RunID)
 	if !ok || completedRun.State != "completed" || completedRun.CompletedAt == nil {
 		t.Fatalf("manual sensitive memory run did not complete: %#v", completedRun)
 	}
@@ -2233,10 +2249,14 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			} `json:"fast"`
 		} `json:"model"`
 		State struct {
-			DSN               string `json:"dsn"`
-			EncryptAtRest     bool   `json:"encrypt_at_rest"`
-			EncryptionKey     string `json:"encryption_key"`
-			EncryptionKeyFile string `json:"encryption_key_file"`
+			DSN                       string `json:"dsn"`
+			StartupTimeoutSeconds     int    `json:"startup_timeout_seconds"`
+			ReadTimeoutSeconds        int    `json:"read_timeout_seconds"`
+			WriteTimeoutSeconds       int    `json:"write_timeout_seconds"`
+			TransactionTimeoutSeconds int    `json:"transaction_timeout_seconds"`
+			EncryptAtRest             bool   `json:"encrypt_at_rest"`
+			EncryptionKey             string `json:"encryption_key"`
+			EncryptionKeyFile         string `json:"encryption_key_file"`
 		} `json:"state"`
 		Tools struct {
 			Web struct {
@@ -2268,6 +2288,12 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	}
 	if decoded.State.DSN != "" {
 		t.Fatalf("state dsn should be redacted/empty for non-postgres config: %#v", decoded.State)
+	}
+	if decoded.State.StartupTimeoutSeconds != 180 {
+		t.Fatalf("state startup timeout missing: %#v", decoded.State)
+	}
+	if decoded.State.ReadTimeoutSeconds != 10 || decoded.State.WriteTimeoutSeconds != 30 || decoded.State.TransactionTimeoutSeconds != 60 {
+		t.Fatalf("state operation timeouts missing: %#v", decoded.State)
 	}
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
 		t.Fatalf("state encryption status was not exposed safely: %#v", decoded.State)
@@ -2449,7 +2475,7 @@ func TestOwnerProfileEndpointUpdatesProfile(t *testing.T) {
 	if updated.ID != app.DefaultOwnerID || updated.DisplayName != "Local Owner" || updated.Email != "owner@example.test" || updated.Preferences["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("owner profile update mismatch: %#v", updated)
 	}
-	if !hasGatewayAuditType(st.ListAudit(""), "owner_profile.updated") {
+	if !hasGatewayAuditType(mustGatewayListAudit(t, st, ""), "owner_profile.updated") {
 		t.Fatalf("owner update was not audited")
 	}
 
@@ -2468,7 +2494,7 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	wxRoot := filepath.Join(root, "users", "wx_owner")
-	st.SaveOwnerProfile(app.OwnerProfile{
+	if _, err := st.SaveOwnerProfile(context.Background(), app.OwnerProfile{
 		ID:               "wx_owner",
 		Source:           "weixin",
 		ExternalRef:      "bind:user",
@@ -2477,7 +2503,9 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 		DefaultBindingID: "bind",
 		DisplayName:      "微信用户",
 		Preferences:      map[string]string{},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)
@@ -2695,9 +2723,16 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 		Recipient: "wx-user-123456",
 	}
 	st := store.NewMemoryStore()
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{
+		Channel: "weixin", SetupKind: app.ConnectorSetupQR,
+		Binding: binding.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"]),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime)
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -2707,7 +2742,8 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	}
 	defer startResp.Body.Close()
 	if startResp.StatusCode != http.StatusCreated {
-		t.Fatalf("start binding returned %d", startResp.StatusCode)
+		raw, _ := io.ReadAll(startResp.Body)
+		t.Fatalf("start binding returned %d: %s", startResp.StatusCode, raw)
 	}
 	var started map[string]any
 	if err := json.NewDecoder(startResp.Body).Decode(&started); err != nil {
@@ -2721,7 +2757,7 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 		t.Fatalf("new binding did not receive all messaging scopes: %#v", started["scopes"])
 	}
 
-	pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+	pollResp, err := http.Post(ts.URL+"/api/notification-bindings/"+id+"/poll", "application/json", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2753,8 +2789,12 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	if err := json.NewDecoder(revokeResp.Body).Decode(&revoked); err != nil {
 		t.Fatal(err)
 	}
-	if revoked["status"] != "revoked" {
-		t.Fatalf("expected revoked binding, got %#v", revoked)
+	if revokeResp.StatusCode != http.StatusOK || revoked["status"] != app.NotificationBindingRevoked {
+		t.Fatalf("revoke did not reach the durable terminal state, status=%d body=%#v", revokeResp.StatusCode, revoked)
+	}
+	retained, ok := storetest.MustGetNotificationBinding(t, st, id)
+	if !ok || retained.Status != app.NotificationBindingRevoked || retained.DefaultForChannel {
+		t.Fatalf("revoke did not persist the terminal binding: %#v ok=%v", retained, ok)
 	}
 }
 
@@ -2769,8 +2809,14 @@ func TestNotificationBindingUsesInjectedProviderNeutralAdapter(t *testing.T) {
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	adapter := &genericBindingAdapter{}
-	router := binding.NewBaseRouter(cfg).WithAdapter("alpha", adapter)
-	server := New(cfg, st, tools, runtime, WithBindingRouter(router))
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{
+		Channel: "alpha", SetupKind: app.ConnectorSetupSecret,
+		Binding: adapter, BindingProvider: "alpha-http",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -2870,9 +2916,17 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	cfg.Tools.Notifications.Channels["telegram"] = channel
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: strings.Repeat("z", 32)})
+	registry := connector.NewRegistry(cfg, st).WithCredentialLifecycle(vault)
+	if err := registry.Register(connector.Registration{
+		Channel: "telegram", SetupKind: app.ConnectorSetupSecret,
+		Binding:         binding.NewTelegramAdapter("telegram", channel, vault),
+		BindingProvider: "telegram-bot-api", CredentialKind: "telegram-bot-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime, WithCredentialVault(vault))
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -2891,8 +2945,8 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if rejected.StatusCode != http.StatusBadRequest || !bytes.Contains(rejectedRaw, []byte(`"code":"invalid_bot_token"`)) || bytes.Contains(rejectedRaw, []byte(rejectedToken)) {
 		t.Fatalf("rejected token response was unsafe: status=%d body=%s", rejected.StatusCode, rejectedRaw)
 	}
-	if bindings := st.ListNotificationBindings("telegram", ""); len(bindings) != 0 {
-		t.Fatalf("rejected token persisted a binding: %#v", bindings)
+	if bindings := storetest.MustListNotificationBindings(t, st, "telegram", ""); len(bindings) != 1 || bindings[0].Status != app.NotificationBindingFailed || bindings[0].LastError != binding.CodeInvalidBotToken {
+		t.Fatalf("rejected token did not persist one safe terminal binding: %#v", bindings)
 	}
 
 	validBody := `{"bot_token":"` + validToken + `"}`
@@ -2913,11 +2967,14 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if id == "" || started["status"] != "active" || started["qr_code_url"] != "" || strings.Contains(fmt.Sprint(started), validToken) {
 		t.Fatalf("unexpected Telegram start response: %#v", started)
 	}
-	persisted, ok := st.GetNotificationBinding(id)
+	persisted, ok := storetest.MustGetNotificationBinding(t, st, id)
 	if !ok || persisted.CredentialRef == "" || persisted.ExternalUserID != "" || persisted.ExternalChatID != "" || persisted.ProviderState != "" || persisted.ExpiresAt != nil {
 		t.Fatalf("unexpected persisted Telegram binding: %#v ok=%v", persisted, ok)
 	}
-	secret, ok := st.GetCredentialSecret(persisted.CredentialRef)
+	secret, ok, err := st.GetCredentialSecret(t.Context(), persisted.CredentialRef)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || strings.Contains(secret.Value, validToken) || !strings.Contains(secret.Value, "AES-256-GCM") {
 		t.Fatalf("Telegram credential was not sealed: %#v ok=%v", secret, ok)
 	}
@@ -2957,13 +3014,13 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	if secondID == "" || secondID == id || second["display_name"] != "@sparkclaw_second_bot" || strings.Contains(fmt.Sprint(second), secondValidToken) {
 		t.Fatalf("unexpected second Telegram binding: %#v", second)
 	}
-	secondPersisted, ok := st.GetNotificationBinding(secondID)
+	secondPersisted, ok := storetest.MustGetNotificationBinding(t, st, secondID)
 	if !ok || secondPersisted.CredentialRef == "" || secondPersisted.CredentialRef == persisted.CredentialRef || secondPersisted.AccountID != "234567890" {
 		t.Fatalf("second Telegram binding was not isolated: %#v ok=%v", secondPersisted, ok)
 	}
-	bindings := st.ListNotificationBindings("telegram", "")
-	if len(bindings) != 2 {
-		t.Fatalf("Telegram binding count = %d, want 2: %#v", len(bindings), bindings)
+	bindings := storetest.MustListNotificationBindings(t, st, "telegram", "")
+	if len(bindings) != 3 {
+		t.Fatalf("Telegram binding count = %d, want 3 including the failed attempt: %#v", len(bindings), bindings)
 	}
 	connector = readTelegramConnector(t, ts.URL)
 	if connector["startable"] != true || connector["disabled_reason"] != "" {
@@ -2982,6 +3039,10 @@ func readNotificationConnector(t *testing.T, baseURL, channel string) map[string
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("read connector %q returned %d: %s", channel, resp.StatusCode, raw)
+	}
 	var configBody struct {
 		Tools struct {
 			Notifications struct {
@@ -3006,9 +3067,16 @@ func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
 		Recipient: "wx-default-recipient",
 	}
 	st := store.NewMemoryStore()
+	registry := connector.NewRegistry(cfg, st)
+	if err := registry.Register(connector.Registration{
+		Channel: "weixin", SetupKind: app.ConnectorSetupQR,
+		Binding: binding.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"]),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime)
+	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -3027,7 +3095,7 @@ func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := started["id"].(string)
-		pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+		pollResp, err := http.Post(ts.URL+"/api/notification-bindings/"+id+"/poll", "application/json", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3050,7 +3118,7 @@ func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
 	if second["default_for_channel"] == true {
 		t.Fatalf("second active binding should not steal default without explicit request: %#v", second)
 	}
-	bindings := st.ListNotificationBindings("weixin", "active")
+	bindings := storetest.MustListNotificationBindings(t, st, "weixin", app.NotificationBindingActive)
 	defaults := 0
 	for _, binding := range bindings {
 		if binding.DefaultForChannel {
@@ -3079,7 +3147,7 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	sendTestMessage(t, ts.URL, sessionID, "Read project-note.txt")
-	runs := st.ListRuns(sessionID)
+	runs := testListRuns(st, sessionID)
 	if len(runs) == 0 {
 		t.Fatal("run was not saved")
 	}

@@ -12,12 +12,12 @@ import (
 )
 
 type artifactStore interface {
-	ListArtifactObjects(int) []app.ArtifactObject
+	ListArtifactObjects(context.Context, int) ([]app.ArtifactObject, error)
 }
 
 type endpointResourceStore interface {
 	artifactStore
-	GetSession(string) (app.Session, bool)
+	GetSession(context.Context, string) (app.Session, bool, error)
 }
 
 type ResourceResolver interface {
@@ -41,7 +41,10 @@ func (r EndpointResourceResolver) Resolve(ctx context.Context, part app.MessageP
 		if r.store == nil || strings.TrimSpace(r.endpoint.SessionID) == "" {
 			return "", errors.New("workspace delivery endpoint has no linked session")
 		}
-		session, ok := r.store.GetSession(r.endpoint.SessionID)
+		session, ok, err := r.store.GetSession(ctx, r.endpoint.SessionID)
+		if err != nil {
+			return "", fmt.Errorf("read workspace delivery session: %w", err)
+		}
 		if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
 			return "", errors.New("workspace delivery session is unavailable")
 		}
@@ -70,7 +73,7 @@ func NewStoreResourceResolver(st artifactStore) StoreResourceResolver {
 	return StoreResourceResolver{store: st}
 }
 
-func (r StoreResourceResolver) Resolve(_ context.Context, part app.MessagePart) (string, error) {
+func (r StoreResourceResolver) Resolve(ctx context.Context, part app.MessagePart) (string, error) {
 	if r.store == nil {
 		return "", errors.New("artifact resolver is unavailable")
 	}
@@ -86,7 +89,11 @@ func (r StoreResourceResolver) Resolve(_ context.Context, part app.MessagePart) 
 	if wanted == "" {
 		return "", errors.New("binary delivery part requires an artifact id")
 	}
-	for _, object := range r.store.ListArtifactObjects(5000) {
+	objects, err := r.store.ListArtifactObjects(ctx, 5000)
+	if err != nil {
+		return "", errors.New("artifact registry is unavailable")
+	}
+	for _, object := range objects {
 		if object.ID != wanted && object.URI != wanted && object.Key != wanted {
 			continue
 		}

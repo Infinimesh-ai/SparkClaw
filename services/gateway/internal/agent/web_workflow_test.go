@@ -24,6 +24,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -116,10 +117,10 @@ MOCK_CONVERSATION_RESPONSE:巴黎。`
 		result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer || result.Message.Content != "巴黎。" {
 		t.Fatalf("deterministic conversation route was downgraded by Fast: %#v", result)
 	}
-	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("conversation answer entered the step loop: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("conversation answer entered the step loop: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
-	for _, call := range toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID) {
+	for _, call := range toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID) {
 		if call.Tool == "web.search" {
 			t.Fatalf("static common knowledge forced an Internet search: %#v", call)
 		}
@@ -238,7 +239,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+
 	if requestedQuery != wantQuery || result.RouteDecision == nil || result.RouteDecision.Slots.Query != wantQuery {
 		t.Fatalf("provider query was rewritten after route freeze: route=%#v provider_query=%q", result.RouteDecision, requestedQuery)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 {
 		t.Fatalf("expected one production web.search call, got %#v", calls)
 	}
@@ -269,7 +270,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+
 		t.Fatalf("grounded result did not use the deterministic Info renderer: %q", result.Message.Content)
 	}
 	workflowStepCalls := 0
-	for _, modelCall := range st.ListModelCalls(session.ID, result.Run.ID) {
+	for _, modelCall := range testListModelCalls(st, session.ID, result.Run.ID) {
 		if strings.HasPrefix(modelCall.Operation, "workflow_step_") {
 			workflowStepCalls++
 		}
@@ -342,11 +343,11 @@ func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) 
 	}
 	runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
 MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"今日金价"}}`, dispatch.Profile, dispatch.Context, dispatch.Tools)
-	run, ok := st.GetRun(run.ID)
+	run, ok := testGetRun(st, run.ID)
 	if !ok || run.Workflow == nil || run.Workflow.Status != app.WorkflowStatusSucceeded || run.Workflow.Plan.ProfileID != app.WorkflowBrowserInternetSearch {
 		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, session.ID), run.ID)
 	wantQuery := materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate())
 	if requestedQuery != wantQuery || routing.Route.Slots.Query != wantQuery || len(calls) != 1 || calls[0].Tool != "web.search" || calls[0].Capability != app.ToolCapabilityWebDiscovery {
 		t.Fatalf("gold search did not preserve its frozen route query: route=%#v provider_query=%q calls=%#v", routing.Route, requestedQuery, calls)
@@ -533,7 +534,7 @@ MOCK_WEATHER_RENDER_RESPONSE:{"type":"action","tool":"media.render_weather_card"
 		result.Message.Attachments[0].Source != "workflow_result" {
 		t.Fatalf("web message did not consume the unified weather image result: message=%#v part=%#v", result.Message, imagePart)
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) == 0 || len(messages[len(messages)-1].Attachments) != 1 || messages[len(messages)-1].Attachments[0].RelPath != imagePart.Resource.Ref {
 		t.Fatalf("unified weather image was not persisted for WebChat history: %#v", messages)
 	}
@@ -564,11 +565,11 @@ func TestWorkflowOutputResourceRefUsesDefaultWorkspaceForUnscopedWebSession(t *t
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("web session without explicit workspace")
+	session := storetest.MustCreateSession(t, st, "web session without explicit workspace")
 	hub := toolhub.New(cfg, st)
 	runtime := Runtime{store: st, tools: hub}
 
-	ref, ok := runtime.workflowOutputResourceRef(session.ID, app.ResourceRef{
+	ref, ok := mustWorkflowOutputResourceRef(t, runtime, session.ID, app.ResourceRef{
 		Kind: "path", Ref: filepath.Join(root, "media", "weather.png"), Provenance: "tc_weather",
 	})
 	if !ok || ref.Kind != "workspace_file" || ref.Ref != "media/weather.png" || ref.Provenance != "tc_weather" {
@@ -694,7 +695,7 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
 			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
 		})
-	if len(result.Approvals) != 0 || len(st.ListApprovals("")) != 0 {
+	if len(result.Approvals) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
 		t.Fatalf("bounded browser.interaction click unexpectedly requested approval: %#v", result.Approvals)
 	}
 	if adapter.clicks != 1 || adapter.snapshots != 3 {
@@ -705,8 +706,8 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Browser == nil || result.Run.Workflow.Browser.Result == nil ||
 		!result.Run.Workflow.Browser.Result.PresentationEquivalent || result.Run.Workflow.Browser.Result.PresentationAssertionID == "" ||
-		!hasAgentAuditField(st.ListAudit(session.ID), "workflow.evidence_projection.skipped", "reason_code", "presentation_equivalence") {
-		t.Fatalf("equivalent visible result did not persist its assertion and skipped-call audit: result=%#v audit=%#v", result.Run.Workflow, st.ListAudit(session.ID))
+		!hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "workflow.evidence_projection.skipped", "reason_code", "presentation_equivalence") {
+		t.Fatalf("equivalent visible result did not persist its assertion and skipped-call audit: result=%#v audit=%#v", result.Run.Workflow, mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -867,7 +868,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	outcome, err := adaptWorkflowOutcome(definition, call)
 	if err != nil {
 		t.Fatal(err)
@@ -878,7 +879,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	writeTestOfficePackage(t, filepath.Join(session.WorkspaceRoot, "note-sparkclaw-edit.docx"), "word/document.xml")
 	dispatch.Run.State = "completed"
-	result := runtime.workflowResultForRun(dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
+	result := mustWorkflowResultForRun(t, runtime, dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
 	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 1 {
 		t.Fatalf("document edit did not return its output copy: %#v", result)
 	}
@@ -891,14 +892,14 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		t.Fatalf("unexpected document output part: %#v", filePart)
 	}
 	foundArtifact := false
-	for _, object := range st.ListArtifactObjects(0) {
+	for _, object := range storetest.MustListArtifactObjects(t, st, 0) {
 		if object.ID == filePart.ArtifactID && object.RunID == dispatch.Run.ID && object.SessionID == session.ID && object.Kind == "workflow_output" {
 			foundArtifact = true
 			break
 		}
 	}
 	if !foundArtifact {
-		t.Fatalf("document output was not registered as a governed artifact: %#v", st.ListArtifactObjects(0))
+		t.Fatalf("document output was not registered as a governed artifact: %#v", storetest.MustListArtifactObjects(t, st, 0))
 	}
 	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "Modified file: note-sparkclaw-edit.docx"}, result)
 	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "note-sparkclaw-edit.docx" ||
@@ -938,11 +939,14 @@ func TestWorkflowImageOutputIsInlineAndProjectsWithoutAttachmentText(t *testing.
 		ID: "tc_weather_image", SessionID: session.ID, RunID: "run_weather_image", Tool: definition.Name, Status: "completed",
 		Result: map[string]any{"path": filepath.Join(session.WorkspaceRoot, "media", "weather.png"), "content_type": "image/png", "bytes": 2048, "width": 1400, "height": 900, "summary": "杭州天气"},
 	}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	run := app.AgentRun{ID: call.RunID, SessionID: session.ID, Workflow: &app.WorkflowState{Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
 		"render_weather_card": {OutcomeRefs: []app.ResourceRef{{Kind: "path", Ref: filepath.Join(session.WorkspaceRoot, "media", "weather.png"), Provenance: call.ID}}},
 	}}}
-	content := runtime.workflowResultContent(run, "图片已保存到 media/weather.png")
+	content, err := runtime.workflowResultContent(t.Context(), run, "图片已保存到 media/weather.png")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(content.Parts) != 1 || content.Parts[0].Kind != app.MessagePartImage || content.Parts[0].Disposition != app.MessageDispositionInline ||
 		content.Parts[0].Resource == nil || content.Parts[0].Resource.Ref != "media/weather.png" || content.Parts[0].Width != 1400 || content.Parts[0].Height != 900 ||
 		content.Parts[0].Caption != "" {
@@ -990,17 +994,17 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 	} {
 		runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
-		st.SaveRun(run)
+		testSaveRun(st, run)
 		route := app.RouteDecision{
 			SchemaVersion: app.RouteDecisionSchemaVersion, Status: test.status, CatalogRevision: runtime.capabilities.Revision(),
 			CapabilityPath: []app.CapabilityID{"browser"}, Reason: "more routing information is required",
 		}
-		result := runtime.completeTerminalRoute(context.Background(), run, "ambiguous request", app.ReturnRoute{Mode: app.ReturnToSource}, route)
+		result := mustCompleteTerminalRoute(t, runtime, context.Background(), run, "ambiguous request", app.ReturnRoute{Mode: app.ReturnToSource}, route)
 		closeRuntime()
 		if result.WorkflowResult == nil || result.WorkflowResult.Status != test.want || len(result.ToolCalls) != 0 {
 			t.Fatalf("terminal route %q returned the wrong result: %#v", test.status, result)
 		}
-		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, run.ID)) {
+		if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, run.ID)) {
 			t.Fatalf("terminal route %q entered a legacy fallback", test.status)
 		}
 	}
@@ -1019,8 +1023,8 @@ func TestUnmatchedRouteBlocksWithoutLegacyFallback(t *testing.T) {
 	if result.Run.State != "blocked" || result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.Status != app.WorkflowResultBlocked {
 		t.Fatalf("unmatched route did not produce a blocked router result: %#v", result)
 	}
-	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.visible_tools") {
-		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) || hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "task_hint.generated") || hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow_step.visible_tools") {
+		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", testListModelCalls(st, session.ID, result.Run.ID), mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -1037,8 +1041,8 @@ func TestMatchedDispatchFailureReturnsFailedWorkflowResultWithoutFallback(t *tes
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultFailed || result.WorkflowResult.Workflow.ID != app.WorkflowBrowserSearch {
 		t.Fatalf("matched setup failure did not return the leaf WorkflowResult: %#v", result.WorkflowResult)
 	}
-	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("matched workflow failure entered a legacy fallback: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("matched workflow failure entered a legacy fallback: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
 }
 
@@ -1062,7 +1066,7 @@ func TestExistingTerminalRouteKeepsItsWorkflowIdentity(t *testing.T) {
 				ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)}, Route: route,
 			},
 		}
-		result := runtime.resultForExistingRun(run)
+		result := mustResultForExistingRun(t, runtime, run)
 		if result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != test.want {
 			t.Fatalf("existing %q route changed identity: %#v", test.status, result.WorkflowResult)
 		}
@@ -1088,7 +1092,7 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 		customize(&testCfg)
 	}
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("workflow e2e", app.DefaultOwnerID, root, "web", false)
+	session := storetest.MustCreateSessionWithScope(t, st, "workflow e2e", app.DefaultOwnerID, root, "web", false)
 	tools := toolhub.New(testCfg.config, st)
 	if testCfg.browserAdapter != nil {
 		tools = tools.WithBrowserAutomationAdapter(testCfg.browserAdapter)
@@ -1274,12 +1278,12 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 			node := result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]]
 			assessment = node.LastAssessment
 		}
-		t.Fatalf("workflow did not complete under expected contract: status=%q stage=%q assessment=%#v calls=%#v message=%q summary=%q", result.Run.Workflow.Status, result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]].Stage, assessment, workflowCallDebug(toolCallsForRun(st.ListToolCalls(sessionID), result.Run.ID)), result.Message.Content, result.Run.Summary)
+		t.Fatalf("workflow did not complete under expected contract: status=%q stage=%q assessment=%#v calls=%#v message=%q summary=%q", result.Run.Workflow.Status, result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]].Stage, assessment, workflowCallDebug(toolCallsForRun(testListToolCalls(st, sessionID), result.Run.ID)), result.Message.Content, result.Run.Summary)
 	}
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded || result.WorkflowResult.Workflow.ID != workflowID || result.WorkflowResult.CapabilityPath[1] != capabilityID {
 		t.Fatalf("missing successful WorkflowResult: %#v", result.WorkflowResult)
 	}
-	calls := toolCallsForRun(st.ListToolCalls(sessionID), result.Run.ID)
+	calls := toolCallsForRun(testListToolCalls(st, sessionID), result.Run.ID)
 	if len(calls) != len(toolNames) || len(toolNames) != len(semanticCapabilities) {
 		t.Fatalf("workflow did not execute the expected registered tool: %#v", calls)
 	}
@@ -1288,7 +1292,7 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 			t.Fatalf("workflow call %d escaped its stage capability: %#v", index, calls[index])
 		}
 	}
-	modelCalls := st.ListModelCalls(sessionID, result.Run.ID)
+	modelCalls := testListModelCalls(st, sessionID, result.Run.ID)
 	if !hasModelCallOperation(modelCalls, "intent_embedding", "embedding") ||
 		!hasModelCallOperation(modelCalls, "intent_tree_graph", "fast") {
 		t.Fatalf("matched workflow was not selected by semantic fusion: %#v", modelCalls)
@@ -1311,7 +1315,7 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 		workflowID == app.WorkflowDocumentRead && result.Run.Workflow.Plan.ProfileRevision >= 3 ||
 		workflowID == app.WorkflowBrowserWeather && result.Run.Workflow.Plan.ProfileRevision >= 3
 	if directOnly {
-		if foundWorkflowStep || !hasAgentAuditType(st.ListAudit(sessionID), "workflow.direct_tool_invoked") {
+		if foundWorkflowStep || !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "workflow.direct_tool_invoked") {
 			t.Fatalf("%s must run its structural stages without model tool selection: model_calls=%#v", workflowID, modelCalls)
 		}
 	} else if !foundWorkflowStep {
@@ -1320,9 +1324,9 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 	if workflowID == app.WorkflowDocumentRead && !hasModelCallOperation(modelCalls, "workflow_final_answer", documentWorkflowModelLane) {
 		t.Fatalf("document.read did not finalize direct evidence on Fast: %#v", modelCalls)
 	}
-	assertNoLegacyRoutingAudit(t, st.ListAudit(sessionID))
-	if !hasAgentAuditType(st.ListAudit(sessionID), "workflow.dispatched") || !hasAgentAuditType(st.ListAudit(sessionID), "tools.exposure.fixed") {
-		t.Fatalf("workflow dispatcher/exposure audit missing: %#v", st.ListAudit(sessionID))
+	assertNoLegacyRoutingAudit(t, mustAgentListAudit(t, st, sessionID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "workflow.dispatched") || !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "tools.exposure.fixed") {
+		t.Fatalf("workflow dispatcher/exposure audit missing: %#v", mustAgentListAudit(t, st, sessionID))
 	}
 }
 

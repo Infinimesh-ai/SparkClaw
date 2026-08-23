@@ -18,10 +18,13 @@ type xlsxEditEvidence struct {
 	TargetHash   string
 }
 
-func (r Runtime) bindXLSXEditEvidence(run app.AgentRun, operation string, args map[string]any) map[string]any {
-	evidence, ok := r.currentXLSXEditEvidence(run, operation, args)
+func (r Runtime) bindXLSXEditEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) (map[string]any, error) {
+	evidence, ok, err := r.currentXLSXEditEvidence(ctx, run, operation, args)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
-		return args
+		return args, nil
 	}
 	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) == "" {
 		args[app.DocumentSourceSHA256Argument] = evidence.SourceSHA256
@@ -36,11 +39,14 @@ func (r Runtime) bindXLSXEditEvidence(run app.AgentRun, operation string, args m
 	if field != "" && cleanOptionalString(args[field]) == "" {
 		args[field] = evidence.TargetHash
 	}
-	return args
+	return args, nil
 }
 
-func (r Runtime) validateXLSXEditEvidence(_ context.Context, run app.AgentRun, operation string, args map[string]any) error {
-	evidence, ok := r.currentXLSXEditEvidence(run, operation, args)
+func (r Runtime) validateXLSXEditEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) error {
+	evidence, ok, err := r.currentXLSXEditEvidence(ctx, run, operation, args)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("XLSX edit target does not match current workflow localization evidence")
 	}
@@ -62,71 +68,77 @@ func (r Runtime) validateXLSXEditEvidence(_ context.Context, run app.AgentRun, o
 	return nil
 }
 
-func (r Runtime) currentXLSXEditEvidence(run app.AgentRun, operation string, args map[string]any) (xlsxEditEvidence, bool) {
-	document, ok := r.currentXLSXReadDocument(run, args)
+func (r Runtime) currentXLSXEditEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) (xlsxEditEvidence, bool, error) {
+	document, ok, err := r.currentXLSXReadDocument(ctx, run, args)
+	if err != nil {
+		return xlsxEditEvidence{}, false, err
+	}
 	if !ok {
-		return xlsxEditEvidence{}, false
+		return xlsxEditEvidence{}, false, nil
 	}
 	metadata, _ := anyMap(document["metadata"])
 	evidence := xlsxEditEvidence{
 		Operation: operation, SourceSHA256: cleanOptionalString(metadata["sha256"]),
 	}
 	if evidence.SourceSHA256 == "" {
-		return xlsxEditEvidence{}, false
+		return xlsxEditEvidence{}, false, nil
 	}
 	if operation == app.DocumentOperationReplaceText {
-		return evidence, true
+		return evidence, true, nil
 	}
 	sheet, ok := matchXLSXSheetEvidence(documentAnySliceFromAny(document["sheets"]), cleanOptionalString(args["sheet"]))
 	if !ok {
-		return xlsxEditEvidence{}, false
+		return xlsxEditEvidence{}, false, nil
 	}
 	evidence.Sheet = cleanOptionalString(sheet["name"])
 	switch operation {
 	case app.DocumentOperationUpdateCell:
 		cell, found := matchXLSXCellEvidence(sheet, cleanOptionalString(args["cell"]))
 		if !found {
-			return xlsxEditEvidence{}, false
+			return xlsxEditEvidence{}, false, nil
 		}
 		evidence.Cell = strings.ToUpper(cleanOptionalString(cell["address"]))
 		evidence.TargetHash = cleanOptionalString(cell["source_hash"])
 	case app.DocumentOperationInsertRow, app.DocumentOperationDeleteRow, app.DocumentOperationUpdateRow:
 		row, found := matchXLSXRowEvidence(sheet, intLikeValue(args["row"]))
 		if !found {
-			return xlsxEditEvidence{}, false
+			return xlsxEditEvidence{}, false, nil
 		}
 		evidence.TargetHash = cleanOptionalString(row["source_hash"])
 	case app.DocumentOperationAppendRow:
 		evidence.TargetHash = cleanOptionalString(sheet["source_hash"])
 	default:
-		return xlsxEditEvidence{}, false
+		return xlsxEditEvidence{}, false, nil
 	}
-	return evidence, evidence.TargetHash != ""
+	return evidence, evidence.TargetHash != "", nil
 }
 
-func (r Runtime) currentXLSXReadDocument(run app.AgentRun, args map[string]any) (map[string]any, bool) {
+func (r Runtime) currentXLSXReadDocument(ctx context.Context, run app.AgentRun, args map[string]any) (map[string]any, bool, error) {
 	if run.Workflow == nil || r.store == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	locateState, ok := run.Workflow.Nodes[documentLocateEvidenceNodeID]
 	if !ok || locateState.Status != app.WorkflowNodeSucceeded || len(locateState.ToolCallIDs) != 1 {
-		return nil, false
+		return nil, false, nil
 	}
-	call, ok := r.store.GetToolCall(locateState.ToolCallIDs[0])
+	call, ok, err := r.store.GetToolCall(ctx, locateState.ToolCallIDs[0])
+	if err != nil {
+		return nil, false, err
+	}
 	if !ok || call.RunID != run.ID || call.SessionID != run.SessionID ||
 		call.WorkflowID != app.WorkflowDocumentEdit || call.WorkflowNodeID != documentLocateEvidenceNodeID ||
 		call.ScopeRevision != locateState.ScopeRevision || call.Tool != "files.read" || !toolCallCompleted(call) {
-		return nil, false
+		return nil, false, nil
 	}
 	result, ok := anyMap(call.Result)
 	if !ok || !sameDocumentReadPath(cleanOptionalString(args["path"]), call, result) {
-		return nil, false
+		return nil, false, nil
 	}
 	document, ok := anyMap(result["document"])
 	if !ok || !strings.EqualFold(cleanOptionalString(document["format"]), app.DocumentFormatXLSX) {
-		return nil, false
+		return nil, false, nil
 	}
-	return document, true
+	return document, true, nil
 }
 
 func matchXLSXSheetEvidence(sheets []any, name string) (map[string]any, bool) {

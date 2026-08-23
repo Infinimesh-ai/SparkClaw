@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestIsBlockedClassifiesDeliveryErrors(t *testing.T) {
@@ -53,16 +54,16 @@ func (p *recordingProvider) Deliver(_ context.Context, endpoint app.MessageEndpo
 
 func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-source", OwnerID: "owner-a", ActorID: "web-actor", Channel: "fake", Status: "active",
 		Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-source", OwnerID: "external-actor-a", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "web-actor",
 		BindingID: binding.ID, Channel: "fake", ExternalUserID: "user-a", ExternalChatID: "chat-a",
 		ExternalThreadID: "thread-a", LastContextToken: "context-a", DisplayName: "Alex", Status: "active",
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "chat-other", OwnerID: "external-actor-b", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "web-actor",
 		BindingID: binding.ID, Channel: "fake", ExternalUserID: "user-b", ExternalChatID: "chat-b",
 		ExternalThreadID: "thread-b", LastContextToken: "context-b", DisplayName: "Alex", Status: "active",
@@ -104,7 +105,7 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), app.MCPAccessTicket{
 		SchemaVersion: app.MCPAccessTicketSchemaVersion,
 		SecretHash:    "mcp-delivery-secret", OwnerID: "owner-a", ActorID: "owner-a", DomainID: "domain-a",
 		Scope:  app.MCPAccessConversation,
@@ -113,7 +114,7 @@ func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "session-a"}, now)
+	binding, err := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "session-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +151,7 @@ func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 
 func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_fake", Channel: "fake", Provider: "anything", Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_fake", Channel: "fake", Provider: "anything", Status: "active"})
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{
@@ -178,7 +179,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 
 func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_text", Channel: "text-only", Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_text", Channel: "text-only", Status: "active"})
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "text-only", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
@@ -204,7 +205,7 @@ func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 
 func TestWorkflowAndExplicitSendShareDeliveryRequest(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Web")
+	session := storetest.MustCreateSession(t, st, "Web")
 	routes := messagecontrol.NewReturnRouteResolver(messagecontrol.NewEndpointRegistry(st))
 	content := app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "done"}}}
 	route := app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: messagecontrol.WebEndpointID(session.ID)}
@@ -227,7 +228,7 @@ func TestWorkflowAndExplicitSendShareDeliveryRequest(t *testing.T) {
 
 func TestGatewayRejectsEndpointOwnedByAnotherPrincipal(t *testing.T) {
 	st := store.NewMemoryStore()
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_other", OwnerID: "owner-b", Channel: "fake", Status: "active"})
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind_other", OwnerID: "owner-b", Channel: "fake", Status: "active"})
 	providers := NewProviderRegistry()
 	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
 	if err := providers.Register(fake); err != nil {

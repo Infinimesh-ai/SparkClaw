@@ -110,7 +110,7 @@ func (d *Dispatcher) downloadAttachment(ctx context.Context, chatSession app.Ext
 		return app.MessageAttachment{}, NewConnectorError(CodeAttachmentUnsupported, false, nil)
 	}
 	artifactID := app.NewID("artifact")
-	d.store.SaveArtifactObject(app.ArtifactObject{
+	stored, err := d.store.SaveArtifactObject(ctx, app.ArtifactObject{
 		ID:          artifactID,
 		Kind:        "telegram-upload",
 		SessionID:   chatSession.LinkedSessionID,
@@ -122,6 +122,10 @@ func (d *Dispatcher) downloadAttachment(ctx context.Context, chatSession app.Ext
 		Bytes:       int(written),
 		CreatedAt:   time.Now().UTC(),
 	})
+	if err != nil {
+		return app.MessageAttachment{}, fmt.Errorf("save Telegram attachment metadata: %w", err)
+	}
+	artifactID = stored.ID
 	return app.MessageAttachment{
 		ArtifactID:  artifactID,
 		Name:        name,
@@ -177,7 +181,7 @@ func (d *Dispatcher) transcribeVoice(ctx context.Context, chatSession app.Extern
 		return "", NewConnectorError(CodeVoiceUnavailable, false, err)
 	}
 	requestID := "tgvoice_" + strconv.FormatInt(messageID, 10)
-	d.store.AddAudit(app.AuditEvent{
+	recordAudit(ctx, d.store, app.AuditEvent{
 		SessionID: chatSession.LinkedSessionID,
 		Actor:     "telegram",
 		Type:      "telegram.voice.transcription.started",
@@ -191,14 +195,14 @@ func (d *Dispatcher) transcribeVoice(ctx context.Context, chatSession app.Extern
 		DurationMS: durationMS,
 	})
 	if err != nil {
-		d.store.AddAudit(app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.failed", Summary: "Telegram voice transcription failed", Fields: map[string]any{"request_id": requestID}})
+		recordAudit(ctx, d.store, app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.failed", Summary: "Telegram voice transcription failed", Fields: map[string]any{"request_id": requestID}})
 		return "", NewConnectorError(CodeVoiceUnavailable, false, err)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return "", NewConnectorError(CodeVoiceUnavailable, false, errors.New("voice transcript is empty"))
 	}
-	d.store.AddAudit(app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.completed", Summary: "Telegram voice transcription completed", Fields: map[string]any{"request_id": requestID, "duration_ms": durationMS, "audio_retained": false}})
+	recordAudit(ctx, d.store, app.AuditEvent{SessionID: chatSession.LinkedSessionID, Actor: "telegram", Type: "telegram.voice.transcription.completed", Summary: "Telegram voice transcription completed", Fields: map[string]any{"request_id": requestID, "duration_ms": durationMS, "audio_retained": false}})
 	return text, nil
 }
 
@@ -260,7 +264,11 @@ func (b *limitedBuffer) String() string {
 
 func (d *Dispatcher) sendMediaAnswer(ctx context.Context, chatSession app.ExternalChatSession, chatID, threadID int64, answer string) (bool, error) {
 	if mediaPath, ok := telegramMarkdownMediaPath(answer); ok {
-		if path, ok := d.resolveWorkspaceOutput(chatSession, mediaPath); ok {
+		path, found, err := d.resolveWorkspaceOutput(ctx, chatSession, mediaPath)
+		if err != nil {
+			return true, err
+		}
+		if found {
 			return true, d.sendImageOrDocument(ctx, chatID, threadID, path, "")
 		}
 	}
@@ -268,7 +276,10 @@ func (d *Dispatcher) sendMediaAnswer(ctx context.Context, chatSession app.Extern
 		if len(match) < 2 {
 			continue
 		}
-		path, ok := d.resolveWorkspaceOutput(chatSession, match[1])
+		path, ok, err := d.resolveWorkspaceOutput(ctx, chatSession, match[1])
+		if err != nil {
+			return true, err
+		}
 		if !ok {
 			continue
 		}
@@ -300,30 +311,34 @@ func (d *Dispatcher) sendImageOrDocument(ctx context.Context, chatID, threadID i
 	return err
 }
 
-func (d *Dispatcher) resolveWorkspaceOutput(chatSession app.ExternalChatSession, target string) (string, bool) {
+func (d *Dispatcher) resolveWorkspaceOutput(ctx context.Context, chatSession app.ExternalChatSession, target string) (string, bool, error) {
 	target = strings.TrimSpace(strings.TrimPrefix(target, "workspace://"))
 	if target == "" {
-		return "", false
+		return "", false, nil
+	}
+	objects, err := d.store.ListArtifactObjects(ctx, 500)
+	if err != nil {
+		return "", false, err
 	}
 	if filepath.IsAbs(target) {
-		for _, object := range d.store.ListArtifactObjects(500) {
+		for _, object := range objects {
 			if object.SessionID == chatSession.LinkedSessionID && sameFilePath(object.Path, target) {
-				return target, regularFile(target)
+				return target, regularFile(target), nil
 			}
 		}
-		return "", false
+		return "", false, nil
 	}
 	relPath := filepath.ToSlash(filepath.Clean(strings.TrimLeft(target, "/")))
 	if relPath == "." || strings.HasPrefix(relPath, "../") || (!strings.HasPrefix(relPath, "outputs/") && !strings.HasPrefix(relPath, "media/")) {
-		return "", false
+		return "", false, nil
 	}
-	for _, object := range d.store.ListArtifactObjects(500) {
+	for _, object := range objects {
 		if object.SessionID == chatSession.LinkedSessionID && filepath.ToSlash(object.Key) == relPath && regularFile(object.Path) {
-			return object.Path, true
+			return object.Path, true, nil
 		}
 	}
 	path, ok := workspacePath(chatSession.WorkspaceRoot, relPath)
-	return path, ok && regularFile(path)
+	return path, ok && regularFile(path), nil
 }
 
 func inspectDownloadedFile(path, declaredType string) (string, string, error) {

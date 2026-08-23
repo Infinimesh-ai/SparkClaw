@@ -20,12 +20,16 @@ type pptxWorkflowEditEvidence struct {
 	readOnlyText []string
 }
 
-func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args map[string]any) map[string]any {
+func (r Runtime) bindPPTXEditArguments(ctx context.Context, run app.AgentRun, operation string, args map[string]any) (map[string]any, error) {
 	if run.Workflow == nil {
-		return args
+		return args, nil
 	}
 	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) == "" {
-		if sourceSHA := r.currentPPTXWorkflowSourceSHA256(run, args); sourceSHA != "" {
+		sourceSHA, err := r.currentPPTXWorkflowSourceSHA256(ctx, run, args)
+		if err != nil {
+			return nil, err
+		}
+		if sourceSHA != "" {
 			args[app.DocumentSourceSHA256Argument] = sourceSHA
 		}
 	}
@@ -40,7 +44,11 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 			slideIndex = indexes[0]
 			args["slide_index"] = slideIndex
 		}
-		args["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(args["updates"]))
+		updates, err := r.bindPPTXUpdates(ctx, run, args, slideIndex, anySlice(args["updates"]))
+		if err != nil {
+			return nil, err
+		}
+		args["updates"] = updates
 	case app.DocumentOperationUpdateDeck:
 		for _, value := range anySlice(args["slide_updates"]) {
 			slideUpdate, ok := anyMap(value)
@@ -48,7 +56,11 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 				continue
 			}
 			slideIndex := intLikeValue(slideUpdate["slide_index"])
-			slideUpdate["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(slideUpdate["updates"]))
+			updates, err := r.bindPPTXUpdates(ctx, run, args, slideIndex, anySlice(slideUpdate["updates"]))
+			if err != nil {
+				return nil, err
+			}
+			slideUpdate["updates"] = updates
 		}
 	case app.DocumentOperationAddSlide:
 		if len(indexes) > 0 {
@@ -62,49 +74,59 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 		}
 		templateIndex := 0
 		if _, err := fmt.Sscanf(strings.TrimSpace(stringValue(args["template_slide_ref"])), "slide:%d", &templateIndex); err == nil && templateIndex > 0 {
-			args["template_updates"] = r.bindPPTXUpdates(run, args, templateIndex, anySlice(args["template_updates"]))
+			updates, err := r.bindPPTXUpdates(ctx, run, args, templateIndex, anySlice(args["template_updates"]))
+			if err != nil {
+				return nil, err
+			}
+			args["template_updates"] = updates
 		}
 	case app.DocumentOperationDuplicateSlide, app.DocumentOperationDeleteSlide:
 		if len(indexes) > 0 {
 			args["slide_index"] = indexes[0]
 		}
 	}
-	return args
+	return args, nil
 }
 
-func (r Runtime) currentPPTXWorkflowSourceSHA256(run app.AgentRun, args map[string]any) string {
+func (r Runtime) currentPPTXWorkflowSourceSHA256(ctx context.Context, run app.AgentRun, args map[string]any) (string, error) {
 	if run.Workflow == nil || r.store == nil {
-		return ""
+		return "", nil
 	}
 	state, ok := run.Workflow.Nodes[documentLocateEvidenceNodeID]
 	if !ok || state.Status != app.WorkflowNodeSucceeded || len(state.ToolCallIDs) != 1 {
-		return ""
+		return "", nil
 	}
-	call, ok := r.store.GetToolCall(state.ToolCallIDs[0])
+	call, ok, err := r.store.GetToolCall(ctx, state.ToolCallIDs[0])
+	if err != nil {
+		return "", err
+	}
 	if !ok || call.RunID != run.ID || call.SessionID != run.SessionID || call.WorkflowID != app.WorkflowDocumentEdit ||
 		call.WorkflowNodeID != documentLocateEvidenceNodeID || call.ScopeRevision != state.ScopeRevision ||
 		call.Tool != "files.read" || !toolCallCompleted(call) {
-		return ""
+		return "", nil
 	}
 	result, ok := anyMap(call.Result)
 	if !ok || !sameDocumentReadPath(strings.TrimSpace(stringValue(args["path"])), call, result) {
-		return ""
+		return "", nil
 	}
 	document, ok := anyMap(result["document"])
 	if !ok || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) {
-		return ""
+		return "", nil
 	}
 	metadata, _ := anyMap(document["metadata"])
-	return strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result[app.DocumentSourceSHA256Argument])))
+	return strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result[app.DocumentSourceSHA256Argument]))), nil
 }
 
-func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideIndex int, updates []any) []any {
+func (r Runtime) bindPPTXUpdates(ctx context.Context, run app.AgentRun, args map[string]any, slideIndex int, updates []any) ([]any, error) {
 	if slideIndex <= 0 {
-		return updates
+		return updates, nil
 	}
-	shapeText := r.pptxSlideShapeText(run, strings.TrimSpace(stringValue(args["path"])), slideIndex)
+	shapeText, err := r.pptxSlideShapeText(ctx, run, strings.TrimSpace(stringValue(args["path"])), slideIndex)
+	if err != nil {
+		return nil, err
+	}
 	if len(shapeText) == 0 {
-		return updates
+		return updates, nil
 	}
 	for _, value := range updates {
 		update, ok := anyMap(value)
@@ -130,11 +152,15 @@ func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideInd
 			update["old_text"] = exact
 		}
 	}
-	return updates
+	return updates, nil
 }
 
-func (r Runtime) pptxSlideShapeText(run app.AgentRun, expectedPath string, slideIndex int) map[int]string {
-	calls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
+func (r Runtime) pptxSlideShapeText(ctx context.Context, run app.AgentRun, expectedPath string, slideIndex int) (map[int]string, error) {
+	storedCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	calls := toolCallsForRun(storedCalls, run.ID)
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
 		if call.Tool != "files.read" || !toolCallCompleted(call) {
@@ -167,13 +193,13 @@ func (r Runtime) pptxSlideShapeText(run app.AgentRun, expectedPath string, slide
 				shapeText[shapeIndex] = text
 			}
 		}
-		return shapeText
+		return shapeText, nil
 	}
-	return nil
+	return nil, nil
 }
 
-func (r Runtime) validatePPTXEditEvidence(run app.AgentRun, operation string, args map[string]any) error {
-	evidence, err := r.currentPPTXWorkflowEditEvidence(run, args)
+func (r Runtime) validatePPTXEditEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) error {
+	evidence, err := r.currentPPTXWorkflowEditEvidence(ctx, run, args)
 	if err != nil {
 		return err
 	}
@@ -331,7 +357,7 @@ func validatePPTXWorkflowEditBounds(operation string, args map[string]any) error
 	return document.ValidatePPTXEditBounds(slides, len(updates), replacementBytes)
 }
 
-func (r Runtime) currentPPTXWorkflowEditEvidence(run app.AgentRun, args map[string]any) (pptxWorkflowEditEvidence, error) {
+func (r Runtime) currentPPTXWorkflowEditEvidence(ctx context.Context, run app.AgentRun, args map[string]any) (pptxWorkflowEditEvidence, error) {
 	if run.Workflow == nil || r.store == nil {
 		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit requires current workflow localization evidence")
 	}
@@ -339,7 +365,10 @@ func (r Runtime) currentPPTXWorkflowEditEvidence(run app.AgentRun, args map[stri
 	if !ok || state.Status != app.WorkflowNodeSucceeded || len(state.ToolCallIDs) != 1 {
 		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit requires one completed current workflow localization read")
 	}
-	call, ok := r.store.GetToolCall(state.ToolCallIDs[0])
+	call, ok, err := r.store.GetToolCall(ctx, state.ToolCallIDs[0])
+	if err != nil {
+		return pptxWorkflowEditEvidence{}, err
+	}
 	if !ok || call.RunID != run.ID || call.SessionID != run.SessionID || call.WorkflowID != app.WorkflowDocumentEdit ||
 		call.WorkflowNodeID != documentLocateEvidenceNodeID || call.ScopeRevision != state.ScopeRevision ||
 		call.Tool != "files.read" || !toolCallCompleted(call) {
@@ -427,11 +456,14 @@ func pptxWorkflowEditEvidenceFromResult(result map[string]any) (pptxWorkflowEdit
 }
 
 func (r Runtime) revalidateApprovedPPTXMutation(ctx context.Context, call app.ToolCall, operation string) error {
-	run, ok := r.store.GetRun(call.RunID)
+	run, ok, err := r.store.GetRun(ctx, call.RunID)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("approved PPTX mutation run is unavailable")
 	}
-	initial, err := r.currentPPTXWorkflowEditEvidence(run, call.Arguments)
+	initial, err := r.currentPPTXWorkflowEditEvidence(ctx, run, call.Arguments)
 	if err != nil {
 		return errors.New("approved PPTX mutation lost its workflow localization evidence")
 	}

@@ -27,6 +27,7 @@ const (
 
 type documentOCRCallMetadata struct {
 	SessionID            string
+	OwnerID              string
 	RunID                string
 	PageIndex            int
 	ClassifierVersion    string
@@ -174,9 +175,16 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		metadata.PreprocessingVersion = documentOCRDefaultPreprocessingVersion
 	}
 	if h == nil || h.ocrRuntime == nil || h.ocr == nil || !h.ocr.Enabled() {
-		return h.recordDocumentOCRBypass(metadata, "disabled", "ocr_adapter_disabled")
+		return h.recordDocumentOCRBypass(ctx, metadata, "disabled", "ocr_adapter_disabled")
 	}
-	ownerID := h.ownerIDForSession(metadata.SessionID)
+	ownerID := strings.TrimSpace(metadata.OwnerID)
+	if ownerID == "" {
+		var err error
+		ownerID, err = h.ownerIDForSession(ctx, metadata.SessionID)
+		if err != nil {
+			return documentOCRInvocation{Err: err, Status: "failed", ReasonCode: "session_store_failed"}
+		}
+	}
 	logicalKey, preparedSHA := documentOCRLogicalKey(
 		input.Content,
 		h.ocrRuntime.cfg.Provider,
@@ -196,7 +204,7 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		}
 		h.ocrRuntime.recordInvocationLocked(invocation, false)
 		h.ocrRuntime.mu.Unlock()
-		h.addDocumentOCRAudit(metadata, invocation)
+		h.addDocumentOCRAudit(ctx, metadata, invocation)
 		return invocation
 	}
 	if flight, ok := h.ocrRuntime.flights[flightKey]; ok {
@@ -206,13 +214,13 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		case <-ctx.Done():
 			invocation := documentOCRInvocation{Err: ctx.Err(), Status: "cancelled", ReasonCode: "request_cancelled", CacheResult: "coalesced", PreparedSHA256: preparedSHA}
 			h.ocrRuntime.recordInvocation(invocation, false)
-			h.addDocumentOCRAudit(metadata, invocation)
+			h.addDocumentOCRAudit(ctx, metadata, invocation)
 			return invocation
 		case <-flight.done:
 			invocation := flight.invocation
 			invocation.CacheResult = "coalesced"
 			h.ocrRuntime.recordInvocation(invocation, false)
-			h.addDocumentOCRAudit(metadata, invocation)
+			h.addDocumentOCRAudit(ctx, metadata, invocation)
 			return invocation
 		}
 	}
@@ -244,11 +252,15 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		errorText = callErr.Error()
 	}
 	if h.store != nil {
-		h.store.SaveModelCall(app.ModelCall{
+		if _, err := h.store.SaveModelCall(ctx, app.ModelCall{
 			ID: modelCallID, SessionID: metadata.SessionID, RunID: metadata.RunID,
 			Lane: "ocr", Profile: provider, Model: model, Operation: "document_ocr", Status: modelStatus,
 			LatencyMS: completed.Sub(started).Milliseconds(), Error: errorText, StartedAt: started, CompletedAt: &completed,
-		})
+		}); err != nil {
+			callErr = fmt.Errorf("persist OCR model call: %w", err)
+			status = documentOCRResultStatus(result, callErr)
+			reasonCode = documentOCRReasonCode(result, callErr)
+		}
 	}
 	invocation := documentOCRInvocation{
 		Result: result, Err: callErr, Status: status, ReasonCode: reasonCode, CacheResult: "miss", ModelCallID: modelCallID,
@@ -266,7 +278,7 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 	h.ocrRuntime.updateLastCallLocked(status, reasonCode, completed)
 	h.ocrRuntime.recordInvocationLocked(invocation, true)
 	h.ocrRuntime.mu.Unlock()
-	h.addDocumentOCRAudit(metadata, invocation)
+	h.addDocumentOCRAudit(ctx, metadata, invocation)
 	return invocation
 }
 
@@ -367,18 +379,18 @@ func (h *ToolHub) recordAdditionalDocumentOCRPages(invocation documentOCRInvocat
 	h.ocrRuntime.mu.Unlock()
 }
 
-func (h *ToolHub) recordDocumentOCRBypass(metadata documentOCRCallMetadata, status, reasonCode string) documentOCRInvocation {
+func (h *ToolHub) recordDocumentOCRBypass(ctx context.Context, metadata documentOCRCallMetadata, status, reasonCode string) documentOCRInvocation {
 	invocation := documentOCRInvocation{Status: status, ReasonCode: reasonCode, CacheResult: "bypass", PreparedSHA256: metadata.SourceSHA256}
 	if h != nil && h.ocrRuntime != nil {
 		h.ocrRuntime.recordInvocation(invocation, false)
 	}
 	if h != nil {
-		h.addDocumentOCRAudit(metadata, invocation)
+		h.addDocumentOCRAudit(ctx, metadata, invocation)
 	}
 	return invocation
 }
 
-func (h *ToolHub) addDocumentOCRAudit(metadata documentOCRCallMetadata, invocation documentOCRInvocation) {
+func (h *ToolHub) addDocumentOCRAudit(ctx context.Context, metadata documentOCRCallMetadata, invocation documentOCRInvocation) {
 	if h == nil || h.store == nil {
 		return
 	}
@@ -398,13 +410,13 @@ func (h *ToolHub) addDocumentOCRAudit(metadata documentOCRCallMetadata, invocati
 	if metadata.PageIndex > 0 {
 		fields["page_index"] = metadata.PageIndex
 	}
-	h.store.AddAudit(app.AuditEvent{
+	h.addAudit(ctx, app.AuditEvent{
 		ID: app.NewID("audit"), Time: time.Now().UTC(), SessionID: metadata.SessionID, RunID: metadata.RunID,
 		Actor: "toolhub", Type: "document.ocr.page", Summary: "Recorded bounded document OCR page outcome", Fields: fields,
 	})
 }
 
-func (h *ToolHub) recordPDFReadMetrics(sessionID, runID, coverage string, pages []any, missing []any) {
+func (h *ToolHub) recordPDFReadMetrics(ctx context.Context, sessionID, runID, coverage string, pages []any, missing []any) {
 	if h == nil || h.ocrRuntime == nil {
 		return
 	}
@@ -422,7 +434,7 @@ func (h *ToolHub) recordPDFReadMetrics(sessionID, runID, coverage string, pages 
 	}
 	h.ocrRuntime.mu.Unlock()
 	if h.store != nil {
-		h.store.AddAudit(app.AuditEvent{
+		h.addAudit(ctx, app.AuditEvent{
 			ID: app.NewID("audit"), Time: time.Now().UTC(), SessionID: sessionID, RunID: runID, Actor: "toolhub",
 			Type: "document.pdf.read.coverage", Summary: "Recorded PDF page-read coverage",
 			Fields: map[string]any{"coverage": coverage, "page_count": len(pages), "missing_page_indexes": missing},

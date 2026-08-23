@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestExtractReadableText(t *testing.T) {
@@ -88,7 +89,7 @@ func TestBrowserReadArchivesRawSnapshot(t *testing.T) {
 	if out["snapshot_ref"] == "" || out["snapshot_object_key"] == "" {
 		t.Fatalf("browser output missing snapshot reference: %#v", out)
 	}
-	objects := st.ListArtifactObjects(10)
+	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if !hasBrowserArtifactKind(objects, "browser_snapshot") {
 		t.Fatalf("browser snapshot was not cataloged: %#v", objects)
 	}
@@ -310,8 +311,8 @@ func TestBrowserReadAutonomousAuthChallengeStartsVisibleHandoff(t *testing.T) {
 	if adapter.callTool != "browser.open" || stringArg(adapter.callArgs, "browser_mode", "") != "collaborative" || !boolArg(adapter.callArgs, "surface_visible", false) {
 		t.Fatalf("handoff did not open visible browser page: tool=%s args=%#v", adapter.callTool, adapter.callArgs)
 	}
-	if !hasToolhubAuditType(st.ListAudit(""), "browser_auth.challenge_detected") || !hasToolhubAuditType(st.ListAudit(""), "browser_auth.handoff_started") {
-		t.Fatalf("missing browser auth audit events: %#v", st.ListAudit(""))
+	if !hasToolhubAuditType(mustToolHubListAudit(t, st, ""), "browser_auth.challenge_detected") || !hasToolhubAuditType(mustToolHubListAudit(t, st, ""), "browser_auth.handoff_started") {
+		t.Fatalf("missing browser auth audit events: %#v", mustToolHubListAudit(t, st, ""))
 	}
 }
 
@@ -353,7 +354,11 @@ func TestBrowserReadCompletedHandoffUsesSharedProfileWithoutCredentialCopy(t *te
 	if stringArg(out, "browser_auth_status", "") != "profile_verified" || stringArg(out, "browser_auth_strategy", "") != "managed_shared_chromium_profile" {
 		t.Fatalf("expected shared profile verification output, got %#v", out)
 	}
-	if records := st.ListBrowserAuthRecords("", ""); len(records) != 0 {
+	records, err := st.ListBrowserAuthRecords(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
 		t.Fatalf("shared profile must not create browser auth records: %#v", records)
 	}
 }
@@ -435,8 +440,8 @@ func TestBrowserReadCompletedHandoffKeepsUnknownEvidenceInconclusive(t *testing.
 	if stringArg(out, "browser_auth_status", "") != "profile_inconclusive" || boolArg(out, "login_handoff_required", true) {
 		t.Fatalf("unknown evidence must remain inconclusive without reopening login: %#v", out)
 	}
-	if !hasToolhubAuditType(st.ListAudit(""), "browser_auth.evidence_inconclusive") {
-		t.Fatalf("missing inconclusive auth audit: %#v", st.ListAudit(""))
+	if !hasToolhubAuditType(mustToolHubListAudit(t, st, ""), "browser_auth.evidence_inconclusive") {
+		t.Fatalf("missing inconclusive auth audit: %#v", mustToolHubListAudit(t, st, ""))
 	}
 }
 

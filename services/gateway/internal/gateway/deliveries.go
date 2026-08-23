@@ -12,6 +12,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type publicDeliveryRecipient struct {
@@ -122,7 +123,7 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	content, err = delivery.ResolveBrowserContent(s.store, principal.OwnerID, s.cfg.Workspaces.DefaultRoot, content)
+	content, err = delivery.ResolveBrowserContent(r.Context(), s.store, principal.OwnerID, s.cfg.Workspaces.DefaultRoot, content)
 	if err != nil {
 		writeError(w, deliveryHTTPStatus(delivery.ErrorCode(err)), err)
 		return
@@ -144,7 +145,10 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 
 	s.deliveryMu.Lock()
 	defer s.deliveryMu.Unlock()
-	if existing, ok := s.store.FindMessageDeliveryByIdempotency(principal.OwnerID, principal.ActorID, input.IdempotencyKey); ok {
+	if existing, ok, err := s.store.FindMessageDeliveryByIdempotency(r.Context(), principal.OwnerID, principal.ActorID, input.IdempotencyKey); err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	} else if ok {
 		if existing.ContentDigest != digest || existing.Request.Target != input.Target {
 			writeError(w, http.StatusConflict, delivery.NewError(delivery.CodeIdempotencyConflict, "idempotency key was already used for another delivery", "blocked"))
 			return
@@ -168,10 +172,18 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 		SoftwareDisplayName: endpoint.SoftwareDisplayName, RecipientDisplayName: endpoint.RecipientDisplayName,
 		AccountDisplayName: endpoint.AccountDisplayName, CreatedAt: now, UpdatedAt: now,
 	}
-	record = s.store.SaveMessageDelivery(record)
+	record, err = persistMessageDelivery(r.Context(), s.store, record)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	record.Status = app.DeliverySending
 	record.Attempts = 1
-	record = s.store.SaveMessageDelivery(record)
+	record, err = persistMessageDelivery(r.Context(), s.store, record)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -179,7 +191,11 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 	receipt.Attempt = record.Attempts
 	record.Receipt = &receipt
 	record.Status = receipt.Status
-	record = s.store.SaveMessageDelivery(record)
+	record, err = persistMessageDelivery(r.Context(), s.store, record)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	if sendErr != nil {
 		writeDeliveryFailure(w, record, sendErr)
 		return
@@ -189,7 +205,11 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getDelivery(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	record, ok := s.store.GetMessageDelivery(app.DeliveryID(strings.TrimSpace(r.PathValue("id"))))
+	record, ok, err := s.store.GetMessageDelivery(r.Context(), app.DeliveryID(strings.TrimSpace(r.PathValue("id"))))
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	if !ok || record.OwnerID != principal.OwnerID || record.ActorID != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("delivery not found"))
 		return
@@ -199,7 +219,11 @@ func (s *Server) getDelivery(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listDeliveries(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	records := s.store.ListMessageDeliveries(principal.OwnerID, principal.ActorID, boundedHistoryLimit(r))
+	records, err := s.store.ListMessageDeliveries(r.Context(), principal.OwnerID, principal.ActorID, boundedHistoryLimit(r))
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	out := make([]publicDelivery, 0, len(records))
 	for _, record := range records {
 		out = append(out, publicMessageDelivery(record))
@@ -222,7 +246,11 @@ func (s *Server) retryDelivery(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
 	s.deliveryMu.Lock()
 	defer s.deliveryMu.Unlock()
-	record, ok := s.store.GetMessageDelivery(app.DeliveryID(strings.TrimSpace(r.PathValue("id"))))
+	record, ok, err := s.store.GetMessageDelivery(r.Context(), app.DeliveryID(strings.TrimSpace(r.PathValue("id"))))
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	if !ok || record.OwnerID != principal.OwnerID || record.ActorID != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("delivery not found"))
 		return
@@ -242,7 +270,11 @@ func (s *Server) retryDelivery(w http.ResponseWriter, r *http.Request) {
 	}
 	record.Attempts++
 	record.Status = app.DeliverySending
-	record = s.store.SaveMessageDelivery(record)
+	record, err = persistMessageDelivery(r.Context(), s.store, record)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	request := record.Request
 	request.Content = retryContent
 	request.IdempotencyKey += ":retry:" + time.Now().UTC().Format("20060102T150405.000000000")
@@ -254,7 +286,11 @@ func (s *Server) retryDelivery(w http.ResponseWriter, r *http.Request) {
 	receipt.Status = aggregatePartStatus(receipt.PartReceipts, receipt.Status)
 	record.Receipt = &receipt
 	record.Status = receipt.Status
-	record = s.store.SaveMessageDelivery(record)
+	record, err = persistMessageDelivery(r.Context(), s.store, record)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
 	if sendErr != nil {
 		writeDeliveryFailure(w, record, sendErr)
 		return
@@ -276,16 +312,31 @@ func (s *Server) listMessageHistory(w http.ResponseWriter, r *http.Request) {
 		CreatedAt            time.Time            `json:"created_at"`
 	}
 	items := []historyItem{}
-	for _, record := range s.store.ListMessageReceives(principal.OwnerID, principal.ActorID, limit) {
+	receives, err := s.store.ListMessageReceives(r.Context(), principal.OwnerID, principal.ActorID, limit)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
+	for _, record := range receives {
 		content := ""
-		if message, ok := s.store.GetExternalChatMessage(record.LinkedMessageID); ok {
+		message, ok, err := s.store.GetExternalChatMessage(r.Context(), record.LinkedMessageID)
+		if err != nil {
+			writeDeliveryStoreError(w, err)
+			return
+		}
+		if ok {
 			content = message.Content
 		}
 		items = append(items, historyItem{ID: record.ID, Direction: record.Direction, Status: record.Status,
 			SoftwareDisplayName: record.SoftwareDisplayName, RecipientDisplayName: record.RecipientDisplayName,
 			AccountDisplayName: record.AccountDisplayName, Content: content, CreatedAt: record.CreatedAt})
 	}
-	for _, record := range s.store.ListMessageDeliveries(principal.OwnerID, principal.ActorID, limit) {
+	deliveries, err := s.store.ListMessageDeliveries(r.Context(), principal.OwnerID, principal.ActorID, limit)
+	if err != nil {
+		writeDeliveryStoreError(w, err)
+		return
+	}
+	for _, record := range deliveries {
 		items = append(items, historyItem{ID: string(record.ID), Direction: record.Direction, Status: string(record.Status),
 			SoftwareDisplayName: record.SoftwareDisplayName, RecipientDisplayName: record.RecipientDisplayName,
 			AccountDisplayName: record.AccountDisplayName, Content: deliveryContentText(record.Request.Content), CreatedAt: record.CreatedAt})
@@ -295,6 +346,28 @@ func (s *Server) listMessageHistory(w http.ResponseWriter, r *http.Request) {
 		items = items[:limit]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": items})
+}
+
+func persistMessageDelivery(ctx context.Context, repository store.DeliveryRecordRepository, record app.MessageDeliveryRecord) (app.MessageDeliveryRecord, error) {
+	saved, err := repository.SaveMessageDelivery(ctx, record)
+	return store.ReconcileMessageDeliveryWrite(ctx, repository, saved, err)
+}
+
+func writeDeliveryStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("delivery request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("delivery not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("delivery conflicts with existing state"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("delivery request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("delivery operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("delivery service is unavailable"))
+	}
 }
 
 func browserMessageContent(parts []browserDeliveryPart) (app.MessageContent, error) {

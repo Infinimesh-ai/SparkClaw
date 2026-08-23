@@ -19,6 +19,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -103,7 +104,7 @@ func TestDeliveryAPIListsOpaqueExactEndpointsAndSendsAllCanonicalParts(t *testin
 			t.Fatalf("binary part was not governed before delivery: %#v", part)
 		}
 	}
-	if runs := st.ListRuns(""); len(runs) != 0 {
+	if runs := testListRuns(st, ""); len(runs) != 0 {
 		t.Fatalf("Web direct send created an Agent run: %#v", runs)
 	}
 
@@ -144,13 +145,13 @@ func TestDeliveryAPIRetriesOnlyFailedPartsAndRechecksRevocation(t *testing.T) {
 		t.Fatalf("retry did not isolate failed part: status=%d calls=%#v body=%s", retried.StatusCode, provider.calls, retriedRaw)
 	}
 
-	binding, _ := st.GetNotificationBinding("bind-direct")
-	if _, err := st.RevokeNotificationBinding(binding.ID); err != nil {
-		t.Fatal(err)
-	}
+	binding, _ := storetest.MustGetNotificationBinding(t, st, "bind-direct")
+	revokedBinding := binding
+	revokedBinding.Status = app.NotificationBindingRevoked
+	storetest.MustUpdateNotificationBinding(t, st, binding, revokedBinding)
 	payload["idempotency_key"] = "web-key-after-revoke"
-	revoked := postJSON(t, ts.URL+"/api/deliveries", payload)
-	if revoked.StatusCode != http.StatusConflict || !strings.Contains(string(readResponse(t, revoked)), delivery.CodeBindingUnavailable) || len(provider.calls) != 2 {
+	revokedResponse := postJSON(t, ts.URL+"/api/deliveries", payload)
+	if revokedResponse.StatusCode != http.StatusConflict || !strings.Contains(string(readResponse(t, revokedResponse)), delivery.CodeBindingUnavailable) || len(provider.calls) != 2 {
 		t.Fatal("stale endpoint sent after binding revocation")
 	}
 }
@@ -158,12 +159,12 @@ func TestDeliveryAPIRetriesOnlyFailedPartsAndRechecksRevocation(t *testing.T) {
 func TestDeliveryAPIRejectsCrossOwnerArtifactBeforeProvider(t *testing.T) {
 	ts, st, provider, endpointID, _ := newDeliveryTestServer(t, 0)
 	otherRoot := t.TempDir()
-	other := st.CreateSessionWithScope("Other", "other-owner", otherRoot, "webchat", false)
+	other := storetest.MustCreateSessionWithScope(t, st, "Other", "other-owner", otherRoot, "webchat", false)
 	path := filepath.Join(otherRoot, "private.txt")
 	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{ID: "obj-other", SessionID: other.ID, Path: path, Key: "private.txt", Bytes: 7})
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: "obj-other", SessionID: other.ID, Path: path, Key: "private.txt", Bytes: 7})
 	resp := postJSON(t, ts.URL+"/api/deliveries", map[string]any{
 		"target": endpointID, "idempotency_key": "web-key-cross", "confirmed": true,
 		"content": map[string]any{"parts": []map[string]any{{"id": "file", "kind": "file", "disposition": "attachment", "artifact_id": "obj-other"}}},
@@ -198,17 +199,17 @@ func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *stor
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-direct", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "testchat", Status: "active",
 		DisplayName: "Personal account", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-direct", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID, AuthorizedActorID: app.DefaultOwnerID,
 		BindingID: binding.ID, Channel: "testchat", ExternalUserID: "external-user-raw", ExternalChatID: "external-chat-raw",
 		DisplayName: "Alex", LastContextToken: "ctx-secret", Status: "active",
 	})
-	st.SaveNotificationBinding(app.NotificationBinding{ID: "bind-reminder", OwnerID: app.DefaultOwnerID, Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeReminderSendSelf}})
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{ID: "bind-reminder", OwnerID: app.DefaultOwnerID, Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeReminderSendSelf}})
 
 	artifactIDs := []string{"obj-image", "obj-audio", "obj-file"}
 	files := []struct{ name, contentType string }{{"image.png", "image/png"}, {"voice.wav", "audio/wav"}, {"report.txt", "text/plain"}}
@@ -218,7 +219,7 @@ func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *stor
 		if err := os.WriteFile(path, raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		st.SaveArtifactObject(app.ArtifactObject{ID: artifactIDs[index], SessionID: session.ID, Path: path, Key: file.name, ContentType: file.contentType, Bytes: len(raw)})
+		storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: artifactIDs[index], SessionID: session.ID, Path: path, Key: file.name, ContentType: file.contentType, Bytes: len(raw)})
 	}
 	provider := &gatewayDeliveryProvider{key: "testchat", partialOn: partialOn}
 	providers := delivery.NewProviderRegistry()
@@ -263,12 +264,12 @@ func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", app.DefaultOwnerID, root, "webchat", false)
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: "bind-delivery-failed", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: "endpoint-delivery-failed", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
 		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
 		ExternalUserID: "user", ExternalChatID: "chat", DisplayName: "Selected recipient", Status: "active",

@@ -325,6 +325,10 @@ data/memory/gateway-state.json
 ```bash
 SPARKCLAW_STATE_BACKEND=memory
 SPARKCLAW_STATE_PATH=/path/to/state.json
+SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS=180
+SPARKCLAW_STATE_READ_TIMEOUT_SECONDS=10
+SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS=30
+SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS=60
 SPARKCLAW_STATE_ENCRYPT_AT_REST=true
 SPARKCLAW_STATE_ENCRYPTION_KEY_FILE=/path/to/key
 ```
@@ -336,10 +340,37 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 
 SPARKCLAW_STATE_BACKEND=postgres \
 SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?sslmode=disable' \
+SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS=180 \
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
-Gateway 启动时会应用当前核心 schema。项目标准 data service image 仍保留 PostgreSQL 18 with pgvector，但 Workspace Knowledge/RAG 暂缓期间，Gateway 不再创建或查询 Document Chunk/Vector Schema。
+`state.backend` 会先 trim 并统一大小写，只允许 `memory`、`file` 或 `postgres`。File state
+在 load 后必须得到 normalized absolute path。启用 file encryption 时，direct key 与可读且非空的
+key file 必须且只能配置一个。PostgreSQL 需要非空 DSN；同时设置时，legacy
+`SPARKCLAW_POSTGRES_DSN` 仍优先于 `SPARKCLAW_STATE_DSN`。Store startup 默认 180 秒，
+允许范围为 1 到 900 秒。read、write、transaction operation budget 默认分别为 10、30、60
+秒，每项允许范围均为 1 到 900 秒，并保留更短的 caller deadline。
+
+所选 backend probe 成功后 Gateway 才开始 listen。Runtime supervision 将 backend 标为 unready
+时，`/readyz` 返回 `503` 与有限 Store status；recovery probe 会周期 retry。`/metrics` 导出
+`sparkclaw_store_ready`、active operation、operation total 与总 duration，只使用有限的
+backend/repository/operation/mode/outcome label，不暴露 state path、DSN、owner ID、record ID
+或 raw error。Shutdown 会拒绝新 Store operation，在 close deadline 内 drain 已获准工作，最后
+关闭 backend。完整 state machine 与 failure contract 见 [Store](store.md)。
+
+Gateway 会在 readiness 前应用内嵌的有序 schema。新 runner 由 advisory lock 串行化，
+不可变 filename/checksum 记录到 `sparkclaw_schema_migrations`。没有 ledger 的数据库作为
+unversioned adoption candidate：全部 migration、兼容 copy/normalization、精确 catalog 校验和
+ledger row 原子提交。checksum 漂移、未知或有缺口的版本、不兼容 legacy natural key 或 catalog
+漂移都会让 startup 失败，不接受 partial migration。PostgreSQL image 不再把 schema SQL 复制到
+`docker-entrypoint-initdb.d`。
+
+S1 是非滚动数据库升级。启动拥有这些 migration 的新 binary 前，必须停止所有旧 Gateway
+process。migration 还会锁住四张 Weixin/external 兼容表直到 commit，以阻止旧 writer；这只是
+backstop，不是 rolling-upgrade protocol。
+
+项目标准 data service image 仍保留 PostgreSQL 18 with pgvector，但 Workspace Knowledge/RAG
+暂缓期间，Gateway 不创建或查询 Document Chunk/Vector Schema。
 
 PostgreSQL 18 会把 cluster 存放在带主版本号的子目录中，因此 Compose 将
 带版本号的 `sparkclaw_pg18` volume 挂载到 `/var/lib/postgresql`。使用旧

@@ -101,7 +101,7 @@ func TestSendWeixinImageUploadsCDNAndSendsImageItem(t *testing.T) {
 		CDNBaseURL: ts.URL,
 		Token:      "bot-token",
 	}
-	result, err := SendWeixinImage(t.Context(), store.NewMemoryStore(), cfg, "wx-user-1", "ctx-1", "", ts.URL, imagePath, "这是一张图片", "run-1")
+	result, err := SendWeixinImage(t.Context(), store.NewMemoryStore(), nil, cfg, "wx-user-1", "ctx-1", "", ts.URL, imagePath, "这是一张图片", "run-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestSendWeixinFileUploadsCDNAndSendsFileItem(t *testing.T) {
 		CDNBaseURL: ts.URL,
 		Token:      "bot-token",
 	}
-	result, err := SendWeixinFile(t.Context(), store.NewMemoryStore(), cfg, "wx-user-1", "ctx-1", "", ts.URL, filePath, "报告.docx", "处理好了", "run-1")
+	result, err := SendWeixinFile(t.Context(), store.NewMemoryStore(), nil, cfg, "wx-user-1", "ctx-1", "", ts.URL, filePath, "报告.docx", "处理好了", "run-1")
 	if err != nil {
 		t.Fatal(err)
 	}

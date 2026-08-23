@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -31,17 +33,28 @@ const (
 )
 
 type Syncer struct {
-	store      store.Store
-	dispatcher *Dispatcher
-	client     *http.Client
-	cfg        config.Config
-	media      *MediaAdapter
+	store       SyncerRepository
+	dispatcher  *Dispatcher
+	client      *http.Client
+	cfg         config.Config
+	media       *MediaAdapter
+	credentials credential.CredentialVault
 
 	slots chan struct{}
 	wg    sync.WaitGroup
 
 	mu   sync.Mutex
 	busy map[string]bool
+}
+
+type SyncerRepository interface {
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ArtifactMetadataRepository
+	store.AuditRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
 }
 
 type updateTextItem struct {
@@ -55,7 +68,7 @@ type updateItem struct {
 	FileItem  fileItem       `json:"file_item"`
 }
 
-func NewSyncer(st store.Store) *Syncer {
+func NewSyncer(st SyncerRepository) *Syncer {
 	return &Syncer{
 		store:  st,
 		client: &http.Client{Timeout: 40 * time.Second},
@@ -66,6 +79,11 @@ func NewSyncer(st store.Store) *Syncer {
 
 func (s *Syncer) WithDispatcher(dispatcher *Dispatcher) *Syncer {
 	s.dispatcher = dispatcher
+	return s
+}
+
+func (s *Syncer) WithCredentialVault(vault credential.CredentialVault) *Syncer {
+	s.credentials = vault
 	return s
 }
 
@@ -94,7 +112,12 @@ func (s *Syncer) Tick(ctx context.Context, scope connectorruntime.RuntimeScope) 
 }
 
 func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope) {
-	for _, binding := range s.store.ListNotificationBindings("weixin", "active") {
+	bindings, err := s.store.ListNotificationBindings(ctx, "weixin", "active")
+	if err != nil {
+		slog.Warn("weixin bindings unavailable", "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	for _, binding := range bindings {
 		if !scope.AllowsOwner(binding.OwnerID) {
 			continue
 		}
@@ -108,12 +131,28 @@ func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.Runti
 			continue
 		}
 		if err := s.syncBinding(ctx, workCtx, scope, binding); err != nil {
-			binding.LastError = err.Error()
-			binding.UpdatedAt = time.Now().UTC()
-			s.store.SaveNotificationBinding(binding)
+			replacement := binding
+			replacement.LastError = stableWeixinSyncError(err)
+			if _, updateErr := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement)); updateErr != nil {
+				slog.Warn("weixin binding error state could not be persisted", "binding_id", binding.ID, "code", store.StoreErrorCodeOf(updateErr))
+			}
 			slog.Warn("weixin context sync failed", "binding_id", binding.ID, "error", err)
 		}
 	}
+}
+
+func stableWeixinSyncError(err error) string {
+	var credentialErr *credential.Error
+	if errors.As(err, &credentialErr) {
+		return credentialErr.Error()
+	}
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		if code := strings.TrimSpace(coded.ErrorCode()); code != "" {
+			return code
+		}
+	}
+	return "weixin_sync_failed"
 }
 
 // Wait blocks until every in-flight dispatch batch has finished.
@@ -145,14 +184,19 @@ type inboundBatch struct {
 }
 
 func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope, binding app.NotificationBinding) error {
+	previous := binding
 	baseURL := strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/")
 	if baseURL == "" {
 		return nil
 	}
-	secret, ok := s.store.GetCredentialSecret(strings.TrimSpace(binding.CredentialRef))
-	if !ok || strings.TrimSpace(secret.Value) == "" {
-		return nil
+	if s.credentials == nil {
+		return &credential.Error{Code: credential.CodeKeyUnavailable}
 	}
+	secret, err := s.credentials.Open(workCtx, strings.TrimSpace(binding.CredentialRef))
+	if err != nil {
+		return err
+	}
+	defer clearSecret(secret)
 	payload := map[string]any{
 		"get_updates_buf": binding.ProviderCursor,
 		"base_info": map[string]any{
@@ -168,7 +212,7 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 	if err != nil {
 		return err
 	}
-	weixinproto.SetHeaders(req, secret.Value)
+	weixinproto.SetHeaders(req, strings.TrimSpace(string(secret)))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
@@ -231,19 +275,28 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 			changed = true
 		}
 		if changed {
-			binding.UpdatedAt = time.Now().UTC()
-			s.store.SaveNotificationBinding(binding)
+			if _, err := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(previous, binding)); err != nil {
+				return err
+			}
 			slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
 		}
 		return nil
 	}
 	if changed {
-		binding.UpdatedAt = time.Now().UTC()
-		binding = s.store.SaveNotificationBinding(binding)
+		binding, err = s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(previous, binding))
+		if err != nil {
+			return err
+		}
 		slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
 	}
 	s.enqueueBatch(workCtx, scope, inboundBatch{Binding: binding, Cursor: decoded.GetUpdatesBuf, Msgs: envelopes})
 	return nil
+}
+
+func clearSecret(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }
 
 // enqueueBatch hands a binding's inbound messages to the bounded dispatch
@@ -296,21 +349,37 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 		if strings.TrimSpace(inbound.ExternalID) == "" {
 			inbound.ExternalID = stableInboundID(inbound)
 		}
-		chatSession := s.dispatcher.ensureChatSession(inbound)
+		chatSession, err := s.dispatcher.ensureChatSession(ctx, inbound)
+		if err != nil {
+			slog.Warn("weixin owner profile unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "error", err)
+			return
+		}
 		endpoint, endpointErr := messagecontrol.NewEndpointRegistry(s.store).Get(ctx, app.EndpointID(chatSession.ID))
 		if endpointErr != nil {
 			slog.Warn("weixin inbound source endpoint rejected", "binding_id", binding.ID, "code", messagecontrol.CodeBindingUnavailable)
 			continue
 		}
 		receives := messagecontrol.NewReceiveLifecycle(s.store)
-		receive, fresh := receives.Begin(endpoint, inbound.ExternalID)
+		receive, fresh, receiveErr := receives.Begin(ctx, endpoint, inbound.ExternalID)
+		if receiveErr != nil {
+			slog.Warn("weixin receive state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(receiveErr))
+			return
+		}
 		if !fresh {
-			existing, ok := s.store.FindExternalChatMessageByExternalID(chatSession.ID, inbound.ExternalID)
+			existing, ok, err := s.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, inbound.ExternalID)
+			if err != nil {
+				slog.Warn("weixin external chat state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(err))
+				return
+			}
 			if !ok || (existing.Status != "failed" && existing.Status != "delivery_failed") {
 				continue
 			}
 		}
-		inbound.ReceiveRecord = receives.Advance(receive, "authorized", "", "")
+		inbound.ReceiveRecord, receiveErr = receives.Advance(ctx, receive, "authorized", "", "")
+		if receiveErr != nil {
+			slog.Warn("weixin receive state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(receiveErr))
+			return
+		}
 		inbound.Text = extractInboundText(msg.Items)
 		inbound.Attachments = s.downloadInboundAttachments(ctx, binding, msg.Items, chatSession.LinkedSessionID, msg.ExternalID)
 		if inbound.Text == "" && len(inbound.Attachments) == 0 {
@@ -325,7 +394,11 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 					"binding_id", binding.ID, "external_id", msg.ExternalID, "error", err)
 				continue
 			}
-			attempts := s.recordDispatchAttempt(chatSession.ID, binding.ID, inbound.ExternalID)
+			attempts, persistErr := s.recordDispatchAttempt(ctx, chatSession.ID, binding.ID, inbound.ExternalID)
+			if persistErr != nil {
+				slog.Warn("weixin dispatch retry state unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "code", store.StoreErrorCodeOf(persistErr))
+				return
+			}
 			if attempts < maxDispatchAttempts {
 				// Keep the old cursor so the provider redelivers this
 				// message (and everything after it) on the next poll.
@@ -337,21 +410,32 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 				"binding_id", binding.ID, "external_id", msg.ExternalID, "attempts", attempts, "error", err)
 		}
 	}
-	s.advanceCursor(binding.ID, batch.Cursor)
+	s.advanceCursor(ctx, binding.ID, batch.Cursor)
 }
 
-func (s *Syncer) advanceCursor(bindingID, cursor string) {
+func (s *Syncer) advanceCursor(ctx context.Context, bindingID, cursor string) {
 	if strings.TrimSpace(cursor) == "" {
 		return
 	}
-	// Reload so we don't clobber concurrent updates to the binding record.
-	binding, ok := s.store.GetNotificationBinding(bindingID)
-	if !ok || binding.ProviderCursor == cursor {
-		return
+	for attempt := 0; attempt < 3; attempt++ {
+		binding, ok, err := s.store.GetNotificationBinding(ctx, bindingID)
+		if err != nil {
+			slog.Warn("weixin binding cursor read failed", "binding_id", bindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
+		if !ok || binding.ProviderCursor == cursor {
+			return
+		}
+		replacement := binding
+		replacement.ProviderCursor = cursor
+		if _, err := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement)); err == nil {
+			return
+		} else if store.StoreErrorCodeOf(err) != store.StoreErrorConflict {
+			slog.Warn("weixin binding cursor update failed", "binding_id", bindingID, "code", store.StoreErrorCodeOf(err))
+			return
+		}
 	}
-	binding.ProviderCursor = cursor
-	binding.UpdatedAt = time.Now().UTC()
-	s.store.SaveNotificationBinding(binding)
+	slog.Warn("weixin binding cursor update conflicted repeatedly", "binding_id", bindingID)
 }
 
 // recordDispatchAttempt persists a failed dispatch on the inbound message
@@ -359,19 +443,25 @@ func (s *Syncer) advanceCursor(bindingID, cursor string) {
 // the message itself, so nothing lingers in syncer memory for bindings that
 // are later revoked. A successful dispatch resets the count when the
 // dispatcher finalizes the record.
-func (s *Syncer) recordDispatchAttempt(chatSessionID, bindingID, externalID string) int {
-	record, ok := s.store.FindExternalChatMessageByExternalID(chatSessionID, externalID)
+func (s *Syncer) recordDispatchAttempt(ctx context.Context, chatSessionID, bindingID, externalID string) (int, error) {
+	record, ok, err := s.store.FindExternalChatMessageByExternalID(ctx, chatSessionID, externalID)
+	if err != nil {
+		return 0, err
+	}
 	if !ok {
 		// The dispatch failed before anything was persisted, so there is no
 		// durable place for a budget; treat the message as exhausted rather
 		// than blocking the binding's cursor indefinitely.
 		slog.Warn("weixin inbound failed without a persisted record; dropping",
 			"binding_id", bindingID, "external_id", externalID)
-		return maxDispatchAttempts
+		return maxDispatchAttempts, nil
 	}
 	record.DispatchAttempts++
-	record = s.store.SaveExternalChatMessage(record)
-	return record.DispatchAttempts
+	record, err = s.store.SaveExternalChatMessage(ctx, record)
+	if err != nil {
+		return 0, err
+	}
+	return record.DispatchAttempts, nil
 }
 
 func (s *Syncer) downloadInboundAttachments(ctx context.Context, binding app.NotificationBinding, items []updateItem, sessionID, nameSeed string) []app.MessageAttachment {

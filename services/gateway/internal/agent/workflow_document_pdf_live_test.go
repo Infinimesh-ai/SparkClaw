@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -55,7 +56,7 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 	cfg.Adapters.DocumentOCR.MaxPending = 0
 
 	state := store.NewMemoryStore()
-	session := state.CreateSessionWithScope("live OvisOCR2 PDF", "live-ocr-owner", root, "test", false)
+	session := storetest.MustCreateSessionWithScope(t, state, "live OvisOCR2 PDF", "live-ocr-owner", root, "test", false)
 	hub := toolhub.New(cfg, state)
 	t.Cleanup(func() { _ = hub.Close() })
 	runtime := NewRuntime(state, hub, policy.New(cfg), modelrouter.New(cfg), trace.NewWriterFromConfig(cfg))
@@ -84,7 +85,7 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 		t.Fatalf("live OCR did not recover the fixture total: %q", firstNonEmptyString(firstOutput["content"]))
 	}
 
-	modelCalls := state.ListModelCalls(session.ID, first.Call.RunID)
+	modelCalls := testListModelCalls(state, session.ID, first.Call.RunID)
 	if len(modelCalls) != 1 || modelCalls[0].Operation != "document_ocr" || modelCalls[0].Lane != "ocr" || modelCalls[0].Status != "completed" {
 		t.Fatalf("fresh live OCR ModelCall is incomplete: %#v", modelCalls)
 	}
@@ -92,7 +93,7 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 	if modelCallID != firstPage["ocr_model_call_id"] {
 		t.Fatalf("page provenance does not reference the fresh ModelCall: page=%#v call=%#v", firstPage, modelCalls[0])
 	}
-	assertLiveOCRAudit(t, state.ListAudit(session.ID), first.Call.RunID, "miss", modelCallID)
+	assertLiveOCRAudit(t, mustAgentListAudit(t, state, session.ID), first.Call.RunID, "miss", modelCallID)
 	assertLiveOCRTrace(t, runtime, state, traceDir, first.Call, 1, "miss", modelCallID)
 
 	afterFirst := hub.DocumentOCRReadiness()
@@ -105,10 +106,10 @@ func TestLiveOvisOCR2PDFReadCoverageTraceAndCache(t *testing.T) {
 		secondPage["ocr_model_call_id"] != modelCallID || secondPage["ocr_cache_record_id"] != firstPage["ocr_cache_record_id"] {
 		t.Fatalf("second PDF read did not reuse live OCR provenance: output=%#v page=%#v", secondOutput, secondPage)
 	}
-	if calls := state.ListModelCalls(session.ID, ""); len(calls) != 1 {
+	if calls := testListModelCalls(state, session.ID, ""); len(calls) != 1 {
 		t.Fatalf("cache hit created a duplicate live OCR ModelCall: %#v", calls)
 	}
-	assertLiveOCRAudit(t, state.ListAudit(session.ID), second.Call.RunID, "hit", modelCallID)
+	assertLiveOCRAudit(t, mustAgentListAudit(t, state, session.ID), second.Call.RunID, "hit", modelCallID)
 	assertLiveOCRTrace(t, runtime, state, traceDir, second.Call, 0, "hit", modelCallID)
 
 	metrics := strings.Join(hub.DocumentMetrics(), "\n")
@@ -156,7 +157,7 @@ func invokeLivePDFRead(t *testing.T, ctx context.Context, runtime Runtime, sessi
 
 func assertLiveOCRTrace(t *testing.T, runtime Runtime, state *store.MemoryStore, traceDir string, call app.ToolCall, wantModelCalls int, cacheResult, modelCallID string) {
 	t.Helper()
-	run, ok := state.GetRun(call.RunID)
+	run, ok := testGetRun(state, call.RunID)
 	if !ok {
 		t.Fatalf("manual live OCR run %s was not persisted", call.RunID)
 	}

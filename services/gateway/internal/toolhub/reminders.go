@@ -11,7 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 )
 
-func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	text := strings.TrimSpace(stringArg(args, "text", ""))
 	if text == "" {
 		return Result{}, errors.New("text cannot be empty")
@@ -26,10 +26,16 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	}
 	channel := strings.TrimSpace(stringArg(args, "channel", ""))
 	if channel == "" {
-		if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok {
+		chatSession, ok, err := h.store.FindExternalChatSessionByLinkedSessionID(ctx, sessionID)
+		if err != nil {
+			return Result{}, err
+		}
+		if ok {
 			channel = chatSession.Channel
 			if strings.TrimSpace(channel) == "" {
-				if binding, bindingOK := h.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID)); bindingOK {
+				if binding, bindingOK, err := h.store.GetNotificationBinding(ctx, strings.TrimSpace(chatSession.BindingID)); err != nil {
+					return Result{}, err
+				} else if bindingOK {
 					channel = binding.Channel
 				}
 			}
@@ -46,7 +52,7 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	baseURL := ""
 	endpointID := app.EndpointID("session:" + sessionID)
 	if channel != "web" {
-		resolved, err := h.reminders.Resolve(channel, sessionID, recipient)
+		resolved, err := h.reminders.Resolve(ctx, channel, sessionID, recipient)
 		if err != nil {
 			return Result{}, err
 		}
@@ -57,7 +63,10 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 		baseURL = resolved.BaseURL
 		endpointID = resolved.EndpointID
 	}
-	ownerID := h.ownerIDForSession(sessionID)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	now := time.Now().UTC()
 	reminder := app.Reminder{
 		ID:               app.NewID("rem"),
@@ -97,10 +106,16 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 		DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence, DedupeKey: reminder.DedupeKey,
 		Status: reminder.Status, CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
 	}
-	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(context.Background(), schedule); err != nil {
+	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(ctx, schedule); err != nil {
 		return Result{}, err
 	}
-	reminder, _ = h.store.GetReminder(reminder.ID)
+	reminder, ok, err := h.store.GetReminder(ctx, reminder.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, errors.New("saved reminder is unavailable")
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
@@ -135,7 +150,7 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func (h *ToolHub) remindersList(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) remindersList(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	filter := app.ReminderFilter{
 		Status: strings.TrimSpace(stringArg(args, "status", "")),
 		Limit:  intArg(args, "limit", 20),
@@ -154,14 +169,24 @@ func (h *ToolHub) remindersList(args map[string]any, sessionID string) (Result, 
 		}
 		filter.To = &t
 	}
-	reminders := h.store.ListReminders(filter)
-	ownerID := h.ownerIDForSession(sessionID)
+	reminders, err := h.store.ListReminders(ctx, filter)
+	if err != nil {
+		return Result{}, err
+	}
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
+	if err != nil {
+		return Result{}, err
+	}
 	items := make([]map[string]any, 0, len(reminders))
 	for _, reminder := range reminders {
 		if reminder.ScheduleSpec == nil || reminder.ScheduleSpec.SchemaVersion != app.ScheduleSpecSchemaVersion {
 			continue
 		}
-		if !h.sessionVisibleToOwner(reminder.SessionID, ownerID) {
+		visible, err := h.sessionVisibleToOwner(ctx, reminder.SessionID, ownerID)
+		if err != nil {
+			return Result{}, err
+		}
+		if !visible {
 			continue
 		}
 		items = append(items, reminderToolOutput(reminder))
@@ -172,7 +197,7 @@ func (h *ToolHub) remindersList(args map[string]any, sessionID string) (Result, 
 	}}, nil
 }
 
-func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) remindersUpdate(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	id := strings.TrimSpace(stringArg(args, "reminder_id", ""))
 	if id == "" {
 		return Result{}, errors.New("reminder_id cannot be empty")
@@ -182,7 +207,10 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		return Result{}, err
 	}
 	registry := messagecontrol.NewScheduleRegistry(h.store)
-	schedule, ok := registry.Get(context.Background(), app.ScheduleID(id))
+	schedule, ok, err := registry.Get(ctx, app.ScheduleID(id))
+	if err != nil {
+		return Result{}, err
+	}
 	if !ok {
 		return Result{}, errors.New("reminder not found")
 	}
@@ -212,7 +240,10 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 	channelValue, channelChanged := optionalStringArg(args, "channel")
 	recipientValue, recipientChanged := optionalStringArg(args, "recipient")
 	if channelChanged || recipientChanged {
-		reminder, reminderOK := h.store.GetReminder(id)
+		reminder, reminderOK, err := h.store.GetReminder(ctx, id)
+		if err != nil {
+			return Result{}, err
+		}
 		if !reminderOK {
 			return Result{}, errors.New("reminder not found")
 		}
@@ -227,7 +258,7 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		endpointID := app.EndpointID("session:" + schedule.SessionID)
 		if channel == "web" {
 		} else {
-			resolved, err := h.reminders.Resolve(channel, schedule.SessionID, requestedRecipient)
+			resolved, err := h.reminders.Resolve(ctx, channel, schedule.SessionID, requestedRecipient)
 			if err != nil {
 				return Result{}, err
 			}
@@ -240,16 +271,25 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		recurrence = normalizeReminderRecurrence(recurrence)
 		patch.Recurrence = &recurrence
 	}
-	ownerID := h.ownerIDForSession(sessionID)
-	updated, err := registry.UpdatePending(context.Background(), app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt, patch)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
 	if err != nil {
 		return Result{}, err
 	}
-	reminder, _ := h.store.GetReminder(string(updated.ID))
+	updated, err := registry.UpdatePending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt, patch)
+	if err != nil {
+		return Result{}, err
+	}
+	reminder, ok, err := h.store.GetReminder(ctx, string(updated.ID))
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, errors.New("updated reminder is unavailable")
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
-func (h *ToolHub) remindersCancel(args map[string]any, sessionID string) (Result, error) {
+func (h *ToolHub) remindersCancel(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	id := strings.TrimSpace(stringArg(args, "reminder_id", ""))
 	if id == "" {
 		return Result{}, errors.New("reminder_id cannot be empty")
@@ -258,12 +298,21 @@ func (h *ToolHub) remindersCancel(args map[string]any, sessionID string) (Result
 	if err != nil {
 		return Result{}, err
 	}
-	ownerID := h.ownerIDForSession(sessionID)
-	canceled, err := messagecontrol.NewScheduleRegistry(h.store).CancelPending(context.Background(), app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
+	ownerID, err := h.ownerIDForSession(ctx, sessionID)
 	if err != nil {
 		return Result{}, err
 	}
-	reminder, _ := h.store.GetReminder(string(canceled.ID))
+	canceled, err := messagecontrol.NewScheduleRegistry(h.store).CancelPending(ctx, app.ScheduleID(id), ownerID, ownerID, expectedUpdatedAt)
+	if err != nil {
+		return Result{}, err
+	}
+	reminder, ok, err := h.store.GetReminder(ctx, string(canceled.ID))
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, errors.New("canceled reminder is unavailable")
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 

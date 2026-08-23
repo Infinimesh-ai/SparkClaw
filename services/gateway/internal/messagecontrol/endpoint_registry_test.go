@@ -7,12 +7,13 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestEndpointRegistryResolvesWebAndProviderNeutralBinding(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Web")
-	binding := st.SaveNotificationBinding(app.NotificationBinding{
+	session := storetest.MustCreateSession(t, st, "Web")
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:       "bind_future",
 		OwnerID:  app.DefaultOwnerID,
 		Channel:  "future-chat",
@@ -36,9 +37,9 @@ func TestEndpointRegistryResolvesWebAndProviderNeutralBinding(t *testing.T) {
 
 func TestEndpointRegistryListsOnlyActorScopedExactSendEndpoints(t *testing.T) {
 	st := store.NewMemoryStore()
-	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
-	saveEndpointFixture(st, "bind-b", "chat-b", "owner-a", "actor-b", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
-	saveEndpointFixture(st, "bind-reminder", "chat-reminder", "owner-a", "actor-a", "weixin", "Only reminder", "user-3", "chat-3", []string{app.BindingScopeReminderSendSelf})
+	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-b", "chat-b", "owner-a", "actor-b", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-reminder", "chat-reminder", "owner-a", "actor-a", "weixin", "Only reminder", "user-3", "chat-3", []string{app.BindingScopeReminderSendSelf})
 
 	registry := NewEndpointRegistry(st)
 	endpoints, err := registry.List(t.Context(), "owner-a", "actor-a")
@@ -55,10 +56,10 @@ func TestEndpointRegistryListsOnlyActorScopedExactSendEndpoints(t *testing.T) {
 
 func TestEndpointRegistryDeterministicTargetResolution(t *testing.T) {
 	st := store.NewMemoryStore()
-	web := st.CreateSessionWithScope("Web", "owner-a", t.TempDir(), "webchat", false)
-	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
-	saveEndpointFixture(st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
-	saveEndpointFixture(st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3", []string{app.BindingScopeMessageSendSelf})
+	web := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
+	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3", []string{app.BindingScopeMessageSendSelf})
 	registry := NewEndpointRegistry(st)
 
 	selection, err := registry.ResolveTarget(t.Context(), TargetRequest{OwnerID: "owner-a", ActorID: "actor-a", WebSessionID: web.ID})
@@ -90,11 +91,17 @@ func TestEndpointRegistryDeterministicTargetResolution(t *testing.T) {
 func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 	st := store.NewMemoryStore()
 	expired := time.Now().UTC().Add(-time.Minute)
-	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{"unknown"})
-	saveEndpointFixture(st, "bind-expired", "chat-expired", "owner-a", "actor-a", "weixin", "Chen", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
-	binding, _ := st.GetNotificationBinding("bind-expired")
-	binding.ExpiresAt = &expired
-	st.SaveNotificationBinding(binding)
+	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{"unknown"})
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "bind-expired", OwnerID: "owner-a", ActorID: "actor-a", Channel: "weixin", Provider: "weixin-provider",
+		Status: app.NotificationBindingActive, DisplayName: "weixin account",
+		Scopes: []string{app.BindingScopeMessageSendSelf}, ExpiresAt: &expired,
+	})
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
+		ID: "chat-expired", OwnerID: "source-user-2", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "actor-a",
+		BindingID: "bind-expired", Channel: "weixin", ExternalUserID: "user-2", ExternalChatID: "chat-2",
+		DisplayName: "Chen", Status: "active",
+	})
 	registry := NewEndpointRegistry(st)
 
 	_, err := registry.GetForMessageSend(t.Context(), "chat-a", "owner-a", "actor-a")
@@ -114,7 +121,7 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 
 func TestEndpointRegistryMessageSendRejectsBindingFallback(t *testing.T) {
 	st := store.NewMemoryStore()
-	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
 	registry := NewEndpointRegistry(st)
 
 	_, err := registry.GetForMessageSend(t.Context(), "bind-a", "owner-a", "actor-a")
@@ -130,7 +137,7 @@ func TestEndpointRegistryMessageSendRejectsBindingFallback(t *testing.T) {
 
 func TestEndpointRegistryHidesDisabledConnectorEndpoints(t *testing.T) {
 	st := store.NewMemoryStore()
-	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
 	enabled := false
 	registry := NewEndpointRegistry(st).WithChannelEnabled(func(ownerID, channel string) bool {
 		return enabled && ownerID == "owner-a" && channel == "telegram"
@@ -156,12 +163,13 @@ func targetErrorCode(err error) string {
 	return ""
 }
 
-func saveEndpointFixture(st *store.MemoryStore, bindingID, chatID, ownerID, actorID, channel, displayName, externalUserID, externalChatID string, scopes []string) {
-	st.SaveNotificationBinding(app.NotificationBinding{
+func saveEndpointFixture(t testing.TB, st *store.MemoryStore, bindingID, chatID, ownerID, actorID, channel, displayName, externalUserID, externalChatID string, scopes []string) {
+	t.Helper()
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: bindingID, OwnerID: ownerID, ActorID: actorID, Channel: channel, Provider: channel + "-provider",
 		Status: "active", DisplayName: channel + " account", Scopes: scopes,
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: chatID, OwnerID: "source-" + externalUserID, AuthorizedOwnerID: ownerID, AuthorizedActorID: actorID,
 		BindingID: bindingID, Channel: channel, ExternalUserID: externalUserID, ExternalChatID: externalChatID,
 		DisplayName: displayName, Status: "active",

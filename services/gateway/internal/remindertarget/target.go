@@ -1,6 +1,7 @@
 package remindertarget
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,21 +20,33 @@ type Target struct {
 }
 
 type Resolver struct {
-	store store.Store
+	store Repository
 }
 
-func NewResolver(st store.Store) *Resolver {
+type Repository interface {
+	store.ConnectorRepository
+	store.ExternalChatRepository
+}
+
+func NewResolver(st Repository) *Resolver {
 	return &Resolver{store: st}
 }
 
-func (r *Resolver) Resolve(channel, sessionID, requestedRecipient string) (Target, error) {
+func (r *Resolver) Resolve(ctx context.Context, channel, sessionID, requestedRecipient string) (Target, error) {
 	channel = normalizeChannel(channel)
 	if channel == "" || r == nil || r.store == nil {
 		return Target{}, errors.New("notification target resolver is unavailable")
 	}
 	requestedRecipient = strings.TrimSpace(requestedRecipient)
-	if chatSession, ok := r.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok && normalizeChannel(chatSession.Channel) == channel {
-		binding, bindingOK := r.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID))
+	chatSession, ok, err := r.store.FindExternalChatSessionByLinkedSessionID(ctx, sessionID)
+	if err != nil {
+		return Target{}, err
+	}
+	if ok && normalizeChannel(chatSession.Channel) == channel {
+		binding, bindingOK, err := r.store.GetNotificationBinding(ctx, strings.TrimSpace(chatSession.BindingID))
+		if err != nil {
+			return Target{}, err
+		}
 		if !bindingOK || binding.Status != "active" || normalizeChannel(binding.Channel) != channel {
 			return Target{}, fmt.Errorf("%s notification binding is unavailable", channel)
 		}
@@ -43,7 +56,10 @@ func (r *Resolver) Resolve(channel, sessionID, requestedRecipient string) (Targe
 		return validateTarget(channel, targetFromSession(chatSession, binding))
 	}
 
-	bindings := r.store.ListNotificationBindings(channel, "active")
+	bindings, err := r.store.ListNotificationBindings(ctx, channel, "active")
+	if err != nil {
+		return Target{}, err
+	}
 	if len(bindings) == 0 {
 		return Target{}, fmt.Errorf("%s notification requires an active binding", channel)
 	}

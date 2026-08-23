@@ -34,13 +34,23 @@ type AgentRuntime interface {
 	HandleMessageWithIngress(context.Context, string, string, string, string, []agent.MessageAttachment, app.MessageIngressContext) (agent.Result, error)
 	ExecuteApprovedToolCall(context.Context, app.Approval) (app.ToolCall, error)
 	ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error)
-	CompleteRunIfApprovalsResolved(string)
+	CompleteRunIfApprovalsResolved(context.Context, string) error
 }
 
 type RuntimeProvider func() AgentRuntime
 
+type Repository interface {
+	store.OwnerRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.PassiveNotificationRepository
+}
+
 type GatewayAdapter struct {
-	store          store.Store
+	store          Repository
 	runtime        RuntimeProvider
 	manifest       Manifest
 	operationLimit time.Duration
@@ -122,7 +132,7 @@ type ApprovalView struct {
 	PreviewHash string `json:"preview_hash"`
 }
 
-func NewGatewayAdapter(st store.Store, runtime RuntimeProvider) *GatewayAdapter {
+func NewGatewayAdapter(st Repository, runtime RuntimeProvider) *GatewayAdapter {
 	return &GatewayAdapter{
 		store:          st,
 		runtime:        runtime,
@@ -159,29 +169,29 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 	case TypeCapabilitiesDescribe:
 		return newResponse(req, "ok", a.manifest, nil, nil, now)
 	case TypeSessionList:
-		return a.listSessions(req, principal, now)
+		return a.listSessions(ctx, req, principal, now)
 	case TypeSessionCreate:
-		return a.createSession(req, principal, now)
+		return a.createSession(ctx, req, principal, now)
 	case TypeMessageSend:
-		return a.sendMessage(req, principal, now)
+		return a.sendMessage(ctx, req, principal, now)
 	case TypeMessageCancel:
-		return a.cancelMessage(req, principal, now)
+		return a.cancelMessage(ctx, req, principal, now)
 	case TypeNotificationDeliver:
-		return a.deliverNotification(req, principal, now)
+		return a.deliverNotification(ctx, req, principal, now)
 	case TypeEventResume:
-		return a.resumeEvents(req, principal, now)
+		return a.resumeEvents(ctx, req, principal, now)
 	case TypeApprovalList:
-		return a.listApprovals(req, principal, now)
+		return a.listApprovals(ctx, req, principal, now)
 	case TypeApprovalResolve:
 		return a.resolveApproval(ctx, req, principal, now)
 	case TypeOperationStatus:
-		return a.operationStatus(req, principal, now)
+		return a.operationStatus(ctx, req, principal, now)
 	default:
 		return newResponse(req, "error", nil, nil, bridgeError(CodeUnsupportedCapability, "unsupported request type", false), now)
 	}
 }
 
-func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) deliverNotification(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	if strings.TrimSpace(req.SessionID) != "" {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "session_id is not allowed for passive notifications", false), now)
 	}
@@ -207,7 +217,7 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 	if payload.OccurredAt.IsZero() || payload.OccurredAt.After(now.Add(2*time.Minute)) {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "occurred_at is invalid", false), now)
 	}
-	notification, created, err := a.store.CreatePassiveNotification(app.PassiveNotification{
+	notification, created, err := a.store.CreatePassiveNotification(ctx, app.PassiveNotification{
 		ID:             stableID("notification", req.EndpointID, req.IdempotencyKey),
 		OwnerID:        principal.OwnerID,
 		EndpointID:     req.EndpointID,
@@ -227,7 +237,9 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "notification could not be persisted", true), now)
 	}
 	if created {
-		a.prunePassiveNotifications(now)
+		if err := a.prunePassiveNotifications(ctx, now); err != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "notification retention could not be persisted", true), now)
+		}
 	}
 	return newResponse(req, "ok", NotificationDeliveryResult{
 		ID: notification.ID, NotificationID: notification.NotificationID, Created: created,
@@ -237,20 +249,25 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 // prunePassiveNotifications applies the configured retention window and
 // per-owner cap after each accepted delivery, so the inbox stays bounded at
 // its only ingestion point.
-func (a *GatewayAdapter) prunePassiveNotifications(now time.Time) {
+func (a *GatewayAdapter) prunePassiveNotifications(ctx context.Context, now time.Time) error {
 	cutoff := time.Time{}
 	if a.notificationRetentionDays > 0 {
 		cutoff = now.AddDate(0, 0, -a.notificationRetentionDays)
 	}
 	if cutoff.IsZero() && a.notificationMaxPerOwner <= 0 {
-		return
+		return nil
 	}
-	a.store.PrunePassiveNotifications(cutoff, a.notificationMaxPerOwner)
+	_, err := a.store.PrunePassiveNotifications(ctx, cutoff, a.notificationMaxPerOwner)
+	return err
 }
 
-func (a *GatewayAdapter) listSessions(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) listSessions(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	sessions := make([]app.Session, 0)
-	for _, session := range a.store.ListSessions() {
+	listed, err := a.store.ListSessions(ctx)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "sessions are temporarily unavailable", true), now)
+	}
+	for _, session := range listed {
 		if ownerIDForSession(session) == principal.OwnerID && !session.Hidden {
 			sessions = append(sessions, session)
 		}
@@ -258,7 +275,7 @@ func (a *GatewayAdapter) listSessions(req Request, principal Principal, now time
 	return newResponse(req, "ok", map[string]any{"sessions": sessions}, nil, nil, now)
 }
 
-func (a *GatewayAdapter) createSession(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) createSession(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	a.mutationMu.Lock()
 	defer a.mutationMu.Unlock()
 	if cached, ok := a.cachedMutation(req); ok {
@@ -275,18 +292,24 @@ func (a *GatewayAdapter) createSession(req Request, principal Principal, now tim
 	if len(title) > 200 {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "session title is too long", false), now)
 	}
-	profile, ok := a.store.GetOwnerProfileByID(principal.OwnerID)
+	profile, ok, err := a.store.GetOwnerProfileByID(ctx, principal.OwnerID)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "owner profile is temporarily unavailable", true), now)
+	}
 	if !ok {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "owner profile not found", false), now)
 	}
-	session := a.store.CreateSessionWithScope(title, profile.ID, profile.WorkspaceRoot, "iscp", false)
+	session, err := a.store.CreateSessionWithScope(ctx, title, profile.ID, profile.WorkspaceRoot, "iscp", false)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "session creation is temporarily unavailable", true), now)
+	}
 	response := newResponse(req, "ok", map[string]any{"session": session}, nil, nil, now)
 	a.rememberMutation(req, response)
 	return response
 }
 
-func (a *GatewayAdapter) sendMessage(req Request, principal Principal, now time.Time) Response {
-	if err := a.requireSession(req.SessionID, principal); err != nil {
+func (a *GatewayAdapter) sendMessage(ctx context.Context, req Request, principal Principal, now time.Time) Response {
+	if err := a.requireSession(ctx, req.SessionID, principal); err != nil {
 		return newResponse(req, "error", nil, nil, err, now)
 	}
 	var payload MessageSendPayload
@@ -314,20 +337,32 @@ func (a *GatewayAdapter) sendMessage(req Request, principal Principal, now time.
 		a.mu.Unlock()
 		return newResponse(req, "accepted", nil, &operation, nil, now)
 	}
-	if run, ok := a.store.GetRun(operationID); ok {
+	if run, ok, err := a.store.GetRun(ctx, operationID); err != nil {
+		a.mu.Unlock()
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "operation state is temporarily unavailable", true), now)
+	} else if ok {
 		if runEndpointID(run) != req.EndpointID {
 			a.mu.Unlock()
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
 		}
-		if run.SessionID != req.SessionID || !a.storedMessageMatches(run.SessionID, messageID, content) {
+		matches, messageErr := a.storedMessageMatches(ctx, run.SessionID, messageID, content)
+		if messageErr != nil {
+			a.mu.Unlock()
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "conversation state is temporarily unavailable", true), now)
+		}
+		if run.SessionID != req.SessionID || !matches {
 			a.mu.Unlock()
 			return newResponse(req, "error", nil, nil, bridgeError(CodeConflict, "idempotency key was reused for a different message", false), now)
 		}
-		operation := a.operationFromRun(run, req.RequestID)
+		operation, err := a.operationFromRun(ctx, run, req.RequestID)
+		if err != nil {
+			a.mu.Unlock()
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "conversation state is temporarily unavailable", true), now)
+		}
 		a.mu.Unlock()
 		return newResponse(req, "accepted", nil, &operation, nil, now)
 	}
-	opCtx, cancel := context.WithTimeout(context.Background(), a.operationLimit)
+	opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.operationLimit)
 	operation := Operation{
 		ID: operationID, RequestID: req.RequestID, SessionID: req.SessionID, RunID: operationID,
 		State: "accepted", CreatedAt: now, UpdatedAt: now,
@@ -389,7 +424,7 @@ func (a *GatewayAdapter) executeMessage(ctx context.Context, record *operationRe
 	current.operation.Result = result
 }
 
-func (a *GatewayAdapter) cancelMessage(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) cancelMessage(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	a.mutationMu.Lock()
 	defer a.mutationMu.Unlock()
 	if cached, ok := a.cachedMutation(req); ok {
@@ -410,7 +445,7 @@ func (a *GatewayAdapter) cancelMessage(req Request, principal Principal, now tim
 		a.mu.Unlock()
 		return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
 	}
-	if err := a.requireSession(record.operation.SessionID, principal); err != nil {
+	if err := a.requireSession(ctx, record.operation.SessionID, principal); err != nil {
 		a.mu.Unlock()
 		return newResponse(req, "error", nil, nil, err, now)
 	}
@@ -427,8 +462,8 @@ func (a *GatewayAdapter) cancelMessage(req Request, principal Principal, now tim
 	return response
 }
 
-func (a *GatewayAdapter) resumeEvents(req Request, principal Principal, now time.Time) Response {
-	if err := a.requireSession(req.SessionID, principal); err != nil {
+func (a *GatewayAdapter) resumeEvents(ctx context.Context, req Request, principal Principal, now time.Time) Response {
+	if err := a.requireSession(ctx, req.SessionID, principal); err != nil {
 		return newResponse(req, "error", nil, nil, err, now)
 	}
 	var payload EventResumePayload
@@ -439,10 +474,17 @@ func (a *GatewayAdapter) resumeEvents(req Request, principal Principal, now time
 	if limit <= 0 || limit > 200 {
 		limit = 200
 	}
-	stored := a.store.EventsAfter(req.SessionID, strings.TrimSpace(payload.Cursor))
+	stored, err := a.store.EventsAfter(ctx, req.SessionID, strings.TrimSpace(payload.Cursor))
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "events are temporarily unavailable", true), now)
+	}
 	if payload.Cursor != "" {
+		allEvents, err := a.store.EventsAfter(ctx, req.SessionID, "")
+		if err != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "events are temporarily unavailable", true), now)
+		}
 		found := false
-		for _, event := range a.store.EventsAfter(req.SessionID, "") {
+		for _, event := range allEvents {
 			if event.ID == payload.Cursor {
 				found = true
 				break
@@ -475,9 +517,9 @@ func (a *GatewayAdapter) resumeEvents(req Request, principal Principal, now time
 	return newResponse(req, "ok", map[string]any{"events": events}, nil, nil, now)
 }
 
-func (a *GatewayAdapter) listApprovals(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) listApprovals(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	if req.SessionID != "" {
-		if err := a.requireSession(req.SessionID, principal); err != nil {
+		if err := a.requireSession(ctx, req.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
 	}
@@ -489,12 +531,16 @@ func (a *GatewayAdapter) listApprovals(req Request, principal Principal, now tim
 	if status == "" {
 		status = "pending"
 	}
+	approvals, err := a.store.ListApprovals(ctx, status)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "approval state is temporarily unavailable", true), now)
+	}
 	views := make([]ApprovalView, 0)
-	for _, approval := range a.store.ListApprovals(status) {
+	for _, approval := range approvals {
 		if req.SessionID != "" && approval.SessionID != req.SessionID {
 			continue
 		}
-		if a.requireSession(approval.SessionID, principal) == nil {
+		if a.requireSession(ctx, approval.SessionID, principal) == nil {
 			views = append(views, ApprovalView{Approval: approval, PreviewHash: ApprovalPreviewHash(approval)})
 		}
 	}
@@ -521,14 +567,17 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	if strings.TrimSpace(payload.PreviewHash) == "" {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "preview_hash is required", false), now)
 	}
-	approval, ok := a.findApproval(strings.TrimSpace(payload.ApprovalID))
+	approval, ok, err := a.findApproval(ctx, strings.TrimSpace(payload.ApprovalID))
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "approval state is temporarily unavailable", true), now)
+	}
 	if !ok {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "approval not found", false), now)
 	}
 	if req.SessionID != "" && approval.SessionID != req.SessionID {
 		return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "approval session mismatch", false), now)
 	}
-	if err := a.requireSession(approval.SessionID, principal); err != nil {
+	if err := a.requireSession(ctx, approval.SessionID, principal); err != nil {
 		return newResponse(req, "error", nil, nil, err, now)
 	}
 	if payload.PreviewHash != ApprovalPreviewHash(approval) {
@@ -543,7 +592,8 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 		return newResponse(req, "error", nil, nil, bridgeError(CodeStaleState, "approval is no longer pending", false), now)
 	}
 
-	resolved, err := a.store.ResolveApproval(approval.ID, decision, payload.Note)
+	candidate, err := a.store.ResolveApproval(ctx, approval.ID, decision, payload.Note)
+	resolved, err := store.ReconcileApprovalWrite(ctx, a.store, candidate, err)
 	if err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeStaleState, "approval could not be resolved", false), now)
 	}
@@ -560,15 +610,23 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 		} else if resumedOK {
 			result = &resumed
 		}
-	} else if rejected, found := a.store.GetToolCall(resolved.ToolCallID); found {
+	} else if rejected, found, readErr := a.store.GetToolCall(ctx, resolved.ToolCallID); readErr != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "tool call state is temporarily unavailable", true), now)
+	} else if found {
 		completedAt := time.Now().UTC()
 		rejected.Status = "rejected"
 		rejected.Error = "owner rejected approval"
 		rejected.CompletedAt = &completedAt
-		a.store.SaveToolCall(rejected)
-		call = &rejected
+		persisted, saveErr := a.store.SaveToolCall(ctx, rejected)
+		persisted, saveErr = store.ReconcileToolCallWrite(ctx, a.store, persisted, saveErr)
+		if saveErr != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "tool call decision is temporarily unavailable", true), now)
+		}
+		call = &persisted
 	}
-	a.runtime().CompleteRunIfApprovalsResolved(resolved.RunID)
+	if err := a.runtime().CompleteRunIfApprovalsResolved(ctx, resolved.RunID); err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "run completion is temporarily unavailable", true), now)
+	}
 	response := newResponse(req, "ok", map[string]any{
 		"approval":  ApprovalView{Approval: resolved, PreviewHash: ApprovalPreviewHash(resolved)},
 		"tool_call": call,
@@ -578,7 +636,7 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	return response
 }
 
-func (a *GatewayAdapter) operationStatus(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) operationStatus(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	var payload OperationStatusPayload
 	if err := DecodePayload(req.Payload, &payload); err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, err.Error(), false), now)
@@ -595,35 +653,52 @@ func (a *GatewayAdapter) operationStatus(req Request, principal Principal, now t
 		if req.SessionID != "" && req.SessionID != operation.SessionID {
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation session mismatch", false), now)
 		}
-		if err := a.requireSession(operation.SessionID, principal); err != nil {
+		if err := a.requireSession(ctx, operation.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
 		return newResponse(req, "ok", nil, &operation, nil, now)
 	}
 	a.mu.Unlock()
-	if run, ok := a.store.GetRun(operationID); ok {
+	if run, ok, err := a.store.GetRun(ctx, operationID); err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "operation state is temporarily unavailable", true), now)
+	} else if ok {
 		if runEndpointID(run) != req.EndpointID {
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation is not accessible", false), now)
 		}
 		if req.SessionID != "" && req.SessionID != run.SessionID {
 			return newResponse(req, "error", nil, nil, bridgeError(CodePermissionDenied, "operation session mismatch", false), now)
 		}
-		if err := a.requireSession(run.SessionID, principal); err != nil {
+		if err := a.requireSession(ctx, run.SessionID, principal); err != nil {
 			return newResponse(req, "error", nil, nil, err, now)
 		}
-		operation := a.operationFromRun(run, req.RequestID)
+		operation, err := a.operationFromRun(ctx, run, req.RequestID)
+		if err != nil {
+			return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "conversation state is temporarily unavailable", true), now)
+		}
 		return newResponse(req, "ok", nil, &operation, nil, now)
 	}
 	return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "operation not found", false), now)
 }
 
-func (a *GatewayAdapter) operationFromRun(run app.AgentRun, requestID string) Operation {
+func (a *GatewayAdapter) operationFromRun(ctx context.Context, run app.AgentRun, requestID string) (Operation, error) {
+	toolCalls, err := a.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return Operation{}, err
+	}
+	approvals, err := a.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Operation{}, err
+	}
 	result := map[string]any{
 		"run":        run,
-		"tool_calls": toolCallsForRun(a.store.ListToolCalls(run.SessionID), run.ID),
-		"approvals":  approvalsForRun(a.store.ListApprovals(""), run.ID),
+		"tool_calls": toolCallsForRun(toolCalls, run.ID),
+		"approvals":  approvalsForRun(approvals, run.ID),
 	}
-	for _, message := range a.store.ListMessages(run.SessionID) {
+	messages, err := a.store.ListMessages(ctx, run.SessionID)
+	if err != nil {
+		return Operation{}, err
+	}
+	for _, message := range messages {
 		if message.RunID == run.ID && message.Role == "assistant" {
 			result["message"] = message
 		}
@@ -636,7 +711,7 @@ func (a *GatewayAdapter) operationFromRun(run app.AgentRun, requestID string) Op
 	return Operation{
 		ID: run.ID, RequestID: requestID, SessionID: run.SessionID, RunID: run.ID,
 		State: operationStateForRun(run), Result: result, CreatedAt: createdAt, UpdatedAt: updatedAt,
-	}
+	}, nil
 }
 
 func (a *GatewayAdapter) updateOperation(id string, update func(*Operation)) {
@@ -648,12 +723,15 @@ func (a *GatewayAdapter) updateOperation(id string, update func(*Operation)) {
 	}
 }
 
-func (a *GatewayAdapter) requireSession(sessionID string, principal Principal) *BridgeError {
+func (a *GatewayAdapter) requireSession(ctx context.Context, sessionID string, principal Principal) *BridgeError {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return bridgeError(CodeInvalidRequest, "session_id is required", false)
 	}
-	session, ok := a.store.GetSession(sessionID)
+	session, ok, err := a.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return bridgeError(CodeTemporarilyUnavailable, "session is temporarily unavailable", true)
+	}
 	if !ok {
 		return bridgeError(CodeNotFound, "session not found", false)
 	}
@@ -713,22 +791,21 @@ func (a *GatewayAdapter) pruneOperationsLocked() {
 	}
 }
 
-func (a *GatewayAdapter) findApproval(id string) (app.Approval, bool) {
-	for _, approval := range a.store.ListApprovals("") {
-		if approval.ID == id {
-			return approval, true
-		}
-	}
-	return app.Approval{}, false
+func (a *GatewayAdapter) findApproval(ctx context.Context, id string) (app.Approval, bool, error) {
+	return a.store.GetApproval(ctx, id)
 }
 
-func (a *GatewayAdapter) storedMessageMatches(sessionID, messageID, content string) bool {
-	for _, message := range a.store.ListMessages(sessionID) {
+func (a *GatewayAdapter) storedMessageMatches(ctx context.Context, sessionID, messageID, content string) (bool, error) {
+	messages, err := a.store.ListMessages(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	for _, message := range messages {
 		if message.ID == messageID {
-			return message.Role == "user" && message.Content == content
+			return message.Role == "user" && message.Content == content, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func ApprovalPreviewHash(approval app.Approval) string {

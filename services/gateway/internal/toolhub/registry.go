@@ -49,6 +49,18 @@ func argsSessionRun(fn func(*ToolHub, map[string]any, string, string) (Result, e
 	}
 }
 
+func argsSessionContext(fn func(*ToolHub, context.Context, map[string]any, string) (Result, error)) toolExecutor {
+	return func(h *ToolHub, ctx context.Context, _ string, args map[string]any, sessionID, _ string) (Result, error) {
+		return fn(h, ctx, args, sessionID)
+	}
+}
+
+func argsSessionRunContext(fn func(*ToolHub, context.Context, map[string]any, string, string) (Result, error)) toolExecutor {
+	return func(h *ToolHub, ctx context.Context, _ string, args map[string]any, sessionID, runID string) (Result, error) {
+		return fn(h, ctx, args, sessionID, runID)
+	}
+}
+
 func remindersEnabled(cfg config.Config) bool {
 	return cfg.Tools.Reminders.Enabled
 }
@@ -136,7 +148,7 @@ func weatherRenderRegistration() toolRegistration {
 
 func scheduleListRegistration() toolRegistration {
 	registration := workflowRegistration(
-		toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)},
+		toolRegistration{enabled: remindersEnabled, run: argsSessionContext((*ToolHub).remindersList)},
 		app.ToolCapabilityScheduleManage, map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationRead)}, app.OutcomeAdapterScheduleList,
 		"List scheduled tasks visible to the current session owner.",
 		"Use for schedule.manage reads and as the required discovery stage before edit or delete.",
@@ -238,10 +250,10 @@ var toolRegistry = func() map[string]toolRegistration {
 		"media.render_weather_card":      weatherRenderRegistration(),
 		"files.write_draft":              legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 		"file.delete":                    documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
-		"memory.search":                  {run: argsSession((*ToolHub).memorySearch)},
-		"memory.write_candidate":         {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
-		"memory.propose":                 {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
-		"memory.write_sensitive":         {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
+		"memory.search":                  {run: argsSessionContext((*ToolHub).memorySearch)},
+		"memory.write_candidate":         {run: ctxArgsSessionRun((*ToolHub).memoryWriteCandidate)},
+		"memory.propose":                 {run: ctxArgsSessionRun((*ToolHub).memoryWriteCandidate)},
+		"memory.write_sensitive":         {run: ctxArgsSessionRun((*ToolHub).memoryWriteSensitive)},
 		"browser.read":                   browserReadRegistration(),
 		"browser.identify_public_target": browserPublicTargetRegistration(),
 		"browser.visual_inspect":         browserVisualRegistration(),
@@ -284,18 +296,18 @@ var toolRegistry = func() map[string]toolRegistration {
 			app.ToolCapabilityBrowserFormSelect, nil, app.OutcomeAdapterBrowserForm,
 			"Select one ordinary reversible form draft value.", "Use only in browser.form_draft with a current bound snapshot and exact owner value.",
 			"Do not select consequential, payment, submit, send, or publish controls.", app.ToolEffectExternalInteract),
-		"reminders.create": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)}, app.ToolCapabilityScheduleManage,
+		"reminders.create": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSessionRunContext((*ToolHub).remindersCreate)}, app.ToolCapabilityScheduleManage,
 			map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationCreate)}, app.OutcomeAdapterGeneric,
 			"Create a scheduled task in the existing Schedule Registry.", "Use only for schedule.manage create operations.", "Do not use to list, update, or cancel schedules.", app.ToolEffectLocalWrite),
 		"reminders.list": scheduleListRegistration(),
-		"reminders.update": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersUpdate)}, app.ToolCapabilityScheduleManage,
+		"reminders.update": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSessionContext((*ToolHub).remindersUpdate)}, app.ToolCapabilityScheduleManage,
 			map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationEdit), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 			"Update an existing scheduled task through the Schedule Registry.", "Use only for schedule.manage edit operations.", "Do not create or cancel schedules.", app.ToolEffectLocalWrite),
-		"reminders.cancel": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersCancel)}, app.ToolCapabilityScheduleManage,
+		"reminders.cancel": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSessionContext((*ToolHub).remindersCancel)}, app.ToolCapabilityScheduleManage,
 			map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 			"Cancel an existing scheduled task.", "Use only for schedule.manage delete operations.", "Do not permanently remove schedule history.", app.ToolEffectLocalWrite),
 		"shell.exec_sandboxed": {run: ctxArgs((*ToolHub).shellExecSandboxed)},
-		"notify.ask_approval":  {run: argsSessionRun((*ToolHub).notifyAskApproval)},
+		"notify.ask_approval":  {run: ctxArgsSessionRun((*ToolHub).notifyAskApproval)},
 	}
 	for name, registration := range documentToolRegistrations() {
 		registry[name] = registration

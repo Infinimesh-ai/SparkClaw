@@ -11,16 +11,17 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 func TestEndpointMessageControlRouterMapsTypedDirectivesToCanonicalResolution(t *testing.T) {
 	st := store.NewMemoryStore()
-	web := st.CreateSessionWithScope("Web", "owner-a", t.TempDir(), "webchat", false)
-	saveMessageControlEndpoint(st, "bind-source", "chat-source", "owner-a", "actor-a", "telegram", "Source", "source-user", "source-chat")
-	saveMessageControlEndpoint(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1")
-	saveMessageControlEndpoint(st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2")
-	saveMessageControlEndpoint(st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3")
+	web := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
+	saveMessageControlEndpoint(t, st, "bind-source", "chat-source", "owner-a", "actor-a", "telegram", "Source", "source-user", "source-chat")
+	saveMessageControlEndpoint(t, st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1")
+	saveMessageControlEndpoint(t, st, "bind-b", "chat-b", "owner-a", "actor-a", "telegram", "Alex", "user-2", "chat-2")
+	saveMessageControlEndpoint(t, st, "bind-c", "chat-c", "owner-a", "actor-a", "weixin", "Chen", "user-3", "chat-3")
 	router := endpointMessageControlRouter{endpoints: messagecontrol.NewEndpointRegistry(st)}
 
 	webRequest := agent.MessageControlRouteRequest{
@@ -86,8 +87,8 @@ func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
-	session := st.CreateSessionWithScope("Web", "owner-a", t.TempDir(), "webchat", false)
-	saveMessageControlEndpoint(st, "bind-c", "chat-c", "owner-a", "owner-a", "weixin", "Chen", "user-3", "chat-3")
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
+	saveMessageControlEndpoint(t, st, "bind-c", "chat-c", "owner-a", "owner-a", "weixin", "Chen", "user-3", "chat-3")
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil).
 		WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
@@ -117,12 +118,13 @@ func withDeliveryDirective(request agent.MessageControlRouteRequest, provider, r
 	return request
 }
 
-func saveMessageControlEndpoint(st *store.MemoryStore, bindingID, chatID, ownerID, actorID, channel, displayName, externalUserID, externalChatID string) {
-	st.SaveNotificationBinding(app.NotificationBinding{
+func saveMessageControlEndpoint(t testing.TB, st *store.MemoryStore, bindingID, chatID, ownerID, actorID, channel, displayName, externalUserID, externalChatID string) {
+	t.Helper()
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID: bindingID, OwnerID: ownerID, ActorID: actorID, Channel: channel, Provider: channel + "-provider",
 		Status: string(app.EndpointActive), DisplayName: channel + " account", Scopes: []string{app.BindingScopeMessageSendSelf},
 	})
-	st.SaveExternalChatSession(app.ExternalChatSession{
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{
 		ID: chatID, OwnerID: actorID, AuthorizedOwnerID: ownerID, AuthorizedActorID: actorID,
 		BindingID: bindingID, Channel: channel, ExternalUserID: externalUserID, ExternalChatID: externalChatID,
 		DisplayName: displayName, Status: string(app.EndpointActive),

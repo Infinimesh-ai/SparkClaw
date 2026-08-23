@@ -18,7 +18,10 @@ import (
 const browserPublicTargetRedirectLimit = 5
 
 func (h *ToolHub) identifyPublicBrowserTarget(ctx context.Context, _ map[string]any, sessionID, runID string) (Result, error) {
-	searchCall, output, ok := h.latestStructuredWebSearch(sessionID, runID)
+	searchCall, output, ok, storeErr := h.latestStructuredWebSearch(ctx, sessionID, runID)
+	if storeErr != nil {
+		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetProviderUnavailable, Err: errors.New("Info target evidence is temporarily unavailable")}
+	}
 	if !ok {
 		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetProviderUnavailable, Err: errors.New("Info target identification has no completed structured web.search outcome")}
 	}
@@ -37,7 +40,10 @@ func (h *ToolHub) identifyPublicBrowserTarget(ctx context.Context, _ map[string]
 
 	selection, unsafeCount, selected := selectInfoPublicBrowserTarget(ctx, sources, h.validatePublicBrowserTarget)
 	if selected {
-		ownerTarget, surface := h.browserPublicTargetContext(runID)
+		ownerTarget, surface, storeErr := h.browserPublicTargetContext(ctx, runID)
+		if storeErr != nil {
+			return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetProviderUnavailable, Err: errors.New("browser target workflow context is temporarily unavailable")}
+		}
 		resultCollection := "sources"
 		if infoResult.Legacy() {
 			resultCollection = "results"
@@ -98,8 +104,11 @@ func selectInfoPublicBrowserTarget(
 	return infoPublicBrowserTargetSelection{}, unsafeCount, false
 }
 
-func (h *ToolHub) latestStructuredWebSearch(sessionID, runID string) (app.ToolCall, map[string]any, bool) {
-	calls := h.store.ListToolCalls(sessionID)
+func (h *ToolHub) latestStructuredWebSearch(ctx context.Context, sessionID, runID string) (app.ToolCall, map[string]any, bool, error) {
+	calls, err := h.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return app.ToolCall{}, nil, false, err
+	}
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
 		if call.RunID != runID || call.Tool != "web.search" || (call.Status != "completed" && call.Status != "completed_after_approval") {
@@ -107,16 +116,19 @@ func (h *ToolHub) latestStructuredWebSearch(sessionID, runID string) (app.ToolCa
 		}
 		output, ok := browserInteractionMap(call.Result)
 		if ok {
-			return call, output, true
+			return call, output, true, nil
 		}
 	}
-	return app.ToolCall{}, nil, false
+	return app.ToolCall{}, nil, false, nil
 }
 
-func (h *ToolHub) browserPublicTargetContext(runID string) (string, string) {
-	run, ok := h.store.GetRun(runID)
+func (h *ToolHub) browserPublicTargetContext(ctx context.Context, runID string) (string, string, error) {
+	run, ok, err := h.store.GetRun(ctx, runID)
+	if err != nil {
+		return "", "", err
+	}
 	if !ok || run.Workflow == nil {
-		return "", "official_home"
+		return "", "official_home", nil
 	}
 	surface := "official_home"
 	switch run.Workflow.Plan.ProfileID {
@@ -125,7 +137,7 @@ func (h *ToolHub) browserPublicTargetContext(runID string) (string, string) {
 	case app.WorkflowBrowserPageRead:
 		surface = "product_page"
 	}
-	return strings.TrimSpace(run.Workflow.Route.Slots.TargetRef), surface
+	return strings.TrimSpace(run.Workflow.Route.Slots.TargetRef), surface, nil
 }
 
 func (h *ToolHub) validatePublicBrowserTarget(ctx context.Context, rawURL string) (string, []string, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing.T) {
@@ -76,7 +77,7 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 	if dispatch.Context.Capability != app.ToolCapabilityBrowserHealth {
 		t.Fatalf("health_check stage context selected the wrong capability: %#v", dispatch.Context)
 	}
-	stored, ok := st.GetRun(dispatch.Run.ID)
+	stored, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || stored.Workflow == nil {
 		t.Fatal("browser interaction workflow was not persisted")
 	}
@@ -266,7 +267,7 @@ func TestBrowserInteractionMaterializesFrozenBlankTabNavigationArguments(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, ok := st.GetRun(dispatch.Run.ID)
+	stored, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || stored.Workflow == nil {
 		t.Fatal("browser interaction workflow was not persisted")
 	}
@@ -275,13 +276,16 @@ func TestBrowserInteractionMaterializesFrozenBlankTabNavigationArguments(t *test
 	node.ScopeRevision = 3
 	node.OutcomeRefs = []app.ResourceRef{{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{"url": "about:blank"}}}
 	stored.Workflow.Nodes["browser_result"] = node
-	st.SaveRun(stored)
+	testSaveRun(st, stored)
 
-	plan := runtime.materializeWorkflowBoundArguments(stored.ID, toolPlan{
+	plan, err := runtime.materializeWorkflowBoundArguments(t.Context(), stored.ID, toolPlan{
 		Name: "browser.navigate", Args: map[string]any{"url": "https://example.invalid/"},
 		WorkflowID: app.WorkflowBrowserInteraction, WorkflowNodeID: "browser_result", ScopeRevision: 3,
 		Capability: app.ToolCapabilityBrowserNavigate,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if plan.Args["url"] != "https://mail.qq.com/" || plan.Args["page_id"] != "page_1" {
 		t.Fatalf("blank-tab navigation did not use the frozen URL and tab ref: %#v", plan.Args)
 	}
@@ -303,7 +307,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, ok := st.GetRun(dispatch.Run.ID)
+	stored, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || stored.Workflow == nil {
 		t.Fatal("browser interaction workflow was not persisted")
 	}
@@ -319,13 +323,16 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	node.ScopeRevision = 5
 	node.OutcomeRefs = outcome.Refs
 	stored.Workflow.Nodes["browser_result"] = node
-	st.SaveRun(stored)
+	testSaveRun(st, stored)
 
-	plan := runtime.materializeWorkflowBoundArguments(stored.ID, toolPlan{
+	plan, err := runtime.materializeWorkflowBoundArguments(t.Context(), stored.ID, toolPlan{
 		Name: "browser.click", Args: map[string]any{"uid": "e7"},
 		WorkflowID: app.WorkflowBrowserInteraction, WorkflowNodeID: "browser_result", ScopeRevision: 5,
 		Capability: app.ToolCapabilityBrowserClick,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if plan.Args["page_id"] != "page_1" || plan.Args["snapshot_id"] != "snapshot_1" || plan.Args["uid"] != "snapshot_1:e7:fingerprint" {
 		t.Fatalf("click arguments did not bind to the current snapshot ref: %#v", plan.Args)
 	}
@@ -348,15 +355,18 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	node.ScopeRevision = 6
 	node.OutcomeRefs = append(node.OutcomeRefs, visibleOutcome.Refs...)
 	stored.Workflow.Nodes["browser_result"] = node
-	st.SaveRun(stored)
+	testSaveRun(st, stored)
 
-	assessment := runtime.materializeWorkflowBoundArguments(stored.ID, toolPlan{
+	assessment, err := runtime.materializeWorkflowBoundArguments(t.Context(), stored.ID, toolPlan{
 		Name: "browser.assess_goal", Args: map[string]any{
 			"snapshot_id": "snapshot_mistyped", "evidence_refs": []any{"tc_visible_snapshot:e7"}, "verdict": "satisfied", "reason": "visible state matches",
 		},
 		WorkflowID: app.WorkflowBrowserInteraction, WorkflowNodeID: "browser_result", ScopeRevision: 6,
 		Capability: app.ToolCapabilityBrowserGoalAssess,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if assessment.Args["snapshot_id"] != "snapshot_2" || !reflect.DeepEqual(assessment.Args["evidence_refs"], []string{"snapshot_2:e7:fingerprint"}) {
 		t.Fatalf("goal assessment did not bind the latest Runtime-owned snapshot identity: %#v", assessment.Args)
 	}
@@ -440,9 +450,9 @@ func TestBrowserAfterActionProjectionCarriesValidatedTransitionAndActionSemantic
 
 func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSession("QQ Mail login handoff")
+	session := storetest.MustCreateSession(t, st, "QQ Mail login handoff")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	runtime := Runtime{store: st}
 	call := app.ToolCall{
 		ID: "tc_snapshot", SessionID: session.ID, RunID: run.ID, Tool: "browser.snapshot", Status: "completed",
@@ -451,7 +461,10 @@ func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 			"title": "登录QQ邮箱", "url": "https://wx.mail.qq.com/?cancel_login=true", "snapshot_id": "snapshot_1", "page_id": "page_1",
 		}}},
 	}
-	block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "打开QQ邮箱的草稿箱", toolPlan{Name: "browser.snapshot", Args: call.Arguments}, call)
+	block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "打开QQ邮箱的草稿箱", toolPlan{Name: "browser.snapshot", Args: call.Arguments}, call)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || block.Status != app.BrowserLoginBlockStatusWaiting || block.BrowserAuthStatus != "handoff_waiting" {
 		t.Fatalf("QQ Mail login page did not create a visible login handoff: %#v ok=%v", block, ok)
 	}

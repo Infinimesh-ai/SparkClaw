@@ -30,7 +30,10 @@ func (h *ToolHub) browserRead(ctx context.Context, args map[string]any, sessionI
 		return Result{}, err
 	}
 	metadata := browserModeMetadataFromArgs(args, "autonomous")
-	authState := h.prepareBrowserAuth(parsed, args, metadata, sessionID, runID)
+	authState, err := h.prepareBrowserAuth(ctx, parsed, args, metadata, sessionID, runID)
+	if err != nil {
+		return Result{}, err
+	}
 	requireBrowserSession := boolArg(args, "require_browser_session", false)
 	if requireBrowserSession && !h.shouldUseBrowserSessionRead() {
 		return Result{}, &app.CodedToolError{Code: app.ToolErrorBrowserSessionRequired, Err: errors.New("browser.read requires an available managed browser session")}
@@ -148,17 +151,24 @@ func browserModeMetadataFromArgs(args map[string]any, fallbackMode string) brows
 	}
 }
 
-func (h *ToolHub) prepareBrowserAuth(parsed *url.URL, args map[string]any, metadata browserModeMetadata, sessionID, runID string) *browserAuthRunState {
-	state := h.newBrowserAuthRunState(parsed, args, sessionID)
+func (h *ToolHub) prepareBrowserAuth(ctx context.Context, parsed *url.URL, args map[string]any, metadata browserModeMetadata, sessionID, runID string) (*browserAuthRunState, error) {
+	state, err := h.newBrowserAuthRunState(ctx, parsed, args, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	state.AuthStrategy = "managed_shared_chromium_profile"
-	h.addBrowserAuthAudit("browser_auth.profile_selected", sessionID, runID, metadata, state, map[string]any{"shared_profile": true})
-	return state
+	h.addBrowserAuthAudit(ctx, "browser_auth.profile_selected", sessionID, runID, metadata, state, map[string]any{"shared_profile": true})
+	return state, nil
 }
 
-func (h *ToolHub) newBrowserAuthRunState(parsed *url.URL, args map[string]any, sessionID string) *browserAuthRunState {
+func (h *ToolHub) newBrowserAuthRunState(ctx context.Context, parsed *url.URL, args map[string]any, sessionID string) (*browserAuthRunState, error) {
 	ownerID := strings.TrimSpace(stringArg(args, "owner_id", ""))
 	if ownerID == "" && h.store != nil && strings.TrimSpace(sessionID) != "" {
-		if session, ok := h.store.GetSession(sessionID); ok {
+		session, ok, err := h.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve browser session owner: %w", err)
+		}
+		if ok {
 			ownerID = session.OwnerID
 		}
 	}
@@ -180,7 +190,7 @@ func (h *ToolHub) newBrowserAuthRunState(parsed *url.URL, args map[string]any, s
 		SiteRealm:        strings.TrimSpace(stringArg(args, "site_realm", "")),
 		AccountHint:      strings.ToLower(strings.TrimSpace(stringArg(args, "account_hint", ""))),
 		AuthStrategy:     "managed_shared_chromium_profile",
-	}
+	}, nil
 }
 
 func browserAuthOrigin(parsed *url.URL) string {
@@ -212,7 +222,7 @@ func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *br
 		out["browser_page_auth_confidence"] = "profile_continuity"
 		out["browser_page_auth_signals"] = append(stringList(out["browser_page_auth_signals"]), "managed_profile_continuity")
 		out["browser_auth_status"] = "profile_verified"
-		h.addBrowserAuthAudit("browser_auth.shared_profile_verified", sessionID, runID, metadata, state, map[string]any{
+		h.addBrowserAuthAudit(ctx, "browser_auth.shared_profile_verified", sessionID, runID, metadata, state, map[string]any{
 			"confidence": "profile_continuity",
 			"signals":    out["browser_page_auth_signals"],
 		})
@@ -220,7 +230,7 @@ func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *br
 	}
 	if pageAuthState == "unknown" && boolArg(args, "login_handoff_completed", false) {
 		out["browser_auth_status"] = "profile_inconclusive"
-		h.addBrowserAuthAudit("browser_auth.evidence_inconclusive", sessionID, runID, metadata, state, map[string]any{
+		h.addBrowserAuthAudit(ctx, "browser_auth.evidence_inconclusive", sessionID, runID, metadata, state, map[string]any{
 			"confidence": stringArg(out, "browser_page_auth_confidence", "insufficient"),
 			"signals":    out["browser_page_auth_signals"],
 		})
@@ -228,7 +238,7 @@ func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *br
 	}
 	if boolArg(args, "login_handoff_completed", false) {
 		out["browser_auth_status"] = "profile_verified"
-		h.addBrowserAuthAudit("browser_auth.shared_profile_verified", sessionID, runID, metadata, state, nil)
+		h.addBrowserAuthAudit(ctx, "browser_auth.shared_profile_verified", sessionID, runID, metadata, state, nil)
 	} else {
 		out["browser_auth_status"] = "profile_active"
 	}
@@ -248,7 +258,7 @@ func (h *ToolHub) applyBrowserAuthOutputBase(out map[string]any, state *browserA
 func (h *ToolHub) finalizeBrowserAuthChallenge(ctx context.Context, out map[string]any, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata, sessionID, runID string) {
 	out["auth_challenge_kind"] = "login_or_verification"
 	out["login_handoff_required"] = true
-	h.addBrowserAuthAudit("browser_auth.challenge_detected", sessionID, runID, metadata, state, nil)
+	h.addBrowserAuthAudit(ctx, "browser_auth.challenge_detected", sessionID, runID, metadata, state, nil)
 	if metadata.BrowserMode == "collaborative" || metadata.Presentation == "visible" || metadata.SurfaceVisible {
 		out["browser_auth_status"] = "handoff_waiting"
 		out["login_surface"] = "collaborative_visible"
@@ -288,10 +298,10 @@ func (h *ToolHub) openBrowserLoginHandoff(ctx context.Context, out map[string]an
 	out["login_handoff_opened"] = true
 	out["login_handoff_url"] = handoffArgs["url"]
 	out["login_handoff_provider"] = result.Provider
-	h.addBrowserAuthAudit("browser_auth.handoff_started", sessionID, runID, metadata, state, nil)
+	h.addBrowserAuthAudit(ctx, "browser_auth.handoff_started", sessionID, runID, metadata, state, nil)
 }
 
-func (h *ToolHub) addBrowserAuthAudit(typ, sessionID, runID string, metadata browserModeMetadata, state *browserAuthRunState, extra map[string]any) {
+func (h *ToolHub) addBrowserAuthAudit(ctx context.Context, typ, sessionID, runID string, metadata browserModeMetadata, state *browserAuthRunState, extra map[string]any) {
 	if h.store == nil || state == nil {
 		return
 	}
@@ -308,7 +318,7 @@ func (h *ToolHub) addBrowserAuthAudit(typ, sessionID, runID string, metadata bro
 	for key, value := range extra {
 		fields[key] = value
 	}
-	h.store.AddAudit(app.AuditEvent{
+	h.addAudit(ctx, app.AuditEvent{
 		Type:      typ,
 		SessionID: sessionID,
 		RunID:     runID,
@@ -816,8 +826,11 @@ func (h *ToolHub) archiveBrowserSnapshot(ctx context.Context, parsed *url.URL, c
 		Bytes:       object.Bytes,
 		CreatedAt:   time.Now().UTC(),
 	}
-	h.store.SaveArtifactObject(artifactObject)
-	return &artifactObject, nil
+	stored, err := h.store.SaveArtifactObject(ctx, artifactObject)
+	if err != nil {
+		return nil, fmt.Errorf("save browser snapshot metadata: %w", err)
+	}
+	return &stored, nil
 }
 
 func shortBrowserSnapshotHash(raw []byte) string {

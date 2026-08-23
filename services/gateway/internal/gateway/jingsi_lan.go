@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -43,7 +44,7 @@ type jingSiClientEvent struct {
 }
 
 func (s *Server) readyJingSiLAN(w http.ResponseWriter, r *http.Request) {
-	session, err := s.jingSiSession()
+	session, err := s.jingSiSession(r.Context())
 	if errors.Is(err, errJingSiLANDisabled) {
 		http.NotFound(w, nil)
 		return
@@ -64,7 +65,7 @@ func (s *Server) readyJingSiLAN(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) headJingSiEvents(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -72,7 +73,7 @@ func (s *Server) headJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("unsupported query parameter"))
 		return
 	}
-	cursor, err := s.store.MessageEventHead(session.ID)
+	cursor, err := s.store.MessageEventHead(r.Context(), session.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, errors.New("message event head is unavailable"))
 		return
@@ -84,7 +85,7 @@ func (s *Server) headJingSiEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -107,7 +108,7 @@ func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 
-	page, err := s.store.MessageEventsAfter(session.ID, internalJingSiCursor(session.ID, rawAfter), limit)
+	page, err := s.store.MessageEventsAfter(r.Context(), session.ID, internalJingSiCursor(session.ID, rawAfter), limit)
 	if errors.Is(err, store.ErrMessageEventCursorInvalid) {
 		writeJingSiCursorReset(w)
 		return
@@ -130,7 +131,7 @@ func (s *Server) listJingSiEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -148,7 +149,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		rawAfter = headerAfter
 	}
 	if rawAfter == "" {
-		head, err := s.store.MessageEventHead(session.ID)
+		head, err := s.store.MessageEventHead(r.Context(), session.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, errors.New("message event head is unavailable"))
 			return
@@ -156,7 +157,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 		rawAfter = publicJingSiCursor(session.ID, head)
 	}
 	after := internalJingSiCursor(session.ID, rawAfter)
-	if _, err := s.store.MessageEventsAfter(session.ID, after, 1); errors.Is(err, store.ErrMessageEventCursorInvalid) {
+	if _, err := s.store.MessageEventsAfter(r.Context(), session.ID, after, 1); errors.Is(err, store.ErrMessageEventCursorInvalid) {
 		writeJingSiCursorReset(w)
 		return
 	} else if err != nil {
@@ -174,11 +175,11 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	send := func() bool {
-		if _, err := s.jingSiSession(); err != nil {
+		if _, err := s.jingSiSession(r.Context()); err != nil {
 			return false
 		}
 		for {
-			page, err := s.store.MessageEventsAfter(session.ID, after, store.MessageEventPageLimit)
+			page, err := s.store.MessageEventsAfter(r.Context(), session.ID, after, store.MessageEventPageLimit)
 			if err != nil {
 				return false
 			}
@@ -227,7 +228,7 @@ func (s *Server) streamJingSiEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postJingSiMessageStream(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.requireJingSiSession(w)
+	session, ok := s.requireJingSiSession(r.Context(), w)
 	if !ok {
 		return
 	}
@@ -337,19 +338,22 @@ func readJingSiSendInput(w http.ResponseWriter, r *http.Request, maxBytes int) (
 	return input, true
 }
 
-func (s *Server) jingSiSession() (app.Session, error) {
+func (s *Server) jingSiSession(ctx context.Context) (app.Session, error) {
 	if !s.cfg.JingSiLAN.Enabled {
 		return app.Session{}, errJingSiLANDisabled
 	}
-	session, ok := s.store.GetSession(strings.TrimSpace(s.cfg.JingSiLAN.SessionID))
+	session, ok, err := s.store.GetSession(ctx, strings.TrimSpace(s.cfg.JingSiLAN.SessionID))
+	if err != nil {
+		return app.Session{}, errJingSiSessionUnavailable
+	}
 	if !ok || session.Hidden || sessionOwnerID(session) != app.DefaultOwnerID || strings.TrimSpace(session.Source) != "webchat" {
 		return app.Session{}, errJingSiSessionUnavailable
 	}
 	return session, nil
 }
 
-func (s *Server) requireJingSiSession(w http.ResponseWriter) (app.Session, bool) {
-	session, err := s.jingSiSession()
+func (s *Server) requireJingSiSession(ctx context.Context, w http.ResponseWriter) (app.Session, bool) {
+	session, err := s.jingSiSession(ctx)
 	if errors.Is(err, errJingSiLANDisabled) {
 		http.NotFound(w, nil)
 		return app.Session{}, false

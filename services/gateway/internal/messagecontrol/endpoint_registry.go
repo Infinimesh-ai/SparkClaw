@@ -12,14 +12,11 @@ import (
 )
 
 type endpointStore interface {
-	GetSession(string) (app.Session, bool)
-	GetNotificationBinding(string) (app.NotificationBinding, bool)
-	GetExternalChatSession(string) (app.ExternalChatSession, bool)
-	ListExternalChatSessions(string, string) []app.ExternalChatSession
-}
-
-type mcpEndpointStore interface {
-	GetMCPBinding(string) (app.MCPBinding, bool)
+	GetSession(context.Context, string) (app.Session, bool, error)
+	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
+	GetExternalChatSession(context.Context, string) (app.ExternalChatSession, bool, error)
+	ListExternalChatSessions(context.Context, string, string) ([]app.ExternalChatSession, error)
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
 }
 
 type EndpointRegistry struct {
@@ -44,18 +41,18 @@ func BindingEndpointID(bindingID string) app.EndpointID {
 	return app.EndpointID(strings.TrimSpace(bindingID))
 }
 
-func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
-	return r.get(id, false)
+func (r *EndpointRegistry) Get(ctx context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
+	return r.get(ctx, id, false)
 }
 
 // GetAdmittedSource resolves a source endpoint for work admitted while its
 // connector was enabled. It preserves binding and identity checks but does not
 // reapply a later owner opt-out to the frozen return path.
-func (r *EndpointRegistry) GetAdmittedSource(_ context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
-	return r.get(id, true)
+func (r *EndpointRegistry) GetAdmittedSource(ctx context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
+	return r.get(ctx, id, true)
 }
 
-func (r *EndpointRegistry) get(id app.EndpointID, admittedSource bool) (app.MessageEndpoint, error) {
+func (r *EndpointRegistry) get(ctx context.Context, id app.EndpointID, admittedSource bool) (app.MessageEndpoint, error) {
 	if r == nil || r.store == nil {
 		return app.MessageEndpoint{}, errors.New("endpoint registry is unavailable")
 	}
@@ -65,7 +62,10 @@ func (r *EndpointRegistry) get(id app.EndpointID, admittedSource bool) (app.Mess
 	}
 	if strings.HasPrefix(value, "session:") {
 		sessionID := strings.TrimSpace(strings.TrimPrefix(value, "session:"))
-		session, ok := r.store.GetSession(sessionID)
+		session, ok, err := r.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return app.MessageEndpoint{}, fmt.Errorf("read web endpoint %q: %w", value, err)
+		}
 		if !ok {
 			return app.MessageEndpoint{}, fmt.Errorf("web endpoint %q is unavailable", value)
 		}
@@ -86,11 +86,10 @@ func (r *EndpointRegistry) get(id app.EndpointID, admittedSource bool) (app.Mess
 	}
 	if strings.HasPrefix(value, "mcp:") {
 		bindingID := strings.TrimSpace(strings.TrimPrefix(value, "mcp:"))
-		mcpStore, supported := r.store.(mcpEndpointStore)
-		if !supported {
-			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
+		binding, ok, err := r.store.GetMCPBinding(ctx, bindingID)
+		if err != nil {
+			return app.MessageEndpoint{}, fmt.Errorf("read MCP endpoint %q: %w", value, err)
 		}
-		binding, ok := mcpStore.GetMCPBinding(bindingID)
 		if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
 			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
 		}
@@ -107,10 +106,17 @@ func (r *EndpointRegistry) get(id app.EndpointID, admittedSource bool) (app.Mess
 			Status: app.EndpointActive, CreatedAt: binding.CreatedAt, UpdatedAt: binding.UpdatedAt,
 		}, nil
 	}
-	if chat, chatOK := r.store.GetExternalChatSession(value); chatOK {
-		return r.endpointForChat(id, chat, admittedSource)
+	chat, chatOK, err := r.store.GetExternalChatSession(ctx, value)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read external chat endpoint %q: %w", value, err)
 	}
-	binding, ok := r.store.GetNotificationBinding(value)
+	if chatOK {
+		return r.endpointForChat(ctx, id, chat, admittedSource)
+	}
+	binding, ok, err := r.store.GetNotificationBinding(ctx, value)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read third-party endpoint %q: %w", value, err)
+	}
 	if !ok || strings.TrimSpace(binding.Status) != string(app.EndpointActive) {
 		return app.MessageEndpoint{}, fmt.Errorf("third-party endpoint %q is unavailable", value)
 	}
@@ -146,11 +152,14 @@ func (r *EndpointRegistry) get(id app.EndpointID, admittedSource bool) (app.Mess
 	}, nil
 }
 
-func (r *EndpointRegistry) endpointForChat(id app.EndpointID, chat app.ExternalChatSession, admittedSource bool) (app.MessageEndpoint, error) {
+func (r *EndpointRegistry) endpointForChat(ctx context.Context, id app.EndpointID, chat app.ExternalChatSession, admittedSource bool) (app.MessageEndpoint, error) {
 	if chat.Status != string(app.EndpointActive) {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery endpoint is inactive")
 	}
-	binding, ok := r.store.GetNotificationBinding(chat.BindingID)
+	binding, ok, err := r.store.GetNotificationBinding(ctx, chat.BindingID)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read delivery binding: %w", err)
+	}
 	if !ok || !bindingUsable(binding, time.Now().UTC()) {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery binding is unavailable")
 	}
@@ -195,12 +204,19 @@ func (r *EndpointRegistry) List(ctx context.Context, ownerID, actorID string) ([
 		return nil, newTargetError(CodeCrossUserDenied, "delivery owner and actor are required")
 	}
 	endpoints := []app.MessageEndpoint{}
-	for _, chat := range r.store.ListExternalChatSessions("", string(app.EndpointActive)) {
-		binding, ok := r.store.GetNotificationBinding(chat.BindingID)
+	chats, err := r.store.ListExternalChatSessions(ctx, "", string(app.EndpointActive))
+	if err != nil {
+		return nil, fmt.Errorf("list external chat endpoints: %w", err)
+	}
+	for _, chat := range chats {
+		binding, ok, err := r.store.GetNotificationBinding(ctx, chat.BindingID)
+		if err != nil {
+			return nil, err
+		}
 		if !ok || !bindingUsable(binding, time.Now().UTC()) || !app.BindingAllowsMessagingScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
 			continue
 		}
-		endpoint, err := r.endpointForChat(app.EndpointID(chat.ID), chat, false)
+		endpoint, err := r.endpointForChat(ctx, app.EndpointID(chat.ID), chat, false)
 		if err != nil || endpoint.OwnerID != ownerID || endpoint.ActorID != actorID {
 			continue
 		}
@@ -303,16 +319,19 @@ func (r *EndpointRegistry) ResolveTarget(ctx context.Context, request TargetRequ
 	return selection, nil
 }
 
-func (r *EndpointRegistry) GetForMessageSend(_ context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
+func (r *EndpointRegistry) GetForMessageSend(ctx context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
 	if r == nil || r.store == nil {
 		return app.MessageEndpoint{}, errors.New("endpoint registry is unavailable")
 	}
 	value := strings.TrimSpace(string(id))
-	chat, ok := r.store.GetExternalChatSession(value)
+	chat, ok, err := r.store.GetExternalChatSession(ctx, value)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read external chat endpoint %q: %w", value, err)
+	}
 	if !ok {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "message delivery requires an exact recipient endpoint")
 	}
-	endpoint, err := r.endpointForChat(id, chat, false)
+	endpoint, err := r.endpointForChat(ctx, id, chat, false)
 	if err != nil {
 		return app.MessageEndpoint{}, err
 	}
@@ -322,7 +341,10 @@ func (r *EndpointRegistry) GetForMessageSend(_ context.Context, id app.EndpointI
 	if endpoint.BindingRef == "" || endpoint.ProviderKey == "" || endpoint.ExternalUserRef == "" || endpoint.Address == "" {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "direct delivery endpoint is incomplete")
 	}
-	binding, ok := r.store.GetNotificationBinding(endpoint.BindingRef)
+	binding, ok, err := r.store.GetNotificationBinding(ctx, endpoint.BindingRef)
+	if err != nil {
+		return app.MessageEndpoint{}, fmt.Errorf("read delivery binding: %w", err)
+	}
 	if !ok || !bindingUsable(binding, time.Now().UTC()) {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery binding is unavailable")
 	}

@@ -171,30 +171,35 @@ func (conversationAnswerProfile) TransitionInstruction(app.ToolOutcome, app.Node
 	return ""
 }
 
-func (r Runtime) runWorkflowMessageContentStep(run app.AgentRun) workflowExecutionResult {
+func (r Runtime) runWorkflowMessageContentStep(ctx context.Context, run app.AgentRun) workflowExecutionResult {
 	if run.Workflow == nil || run.Workflow.Route.Slots.Operation != app.RouteOperationPublish || run.MessageContext == nil {
 		result := workflowExecutionResult{Halted: true}
 		result.fail(workflowFailureMessageContentInvalid, errors.New("ordinary message workflow lost its normalized request content"))
-		r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	if run.Workflow.Plan.ProfileRevision == 3 {
-		return r.runConversationResponseContentStep(run)
+		return r.runConversationResponseContentStep(ctx, run)
 	}
-	content, err := r.governWorkflowRequestContent(run)
+	content, err := r.governWorkflowRequestContent(ctx, run)
 	if err != nil {
 		result := workflowExecutionResult{Halted: true}
 		result.fail(workflowFailureMessageContentInvalid, err)
-		r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	run.MessageContext.RequestContent = content
-	r.store.SaveRun(run)
-	r.store.AddAudit(app.AuditEvent{
+	if _, err := r.saveRun(ctx, run); err != nil {
+		result := workflowExecutionResult{Halted: true}
+		result.fail(workflowFailureStateInvalid, err)
+		return result
+	}
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.message_content_governed",
 		Summary: "Prepared normalized multipart message content for the shared result path",
 		Fields:  map[string]any{"part_count": len(content.Parts), "content_kinds": messageContentKinds(content)},
 	})
+
 	return workflowExecutionResult{FinalAnswer: publishedMessageSummary(content), Completed: true}
 }
 
@@ -256,12 +261,24 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 		case app.ResponseMediaBlocked:
 			return workflowExecutionResult{FinalAnswer: responseMediaBlockedMessage(run.MessageContext.ResponseMedia.ReasonCode), Completed: true}
 		case app.ResponseMediaSelected:
-			if err := r.revalidateFrozenResponseMedia(&run); err != nil {
+			if err := r.revalidateFrozenResponseMedia(ctx, &run); err != nil {
 				return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: response media changed after it was selected."}
 			}
 		}
 	}
-	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForWorkflowStep()
+	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
+	if err != nil {
+		if ctx.Err() != nil {
+			return workflowExecutionResult{
+				Halted: true, Cancelled: true,
+				FinalAnswer: workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", nil, nil),
+			}
+		}
+		result := workflowExecutionResult{}
+		result.fail(workflowFailureEvidenceUnavailable, err)
+		return result
+	}
+	contextText := contextSnapshot.ForWorkflowStep()
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),
 		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),
@@ -276,18 +293,22 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 	started := time.Now().UTC()
 	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_answer", workflowExecutionModelLane, system, strings.Join(userParts, "\n\n"), emit)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed)); saveErr != nil {
+		result := workflowExecutionResult{Chat: chat, Halted: true}
+		result.fail(workflowFailureStateInvalid, saveErr)
+		return result
+	}
 	if err != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
 		result.fail(workflowFailureModelUnavailable, err)
-		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.model_answer_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow.model_answer_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	answer, answerErr := workflowFinalAnswerContent(chat.Content)
 	if answerErr != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
 		result.fail(workflowFailureConversationOutputInvalid, answerErr)
-		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.model_answer_invalid", result.FailureCode, result.FailureDiagnostic, nil)
+		r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow.model_answer_invalid", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
 	return workflowExecutionResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}

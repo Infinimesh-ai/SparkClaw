@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -29,21 +30,39 @@ type agentContextSnapshot struct {
 	RecentImages []app.MessageAttachment
 }
 
-func (r Runtime) buildAgentContextSnapshot(sessionID, currentRunID, currentContent string) agentContextSnapshot {
-	if run, ok := r.store.GetRun(currentRunID); ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
+func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, currentRunID, currentContent string) (agentContextSnapshot, error) {
+	if run, ok, err := r.store.GetRun(ctx, currentRunID); err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load current run context: %w", err)
+	} else if ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
 		// An inbound MCP request must not inherit cached workspace derivatives
 		// through conversation, tool, memory, image, or episode context. Exact
 		// workspace access is admitted through the current run's bound approval
 		// and its current-run observations instead.
-		return agentContextSnapshot{}
+		return agentContextSnapshot{}, nil
+	}
+	messages, err := r.store.ListMessages(ctx, sessionID)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load conversation context: %w", err)
+	}
+	episodes, err := r.store.ListEpisodeSummaries(ctx, sessionID)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load episode context: %w", err)
+	}
+	toolCalls, err := r.store.ListToolCalls(ctx, sessionID)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load tool context: %w", err)
+	}
+	memories, err := r.store.SearchMemories(ctx, currentContent)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load memory context: %w", err)
 	}
 	return agentContextSnapshot{
-		Messages:     recentContextMessages(r.store.ListMessages(sessionID), currentRunID, defaultContextMessageLimit),
-		Episodes:     recentContextEpisodes(r.store.ListEpisodeSummaries(sessionID), defaultContextEpisodeLimit),
-		Memories:     relevantContextMemories(r.store.SearchMemories(currentContent), defaultContextMemoryLimit),
-		ToolResults:  recentContextToolResults(r.store.ListToolCalls(sessionID), currentRunID, defaultContextToolLimit),
-		RecentImages: recentContextImages(r.store.ListMessages(sessionID), currentRunID, 3),
-	}
+		Messages:     recentContextMessages(messages, currentRunID, defaultContextMessageLimit),
+		Episodes:     recentContextEpisodes(episodes, defaultContextEpisodeLimit),
+		Memories:     relevantContextMemories(memories, defaultContextMemoryLimit),
+		ToolResults:  recentContextToolResults(toolCalls, currentRunID, defaultContextToolLimit),
+		RecentImages: recentContextImages(messages, currentRunID, 3),
+	}, nil
 }
 
 func (snapshot agentContextSnapshot) ForIntentRouting() string {

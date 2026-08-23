@@ -12,13 +12,14 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestVoiceUsesNeutralTranscriberAndCleansTemporaryFiles(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
 		return File{FilePath: "voice/input.ogg", FileSize: 32}, nil
@@ -52,8 +53,8 @@ func TestVoiceUsesNeutralTranscriberAndCleansTemporaryFiles(t *testing.T) {
 func TestVoiceUnavailableStopsBeforeTelegramDownload(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
 		bot.mu.Lock()
@@ -71,8 +72,8 @@ func TestVoiceUnavailableStopsBeforeTelegramDownload(t *testing.T) {
 func TestAttachmentLimitsPathCleaningAndExecutableRejection(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	bot := &fakeBotAPI{}
 	bot.getFile = func(context.Context, string) (File, error) {
 		return File{FilePath: "docs/report.pdf", FileSize: 10}, nil
@@ -116,8 +117,8 @@ func TestAttachmentLimitsPathCleaningAndExecutableRejection(t *testing.T) {
 func TestOutboundResolutionRejectsUploadsAndUnregisteredAbsolutePaths(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	chat := storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: "bind", Channel: "telegram", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot})
 	dispatcher := NewDispatcher(st, &recordingRuntime{}, cfg)
 	uploadPath, _ := workspacePath(chat.WorkspaceRoot, "uploads/source.pdf")
 	outputPath, _ := workspacePath(chat.WorkspaceRoot, "outputs/result.pdf")
@@ -127,18 +128,18 @@ func TestOutboundResolutionRejectsUploadsAndUnregisteredAbsolutePaths(t *testing
 	if _, err := writeDownloadFixture(outputPath, []byte("output")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := dispatcher.resolveWorkspaceOutput(chat, "uploads/source.pdf"); ok {
+	if _, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, "uploads/source.pdf"); err != nil || ok {
 		t.Fatal("uploads path was eligible for outbound delivery")
 	}
-	if resolved, ok := dispatcher.resolveWorkspaceOutput(chat, "outputs/result.pdf"); !ok || resolved != outputPath {
-		t.Fatalf("workspace output did not resolve: %q ok=%v", resolved, ok)
+	if resolved, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, "outputs/result.pdf"); err != nil || !ok || resolved != outputPath {
+		t.Fatalf("workspace output did not resolve: %q ok=%v err=%v", resolved, ok, err)
 	}
-	if _, ok := dispatcher.resolveWorkspaceOutput(chat, outputPath); ok {
+	if _, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, outputPath); err != nil || ok {
 		t.Fatal("unregistered absolute path was eligible for outbound delivery")
 	}
-	st.SaveArtifactObject(app.ArtifactObject{ID: "artifact", SessionID: linked.ID, Key: "outputs/result.pdf", Path: outputPath})
-	if resolved, ok := dispatcher.resolveWorkspaceOutput(chat, outputPath); !ok || resolved != outputPath {
-		t.Fatalf("registered artifact did not resolve: %q ok=%v", resolved, ok)
+	storetest.MustSaveArtifactObject(t, st, app.ArtifactObject{ID: "artifact", SessionID: linked.ID, Key: "outputs/result.pdf", Path: outputPath})
+	if resolved, ok, err := dispatcher.resolveWorkspaceOutput(t.Context(), chat, outputPath); err != nil || !ok || resolved != outputPath {
+		t.Fatalf("registered artifact did not resolve: %q ok=%v err=%v", resolved, ok, err)
 	}
 }
 
@@ -146,14 +147,14 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
 	binding := activeTelegramBinding("bind_approval", 1, 1)
-	linked := st.CreateSessionWithScope("Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
-	st.SaveExternalChatSession(app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
+	linked := storetest.MustCreateSessionWithScope(t, st, "Telegram", app.DefaultOwnerID, cfg.Workspaces.DefaultRoot, "telegram", true)
+	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
 	run := app.AgentRun{ID: "run_approval", SessionID: linked.ID, State: "approval_pending"}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	call := app.ToolCall{ID: "call_approval", SessionID: linked.ID, RunID: run.ID, Status: "approval_pending"}
-	st.SaveToolCall(call)
+	testSaveToolCall(st, call)
 	approval := app.Approval{ID: "approval_opaque_id", SessionID: linked.ID, RunID: run.ID, ToolCallID: call.ID, Status: "pending", Tool: "file.delete"}
-	st.SaveApproval(approval)
+	storetest.MustSaveApproval(t, st, approval)
 	runtime := &approvalRuntime{}
 	bot := &fakeBotAPI{}
 	dispatcher := NewDispatcher(st, runtime, cfg).WithClient(bot)
@@ -164,7 +165,7 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	if err := dispatcher.HandleUpdate(context.Background(), binding, update); err != nil {
 		t.Fatal(err)
 	}
-	resolved := st.ListApprovals("approved")
+	resolved := storetest.MustListApprovals(t, st, "approved")
 	if len(resolved) != 1 || runtime.executeCount() != 1 || bot.callbacks() != 2 {
 		t.Fatalf("approval callback was not idempotent: approvals=%#v executes=%d callbacks=%d", resolved, runtime.executeCount(), bot.callbacks())
 	}
@@ -208,7 +209,7 @@ func (r *approvalRuntime) ExecuteApprovedToolCall(context.Context, app.Approval)
 func (r *approvalRuntime) ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error) {
 	return agent.Result{}, false, nil
 }
-func (r *approvalRuntime) CompleteRunIfApprovalsResolved(string) {}
+func (r *approvalRuntime) CompleteRunIfApprovalsResolved(context.Context, string) error { return nil }
 func (r *approvalRuntime) executeCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

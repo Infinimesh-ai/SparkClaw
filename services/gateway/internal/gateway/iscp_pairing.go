@@ -22,7 +22,16 @@ func (s *Server) listISCPOnboardings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"onboardings": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"onboardings": s.iscpPairing.List(principal.OwnerID)})
+	onboardings, err := s.iscpPairing.List(r.Context(), principal.OwnerID)
+	if err != nil {
+		status := iscpPairingFailureStatus(err)
+		if status == 0 {
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"onboardings": onboardings})
 }
 
 func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +44,7 @@ func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable"))
 		return
 	}
-	connector, err := s.connectors.Status(principal.OwnerID, "mcp")
+	connector, err := s.connectors.Status(r.Context(), principal.OwnerID, "mcp")
 	if err != nil || !connector.Enabled {
 		writeError(w, http.StatusConflict, errors.New("MCP connector is disabled"))
 		return
@@ -52,8 +61,8 @@ func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
 	issued, err := s.iscpPairing.Start(r.Context(), principal.OwnerID, principal.ActorID, input, time.Now().UTC())
 	if err != nil {
 		status := http.StatusBadGateway
-		if errors.Is(err, iscppairing.ErrUnavailable) {
-			status = http.StatusServiceUnavailable
+		if failureStatus := iscpPairingFailureStatus(err); failureStatus != 0 {
+			status = failureStatus
 		} else if !errors.Is(err, iscppairing.ErrAuthority) {
 			status = http.StatusBadRequest
 		}
@@ -63,4 +72,19 @@ func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusCreated, issued)
+}
+
+func iscpPairingFailureStatus(err error) int {
+	switch iscppairing.FailureCodeOf(err) {
+	case iscppairing.FailureTimeout:
+		return http.StatusGatewayTimeout
+	case iscppairing.FailureUnavailable, iscppairing.FailureExpired:
+		return http.StatusServiceUnavailable
+	case iscppairing.FailureConflict:
+		return http.StatusConflict
+	case iscppairing.FailureInvalid:
+		return http.StatusBadRequest
+	default:
+		return 0
+	}
 }

@@ -372,6 +372,8 @@ export const api = {
     }),
   notificationBinding: (id: string, signal?: AbortSignal) =>
     request<NotificationBinding>(`/api/notification-bindings/${id}`, { signal }),
+  pollNotificationBinding: (id: string, signal?: AbortSignal) =>
+    request<NotificationBinding>(`/api/notification-bindings/${id}/poll`, { method: "POST", body: "{}", signal }),
   openNotificationBindingBrowser: (id: string) =>
     request<{ opened: boolean }>(`/api/notification-bindings/${id}/browser`, { method: "POST", body: "{}" }),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),

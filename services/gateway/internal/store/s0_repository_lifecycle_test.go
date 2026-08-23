@@ -1,0 +1,165 @@
+package store
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+)
+
+type s0LifecycleCase struct {
+	mutate    func(*testing.T, testBackend)
+	auditType string
+	eventType string
+}
+
+var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
+	"OwnerRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-lifecycle", DisplayName: "Lifecycle"})
+		},
+		auditType: "owner_profile.updated", eventType: "owner_profile.updated",
+	},
+	"ClientRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustClaimTestClient(t, st, app.Client{ID: "client-lifecycle", Name: "Lifecycle", TokenHash: "client-lifecycle-hash"})
+		},
+		auditType: "client.saved", eventType: "client.saved",
+	},
+	"CredentialRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-lifecycle", Kind: "token", Value: "secret"})); err != nil {
+				t.Fatal(err)
+			}
+		},
+		auditType: "credential_secret.saved",
+	},
+	"SessionRepository": {
+		mutate:    func(t *testing.T, st testBackend) { mustCreateSession(t, st, "Lifecycle") },
+		auditType: "session.created", eventType: "session.created",
+	},
+	"ConversationRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			session := mustCreateSession(t, st, "Lifecycle conversation")
+			mustAddMessage(t, st, app.Message{ID: "message-lifecycle", SessionID: session.ID, Role: "user", Content: "hello"})
+		},
+		eventType: "message.created",
+	},
+	"RunRepository": {
+		mutate: func(_ *testing.T, st testBackend) {
+			testSaveRun(st, app.AgentRun{ID: "run-lifecycle", SessionID: "session-lifecycle", State: "completed"})
+		},
+		eventType: "run.completed",
+	},
+	"DocumentRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveDocumentRecord(t, st, app.DocumentRecord{ID: "document-lifecycle", SessionID: "session-lifecycle", LastActivityAt: time.Now().UTC()})
+		},
+		auditType: "document.saved", eventType: "document.saved",
+	},
+	"ApprovalRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveApproval(t, st, app.Approval{ID: "approval-lifecycle", Status: "pending", Summary: "Lifecycle"})
+		},
+		auditType: "approval.pending", eventType: "approval.pending",
+	},
+	"ScheduleRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveReminder(t, st, app.Reminder{ID: "reminder-lifecycle", Status: "pending", DueTime: time.Now().UTC()})
+		},
+		auditType: "reminder.pending", eventType: "reminder.pending",
+	},
+	"ConnectorRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			if _, err := st.UpdateConnectorSetting(t.Context(), app.ConnectorSetting{OwnerID: "owner-lifecycle", Channel: "telegram", Enabled: true}, 0); err != nil {
+				t.Fatal(err)
+			}
+		},
+		auditType: "connector.enabled", eventType: "connector.enabled",
+	},
+	"PassiveNotificationRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			notification := testPassiveNotification("passive-lifecycle", "endpoint-lifecycle", "delivery-lifecycle", "fingerprint-lifecycle")
+			if _, inserted, err := st.CreatePassiveNotification(t.Context(), notification); err != nil || !inserted {
+				t.Fatalf("create passive notification: inserted=%v err=%v", inserted, err)
+			}
+		},
+		auditType: "notification.received",
+	},
+	"ExternalChatRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			if _, err := st.SaveExternalChatSession(t.Context(), app.ExternalChatSession{ID: "external-lifecycle", BindingID: "binding-lifecycle", Channel: "telegram", Status: "active"}); err != nil {
+				t.Fatal(err)
+			}
+		},
+		auditType: "external_chat_session.active", eventType: "external_chat_session.active",
+	},
+	"DeliveryRecordRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			if _, err := st.SaveMessageReceive(t.Context(), app.MessageReceiveRecord{ID: "receive-lifecycle", SourceEndpointID: "endpoint-lifecycle", NativeMessageID: "native-lifecycle", Status: "received"}); err != nil {
+				t.Fatal(err)
+			}
+		},
+		auditType: "message.receive.received",
+	},
+	"BrowserStateRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveBrowserAuthRecord(t, st, app.BrowserAuthRecord{ID: "browser-lifecycle", OwnerID: "owner-lifecycle", BrowserProfileID: "profile-lifecycle", SiteOrigin: "https://example.com"})
+		},
+		auditType: "browser_auth.record_saved", eventType: "browser_auth.record_saved",
+	},
+	"MemoryRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustAddMemoryCandidate(t, st, app.MemoryCandidate{ID: "memory-lifecycle", SessionID: "session-lifecycle", RunID: "run-lifecycle", Status: "pending"})
+		},
+		auditType: "memory_candidate.created", eventType: "memory_candidate.created",
+	},
+	"AuditRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustAddAudit(t, st, app.AuditEvent{ID: "audit-lifecycle", Type: "s0.audit.supplied", Time: time.Now().UTC()})
+		},
+		auditType: "s0.audit.supplied",
+	},
+	"EvaluationRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveEvalRun(t, st, app.EvalRun{ID: "evaluation-lifecycle", Status: "passed"})
+		},
+		auditType: "eval.passed", eventType: "eval.passed",
+	},
+	"ArtifactMetadataRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			mustSaveArtifactObject(t, st, app.ArtifactObject{ID: "artifact-lifecycle", URI: "artifact://s0/lifecycle", Key: "lifecycle"})
+		},
+		auditType: "artifact.saved", eventType: "artifact.saved",
+	},
+}
+
+func TestS0BackendNeutralRepositoryLifecycleEvidence(t *testing.T) {
+	if len(s0RepositoryLifecycleCases) != len(s0RepositoryMethods)-2 {
+		t.Fatalf("repository lifecycle cases = %d, want %d", len(s0RepositoryLifecycleCases), len(s0RepositoryMethods)-2)
+	}
+	for repository, lifecycle := range s0RepositoryLifecycleCases {
+		t.Run(repository, func(t *testing.T) {
+			for _, backend := range newS0RepositoryBackends(t) {
+				t.Run(backend.name, func(t *testing.T) {
+					beforeAudits := len(mustListAudit(t, backend.store, ""))
+					beforeEvents := len(mustEventsAfter(t, backend.store, "", ""))
+					lifecycle.mutate(t, backend.store)
+					if lifecycle.auditType != "" {
+						audits := mustListAudit(t, backend.store, "")
+						if len(audits) <= beforeAudits || !hasAuditType(audits, lifecycle.auditType) {
+							t.Fatalf("%s did not append audit %q: %#v", repository, lifecycle.auditType, audits)
+						}
+					}
+					if lifecycle.eventType != "" {
+						events := mustEventsAfter(t, backend.store, "", "")
+						if len(events) <= beforeEvents || !hasEventType(events, lifecycle.eventType) {
+							t.Fatalf("%s did not append event %q: %#v", repository, lifecycle.eventType, events)
+						}
+					}
+				})
+			}
+		})
+	}
+}

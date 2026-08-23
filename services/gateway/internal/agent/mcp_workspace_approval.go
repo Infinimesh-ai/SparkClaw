@@ -22,13 +22,18 @@ func (r Runtime) queueMCPWorkspaceDataApproval(ctx context.Context, run *app.Age
 	if err != nil || !required {
 		return app.ToolCall{}, app.Approval{}, false, err
 	}
-	if existing := r.workspaceDataAccessCallForRun(run.ID); existing != nil {
+	if existing, err := r.workspaceDataAccessCallForRun(ctx, run.ID); err != nil {
+		return app.ToolCall{}, app.Approval{}, false, err
+	} else if existing != nil {
 		return app.ToolCall{}, app.Approval{}, false, nil
 	}
-	call, approval, _ := r.runToolPlan(ctx, run.SessionID, run.ID, toolPlan{
+	call, approval, _, err := r.runToolPlan(ctx, run.SessionID, run.ID, toolPlan{
 		Name: app.ToolWorkspaceDataAccess,
 		Args: args,
 	})
+	if err != nil {
+		return call, app.Approval{}, false, err
+	}
 	if approval == nil || call.Status != "approval_pending" {
 		if call.Error != "" {
 			return call, app.Approval{}, false, errors.New(call.Error)
@@ -38,14 +43,19 @@ func (r Runtime) queueMCPWorkspaceDataApproval(ctx context.Context, run *app.Age
 	run.State = "approval_pending"
 	run.CompletedAt = nil
 	run.Summary = "Workspace data access is waiting for owner approval."
-	r.store.SaveRun(*run)
-	r.store.AddAudit(app.AuditEvent{
+	if saved, err := r.saveRun(ctx, *run); err != nil {
+		return call, app.Approval{}, false, err
+	} else {
+		*run = saved
+	}
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "policy", Type: "policy.workspace_data_approval_requested",
 		Summary: "External MCP workspace data access is waiting for owner approval",
 		Fields: map[string]any{
 			"approval_id": approval.ID, "request_digest": args["request_digest"], "contract_revision": args["contract_revision"],
 		},
 	})
+
 	return call, *approval, true, nil
 }
 
@@ -218,25 +228,35 @@ func sealWorkspaceAccessArguments(args map[string]any) (map[string]any, error) {
 	return args, nil
 }
 
-func (r Runtime) workspaceDataAccessCallForRun(runID string) *app.ToolCall {
-	run, ok := r.store.GetRun(runID)
-	if !ok {
-		return nil
+func (r Runtime) workspaceDataAccessCallForRun(ctx context.Context, runID string) (*app.ToolCall, error) {
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
 	}
-	for _, call := range toolCallsForRun(r.store.ListToolCalls(run.SessionID), runID) {
+	if !ok {
+		return nil, nil
+	}
+	storedCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	for _, call := range toolCallsForRun(storedCalls, runID) {
 		if call.Tool == app.ToolWorkspaceDataAccess {
 			copy := call
-			return &copy
+			return &copy, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func (r Runtime) validateWorkspaceDataAccessApproval(call app.ToolCall, approval app.Approval) error {
+func (r Runtime) validateWorkspaceDataAccessApproval(ctx context.Context, call app.ToolCall, approval app.Approval) error {
 	if call.Tool != app.ToolWorkspaceDataAccess || approval.ToolCallID != call.ID || approval.Tool != call.Tool {
 		return errors.New("workspace data approval does not match its confirmation call")
 	}
-	run, ok := r.store.GetRun(call.RunID)
+	run, ok, err := r.store.GetRun(ctx, call.RunID)
+	if err != nil {
+		return err
+	}
 	if !ok || run.SessionID != call.SessionID {
 		return errors.New("workspace data approval run is unavailable")
 	}
@@ -251,55 +271,67 @@ func (r Runtime) validateWorkspaceDataAccessApproval(call app.ToolCall, approval
 	if !ok {
 		return errors.New("workspace data confirmation tool is unavailable")
 	}
-	if err := r.validateContextBoundToolApproval(call, approval, definition); err != nil {
+	if err := r.validateContextBoundToolApproval(ctx, call, approval, definition); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (r Runtime) resumeMCPWorkspaceDataApproval(ctx context.Context, run app.AgentRun, content string) (Result, bool, error) {
-	call := r.workspaceDataAccessCallForRun(run.ID)
+	call, err := r.workspaceDataAccessCallForRun(ctx, run.ID)
+	if err != nil {
+		return Result{}, false, err
+	}
 	if call == nil {
 		return Result{}, false, nil
 	}
-	approval, ok := r.store.GetApproval(call.ApprovalID)
+	approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+	if err != nil {
+		return Result{}, false, err
+	}
 	if !ok || approval.Status != "approved" {
 		return Result{}, false, nil
 	}
 	if call.Status != "completed_after_approval" {
-		result := r.blockPersistedWorkflowResume(ctx, run, content, errors.New("workspace data approval did not complete safely"))
-		return result, true, nil
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, errors.New("workspace data approval did not complete safely"))
+		return result, true, resultErr
 	}
-	if err := r.validateWorkspaceDataAccessApproval(*call, approval); err != nil {
-		result := r.blockPersistedWorkflowResume(ctx, run, content, err)
-		return result, true, nil
+	if err := r.validateWorkspaceDataAccessApproval(ctx, *call, approval); err != nil {
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, err)
+		return result, true, resultErr
 	}
 	var completeErr error
 	switch strings.TrimSpace(stringValue(call.Arguments["contract_revision"])) {
 	case responseMediaAccessContractRevision:
 		completeErr = r.completeConversationMediaDetection(ctx, &run)
 	case documentPathAccessContractRevision:
-		completeErr = r.completeMCPDocumentPreflight(&run)
+		completeErr = r.completeMCPDocumentPreflight(ctx, &run)
 	default:
 		completeErr = errors.New("workspace data approval contract revision is unsupported")
 	}
 	if completeErr != nil {
-		result := r.blockPersistedWorkflowResume(ctx, run, content, completeErr)
-		return result, true, nil
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, completeErr)
+		return result, true, resultErr
 	}
-	if refreshed, ok := r.store.GetRun(run.ID); ok {
+	if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
+		return Result{}, true, err
+	} else if ok {
 		run = refreshed
 	}
 	return r.resumeMatchedWorkflow(ctx, run, content, nil, "workflow.resumed_after_workspace_data_approval")
 }
 
-func (r Runtime) completeMCPDocumentPreflight(run *app.AgentRun) error {
+func (r Runtime) completeMCPDocumentPreflight(ctx context.Context, run *app.AgentRun) error {
 	required, err := mcpDocumentAccessRequest(run)
 	if err != nil || !required {
 		return errors.New("external MCP document access request is no longer active")
 	}
 	edit := run.Workflow.Route.Slots.Operation == app.RouteOperationEdit || run.Workflow.Route.Slots.Operation == app.RouteOperationTransform
-	preflight, err := preflightDocumentPath(r.workspaceRootForSession(run.SessionID), run.Workflow.Route.Slots.TargetRef, edit)
+	workspaceRoot, err := r.workspaceRootForSession(ctx, run.SessionID)
+	if err != nil {
+		return err
+	}
+	preflight, err := preflightDocumentPath(workspaceRoot, run.Workflow.Route.Slots.TargetRef, edit)
 	if err != nil {
 		return err
 	}
@@ -312,7 +344,10 @@ func (r Runtime) completeMCPDocumentPreflight(run *app.AgentRun) error {
 	reference := documentContextReference{
 		Ref: preflight.InputRef, Format: preflight.Format, Provenance: documentProvenanceExplicitCurrent,
 	}
-	record := r.confirmDocumentRecord(run.SessionID, run.ID, reference, preflight)
+	record, err := r.confirmDocumentRecord(ctx, run.SessionID, run.ID, reference, preflight)
+	if err != nil {
+		return err
+	}
 	facts := cloneFacts(run.Workflow.Route.Facts)
 	if facts == nil {
 		facts = map[string]string{}
@@ -340,6 +375,10 @@ func (r Runtime) completeMCPDocumentPreflight(run *app.AgentRun) error {
 	if err := prepareWorkflowState(profile, run.Workflow); err != nil {
 		return err
 	}
-	r.store.SaveRun(*run)
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
 	return nil
 }

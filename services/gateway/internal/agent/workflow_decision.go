@@ -78,30 +78,36 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 
 	view, err := r.exposure.Search(ctx, app.ExposureRequest{
 		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: node.ID,
-		ScopeRevision: state.ScopeRevision, ActorRef: r.workflowActorRef(run.SessionID), Limit: workflowProfileDirectoryLimit(profile),
+		ScopeRevision: state.ScopeRevision, ActorRef: r.workflowActorRef(*run), Limit: workflowProfileDirectoryLimit(profile),
 	})
 	if err != nil {
 		return "", false, err
 	}
 	view.Entries = scopeDocumentDirectoryEntries(run.Workflow.Route, view.Entries)
-	r.auditDirectorySearch(*run, view)
-	if refreshed, exists := r.store.GetRun(run.ID); exists {
+	r.auditDirectorySearch(ctx, *run, view)
+	if refreshed, exists, err := r.store.GetRun(ctx, run.ID); err != nil {
+		return "", false, err
+	} else if exists {
 		*run = refreshed
 	}
 	if len(view.Entries) == 0 {
-		r.blockWorkflowDecision(run, node, reasonCodes.NoMatch)
+		if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.NoMatch); err != nil {
+			return "", false, err
+		}
 		return "", true, nil
 	}
 
 	if len(view.Entries) == 1 {
 		state = run.Workflow.Nodes[node.ID]
 		if state.Attempts >= node.MaxAttempts {
-			r.blockWorkflowDecision(run, node, reasonCodes.Invalid)
+			if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.Invalid); err != nil {
+				return "", false, err
+			}
 			return "", true, nil
 		}
 		state.Attempts++
 		run.Workflow.Nodes[node.ID] = state
-		instruction, resolveErr := r.completeWorkflowDecision(run, profile, node, view, view.Entries[0], "deterministic")
+		instruction, resolveErr := r.completeWorkflowDecision(ctx, run, profile, node, view, view.Entries[0], "deterministic")
 		return instruction, true, resolveErr
 	}
 	decisionProjection, err := r.prepareWorkflowDecisionProjection(ctx, *run, node, view)
@@ -113,7 +119,9 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 	for {
 		state = run.Workflow.Nodes[node.ID]
 		if state.Attempts >= node.MaxAttempts {
-			r.blockWorkflowDecision(run, node, reasonCodes.Invalid)
+			if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.Invalid); err != nil {
+				return "", false, err
+			}
 			return "", true, nil
 		}
 		selectionLane := workflowModelLaneForProfile(profile.ID())
@@ -126,21 +134,29 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		state = run.Workflow.Nodes[node.ID]
 		state.Attempts++
 		run.Workflow.Nodes[node.ID] = state
-		r.store.SaveRun(*run)
+		if saved, err := r.saveRun(ctx, *run); err != nil {
+			return "", false, err
+		} else {
+			*run = saved
+		}
 
 		if selectionErr != nil {
-			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			r.auditWorkflowDecisionAttempt(ctx, *run, node, state.Attempts, selectionErr)
 			if state.Attempts >= node.MaxAttempts {
-				r.blockWorkflowDecision(run, node, reasonCodes.Invalid)
+				if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.Invalid); err != nil {
+					return "", false, err
+				}
 				return "", true, nil
 			}
 			continue
 		}
 		if selection.EntryID == "" {
 			selectionErr = errors.New("workflow operation selection returned no entry while eligible entries remain")
-			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			r.auditWorkflowDecisionAttempt(ctx, *run, node, state.Attempts, selectionErr)
 			if state.Attempts >= node.MaxAttempts {
-				r.blockWorkflowDecision(run, node, reasonCodes.NoMatch)
+				if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.NoMatch); err != nil {
+					return "", false, err
+				}
 				return "", true, nil
 			}
 			continue
@@ -148,14 +164,16 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		entry, exists := directoryViewEntry(view, selection.EntryID)
 		if !exists {
 			selectionErr = errors.New("workflow operation selection returned an entry outside the active view")
-			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			r.auditWorkflowDecisionAttempt(ctx, *run, node, state.Attempts, selectionErr)
 			if state.Attempts >= node.MaxAttempts {
-				r.blockWorkflowDecision(run, node, reasonCodes.Invalid)
+				if err := r.blockWorkflowDecision(ctx, run, node, reasonCodes.Invalid); err != nil {
+					return "", false, err
+				}
 				return "", true, nil
 			}
 			continue
 		}
-		instruction, resolveErr := r.completeWorkflowDecision(run, profile, node, view, entry, selectionLane)
+		instruction, resolveErr := r.completeWorkflowDecision(ctx, run, profile, node, view, entry, selectionLane)
 		return instruction, true, resolveErr
 	}
 }
@@ -169,7 +187,10 @@ func (r Runtime) prepareWorkflowDecisionProjection(ctx context.Context, run app.
 	if err != nil {
 		return workflowDecisionProjection{}, err
 	}
-	sourceEventIDs, archivedBytes := r.workflowDecisionSourceLineage(run, node)
+	sourceEventIDs, archivedBytes, err := r.workflowDecisionSourceLineage(ctx, run, node)
+	if err != nil {
+		return workflowDecisionProjection{}, err
+	}
 	return workflowDecisionProjection{
 		CandidateProjection: candidateProjection, DependencyEvidence: dependencyEvidence,
 		Bindings: bindings, SourceEventIDs: sourceEventIDs, ArchivedBytes: archivedBytes,
@@ -190,7 +211,7 @@ func (r Runtime) selectWorkflowDecisionEntry(
 	if run.Workflow.Nodes[node.ID].Attempts > 0 {
 		validationErrorCodes = []string{"selection_empty_or_invalid"}
 	}
-	projectionRecord := r.recordWorkflowEvidenceProjection(run, workflowEvidenceProjectionInput{
+	projectionRecord := r.recordWorkflowEvidenceProjection(ctx, run, workflowEvidenceProjectionInput{
 		Payload:        decisionProjection.DependencyEvidence + "\n" + decisionProjection.CandidateProjection,
 		SourceEventIDs: decisionProjection.SourceEventIDs,
 		Consumer: workflowEvidenceProjectionConsumer{
@@ -209,6 +230,7 @@ func (r Runtime) selectWorkflowDecisionEntry(
 		ValidationErrorCodes: validationErrorCodes,
 		Reused:               run.Workflow.Nodes[node.ID].Attempts > 0, ModelOperation: "workflow_operation_selection",
 	})
+
 	repairProjectionID := originalProjectionID
 	if repairProjectionID == "" {
 		repairProjectionID = projectionRecord.ProjectionID
@@ -221,7 +243,9 @@ func (r Runtime) selectWorkflowDecisionEntry(
 	started := time.Now().UTC()
 	chat, chatErr := r.models.ChatWithProfile(ctx, lane, system, user)
 	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(run.SessionID, run.ID, "workflow_operation_selection", chat, chatErr, started, completed))
+	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(run.SessionID, run.ID, "workflow_operation_selection", chat, chatErr, started, completed)); saveErr != nil {
+		return workflowDecisionSelectionOutput{}, projectionRecord.ProjectionID, fmt.Errorf("persist workflow operation selection: %w", saveErr)
+	}
 	if chatErr != nil {
 		return workflowDecisionSelectionOutput{}, projectionRecord.ProjectionID, fmt.Errorf("workflow operation selection failed: %w", chatErr)
 	}
@@ -369,9 +393,9 @@ func workflowDecisionCandidateID(entryID app.ToolDirectoryEntryID) string {
 	return "candidate_" + hex.EncodeToString(digest[:6])
 }
 
-func (r Runtime) workflowDecisionSourceLineage(run app.AgentRun, node app.WorkflowNode) ([]string, int) {
+func (r Runtime) workflowDecisionSourceLineage(ctx context.Context, run app.AgentRun, node app.WorkflowNode) ([]string, int, error) {
 	if run.Workflow == nil {
-		return nil, 0
+		return nil, 0, nil
 	}
 	wantedCalls := map[string]bool{}
 	for _, dependency := range node.DependsOn {
@@ -384,21 +408,29 @@ func (r Runtime) workflowDecisionSourceLineage(run app.AgentRun, node app.Workfl
 		}
 	}
 	artifactBytes := map[string]int{}
-	for _, object := range r.store.ListArtifactObjects(0) {
+	objects, err := r.store.ListArtifactObjects(ctx, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, object := range objects {
 		if object.SessionID == run.SessionID && object.RunID == run.ID {
 			artifactBytes[object.URI] = object.Bytes
 		}
 	}
 	refs := []string{}
 	totalBytes := 0
-	for _, call := range r.store.ListToolCalls(run.SessionID) {
+	toolCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, call := range toolCalls {
 		if call.RunID != run.ID || !wantedCalls[call.ID] {
 			continue
 		}
 		refs = appendUniqueString(refs, firstNonEmptyString(call.ObservationRef, call.ID))
 		totalBytes += artifactBytes[call.ObservationRef]
 	}
-	return refs, totalBytes
+	return refs, totalBytes, nil
 }
 
 func (r Runtime) workflowDecisionEvidence(ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
@@ -430,7 +462,7 @@ func (r Runtime) workflowDecisionEvidence(ctx context.Context, run app.AgentRun,
 	return provisioned.Text, nil
 }
 
-func (r Runtime) completeWorkflowDecision(run *app.AgentRun, profile workflowProfile, node app.WorkflowNode, view app.DirectoryView, entry app.ToolDirectoryEntry, via string) (string, error) {
+func (r Runtime) completeWorkflowDecision(ctx context.Context, run *app.AgentRun, profile workflowProfile, node app.WorkflowNode, view app.DirectoryView, entry app.ToolDirectoryEntry, via string) (string, error) {
 	state := run.Workflow.Nodes[node.ID]
 	if state.Status != app.WorkflowNodeActive {
 		return "", errors.New("workflow decision completion requires an active node")
@@ -461,31 +493,39 @@ func (r Runtime) completeWorkflowDecision(run *app.AgentRun, profile workflowPro
 	if allWorkflowNodesSucceeded(run.Workflow) {
 		run.Workflow.Status = app.WorkflowStatusSucceeded
 	} else if len(run.Workflow.ActiveNodeIDs) == 0 {
-		r.blockWorkflowDecision(run, node, workflowProfileDecisionReasonCodes(profile).Invalid)
+		if err := r.blockWorkflowDecision(ctx, run, node, workflowProfileDecisionReasonCodes(profile).Invalid); err != nil {
+			return "", err
+		}
 		return "", errors.New("workflow decision did not activate a dependent node")
 	}
-	r.store.SaveRun(*run)
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return "", err
+	}
+	*run = saved
 
 	fields := map[string]any{
 		"workflow_id": view.WorkflowID, "node_id": view.NodeID, "scope_revision": view.ScopeRevision,
 		"view_id": view.ViewID, "entry_id": entry.ID, "capability": entry.Capability.Name,
 		"format": format, "operation": operation, "via": via,
 	}
-	r.store.AddAudit(app.AuditEvent{
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "workflow-decision", Type: "tools.directory.selected",
 		Summary: "Selected one entry inside the frozen workflow decision scope", Fields: fields,
 	})
-	r.store.AddAudit(app.AuditEvent{
+
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "workflow.decision_resolved",
 		Summary: "Resolved the workflow decision node", Fields: fields,
 	})
+
 	if semantics, ok := profile.(workflowDecisionSemantics); ok {
 		return strings.TrimSpace(semantics.DecisionResolvedInstruction(entry)), nil
 	}
 	return "workflow_stage: decision_resolved entry_id=" + string(entry.ID), nil
 }
 
-func (r Runtime) blockWorkflowDecision(run *app.AgentRun, node app.WorkflowNode, reason string) {
+func (r Runtime) blockWorkflowDecision(ctx context.Context, run *app.AgentRun, node app.WorkflowNode, reason string) error {
 	state := run.Workflow.Nodes[node.ID]
 	state.Status = app.WorkflowNodeBlocked
 	state.LastAssessment = &app.NodeAssessment{
@@ -493,22 +533,29 @@ func (r Runtime) blockWorkflowDecision(run *app.AgentRun, node app.WorkflowNode,
 	}
 	run.Workflow.Nodes[node.ID] = state
 	run.Workflow.Status = app.WorkflowStatusBlocked
-	r.store.SaveRun(*run)
-	r.store.AddAudit(app.AuditEvent{
+	saved, err := r.saveRun(ctx, *run)
+	if err != nil {
+		return err
+	}
+	*run = saved
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "workflow.decision_blocked",
 		Summary: reason, Fields: map[string]any{
 			"workflow_id": run.Workflow.Plan.ProfileID, "node_id": node.ID, "attempts": state.Attempts,
 		},
 	})
+
+	return nil
 }
 
-func (r Runtime) auditWorkflowDecisionAttempt(run app.AgentRun, node app.WorkflowNode, attempt int, err error) {
-	r.store.AddAudit(app.AuditEvent{
+func (r Runtime) auditWorkflowDecisionAttempt(ctx context.Context, run app.AgentRun, node app.WorkflowNode, attempt int, err error) {
+	r.addAudit(ctx, app.AuditEvent{
 		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "workflow.decision_attempt_failed",
 		Summary: "Workflow decision output was invalid", Fields: map[string]any{
 			"workflow_id": run.Workflow.Plan.ProfileID, "node_id": node.ID, "attempt": attempt, "error": err.Error(),
 		},
 	})
+
 }
 
 func directoryViewEntry(view app.DirectoryView, entryID app.ToolDirectoryEntryID) (app.ToolDirectoryEntry, bool) {

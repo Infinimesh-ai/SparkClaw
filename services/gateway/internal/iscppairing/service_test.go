@@ -49,6 +49,7 @@ func TestHTTPAuthorityAndServiceIssueCopyOnceTicket(t *testing.T) {
 		Enabled: true, DomainID: "domain-a", AuthorityHost: "authority.test",
 		ExpectedTicketType: provisioning.TypePairingTicket, DefaultTTL: 10 * time.Minute, Authority: authority,
 	})
+	service.now = func() time.Time { return now }
 	issued, err := service.Start(t.Context(), app.DefaultOwnerID, "owner-actor", StartRequest{DisplayName: "LocalMind gateway"}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -59,11 +60,15 @@ func TestHTTPAuthorityAndServiceIssueCopyOnceTicket(t *testing.T) {
 	if issued.Ticket.Signature.Value != "signed-ticket-value" || issued.Onboarding.TicketID != issued.Ticket.TicketID {
 		t.Fatalf("invalid issued pairing: %#v", issued)
 	}
-	snapshot, _ := json.Marshal(st.ListISCPOnboardings(app.DefaultOwnerID))
+	onboardings, err := st.ListISCPOnboardings(context.Background(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _ := json.Marshal(onboardings)
 	if strings.Contains(string(snapshot), "signed-ticket-value") || strings.Contains(string(snapshot), `"signature"`) {
 		t.Fatalf("persisted onboarding leaked the Pairing Ticket: %s", snapshot)
 	}
-	audits := st.ListAudit("")
+	audits := mustPairingListAudit(t, st, "")
 	auditJSON, _ := json.Marshal(audits)
 	if strings.Contains(string(auditJSON), "signed-ticket-value") {
 		t.Fatalf("audit leaked the Pairing Ticket: %s", auditJSON)

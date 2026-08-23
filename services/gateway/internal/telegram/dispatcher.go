@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -18,8 +19,23 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
+type DispatcherRepository interface {
+	store.OwnerRepository
+	store.ConnectorRepository
+	store.SessionRepository
+	store.ConversationRepository
+	store.RunRepository
+	store.ApprovalRepository
+	store.AuditRepository
+	store.ArtifactMetadataRepository
+	store.ScheduleRepository
+	store.DeliveryRecordRepository
+	store.ExternalChatRepository
+	store.MCPRepository
+}
+
 type Dispatcher struct {
-	store       store.Store
+	store       DispatcherRepository
 	runtime     connectorruntime.AgentBridge
 	client      BotAPI
 	transcriber VoiceTranscriber
@@ -35,7 +51,7 @@ func (d *Dispatcher) WithResultDeliverer(deliverer connectorruntime.ResultDelive
 	return &copy
 }
 
-func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
+func NewDispatcher(st DispatcherRepository, runtime connectorruntime.AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
 	transcriber := VoiceTranscriber(DisabledVoiceTranscriber{})
 	if len(transcribers) > 0 && transcribers[0] != nil {
 		transcriber = transcribers[0]
@@ -75,7 +91,10 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	if message == nil || message.From == nil || message.Chat.Type != "private" {
 		return nil
 	}
-	chatSession := d.ensureChatSession(binding, *message.From, message.Chat.ID, message.MessageThreadID)
+	chatSession, err := d.ensureChatSession(ctx, binding, *message.From, message.Chat.ID, message.MessageThreadID)
+	if err != nil {
+		return NewConnectorError(CodeBindingUnavailable, true, err)
+	}
 	text := strings.TrimSpace(message.Text)
 	if text == "" {
 		text = strings.TrimSpace(message.Caption)
@@ -87,7 +106,11 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			return d.resetConversation(ctx, binding, chatSession, message)
 		case "status":
 			pending := 0
-			for _, approval := range d.store.ListApprovals("pending") {
+			approvals, err := d.store.ListApprovals(ctx, "pending")
+			if err != nil {
+				return NewConnectorError("approval_store_unavailable", true, err)
+			}
+			for _, approval := range approvals {
 				if approval.SessionID == chatSession.LinkedSessionID {
 					pending++
 				}
@@ -107,11 +130,21 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 		return err
 	}
 	receives := messagecontrol.NewReceiveLifecycle(d.store)
-	receive, freshReceive := receives.Begin(endpoint, externalID)
-	if freshReceive {
-		receive = receives.Advance(receive, "authorized", "", "")
+	receive, freshReceive, err := receives.Begin(ctx, endpoint, externalID)
+	if err != nil {
+		return NewConnectorError("receive_store_unavailable", true, err)
 	}
-	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
+	if freshReceive {
+		receive, err = receives.Advance(ctx, receive, "authorized", "", "")
+		if err != nil {
+			return NewConnectorError("receive_store_unavailable", true, err)
+		}
+	}
+	existing, ok, err := d.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, externalID)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	if ok {
 		switch existing.Status {
 		case "processed":
 			return d.resumeOutbound(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, existing.LinkedRunID)
@@ -119,17 +152,28 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			return nil
 		}
 	}
-	if approval, ok := d.pendingApproval(chatSession.LinkedSessionID); ok {
+	approval, ok, err := d.pendingApproval(ctx, chatSession.LinkedSessionID)
+	if err != nil {
+		return NewConnectorError("approval_store_unavailable", true, err)
+	}
+	if ok {
 		if decision, parsed := parseApprovalDecision(text); parsed {
-			inbound := d.saveInbound(chatSession, binding, externalID, text, "received", approval.RunID)
-			receives.Advance(receive, "processed", inbound.ID, approval.RunID)
+			inbound, err := d.saveInbound(ctx, chatSession, binding, externalID, text, "received", approval.RunID)
+			if err != nil {
+				return NewConnectorError("external_chat_store_unavailable", true, err)
+			}
+			if _, err := receives.Advance(ctx, receive, "processed", inbound.ID, approval.RunID); err != nil {
+				return NewConnectorError("receive_store_unavailable", true, err)
+			}
 			return d.resolveApproval(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, approval, decision, "Telegram text reply")
 		}
 	}
 
 	attachments, voiceText, err := d.messageAttachments(ctx, chatSession, message)
 	if err != nil {
-		receives.Advance(receive, "failed", "", "")
+		if _, persistErr := receives.Advance(ctx, receive, "failed", "", ""); persistErr != nil {
+			return NewConnectorError("receive_store_unavailable", true, persistErr)
+		}
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID,
 			attachmentErrorMessage(err), "attachment-error:"+externalID, "", nil)
 	}
@@ -139,29 +183,50 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 		text += "\n\nVoice transcript: " + strings.TrimSpace(voiceText)
 	}
 	if text == "" && len(attachments) == 0 {
-		receives.Advance(receive, "rejected", "", "")
+		if _, err := receives.Advance(ctx, receive, "rejected", "", ""); err != nil {
+			return NewConnectorError("receive_store_unavailable", true, err)
+		}
 		return nil
 	}
-	receive = receives.Advance(receive, "normalized", "", "")
+	receive, err = receives.Advance(ctx, receive, "normalized", "", "")
+	if err != nil {
+		return NewConnectorError("receive_store_unavailable", true, err)
+	}
 	if text == "" {
 		contextText := attachmentContext(attachments)
-		inbound := d.saveInbound(chatSession, binding, externalID, contextText, "needs_user_instruction", "")
-		d.store.AddMessage(app.Message{
+		inbound, err := d.saveInbound(ctx, chatSession, binding, externalID, contextText, "needs_user_instruction", "")
+		if err != nil {
+			return NewConnectorError("external_chat_store_unavailable", true, err)
+		}
+		if _, err := d.store.AddMessage(ctx, app.Message{
 			ID:          stableTelegramID("message", binding.ID, externalID),
 			SessionID:   chatSession.LinkedSessionID,
 			Role:        "user",
 			Content:     contextText,
 			Attachments: attachments,
 			CreatedAt:   telegramMessageTime(message),
-		})
-		receives.Advance(receive, "processed", inbound.ID, "")
+		}); err != nil {
+			if _, persistErr := receives.Advance(ctx, receive, "failed", inbound.ID, ""); persistErr != nil {
+				return NewConnectorError("receive_store_unavailable", true, persistErr)
+			}
+			return NewConnectorError("message_store_unavailable", true, err)
+		}
+		if _, err := receives.Advance(ctx, receive, "processed", inbound.ID, ""); err != nil {
+			return NewConnectorError("receive_store_unavailable", true, err)
+		}
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID,
 			"I received the attachment. Tell me whether to read, summarize, extract, modify, or inspect it.", "attachment-help:"+externalID, "", nil)
 	}
 
 	runID := stableTelegramID("run", binding.ID, externalID)
-	inbound := d.saveInbound(chatSession, binding, externalID, text, "processing", runID)
-	receive = receives.Advance(receive, "routed", inbound.ID, runID)
+	inbound, err := d.saveInbound(ctx, chatSession, binding, externalID, text, "processing", runID)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	receive, err = receives.Advance(ctx, receive, "routed", inbound.ID, runID)
+	if err != nil {
+		return NewConnectorError("receive_store_unavailable", true, err)
+	}
 	_ = d.client.SendChatAction(ctx, message.Chat.ID, message.MessageThreadID, "typing")
 	ingress := telegramIngress(binding, chatSession, externalID, message.MessageThreadID)
 	result, err := d.runtime.Handle(ctx, connectorruntime.AgentRequest{
@@ -175,14 +240,22 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	if err != nil {
 		inbound.Status = "failed"
 		inbound.Error = connectorErrorCode(err)
-		d.store.SaveExternalChatMessage(inbound)
-		receives.Advance(receive, "failed", inbound.ID, runID)
+		if _, persistErr := d.store.SaveExternalChatMessage(ctx, inbound); persistErr != nil {
+			return errors.Join(err, NewConnectorError("external_chat_store_unavailable", true, persistErr))
+		}
+		if _, persistErr := receives.Advance(ctx, receive, "failed", inbound.ID, runID); persistErr != nil {
+			return NewConnectorError("receive_store_unavailable", true, persistErr)
+		}
 		return err
 	}
 	inbound.Status = "processed"
 	inbound.LinkedRunID = result.Run.ID
-	d.store.SaveExternalChatMessage(inbound)
-	receives.Advance(receive, "processed", inbound.ID, result.Run.ID)
+	if _, err := d.store.SaveExternalChatMessage(ctx, inbound); err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	if _, err := receives.Advance(ctx, receive, "processed", inbound.ID, result.Run.ID); err != nil {
+		return NewConnectorError("receive_store_unavailable", true, err)
+	}
 	if len(result.Approvals) > 0 {
 		approval := result.Approvals[len(result.Approvals)-1]
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, approvalPrompt(approval), result.Run.ID, result.Run.ID, approvalKeyboard(approval.ID))
@@ -200,8 +273,14 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 		_ = d.client.AnswerCallbackQuery(ctx, query.ID, "Unsupported action")
 		return nil
 	}
-	chatSession := d.ensureChatSession(binding, query.From, query.Message.Chat.ID, query.Message.MessageThreadID)
-	approval, ok := d.approvalByID(parts[1])
+	chatSession, err := d.ensureChatSession(ctx, binding, query.From, query.Message.Chat.ID, query.Message.MessageThreadID)
+	if err != nil {
+		return NewConnectorError(CodeBindingUnavailable, true, err)
+	}
+	approval, ok, err := d.approvalByID(ctx, parts[1])
+	if err != nil {
+		return NewConnectorError("approval_store_unavailable", true, err)
+	}
 	if !ok || approval.Status != "pending" || approval.SessionID != chatSession.LinkedSessionID {
 		_ = d.client.AnswerCallbackQuery(ctx, query.ID, "This approval is no longer pending")
 		return nil
@@ -209,13 +288,16 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 	if err := d.client.AnswerCallbackQuery(ctx, query.ID, "Received"); err != nil {
 		return err
 	}
-	d.saveInbound(chatSession, binding, "callback:"+query.ID, query.Data, "received", approval.RunID)
+	if _, err := d.saveInbound(ctx, chatSession, binding, "callback:"+query.ID, query.Data, "received", approval.RunID); err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	return d.resolveApproval(ctx, binding, chatSession, query.Message.Chat.ID, query.Message.MessageThreadID, approval, parts[2] == "approve", "Telegram button")
 }
 
 func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, chatID, threadID int64, approval app.Approval, approved bool, actor string) error {
 	if approved {
-		resolved, err := d.store.ResolveApproval(approval.ID, "approved", "approved from "+actor)
+		candidate, err := d.store.ResolveApproval(ctx, approval.ID, "approved", "approved from "+actor)
+		resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 		if err != nil {
 			if approval.Status != "pending" {
 				return nil
@@ -235,24 +317,34 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 			ingress := telegramIngress(binding, chatSession, "approval:"+approval.ID, threadID)
 			return d.deliverAgentResult(ctx, result, ingress)
 		}
-		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
+		if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, approval.RunID); err != nil {
+			return err
+		}
 		return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Approved and executed.", "approval:"+approval.ID, approval.RunID, nil)
 	}
-	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from "+actor)
+	candidate, err := d.store.ResolveApproval(ctx, approval.ID, "rejected", "rejected from "+actor)
+	resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 	if err != nil {
 		if approval.Status != "pending" {
 			return nil
 		}
 		return err
 	}
-	if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+	if call, ok, err := d.store.GetToolCall(ctx, resolved.ToolCallID); err != nil {
+		return err
+	} else if ok {
 		now := time.Now().UTC()
 		call.Status = "rejected"
 		call.Error = "user rejected approval from Telegram"
 		call.CompletedAt = &now
-		d.store.SaveToolCall(call)
+		candidate, saveErr := d.store.SaveToolCall(ctx, call)
+		if _, saveErr = store.ReconcileToolCallWrite(ctx, d.store, candidate, saveErr); saveErr != nil {
+			return saveErr
+		}
 	}
-	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
+	if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, resolved.RunID); err != nil {
+		return err
+	}
 	return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Canceled. The requested action was not executed.", "approval:"+approval.ID, resolved.RunID, nil)
 }
 
@@ -287,11 +379,21 @@ func telegramIngress(binding app.NotificationBinding, chatSession app.ExternalCh
 
 func (d *Dispatcher) resetConversation(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, message *Message) error {
 	externalID := inboundMessageExternalID(message)
-	d.saveInbound(chatSession, binding, externalID, message.Text, "received", "")
-	session := d.store.CreateSessionWithScope("Telegram conversation", chatSession.OwnerID, chatSession.WorkspaceRoot, "telegram", true)
+	if _, err := d.saveInbound(ctx, chatSession, binding, externalID, message.Text, "received", ""); err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	session, err := d.store.CreateSessionWithScope(ctx, "Telegram conversation", chatSession.OwnerID, chatSession.WorkspaceRoot, "telegram", true)
+	if err != nil {
+		return err
+	}
 	chatSession.LinkedSessionID = session.ID
 	chatSession.Status = "active"
-	d.store.SaveExternalChatSession(chatSession)
+	chatSession.AuthorizedOwnerID = binding.OwnerID
+	chatSession.AuthorizedActorID = binding.ActorID
+	chatSession, err = d.store.SaveExternalChatSession(ctx, chatSession)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
 	return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, "A new conversation has started.", "cmd-new:"+externalID, "", nil)
 }
 
@@ -301,34 +403,38 @@ func (d *Dispatcher) sendAndRecord(ctx context.Context, binding app.Notification
 	}
 	if keyboard == nil {
 		if sent, err := d.sendMediaAnswer(ctx, chatSession, chatID, threadID, answer); sent {
-			return d.recordOutbound(chatSession, binding, "out:"+sourceID+":media", answer, runID, err)
+			return d.recordOutbound(ctx, chatSession, binding, "out:"+sourceID+":media", answer, runID, err)
 		}
 	}
 	for index, chunk := range splitTelegramText(answer, 4000) {
 		externalID := fmt.Sprintf("out:%s:%d", sourceID, index)
-		if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok && existing.Status == "sent" {
+		existing, ok, err := d.store.FindExternalChatMessageByExternalID(ctx, chatSession.ID, externalID)
+		if err != nil {
+			return NewConnectorError("external_chat_store_unavailable", true, err)
+		}
+		if ok && existing.Status == "sent" {
 			continue
 		}
 		markup := keyboard
 		if index > 0 {
 			markup = nil
 		}
-		_, err := d.client.SendMessage(ctx, chatID, threadID, chunk, markup)
-		if recordErr := d.recordOutbound(chatSession, binding, externalID, chunk, runID, err); recordErr != nil {
+		_, err = d.client.SendMessage(ctx, chatID, threadID, chunk, markup)
+		if recordErr := d.recordOutbound(ctx, chatSession, binding, externalID, chunk, runID, err); recordErr != nil {
 			return recordErr
 		}
 	}
 	return nil
 }
 
-func (d *Dispatcher) recordOutbound(chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, runID string, sendErr error) error {
+func (d *Dispatcher) recordOutbound(ctx context.Context, chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, runID string, sendErr error) error {
 	status := "sent"
 	errorCode := ""
 	if sendErr != nil {
 		status = "failed"
 		errorCode = connectorErrorCode(sendErr)
 	}
-	d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	_, persistErr := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                stableTelegramID("outbound", chatSession.ID, externalID),
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
@@ -341,11 +447,15 @@ func (d *Dispatcher) recordOutbound(chatSession app.ExternalChatSession, binding
 		Status:            status,
 		Error:             errorCode,
 	})
-	return sendErr
+	return errors.Join(sendErr, persistErr)
 }
 
 func (d *Dispatcher) resumeOutbound(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, chatID, threadID int64, runID string) error {
-	for _, message := range d.store.ListExternalChatMessages(chatSession.ID, 100) {
+	messages, err := d.store.ListExternalChatMessages(ctx, chatSession.ID, 100)
+	if err != nil {
+		return NewConnectorError("external_chat_store_unavailable", true, err)
+	}
+	for _, message := range messages {
 		if message.Direction != "outbound" || message.LinkedRunID != runID || message.Status == "sent" {
 			continue
 		}
@@ -358,8 +468,8 @@ func (d *Dispatcher) resumeOutbound(ctx context.Context, binding app.Notificatio
 	return nil
 }
 
-func (d *Dispatcher) saveInbound(chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, status, runID string) app.ExternalChatMessage {
-	return d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+func (d *Dispatcher) saveInbound(ctx context.Context, chatSession app.ExternalChatSession, binding app.NotificationBinding, externalID, content, status, runID string) (app.ExternalChatMessage, error) {
+	return d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                stableTelegramID("inbound", chatSession.ID, externalID),
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
@@ -374,59 +484,81 @@ func (d *Dispatcher) saveInbound(chatSession app.ExternalChatSession, binding ap
 	})
 }
 
-func (d *Dispatcher) ensureChatSession(binding app.NotificationBinding, user User, chatID, threadID int64) app.ExternalChatSession {
+func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.NotificationBinding, user User, chatID, threadID int64) (app.ExternalChatSession, error) {
 	externalChatID := strconv.FormatInt(chatID, 10)
 	externalThreadID := threadIDString(threadID)
-	if existing, ok := d.store.FindExternalChatSession(binding.ID, externalChatID, externalThreadID); ok {
-		return existing
+	existing, ok, err := d.store.FindExternalChatSession(ctx, binding.ID, externalChatID, externalThreadID)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	if ok {
+		return existing, nil
 	}
 	ownerID := strings.TrimSpace(binding.OwnerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	profile, ok := d.store.GetOwnerProfileByID(ownerID)
+	profile, ok, err := d.store.GetOwnerProfileByID(ctx, ownerID)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
 	if !ok {
-		profile = d.store.GetOwnerProfile()
+		profile, err = d.store.GetOwnerProfile(ctx)
+		if err != nil {
+			return app.ExternalChatSession{}, err
+		}
 	}
 	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
 	if workspaceRoot == "" {
 		workspaceRoot = strings.TrimSpace(d.cfg.Workspaces.DefaultRoot)
 	}
-	session := d.store.CreateSessionWithScope("Telegram conversation", profile.ID, workspaceRoot, "telegram", true)
-	return d.store.SaveExternalChatSession(app.ExternalChatSession{
-		OwnerID:          profile.ID,
-		WorkspaceRoot:    workspaceRoot,
-		BindingID:        binding.ID,
-		Channel:          "telegram",
-		Provider:         binding.Provider,
-		ExternalUserID:   strconv.FormatInt(user.ID, 10),
-		ExternalChatID:   externalChatID,
-		ExternalThreadID: externalThreadID,
-		DisplayName:      user.DisplayName(),
-		LinkedSessionID:  session.ID,
-		Status:           "active",
-		ProviderCursor:   binding.ProviderCursor,
-		LastContextToken: binding.ContextToken,
+	session, err := d.store.CreateSessionWithScope(ctx, "Telegram conversation", profile.ID, workspaceRoot, "telegram", true)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
+	return d.store.SaveExternalChatSession(ctx, app.ExternalChatSession{
+		OwnerID:           profile.ID,
+		AuthorizedOwnerID: binding.OwnerID,
+		AuthorizedActorID: binding.ActorID,
+		WorkspaceRoot:     workspaceRoot,
+		BindingID:         binding.ID,
+		Channel:           "telegram",
+		Provider:          binding.Provider,
+		ExternalUserID:    strconv.FormatInt(user.ID, 10),
+		ExternalChatID:    externalChatID,
+		ExternalThreadID:  externalThreadID,
+		DisplayName:       user.DisplayName(),
+		LinkedSessionID:   session.ID,
+		Status:            "active",
+		ProviderCursor:    binding.ProviderCursor,
+		LastContextToken:  binding.ContextToken,
 	})
 }
 
-func (d *Dispatcher) pendingApproval(sessionID string) (app.Approval, bool) {
-	approvals := d.store.ListApprovals("pending")
+func (d *Dispatcher) pendingApproval(ctx context.Context, sessionID string) (app.Approval, bool, error) {
+	approvals, err := d.store.ListApprovals(ctx, "pending")
+	if err != nil {
+		return app.Approval{}, false, err
+	}
 	for index := len(approvals) - 1; index >= 0; index-- {
 		if approvals[index].SessionID == sessionID {
-			return approvals[index], true
+			return approvals[index], true, nil
 		}
 	}
-	return app.Approval{}, false
+	return app.Approval{}, false, nil
 }
 
-func (d *Dispatcher) approvalByID(id string) (app.Approval, bool) {
-	for _, approval := range d.store.ListApprovals("") {
+func (d *Dispatcher) approvalByID(ctx context.Context, id string) (app.Approval, bool, error) {
+	approval, found, err := d.store.GetApproval(ctx, id)
+	if err != nil {
+		return app.Approval{}, false, err
+	}
+	if found {
 		if approval.ID == id {
-			return approval, true
+			return approval, true, nil
 		}
 	}
-	return app.Approval{}, false
+	return app.Approval{}, false, nil
 }
 
 func telegramCommand(text string) (string, bool) {

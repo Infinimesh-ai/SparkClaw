@@ -1,12 +1,16 @@
 package gateway
 
 import (
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type publicSchedule struct {
@@ -36,7 +40,11 @@ type publicScheduleEndpoint struct {
 
 func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	schedules := messagecontrol.NewScheduleRegistry(s.store).List(r.Context(), app.ReminderFilter{})
+	schedules, err := messagecontrol.NewScheduleRegistry(s.store).List(r.Context(), app.ReminderFilter{})
+	if err != nil {
+		writeScheduleStoreError(w, err)
+		return
+	}
 	out := make([]publicSchedule, 0, len(schedules))
 	for _, schedule := range schedules {
 		if schedule.Status != "pending" && schedule.Status != "sending" {
@@ -61,6 +69,23 @@ func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"schedules": out})
 }
 
+func writeScheduleStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("schedule request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("schedule record not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("schedule changed or is no longer available"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("schedule request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("schedule operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("schedule service is unavailable"))
+	}
+}
+
 func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSchedule) publicScheduleEndpoint {
 	route := schedule.Spec.ReturnRoute
 	if route.Mode == app.ReturnNowhere {
@@ -72,7 +97,7 @@ func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSch
 	}
 	endpoint, err := messagecontrol.NewEndpointRegistry(s.store).Get(r.Context(), endpointID)
 	if err != nil {
-		return s.unavailableScheduleEndpoint(endpointID, schedule.SessionID)
+		return s.unavailableScheduleEndpoint(r.Context(), endpointID, schedule.SessionID)
 	}
 	projection := publicScheduleEndpoint{
 		Kind: endpoint.Kind, Channel: endpoint.ProviderKey, SoftwareDisplayName: endpoint.SoftwareDisplayName,
@@ -82,37 +107,63 @@ func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSch
 	if endpoint.Kind == app.EndpointKindWeb {
 		projection.Channel = "web"
 		projection.SoftwareDisplayName = "WebChat"
-		if session, ok := s.store.GetSession(endpoint.SessionID); ok {
+		session, ok, err := s.store.GetSession(r.Context(), endpoint.SessionID)
+		if err != nil {
+			slog.Warn("schedule session projection unavailable", "session_id", endpoint.SessionID, "code", store.StoreErrorCodeOf(err))
+			projection.Status = "unavailable"
+			return projection
+		}
+		if ok {
 			projection.ConversationLabel = session.Title
 		}
 	}
 	return projection
 }
 
-func (s *Server) unavailableScheduleEndpoint(endpointID app.EndpointID, sessionID string) publicScheduleEndpoint {
+func (s *Server) unavailableScheduleEndpoint(ctx context.Context, endpointID app.EndpointID, sessionID string) publicScheduleEndpoint {
 	value := strings.TrimSpace(string(endpointID))
 	if strings.HasPrefix(value, "session:") {
 		projection := publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", Status: "unavailable"}
-		if session, ok := s.store.GetSession(strings.TrimPrefix(value, "session:")); ok {
+		session, ok, err := s.store.GetSession(ctx, strings.TrimPrefix(value, "session:"))
+		if err != nil {
+			slog.Warn("schedule session projection unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+			return projection
+		}
+		if ok {
 			projection.ConversationLabel = session.Title
 		}
 		return projection
 	}
-	if chat, ok := s.store.GetExternalChatSession(value); ok {
-		binding, _ := s.store.GetNotificationBinding(chat.BindingID)
+	chat, ok, chatErr := s.store.GetExternalChatSession(ctx, value)
+	if chatErr != nil {
+		slog.Warn("schedule chat projection unavailable", "chat_session_id", value, "code", store.StoreErrorCodeOf(chatErr))
+		return publicScheduleEndpoint{Kind: app.EndpointKindThirdPartyDevice, Status: "unavailable"}
+	}
+	if ok {
+		binding, _, err := s.store.GetNotificationBinding(ctx, chat.BindingID)
+		if err != nil {
+			slog.Warn("schedule binding projection unavailable", "binding_id", chat.BindingID, "code", store.StoreErrorCodeOf(err))
+		}
 		return publicScheduleEndpoint{
 			Kind: app.EndpointKindThirdPartyDevice, Channel: chat.Channel, SoftwareDisplayName: chat.Channel,
 			AccountDisplayName: binding.DisplayName, RecipientDisplayName: chat.DisplayName,
 			ConversationLabel: binding.DisplayName, Status: "unavailable",
 		}
 	}
-	if binding, ok := s.store.GetNotificationBinding(value); ok {
+	if binding, ok, err := s.store.GetNotificationBinding(ctx, value); err != nil {
+		slog.Warn("schedule binding projection unavailable", "binding_id", value, "code", store.StoreErrorCodeOf(err))
+	} else if ok {
 		return publicScheduleEndpoint{
 			Kind: app.EndpointKindThirdPartyDevice, Channel: binding.Channel, SoftwareDisplayName: binding.Channel,
 			AccountDisplayName: binding.DisplayName, Status: "unavailable",
 		}
 	}
-	if session, ok := s.store.GetSession(sessionID); ok {
+	session, ok, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		slog.Warn("schedule session projection unavailable", "session_id", sessionID, "code", store.StoreErrorCodeOf(err))
+		return publicScheduleEndpoint{Status: "unavailable"}
+	}
+	if ok {
 		return publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", ConversationLabel: session.Title, Status: "unavailable"}
 	}
 	return publicScheduleEndpoint{Status: "unavailable"}

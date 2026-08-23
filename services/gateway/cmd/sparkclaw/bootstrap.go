@@ -29,11 +29,12 @@ type gatewayServices struct {
 
 func newGatewayServices(
 	cfg config.Config,
-	st store.Store,
+	st backend,
 	tools *toolhub.ToolHub,
 	runtime agent.Runtime,
 	traces *trace.Writer,
 	transcriber speech.Transcriber,
+	storeRuntime *store.Runtime,
 ) (*gatewayServices, error) {
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
@@ -70,15 +71,13 @@ func newGatewayServices(
 			runtime,
 			traces,
 			gateway.WithSpeechTranscriber(transcriber),
-			gateway.WithCredentialVault(connectors.credentials),
-			gateway.WithBindingRouter(connectors.registry.BindingRouter()),
 			gateway.WithConnectorController(connectors.registry),
 			gateway.WithMCPController(mcpManager),
 			gateway.WithISCPPairing(iscpPairing),
 			gateway.WithExternalApprovalResolver(happyApprovals),
-			gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
 			gateway.WithManagedBrowserWindows(tools),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
+			gateway.WithStoreRuntime(storeRuntime),
 		),
 		connectors:        connectors,
 		reminderScheduler: reminderScheduler,
@@ -87,7 +86,7 @@ func newGatewayServices(
 	}, nil
 }
 
-func newISCPPairingService(cfg config.Config, st store.Store) (*iscppairing.Service, error) {
+func newISCPPairingService(cfg config.Config, st iscppairing.Repository) (*iscppairing.Service, error) {
 	options := iscppairing.Options{
 		Enabled: cfg.ISCPPairing.Enabled, DomainID: cfg.ISCPPairing.DomainID,
 		ExpectedTicketType: cfg.ISCPPairing.ExpectedTicketType,
@@ -111,6 +110,7 @@ func newISCPPairingService(cfg config.Config, st store.Store) (*iscppairing.Serv
 
 func (s *gatewayServices) Start(ctx context.Context) error {
 	s.server.BindLifecycleContext(ctx)
+	s.connectors.credentials.BindLifecycle(ctx)
 	if err := s.connectors.registry.Start(ctx); err != nil {
 		return err
 	}

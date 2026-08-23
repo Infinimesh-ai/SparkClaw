@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestScheduleSemanticRoutingTreatsTemporalChineseReminderAsCreate(t *testing.T) {
@@ -50,7 +51,7 @@ func TestScheduleSemanticParaphraseIsSelectedByFusionRouting(t *testing.T) {
 		t.Fatalf("Fast semantic route did not select schedule creation and freeze the owner query: %#v", routing.Route)
 	}
 	if routing.Fusion == nil || len(routing.Fusion.Candidates) == 0 || routing.Fusion.Candidates[0].CandidateID != "schedule.manage#create" {
-		t.Fatalf("semantic schedule route did not persist fusion evidence: routing=%#v audit=%#v", routing, st.ListAudit(session.ID))
+		t.Fatalf("semantic schedule route did not persist fusion evidence: routing=%#v audit=%#v", routing, mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -75,7 +76,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatal(err)
 	}
 	started := time.Now().UTC()
-	user := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "修改定时任务", CreatedAt: started})
+	user := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "修改定时任务", CreatedAt: started})
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "received", Risk: app.RiskReversible, StartedAt: started,
 		MessageContext: &app.MessageRunContext{OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID}, Route: route},
@@ -87,7 +88,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatalf("edit workflow must expose list first: %#v", visibleToolNames(dispatch.Tools))
 	}
 
-	listCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	listCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "reminders.list", Args: map[string]any{"status": "pending"}, WorkflowID: app.WorkflowScheduleManage,
 		WorkflowNodeID: "schedule_manage", ScopeRevision: 1, Capability: app.ToolCapabilityScheduleManage,
 	})
@@ -99,7 +100,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if assessment.ReasonCode != "schedule_target_resolved" || len(assessment.SelectedRefs) != 1 {
 		t.Fatalf("schedule target was not uniquely resolved: %#v", assessment)
@@ -108,9 +109,9 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil || !changed {
 		t.Fatalf("schedule workflow did not enter mutation stage: changed=%t err=%v", changed, err)
 	}
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatalf("edit workflow exposed the wrong mutation: %#v", visibleToolNames(mutationTools))
 	}
 	node := storedRun.Workflow.Nodes["schedule_manage"]
-	updateCall, updateApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	updateCall, updateApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "reminders.update", Args: map[string]any{
 			"reminder_id": "model-invented-id", "expected_updated_at": "2000-01-01T00:00:00Z",
 			"text": "model invented text", "due_time": "2000-01-01T00:00", "timezone": "UTC", "recurrence": "daily",
@@ -141,7 +142,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 	assessment = dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if assessment.Status != app.AssessmentComplete || assessment.ReasonCode != "schedule_changed" {
 		t.Fatalf("schedule mutation did not produce completion evidence: %#v", assessment)
@@ -149,7 +150,10 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if _, err := applyWorkflowOutcome(&storedRun, outcome, assessment); err != nil || storedRun.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("schedule workflow did not complete: status=%q err=%v", storedRun.Workflow.Status, err)
 	}
-	reminder, _ := st.GetReminder(createdOutput["reminder_id"].(string))
+	reminder, found, err := st.GetReminder(t.Context(), createdOutput["reminder_id"].(string))
+	if err != nil || !found {
+		t.Fatalf("load created reminder found=%v err=%v", found, err)
+	}
 	if reminder.Text != newText || reminder.Recurrence != recurrence || reminder.DueTime.Format(time.RFC3339) != "2026-08-02T02:30:00Z" {
 		t.Fatalf("schedule update mismatch: %#v", reminder)
 	}

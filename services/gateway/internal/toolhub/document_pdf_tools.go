@@ -22,7 +22,7 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 	}
 	read, err := h.readDocumentWorkflow(withDocumentOCRExecution(ctx, sessionID, runID), path, maxBytes)
 	if err != nil {
-		h.recordPDFReadMetrics(sessionID, runID, "unavailable", nil, nil)
+		h.recordPDFReadMetrics(ctx, sessionID, runID, "unavailable", nil, nil)
 		return Result{}, err
 	}
 	structured, err := read.Document.Map()
@@ -41,7 +41,7 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 			coverageStatus = "unavailable"
 		}
 	}
-	h.recordPDFReadMetrics(sessionID, runID, coverageStatus, documentAnySlice(structured["pages"]), documentAnySlice(structuredStats["missing_page_indexes"]))
+	h.recordPDFReadMetrics(ctx, sessionID, runID, coverageStatus, documentAnySlice(structured["pages"]), documentAnySlice(structuredStats["missing_page_indexes"]))
 	return Result{Output: map[string]any{
 		"path":                 path,
 		"content":              read.Content,

@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
@@ -115,7 +116,7 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice input")
+	session := storetest.MustCreateSession(t, st, "Voice input")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{
@@ -151,19 +152,19 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	if fake.input.SessionID != session.ID || fake.input.RequestID != "voice-request-1" || fake.input.DurationMS != 500 {
 		t.Fatalf("unexpected transcriber input: %#v", fake.input)
 	}
-	if messages := st.ListMessages(session.ID); len(messages) != 0 {
+	if messages := storetest.MustListMessages(t, st, session.ID); len(messages) != 0 {
 		t.Fatalf("speech transcription must not create messages: %#v", messages)
 	}
-	if artifacts := st.ListArtifactObjects(0); len(artifacts) != 0 {
+	if artifacts := storetest.MustListArtifactObjects(t, st, 0); len(artifacts) != 0 {
 		t.Fatalf("speech transcription must not create artifacts: %#v", artifacts)
 	}
-	if runs := st.ListRuns(session.ID); len(runs) != 0 {
+	if runs := testListRuns(st, session.ID); len(runs) != 0 {
 		t.Fatalf("speech transcription must not create agent runs: %#v", runs)
 	}
-	if calls := st.ListToolCalls(session.ID); len(calls) != 0 {
+	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("speech transcription must not create tool calls: %#v", calls)
 	}
-	audits := st.ListAudit(session.ID)
+	audits := mustGatewayListAudit(t, st, session.ID)
 	speechAudits := make([]any, 0, 2)
 	startedAudit := false
 	completedAudit := false
@@ -188,7 +189,7 @@ func TestSpeechTranscriptionRejectsNonCanonicalWAV(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice input")
+	session := storetest.MustCreateSession(t, st, "Voice input")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{status: speech.Status{
@@ -224,7 +225,7 @@ func TestSpeechTranscriptionRejectsUnexpectedFileField(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice input")
+	session := storetest.MustCreateSession(t, st, "Voice input")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{status: speech.Status{
@@ -251,7 +252,7 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice cancellation")
+	session := storetest.MustCreateSession(t, st, "Voice cancellation")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{
@@ -274,7 +275,7 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 		t.Fatalf("cancelled transcription returned %d", resp.StatusCode)
 	}
 	found := false
-	for _, event := range st.ListAudit(session.ID) {
+	for _, event := range mustGatewayListAudit(t, st, session.ID) {
 		if event.Type == "speech.transcription.cancelled" {
 			found = true
 			if _, ok := event.Fields["text"]; ok {
@@ -283,7 +284,7 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("missing cancellation audit: %#v", st.ListAudit(session.ID))
+		t.Fatalf("missing cancellation audit: %#v", mustGatewayListAudit(t, st, session.ID))
 	}
 }
 
@@ -292,7 +293,7 @@ func TestSpeechTranscriptionUsesInferenceAsReadinessAuthority(t *testing.T) {
 	cfg.Speech.Enabled = true
 	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice readiness")
+	session := storetest.MustCreateSession(t, st, "Voice readiness")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{
@@ -322,15 +323,23 @@ func TestSpeechTranscriptionRejectsSessionOwnedByAnotherPrincipal(t *testing.T) 
 	cfg.Speech.Backend = "openai-http"
 	cfg.Gateway.APIToken = "default-owner-token"
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("Other owner voice", "owner-other", cfg.Workspaces.DefaultRoot, "webchat", false)
-	st.SaveClient(app.Client{
+	session := storetest.MustCreateSessionWithScope(t, st, "Other owner voice", "owner-other", cfg.Workspaces.DefaultRoot, "webchat", false)
+	pairing, err := st.SavePairingCode(t.Context(), app.PairingCode{
+		ID: "client-requester-pair", CodeHash: "client-requester-pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = st.ClaimPairingCode(t.Context(), pairing.ID, app.Client{
 		ID:        "client-requester",
 		OwnerID:   "owner-requester",
 		ActorID:   "owner-requester",
 		Name:      "Requester",
 		TokenHash: hashSecret("requester-token"),
-		CreatedAt: time.Now().UTC(),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{result: speech.Result{Text: "must not run"}}
@@ -359,7 +368,7 @@ func TestSpeechTranscriptionAppliesEndToEndDeadline(t *testing.T) {
 	cfg.Speech.Backend = "openai-http"
 	cfg.Speech.TimeoutSeconds = 1
 	st := store.NewMemoryStore()
-	session := st.CreateSession("Voice deadline")
+	session := storetest.MustCreateSession(t, st, "Voice deadline")
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{transcribe: func(ctx context.Context, _ speech.Request) (speech.Result, error) {

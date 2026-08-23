@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,54 +35,72 @@ type passiveNotificationView struct {
 // applyPassiveNotificationRetention lazily enforces the configured retention
 // window and per-owner cap, mirroring applyMemoryRetention: the sweep runs on
 // owner reads so an idle inbox still ages out without a background job.
-func (s *Server) applyPassiveNotificationRetention() {
+func (s *Server) applyPassiveNotificationRetention(ctx context.Context) error {
 	maxPerOwner := s.cfg.PassiveNotifications.MaxPerOwner
 	cutoff := time.Time{}
 	if days := s.cfg.PassiveNotifications.RetentionDays; days > 0 {
 		cutoff = time.Now().UTC().AddDate(0, 0, -days)
 	}
 	if cutoff.IsZero() && maxPerOwner <= 0 {
-		return
+		return nil
 	}
-	s.store.PrunePassiveNotifications(cutoff, maxPerOwner)
+	_, err := s.store.PrunePassiveNotifications(ctx, cutoff, maxPerOwner)
+	return err
 }
 
 func (s *Server) listPassiveNotifications(w http.ResponseWriter, r *http.Request) {
-	s.applyPassiveNotificationRetention()
+	if err := s.applyPassiveNotificationRetention(r.Context()); err != nil {
+		writePassiveNotificationStoreError(w, err)
+		return
+	}
 	principal := principalForRequest(r)
-	records := s.store.ListPassiveNotifications(principal.OwnerID, "", queryInt(r, "limit", 100))
+	records, err := s.store.ListPassiveNotifications(r.Context(), principal.OwnerID, "", queryInt(r, "limit", 100))
+	if err != nil {
+		writePassiveNotificationStoreError(w, err)
+		return
+	}
+	unread, err := s.store.CountUnreadPassiveNotifications(r.Context(), principal.OwnerID)
+	if err != nil {
+		writePassiveNotificationStoreError(w, err)
+		return
+	}
 	views := make([]passiveNotificationView, 0, len(records))
 	for _, record := range records {
 		views = append(views, publicPassiveNotification(record))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notifications": views,
-		"unread_count":  s.store.CountUnreadPassiveNotifications(principal.OwnerID),
+		"unread_count":  unread,
 	})
 }
 
 func (s *Server) markPassiveNotificationRead(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	notification, err := s.store.MarkPassiveNotificationRead(principal.OwnerID, r.PathValue("id"), time.Now().UTC())
+	notification, err := s.store.MarkPassiveNotificationRead(r.Context(), principal.OwnerID, r.PathValue("id"), time.Now().UTC())
 	if errors.Is(err, store.ErrPassiveNotificationNotFound) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, errors.New("notification read state could not be persisted"))
+		writePassiveNotificationStoreError(w, err)
+		return
+	}
+	unread, err := s.store.CountUnreadPassiveNotifications(r.Context(), principal.OwnerID)
+	if err != nil {
+		writePassiveNotificationStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notification": publicPassiveNotification(notification),
-		"unread_count": s.store.CountUnreadPassiveNotifications(principal.OwnerID),
+		"unread_count": unread,
 	})
 }
 
 func (s *Server) markAllPassiveNotificationsRead(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	count, err := s.store.MarkAllPassiveNotificationsRead(principal.OwnerID, time.Now().UTC())
+	count, err := s.store.MarkAllPassiveNotificationsRead(r.Context(), principal.OwnerID, time.Now().UTC())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, errors.New("notification read state could not be persisted"))
+		writePassiveNotificationStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"updated": count, "unread_count": 0})
@@ -104,11 +123,33 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 		after = r.Header.Get("Last-Event-ID")
 	}
 	if after == "" {
-		if current := s.store.ListPassiveNotifications(ownerID, "", 1); len(current) > 0 {
+		current, err := s.store.ListPassiveNotifications(r.Context(), ownerID, "", 1)
+		if err != nil {
+			writePassiveNotificationStoreError(w, err)
+			return
+		}
+		if len(current) > 0 {
 			after = current[0].ID
 		}
-	} else if _, ok := s.store.GetPassiveNotification(ownerID, after); !ok {
-		writeError(w, http.StatusConflict, errors.New("notification cursor is not valid for this owner"))
+	} else {
+		_, ok, err := s.store.GetPassiveNotification(r.Context(), ownerID, after)
+		if err != nil {
+			writePassiveNotificationStoreError(w, err)
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusConflict, errors.New("notification cursor is not valid for this owner"))
+			return
+		}
+	}
+	lastRevision, err := s.store.PassiveNotificationRevision(r.Context(), ownerID)
+	if err != nil {
+		writePassiveNotificationStoreError(w, err)
+		return
+	}
+	initial, err := s.store.ListPassiveNotifications(r.Context(), ownerID, after, 100)
+	if err != nil {
+		writePassiveNotificationStoreError(w, err)
 		return
 	}
 
@@ -117,8 +158,7 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	send := func() bool {
-		notifications := s.store.ListPassiveNotifications(ownerID, after, 100)
+	send := func(notifications []app.PassiveNotification) bool {
 		if after == "" {
 			for left, right := 0, len(notifications)-1; left < right; left, right = left+1, right-1 {
 				notifications[left], notifications[right] = notifications[right], notifications[left]
@@ -136,8 +176,7 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 	// Reading the revision before listing means a change racing the send is
 	// caught on the next tick instead of lost; the cursor keeps re-sends
 	// duplicate-free.
-	lastRevision := s.store.PassiveNotificationRevision(ownerID)
-	if !send() {
+	if !send(initial) {
 		return
 	}
 	poll := time.NewTicker(passiveNotificationPollInterval)
@@ -149,12 +188,16 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 		case <-r.Context().Done():
 			return
 		case <-poll.C:
-			revision := s.store.PassiveNotificationRevision(ownerID)
+			revision, err := s.store.PassiveNotificationRevision(r.Context(), ownerID)
+			if err != nil {
+				return
+			}
 			if revision == lastRevision {
 				continue
 			}
 			lastRevision = revision
-			if !send() {
+			notifications, err := s.store.ListPassiveNotifications(r.Context(), ownerID, after, 100)
+			if err != nil || !send(notifications) {
 				return
 			}
 		case <-heartbeat.C:
@@ -163,6 +206,23 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 			}
 			flusher.Flush()
 		}
+	}
+}
+
+func writePassiveNotificationStoreError(w http.ResponseWriter, err error) {
+	switch store.StoreErrorCodeOf(err) {
+	case store.StoreErrorInvalid:
+		writeError(w, http.StatusBadRequest, errors.New("notification request is invalid"))
+	case store.StoreErrorNotFound:
+		writeError(w, http.StatusNotFound, errors.New("notification was not found"))
+	case store.StoreErrorConflict:
+		writeError(w, http.StatusConflict, errors.New("notification conflicts with existing state"))
+	case store.StoreErrorCanceled:
+		writeError(w, http.StatusRequestTimeout, errors.New("notification request was canceled"))
+	case store.StoreErrorTimeout:
+		writeError(w, http.StatusGatewayTimeout, errors.New("notification operation timed out"))
+	default:
+		writeError(w, http.StatusServiceUnavailable, errors.New("notification service is unavailable"))
 	}
 }
 

@@ -8,10 +8,14 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) (bool, error) {
-	approval, ok := d.pendingApprovalForChatSession(chatSession)
+	approval, ok, err := d.pendingApprovalForChatSession(ctx, chatSession)
+	if err != nil {
+		return true, fmt.Errorf("load pending approval: %w", err)
+	}
 	if !ok {
 		return false, nil
 	}
@@ -20,7 +24,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 	// retried as a plain resend instead of re-entering this flow (where the
 	// approval would no longer be pending and the reply would leak to the
 	// agent as an ordinary message).
-	record := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	record, err := d.store.SaveExternalChatMessage(ctx, app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -33,13 +37,17 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
+	if err != nil {
+		return true, fmt.Errorf("persist weixin approval reply: %w", err)
+	}
 	decision, ok := parseApprovalReply(text)
 	if !ok {
 		_, err := d.finishControlReply(ctx, inbound, chatSession, record, weixinApprovalPrompt(approval), approval.RunID, "needs_clear_approval_reply")
 		return true, err
 	}
 	if decision {
-		resolved, err := d.store.ResolveApproval(approval.ID, "approved", "confirmed from vx")
+		candidate, err := d.store.ResolveApproval(ctx, approval.ID, "approved", "confirmed from vx")
+		resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 		if err != nil {
 			return true, err
 		}
@@ -58,8 +66,12 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 			_, deliveryErr := d.finishWorkflowReply(ctx, record, result, ingress)
 			return true, deliveryErr
 		}
-		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
-		if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+		if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, approval.RunID); err != nil {
+			return true, err
+		}
+		if call, ok, err := d.store.GetToolCall(ctx, resolved.ToolCallID); err != nil {
+			return true, err
+		} else if ok {
 			if answer := weixinApprovedToolAnswer(call); answer != "" {
 				_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, answer, approval.RunID, "processed")
 				return true, sendErr
@@ -68,34 +80,45 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已确认并执行。", approval.RunID, "processed")
 		return true, sendErr
 	}
-	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from vx")
+	candidate, err := d.store.ResolveApproval(ctx, approval.ID, "rejected", "rejected from vx")
+	resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 	if err != nil {
 		return true, err
 	}
-	if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+	if call, ok, err := d.store.GetToolCall(ctx, resolved.ToolCallID); err != nil {
+		return true, err
+	} else if ok {
 		now := time.Now().UTC()
 		call.Status = "rejected"
 		call.Error = "user rejected approval from vx"
 		call.CompletedAt = &now
-		d.store.SaveToolCall(call)
+		candidate, saveErr := d.store.SaveToolCall(ctx, call)
+		if _, saveErr = store.ReconcileToolCallWrite(ctx, d.store, candidate, saveErr); saveErr != nil {
+			return true, saveErr
+		}
 	}
-	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
+	if err := d.runtime.CompleteRunIfApprovalsResolved(ctx, resolved.RunID); err != nil {
+		return true, err
+	}
 	_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已取消，本次需要确认的操作没有执行。", resolved.RunID, "processed")
 	return true, sendErr
 }
 
-func (d *Dispatcher) pendingApprovalForChatSession(chatSession app.ExternalChatSession) (app.Approval, bool) {
+func (d *Dispatcher) pendingApprovalForChatSession(ctx context.Context, chatSession app.ExternalChatSession) (app.Approval, bool, error) {
 	if strings.TrimSpace(chatSession.LinkedSessionID) == "" {
-		return app.Approval{}, false
+		return app.Approval{}, false, nil
 	}
-	approvals := d.store.ListApprovals("pending")
+	approvals, err := d.store.ListApprovals(ctx, "pending")
+	if err != nil {
+		return app.Approval{}, false, err
+	}
 	for i := len(approvals) - 1; i >= 0; i-- {
 		approval := approvals[i]
 		if approval.SessionID == chatSession.LinkedSessionID {
-			return approval, true
+			return approval, true, nil
 		}
 	}
-	return app.Approval{}, false
+	return app.Approval{}, false, nil
 }
 
 func parseApprovalReply(text string) (bool, bool) {

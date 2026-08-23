@@ -239,7 +239,7 @@ export function InspectorColumn({
   }
 
   async function refreshNotificationBinding(id: string, signal?: AbortSignal) {
-    const binding = await api.notificationBinding(id, signal);
+    const binding = await api.pollNotificationBinding(id, signal);
     setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
     if (!isBindingSetupPending(binding)) {
       await refreshGlobal();

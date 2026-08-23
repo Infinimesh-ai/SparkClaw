@@ -40,15 +40,15 @@ func TestHandleMCPConversationUsesOrdinarySemanticRouting(t *testing.T) {
 		t.Fatalf("MCP conversation did not enter ordinary semantic routing: %#v", result.RouteDecision)
 	}
 	foundSemanticRouting := false
-	for _, call := range st.ListModelCalls(session.ID, result.Run.ID) {
+	for _, call := range testListModelCalls(st, session.ID, result.Run.ID) {
 		if call.Operation == "intent_embedding" || call.Operation == "intent_tree_graph" {
 			foundSemanticRouting = true
 		}
 	}
 	if !foundSemanticRouting {
-		t.Fatalf("MCP conversation bypassed semantic routing: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+		t.Fatalf("MCP conversation bypassed semantic routing: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
-	stored, ok := st.GetRun(result.Run.ID)
+	stored, ok := testGetRun(st, result.Run.ID)
 	if !ok || stored.MessageContext == nil || stored.MessageContext.MCP == nil || *stored.MessageContext.MCP != invocation {
 		t.Fatalf("MCP invocation was not persisted on the run: %#v ok=%v", stored, ok)
 	}
@@ -81,9 +81,9 @@ func TestWorkflowResultFailurePathsPreserveMCPInvocation(t *testing.T) {
 	terminal := app.RouteDecision{Status: app.RouteBlocked}
 
 	results := []*app.WorkflowResult{
-		runtime.workflowResultForDispatchFailure(run, matched, app.ReturnRoute{Mode: app.ReturnToSource}, "dispatch failed"),
-		runtime.workflowResultForTerminalRoute(run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "blocked"),
-		runtime.workflowResultForUnmatched(run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "unmatched"),
+		mustWorkflowResultForDispatchFailure(t, runtime, run, matched, app.ReturnRoute{Mode: app.ReturnToSource}, "dispatch failed"),
+		mustWorkflowResultForTerminalRoute(t, runtime, run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "blocked"),
+		mustWorkflowResultForUnmatched(t, runtime, run, terminal, app.ReturnRoute{Mode: app.ReturnToSource}, "unmatched"),
 	}
 	for index, result := range results {
 		if result == nil || result.MCP != invocation {

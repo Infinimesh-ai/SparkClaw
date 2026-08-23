@@ -13,6 +13,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "restart_runtime_compose.sh"
+COMPOSE = ROOT / "docker" / "compose.yaml"
+EXAMPLE_ENV = ROOT / "docker" / "env" / "sparkclaw.example.env"
 
 
 FAKE_DOCKER = r"""#!/usr/bin/env python3
@@ -100,6 +102,43 @@ class RuntimeComposeTest(unittest.TestCase):
         self.assertIn("must be an integer between 1 and 65535", result.stderr)
         self.assertEqual(docker_calls, [])
         self.assertEqual(curl_calls, [])
+
+    def test_store_timeout_overrides_reach_gateway(self) -> None:
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "SPARKCLAW_STATE_READ_TIMEOUT_SECONDS": "7",
+                "SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS": "19",
+                "SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS": "23",
+            }
+        )
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                str(EXAMPLE_ENV),
+                "-f",
+                str(COMPOSE),
+                "--profile",
+                "models-local",
+                "config",
+                "--format",
+                "json",
+            ],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(result.stdout)
+        gateway_environment = config["services"]["gateway"]["environment"]
+        self.assertEqual(gateway_environment["SPARKCLAW_STATE_READ_TIMEOUT_SECONDS"], "7")
+        self.assertEqual(gateway_environment["SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS"], "19")
+        self.assertEqual(gateway_environment["SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS"], "23")
 
 
 if __name__ == "__main__":

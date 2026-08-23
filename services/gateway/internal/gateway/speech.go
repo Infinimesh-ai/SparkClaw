@@ -80,7 +80,11 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		writeSpeechError(w, http.StatusBadRequest, speech.NewError(speech.CodeInvalidRequest, "session_id is required", false, nil))
 		return
 	}
-	session, ok := s.store.GetSession(sessionID)
+	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeSpeechError(w, http.StatusServiceUnavailable, speech.NewError(speech.CodeUnavailable, "session service is unavailable", true, nil))
+		return
+	}
 	if !ok || sessionOwnerID(session) != principalForRequest(r).OwnerID {
 		writeSpeechError(w, http.StatusNotFound, speech.NewError(speech.CodeInvalidRequest, "session not found", false, nil))
 		return
@@ -114,7 +118,7 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.addSpeechAudit("speech.transcription.started", sessionID, requestID, "Speech transcription started", map[string]any{
+	s.addSpeechAudit(requestCtx, "speech.transcription.started", sessionID, requestID, "Speech transcription started", map[string]any{
 		"request_id":  requestID,
 		"bytes":       len(audio),
 		"duration_ms": wavInfo.DurationMS,
@@ -136,7 +140,7 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 			eventType = "speech.transcription.cancelled"
 			summary = "Speech transcription cancelled"
 		}
-		s.addSpeechAudit(eventType, sessionID, requestID, summary, map[string]any{
+		s.addSpeechAudit(requestCtx, eventType, sessionID, requestID, summary, map[string]any{
 			"request_id":  requestID,
 			"duration_ms": wavInfo.DurationMS,
 			"code":        code,
@@ -145,7 +149,7 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		writeSpeechError(w, speechHTTPStatus(err), err)
 		return
 	}
-	s.addSpeechAudit("speech.transcription.completed", sessionID, requestID, "Speech transcription completed", map[string]any{
+	s.addSpeechAudit(requestCtx, "speech.transcription.completed", sessionID, requestID, "Speech transcription completed", map[string]any{
 		"request_id":   requestID,
 		"duration_ms":  wavInfo.DurationMS,
 		"inference_ms": result.InferenceMS,
@@ -176,12 +180,12 @@ func readBoundedSpeechFile(file multipart.File, maxBytes int64) ([]byte, error) 
 	return raw, nil
 }
 
-func (s *Server) addSpeechAudit(eventType, sessionID, requestID, summary string, fields map[string]any) {
+func (s *Server) addSpeechAudit(ctx context.Context, eventType, sessionID, requestID, summary string, fields map[string]any) {
 	if fields == nil {
 		fields = map[string]any{}
 	}
 	fields["request_id"] = requestID
-	s.store.AddAudit(app.AuditEvent{
+	s.addAudit(ctx, app.AuditEvent{
 		ID:        app.NewID("audit"),
 		Time:      time.Now().UTC(),
 		Type:      eventType,

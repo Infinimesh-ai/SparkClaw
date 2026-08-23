@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.T) {
@@ -42,7 +43,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": inputRef}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: documentLocateEvidenceNodeID, ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -54,12 +55,12 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedRun, _ := st.GetRun(dispatch.Run.ID)
+	storedRun, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	if changed, err := applyWorkflowOutcome(&storedRun, outcome, assessment); err != nil || !changed {
 		t.Fatalf("DOCX localization evidence did not activate operation selection: changed=%t err=%v", changed, err)
 	}
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 
 	editorDefinition, ok := runtime.tools.Definition("docx.replace_paragraph")
 	if !ok {
@@ -78,12 +79,12 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatal("docx.replace_paragraph is outside the operation-selection scope")
 	}
 	storedRun.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(storedRun)
+	testSaveRun(st, storedRun)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("DOCX paragraph operation was not selected: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(storedRun), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +110,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if !containsString(toolDefinitionRequiredArgs(editorDefinition.InputSchema), "source_sha256") {
 		t.Fatalf("registered DOCX editor lost its runtime-validated document hash: %#v", editorDefinition.InputSchema)
 	}
-	storedRun, _ = st.GetRun(storedRun.ID)
+	storedRun, _ = testGetRun(st, storedRun.ID)
 
 	readResult, _ := anyMap(readCall.Result)
 	document, _ := anyMap(readResult["document"])
@@ -118,7 +119,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("localization read omitted paragraph 25 evidence: %#v", readCall.Result)
 	}
 	replacement := strings.TrimSpace(strings.Repeat("Expanded reflection. ", 24))
-	conflictingCall, conflictingApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	conflictingCall, conflictingApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "docx.replace_paragraph",
 		Args: map[string]any{
 			"path": "model-invented-input.docx", "output_path": "model-invented-output.docx",
@@ -130,10 +131,10 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		!strings.Contains(conflictingCall.Error, "source_hash conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting model source_hash was not blocked before approval: call=%#v approval=%#v", conflictingCall, conflictingApproval)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("conflicting model source_hash created an owner approval: %#v", approvals)
 	}
-	conflictingDocumentCall, conflictingDocumentApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	conflictingDocumentCall, conflictingDocumentApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "docx.replace_paragraph",
 		Args: map[string]any{
 			"path": inputRef, "output_path": outputRef, "paragraph_index": 25,
@@ -146,7 +147,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("conflicting document hash was not blocked before approval: call=%#v approval=%#v", conflictingDocumentCall, conflictingDocumentApproval)
 	}
 
-	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	editCall, editApproval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "docx.replace_paragraph",
 		Args: map[string]any{
 			"path": "model-invented-input.docx", "output_path": "model-invented-output.docx",
@@ -170,7 +171,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("runtime did not bind the current DOCX document hash: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, boundEvidence)
 	}
 
-	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "approved synthetic DOCX regression edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "approved synthetic DOCX regression edit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +214,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 		t.Fatal(err)
 	}
 	storedRun, _ := advanceDocumentEditToEditor(t, runtime, st, dispatch, "report.docx", "docx.replace_paragraph", "replace_paragraph")
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_unrelated_docx_read", SessionID: session.ID, RunID: storedRun.ID, Tool: "files.read", Status: "completed",
 		Arguments: map[string]any{"path": "report.docx"},
 		Result: map[string]any{
@@ -229,7 +230,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
 
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "docx.replace_paragraph",
 		Args: map[string]any{
 			"path": "model-input.docx", "output_path": "model-output.docx",
@@ -244,7 +245,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 	if call.Arguments["path"] != "report.docx" || call.Arguments["output_path"] != "report-sparkclaw-edit.docx" {
 		t.Fatalf("failed evidence binding changed frozen paths: %#v", call.Arguments)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("invalid DOCX evidence created an owner approval: %#v", approvals)
 	}
 	if _, err := os.Stat(filepath.Join(runtime.tools.Config().Workspaces.DefaultRoot, "report-sparkclaw-edit.docx")); !os.IsNotExist(err) {
@@ -312,7 +313,7 @@ func TestDocumentEditBindsEveryDOCXMutationToCurrentReadEvidence(t *testing.T) {
 				args[key] = value
 			}
 
-			call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+			call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 				Name: tc.tool, Args: args, WorkflowID: app.WorkflowDocumentEdit,
 				WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 			})
@@ -336,7 +337,7 @@ func TestDocumentEditBindsEveryDOCXMutationToCurrentReadEvidence(t *testing.T) {
 			if tc.check != nil {
 				tc.check(t, call.Arguments)
 			}
-			if len(st.ListApprovals("pending")) != 1 {
+			if len(storetest.MustListApprovals(t, st, "pending")) != 1 {
 				t.Fatalf("%s did not create exactly one approval", tc.operation)
 			}
 		})
@@ -349,7 +350,7 @@ func TestDocumentEditRejectsCrossRunDOCXEvidenceBeforeApproval(t *testing.T) {
 	runtime, st, session, run, _, closeRuntime := prepareDOCXMutationRun(t, root, "office.replace_text", "replace_text")
 	defer closeRuntime()
 
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name: "office.replace_text",
 		Args: map[string]any{
 			"path": "report.docx", "output_path": "report-sparkclaw-edit.docx", "expected_replacements": 1,
@@ -361,8 +362,8 @@ func TestDocumentEditRejectsCrossRunDOCXEvidenceBeforeApproval(t *testing.T) {
 	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "source_evidence conflicts") {
 		t.Fatalf("cross-run evidence was not rejected before approval: call=%#v approval=%#v", call, approval)
 	}
-	if len(st.ListApprovals("")) != 0 {
-		t.Fatalf("cross-run evidence created an approval: %#v", st.ListApprovals(""))
+	if len(storetest.MustListApprovals(t, st, "")) != 0 {
+		t.Fatalf("cross-run evidence created an approval: %#v", storetest.MustListApprovals(t, st, ""))
 	}
 }
 
@@ -374,7 +375,7 @@ func TestApprovedDOCXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 	runtime, st, session, run, _, closeRuntime := prepareDOCXMutationRun(t, root, "docx.replace_paragraph", "replace_paragraph")
 	defer closeRuntime()
 
-	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name:       "docx.replace_paragraph",
 		Args:       map[string]any{"paragraph_index": 1, "text": "Approved replacement"},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
@@ -383,7 +384,7 @@ func TestApprovedDOCXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 		t.Fatalf("DOCX edit did not wait for approval: call=%#v approval=%#v", call, approval)
 	}
 	writeDOCXParagraphFixture(t, inputPath, []string{"Changed while approval was pending"})
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "approve stale-source regression")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approve stale-source regression")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +412,7 @@ func prepareDOCXMutationRun(t *testing.T, root, selectedTool, selectedOperation 
 		closeRuntime()
 		t.Fatal(err)
 	}
-	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
+	readCall, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": "report.docx"}, WorkflowID: app.WorkflowDocumentEdit,
 		WorkflowNodeID: documentLocateEvidenceNodeID, ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
@@ -425,7 +426,7 @@ func prepareDOCXMutationRun(t *testing.T, root, selectedTool, selectedOperation 
 		closeRuntime()
 		t.Fatal(err)
 	}
-	run, _ := st.GetRun(dispatch.Run.ID)
+	run, _ := testGetRun(st, dispatch.Run.ID)
 	assessment := dispatch.Profile.Assess(run.Workflow, outcome)
 	if changed, err := applyWorkflowOutcome(&run, outcome, assessment); err != nil || !changed {
 		closeRuntime()
@@ -449,18 +450,18 @@ func prepareDOCXMutationRun(t *testing.T, root, selectedTool, selectedOperation 
 		t.Fatalf("DOCX editor %q is outside operation-selection scope", selectedTool)
 	}
 	run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &run, dispatch.Profile); err != nil || !changed {
 		closeRuntime()
 		t.Fatalf("DOCX operation selection failed: changed=%t err=%v", changed, err)
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(run), &stageContext)
 	if err != nil || !exactVisibleToolNames(tools, selectedTool, "observation.read") {
 		closeRuntime()
 		t.Fatalf("DOCX editor did not materialize: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
-	if refreshed, ok := st.GetRun(run.ID); ok {
+	if refreshed, ok := testGetRun(st, run.ID); ok {
 		run = refreshed
 	}
 	return runtime, st, session, run, readCall, closeRuntime

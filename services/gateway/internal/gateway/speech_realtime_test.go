@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 	"github.com/gorilla/websocket"
@@ -86,7 +87,7 @@ func TestSpeechRealtimeTicketRelaysPartialAndFinalOnce(t *testing.T) {
 	cfg.Speech.Backend = "openai-http"
 	cfg.Speech.Model = "test-asr"
 	cfg.Speech.MaxAudioSeconds = 60
-	sessionRecord := st.CreateSession("Voice")
+	sessionRecord := storetest.MustCreateSession(t, st, "Voice")
 	realtime := newFakeGatewayRealtimeSession()
 	var started speech.RealtimeRequest
 	fake := &fakeSpeechTranscriber{

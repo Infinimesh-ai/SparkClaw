@@ -71,7 +71,11 @@ func (s *Server) deliverAgentResult(ctx context.Context, result agent.Result) (*
 		return nil, nil
 	}
 	if result.WorkflowResult.ReturnRoute.Mode == app.ReturnNowhere {
-		s.mcpAccess.RecordWorkflowResult(result)
+		if s.mcpAccess != nil {
+			if err := s.mcpAccess.RecordWorkflowResult(ctx, result); err != nil {
+				return nil, err
+			}
+		}
 		return nil, nil
 	}
 	if s.endpoints == nil || s.delivery == nil {
@@ -87,6 +91,10 @@ func (s *Server) deliverAgentResult(ctx context.Context, result agent.Result) (*
 	if err != nil {
 		return &receipt, err
 	}
-	s.mcpAccess.RecordWorkflowResult(result)
+	if s.mcpAccess != nil {
+		if err := s.mcpAccess.RecordWorkflowResult(ctx, result); err != nil {
+			return &receipt, err
+		}
+	}
 	return &receipt, nil
 }

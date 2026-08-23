@@ -25,15 +25,15 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	defer st.Close()
 	truncatePostgresStore(t, st)
 
-	session := st.CreateSession("Postgres Session")
-	if got, ok := st.GetSession(session.ID); !ok || got.Title != "Postgres Session" {
+	session := mustCreateSession(t, st, "Postgres Session")
+	if got, ok := mustGetSession(t, st, session.ID); !ok || got.Title != "Postgres Session" {
 		t.Fatalf("session did not round trip: %#v ok=%v", got, ok)
 	}
-	defaultOwner := st.GetOwnerProfile()
+	defaultOwner := mustGetOwnerProfile(t, st)
 	if defaultOwner.ID != app.DefaultOwnerID || defaultOwner.DisplayName == "" {
 		t.Fatalf("default owner did not load: %#v", defaultOwner)
 	}
-	updatedOwner := st.UpdateOwnerProfile(app.OwnerProfile{
+	updatedOwner := mustUpdateOwnerProfile(t, st, app.OwnerProfile{
 		DisplayName: "Postgres Owner",
 		Email:       "pg-owner@example.test",
 		Preferences: map[string]string{"timezone": "UTC", "tone": "brief"},
@@ -41,22 +41,22 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if updatedOwner.ID != app.DefaultOwnerID || updatedOwner.Preferences["timezone"] != "UTC" {
 		t.Fatalf("owner profile did not update: %#v", updatedOwner)
 	}
-	if got := st.GetOwnerProfile(); got.DisplayName != "Postgres Owner" || got.Email != "pg-owner@example.test" || got.Preferences["tone"] != "brief" {
+	if got := mustGetOwnerProfile(t, st); got.DisplayName != "Postgres Owner" || got.Email != "pg-owner@example.test" || got.Preferences["tone"] != "brief" {
 		t.Fatalf("owner profile did not round trip: %#v", got)
 	}
-	message := st.AddMessage(app.Message{
+	message := mustAddMessage(t, st, app.Message{
 		SessionID: session.ID, Role: "user", Content: "remember postgres",
 		RequestedMedia: []app.MessageMediaLocator{{Query: "quarterly report", Caption: "Latest report"}},
 	})
-	if messages := st.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID || len(messages[0].RequestedMedia) != 1 ||
+	if messages := mustListMessages(t, st, session.ID); len(messages) != 1 || messages[0].ID != message.ID || len(messages[0].RequestedMedia) != 1 ||
 		messages[0].RequestedMedia[0].Query != "quarterly report" || messages[0].RequestedMedia[0].Caption != "Latest report" {
 		t.Fatalf("messages did not round trip: %#v", messages)
 	}
-	messageHead, err := st.MessageEventHead(session.ID)
+	messageHead, err := st.MessageEventHead(t.Context(), session.ID)
 	if err != nil || messageHead == "" {
 		t.Fatalf("message event head did not round trip: head=%q err=%v", messageHead, err)
 	}
-	messagePage, err := st.MessageEventsAfter(session.ID, "", 100)
+	messagePage, err := st.MessageEventsAfter(t.Context(), session.ID, "", 100)
 	if err != nil || len(messagePage.Events) != 1 || messagePage.NextCursor != messageHead {
 		t.Fatalf("message event page did not round trip: page=%#v err=%v", messagePage, err)
 	}
@@ -83,8 +83,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 			},
 		},
 	}
-	st.SaveRun(run)
-	if got, ok := st.GetRun(run.ID); !ok || got.Workflow == nil || got.Workflow.PlanDigest != "sha256:postgres-plan" || got.Workflow.Nodes["read"].Status != app.WorkflowNodeSucceeded {
+	testSaveRun(st, run)
+	if got, ok := testGetRun(st, run.ID); !ok || got.Workflow == nil || got.Workflow.PlanDigest != "sha256:postgres-plan" || got.Workflow.Nodes["read"].Status != app.WorkflowNodeSucceeded {
 		t.Fatalf("workflow state did not round trip: %#v ok=%v", got, ok)
 	}
 	policyContext := &app.PolicyExecutionContext{
@@ -115,28 +115,28 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		PolicyContext:      policyContext,
 		StartedAt:          time.Now().UTC(),
 	}
-	st.SaveToolCall(call)
-	if got, ok := st.GetToolCall(call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary ||
+	testSaveToolCall(st, call)
+	if got, ok := testGetToolCall(st, call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary ||
 		got.WorkflowID != app.WorkflowWebExplicitURL || got.WorkflowNodeID != "read" || got.ScopeRevision != 1 || got.Capability != "web.page.read" ||
 		got.PolicyContext == nil || got.PolicyContext.ContractDigest != policyContext.ContractDigest ||
 		got.PolicyContext.MCP == nil || got.PolicyContext.MCP.RequesterDeviceID != policyContext.MCP.RequesterDeviceID {
 		t.Fatalf("tool call did not round trip: %#v ok=%v", got, ok)
 	}
-	documentRecord := st.SaveDocumentRecord(app.DocumentRecord{
+	documentRecord := mustSaveDocumentRecord(t, st, app.DocumentRecord{
 		ID: "doc_pg", OwnerID: session.OwnerID, SessionID: session.ID,
 		GovernedPath: "report.docx", Name: "report.docx", Format: app.DocumentFormatDOCX,
 		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceToolOutput,
 		SourceRunID: run.ID, SourceToolCallID: call.ID, LastActivity: app.DocumentActivityEdited,
 		LastActivityID: call.ID, LastActivityAt: time.Now().UTC(),
 	})
-	if got, ok := st.GetDocumentRecord(documentRecord.ID); !ok || got.SourceToolCallID != call.ID {
+	if got, ok := mustGetDocumentRecord(t, st, documentRecord.ID); !ok || got.SourceToolCallID != call.ID {
 		t.Fatalf("document record did not round trip: %#v ok=%v", got, ok)
 	}
-	if records := st.ListDocumentRecords(session.OwnerID, session.ID, 10); len(records) != 1 || records[0].ID != documentRecord.ID {
+	if records := mustListDocumentRecords(t, st, session.OwnerID, session.ID, 10); len(records) != 1 || records[0].ID != documentRecord.ID {
 		t.Fatalf("document records did not list: %#v", records)
 	}
 	modelCompleted := time.Now().UTC()
-	st.SaveModelCall(app.ModelCall{
+	testSaveModelCall(st, app.ModelCall{
 		ID:             app.NewID("mcall"),
 		SessionID:      session.ID,
 		RunID:          run.ID,
@@ -153,7 +153,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		StartedAt:      time.Now().UTC(),
 		CompletedAt:    &modelCompleted,
 	})
-	modelCalls := st.ListModelCalls(session.ID, run.ID)
+
+	modelCalls := testListModelCalls(st, session.ID, run.ID)
 	if len(modelCalls) != 1 || modelCalls[0].Model != "Qwen/Fast" || modelCalls[0].TotalTokens != 5 {
 		t.Fatalf("model call did not round trip: %#v", modelCalls)
 	}
@@ -173,8 +174,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		PolicyContext: policyContext,
 		CreatedAt:     time.Now().UTC(),
 	}
-	st.SaveApproval(approval)
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "ok")
+	mustSaveApproval(t, st, approval)
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,8 +188,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	restartedCall, callOK := restarted.GetToolCall(call.ID)
-	restartedApproval, approvalOK := restarted.GetApproval(approval.ID)
+	restartedCall, callOK := testGetToolCall(restarted, call.ID)
+	restartedApproval, approvalOK := mustGetApproval(t, restarted, approval.ID)
 	if !callOK || !approvalOK || restartedCall.PolicyContext == nil || restartedApproval.PolicyContext == nil ||
 		restartedCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
 		restartedApproval.PolicyContext.ContractDigest != policyContext.ContractDigest {
@@ -203,25 +204,25 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 			Plan: "Database-backed plan", PlanAvailability: app.ExternalPlanAvailable,
 		},
 	}
-	st.SaveApproval(externalApproval)
-	storedExternal, ok := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-postgres")
+	mustSaveApproval(t, st, externalApproval)
+	storedExternal, ok := mustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-postgres")
 	if !ok || storedExternal.SessionID != "" || storedExternal.RunID != "" || storedExternal.ToolCallID != "" ||
 		storedExternal.ExternalContext == nil || storedExternal.ExternalContext.Plan != "Database-backed plan" {
 		t.Fatalf("external approval did not round trip without agent references: %#v ok=%v", storedExternal, ok)
 	}
-	if _, err := st.ResolveApproval(externalApproval.ID, "approved", "done"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), externalApproval.ID, "approved", "done"); err != nil {
 		t.Fatal(err)
 	}
 	externalApproval.ExternalContext.Plan = "stale update"
-	if _, err := st.UpdatePendingApproval(externalApproval); err == nil {
+	if _, err := st.UpdatePendingApproval(t.Context(), NewApprovalUpdate(externalApproval, externalApproval)); err == nil {
 		t.Fatal("stale PostgreSQL update reopened a resolved approval")
 	}
-	storedExternal, _ = st.GetApproval(externalApproval.ID)
+	storedExternal, _ = mustGetApproval(t, st, externalApproval.ID)
 	if storedExternal.Status != "approved" || storedExternal.ExternalContext.Plan != "Database-backed plan" {
 		t.Fatalf("resolved PostgreSQL approval changed after stale update: %#v", storedExternal)
 	}
 
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	candidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -229,40 +230,41 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted")
+
+	_, memory, err := testResolveMemoryCandidate(t, st, candidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if memory == nil || memory.Content != "postgres is configured" {
 		t.Fatalf("memory did not materialize: %#v", memory)
 	}
-	if memories := st.SearchMemories("configured"); len(memories) != 1 {
+	if memories := mustSearchMemories(t, st, "configured"); len(memories) != 1 {
 		t.Fatalf("memory search failed: %#v", memories)
 	}
-	updated, err := st.UpdateMemory(memory.ID, "procedural", "postgres memory editor updated")
+	updated, err := testUpdateMemory(t, st, memory.ID, "procedural", "postgres memory editor updated")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Kind != "procedural" || updated.Content != "postgres memory editor updated" {
 		t.Fatalf("memory update failed: %#v", updated)
 	}
-	if memories := st.SearchMemories("configured"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "configured"); len(memories) != 0 {
 		t.Fatalf("old memory content still searchable: %#v", memories)
 	}
-	if memories := st.SearchMemories("editor updated"); len(memories) != 1 || memories[0].ID != memory.ID {
+	if memories := mustSearchMemories(t, st, "editor updated"); len(memories) != 1 || memories[0].ID != memory.ID {
 		t.Fatalf("updated memory search failed: %#v", memories)
 	}
-	deleted, err := st.DeleteMemory(memory.ID)
+	deleted, err := testDeleteMemory(t, st, memory.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted.ID != memory.ID {
 		t.Fatalf("delete returned wrong memory: %#v", deleted)
 	}
-	if memories := st.SearchMemories("editor updated"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "editor updated"); len(memories) != 0 {
 		t.Fatalf("deleted memory still searchable: %#v", memories)
 	}
-	retentionCandidate := st.AddMemoryCandidate(app.MemoryCandidate{
+	retentionCandidate := mustAddMemoryCandidate(t, st, app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Kind:        "profile",
@@ -270,24 +272,25 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Sensitivity: "normal",
 		Reason:      "test",
 	})
-	_, retentionMemory, err := st.ResolveMemoryCandidate(retentionCandidate.ID, "accepted")
+
+	_, retentionMemory, err := testResolveMemoryCandidate(t, st, retentionCandidate.ID, "accepted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pruned := st.PruneMemories(time.Now().UTC().AddDate(0, 0, 1))
+	pruned := mustPruneMemories(t, st, time.Now().UTC().AddDate(0, 0, 1))
 	if len(pruned) != 1 || pruned[0].ID != retentionMemory.ID {
 		t.Fatalf("unexpected pruned postgres memories: %#v", pruned)
 	}
-	if memories := st.SearchMemories("retention memory"); len(memories) != 0 {
+	if memories := mustSearchMemories(t, st, "retention memory"); len(memories) != 0 {
 		t.Fatalf("pruned postgres memory still searchable: %#v", memories)
 	}
-	if events := st.EventsAfter(session.ID, ""); len(events) == 0 {
+	if events := mustEventsAfter(t, st, session.ID, ""); len(events) == 0 {
 		t.Fatalf("expected event stream entries")
 	}
-	if audit := st.ListAudit(session.ID); len(audit) == 0 {
+	if audit := mustListAudit(t, st, session.ID); len(audit) == 0 {
 		t.Fatalf("expected audit entries")
 	}
-	st.SaveEvalRun(app.EvalRun{
+	mustSaveEvalRun(t, st, app.EvalRun{
 		ID:      "eval_pg",
 		Profile: "smoke",
 		Status:  "failed",
@@ -301,14 +304,14 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 			Bytes:       128,
 		}},
 	})
-	if evalRun, ok := st.GetEvalRun("eval_pg"); !ok || evalRun.Status != "failed" || len(evalRun.FailureArchives) != 1 {
+	if evalRun, ok := mustGetEvalRun(t, st, "eval_pg"); !ok || evalRun.Status != "failed" || len(evalRun.FailureArchives) != 1 {
 		t.Fatalf("eval run did not round trip: %#v ok=%v", evalRun, ok)
 	}
-	evalRuns := st.ListEvalRuns()
+	evalRuns := mustListEvalRuns(t, st)
 	if len(evalRuns) != 1 || evalRuns[0].ID != "eval_pg" || len(evalRuns[0].FailureArchives) != 1 {
 		t.Fatalf("eval runs did not list: %#v", evalRuns)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{
+	mustSaveArtifactObject(t, st, app.ArtifactObject{
 		ID:          "obj_pg",
 		Kind:        "eval_failure",
 		EvalID:      "eval_pg",
@@ -320,19 +323,19 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Bytes:       128,
 		CreatedAt:   time.Now().UTC(),
 	})
-	if objects := st.ListArtifactObjects(10); len(objects) != 1 || objects[0].ID != "obj_pg" || objects[0].EvalID != "eval_pg" {
+	if objects := mustListArtifactObjects(t, st, 10); len(objects) != 1 || objects[0].ID != "obj_pg" || objects[0].EvalID != "eval_pg" {
 		t.Fatalf("artifact object did not round trip: %#v", objects)
 	}
-	if object, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", "", ""); !ok || object.ID != "obj_pg" {
+	if object, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", "", ""); !ok || object.ID != "obj_pg" {
 		t.Fatalf("artifact lookup by URI failed: %#v ok=%v", object, ok)
 	}
-	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", session.ID, ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", session.ID, ""); ok {
 		t.Fatal("artifact lookup matched a session it does not belong to")
 	}
-	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", "", ""); ok {
+	if _, ok := mustFindArtifactObjectByURI(t, st, "artifact://sparkclaw/missing.json", "", ""); ok {
 		t.Fatal("missing URI lookup returned an object")
 	}
-	st.SaveEpisodeSummary(app.EpisodeSummary{
+	testSaveEpisodeSummary(st, app.EpisodeSummary{
 		ID:        "ep_pg",
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -344,7 +347,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Summary:   "Postgres episode summary",
 		CreatedAt: time.Now().UTC(),
 	})
-	episodes := st.ListEpisodeSummaries(session.ID)
+
+	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || episodes[0].ID != "ep_pg" || episodes[0].Tools[0] != "memory.write_candidate:completed" {
 		t.Fatalf("episode summary did not round trip: %#v", episodes)
 	}
@@ -377,7 +381,7 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	}
 	truncatePostgresStore(t, st)
 	now := time.Now().UTC()
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "postgres-ticket-hash-only"))
+	ticket, err := st.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "postgres-ticket-hash-only"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +396,7 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, redeemErr := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second))
+			_, redeemErr := st.RedeemMCPAccessTicket(t.Context(), ticket.SecretHash, peer, now.Add(time.Second))
 			results <- redeemErr
 		}()
 	}
@@ -409,37 +413,37 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	if succeeded != 1 {
 		t.Fatalf("successful PostgreSQL redemptions = %d, want 1", succeeded)
 	}
-	binding, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	binding, ok := mustFindMCPBindingForPeer(t, st, peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
 	if !ok || binding.ActorID != ticket.OwnerID || binding.RequesterDeviceID == binding.ActorID {
 		t.Fatalf("PostgreSQL binding identity mismatch: %#v ok=%v", binding, ok)
 	}
-	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+	operation, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "mcp_operation_postgres", BindingID: binding.ID, IdempotencyKey: "postgres-idempotency", Fingerprint: "postgres-fingerprint",
 		Invocation: app.MCPInvocationContext{ID: "postgres-invocation", BindingRef: binding.ID, RunID: "postgres-run"},
 	})
 	if err != nil || !created {
 		t.Fatalf("create PostgreSQL MCP operation: created=%v err=%v", created, err)
 	}
-	replayed, created, err := st.CreateMCPOperation(app.MCPOperation{
+	replayed, created, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: operation.IdempotencyKey, Fingerprint: operation.Fingerprint,
 	})
 	if err != nil || created || replayed.ID != operation.ID {
 		t.Fatalf("PostgreSQL idempotent replay mismatch: %#v created=%v err=%v", replayed, created, err)
 	}
-	if _, _, err := st.CreateMCPOperation(app.MCPOperation{
+	if _, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		BindingID: binding.ID, IdempotencyKey: operation.IdempotencyKey, Fingerprint: "changed-fingerprint",
 	}); !errors.Is(err, ErrMCPOperationConflict) {
 		t.Fatalf("PostgreSQL changed replay error = %v", err)
 	}
 	first := operation
 	first.State = app.MCPOperationSucceeded
-	first, err = st.UpdateMCPOperation(first, operation.Version)
+	first, err = st.UpdateMCPOperation(t.Context(), first, operation.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stale := operation
 	stale.State = app.MCPOperationCancelled
-	if _, err := st.UpdateMCPOperation(stale, operation.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
+	if _, err := st.UpdateMCPOperation(t.Context(), stale, operation.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
 		t.Fatalf("PostgreSQL stale operation update error = %v", err)
 	}
 	if _, err := st.db.Exec(context.Background(), `UPDATE sessions SET title='External MCP', hidden=true WHERE id=$1`, binding.LinkedSessionID); err != nil {
@@ -452,49 +456,49 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	storedTicket, ok := restarted.FindMCPAccessTicketBySecretHash(ticket.SecretHash)
+	storedTicket, ok := mustFindMCPAccessTicketBySecretHash(t, restarted, ticket.SecretHash)
 	if !ok || storedTicket.Status != app.MCPAccessConsumed || storedTicket.SecretHash != "postgres-ticket-hash-only" {
 		t.Fatalf("PostgreSQL ticket did not recover hash-only state: %#v ok=%v", storedTicket, ok)
 	}
-	storedBinding, ok := restarted.GetMCPBinding(binding.ID)
+	storedBinding, ok := mustGetMCPBinding(t, restarted, binding.ID)
 	if !ok || storedBinding.RequesterDeviceID != peer.DeviceID || storedBinding.LinkedSessionID == "" {
 		t.Fatalf("PostgreSQL binding did not recover: %#v ok=%v", storedBinding, ok)
 	}
-	if linked, ok := restarted.GetSession(storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
+	if linked, ok := mustGetSession(t, restarted, storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
 		t.Fatalf("PostgreSQL legacy MCP conversation was not normalized on restart: %#v ok=%v", linked, ok)
 	}
-	storedOperation, ok := restarted.GetMCPOperation(operation.ID)
+	storedOperation, ok := mustGetMCPOperation(t, restarted, operation.ID)
 	if !ok || storedOperation.State != app.MCPOperationSucceeded || storedOperation.Version != first.Version {
 		t.Fatalf("PostgreSQL operation did not recover its CAS winner: %#v ok=%v", storedOperation, ok)
 	}
-	if deleted, err := restarted.DeleteMCPAccessTicket(app.DefaultOwnerID, ticket.ID); err != nil || deleted.ID != ticket.ID {
+	if deleted, err := restarted.DeleteMCPAccessTicket(t.Context(), app.DefaultOwnerID, ticket.ID); err != nil || deleted.ID != ticket.ID {
 		t.Fatalf("delete PostgreSQL consumed ticket: ticket=%#v err=%v", deleted, err)
 	}
-	if deleted, err := restarted.DeleteMCPBinding(app.DefaultOwnerID, binding.ID); err != nil || deleted.ID != binding.ID {
+	if deleted, err := restarted.DeleteMCPBinding(t.Context(), app.DefaultOwnerID, binding.ID); err != nil || deleted.ID != binding.ID {
 		t.Fatalf("delete PostgreSQL binding: binding=%#v err=%v", deleted, err)
 	}
-	if _, ok := restarted.GetMCPOperation(operation.ID); ok {
+	if _, ok := mustGetMCPOperation(t, restarted, operation.ID); ok {
 		t.Fatal("PostgreSQL binding deletion retained its operation")
 	}
-	defaultTicket, err := restarted.SaveMCPAccessTicket(testMCPAccessTicket(now, "postgres-bulk-default"))
+	defaultTicket, err := restarted.SaveMCPAccessTicket(t.Context(), testMCPAccessTicket(now, "postgres-bulk-default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restarted.RedeemMCPAccessTicket(defaultTicket.SecretHash, app.MCPPeerIdentity{
+	if _, err := restarted.RedeemMCPAccessTicket(t.Context(), defaultTicket.SecretHash, app.MCPPeerIdentity{
 		DomainID: defaultTicket.DomainID, DeviceID: "postgres-bulk-device", KeyThumbprint: "postgres-bulk-thumb", ISCPSessionID: "postgres-bulk-iscp",
 	}, now); err != nil {
 		t.Fatal(err)
 	}
 	otherTicket := testMCPAccessTicket(now, "postgres-bulk-other")
 	otherTicket.OwnerID, otherTicket.ActorID = "owner-other", "owner-other"
-	otherTicket, err = restarted.SaveMCPAccessTicket(otherTicket)
+	otherTicket, err = restarted.SaveMCPAccessTicket(t.Context(), otherTicket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deleted, err := restarted.DeleteMCPAccessRecords(app.DefaultOwnerID); err != nil || deleted.DeletedTickets != 1 || deleted.DeletedBindings != 1 {
+	if deleted, err := restarted.DeleteMCPAccessRecords(t.Context(), app.DefaultOwnerID); err != nil || deleted.DeletedTickets != 1 || deleted.DeletedBindings != 1 {
 		t.Fatalf("delete PostgreSQL owner records: deleted=%#v err=%v", deleted, err)
 	}
-	if _, ok := restarted.GetMCPAccessTicket(otherTicket.ID); !ok {
+	if _, ok := mustGetMCPAccessTicket(t, restarted, otherTicket.ID); !ok {
 		t.Fatal("PostgreSQL owner-scoped deletion removed another owner's ticket")
 	}
 }
@@ -510,17 +514,20 @@ func TestPostgresStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 	}
 	truncatePostgresStore(t, st)
 	now := time.Now().UTC()
-	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(now, "iscp_onboarding_postgres", app.DefaultOwnerID))
+	receipt, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(now, "iscp_onboarding_postgres", app.DefaultOwnerID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SaveISCPOnboarding(receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
+	if _, err := st.SaveISCPOnboarding(context.Background(), receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
 		t.Fatalf("duplicate onboarding error = %v", err)
 	}
-	if _, err := st.SaveISCPOnboarding(testISCPOnboarding(now.Add(time.Second), "iscp_onboarding_other", "other-owner")); err != nil {
+	if _, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(now.Add(time.Second), "iscp_onboarding_other", "other-owner")); err != nil {
 		t.Fatal(err)
 	}
-	listed := st.ListISCPOnboardings(app.DefaultOwnerID)
+	listed, err := st.ListISCPOnboardings(context.Background(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(listed) != 1 || listed[0].ID != receipt.ID {
 		t.Fatalf("owner-scoped PostgreSQL onboardings = %#v", listed)
 	}
@@ -538,7 +545,10 @@ func TestPostgresStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	got, ok := restarted.GetISCPOnboarding(receipt.ID)
+	got, ok, err := restarted.GetISCPOnboarding(context.Background(), receipt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || got.AuthorityRef != receipt.AuthorityRef || got.TicketID != receipt.TicketID || got.MaxUses != 1 {
 		t.Fatalf("PostgreSQL onboarding receipt did not survive restart: %#v ok=%v", got, ok)
 	}
@@ -556,28 +566,28 @@ func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	defer st.Close()
 	truncatePostgresStore(t, st)
 
-	session := st.CreateSession("delete blocked browser session")
+	session := mustCreateSession(t, st, "delete blocked browser session")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(run)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	testSaveRun(st, run)
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		SiteOrigin: "https://example.com",
 	})
-	if _, ok := st.GetBrowserLoginBlock(block.ID); !ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, block.ID); !ok {
 		t.Fatal("browser login block was not saved")
 	}
 
-	if _, err := st.DeleteSession(session.ID); err != nil {
+	if _, err := st.DeleteSession(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
+	if _, ok := mustGetBrowserLoginBlock(t, st, block.ID); ok {
 		t.Fatal("session deletion retained browser login block")
 	}
-	if _, ok := st.GetRun(run.ID); ok {
+	if _, ok := testGetRun(st, run.ID); ok {
 		t.Fatal("session deletion retained agent run")
 	}
-	if _, ok := st.GetSession(session.ID); ok {
+	if _, ok := mustGetSession(t, st, session.ID); ok {
 		t.Fatal("session deletion retained session")
 	}
 }
@@ -594,14 +604,14 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	defer st.Close()
 	truncatePostgresStore(t, st)
 
-	session := st.CreateSession("browser handoff CAS")
+	session := mustCreateSession(t, st, "browser handoff CAS")
 	run := app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
 		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
-	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+	block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 		SessionID: session.ID, RunID: run.ID,
 		WorkflowID: app.WorkflowBrowserAutomation, WorkflowRevision: app.BrowserWorkflowRevision2,
 		WorkflowNodeID: "browser_result", SessionGeneration: 17,
@@ -617,7 +627,7 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 			VisiblePageID: "page-postgres", VisibleSnapshotID: "snapshot-postgres",
 		},
 	})
-	got, ok := st.GetBrowserLoginBlock(block.ID)
+	got, ok := mustGetBrowserLoginBlock(t, st, block.ID)
 	if !ok || got.Version != block.Version || got.Target.DestinationID != "qq_mail" ||
 		got.VisibleEvidence == nil || got.VisibleEvidence.VisibleSnapshotID != "snapshot-postgres" ||
 		got.TransitionOwnerID != "runtime-postgres" || got.TransitionLeaseUntil == nil ||
@@ -626,16 +636,16 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	}
 	update := got
 	update.Status = app.BrowserHandoffStatusTransferring
-	updated, err := st.UpdateBrowserLoginBlock(update, got.Version)
+	updated, err := st.UpdateBrowserLoginBlock(t.Context(), update, got.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stale := got
 	stale.LastError = "stale"
-	if _, err := st.UpdateBrowserLoginBlock(stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+	if _, err := st.UpdateBrowserLoginBlock(t.Context(), stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
 		t.Fatalf("stale PostgreSQL handoff update error = %v", err)
 	}
-	current, ok := st.GetBrowserLoginBlock(block.ID)
+	current, ok := mustGetBrowserLoginBlock(t, st, block.ID)
 	if !ok || current.Version != updated.Version || current.Status != app.BrowserHandoffStatusTransferring ||
 		current.LastError == "stale" {
 		t.Fatalf("PostgreSQL CAS result mismatch: %#v ok=%v", current, ok)
@@ -660,13 +670,13 @@ func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t 
 		app.BrowserHandoffStatusFailed,
 	)
 	for _, status := range statuses {
-		session := st.CreateSession("active predicate " + status)
+		session := mustCreateSession(t, st, "active predicate "+status)
 		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-		st.SaveRun(run)
-		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		testSaveRun(st, run)
+		block := mustSaveBrowserLoginBlock(t, st, app.BrowserLoginBlock{
 			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
 		})
-		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		found, ok := mustFindActiveBrowserLoginBlock(t, st, session.ID)
 		if want := app.BrowserHandoffStatusActive(status); ok != want {
 			t.Fatalf("status %q: FindActiveBrowserLoginBlock ok=%v, shared predicate active=%v", status, ok, want)
 		} else if ok && found.ID != block.ID {
@@ -702,35 +712,35 @@ func TestPostgresStorePassiveNotificationPruneAndRevision(t *testing.T) {
 	for _, item := range seed {
 		notification := testPassiveNotification("notification-"+item.id, "endpoint-pg", "delivery-"+item.id, "fingerprint-"+item.id)
 		notification.CreatedAt = now.Add(-item.age)
-		if _, inserted, err := st.CreatePassiveNotification(notification); err != nil || !inserted {
+		if _, inserted, err := st.CreatePassiveNotification(t.Context(), notification); err != nil || !inserted {
 			t.Fatalf("create %s = %v, %v", item.id, inserted, err)
 		}
 		if item.read {
-			if _, err := st.MarkPassiveNotificationRead(app.DefaultOwnerID, notification.ID, time.Time{}); err != nil {
+			if _, err := st.MarkPassiveNotificationRead(t.Context(), app.DefaultOwnerID, notification.ID, time.Time{}); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	revBefore := st.PassiveNotificationRevision(app.DefaultOwnerID)
+	revBefore := mustPassiveNotificationRevision(t, st, app.DefaultOwnerID)
 	if revBefore == 0 {
 		t.Fatal("creates did not bump the revision")
 	}
 
 	// Retention removes the stale record; the cap then evicts read records
 	// oldest-first before the oldest unread one.
-	if removed := st.PrunePassiveNotifications(now.AddDate(0, 0, -7), 1); removed != 4 {
+	if removed := mustPrunePassiveNotifications(t, st, now.AddDate(0, 0, -7), 1); removed != 4 {
 		t.Fatalf("prune removed %d, want 4", removed)
 	}
-	items := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10)
+	items := mustListPassiveNotifications(t, st, app.DefaultOwnerID, "", 10)
 	if len(items) != 1 || items[0].ID != "notification-unread-new" {
 		t.Fatalf("survivors = %#v", items)
 	}
-	if got := st.PassiveNotificationRevision(app.DefaultOwnerID); got == revBefore {
+	if got := mustPassiveNotificationRevision(t, st, app.DefaultOwnerID); got == revBefore {
 		t.Fatal("prune did not bump the revision")
 	}
 	// A pruned idempotency key is replayable again.
 	replay := testPassiveNotification("notification-stale", "endpoint-pg", "delivery-stale", "fingerprint-stale")
-	if _, inserted, err := st.CreatePassiveNotification(replay); err != nil || !inserted {
+	if _, inserted, err := st.CreatePassiveNotification(t.Context(), replay); err != nil || !inserted {
 		t.Fatalf("replay after prune = %v, %v", inserted, err)
 	}
 }
@@ -750,11 +760,11 @@ func TestPostgresStoreListsAllConnectorSettings(t *testing.T) {
 		{OwnerID: "owner-b", Channel: "weixin", Enabled: true},
 		{OwnerID: "owner-a", Channel: "telegram", Enabled: false},
 	} {
-		if _, err := st.UpdateConnectorSetting(setting, 0); err != nil {
+		if _, err := st.UpdateConnectorSetting(t.Context(), setting, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	settings, err := st.ListAllConnectorSettings()
+	settings, err := st.ListAllConnectorSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,6 +784,9 @@ func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 		RESTART IDENTITY CASCADE
 	`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.seedDefaultOwner(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
@@ -35,7 +36,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	session := st.CreateSession("Telegram idempotency")
+	session := storetest.MustCreateSession(t, st, "Telegram idempotency")
 
 	first, err := runtime.HandleMessageWithAttachmentsIdempotent(context.Background(), session.ID, "tg_message_42", "tg_run_42", "hello", nil)
 	if err != nil {
@@ -48,14 +49,14 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	if first.Run.ID != "tg_run_42" || second.Run.ID != first.Run.ID || second.Message.ID != first.Message.ID {
 		t.Fatalf("idempotent result changed: first=%#v second=%#v", first, second)
 	}
-	if runs := st.ListRuns(session.ID); len(runs) != 1 || runs[0].ID != "tg_run_42" {
+	if runs := testListRuns(st, session.ID); len(runs) != 1 || runs[0].ID != "tg_run_42" {
 		t.Fatalf("duplicate Agent run was created: %#v", runs)
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 2 || messages[0].ID != "tg_message_42" || messages[1].RunID != "tg_run_42" {
 		t.Fatalf("duplicate or unstable messages were created: %#v", messages)
 	}
-	audit := st.ListAudit(session.ID)
+	audit := mustAgentListAudit(t, st, session.ID)
 	if !hasAgentAuditField(audit, "message.envelope.normalized", "source_kind", app.MessageSourceWeb) {
 		t.Fatalf("normalized message audit is missing its source kind: %#v", audit)
 	}
@@ -115,7 +116,7 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("guard classification")
+	session := storetest.MustCreateSession(t, st, "guard classification")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -130,13 +131,13 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 		!strings.Contains(result.Message.Content, "secret_exfiltration") {
 		t.Fatalf("guard-blocked assistant message missing explanation: %q", result.Message.Content)
 	}
-	if calls := st.ListToolCalls(session.ID); len(calls) != 0 {
+	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("guard-blocked request should not execute tools: %#v", calls)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("guard-blocked request should not create approvals: %#v", approvals)
 	}
-	modelCalls := st.ListModelCalls(session.ID, result.Run.ID)
+	modelCalls := testListModelCalls(st, session.ID, result.Run.ID)
 	if !hasModelCallOperation(modelCalls, "guard", "guard") {
 		t.Fatalf("guard model call was not recorded: %#v", modelCalls)
 	}
@@ -144,16 +145,16 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 		t.Fatalf("guard-blocked request should not call chat model: %#v", modelCalls)
 	}
 	foundAudit := false
-	for _, event := range st.ListAudit(session.ID) {
+	for _, event := range mustAgentListAudit(t, st, session.ID) {
 		if event.Type == "guard.reviewed" && event.Fields["verdict"] == "block" {
 			foundAudit = true
 			break
 		}
 	}
 	if !foundAudit {
-		t.Fatalf("guard review audit missing: %#v", st.ListAudit(session.ID))
+		t.Fatalf("guard review audit missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
-	episodes := st.ListEpisodeSummaries(session.ID)
+	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || episodes[0].Outcome != "blocked" {
 		t.Fatalf("guard-blocked request did not save blocked episode: %#v", episodes)
 	}
@@ -187,7 +188,7 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("grounded file read")
+	session := storetest.MustCreateSession(t, st, "grounded file read")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -201,15 +202,15 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 		strings.Contains(result.Message.Content, "SparkClaw local file assistant reads workspace files") {
 		t.Fatalf("assistant should synthesize a model final from completed document evidence:\n%s", result.Message.Content)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != "completed" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
-	if hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
-		t.Fatalf("successful document read should not use the missing-final fallback: %#v", st.ListAudit(session.ID))
+	if hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
+		t.Fatalf("successful document read should not use the missing-final fallback: %#v", mustAgentListAudit(t, st, session.ID))
 	}
-	if !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer", documentWorkflowModelLane) {
-		t.Fatalf("document read did not run its profile finalizer: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if !hasModelCallOperation(testListModelCalls(st, session.ID, result.Run.ID), "workflow_final_answer", documentWorkflowModelLane) {
+		t.Fatalf("document read did not run its profile finalizer: %#v", testListModelCalls(st, session.ID, result.Run.ID))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
 		t.Fatalf("workspace read did not complete through its workflow profile: %#v", result.Run.Workflow)
@@ -223,9 +224,9 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 		confirmation.OutcomeRefs[0].Attributes["path"] != "project-note.txt" {
 		t.Fatalf("document target confirmation evidence was not persisted: %#v", confirmation)
 	}
-	assertNoLegacyRoutingAudit(t, st.ListAudit(session.ID))
-	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.fixed") {
-		t.Fatalf("workspace read did not use the authoritative exposure boundary: %#v", st.ListAudit(session.ID))
+	assertNoLegacyRoutingAudit(t, mustAgentListAudit(t, st, session.ID))
+	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "tools.exposure.fixed") {
+		t.Fatalf("workspace read did not use the authoritative exposure boundary: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -243,7 +244,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("grounded file search")
+	session := storetest.MustCreateSession(t, st, "grounded file search")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -251,7 +252,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 0 {
 		t.Fatalf("document.read revision 4 must not expose file search: %#v", calls)
 	}
@@ -272,7 +273,7 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("truncated file read")
+	session := storetest.MustCreateSession(t, st, "truncated file read")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -286,7 +287,7 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 		strings.Contains(result.Message.Content, "Summary from local file:") {
 		t.Fatalf("assistant should synthesize a final without exposing raw source content:\n%s", result.Message.Content)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Result == nil {
 		t.Fatalf("expected one completed file read call, got %#v", calls)
 	}
@@ -308,7 +309,7 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("file prompt injection")
+	session := storetest.MustCreateSession(t, st, "file prompt injection")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -316,11 +317,11 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("file content should not trigger extra tools: %#v", calls)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("file content should not create approvals: %#v", approvals)
 	}
 	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
@@ -411,7 +412,7 @@ func TestRuntimeRoutesExplicitURLReadWithoutLegacyHTTPFallback(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("browser grounded answer")
+	session := storetest.MustCreateSession(t, st, "browser grounded answer")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -419,7 +420,7 @@ func TestRuntimeRoutesExplicitURLReadWithoutLegacyHTTPFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	for _, call := range calls {
 		if call.Tool == "browser.read" {
 			t.Fatalf("disabled managed browser unexpectedly reached browser.read or direct HTTP fallback: %#v", calls)
@@ -440,7 +441,7 @@ func TestPageReadAuthenticationCreatesManagedWorkflowHandoff(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("authoritative URL auth block")
+	session := storetest.MustCreateSession(t, st, "authoritative URL auth block")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true, selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -453,7 +454,7 @@ func TestPageReadAuthenticationCreatesManagedWorkflowHandoff(t *testing.T) {
 		result.Run.Workflow == nil || result.Run.State != "browser_login_blocked" {
 		t.Fatalf("authenticated URL read did not pause its managed page-read Workflow: route=%#v run=%#v", result.RouteDecision, result.Run)
 	}
-	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID)
 	if !ok || block.WorkflowID != app.WorkflowBrowserPageRead || block.WorkflowRevision != browserPageReadRevision1 {
 		t.Fatalf("page-read login handoff was not bound to its persisted Profile: %#v", block)
 	}
@@ -467,7 +468,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("visible browser login block")
+	session := storetest.MustCreateSession(t, st, "visible browser login block")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true, selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -484,7 +485,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	}
 	frozenRoute := first.Run.Workflow.Route
 	frozenPlanDigest := first.Run.Workflow.PlanDigest
-	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	block, ok := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID)
 	if !ok {
 		t.Fatalf("expected active browser login block from browser.open result")
 	}
@@ -519,7 +520,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleAuthGateText(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("visible browser auth gate text")
+	session := storetest.MustCreateSession(t, st, "visible browser auth gate text")
 	adapter := &loginBlockBrowserAdapter{openAuthGateText: "本资源仅限内网访问，请您使用校园网或登录 SSLVPN 后访问。", selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -536,7 +537,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleAuthGateText(t *testing.T) {
 func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("snapshot auth gate previous url")
+	session := storetest.MustCreateSession(t, st, "snapshot auth gate previous url")
 	now := time.Now().UTC()
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -545,11 +546,11 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		Risk:      app.RiskRead,
 		StartedAt: now,
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	done := now
 	doneSnapshot := now.Add(time.Millisecond)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -560,6 +561,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		StartedAt:   now,
 		CompletedAt: &done,
 	})
+
 	snapshot := app.ToolCall{
 		ID:        app.NewID("tc"),
 		SessionID: session.ID,
@@ -574,12 +576,15 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		StartedAt:   now.Add(time.Millisecond),
 		CompletedAt: &doneSnapshot,
 	}
-	st.SaveToolCall(snapshot)
+	testSaveToolCall(st, snapshot)
 
-	block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "访问https://s.zstu.edu.cn，查询我的个人课表", toolPlan{
+	block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "访问https://s.zstu.edu.cn，查询我的个人课表", toolPlan{
 		Name: "browser.snapshot",
 		Args: snapshot.Arguments,
 	}, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
 		t.Fatalf("expected auth gate snapshot text to create browser login block")
 	}
@@ -594,7 +599,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("authenticated snapshot with login wording")
+	session := storetest.MustCreateSession(t, st, "authenticated snapshot with login wording")
 	now := time.Now().UTC()
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -603,10 +608,10 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		Risk:      app.RiskRead,
 		StartedAt: now,
 	}
-	st.SaveRun(run)
+	testSaveRun(st, run)
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	done := now
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -617,6 +622,7 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		StartedAt:   now,
 		CompletedAt: &done,
 	})
+
 	snapshot := app.ToolCall{
 		ID:        app.NewID("tc"),
 		SessionID: session.ID,
@@ -631,10 +637,12 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		CompletedAt: &done,
 	}
 
-	if block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "查看账户数据", toolPlan{
+	if block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "查看账户数据", toolPlan{
 		Name: "browser.snapshot",
 		Args: snapshot.Arguments,
-	}, snapshot); ok {
+	}, snapshot); err != nil {
+		t.Fatal(err)
+	} else if ok {
 		t.Fatalf("authenticated application snapshot must continue instead of reopening login handoff: %#v", block)
 	}
 }
@@ -732,7 +740,7 @@ func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("browser login wrong page")
+	session := storetest.MustCreateSession(t, st, "browser login wrong page")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true, selectedTabURL: "https://other.example/"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -809,7 +817,7 @@ func TestRuntimeComparesBrowserSourcesWithCitations(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("browser comparison")
+	session := storetest.MustCreateSession(t, st, "browser comparison")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -822,7 +830,7 @@ func TestRuntimeComparesBrowserSourcesWithCitations(t *testing.T) {
 		strings.Contains(result.Message.Content, "Alpha focuses on") {
 		t.Fatalf("browser comparison fallback should not fake a comparison:\n%s", result.Message.Content)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 0 {
 		t.Fatalf("browser.internet_search revision 1 must not expose multi-page reads: %#v", calls)
 	}
@@ -1882,7 +1890,7 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	cfg.Model.Deep.ContextTokens = 4096
 	cfg.Model.Deep.MaxTokens = 512
 	st := store.NewMemoryStore()
-	session := st.CreateSession("admit workflow prompt")
+	session := storetest.MustCreateSession(t, st, "admit workflow prompt")
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	stageContext := workflowStageContext{
 		WorkflowID: "document.edit", ModelLaneHint: "deep", SemanticVariables: []string{"document.edit.new_text"},
@@ -1891,7 +1899,7 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	compactEvidence := "COMPACT_EVIDENCE " + strings.Repeat("document evidence ", 900)
 	minimalEvidence := "MINIMAL_EVIDENCE selected candidate content"
 
-	system, user, err := runtime.admitWorkflowStepPrompt(
+	system, user, err := runtime.admitWorkflowStepPrompt(t.Context(),
 		session.ID, "run_admission", 2, modelrouter.Task{LaneHint: "deep"}, "edit the selected paragraph", nil,
 		stageContext, nil,
 		provisionedWorkflowEvidence{Text: fullEvidence, CompactText: compactEvidence, MinimalText: minimalEvidence},
@@ -1908,9 +1916,9 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	if estimatePromptTokens(system, user) > threshold || !strings.HasSuffix(user, workflowStepOutputContract()) {
 		t.Fatalf("admitted prompt violates terminal contract: estimate=%d threshold=%d", estimatePromptTokens(system, user), threshold)
 	}
-	auditRaw, _ := json.Marshal(st.ListAudit(session.ID))
+	auditRaw, _ := json.Marshal(mustAgentListAudit(t, st, session.ID))
 	if !strings.Contains(string(auditRaw), `"to_variant":"minimal"`) {
-		t.Fatalf("prompt admission audit missing: %#v", st.ListAudit(session.ID))
+		t.Fatalf("prompt admission audit missing: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 }
 
@@ -2057,7 +2065,7 @@ func TestToolResultAdapterReportsFailures(t *testing.T) {
 func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("document follow up")
+	session := storetest.MustCreateSession(t, st, "document follow up")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	previous := app.ToolCall{
@@ -2102,13 +2110,16 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 		Call:   previous,
 		Output: previous.Result,
 	})
-	st.SaveToolCall(previous)
+	testSaveToolCall(st, previous)
 
 	route, err := runtime.routeCapability(context.Background(), session.ID, "run_current", "把张三的学号改为6")
 	if err != nil || route.Status == app.RouteMatched {
 		t.Fatalf("missing follow-up file must not bypass deterministic preflight: route=%#v err=%v", route, err)
 	}
-	snapshot := runtime.buildAgentContextSnapshot(session.ID, "run_current", "把张三的学号改为6")
+	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, "run_current", "把张三的学号改为6")
+	if err != nil {
+		t.Fatal(err)
+	}
 	contextText := snapshot.ForIntentRouting()
 	if !strings.Contains(contextText, "Recent tool results") ||
 		!strings.Contains(contextText, "张三") ||
@@ -2121,7 +2132,7 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
-	session := st.CreateSession("document improve follow up")
+	session := storetest.MustCreateSession(t, st, "document improve follow up")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	previous := app.ToolCall{
@@ -2145,7 +2156,7 @@ func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 		Call:   previous,
 		Output: previous.Result,
 	})
-	st.SaveToolCall(previous)
+	testSaveToolCall(st, previous)
 
 	route, err := runtime.routeCapability(context.Background(), session.ID, "run_current", "完善结果分析内容")
 	if err != nil || route.Status != app.RouteBlocked {
@@ -2347,14 +2358,14 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("compressed observation")
+	session := storetest.MustCreateSession(t, st, "compressed observation")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
 	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Read large-note.txt"); err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
@@ -2371,7 +2382,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	if !strings.Contains(adapted.Summary, "Observation bytes=") && adapted.Structured["truncated"] != true {
 		t.Fatalf("summary missing byte metadata or truncation marker: %#v", adapted)
 	}
-	episodes := st.ListEpisodeSummaries(session.ID)
+	episodes := testListEpisodeSummaries(st, session.ID)
 	if len(episodes) != 1 || strings.Contains(episodes[0].Summary, "Observation bytes=") {
 		t.Fatalf("episode should keep user-facing summary without observation diagnostics: %#v", episodes)
 	}
@@ -2389,14 +2400,14 @@ func TestRuntimeKeepsCompleteDocumentRecoverableUnderUniformObservationCap(t *te
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("small document full observation")
+	session := storetest.MustCreateSession(t, st, "small document full observation")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
 	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Read small-doc.txt"); err != nil {
 		t.Fatal(err)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
@@ -2436,7 +2447,7 @@ func TestRuntimeReadsMultipleLocalFilesForCrossFileAnswer(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("cross file answer")
+	session := storetest.MustCreateSession(t, st, "cross file answer")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -2463,7 +2474,7 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("code workspace")
+	session := storetest.MustCreateSession(t, st, "code workspace")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -2475,12 +2486,12 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 		if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.State != "blocked" || result.Run.Workflow != nil {
 			t.Fatalf("unregistered code task did not fail closed for %q: %#v", goal, result)
 		}
-		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+		if hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
 			t.Fatalf("unregistered code task entered ReAct for %q", goal)
 		}
 	}
-	if len(st.ListToolCalls(session.ID)) != 0 || len(st.ListApprovals("")) != 0 {
-		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", st.ListToolCalls(session.ID), st.ListApprovals(""))
+	if len(testListToolCalls(st, session.ID)) != 0 || len(storetest.MustListApprovals(t, st, "")) != 0 {
+		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", testListToolCalls(st, session.ID), storetest.MustListApprovals(t, st, ""))
 	}
 }
 
@@ -2529,7 +2540,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 	st := store.NewMemoryStore()
 	hub := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
-	session := st.CreateSession("docx approval terminal")
+	session := storetest.MustCreateSession(t, st, "docx approval terminal")
 	now := time.Now().UTC()
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -2538,15 +2549,15 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		Risk:      app.RiskReversible,
 		StartedAt: now,
 	}
-	st.SaveRun(run)
-	st.AddMessage(app.Message{
+	testSaveRun(st, run)
+	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Role:      "user",
 		Content:   "uploads/test.docx 帮我把第二段写得更详细一些",
 		CreatedAt: now,
 	})
-	st.SaveModelCall(app.ModelCall{
+	testSaveModelCall(st, app.ModelCall{
 		ID:        app.NewID("mc"),
 		SessionID: session.ID,
 		RunID:     run.ID,
@@ -2554,8 +2565,9 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		Status:    "completed",
 		StartedAt: now,
 	})
+
 	readDone := now.Add(time.Second)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -2567,8 +2579,9 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		StartedAt:   now.Add(time.Millisecond),
 		CompletedAt: &readDone,
 	})
+
 	mutationDone := now.Add(2 * time.Second)
-	st.SaveToolCall(app.ToolCall{
+	testSaveToolCall(st, app.ToolCall{
 		ID:          app.NewID("tc"),
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -2580,7 +2593,8 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		StartedAt:   now.Add(time.Second),
 		CompletedAt: &mutationDone,
 	})
-	st.SaveApproval(app.Approval{
+
+	storetest.MustSaveApproval(t, st, app.Approval{
 		ID:         app.NewID("ap"),
 		SessionID:  session.ID,
 		RunID:      run.ID,
@@ -2606,7 +2620,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 	if resumed.Message.Content != "" || len(resumed.Message.Attachments) != 1 || resumed.Message.Attachments[0].RelPath != "outputs/test-expanded.docx" {
 		t.Fatalf("approved document result was not projected as a file attachment: %#v", resumed.Message)
 	}
-	calls := st.ListToolCalls(session.ID)
+	calls := testListToolCalls(st, session.ID)
 	docxCalls := 0
 	for _, call := range calls {
 		if call.Tool == "docx.replace_paragraph" {
@@ -3050,7 +3064,7 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("verifier test")
+	session := storetest.MustCreateSession(t, st, "verifier test")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -3064,8 +3078,8 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	if result.Run.State != "blocked" || result.Run.CompletedAt == nil || result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
 		t.Fatalf("unregistered dangerous run did not fail closed: %#v", result)
 	}
-	if len(st.ListApprovals("")) != 0 || len(st.ListToolCalls(session.ID)) != 0 || hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", st.ListApprovals(""), st.ListToolCalls(session.ID))
+	if len(storetest.MustListApprovals(t, st, "")) != 0 || len(testListToolCalls(st, session.ID)) != 0 || hasWorkflowStepModelCall(testListModelCalls(st, session.ID, result.Run.ID)) {
+		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", storetest.MustListApprovals(t, st, ""), testListToolCalls(st, session.ID))
 	}
 }
 
@@ -3129,7 +3143,7 @@ func TestRuntimeRecoversPersonalAccountRefusalIntoBrowserOpen(t *testing.T) {
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
-	session := st.CreateSession("owner account browser recovery")
+	session := storetest.MustCreateSession(t, st, "owner account browser recovery")
 	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -3142,7 +3156,7 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"I cannot access personal accounts."
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("unsupported personal-account work must fail closed outside a matched workflow: %#v", result)
 	}
-	if _, blocked := st.FindActiveBrowserLoginBlock(session.ID); blocked || adapter.openCalls != 0 {
+	if _, blocked := storetest.MustFindActiveBrowserLoginBlock(t, st, session.ID); blocked || adapter.openCalls != 0 {
 		t.Fatalf("unsupported account work must not open a page or create a login block: %#v", adapter)
 	}
 }
@@ -3480,7 +3494,7 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	session := st.CreateSession("fixed automation exposure")
+	session := storetest.MustCreateSession(t, st, "fixed automation exposure")
 	route := mustRouteIntent(t, runtime, "打开https://www.apple.com.cn/")
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{ID: "run_fixed_automation", SessionID: session.ID}, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 	if err != nil {

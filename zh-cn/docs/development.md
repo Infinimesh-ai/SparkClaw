@@ -165,6 +165,22 @@ API transport 放在 `apps/webchat/src/api/client.ts`，共享 response/action t
 focused component/library test 并 build 完整应用。在运行中的 Gateway 上检查 desktop/mobile。
 见 [WebChat](webchat.md)。
 
+## Store 修改
+
+使用 `internal/store/store.go` 中的 typed interface；不得恢复 broad Store dependency。
+Runtime 仅限于 `cmd/sparkclaw` assembly 与 lifecycle。消费者只接收所需 repository。
+
+shared normalization、command、replay 与 reconciliation semantics 放在
+`<repository>_contract.go`。存储实现分别放在 `<repository>_memory.go`、
+`<repository>_file.go`、`<repository>_postgres.go`。新增 snapshot-backed record 时同步更新
+File `Snapshot`。Backend construction 与 generic durability primitive 保持在精简的 root backend
+文件中。
+
+选择验证规格前，先把 operation 分为 P0、P1 或 P2。每项 change 都需要三 backend parity 和
+显式 context/error behavior。只有 operation risk 或 aggregate invariant 要求时，才增加
+transaction、idempotency、unknown-outcome reconciliation、确定性 failure injection、真实
+PostgreSQL 与 race evidence。完整策略、lifecycle 与测试命令见 [Store](store.md)。
+
 ## 模型与 Prompt
 
 - Gateway 选择 model lane，prompt 不能自选。

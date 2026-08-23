@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
@@ -128,7 +130,7 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 			defer tools.Close()
 			runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 
-			localSession := st.CreateSession("Local failure isolation")
+			localSession := storetest.MustCreateSession(t, st, "Local failure isolation")
 			localResult, err := runtime.HandleMessage(context.Background(), localSession.ID, "confirm local chat still works")
 			if err != nil || localResult.Message.Content == "" {
 				t.Fatalf("local chat failed after Infinimesh error: result=%#v err=%v", localResult, err)
@@ -144,7 +146,7 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 				ExternalUserID: "7",
 				ExternalChatID: "9",
 			}
-			binding = st.SaveNotificationBinding(binding)
+			binding = storetest.MustCreateNotificationBinding(t, st, binding)
 			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot).WithResultDeliverer(recordingMainResultDeliverer{bot: bot})
 			err = dispatcher.HandleUpdate(context.Background(), binding, telegram.Update{
 				UpdateID: 1,
@@ -196,13 +198,12 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	cfg.State.CredentialKey = "01234567890123456789012345678901"
 	cfg.State.CredentialKeyFile = ""
 
-	st, err := newStore(cfg)
+	storeRuntime, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closer, ok := st.(interface{ Close() }); ok {
-		defer closer.Close()
-	}
+	defer storeRuntime.Close(context.Background())
+	st := backendFromRuntime(storeRuntime)
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
 	defer tools.Close()
@@ -211,7 +212,7 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	backend := &recordingSpeechTranscriber{status: speech.Status{
 		Enabled: true, Ready: true, State: speech.StateReady, Backend: "openai-http", Model: "sparkclaw-asr",
 	}}
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend, storeRuntime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,6 +288,47 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	}
 }
 
+func TestNewStoreHonorsCanceledStartupContext(t *testing.T) {
+	cfg := config.Default()
+	cfg.State.Backend = "postgres"
+	cfg.State.DSN = "postgres://sparkclaw:sparkclaw@127.0.0.1:1/sparkclaw?sslmode=disable"
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := newStore(ctx, cfg); err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled store startup error = %v", err)
+	}
+}
+
+func TestNewStorePropagatesOperationTimeouts(t *testing.T) {
+	for _, backend := range []string{"memory", "file"} {
+		t.Run(backend, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.State.Backend = backend
+			cfg.State.Path = filepath.Join(t.TempDir(), "state.json")
+			cfg.State.ReadTimeoutSeconds = 7
+			cfg.State.WriteTimeoutSeconds = 19
+			cfg.State.TransactionTimeoutSeconds = 23
+			storeRuntime, err := newStore(context.Background(), cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer storeRuntime.Close(context.Background())
+			value := reflect.ValueOf(storeRuntime.SessionRepository()).Elem()
+			fieldName := "operationTimeouts"
+			if backend == "file" {
+				fieldName = "timeouts"
+			}
+			timeouts := value.FieldByName(fieldName)
+			read := time.Duration(timeouts.FieldByName("Read").Int())
+			write := time.Duration(timeouts.FieldByName("Write").Int())
+			transaction := time.Duration(timeouts.FieldByName("Transaction").Int())
+			if read != 7*time.Second || write != 19*time.Second || transaction != 23*time.Second {
+				t.Fatalf("assembled %s timeouts = read %s write %s transaction %s", backend, read, write, transaction)
+			}
+		})
+	}
+}
+
 func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()
@@ -298,16 +340,18 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	cfg.State.Backend = "file"
 	cfg.State.Path = filepath.Join(root, "gateway-state.json")
 
-	st, err := newStore(cfg)
+	storeRuntime, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := st.CreateSession("Scheduled Web message")
+	defer storeRuntime.Close(context.Background())
+	st := backendFromRuntime(storeRuntime)
+	session := storetest.MustCreateSession(t, st, "Scheduled Web message")
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	traces := trace.NewWriter(cfg.Storage.TraceDir)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), traces)
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech))
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech), storeRuntime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,15 +377,21 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deliveries := services.reminderScheduler.Tick(t.Context())
+	deliveries, err := services.reminderScheduler.Tick(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "message-runtime" {
 		t.Fatalf("scheduled Web delivery did not complete: %#v", deliveries)
 	}
-	messages := st.ListMessages(session.ID)
+	messages := storetest.MustListMessages(t, st, session.ID)
 	if len(messages) != 2 || messages[0].Role != "user" || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
 		t.Fatalf("scheduled Web delivery did not enter the conversation: %#v", messages)
 	}
-	stored, ok := st.GetReminder(string(schedule.ID))
+	stored, ok, err := st.GetReminder(t.Context(), string(schedule.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || stored.Status != "sent" || stored.LastDeliveryID != deliveries[0].ID {
 		t.Fatalf("scheduled Web delivery state was not completed: %#v", stored)
 	}
@@ -349,7 +399,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if messages := reloaded.ListMessages(session.ID); len(messages) != 2 || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
+	if messages := storetest.MustListMessages(t, reloaded, session.ID); len(messages) != 2 || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
 		t.Fatalf("scheduled Web message did not survive file-state reload: %#v", messages)
 	}
 }
@@ -369,14 +419,13 @@ func TestDefaultFileBackendProductionEntryReadsStructuredDocument(t *testing.T) 
 	cfg.Workspaces.DefaultRoot = workspace
 	cfg.Workspaces.Allowlist = []string{workspace}
 
-	st, err := newStore(cfg)
+	storeRuntime, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closer, ok := st.(interface{ Close() }); ok {
-		defer closer.Close()
-	}
-	session := st.CreateSessionWithScope("document production entry", app.DefaultOwnerID, workspace, "web", false)
+	defer storeRuntime.Close(context.Background())
+	st := backendFromRuntime(storeRuntime)
+	session := storetest.MustCreateSessionWithScope(t, st, "document production entry", app.DefaultOwnerID, workspace, "web", false)
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	result, err := tools.Execute(context.Background(), "files.read", map[string]any{"path": "note.txt"}, session.ID, "run_document")

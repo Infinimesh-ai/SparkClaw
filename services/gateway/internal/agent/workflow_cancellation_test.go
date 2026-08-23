@@ -28,7 +28,7 @@ func TestDocumentEditCancellationStopsBeforeRepeatingActiveStage(t *testing.T) {
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
 	stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
-	budgetStopsBefore := countAuditEvents(st.ListAudit(session.ID), "workflow_step.budget_stopped")
+	budgetStopsBefore := countAuditEvents(mustAgentListAudit(t, st, session.ID), "workflow_step.budget_stopped")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -40,7 +40,7 @@ func TestDocumentEditCancellationStopsBeforeRepeatingActiveStage(t *testing.T) {
 	if strings.Contains(result.FinalAnswer, "stopped before its completion rule") {
 		t.Fatalf("cancellation was overwritten by the generic incomplete-workflow message: %q", result.FinalAnswer)
 	}
-	storedRun, ok := st.GetRun(dispatch.Run.ID)
+	storedRun, ok := testGetRun(st, dispatch.Run.ID)
 	if !ok || storedRun.Workflow == nil {
 		t.Fatal("cancelled workflow state was not persisted")
 	}
@@ -48,7 +48,7 @@ func TestDocumentEditCancellationStopsBeforeRepeatingActiveStage(t *testing.T) {
 	if storedRun.Workflow.Status != app.WorkflowStatusRunning || editor.Status != app.WorkflowNodeActive || editor.Attempts != 0 {
 		t.Fatalf("cancelled workflow advanced or blocked the editor: %#v", storedRun.Workflow)
 	}
-	if got := countAuditEvents(st.ListAudit(session.ID), "workflow_step.budget_stopped") - budgetStopsBefore; got != 1 {
+	if got := countAuditEvents(mustAgentListAudit(t, st, session.ID), "workflow_step.budget_stopped") - budgetStopsBefore; got != 1 {
 		t.Fatalf("cancelled workflow recorded %d budget stops; want exactly one", got)
 	}
 }

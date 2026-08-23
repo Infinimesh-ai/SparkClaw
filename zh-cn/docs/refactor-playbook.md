@@ -73,7 +73,7 @@
 - 包依赖方向：`app` 是纯类型叶子包（不 import 任何 internal 包）；`gateway` 是 HTTP 层；`agent` 是编排核心；`toolhub` 是工具中枢。不允许出现 `toolhub → agent`、`app → 任何包` 的边。
 - 工具注册：[registry.go](../../services/gateway/internal/toolhub/registry.go)，schema 在 `defaultDefinitions()`，两者由 `registry_test.go` 强制一致。
 - store 三实现：`memory.go`（真身）/ `file.go`（写穿透装饰器）/ `postgres.go`。加接口方法三处都要动，快照结构在 `file.go` 的 `Snapshot`。
-- 文档工具脚本：`internal/toolhub/scripts/*.py|.js`，经 `//go:embed` 引入；子进程统一走 `runSubprocessAdapter`（自带超时）。
+- 文档工具脚本：`internal/toolhub/scripts/*.py|.js` 加 `pptx_slide/` Python package，经 `//go:embed` 引入；单脚本子进程走 `runSubprocessAdapter`（自带超时），package 经 `runPythonPackageAdapter` 运行。
 - 微信协议/加密：统一在 [weixinproto](../../services/gateway/internal/weixinproto/proto.go)。
 - 手动工具调用编排：`agent.Runtime.InvokeToolManually`（manual.go），HTTP handler 只做解码/映射。
 - 文档 CI：每个 `.md` 需要 `zh-cn/` 镜像和双向语言链接（见 `.github/workflows/ci.yml`）。

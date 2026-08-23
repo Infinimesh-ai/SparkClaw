@@ -72,7 +72,7 @@ Large independent items (concurrency model changes, functional bug fixes, giant-
 - Package dependency direction: `app` is a pure-types leaf (imports no internal packages); `gateway` is the HTTP layer; `agent` is the orchestration core; `toolhub` is the tool hub. Edges like `toolhub → agent` or `app → anything` are forbidden.
 - Tool registration: [registry.go](../services/gateway/internal/toolhub/registry.go); schemas in `defaultDefinitions()`; the two are kept consistent by `registry_test.go`.
 - Store implementations: `memory.go` (the real one) / `file.go` (write-through decorator) / `postgres.go`. Interface additions touch all three; the snapshot struct is `Snapshot` in `file.go`.
-- Document tool scripts: `internal/toolhub/scripts/*.py|.js`, included via `//go:embed`; subprocesses go through `runSubprocessAdapter` (built-in timeout).
+- Document tool scripts: `internal/toolhub/scripts/*.py|.js` plus the `pptx_slide/` Python package, included via `//go:embed`; single scripts go through `runSubprocessAdapter` (built-in timeout) and the package runs via `runPythonPackageAdapter`.
 - WeChat protocol/crypto: unified in [weixinproto](../services/gateway/internal/weixinproto/proto.go).
 - Manual tool invocation orchestration: `agent.Runtime.InvokeToolManually` (manual.go); the HTTP handler only decodes/maps.
 - Docs CI: every `.md` needs a `zh-cn/` mirror and bidirectional language links (see `.github/workflows/ci.yml`).

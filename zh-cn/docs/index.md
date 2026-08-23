@@ -48,6 +48,7 @@
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
 | [Store](store.md) | 类型化 repository、风险分级可靠性、三 backend、内嵌 PostgreSQL migration、Runtime 监管、source layout 与验证 |
+| [ASR runtime CI](asr-runtime-ci-design.md) | 独立轻量 fake-model ASR 依赖、协议测试、cleanup 和 CI 契约 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
 | [Info 上游聚合结果消费](info-aggregate-result-consumption-design.md) | 已实现的 Info `answer_context` 类型化、无二次聚合消费方案，覆盖 citation、limitation 与 Info 最终浏览器顺序契约 |
 | [PPTX 超长文本韧性适配](pptx-overlength-resilience-design.md) | Phase 0 No-Go 报告与受限渲染检查设计；生产行为保持不变 |

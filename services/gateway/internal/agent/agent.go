@@ -1083,7 +1083,7 @@ func completedToolCallsForResume(calls []app.ToolCall) []app.ToolCall {
 }
 
 func toolCallCompleted(call app.ToolCall) bool {
-	return call.Status == app.ToolCallStatusCompleted || call.Status == app.ToolCallStatusCompletedAfterApproval
+	return call.Status.Completed()
 }
 
 func observationsForResume(calls []app.ToolCall) []string {
@@ -1536,7 +1536,7 @@ func summarizeEpisode(goal string, run app.AgentRun, calls []app.ToolCall, appro
 	repairPerformed := false
 	for _, call := range calls {
 		tools = append(tools, call.Tool+":"+string(call.Status))
-		if strings.Contains(string(call.Status), "failed") || call.Error != "" {
+		if call.Status.Failed() || call.Error != "" {
 			failures = append(failures, call.Tool+":"+call.Error)
 		}
 		if call.Status == app.ToolCallStatusRepaired {

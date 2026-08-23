@@ -291,7 +291,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		}
 		call = &executed
 		executionStatus = "succeeded"
-		if strings.HasPrefix(string(executed.Status), "failed") {
+		if executed.Status.Failed() {
 			executionStatus = "failed"
 		}
 		if result, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
@@ -366,7 +366,7 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 			s.failCancelledMCPApprovalExecution(approval.RunID, err)
 			return
 		}
-		if strings.HasPrefix(string(executed.Status), "failed") {
+		if executed.Status.Failed() {
 			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "approval_tool_failed", "The approved tool execution failed")
 			return
 		}

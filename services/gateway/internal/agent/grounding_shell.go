@@ -28,7 +28,7 @@ func shellAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
 		if call.Status == app.ToolCallStatusApprovalPending {
 			return pendingApprovalAnswer(call), true
 		}
-		if !strings.Contains(string(call.Status), "completed") && !strings.Contains(string(call.Status), "failed") {
+		if !call.Status.Completed() && !call.Status.Failed() {
 			continue
 		}
 		result, ok := anyMap(call.Result)

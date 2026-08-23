@@ -360,7 +360,7 @@ func completedBrowserDraftCount(calls []app.ToolCall, runID string, throughIndex
 }
 
 func browserInteractionToolCallCompleted(call app.ToolCall) bool {
-	return call.Status == app.ToolCallStatusCompleted || call.Status == app.ToolCallStatusCompletedAfterApproval
+	return call.Status.Completed()
 }
 
 func priorValidatedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {

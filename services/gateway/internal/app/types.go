@@ -52,6 +52,18 @@ const (
 	ToolCallStatusRepaired               ToolCallStatus = "repaired"
 )
 
+// Completed reports whether the call finished successfully, directly or
+// after an approval.
+func (s ToolCallStatus) Completed() bool {
+	return s == ToolCallStatusCompleted || s == ToolCallStatusCompletedAfterApproval
+}
+
+// Failed reports whether the call finished with a failure, directly or
+// after an approval.
+func (s ToolCallStatus) Failed() bool {
+	return s == ToolCallStatusFailed || s == ToolCallStatusFailedAfterApproval
+}
+
 // ApprovalStatus is the lifecycle state of an Approval.
 type ApprovalStatus string
 

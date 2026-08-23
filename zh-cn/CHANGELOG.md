@@ -36,6 +36,11 @@
 
 ### Changed
 
+- 实验性 JingSi LAN presentation route 统一移至 `/api/jingsi/v0/` 前缀
+  （`POST /api/jingsi/v0/messages/stream`、`GET /api/jingsi/v0/client-events{,/head,/stream}`，
+  面向手机的 readiness 探测改为 `GET /api/jingsi/v0/readyz`）。Gateway 自身现在会在这些
+  route 上拒绝非私有地址 peer 与非私有 browser origin；LAN 端口可用
+  `SPARKCLAW_JINGSI_LAN_PORT` 配置（默认 `18793`）。
 - Qwen3-ASR image 现在由一个 SparkClaw-owned runtime 同时处理 batch/realtime，把全部 model
   call 串行固定在一个 owner thread，并在声明 ready 前完成首次 inference warm-up。Gateway
   只通过 authenticated single-use WebSocket ticket 暴露 realtime，并与 batch transcription

@@ -44,6 +44,13 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- The experimental JingSi LAN presentation routes moved under one
+  `/api/jingsi/v0/` prefix (`POST /api/jingsi/v0/messages/stream`,
+  `GET /api/jingsi/v0/client-events{,/head,/stream}`, and the phone-facing
+  readiness probe is now `GET /api/jingsi/v0/readyz`). The gateway itself now
+  rejects non-private peers and non-private browser origins on these routes,
+  and the LAN port is configurable via `SPARKCLAW_JINGSI_LAN_PORT`
+  (default `18793`).
 - The Qwen3-ASR image now runs one SparkClaw-owned batch/realtime runtime,
   serializes all model calls on one owner thread, and completes a first-inference
   warm-up before advertising readiness. Gateway exposes realtime only through

@@ -109,6 +109,25 @@ describe("PCMInputCapture", () => {
     expect(context.close).toHaveBeenCalledOnce();
   });
 
+  it("closes the audio context even when the stop-time flush throws", async () => {
+    const capture = await PCMInputCapture.start({ onLevel: () => {} });
+    const postMessage = vi.spyOn(FakePort.prototype, "postMessage").mockImplementation(() => {
+      throw new Error("flush transport broken");
+    });
+    try {
+      await expect(capture.stop()).rejects.toThrow("flush transport broken");
+    } finally {
+      postMessage.mockRestore();
+    }
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(context.source.disconnect).toHaveBeenCalledOnce();
+    expect(context.gain.disconnect).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    // A later cancel() must not find a half-open capture.
+    await capture.cancel();
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
   it("reports runtime device loss after releasing every capture resource", async () => {
     let resolveFailure: (() => void) | undefined;
     const failed = new Promise<void>((resolve) => { resolveFailure = resolve; });

@@ -18,6 +18,10 @@ type scanner interface {
 func scanSession(row scanner) (app.Session, error) {
 	var session app.Session
 	err := row.Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt)
+	// pgx decodes timestamptz into the process-local zone; the stored instant
+	// carries no zone, so canonicalize to UTC as every backend contract expects.
+	session.CreatedAt = session.CreatedAt.UTC()
+	session.UpdatedAt = session.UpdatedAt.UTC()
 	return session, err
 }
 

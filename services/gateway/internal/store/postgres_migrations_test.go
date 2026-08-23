@@ -81,9 +81,9 @@ SELECT count(*), min(applied_at) FROM sparkclaw_schema_migrations
 		st.Close()
 		t.Fatal(err)
 	}
-	if count != 4 {
+	if want := embeddedPostgresMigrationCount(t); count != want {
 		st.Close()
-		t.Fatalf("ledger count = %d, want 4", count)
+		t.Fatalf("ledger count = %d, want %d", count, want)
 	}
 	st.Close()
 
@@ -473,7 +473,7 @@ func TestPostgresMigrationCommitUncertainty(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertPostgresLedgerCount(t, pool, 3)
+		assertPostgresLedgerCount(t, pool, embeddedPostgresMigrationCount(t))
 	})
 
 	t.Run("not committed retries once", func(t *testing.T) {
@@ -498,7 +498,7 @@ func TestPostgresMigrationCommitUncertainty(t *testing.T) {
 		if got := commits.Load(); got != 2 {
 			t.Fatalf("commit attempts = %d, want 2", got)
 		}
-		assertPostgresLedgerCount(t, pool, 3)
+		assertPostgresLedgerCount(t, pool, embeddedPostgresMigrationCount(t))
 	})
 
 	t.Run("complete ledger validates as committed", func(t *testing.T) {
@@ -616,6 +616,15 @@ func prepareUnversionedCurrentPostgresSchema(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
+func embeddedPostgresMigrationCount(t *testing.T) int {
+	t.Helper()
+	migrations, err := loadPostgresMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(migrations)
+}
+
 func assertPostgresLedgerCount(t *testing.T, pool *pgxpool.Pool, want int) {
 	t.Helper()
 	var got int
@@ -693,5 +702,5 @@ SELECT status, schema_version, version FROM browser_login_blocks ORDER BY id
 	if index != len(wantStatuses) {
 		t.Fatalf("browser row count = %d", index)
 	}
-	assertPostgresLedgerCount(t, pool, 3)
+	assertPostgresLedgerCount(t, pool, embeddedPostgresMigrationCount(t))
 }

@@ -1313,7 +1313,7 @@ func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.R
 }
 
 func isPendingNotificationBinding(status string) bool {
-	return status == "waiting_scan" || status == "waiting_confirm"
+	return status == app.NotificationBindingWaitingScan || status == app.NotificationBindingWaitingConfirm
 }
 
 func (s *Server) closeNotificationBindingBrowser(ctx context.Context, binding app.NotificationBinding) {
@@ -3958,7 +3958,7 @@ func publicNotificationBindings(bindings []app.NotificationBinding) []map[string
 
 func publicNotificationBinding(binding app.NotificationBinding, includeActivation ...bool) map[string]any {
 	qrCodeURL := binding.QRCodeURL
-	if binding.Status == "waiting_confirm" && (len(includeActivation) == 0 || !includeActivation[0]) {
+	if binding.Status == app.NotificationBindingWaitingConfirm && (len(includeActivation) == 0 || !includeActivation[0]) {
 		qrCodeURL = ""
 	}
 	return map[string]any{

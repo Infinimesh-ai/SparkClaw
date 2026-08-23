@@ -160,9 +160,9 @@ func (r *Registry) Status(ctx context.Context, ownerID, channel string) (app.Con
 		status.DisabledReason = "connector_runtime_failed"
 	case registration.ExternalManaged:
 		status.State = app.ConnectorStateActive
-	case capability.BindingStatus == "active":
+	case capability.BindingStatus == app.NotificationBindingActive:
 		status.State = app.ConnectorStateActive
-	case capability.BindingStatus == "waiting_scan" || capability.BindingStatus == "waiting_confirm":
+	case capability.BindingStatus == app.NotificationBindingWaitingScan || capability.BindingStatus == app.NotificationBindingWaitingConfirm:
 		status.State = app.ConnectorStateSetupPending
 	case registration.Runtime != nil && !running:
 		status.State = app.ConnectorStateStarting

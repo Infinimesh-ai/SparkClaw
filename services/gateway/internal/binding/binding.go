@@ -224,9 +224,9 @@ func (r Router) CapabilityForOwner(ownerID, channel string, bindings []app.Notif
 		capability.DisabledReason = CodeUserDisabled
 	} else if err := adapter.Availability(); err != nil {
 		capability.DisabledReason = availabilityErrorCode(err)
-	} else if adapter.Policy().ExclusiveBinding && (capability.BindingStatus == "waiting_confirm" || capability.BindingStatus == "waiting_scan") {
+	} else if adapter.Policy().ExclusiveBinding && (capability.BindingStatus == app.NotificationBindingWaitingConfirm || capability.BindingStatus == app.NotificationBindingWaitingScan) {
 		capability.DisabledReason = CodeBindingInProgress
-	} else if adapter.Policy().ExclusiveBinding && capability.BindingStatus == "active" {
+	} else if adapter.Policy().ExclusiveBinding && capability.BindingStatus == app.NotificationBindingActive {
 		capability.DisabledReason = CodeBindingActive
 	} else {
 		capability.Startable = true
@@ -245,7 +245,7 @@ func availabilityErrorCode(err error) string {
 func (r Router) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
 	adapter, ok := r.adapters[strings.ToLower(strings.TrimSpace(binding.Channel))]
 	if !ok {
-		return PollResult{Status: "failed", LastError: "binding channel is not configured"}, errors.New("binding channel is not configured")
+		return PollResult{Status: app.NotificationBindingFailed, LastError: "binding channel is not configured"}, errors.New("binding channel is not configured")
 	}
 	return adapter.Poll(ctx, binding)
 }
@@ -312,7 +312,7 @@ func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBin
 	}
 	binding.Channel = a.channel
 	binding.Provider = "telegram-bot-api"
-	binding.Status = "active"
+	binding.Status = app.NotificationBindingActive
 	binding.DisplayName = "@" + strings.TrimPrefix(bot.Username, "@")
 	binding.AccountID = strconv.FormatInt(bot.ID, 10)
 	binding.CredentialRef = credentialRef
@@ -407,7 +407,7 @@ func (a *ManualWeixinAdapter) Start(ctx context.Context, binding app.Notificatio
 	binding.UpdatedAt = now
 	expires := now.Add(bindingSessionTTL)
 	binding.ExpiresAt = &expires
-	binding.Status = "waiting_scan"
+	binding.Status = app.NotificationBindingWaitingScan
 	binding.QRCodeURL = "sparkclaw://notification-bindings/" + binding.ID + "/manual-weixin"
 	binding.Scopes = normalizeScopes(binding.Scopes)
 	return binding, nil
@@ -415,14 +415,14 @@ func (a *ManualWeixinAdapter) Start(ctx context.Context, binding app.Notificatio
 
 func (a *ManualWeixinAdapter) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
 	_ = ctx
-	if binding.ExpiresAt != nil && time.Now().UTC().After(*binding.ExpiresAt) && binding.Status != "active" {
-		return PollResult{Status: "expired", LastError: "binding session expired"}, nil
+	if binding.ExpiresAt != nil && time.Now().UTC().After(*binding.ExpiresAt) && binding.Status != app.NotificationBindingActive {
+		return PollResult{Status: app.NotificationBindingExpired, LastError: "binding session expired"}, nil
 	}
 	if strings.TrimSpace(a.cfg.Recipient) == "" || strings.TrimSpace(a.cfg.Token) == "" {
 		return PollResult{Status: binding.Status}, nil
 	}
 	return PollResult{
-		Status:         "active",
+		Status:         app.NotificationBindingActive,
 		DisplayName:    "Weixin notification",
 		ExternalUserID: strings.TrimSpace(a.cfg.Recipient),
 		AccountID:      strings.TrimSpace(a.cfg.Recipient),
@@ -520,7 +520,7 @@ func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBin
 	}
 	binding.Channel = valueOr(binding.Channel, a.channel)
 	binding.Provider = weixinproto.ProviderName(a.cfg.Provider)
-	binding.Status = "waiting_scan"
+	binding.Status = app.NotificationBindingWaitingScan
 	binding.QRCodeURL = strings.TrimSpace(decoded.Data.QRCodeURL)
 	if binding.QRCodeURL == "" {
 		binding.QRCodeURL = strings.TrimSpace(decoded.QRCodeURL)
@@ -538,15 +538,15 @@ func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBin
 }
 
 func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
-	if binding.ExpiresAt != nil && time.Now().UTC().After(*binding.ExpiresAt) && binding.Status != "active" {
-		return PollResult{Status: "expired", LastError: "binding session expired"}, nil
+	if binding.ExpiresAt != nil && time.Now().UTC().After(*binding.ExpiresAt) && binding.Status != app.NotificationBindingActive {
+		return PollResult{Status: app.NotificationBindingExpired, LastError: "binding session expired"}, nil
 	}
 	session := strings.TrimSpace(binding.ProviderSessionID)
 	if session == "" {
 		session = strings.TrimSpace(binding.ProviderState)
 	}
 	if session == "" {
-		return PollResult{Status: "failed", LastError: "missing provider session id"}, errors.New("missing provider session id")
+		return PollResult{Status: app.NotificationBindingFailed, LastError: "missing provider session id"}, errors.New("missing provider session id")
 	}
 	endpoint := strings.TrimSpace(a.cfg.BaseURL)
 	if endpoint == "" {
@@ -593,7 +593,7 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 		rawStatus = strings.TrimSpace(decoded.Status)
 	}
 	status := normalizeWeixinLoginStatus(rawStatus)
-	if status != "active" {
+	if status != app.NotificationBindingActive {
 		return PollResult{Status: status}, nil
 	}
 	userID := strings.TrimSpace(decoded.Data.UserID)
@@ -641,7 +641,7 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 		nickname = strings.TrimSpace(decoded.Nickname)
 	}
 	return PollResult{
-		Status:           "active",
+		Status:           app.NotificationBindingActive,
 		DisplayName:      nickname,
 		ExternalUserID:   userID,
 		AccountID:        accountID,
@@ -672,19 +672,19 @@ func (a *WeixinQRAdapter) doJSON(req *http.Request, out any) error {
 func normalizeWeixinLoginStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "confirmed", "success", "login_success", "logged_in", "active":
-		return "active"
+		return app.NotificationBindingActive
 	case "scanned", "scaned", "scaned_but_redirect", "need_verifycode", "waiting_confirm", "confirming":
-		return "waiting_confirm"
+		return app.NotificationBindingWaitingConfirm
 	case "expired", "timeout":
-		return "expired"
+		return app.NotificationBindingExpired
 	case "failed", "error", "verify_code_blocked":
-		return "failed"
+		return app.NotificationBindingFailed
 	case "binded_redirect":
-		return "failed"
+		return app.NotificationBindingFailed
 	case "wait", "waiting", "":
-		return "waiting_scan"
+		return app.NotificationBindingWaitingScan
 	default:
-		return "waiting_scan"
+		return app.NotificationBindingWaitingScan
 	}
 }
 
@@ -697,14 +697,14 @@ func valueOr(value, fallback string) string {
 
 func currentBindingStatus(bindings []app.NotificationBinding) string {
 	for _, binding := range bindings {
-		if binding.Status == "active" {
-			return "active"
+		if binding.Status == app.NotificationBindingActive {
+			return app.NotificationBindingActive
 		}
 	}
 	pendingStatus := ""
 	pendingLatest := time.Time{}
 	for _, binding := range bindings {
-		if (binding.Status == "waiting_confirm" || binding.Status == "waiting_scan") && !binding.UpdatedAt.Before(pendingLatest) {
+		if (binding.Status == app.NotificationBindingWaitingConfirm || binding.Status == app.NotificationBindingWaitingScan) && !binding.UpdatedAt.Before(pendingLatest) {
 			pendingStatus = binding.Status
 			pendingLatest = binding.UpdatedAt
 		}

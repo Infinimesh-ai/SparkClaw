@@ -57,7 +57,7 @@ server {
 }
 
 server {
-  listen 18793;
+  listen ${SPARKCLAW_JINGSI_LAN_PORT};
   server_name _;
   resolver 127.0.0.11 valid=10s ipv6=off;
   server_tokens off;

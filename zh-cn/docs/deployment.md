@@ -164,7 +164,8 @@ export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
 bash scripts/restart_jingsi_lan_compose.sh
 ```
 
-该操作只增加精确的 `18793` presentation allowlist；WebChat 仍在 `18790`，Gateway 仍为
+该操作只增加端口 `18793`（可用 `SPARKCLAW_JINGSI_LAN_PORT` 覆盖）上的精确 presentation
+allowlist；WebChat 仍在 `18790`，Gateway 仍为
 Docker-internal。helper 会拒绝 wildcard、public、hostname 和 malformed bind。它只应用于当前
 runtime restart；之后执行普通 product restart 后若仍需此实验模式，必须再次运行。首期刻意没有
 鉴权和 TLS，只能用于可信 LAN。route contract、Android 侧工作和实体验证见

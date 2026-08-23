@@ -9,7 +9,7 @@
 | SparkClaw 基线 | `76a72aa` |
 | JingSi Android 基线 | `ZZZZJJJ0928/JingSi-Windows` 的 `1708fd9` |
 | 首期结果 | 一个服务端绑定的文本对话与空闲实时更新 |
-| LAN 呈现端口 | 实验性 `18793`，默认关闭且不发布 |
+| LAN 呈现端口 | 实验性，默认关闭且不发布；未用 `SPARKCLAW_JINGSI_LAN_PORT` 覆盖时为 `18793` |
 | 实时传输 | 基于现有 session event log 的 SSE 与 cursor 补拉 |
 | 鉴权 | 延后 |
 | ISCP | 不在范围内 |
@@ -252,7 +252,8 @@ correlation ID，用 content matching 对账会产生歧义。UI 应显示独立
 profile 不含 session ID、owner ID、bearer token、ISCP material 或 cached server transcript。
 base URL 改变时清除旧 cursor 和 local row。
 
-首期 validator 只接受 `http://A.B.C.D:18793`；decimal IPv4 literal 必须属于 loopback、
+首期 validator 只接受 `http://A.B.C.D:18793`（默认 presentation 端口；部署若覆盖
+`SPARKCLAW_JINGSI_LAN_PORT`，手机必须配置同一端口）；decimal IPv4 literal 必须属于 loopback、
 `10.0.0.0/8`、`172.16.0.0/12` 或 `192.168.0.0/16`。任何 request 之前先拒绝 hostname、IPv6、
 user info、fragment、query string、non-root path、缺失或其他 port、含糊 octet 和 public
 address。可接受并移除一个末尾 `/`。
@@ -310,8 +311,9 @@ suspended 或 force-stopped delivery 继续延后。
 
 ## 局域网发布
 
-base Compose product 不发布 `18793`。专用 JingSi-LAN override 将其显式绑定到一个指定 RFC1918
-host address，绝不能默认绑定 `0.0.0.0`。手机不打开 listener，WebChat 保持在 `18790`，Gateway
+base Compose product 不发布 presentation 端口。专用 JingSi-LAN override 将其显式绑定到一个
+指定 RFC1918 host address，绝不能默认绑定 `0.0.0.0`。端口默认 `18793`，Nginx listener、
+Compose 端口映射与 restart helper 统一遵循 `SPARKCLAW_JINGSI_LAN_PORT`。手机不打开 listener，WebChat 保持在 `18790`，Gateway
 `18789` 保持 Docker-internal。
 
 端口分离和 private-address validation 只能减少意外暴露，不等于鉴权。在 authentication/TLS

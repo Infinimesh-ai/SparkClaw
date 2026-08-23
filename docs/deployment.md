@@ -190,7 +190,8 @@ export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
 bash scripts/restart_jingsi_lan_compose.sh
 ```
 
-This adds only the exact `18793` presentation allowlist; WebChat remains on
+This adds only the exact presentation allowlist on port `18793` (override
+with `SPARKCLAW_JINGSI_LAN_PORT`); WebChat remains on
 `18790` and Gateway remains Docker-internal. The helper rejects wildcard,
 public, hostname, and malformed bind values. It applies to the current runtime
 restart, so rerun it after a later ordinary product restart while this

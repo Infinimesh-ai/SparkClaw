@@ -6,6 +6,12 @@ cd "$ROOT"
 
 bind="${SPARKCLAW_JINGSI_LAN_BIND:-}"
 session_id="${SPARKCLAW_JINGSI_SESSION_ID:-}"
+port="${SPARKCLAW_JINGSI_LAN_PORT:-18793}"
+
+if [[ ! "$port" =~ ^[0-9]+$ ]] || ((10#$port < 1 || 10#$port > 65535)); then
+  echo "SPARKCLAW_JINGSI_LAN_PORT must be a TCP port number" >&2
+  exit 1
+fi
 
 if [[ -z "$bind" ]]; then
   echo "SPARKCLAW_JINGSI_LAN_BIND must be one literal RFC1918 host address" >&2
@@ -40,17 +46,18 @@ if ! ((first == 10 || first == 172 && second >= 16 && second <= 31 || first == 1
   exit 1
 fi
 
-echo "JingSi LAN binding validated on port 18793"
+echo "JingSi LAN binding validated on port $port"
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
 
 export SPARKCLAW_JINGSI_LAN_ENABLED=true
+export SPARKCLAW_JINGSI_LAN_PORT="$port"
 export SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE=docker/compose.jingsi-lan.yaml
 bash scripts/restart_runtime_compose.sh gateway webchat
 
 for _ in $(seq 1 30); do
-  if curl --noproxy '*' -fsS "http://$bind:18793/api/jingsi/v0/readyz" >/dev/null 2>&1; then
+  if curl --noproxy '*' -fsS "http://$bind:$port/api/jingsi/v0/readyz" >/dev/null 2>&1; then
     echo "JingSi LAN presentation ready on the configured private address"
     exit 0
   fi

@@ -23,10 +23,13 @@ JINGSI_ROUTES = (
 
 
 class JingSiLANDeploymentTest(unittest.TestCase):
-    def run_check(self, bind, session_id="session-visible"):
+    def run_check(self, bind, session_id="session-visible", port=None):
         env = os.environ.copy()
         env["SPARKCLAW_JINGSI_LAN_BIND"] = bind
         env["SPARKCLAW_JINGSI_SESSION_ID"] = session_id
+        env.pop("SPARKCLAW_JINGSI_LAN_PORT", None)
+        if port is not None:
+            env["SPARKCLAW_JINGSI_LAN_PORT"] = port
         return subprocess.run(
             ["bash", str(SCRIPT), "--check"],
             cwd=ROOT,
@@ -59,10 +62,25 @@ class JingSiLANDeploymentTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SPARKCLAW_JINGSI_SESSION_ID", result.stderr)
 
+    def test_port_defaults_and_accepts_override(self):
+        result = self.run_check("192.168.1.8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("port 18793", result.stdout)
+        result = self.run_check("192.168.1.8", port="28793")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("port 28793", result.stdout)
+
+    def test_rejects_malformed_port(self):
+        for port in ("0", "65536", "eighteen", "-1"):
+            with self.subTest(port=port):
+                result = self.run_check("192.168.1.8", port=port)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("SPARKCLAW_JINGSI_LAN_PORT", result.stderr)
+
     def test_nginx_port_has_only_exact_presentation_routes(self):
-        nginx = (ROOT / "docker" / "images" / "webchat.nginx.conf").read_text(encoding="utf-8")
-        base = nginx.split("listen 18793;", 1)[0]
-        presentation = nginx.split("listen 18793;", 1)[1]
+        nginx = (ROOT / "docker" / "images" / "webchat.nginx.conf.template").read_text(encoding="utf-8")
+        listen = "listen ${SPARKCLAW_JINGSI_LAN_PORT};"
+        base, presentation = nginx.split(listen, 1)
         self.assertIn(f"location {JINGSI_PREFIX} {{\n    return 404;", base)
         for route in JINGSI_ROUTES:
             self.assertTrue(route.startswith(JINGSI_PREFIX), route)
@@ -75,9 +93,13 @@ class JingSiLANDeploymentTest(unittest.TestCase):
     def test_base_compose_does_not_publish_port(self):
         base = (ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
         overlay = (ROOT / "docker" / "compose.jingsi-lan.yaml").read_text(encoding="utf-8")
-        self.assertNotIn(":18793:18793", base)
+        self.assertNotIn(":18793", base)
+        self.assertNotIn("SPARKCLAW_JINGSI_LAN_PORT", base)
         self.assertIn("SPARKCLAW_JINGSI_LAN_BIND", overlay)
-        self.assertIn(":18793:18793", overlay)
+        self.assertIn(
+            ":${SPARKCLAW_JINGSI_LAN_PORT:-18793}:${SPARKCLAW_JINGSI_LAN_PORT:-18793}",
+            overlay,
+        )
 
 
 if __name__ == "__main__":

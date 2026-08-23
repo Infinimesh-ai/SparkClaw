@@ -9,7 +9,7 @@
 | SparkClaw baseline | `76a72aa` |
 | JingSi Android baseline | `ZZZZJJJ0928/JingSi-Windows` at `1708fd9` |
 | Phase-one result | One server-bound text conversation with idle realtime updates |
-| LAN presentation port | Experimental `18793`, disabled and unpublished by default |
+| LAN presentation port | Experimental, disabled and unpublished by default; `18793` unless overridden via `SPARKCLAW_JINGSI_LAN_PORT` |
 | Realtime transport | SSE with cursor catch-up over the existing session event log |
 | Authentication | Deferred |
 | ISCP | Out of scope |
@@ -298,7 +298,9 @@ in a dedicated `SharedPreferences` file. The profile contains no session ID,
 owner ID, bearer token, ISCP material, or cached server transcript. Changing
 the base URL discards the old cursor and local rows.
 
-The phase-one validator accepts only `http://A.B.C.D:18793`, where the decimal
+The phase-one validator accepts only `http://A.B.C.D:18793` (the default
+presentation port; a deployment that overrides `SPARKCLAW_JINGSI_LAN_PORT`
+must configure the phone with the same port), where the decimal
 IPv4 literal is loopback, `10.0.0.0/8`, `172.16.0.0/12`, or
 `192.168.0.0/16`. Reject hostnames, IPv6, user info, fragments, query strings,
 non-root paths, missing/other ports, ambiguous octets, and public addresses
@@ -366,8 +368,10 @@ or force-stopped delivery remains deferred.
 
 ## LAN Publication
 
-The base Compose product does not publish `18793`. A dedicated JingSi-LAN
-override explicitly binds it to one selected RFC1918 host address. It must not
+The base Compose product does not publish the presentation port. A dedicated
+JingSi-LAN override explicitly binds it to one selected RFC1918 host address;
+the port defaults to `18793` and follows `SPARKCLAW_JINGSI_LAN_PORT` in the
+Nginx listener, the Compose port mapping, and the restart helper alike. It must not
 default to `0.0.0.0`. The phone opens no listener, WebChat remains on `18790`,
 and Gateway `18789` remains Docker-internal.
 

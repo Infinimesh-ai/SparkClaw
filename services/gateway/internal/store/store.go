@@ -133,8 +133,8 @@ type ApprovalRepository interface {
 	GetApproval(context.Context, string) (app.Approval, bool, error)
 	FindApprovalByExternalRef(context.Context, app.ApprovalSource, string) (app.Approval, bool, error)
 	UpdatePendingApproval(context.Context, ApprovalUpdateCommand) (app.Approval, error)
-	ResolveApproval(context.Context, string, string, string) (app.Approval, error)
-	ListApprovals(context.Context, string) ([]app.Approval, error)
+	ResolveApproval(context.Context, string, app.ApprovalStatus, string) (app.Approval, error)
+	ListApprovals(context.Context, app.ApprovalStatus) ([]app.Approval, error)
 }
 
 type AuditRepository interface {

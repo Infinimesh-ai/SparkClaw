@@ -585,7 +585,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		RunID:     run.ID,
 		Actor:     "runtime",
 		Type:      "browser_login_block.current_tabs_checked",
-		Summary:   tabCall.Status,
+		Summary:   string(tabCall.Status),
 		Fields: browserLoginBlockRuntimeFields(block, map[string]any{
 			"tool_call_id": tabCall.ID,
 			"status":       tabCall.Status,
@@ -1474,7 +1474,7 @@ func updateBrowserLoginBlockFromResumeCall(block app.BrowserLoginBlock, call app
 }
 
 func browserListTabsReturnedNoPages(call app.ToolCall) bool {
-	if call.Status != "completed" {
+	if call.Status != app.ToolCallStatusCompleted {
 		return false
 	}
 	output, ok := anyMap(call.Result)

@@ -40,7 +40,7 @@ func groundedWeatherFailureSummary(calls []app.ToolCall) (string, bool) {
 		if toolCallCompleted(call) {
 			return "", false
 		}
-		if !strings.Contains(call.Status, "failed") && call.Error == "" {
+		if !strings.Contains(string(call.Status), "failed") && call.Error == "" {
 			return "", false
 		}
 		reason := strings.TrimSpace(call.Error)

@@ -143,7 +143,7 @@ func failedToolCalls(calls []app.ToolCall) []app.ToolCall {
 			laterCompleted[call.Tool] = true
 			continue
 		}
-		if strings.Contains(call.Status, "failed") || call.Status == "blocked" || call.Status == "rejected" {
+		if strings.Contains(string(call.Status), "failed") || call.Status == app.ToolCallStatusBlocked || call.Status == app.ToolCallStatusRejected {
 			if laterCompleted[call.Tool] {
 				continue
 			}

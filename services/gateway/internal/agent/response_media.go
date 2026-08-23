@@ -57,14 +57,14 @@ func responseMediaDetectionStage(run *app.AgentRun) bool {
 // requireApprovedWorkspaceAccessCall verifies that the workspace data access
 // call completed through an approved, still-valid owner approval.
 func (r Runtime) requireApprovedWorkspaceAccessCall(ctx context.Context, call *app.ToolCall) error {
-	if call == nil || call.Status != "completed_after_approval" {
+	if call == nil || call.Status != app.ToolCallStatusCompletedAfterApproval {
 		return errors.New("external MCP workspace data access requires owner approval")
 	}
 	approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
 	if err != nil {
 		return err
 	}
-	if !ok || approval.Status != "approved" {
+	if !ok || approval.Status != app.ApprovalStatusApproved {
 		return errors.New("external MCP workspace data access approval is unavailable")
 	}
 	return r.validateWorkspaceDataAccessApproval(ctx, *call, approval)

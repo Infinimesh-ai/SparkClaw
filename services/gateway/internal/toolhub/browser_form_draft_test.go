@@ -131,7 +131,7 @@ func browserFormDraftArgs(ref, valueKey, value string) map[string]any {
 func seedBrowserFormDraftSnapshot(st *store.MemoryStore, runID, snapshotID, pageID string, sessionGeneration, pageGeneration uint64, ref, role, label string) {
 	testSaveToolCall(st, app.ToolCall{
 		ID: app.NewID("snapshot_call"), SessionID: "session", RunID: runID,
-		Tool: "browser.snapshot", Status: "completed", StartedAt: time.Now().UTC(),
+		Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted, StartedAt: time.Now().UTC(),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
 			"snapshot_id": snapshotID, "page_id": pageID, "url": "https://example.com/contact",
 			"digest": "digest-" + snapshotID, "content_digest": "content-" + snapshotID,

@@ -44,7 +44,7 @@ func prepareApproval(approval app.Approval, existing *app.Approval, now time.Tim
 		return app.Approval{}, errors.New("approval source is invalid")
 	}
 	if approval.Status == "" {
-		approval.Status = "pending"
+		approval.Status = app.ApprovalStatusPending
 	}
 	if existing != nil {
 		approval.CreatedAt = existing.CreatedAt
@@ -53,7 +53,7 @@ func prepareApproval(approval app.Approval, existing *app.Approval, now time.Tim
 	}
 	approval.CreatedAt = normalizeApprovalTime(approval.CreatedAt)
 	approval.ResolvedAt = normalizeApprovalTimePointer(approval.ResolvedAt)
-	if approval.Status == "pending" {
+	if approval.Status == app.ApprovalStatusPending {
 		approval.ResolvedAt = nil
 		approval.ResolutionNote = ""
 	}
@@ -75,7 +75,7 @@ func preparePendingApprovalUpdate(command ApprovalUpdateCommand, current app.App
 	if err != nil {
 		return app.Approval{}, err
 	}
-	if !reflect.DeepEqual(expected, current) || current.Status != "pending" {
+	if !reflect.DeepEqual(expected, current) || current.Status != app.ApprovalStatusPending {
 		return app.Approval{}, ErrApprovalConflict
 	}
 	candidate, err := prepareApproval(command.Candidate, &current, current.CreatedAt)
@@ -88,22 +88,22 @@ func preparePendingApprovalUpdate(command ApprovalUpdateCommand, current app.App
 		!reflect.DeepEqual(candidate.Presentation, current.Presentation) {
 		return app.Approval{}, ErrApprovalConflict
 	}
-	candidate.Status = "pending"
+	candidate.Status = app.ApprovalStatusPending
 	candidate.ResolvedAt = nil
 	candidate.ResolutionNote = ""
 	return candidate, nil
 }
 
-func prepareApprovalResolution(current app.Approval, status, note string, now time.Time) (app.Approval, bool, error) {
-	status = strings.TrimSpace(status)
-	if status != "approved" && status != "rejected" && status != "resolved_elsewhere" {
+func prepareApprovalResolution(current app.Approval, status app.ApprovalStatus, note string, now time.Time) (app.Approval, bool, error) {
+	status = app.ApprovalStatus(strings.TrimSpace(string(status)))
+	if status != app.ApprovalStatusApproved && status != app.ApprovalStatusRejected && status != app.ApprovalStatusResolvedElsewhere {
 		return app.Approval{}, false, errors.New("approval resolution status is invalid")
 	}
 	current, err := normalizePersistedApproval(current)
 	if err != nil {
 		return app.Approval{}, false, err
 	}
-	if current.Status != "pending" {
+	if current.Status != app.ApprovalStatusPending {
 		if current.Status == status && current.ResolutionNote == note {
 			return current, true, nil
 		}

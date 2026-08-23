@@ -19,16 +19,16 @@ const (
 )
 
 type toolResultMessage struct {
-	Role       string         `json:"role"`
-	ToolCallID string         `json:"tool_call_id"`
-	Tool       string         `json:"tool"`
-	Status     string         `json:"status"`
-	Category   string         `json:"category,omitempty"`
-	Untrusted  bool           `json:"untrusted"`
-	Summary    string         `json:"summary"`
-	Structured map[string]any `json:"structured,omitempty"`
-	Evidence   []toolEvidence `json:"evidence,omitempty"`
-	Safety     string         `json:"safety"`
+	Role       string             `json:"role"`
+	ToolCallID string             `json:"tool_call_id"`
+	Tool       string             `json:"tool"`
+	Status     app.ToolCallStatus `json:"status"`
+	Category   string             `json:"category,omitempty"`
+	Untrusted  bool               `json:"untrusted"`
+	Summary    string             `json:"summary"`
+	Structured map[string]any     `json:"structured,omitempty"`
+	Evidence   []toolEvidence     `json:"evidence,omitempty"`
+	Safety     string             `json:"safety"`
 }
 
 type toolEvidence struct {
@@ -101,9 +101,9 @@ func buildToolResultMessage(input toolResultAdapterInput) toolResultMessage {
 	if output == nil {
 		output = call.Result
 	}
-	status := strings.TrimSpace(call.Status)
+	status := app.ToolCallStatus(strings.TrimSpace(string(call.Status)))
 	if status == "" {
-		status = "completed"
+		status = app.ToolCallStatusCompleted
 	}
 	summary := strings.TrimSpace(call.ObservationSummary)
 	if summary == "" {
@@ -112,7 +112,7 @@ func buildToolResultMessage(input toolResultAdapterInput) toolResultMessage {
 			summary = fmt.Sprintf("%s failed: %s", call.Tool, input.Err.Error())
 		case call.Error != "":
 			summary = fmt.Sprintf("%s failed: %s", call.Tool, call.Error)
-		case status == "approval_pending":
+		case status == app.ToolCallStatusApprovalPending:
 			summary = call.Tool + " is " + blockedAnswerWaitingApproval + "."
 		case output != nil:
 			summary = CompressObservation(call.Tool, output, 600)

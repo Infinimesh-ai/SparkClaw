@@ -84,7 +84,7 @@ func TestWriterRedactsSecretsInTraceArtifacts(t *testing.T) {
 			RunID:     run.ID,
 			Tool:      "file.delete",
 			Risk:      app.RiskDangerous,
-			Status:    "approval_pending",
+			Status:    app.ToolCallStatusApprovalPending,
 			Arguments: map[string]any{
 				"token":   "tool-secret",
 				"subject": "Safe subject",
@@ -111,7 +111,7 @@ func TestWriterRedactsSecretsInTraceArtifacts(t *testing.T) {
 			SessionID: "s1",
 			RunID:     run.ID,
 			Tool:      "file.delete",
-			Status:    "pending",
+			Status:    app.ApprovalStatusPending,
 			Summary:   "Approve token approval-secret",
 			Reason:    "password is reason-secret",
 			Arguments: map[string]any{

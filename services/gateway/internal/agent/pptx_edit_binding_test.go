@@ -74,7 +74,7 @@ func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.
 	}
 	testSaveRun(st, run)
 	testSaveToolCall(st, app.ToolCall{
-		ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
+		ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": "uploads/deck.pptx"},
 		Result: map[string]any{
 			"rel_path": "uploads/deck.pptx",

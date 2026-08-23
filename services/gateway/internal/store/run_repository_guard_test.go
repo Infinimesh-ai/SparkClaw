@@ -105,7 +105,7 @@ func TestRunWriteReconciliationRequiresExactCandidate(t *testing.T) {
 	}
 
 	toolCall, err := repository.SaveToolCall(t.Context(), app.ToolCall{
-		ID: "tool-reconcile", SessionID: "session", RunID: run.ID, Tool: "files.read", Status: "completed", Arguments: map[string]any{"path": "a.txt"},
+		ID: "tool-reconcile", SessionID: "session", RunID: run.ID, Tool: "files.read", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"path": "a.txt"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestRunWriteReconciliationRequiresExactCandidate(t *testing.T) {
 		t.Fatalf("exact ToolCall reconciliation = %#v err=%v", reconciled, err)
 	}
 	mismatchedTool := toolCall
-	mismatchedTool.Status = "failed"
+	mismatchedTool.Status = app.ToolCallStatusFailed
 	if reconciled, err := ReconcileToolCallWrite(t.Context(), repository, mismatchedTool, unknownTool); reconciled.ID != "" || !errors.Is(err, unknownTool) {
 		t.Fatalf("mismatched ToolCall reconciliation = %#v err=%v", reconciled, err)
 	}

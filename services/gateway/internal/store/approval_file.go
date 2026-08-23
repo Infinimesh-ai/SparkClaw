@@ -46,7 +46,7 @@ func (s *FileStore) UpdatePendingApproval(ctx context.Context, command ApprovalU
 	})
 }
 
-func (s *FileStore) ResolveApproval(ctx context.Context, id, status, note string) (app.Approval, error) {
+func (s *FileStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationApprovalResolve, fileAdmissionCapacity)
 	if err != nil {
 		return app.Approval{}, err
@@ -57,7 +57,7 @@ func (s *FileStore) ResolveApproval(ctx context.Context, id, status, note string
 	})
 }
 
-func (s *FileStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+func (s *FileStore) ListApprovals(ctx context.Context, status app.ApprovalStatus) ([]app.Approval, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationApprovalList, 1)
 	if err != nil {
 		return nil, err

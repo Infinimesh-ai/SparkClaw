@@ -60,7 +60,7 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 	},
 	"ApprovalRepository": {
 		mutate: func(t *testing.T, st testBackend) {
-			mustSaveApproval(t, st, app.Approval{ID: "approval-lifecycle", Status: "pending", Summary: "Lifecycle"})
+			mustSaveApproval(t, st, app.Approval{ID: "approval-lifecycle", Status: app.ApprovalStatusPending, Summary: "Lifecycle"})
 		},
 		auditType: "approval.pending", eventType: "approval.pending",
 	},

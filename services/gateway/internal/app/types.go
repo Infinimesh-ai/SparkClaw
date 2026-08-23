@@ -19,6 +19,7 @@ const (
 type PolicyPrincipalClass string
 type PolicyResourceClass string
 type PolicyAccessClass string
+type PolicyOutputClass string
 
 const (
 	PolicyPrincipalExternalMCPAI PolicyPrincipalClass = "external_mcp_ai"
@@ -27,6 +28,38 @@ const (
 
 	PolicyAccessWorkspaceSourceRead           PolicyAccessClass = "workspace_source_read"
 	PolicyAccessWorkspaceDerivativeDisclosure PolicyAccessClass = "workspace_derivative_disclosure"
+
+	PolicyOutputDocumentDerivative PolicyOutputClass = "document_derivative"
+	PolicyOutputDocumentContent    PolicyOutputClass = "document_content"
+	PolicyOutputResponseMedia      PolicyOutputClass = "response_media"
+	PolicyOutputToolResult         PolicyOutputClass = "tool_result"
+)
+
+// ToolCallStatus is the lifecycle state of a ToolCall.
+type ToolCallStatus string
+
+const (
+	ToolCallStatusStarted                ToolCallStatus = "started"
+	ToolCallStatusPending                ToolCallStatus = "pending"
+	ToolCallStatusApprovalPending        ToolCallStatus = "approval_pending"
+	ToolCallStatusRunningAfterApproval   ToolCallStatus = "running_after_approval"
+	ToolCallStatusCompleted              ToolCallStatus = "completed"
+	ToolCallStatusCompletedAfterApproval ToolCallStatus = "completed_after_approval"
+	ToolCallStatusFailed                 ToolCallStatus = "failed"
+	ToolCallStatusFailedAfterApproval    ToolCallStatus = "failed_after_approval"
+	ToolCallStatusBlocked                ToolCallStatus = "blocked"
+	ToolCallStatusRejected               ToolCallStatus = "rejected"
+	ToolCallStatusRepaired               ToolCallStatus = "repaired"
+)
+
+// ApprovalStatus is the lifecycle state of an Approval.
+type ApprovalStatus string
+
+const (
+	ApprovalStatusPending           ApprovalStatus = "pending"
+	ApprovalStatusApproved          ApprovalStatus = "approved"
+	ApprovalStatusRejected          ApprovalStatus = "rejected"
+	ApprovalStatusResolvedElsewhere ApprovalStatus = "resolved_elsewhere"
 )
 
 // PolicyExecutionContext persists authenticated invocation and governed
@@ -44,7 +77,7 @@ type PolicyExecutionContext struct {
 	PlanDigest       string               `json:"plan_digest,omitempty"`
 	MCP              *MCPInvocationRef    `json:"mcp,omitempty"`
 	ReturnRoute      ReturnRoute          `json:"return_route,omitempty"`
-	OutputClass      string               `json:"output_class,omitempty"`
+	OutputClass      PolicyOutputClass    `json:"output_class,omitempty"`
 	ContractDigest   string               `json:"contract_digest,omitempty"`
 }
 
@@ -72,7 +105,7 @@ type ToolCall struct {
 	RunID              string                  `json:"run_id"`
 	Tool               string                  `json:"tool"`
 	Risk               RiskLevel               `json:"risk"`
-	Status             string                  `json:"status"`
+	Status             ToolCallStatus          `json:"status"`
 	Arguments          map[string]any          `json:"arguments"`
 	Result             any                     `json:"result,omitempty"`
 	Error              string                  `json:"error,omitempty"`
@@ -99,7 +132,7 @@ type Approval struct {
 	ToolCallID      string                   `json:"tool_call_id"`
 	Tool            string                   `json:"tool"`
 	Risk            RiskLevel                `json:"risk"`
-	Status          string                   `json:"status"`
+	Status          ApprovalStatus           `json:"status"`
 	Summary         string                   `json:"summary"`
 	Reason          string                   `json:"reason"`
 	Resources       []string                 `json:"resources"`
@@ -118,7 +151,7 @@ type ApprovalPresentation struct {
 	Locators      []MessageMediaLocator `json:"locators,omitempty"`
 	LocatorStatus string                `json:"locator_status,omitempty"`
 	AccessClass   PolicyAccessClass     `json:"access_class,omitempty"`
-	OutputClass   string                `json:"output_class,omitempty"`
+	OutputClass   PolicyOutputClass     `json:"output_class,omitempty"`
 	ReturnRoute   ReturnRoute           `json:"return_route"`
 	Scope         string                `json:"scope"`
 }

@@ -117,7 +117,7 @@ func (s *Service) Sync(ctx context.Context) (int, error) {
 			changed++
 		}
 	}
-	approvals, err := s.store.ListApprovals(syncCtx, "pending")
+	approvals, err := s.store.ListApprovals(syncCtx, app.ApprovalStatusPending)
 	if err != nil {
 		return changed, errors.Join(syncErr, fmt.Errorf("list pending approvals: %w", err))
 	}
@@ -140,7 +140,7 @@ func (s *Service) Sync(ctx context.Context) (int, error) {
 	return changed, syncErr
 }
 
-func (s *Service) Resolve(ctx context.Context, approval app.Approval, status string) (bool, error) {
+func (s *Service) Resolve(ctx context.Context, approval app.Approval, status app.ApprovalStatus) (bool, error) {
 	if s == nil || s.caller == nil {
 		return false, errors.New("Happy approval service is unavailable")
 	}
@@ -150,7 +150,7 @@ func (s *Service) Resolve(ctx context.Context, approval app.Approval, status str
 	tool := ""
 	args := map[string]any{"taskId": approval.ExternalID}
 	switch status {
-	case "approved":
+	case app.ApprovalStatusApproved:
 		if approval.ExternalContext == nil || approval.ExternalContext.PlanAvailability != app.ExternalPlanAvailable {
 			return false, errors.New("Happy task plan is temporarily unavailable; retry after the member machine reconnects")
 		}
@@ -158,7 +158,7 @@ func (s *Service) Resolve(ctx context.Context, approval app.Approval, status str
 		if approval.ExternalContext.PlanEdited {
 			args["editedPlan"] = approval.ExternalContext.Plan
 		}
-	case "rejected":
+	case app.ApprovalStatusRejected:
 		tool = "reject_plan"
 	default:
 		return false, fmt.Errorf("unsupported Happy approval resolution %q", status)
@@ -212,7 +212,7 @@ func (s *Service) syncWaitingTask(ctx context.Context, item task) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("find Happy approval %q: %w", item.ID, err)
 	}
-	if exists && approval.Status != "pending" {
+	if exists && approval.Status != app.ApprovalStatusPending {
 		return false, nil
 	}
 	if strings.TrimSpace(item.GoalPrompt) == "" {
@@ -234,7 +234,7 @@ func (s *Service) syncWaitingTask(ctx context.Context, item task) (bool, error) 
 	before, _ := json.Marshal(expected)
 	approval.Source = app.ApprovalSourceHappyTeamPlan
 	approval.ExternalID = item.ID
-	approval.Status = "pending"
+	approval.Status = app.ApprovalStatusPending
 	approval.Summary = approvalSummary(item.Title)
 	contextCopy := app.ExternalApprovalContext{Provider: "happy-team"}
 	if approval.ExternalContext != nil {
@@ -311,7 +311,7 @@ func (s *Service) reconcileMissing(ctx context.Context, approval app.Approval) (
 	if err != nil || current.Status == "WAITING_APPROVAL" {
 		return false, nil
 	}
-	candidate, err := s.store.ResolveApproval(ctx, approval.ID, "resolved_elsewhere", "Happy task left WAITING_APPROVAL")
+	candidate, err := s.store.ResolveApproval(ctx, approval.ID, app.ApprovalStatusResolvedElsewhere, "Happy task left WAITING_APPROVAL")
 	if _, err = store.ReconcileApprovalWrite(ctx, s.store, candidate, err); err != nil {
 		return false, fmt.Errorf("resolve missing Happy approval %q: %w", approval.ID, err)
 	}
@@ -322,7 +322,7 @@ func newApproval(item task) app.Approval {
 	now := time.Now().UTC()
 	return app.Approval{
 		ID: stableApprovalID(item.ID), Source: app.ApprovalSourceHappyTeamPlan, ExternalID: item.ID,
-		Tool: "happy-team.review_plan", Risk: app.RiskDangerous, Status: "pending",
+		Tool: "happy-team.review_plan", Risk: app.RiskDangerous, Status: app.ApprovalStatusPending,
 		Summary:   approvalSummary(item.Title),
 		Reason:    "A supervised Happy Team task requires the owner's plan decision.",
 		Resources: []string{"happy-task:" + item.ID}, Arguments: map[string]any{"taskId": item.ID},

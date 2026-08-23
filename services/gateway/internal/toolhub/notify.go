@@ -23,7 +23,7 @@ func (h *ToolHub) notifyAskApproval(ctx context.Context, args map[string]any, se
 		RunID:     runID,
 		Tool:      "notify.ask_approval",
 		Risk:      app.RiskDraft,
-		Status:    "approval_pending",
+		Status:    app.ToolCallStatusApprovalPending,
 		Arguments: args,
 		StartedAt: now,
 	}
@@ -35,7 +35,7 @@ func (h *ToolHub) notifyAskApproval(ctx context.Context, args map[string]any, se
 		ToolCallID: call.ID,
 		Tool:       "notify.ask_approval",
 		Risk:       app.RiskDraft,
-		Status:     "pending",
+		Status:     app.ApprovalStatusPending,
 		Summary:    summary,
 		Reason:     reason,
 		Resources:  []string{},

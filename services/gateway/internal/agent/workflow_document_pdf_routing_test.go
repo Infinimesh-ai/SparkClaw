@@ -177,7 +177,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if editApproval == nil || editCall.Status != "approval_pending" || editCall.Arguments["operation"] != "extract_pages" ||
+	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending || editCall.Arguments["operation"] != "extract_pages" ||
 		editCall.Arguments["path"] != "report.pdf" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.pdf" {
 		t.Fatalf("PDF transform did not enter approval with frozen paths: call=%#v approval=%#v", editCall, editApproval)
 	}
@@ -188,12 +188,12 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC(),
 	})
 
-	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "fixture owner approved PDF page export")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, app.ApprovalStatusApproved, "fixture owner approved PDF page export")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "completed_after_approval" {
+	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("approved PDF transform did not execute: call=%#v err=%v", executed, err)
 	}
 	result, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, storedRun.ID)

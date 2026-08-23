@@ -127,7 +127,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if conflictingApproval != nil || conflictingCall.Status != "blocked" ||
+	if conflictingApproval != nil || conflictingCall.Status != app.ToolCallStatusBlocked ||
 		!strings.Contains(conflictingCall.Error, "source_row_hash conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting XLSX row evidence was not blocked before approval: call=%#v approval=%#v", conflictingCall, conflictingApproval)
 	}
@@ -143,7 +143,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if editApproval == nil || editCall.Status != "approval_pending" {
+	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("evidence-bound XLSX edit did not enter approval: call=%#v approval=%#v", editCall, editApproval)
 	}
 	for key, want := range map[string]any{
@@ -158,12 +158,12 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 		t.Fatalf("XLSX output existed before approval: %v", statErr)
 	}
 
-	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "approved synthetic XLSX regression edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, app.ApprovalStatusApproved, "approved synthetic XLSX regression edit")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "completed_after_approval" {
+	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("evidence-bound XLSX edit failed after approval: call=%#v err=%v", executed, err)
 	}
 	executedOutput, ok := anyMap(executed.Result)
@@ -219,7 +219,7 @@ func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing
 		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "tables") {
+	if approval != nil || call.Status != app.ToolCallStatusBlocked || !strings.Contains(call.Error, "tables") {
 		t.Fatalf("unverified XLSX table feature reached approval: call=%#v approval=%#v", call, approval)
 	}
 	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
@@ -257,15 +257,15 @@ func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationThroughPipeline(
 		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if approval == nil || call.Status != "approval_pending" {
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("evidence-bound XLSX edit did not reach approval: call=%#v approval=%#v", call, approval)
 	}
-	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approve stale-source regression")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "approve stale-source regression")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "failed_after_approval" || !strings.Contains(strings.ToLower(executed.Error), "stale") {
+	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval || !strings.Contains(strings.ToLower(executed.Error), "stale") {
 		t.Fatalf("Pipeline did not reject the stale XLSX source: call=%#v err=%v", executed, err)
 	}
 	if _, statErr := os.Stat(filepath.Join(root, outputRef)); !os.IsNotExist(statErr) {
@@ -347,7 +347,7 @@ func replaceAgentXLSXLocateEvidence(t *testing.T, runtime Runtime, st store.RunR
 		t.Fatal("XLSX locate call is missing")
 	}
 	readCall.Result = read.Output
-	readCall.Status = "completed"
+	readCall.Status = app.ToolCallStatusCompleted
 	readCall.Error = ""
 	testSaveToolCall(st, readCall)
 	output, ok := anyMap(read.Output)

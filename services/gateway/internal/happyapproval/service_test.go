@@ -21,7 +21,7 @@ type approvalRepositoryFaultStore struct {
 	contextValue any
 }
 
-func (s *approvalRepositoryFaultStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+func (s *approvalRepositoryFaultStore) ListApprovals(ctx context.Context, status app.ApprovalStatus) ([]app.Approval, error) {
 	if s.contextKey != nil {
 		s.contextValue = ctx.Value(s.contextKey)
 	}
@@ -88,7 +88,7 @@ func TestSyncCreatesAndDeduplicatesWaitingPlanApproval(t *testing.T) {
 	if err != nil || changed != 0 {
 		t.Fatalf("second sync changed=%d err=%v", changed, err)
 	}
-	approvals := storetest.MustListApprovals(t, st, "pending")
+	approvals := storetest.MustListApprovals(t, st, app.ApprovalStatusPending)
 	if len(approvals) != 1 || approvals[0].Source != app.ApprovalSourceHappyTeamPlan || approvals[0].ExternalID != "task-1" ||
 		approvals[0].ExternalContext == nil || approvals[0].ExternalContext.GoalPrompt != "Implement feature safely" ||
 		approvals[0].ExternalContext.Plan != "# Plan\n\n1. Inspect\n2. Implement" || approvals[0].ExternalContext.PlanAvailability != app.ExternalPlanAvailable {
@@ -151,7 +151,7 @@ func TestResolveRejectsNonHappyApprovalBeforeCallingIntegration(t *testing.T) {
 		return mcpclient.ToolResult{}, nil
 	}}
 	approval := app.Approval{ID: "approval-tool", Source: app.ApprovalSourceTool, ExternalID: "task"}
-	if _, err := New(store.NewMemoryStore(), caller, time.Minute).Resolve(t.Context(), approval, "approved"); err == nil {
+	if _, err := New(store.NewMemoryStore(), caller, time.Minute).Resolve(t.Context(), approval, app.ApprovalStatusApproved); err == nil {
 		t.Fatal("non-Happy approval reached the Happy integration")
 	}
 }
@@ -238,7 +238,7 @@ func TestSyncReconcilesTaskThatLeftWaitingApproval(t *testing.T) {
 		t.Fatalf("reconcile changed=%d err=%v", changed, err)
 	}
 	approval, _ := storetest.MustFindApprovalByExternalRef(t, st, app.ApprovalSourceHappyTeamPlan, "task-resolved")
-	if approval.Status != "resolved_elsewhere" || approval.ResolvedAt == nil {
+	if approval.Status != app.ApprovalStatusResolvedElsewhere || approval.ResolvedAt == nil {
 		t.Fatalf("reconciled approval = %#v", approval)
 	}
 }
@@ -255,7 +255,7 @@ func TestResolvePassesOnlyOwnerEditedPlan(t *testing.T) {
 	approval.ExternalContext.Plan = "Owner-edited plan"
 	approval.ExternalContext.PlanAvailability = app.ExternalPlanAvailable
 	approval.ExternalContext.PlanEdited = true
-	resolvedElsewhere, err := service.Resolve(t.Context(), approval, "approved")
+	resolvedElsewhere, err := service.Resolve(t.Context(), approval, app.ApprovalStatusApproved)
 	if err != nil || resolvedElsewhere {
 		t.Fatalf("resolvedElsewhere=%v err=%v", resolvedElsewhere, err)
 	}
@@ -274,7 +274,7 @@ func TestResolveBusinessErrorChecksAuthoritativeTaskStatus(t *testing.T) {
 		}
 	}}
 	service := New(store.NewMemoryStore(), caller, time.Minute)
-	resolvedElsewhere, err := service.Resolve(t.Context(), newApproval(task{ID: "task-race"}), "rejected")
+	resolvedElsewhere, err := service.Resolve(t.Context(), newApproval(task{ID: "task-race"}), app.ApprovalStatusRejected)
 	if err != nil || !resolvedElsewhere {
 		t.Fatalf("resolvedElsewhere=%v err=%v", resolvedElsewhere, err)
 	}
@@ -286,7 +286,7 @@ func TestResolveBlocksApprovalWhilePlanUnavailable(t *testing.T) {
 		return mcpclient.ToolResult{}, nil
 	}}
 	service := New(store.NewMemoryStore(), caller, time.Minute)
-	_, err := service.Resolve(t.Context(), newApproval(task{ID: "task-offline"}), "approved")
+	_, err := service.Resolve(t.Context(), newApproval(task{ID: "task-offline"}), app.ApprovalStatusApproved)
 	if err == nil {
 		t.Fatal("expected unavailable plan to block approval")
 	}

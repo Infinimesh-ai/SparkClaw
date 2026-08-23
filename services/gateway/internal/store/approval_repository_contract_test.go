@@ -97,7 +97,7 @@ func runApprovalRepositoryContract(t *testing.T, repository testBackend) {
 	candidate.Arguments = map[string]any{"nested": map[string]any{"value": "updated"}}
 	candidate.ExternalContext.Plan = "updated plan"
 	updated, err := repository.UpdatePendingApproval(ctx, NewApprovalUpdateWithNote(expected, candidate, "owner edit"))
-	if err != nil || updated.Summary != candidate.Summary || !updated.CreatedAt.Equal(saved.CreatedAt) || updated.Status != "pending" {
+	if err != nil || updated.Summary != candidate.Summary || !updated.CreatedAt.Equal(saved.CreatedAt) || updated.Status != app.ApprovalStatusPending {
 		t.Fatalf("UpdatePendingApproval = %#v err=%v", updated, err)
 	}
 	stale := candidate
@@ -106,15 +106,15 @@ func runApprovalRepositoryContract(t *testing.T, repository testBackend) {
 		t.Fatalf("stale pending CAS = %v code=%q", err, StoreErrorCodeOf(err))
 	}
 
-	resolved, err := repository.ResolveApproval(ctx, saved.ID, "approved", "owner approved")
-	if err != nil || resolved.Status != "approved" || resolved.ResolvedAt == nil || resolved.ResolvedAt.Location() != time.UTC || resolved.ResolvedAt.Nanosecond()%1000 != 0 {
+	resolved, err := repository.ResolveApproval(ctx, saved.ID, app.ApprovalStatusApproved, "owner approved")
+	if err != nil || resolved.Status != app.ApprovalStatusApproved || resolved.ResolvedAt == nil || resolved.ResolvedAt.Location() != time.UTC || resolved.ResolvedAt.Nanosecond()%1000 != 0 {
 		t.Fatalf("ResolveApproval = %#v err=%v", resolved, err)
 	}
-	resolutionReplay, err := repository.ResolveApproval(ctx, saved.ID, "approved", "owner approved")
+	resolutionReplay, err := repository.ResolveApproval(ctx, saved.ID, app.ApprovalStatusApproved, "owner approved")
 	if err != nil || !reflect.DeepEqual(resolutionReplay, resolved) {
 		t.Fatalf("resolution replay = %#v err=%v", resolutionReplay, err)
 	}
-	if _, err := repository.ResolveApproval(ctx, saved.ID, "rejected", "different decision"); StoreErrorCodeOf(err) != StoreErrorConflict {
+	if _, err := repository.ResolveApproval(ctx, saved.ID, app.ApprovalStatusRejected, "different decision"); StoreErrorCodeOf(err) != StoreErrorConflict {
 		t.Fatalf("different terminal decision = %v code=%q", err, StoreErrorCodeOf(err))
 	}
 	if _, err := repository.UpdatePendingApproval(ctx, NewApprovalUpdate(updated, updated)); StoreErrorCodeOf(err) != StoreErrorConflict {
@@ -140,7 +140,7 @@ func approvalContractFixture(id, externalID string, created time.Time) app.Appro
 	return app.Approval{
 		ID: id, Source: app.ApprovalSourceHappyTeamPlan, ExternalID: externalID,
 		ExternalContext: &app.ExternalApprovalContext{Provider: "happy-team", Plan: "original plan", PlanAvailability: app.ExternalPlanAvailable},
-		Tool:            "workspace.data.access", Risk: app.RiskRead, Status: "pending", Summary: "approve workspace read", Reason: "contract",
+		Tool:            "workspace.data.access", Risk: app.RiskRead, Status: app.ApprovalStatusPending, Summary: "approve workspace read", Reason: "contract",
 		Resources: []string{"workspace:report.txt"}, Arguments: map[string]any{"nested": map[string]any{"value": "original"}}, CreatedAt: created,
 		PolicyContext: &app.PolicyExecutionContext{SchemaVersion: 1, MCP: &app.MCPInvocationRef{RequesterDeviceID: "device-original"}},
 		Presentation:  &app.ApprovalPresentation{Kind: "workspace", Locators: []app.MessageMediaLocator{{Path: "report.txt"}}},
@@ -250,7 +250,7 @@ func TestPostgresApprovalConcurrentExternalRefAndPendingCAS(t *testing.T) {
 	if successes != 1 || conflicts != 1 {
 		t.Fatalf("external ref outcomes success=%d conflict=%d", successes, conflicts)
 	}
-	items, err := first.ListApprovals(t.Context(), "pending")
+	items, err := first.ListApprovals(t.Context(), app.ApprovalStatusPending)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("concurrent external ref items=%#v err=%v", items, err)
 	}

@@ -172,7 +172,7 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 		t.Fatalf("assistant should synthesize a model final from completed document evidence:\n%s", result.Message.Content)
 	}
 	calls := testListToolCalls(st, session.ID)
-	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != "completed" {
+	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != app.ToolCallStatusCompleted {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
 	if hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
@@ -332,7 +332,7 @@ func TestWorkflowFinalEvidenceUsesDocumentContentWithoutLocatorDuplication(t *te
 	content := strings.Repeat("儿童人工智能教育正文。", 700)
 	evidence := workflowFinalEvidence([]app.ToolCall{{
 		Tool:       "files.read",
-		Status:     "completed",
+		Status:     app.ToolCallStatusCompleted,
 		Capability: app.ToolCapabilityDocumentRead,
 		Arguments:  map[string]any{"path": "uploads/report.docx"},
 		Result: map[string]any{
@@ -354,7 +354,7 @@ func TestWorkflowFinalEvidenceUsesDocumentContentWithoutLocatorDuplication(t *te
 func TestWorkflowFinalEvidenceProjectsScheduleTimeInClientTimezone(t *testing.T) {
 	run := app.AgentRun{ID: "run_schedule", MessageContext: &app.MessageRunContext{ClientTimezone: "America/New_York"}}
 	projection := buildWorkflowFinalEvidenceProjection(run, []app.ToolCall{{
-		ID: "tc_schedule", Tool: "reminders.list", Status: "completed", Capability: app.ToolCapabilityScheduleManage,
+		ID: "tc_schedule", Tool: "reminders.list", Status: app.ToolCallStatusCompleted, Capability: app.ToolCapabilityScheduleManage,
 		Result: map[string]any{"reminders": []map[string]any{{
 			"reminder_id": "reminder-1", "due_time": "2026-08-19T16:00:00Z", "timezone": "Asia/Shanghai",
 		}}},
@@ -524,7 +524,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Tool:        "browser.open",
-		Status:      "completed",
+		Status:      app.ToolCallStatusCompleted,
 		Arguments:   map[string]any{"url": "https://s.zstu.edu.cn"},
 		Result:      map[string]any{"tool": "browser.open", "text": "opened page"},
 		StartedAt:   now,
@@ -536,7 +536,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Tool:      "browser.snapshot",
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"browser_page_ref": "page-1"},
 		Result: map[string]any{
 			"tool": "browser.snapshot",
@@ -585,7 +585,7 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		SessionID:   session.ID,
 		RunID:       run.ID,
 		Tool:        "browser.open",
-		Status:      "completed",
+		Status:      app.ToolCallStatusCompleted,
 		Arguments:   map[string]any{"url": "https://webvpn.example.edu"},
 		Result:      map[string]any{"tool": "browser.open", "text": "opened page"},
 		StartedAt:   now,
@@ -597,7 +597,7 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Tool:      "browser.snapshot",
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"tool": "browser.snapshot",
 			"text": "当前用户 张同学 业务系统 校内办公门户 软件正版化（激活需登录SSLVPN） 电子资源导航",
@@ -637,7 +637,7 @@ func TestBrowserAuthGateInferenceRequiresStrongOrCompoundEvidence(t *testing.T) 
 func TestBrowserAuthAssessmentUsesEvidencePriority(t *testing.T) {
 	profileVerified := app.ToolCall{
 		Tool:   "browser.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"browser_auth_status":     "profile_verified",
 			"auth_challenge_detected": false,
@@ -652,7 +652,7 @@ func TestBrowserAuthAssessmentUsesEvidencePriority(t *testing.T) {
 
 	structuredApp := app.ToolCall{
 		Tool:   "browser.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"browser_page_auth_state":      "authenticated",
 			"browser_page_auth_confidence": "application_continuity",
@@ -668,7 +668,7 @@ func TestBrowserAuthAssessmentUsesEvidencePriority(t *testing.T) {
 
 	structuredUnknown := app.ToolCall{
 		Tool:   "browser.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"browser_page_auth_state":      "unknown",
 			"browser_page_auth_confidence": "insufficient",
@@ -684,7 +684,7 @@ func TestBrowserAuthAssessmentUsesEvidencePriority(t *testing.T) {
 
 	conflicting := app.ToolCall{
 		Tool:   "browser.snapshot",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"text": "退出登录。请登录后查看此页面。",
 		},
@@ -694,7 +694,7 @@ func TestBrowserAuthAssessmentUsesEvidencePriority(t *testing.T) {
 		t.Fatalf("conflicting visible evidence must remain unknown: %#v", assessment)
 	}
 
-	insufficient := app.ToolCall{Tool: "browser.snapshot", Status: "completed", Result: map[string]any{"text": "欢迎访问"}}
+	insufficient := app.ToolCall{Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted, Result: map[string]any{"text": "欢迎访问"}}
 	assessment = assessBrowserAuthentication(insufficient, browserLoginToolFields(insufficient))
 	if assessment.State != browserAuthUnknown || assessment.Confidence != "insufficient" {
 		t.Fatalf("insufficient evidence must not be treated as authenticated: %#v", assessment)
@@ -733,7 +733,7 @@ func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 func TestBrowserSelectedTabTargetReadsNormalizedAgentBrowserPage(t *testing.T) {
 	call := app.ToolCall{
 		Tool:   "browser.list_tabs",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"pages": []any{
 				map[string]any{"page_id": "page_1", "url": "about:blank", "selected": false},
@@ -750,7 +750,7 @@ func TestBrowserSelectedTabTargetReadsNormalizedAgentBrowserPage(t *testing.T) {
 func TestBrowserSelectedTabTargetPrefersLoginBlockPageOverAnotherSelectedTask(t *testing.T) {
 	call := app.ToolCall{
 		Tool:   "browser.list_tabs",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{
 			"pages": []any{
 				map[string]any{"page_id": "page_2", "url": "https://webvpn.example.edu/home", "selected": false},
@@ -829,7 +829,7 @@ func TestToolResultAdapterKeepsCausalFieldsWhenTruncated(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_large",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "huge.txt",
 		},
@@ -854,7 +854,7 @@ func TestToolResultAdapterKeepsCausalFieldsWhenTruncated(t *testing.T) {
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.ToolCallID != "tc_large" || decoded.Tool != "files.read" || decoded.Status != "completed" || !decoded.Untrusted {
+	if decoded.ToolCallID != "tc_large" || decoded.Tool != "files.read" || decoded.Status != app.ToolCallStatusCompleted || !decoded.Untrusted {
 		t.Fatalf("causal fields were not preserved: %#v", decoded)
 	}
 	if decoded.Structured["path"] != nil || decoded.Structured["artifact_uri"] != call.ObservationRef {
@@ -878,7 +878,7 @@ func TestToolResultAdapterMinimalFallbackIsVisible(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_minimal",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "huge.txt",
 		},
@@ -900,7 +900,7 @@ func TestToolResultAdapterKeepsDocumentReadEvidence(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_docx",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/sample.docx",
 		},
@@ -971,7 +971,7 @@ func TestToolResultAdapterKeepsDocumentAnchorsNearHeadings(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_docx_heading",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/report.docx",
 		},
@@ -1051,7 +1051,7 @@ func TestCompactWorkflowStepPromptKeepsCurrentDocumentOperationContext(t *testin
 	call := app.ToolCall{
 		ID:     "tc_docx_late_target",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/report.docx",
 		},
@@ -1146,7 +1146,7 @@ func TestToolResultAdapterOmitsRuntimeOwnedPathForFileRead(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_read",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/sample.docx",
 		},
@@ -1180,7 +1180,7 @@ func TestToolResultAdapterSeparatesSourceAndMessageTruncation(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_large_small_doc",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/small.docx",
 		},
@@ -1252,7 +1252,7 @@ func TestToolResultAdapterSeparatesSourceAndMessageTruncation(t *testing.T) {
 }
 
 func TestToolResultAdapterProjectsBoundedStructuredInfoEvidence(t *testing.T) {
-	call := app.ToolCall{ID: "tc_web", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "榆林学院 榆林大学"}}
+	call := app.ToolCall{ID: "tc_web", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "榆林学院 榆林大学"}}
 	output := map[string]any{
 		"schema_version": websearch.InfoResultSchemaVersion,
 		"request_id":     "info-request-adapter",
@@ -1298,7 +1298,7 @@ func TestToolResultAdapterProjectsBoundedStructuredInfoEvidence(t *testing.T) {
 
 func TestGroundedWebSearchDeterministicallyRendersInfoAggregate(t *testing.T) {
 	call := app.ToolCall{
-		ID: "tc_gold", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "今日金价"},
+		ID: "tc_gold", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "今日金价"},
 		Result: map[string]any{
 			"schema_version": websearch.InfoResultSchemaVersion, "request_id": "req-gold", "status": "ok",
 			"query": "今日金价", "provider": websearch.InfoProviderName, "untrusted": true,
@@ -1323,7 +1323,7 @@ func TestGroundedWebSearchDeterministicallyRendersInfoAggregate(t *testing.T) {
 
 func TestGroundedWebSearchRendersConflictsLimitationsAndLinklessCitations(t *testing.T) {
 	call := app.ToolCall{
-		ID: "tc_conflict", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "发布日期"},
+		ID: "tc_conflict", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "发布日期"},
 		Result: map[string]any{
 			"schema_version": websearch.InfoResultSchemaVersion, "request_id": "req-conflict", "status": "ok",
 			"query": "发布日期", "provider": websearch.InfoProviderName, "untrusted": true,
@@ -1353,7 +1353,7 @@ func TestGroundedWebSearchRendersConflictsLimitationsAndLinklessCitations(t *tes
 
 func TestWebSearchOutcomeUsesTypedAggregateInsteadOfLegacyTopLevelFields(t *testing.T) {
 	call := app.ToolCall{
-		ID: "tc_outcome", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "typed query"},
+		ID: "tc_outcome", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "typed query"},
 		Result: map[string]any{
 			"schema_version": websearch.InfoResultSchemaVersion, "request_id": "req-outcome", "status": "ok",
 			"query": "typed query", "provider": websearch.InfoProviderName, "untrusted": true,
@@ -1379,7 +1379,7 @@ func TestWebSearchOutcomeUsesTypedAggregateInsteadOfLegacyTopLevelFields(t *test
 
 func TestWebSearchOutcomeDoesNotClassifyInvalidAggregateAsNoResults(t *testing.T) {
 	call := app.ToolCall{
-		ID: "tc_invalid_outcome", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "frozen query"},
+		ID: "tc_invalid_outcome", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "frozen query"},
 		Result: map[string]any{
 			"schema_version": websearch.InfoResultSchemaVersion, "request_id": "req-invalid", "status": "ok",
 			"query": "rewritten query", "provider": websearch.InfoProviderName, "untrusted": true,
@@ -1424,7 +1424,7 @@ func TestInfoRendererSanitizesSourceIDFallback(t *testing.T) {
 }
 
 func TestToolResultAdapterFailsProjectionWhenFrozenQueryDiffers(t *testing.T) {
-	call := app.ToolCall{ID: "tc_web_mismatch", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "frozen route query"}}
+	call := app.ToolCall{ID: "tc_web_mismatch", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "frozen route query"}}
 	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{
 		"schema_version": websearch.InfoResultSchemaVersion, "request_id": "info-request-mismatch", "status": "ok",
 		"query": "model rewritten query", "provider": "infinimesh-info", "untrusted": true,
@@ -1441,7 +1441,7 @@ func TestToolResultAdapterFailsProjectionWhenFrozenQueryDiffers(t *testing.T) {
 }
 
 func TestDocumentEditOutcomeProjectsEveryTypedOutputResource(t *testing.T) {
-	call := app.ToolCall{ID: "tc_split", Tool: "pdf.transform", Status: "completed", Result: map[string]any{
+	call := app.ToolCall{ID: "tc_split", Tool: "pdf.transform", Status: app.ToolCallStatusCompleted, Result: map[string]any{
 		"output_path": "outputs/split-page-1.pdf",
 		"outputs":     []string{"outputs/split-page-1.pdf", "outputs/split-page-2.pdf"},
 	}}
@@ -1453,7 +1453,7 @@ func TestDocumentEditOutcomeProjectsEveryTypedOutputResource(t *testing.T) {
 }
 
 func TestToolResultAdapterDoesNotFallbackForNonInfoWebSearchOutput(t *testing.T) {
-	call := app.ToolCall{ID: "tc_web_provider", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "frozen route query"}}
+	call := app.ToolCall{ID: "tc_web_provider", Tool: "web.search", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"query": "frozen route query"}}
 	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{
 		"request_id": "legacy-request", "query": "frozen route query", "provider": "free-form-provider",
 		"answer": "LEGACY-ANSWER-MUST-NOT-BYPASS-INFO-PROJECTION", "results": []any{}, "untrusted": true,
@@ -1468,7 +1468,7 @@ func TestToolResultAdapterDoesNotFallbackForNonInfoWebSearchOutput(t *testing.T)
 }
 
 func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
-	call := app.ToolCall{ID: "tc_read", Tool: "browser.read", Status: "completed"}
+	call := app.ToolCall{ID: "tc_read", Tool: "browser.read", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"url":                        "https://example.com/start",
 		"final_url":                  "https://example.com/final",
@@ -1508,7 +1508,7 @@ func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
 }
 
 func TestToolResultAdapterCompactsRichBrowserReadWithoutDroppingContent(t *testing.T) {
-	call := app.ToolCall{ID: "tc_rich_read", Tool: "browser.read", Status: "completed"}
+	call := app.ToolCall{ID: "tc_rich_read", Tool: "browser.read", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"url": "https://example.com/article", "final_url": "https://example.com/article",
 		"title": "Rendered article", "status_code": 0, "truncated": false,
@@ -1547,7 +1547,7 @@ func TestToolResultAdapterCompactsRichBrowserReadWithoutDroppingContent(t *testi
 func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.T) {
 	nameRef := "snapshot_7:e1:name"
 	topicRef := "snapshot_7:e2:topic"
-	call := app.ToolCall{ID: "tc_rich_snapshot", Tool: "browser.snapshot", Status: "completed"}
+	call := app.ToolCall{ID: "tc_rich_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"browser_mode": "autonomous", "presentation": "hidden", "surface_visible": false,
 		"provider": "agent-browser-headless", "owner_id": "owner", "page_id": "page_7",
@@ -1591,7 +1591,7 @@ func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.
 }
 
 func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
-	call := app.ToolCall{ID: "tc_open", Tool: "browser.open", Status: "completed"}
+	call := app.ToolCall{ID: "tc_open", Tool: "browser.open", Status: app.ToolCallStatusCompleted}
 	output := browserautomation.Result{
 		Tool:    "browser.open",
 		RawTool: "agent_browser_tab_new",
@@ -1621,7 +1621,7 @@ func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
 }
 
 func TestToolResultAdapterProjectsDocumentMutationSideEffect(t *testing.T) {
-	call := app.ToolCall{ID: "tc_docx_edit", Tool: "docx.replace_paragraph", Status: "completed"}
+	call := app.ToolCall{ID: "tc_docx_edit", Tool: "docx.replace_paragraph", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"status":          "docx_version_written",
 		"operation":       "replace_paragraph",
@@ -1656,7 +1656,7 @@ func TestToolResultAdapterKeepsChineseEvidenceWithinByteLimit(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_docx_cn",
 		Tool:   "files.read",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/network.docx",
 		},
@@ -1708,7 +1708,7 @@ func TestToolResultAdapterKeepsBrowserSnapshotEvidence(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_snapshot",
 		Tool:   "browser.snapshot",
-		Status: "completed",
+		Status: app.ToolCallStatusCompleted,
 	}
 	output := map[string]any{
 		"tool":     "browser.snapshot",
@@ -1743,7 +1743,7 @@ func TestToolResultAdapterKeepsBrowserSnapshotEvidence(t *testing.T) {
 }
 
 func TestToolResultAdapterKeepsGenericResultEvidence(t *testing.T) {
-	call := app.ToolCall{ID: "tc_generic", Tool: "custom.lookup", Status: "completed"}
+	call := app.ToolCall{ID: "tc_generic", Tool: "custom.lookup", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"items": []any{
 			map[string]any{"name": "alpha", "value": "first result"},
@@ -1764,8 +1764,8 @@ func TestToolResultAdapterKeepsGenericResultEvidence(t *testing.T) {
 
 func TestToolResultMessagesStayInCausalOrder(t *testing.T) {
 	observations := []string{
-		adaptToolResult(toolResultAdapterInput{Call: app.ToolCall{ID: "tc_a", Tool: "files.search", Status: "completed"}, Output: map[string]any{"query": "alpha", "count": 1}}),
-		adaptToolResult(toolResultAdapterInput{Call: app.ToolCall{ID: "tc_b", Tool: "files.read", Status: "completed"}, Output: map[string]any{"path": "alpha.txt", "content": "alpha body"}}),
+		adaptToolResult(toolResultAdapterInput{Call: app.ToolCall{ID: "tc_a", Tool: "files.search", Status: app.ToolCallStatusCompleted}, Output: map[string]any{"query": "alpha", "count": 1}}),
+		adaptToolResult(toolResultAdapterInput{Call: app.ToolCall{ID: "tc_b", Tool: "files.read", Status: app.ToolCallStatusCompleted}, Output: map[string]any{"path": "alpha.txt", "content": "alpha body"}}),
 	}
 	prompt := workflowStepUserPrompt("read alpha", 3, observations)
 	first := strings.Index(prompt, `"tool_call_id":"tc_a"`)
@@ -1921,7 +1921,7 @@ func TestObservationContextSeparatesSourceAndMessageState(t *testing.T) {
 		Role:       "tool",
 		ToolCallID: "tc_read",
 		Tool:       "files.read",
-		Status:     "completed",
+		Status:     app.ToolCallStatusCompleted,
 		Category:   "file",
 		Untrusted:  true,
 		Summary:    "files.read completed path=\"uploads/small.docx\" kind=docx truncated=false",
@@ -1988,7 +1988,7 @@ func TestObservationContextDoesNotReplayUnparseableLegacyLocatorText(t *testing.
 	context := formatContextToolResults([]app.ToolCall{{
 		ID:                 "tc_legacy_read",
 		Tool:               "files.read",
-		Status:             "completed",
+		Status:             app.ToolCallStatusCompleted,
 		ObservationSummary: `files.read completed path="uploads/private.docx" source_hash=sha256:private`,
 	}})
 	if !strings.Contains(context, "legacy result retained in Runtime") || strings.Contains(context, "uploads/private.docx") || strings.Contains(context, "sha256:private") {
@@ -1998,7 +1998,7 @@ func TestObservationContextDoesNotReplayUnparseableLegacyLocatorText(t *testing.
 
 func TestObservationContextDoesNotRewriteRestrictedFailureAsCompleted(t *testing.T) {
 	message := toolResultMessage{
-		Tool: "browser.navigate", Status: "failed", Summary: "browser.navigate failed for https://private.example",
+		Tool: "browser.navigate", Status: app.ToolCallStatusFailed, Summary: "browser.navigate failed for https://private.example",
 		Structured: map[string]any{"url": "https://private.example", "error": "navigation failed"},
 	}
 	raw, err := json.Marshal(message)
@@ -2006,7 +2006,7 @@ func TestObservationContextDoesNotRewriteRestrictedFailureAsCompleted(t *testing
 		t.Fatal(err)
 	}
 	context := formatContextToolResults([]app.ToolCall{{
-		ID: "tc_failed_navigation", Tool: "browser.navigate", Status: "failed", ObservationSummary: string(raw),
+		ID: "tc_failed_navigation", Tool: "browser.navigate", Status: app.ToolCallStatusFailed, ObservationSummary: string(raw),
 	}})
 	if !strings.Contains(context, "summary=browser.navigate failed") || strings.Contains(context, "browser.navigate completed") || strings.Contains(context, "https://private.example") {
 		t.Fatalf("restricted failure was mislabeled or leaked locator text:\n%s", context)
@@ -2017,7 +2017,7 @@ func TestToolResultAdapterReportsFailures(t *testing.T) {
 	call := app.ToolCall{
 		ID:        "tc_failed",
 		Tool:      "pdf.transform",
-		Status:    "failed",
+		Status:    app.ToolCallStatusFailed,
 		Arguments: map[string]any{"path": "missing.pdf"},
 		Error:     "file does not exist",
 	}
@@ -2026,7 +2026,7 @@ func TestToolResultAdapterReportsFailures(t *testing.T) {
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result failure message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.Status != "failed" || decoded.Structured["error"] != call.Error {
+	if decoded.Status != app.ToolCallStatusFailed || decoded.Structured["error"] != call.Error {
 		t.Fatalf("failure was not preserved: %#v", decoded)
 	}
 }
@@ -2043,7 +2043,7 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 		RunID:     "run_previous",
 		Tool:      "files.read",
 		Risk:      app.RiskRead,
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/20260629/example.xlsx",
 		},
@@ -2113,7 +2113,7 @@ func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 		RunID:     "run_previous",
 		Tool:      "files.read",
 		Risk:      app.RiskRead,
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Arguments: map[string]any{
 			"path": "uploads/example.docx",
 		},
@@ -2263,7 +2263,7 @@ func TestRunBudgetSurvivesStageBoundaries(t *testing.T) {
 	runBudget.MaxToolCalls = 16
 	call := app.ToolCall{
 		Tool:      "browser.read",
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"url": "https://example.test/same"},
 		Result:    map[string]any{"status_code": 200, "text": "same page body"},
 	}
@@ -2289,7 +2289,7 @@ func TestRunBudgetStopsAtRunToolCallCap(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		runBudget.observeToolCall(app.ToolCall{
 			Tool:      "files.read",
-			Status:    "completed",
+			Status:    app.ToolCallStatusCompleted,
 			Arguments: map[string]any{"path": fmt.Sprintf("note-%d.txt", i)},
 		})
 	}
@@ -2306,7 +2306,7 @@ func TestRunBudgetReplaysSeedCallsOnResume(t *testing.T) {
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	seed := app.ToolCall{
 		Tool:      "browser.read",
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"url": "https://example.test/same"},
 		Result:    map[string]any{"status_code": 200, "text": "same page body"},
 	}
@@ -2348,7 +2348,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	if err := json.Unmarshal([]byte(calls[0].ObservationSummary), &adapted); err != nil {
 		t.Fatalf("summary should be valid adapted tool result JSON: %v\n%s", err, calls[0].ObservationSummary)
 	}
-	if adapted.ToolCallID != calls[0].ID || adapted.Tool != "files.read" || adapted.Status != "completed" || !adapted.Untrusted {
+	if adapted.ToolCallID != calls[0].ID || adapted.Tool != "files.read" || adapted.Status != app.ToolCallStatusCompleted || !adapted.Untrusted {
 		t.Fatalf("summary missing stable causal fields: %#v", adapted)
 	}
 	if !strings.Contains(adapted.Summary, "Observation bytes=") && adapted.Structured["truncated"] != true {
@@ -2472,7 +2472,7 @@ func TestGroundedShellSummaryFromToolCalls(t *testing.T) {
 	shellCall := app.ToolCall{
 		ID:        "tc_shell",
 		Tool:      "shell.exec_sandboxed",
-		Status:    "completed_after_approval",
+		Status:    app.ToolCallStatusCompletedAfterApproval,
 		Arguments: map[string]any{"command": "go test ./..."},
 		Result: map[string]any{
 			"status":  "completed",
@@ -2545,7 +2545,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		RunID:       run.ID,
 		Tool:        "files.read",
 		Risk:        app.RiskRead,
-		Status:      "completed",
+		Status:      app.ToolCallStatusCompleted,
 		Arguments:   map[string]any{"path": "uploads/test.docx"},
 		Result:      map[string]any{"path": "uploads/test.docx", "content": "first\nsecond"},
 		StartedAt:   now.Add(time.Millisecond),
@@ -2559,7 +2559,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		RunID:       run.ID,
 		Tool:        "docx.replace_paragraph",
 		Risk:        app.RiskReversible,
-		Status:      "completed_after_approval",
+		Status:      app.ToolCallStatusCompletedAfterApproval,
 		Arguments:   map[string]any{"path": "uploads/test.docx", "paragraph_index": 2, "text": "expanded", "output_path": "outputs/test-expanded.docx"},
 		Result:      map[string]any{"status": "docx_version_written", "path": "uploads/test.docx", "paragraph_index": 2, "output_path": "outputs/test-expanded.docx", "bytes": 1024},
 		StartedAt:   now.Add(time.Second),
@@ -2572,7 +2572,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		RunID:      run.ID,
 		Tool:       "docx.replace_paragraph",
 		Risk:       app.RiskReversible,
-		Status:     "approved",
+		Status:     app.ApprovalStatusApproved,
 		Summary:    "Approve docx.replace_paragraph",
 		Arguments:  map[string]any{"path": "uploads/test.docx"},
 		CreatedAt:  now,
@@ -2980,7 +2980,7 @@ func (a *loginBlockBrowserAdapter) identity(args map[string]any) (uint64, string
 	}
 }
 
-func hasToolCallStatus(calls []app.ToolCall, tool, status string) bool {
+func hasToolCallStatus(calls []app.ToolCall, tool string, status app.ToolCallStatus) bool {
 	for _, call := range calls {
 		if call.Tool == tool && call.Status == status {
 			return true
@@ -3288,7 +3288,7 @@ func TestAgentContextKeepsDocumentOperationContextInToolMemory(t *testing.T) {
 	message := toolResultMessage{
 		Role:      "tool",
 		Tool:      "files.read",
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Category:  "file",
 		Untrusted: true,
 		Summary:   `files.read completed read_complete=true truncated=false`,
@@ -3311,7 +3311,7 @@ func TestAgentContextKeepsDocumentOperationContextInToolMemory(t *testing.T) {
 	context := formatContextToolResults([]app.ToolCall{{
 		ID:                 "tc_doc",
 		Tool:               "files.read",
-		Status:             "completed",
+		Status:             app.ToolCallStatusCompleted,
 		ObservationSummary: string(raw),
 	}})
 	if !strings.Contains(context, "document.operation_context") ||
@@ -3510,7 +3510,7 @@ func TestGroundedFileReadSummaryPrefersModelSummaryForMainContent(t *testing.T) 
 		[]app.ToolCall{{
 			ID:     "tc_read",
 			Tool:   "files.read",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"path":    "uploads/example.docx",
 				"content": "计算机网络是把分散的计算机连接起来的系统。\n它包含 TCP/IP、HTTP、DNS 等协议。\n分层模型让通信过程更清晰。",
@@ -3539,7 +3539,7 @@ func TestGroundedFileReadSummaryFailsWhenFinalIsMissing(t *testing.T) {
 		[]app.ToolCall{{
 			ID:     "tc_read",
 			Tool:   "files.read",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"path":      "uploads/example.docx",
 				"content":   "第一行\n第二行\n第三行\n第四行\n第五行\n第六行",
@@ -3571,7 +3571,7 @@ func TestGroundedSummaryDoesNotOverrideModelFinalForFileContentKeyword(t *testin
 		[]app.ToolCall{{
 			ID:     "tc_read",
 			Tool:   "files.read",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"path":    "uploads/example.docx",
 				"content": "《软件测试和质量管理》实验报告 实验4\n学号：2023337621080\n姓名：张峻松\n实验内容：功能测试",
@@ -3591,7 +3591,7 @@ func TestGroundedSummaryModificationFailureDoesNotExposeReadExtract(t *testing.T
 	got := groundedSummary("把 xlsx 文件中的最后一行删掉", "", []app.ToolCall{
 		{
 			Tool:   "files.read",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"path":    "uploads/test.xlsx",
 				"content": "Item\tValue\tStatus\nChinese note\t这是一个用于测试上传和读取的 Excel 文件。\tReady",
@@ -3600,7 +3600,7 @@ func TestGroundedSummaryModificationFailureDoesNotExposeReadExtract(t *testing.T
 		},
 		{
 			Tool:   "office.replace_text",
-			Status: "failed_after_approval",
+			Status: app.ToolCallStatusFailedAfterApproval,
 			Error:  "find text was not matched",
 		},
 	})
@@ -3616,7 +3616,7 @@ func TestGroundedSummaryDocumentMutationDoesNotExposeReadExtract(t *testing.T) {
 	got := groundedSummary("把这个 docx 第一段写得更详细一些", "", []app.ToolCall{
 		{
 			Tool:   "files.read",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"path":    "uploads/test.docx",
 				"content": "Old first paragraph\nSecond paragraph",
@@ -3625,7 +3625,7 @@ func TestGroundedSummaryDocumentMutationDoesNotExposeReadExtract(t *testing.T) {
 		},
 		{
 			Tool:   "docx.replace_paragraph",
-			Status: "completed_after_approval",
+			Status: app.ToolCallStatusCompletedAfterApproval,
 			Result: map[string]any{
 				"status":          "docx_version_written",
 				"path":            "uploads/test.docx",
@@ -3646,7 +3646,7 @@ func TestGroundedSummaryDocumentMutationDoesNotExposeReadExtract(t *testing.T) {
 func TestGroundedSummaryPlainTextMutationReturnsOutputCopy(t *testing.T) {
 	got := groundedSummary("Replace Alpha with Beta in note.md", "", []app.ToolCall{{
 		Tool:   "text.replace_text",
-		Status: "completed_after_approval",
+		Status: app.ToolCallStatusCompletedAfterApproval,
 		Result: map[string]any{
 			"status": "text_version_written", "path": "note.md", "output_path": "note-sparkclaw-edit.md", "replacements": 1,
 		},
@@ -3660,7 +3660,7 @@ func TestGroundedSummaryDocumentMutationKeepsOutputPathAfterVerification(t *test
 	got := groundedSummary("把这个 docx 第一段写得更详细一些", "", []app.ToolCall{
 		{
 			Tool:   "docx.replace_paragraph",
-			Status: "completed_after_approval",
+			Status: app.ToolCallStatusCompletedAfterApproval,
 			Result: map[string]any{
 				"status":          "docx_version_written",
 				"path":            "uploads/test.docx",
@@ -3671,7 +3671,7 @@ func TestGroundedSummaryDocumentMutationKeepsOutputPathAfterVerification(t *test
 		},
 		{
 			Tool:   "files.read",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Arguments: map[string]any{
 				"path": "outputs/test-expanded.docx",
 			},
@@ -3691,12 +3691,12 @@ func TestGroundedSummaryPrefersLaterDocumentMutationSuccessOverEarlierFailure(t 
 	got := groundedSummary("新建一张幻灯片", "", []app.ToolCall{
 		{
 			Tool:   "pptx.add_slide",
-			Status: "failed_after_approval",
+			Status: app.ToolCallStatusFailedAfterApproval,
 			Error:  "Package not found",
 		},
 		{
 			Tool:   "pptx.add_slide",
-			Status: "completed_after_approval",
+			Status: app.ToolCallStatusCompletedAfterApproval,
 			Result: map[string]any{
 				"status":      "pptx_version_written",
 				"path":        "deck.pptx",
@@ -3718,13 +3718,13 @@ func TestRepeatedFailedToolCallStopsSameArguments(t *testing.T) {
 	calls := []app.ToolCall{
 		{
 			Tool:      "images.inspect",
-			Status:    "failed",
+			Status:    app.ToolCallStatusFailed,
 			Arguments: map[string]any{"path": "uploads/a.jpg", "question": "这是什么"},
 			Error:     "context deadline exceeded",
 		},
 		{
 			Tool:      "images.inspect",
-			Status:    "failed",
+			Status:    app.ToolCallStatusFailed,
 			Arguments: map[string]any{"path": "uploads/a.jpg", "question": "这是什么"},
 			Error:     "context deadline exceeded",
 		},
@@ -3743,7 +3743,7 @@ func TestRepeatedToolBudgetRequiresSameArgumentsAndResult(t *testing.T) {
 	for _, call := range []app.ToolCall{
 		{
 			Tool:      "browser.read",
-			Status:    "completed",
+			Status:    app.ToolCallStatusCompleted,
 			Arguments: map[string]any{"url": "https://example.test/a"},
 			Result: map[string]any{
 				"status_code": 404,
@@ -3752,7 +3752,7 @@ func TestRepeatedToolBudgetRequiresSameArgumentsAndResult(t *testing.T) {
 		},
 		{
 			Tool:      "browser.read",
-			Status:    "completed",
+			Status:    app.ToolCallStatusCompleted,
 			Arguments: map[string]any{"url": "https://example.test/b"},
 			Result: map[string]any{
 				"status_code": 404,
@@ -3761,7 +3761,7 @@ func TestRepeatedToolBudgetRequiresSameArgumentsAndResult(t *testing.T) {
 		},
 		{
 			Tool:      "browser.read",
-			Status:    "completed",
+			Status:    app.ToolCallStatusCompleted,
 			Arguments: map[string]any{"url": "https://example.test/c"},
 			Result: map[string]any{
 				"status_code": 404,
@@ -3785,7 +3785,7 @@ func TestRepeatedToolBudgetAccumulatesStableIdenticalResults(t *testing.T) {
 	} {
 		run = advanceRepeatedToolCallRun(run, app.ToolCall{
 			Tool:      "browser.read",
-			Status:    "completed",
+			Status:    app.ToolCallStatusCompleted,
 			Arguments: map[string]any{"url": "https://example.test/same"},
 			Result: map[string]any{
 				"fetched_at":   fetchedAt,
@@ -3801,7 +3801,7 @@ func TestRepeatedToolBudgetAccumulatesStableIdenticalResults(t *testing.T) {
 
 	run = advanceRepeatedToolCallRun(run, app.ToolCall{
 		Tool:      "browser.read",
-		Status:    "completed",
+		Status:    app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"url": "https://example.test/same"},
 		Result: map[string]any{
 			"status_code": 200,
@@ -3817,7 +3817,7 @@ func TestGroundedSummaryUsesCompletedImageInspection(t *testing.T) {
 	got := groundedSummary("这张图讲了什么", "", []app.ToolCall{
 		{
 			Tool:   "images.inspect",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"summary": "这是一张微信聊天列表截图，包含多个会话和未读消息。",
 			},
@@ -3832,7 +3832,7 @@ func TestGroundedSummaryWeatherCardUsesNeutralCompletionText(t *testing.T) {
 	got := groundedSummary("杭州天气怎么样", "", []app.ToolCall{
 		{
 			Tool:   "media.render_weather_card",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"media_path":   "media/20260702/weather_card_test.png",
 				"content_type": "image/png",
@@ -3849,7 +3849,7 @@ func TestGroundedSummaryPreservesModelWeatherFinal(t *testing.T) {
 	got := groundedSummary("杭州天气怎么样", "杭州今天多云，气温 20 度。", []app.ToolCall{
 		{
 			Tool:   "media.render_weather_card",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"media_path": "media/20260702/weather_card_test.png",
 			},
@@ -3864,12 +3864,12 @@ func TestGroundedSummaryWeatherCardSuccessOverridesEarlierGuardFailure(t *testin
 	got := groundedSummary("杭州天气怎么样", "任务没有完成。", []app.ToolCall{
 		{
 			Tool:   "media.render_weather_card",
-			Status: "failed",
+			Status: app.ToolCallStatusFailed,
 			Error:  "temporary render failure",
 		},
 		{
 			Tool:   "media.render_weather_card",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"media_path": "media/20260703/weather_card_fixed.png",
 			},
@@ -3884,7 +3884,7 @@ func TestGroundedSummaryWeatherCardFailureShowsInfoError(t *testing.T) {
 	got := groundedSummary("杭州天气怎么样", "", []app.ToolCall{
 		{
 			Tool:   "media.render_weather_card",
-			Status: "failed",
+			Status: app.ToolCallStatusFailed,
 			Error:  `bound Info weather evidence failed validation for location "杭州"`,
 		},
 	})
@@ -3897,7 +3897,7 @@ func TestImageInspectFinalizationDoesNotOverrideExternalVerificationNeed(t *test
 	got := groundedSummary("这张图里的新闻是真的吗，帮我查证", "fallback", []app.ToolCall{
 		{
 			Tool:   "images.inspect",
-			Status: "completed",
+			Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"summary": "图片里显示一条新闻标题。",
 			},
@@ -3922,8 +3922,8 @@ func TestImageInspectCanFinalizeLowRiskImageOnlyQuestion(t *testing.T) {
 
 func TestRepeatedCompletedToolCallStopsSameArguments(t *testing.T) {
 	calls := []app.ToolCall{
-		{Tool: "images.inspect", Status: "completed", Arguments: map[string]any{"path": "uploads/a.jpg"}},
-		{Tool: "images.inspect", Status: "completed", Arguments: map[string]any{"path": "uploads/a.jpg"}},
+		{Tool: "images.inspect", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"path": "uploads/a.jpg"}},
+		{Tool: "images.inspect", Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"path": "uploads/a.jpg"}},
 	}
 	if !repeatedCompletedToolCall(calls, 2) {
 		t.Fatalf("expected repeated completed image inspection to stop")

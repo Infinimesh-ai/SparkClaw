@@ -126,7 +126,7 @@ func TestWeatherTransitionInstructionOnlyRendersBoundTypedPayload(t *testing.T) 
 
 func TestWeatherPayloadOutcomeRequiresDedicatedTypedBoundary(t *testing.T) {
 	valid := adaptWeatherPayloadWorkflowOutcome(app.ToolCall{
-		ID: "tc_weather", Tool: "weather.lookup", Status: "completed",
+		ID: "tc_weather", Tool: "weather.lookup", Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{"schema_version": toolhub.WeatherPayloadSchemaVersion, "request_id": "request", "location": "杭州"},
 	}, "weather")
 	if !containsOutcomeSignal(valid.Signals, app.OutcomeSignalWeatherPayloadAvailable) ||
@@ -139,7 +139,7 @@ func TestWeatherPayloadOutcomeRequiresDedicatedTypedBoundary(t *testing.T) {
 		{"schema_version": toolhub.WeatherPayloadSchemaVersion, "request_id": "request"},
 	} {
 		outcome := adaptWeatherPayloadWorkflowOutcome(app.ToolCall{
-			ID: "tc_invalid", Tool: "weather.lookup", Status: "completed", Result: result,
+			ID: "tc_invalid", Tool: "weather.lookup", Status: app.ToolCallStatusCompleted, Result: result,
 		}, "weather")
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalWeatherPayloadAvailable) {
 			t.Fatalf("incomplete weather payload advanced the workflow: %#v", outcome)

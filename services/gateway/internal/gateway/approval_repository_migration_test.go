@@ -23,7 +23,7 @@ type approvalListFaultStore struct {
 	err error
 }
 
-func (s approvalListFaultStore) ListApprovals(context.Context, string) ([]app.Approval, error) {
+func (s approvalListFaultStore) ListApprovals(context.Context, app.ApprovalStatus) ([]app.Approval, error) {
 	return nil, s.err
 }
 

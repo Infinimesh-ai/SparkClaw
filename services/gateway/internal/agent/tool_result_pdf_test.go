@@ -99,7 +99,7 @@ func pdfCoverageToolCall(status, content string, complete bool) app.ToolCall {
 		counts = map[string]any{"native": float64(1), "ocr_failed": float64(1)}
 	}
 	return app.ToolCall{
-		ID: "tc_pdf", Tool: "pdf.extract_text", Status: "completed", Capability: app.ToolCapabilityDocumentRead,
+		ID: "tc_pdf", Tool: "pdf.extract_text", Status: app.ToolCallStatusCompleted, Capability: app.ToolCapabilityDocumentRead,
 		Arguments: map[string]any{"path": "report.pdf"},
 		Result: map[string]any{
 			"path": "report.pdf", "content": content, "truncated": false, "read_complete": complete,

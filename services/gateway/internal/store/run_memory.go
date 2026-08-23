@@ -219,11 +219,11 @@ func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.
 		return app.ToolCall{}, err
 	}
 	s.toolCalls[call.ID] = call
-	s.appendAuditLocked("tool_call."+call.Status, call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
+	s.appendAuditLocked("tool_call."+string(call.Status), call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
 	})
-	s.appendEventLocked("tool_call."+call.Status, call.SessionID, call.RunID, call)
+	s.appendEventLocked("tool_call."+string(call.Status), call.SessionID, call.RunID, call)
 	return cloneToolCall(call)
 }
 

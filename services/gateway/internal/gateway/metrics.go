@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +73,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	pendingApprovals := 0
 	rateLimited := 0
 	for _, approval := range approvals {
-		if approval.Status == "pending" {
+		if approval.Status == app.ApprovalStatusPending {
 			pendingApprovals++
 		}
 	}

@@ -111,7 +111,7 @@ func (h *ToolHub) latestStructuredWebSearch(ctx context.Context, sessionID, runI
 	}
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
-		if call.RunID != runID || call.Tool != "web.search" || (call.Status != "completed" && call.Status != "completed_after_approval") {
+		if call.RunID != runID || call.Tool != "web.search" || (call.Status != app.ToolCallStatusCompleted && call.Status != app.ToolCallStatusCompletedAfterApproval) {
 			continue
 		}
 		output, ok := browserInteractionMap(call.Result)

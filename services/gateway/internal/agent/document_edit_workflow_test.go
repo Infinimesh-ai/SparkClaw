@@ -84,7 +84,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if editApproval == nil || editCall.Status != "approval_pending" {
+	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("text edit did not enter recoverable approval: call=%#v approval=%#v", editCall, editApproval)
 	}
 	if editCall.Arguments["path"] != "notes.md" || editCall.Arguments["output_path"] != "notes-sparkclaw-edit.md" ||
@@ -99,12 +99,12 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	testSaveRun(st, storedRun)
 	testSaveModelCall(st, app.ModelCall{ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC()})
 
-	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "owner approved document copy")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, app.ApprovalStatusApproved, "owner approved document copy")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "completed_after_approval" {
+	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("approved text edit did not execute: call=%#v err=%v", executed, err)
 	}
 	result, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, storedRun.ID)
@@ -195,9 +195,9 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"pat
 		locate.LastAssessment == nil || locate.LastAssessment.ReasonCode != "document_evidence_located" {
 		t.Fatalf("direct document read did not complete the locate node: %#v", locate)
 	}
-	if len(result.ToolCalls) != 2 || result.ToolCalls[0].Tool != "files.read" || result.ToolCalls[0].Status != "completed" ||
+	if len(result.ToolCalls) != 2 || result.ToolCalls[0].Tool != "files.read" || result.ToolCalls[0].Status != app.ToolCallStatusCompleted ||
 		result.ToolCalls[0].Arguments["path"] != "notes.md" ||
-		result.ToolCalls[1].Tool != "text.replace_text" || result.ToolCalls[1].Status != "approval_pending" {
+		result.ToolCalls[1].Tool != "text.replace_text" || result.ToolCalls[1].Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("document edit did not run one bound read before the editor: %#v", result.ToolCalls)
 	}
 	modelCalls := testListModelCalls(st, session.ID, dispatch.Run.ID)

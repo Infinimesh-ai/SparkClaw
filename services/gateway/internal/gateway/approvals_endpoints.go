@@ -16,7 +16,7 @@ import (
 )
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	approvals, err := s.store.ListApprovals(r.Context(), r.URL.Query().Get("status"))
+	approvals, err := s.store.ListApprovals(r.Context(), app.ApprovalStatus(r.URL.Query().Get("status")))
 	if err != nil {
 		writeApprovalStoreError(w, err)
 		return
@@ -72,11 +72,11 @@ func (s *Server) approvalPresentation(ctx context.Context, approval app.Approval
 }
 
 func (s *Server) approveApproval(w http.ResponseWriter, r *http.Request) {
-	s.resolveApproval(w, r, "approved")
+	s.resolveApproval(w, r, app.ApprovalStatusApproved)
 }
 
 func (s *Server) rejectApproval(w http.ResponseWriter, r *http.Request) {
-	s.resolveApproval(w, r, "rejected")
+	s.resolveApproval(w, r, app.ApprovalStatusRejected)
 }
 
 func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,7 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
 	}
-	if approval.Status != "pending" {
+	if approval.Status != app.ApprovalStatusPending {
 		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
 		return
 	}
@@ -127,7 +127,7 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
 		return
 	}
-	if call.Status != "approval_pending" {
+	if call.Status != app.ToolCallStatusApprovalPending {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("tool call cannot be modified from status %q", call.Status))
 		return
 	}
@@ -217,7 +217,7 @@ func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": nil})
 }
 
-func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status string) {
+func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status app.ApprovalStatus) {
 	var input struct {
 		Note string `json:"note"`
 	}
@@ -233,7 +233,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
 	}
-	if approval.Status != "pending" {
+	if approval.Status != app.ApprovalStatusPending {
 		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
 		return
 	}
@@ -244,7 +244,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	} else if ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
 		mcpRun = true
 	}
-	if status == "approved" {
+	if status == app.ApprovalStatusApproved {
 		if err := s.validateMCPApproval(r.Context(), approval); err != nil {
 			writeError(w, http.StatusConflict, err)
 			return
@@ -260,7 +260,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		writeApprovalStoreError(w, err)
 		return
 	}
-	if status == "approved" && mcpRun && s.mcpAccess != nil {
+	if status == app.ApprovalStatusApproved && mcpRun && s.mcpAccess != nil {
 		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(r.Context(), approval.RunID)
 		if beginErr != nil {
 			s.refreshTrace(r.Context(), approval.RunID)
@@ -283,7 +283,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	var deliveryReceipt *app.DeliveryReceipt
 	executionStatus := "not_started"
 	resumed := false
-	if status == "approved" {
+	if status == app.ApprovalStatusApproved {
 		executed, err := s.runtime.ExecuteApprovedToolCall(r.Context(), approval)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -291,7 +291,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		}
 		call = &executed
 		executionStatus = "succeeded"
-		if strings.HasPrefix(executed.Status, "failed") {
+		if strings.HasPrefix(string(executed.Status), "failed") {
 			executionStatus = "failed"
 		}
 		if result, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
@@ -311,13 +311,13 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			}
 		}
 	}
-	if status == "rejected" {
+	if status == app.ApprovalStatusRejected {
 		if rejected, ok, err := s.store.GetToolCall(r.Context(), approval.ToolCallID); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		} else if ok {
 			now := time.Now().UTC()
-			rejected.Status = "rejected"
+			rejected.Status = app.ToolCallStatusRejected
 			rejected.Error = "owner rejected approval"
 			rejected.CompletedAt = &now
 			persisted, saveErr := s.store.SaveToolCall(r.Context(), rejected)
@@ -336,7 +336,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			return
 		}
 	}
-	if status == "rejected" && mcpRun && s.mcpAccess != nil {
+	if status == app.ApprovalStatusRejected && mcpRun && s.mcpAccess != nil {
 		if err := s.mcpAccess.FailApprovalExecution(r.Context(), approval.RunID, "approval_rejected", "The local owner rejected the pending action"); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -366,7 +366,7 @@ func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx c
 			s.failCancelledMCPApprovalExecution(approval.RunID, err)
 			return
 		}
-		if strings.HasPrefix(executed.Status, "failed") {
+		if strings.HasPrefix(string(executed.Status), "failed") {
 			s.recordMCPApprovalExecutionFailure(executionCtx, approval.RunID, "approval_tool_failed", "The approved tool execution failed")
 			return
 		}
@@ -435,7 +435,7 @@ func (s *Server) recordMCPApprovalExecutionFailure(ctx context.Context, runID, c
 }
 
 func runHasPendingApproval(ctx context.Context, st store.ApprovalRepository, runID string) (bool, error) {
-	approvals, err := st.ListApprovals(ctx, "pending")
+	approvals, err := st.ListApprovals(ctx, app.ApprovalStatusPending)
 	if err != nil {
 		return false, err
 	}
@@ -447,7 +447,7 @@ func runHasPendingApproval(ctx context.Context, st store.ApprovalRepository, run
 	return false, nil
 }
 
-func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, status, note string) {
+func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, status app.ApprovalStatus, note string) {
 	if s.externalApprovalResolver == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("Happy approval integration is unavailable"))
 		return
@@ -459,7 +459,7 @@ func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request
 	}
 	localStatus := status
 	if resolvedElsewhere {
-		localStatus = "resolved_elsewhere"
+		localStatus = app.ApprovalStatusResolvedElsewhere
 		if strings.TrimSpace(note) == "" {
 			note = "Happy task was already resolved elsewhere"
 		}

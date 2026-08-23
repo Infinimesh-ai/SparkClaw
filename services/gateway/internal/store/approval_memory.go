@@ -42,8 +42,8 @@ func (s *MemoryStore) SaveApproval(ctx context.Context, approval app.Approval) (
 		}
 	}
 	s.approvals[approval.ID] = approval
-	s.appendAuditLocked("approval."+approval.Status, approval.SessionID, approval.RunID, approvalActor(approval), approval.Summary, approvalLifecycleFields(approval))
-	s.appendEventLocked("approval."+approval.Status, approval.SessionID, approval.RunID, approval)
+	s.appendAuditLocked("approval."+string(approval.Status), approval.SessionID, approval.RunID, approvalActor(approval), approval.Summary, approvalLifecycleFields(approval))
+	s.appendEventLocked("approval."+string(approval.Status), approval.SessionID, approval.RunID, approval)
 	return cloneApproval(approval)
 }
 
@@ -129,7 +129,7 @@ func (s *MemoryStore) UpdatePendingApproval(ctx context.Context, command Approva
 	return cloneApproval(approval)
 }
 
-func (s *MemoryStore) ResolveApproval(ctx context.Context, id, status, note string) (app.Approval, error) {
+func (s *MemoryStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
 	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
@@ -156,12 +156,12 @@ func (s *MemoryStore) ResolveApproval(ctx context.Context, id, status, note stri
 		return cloneApproval(approval)
 	}
 	s.approvals[id] = approval
-	s.appendAuditLocked("approval."+status, approval.SessionID, approval.RunID, approvalResolutionActor(status), approval.Summary, approvalLifecycleFields(approval))
-	s.appendEventLocked("approval."+status, approval.SessionID, approval.RunID, approval)
+	s.appendAuditLocked("approval."+string(status), approval.SessionID, approval.RunID, approvalResolutionActor(status), approval.Summary, approvalLifecycleFields(approval))
+	s.appendEventLocked("approval."+string(status), approval.SessionID, approval.RunID, approval)
 	return cloneApproval(approval)
 }
 
-func (s *MemoryStore) ListApprovals(ctx context.Context, status string) ([]app.Approval, error) {
+func (s *MemoryStore) ListApprovals(ctx context.Context, status app.ApprovalStatus) ([]app.Approval, error) {
 	ctx, cancel := operationContext(ctx, OperationApprovalList, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalList, ctx); err != nil {

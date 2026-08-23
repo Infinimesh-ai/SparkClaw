@@ -25,22 +25,22 @@ func shellAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
 		if call.Tool != "shell.exec_sandboxed" {
 			continue
 		}
-		if call.Status == "approval_pending" {
+		if call.Status == app.ToolCallStatusApprovalPending {
 			return pendingApprovalAnswer(call), true
 		}
-		if !strings.Contains(call.Status, "completed") && !strings.Contains(call.Status, "failed") {
+		if !strings.Contains(string(call.Status), "completed") && !strings.Contains(string(call.Status), "failed") {
 			continue
 		}
 		result, ok := anyMap(call.Result)
 		if !ok {
 			if call.Error != "" {
-				return "Command: " + quoteInline(stringValue(call.Arguments["command"])) + "\nStatus: " + call.Status + "\nError: " + call.Error, true
+				return "Command: " + quoteInline(stringValue(call.Arguments["command"])) + "\nStatus: " + string(call.Status) + "\nError: " + call.Error, true
 			}
 			continue
 		}
 		lines := []string{
 			"Command: " + quoteInline(stringValue(call.Arguments["command"])),
-			"Tool status: " + call.Status,
+			"Tool status: " + string(call.Status),
 		}
 		if status := cleanOptionalString(result["status"]); status != "" {
 			lines = append(lines, "Sandbox status: "+status)

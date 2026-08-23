@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -138,20 +139,28 @@ func copyOptionalString(value *string) *string {
 	return &copy
 }
 
+// freshnessHighTerms is the one list of English recency tokens; the explicit
+// freshness parameter and the query heuristic must accept the same set. The
+// CJK terms apply only to the query heuristic (the parameter is an API enum,
+// not user prose).
+var freshnessHighTerms = []string{"latest", "recent", "current", "today", "now", "real-time", "realtime"}
+
+var freshnessHighQueryTerms = append(freshnessHighTerms[:len(freshnessHighTerms):len(freshnessHighTerms)],
+	"最新", "最近", "当前", "今天", "今日", "实时", "现在")
+
 func infinimeshFreshness(query, requested string) string {
-	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "high", "latest", "recent", "current", "today", "now", "real-time", "realtime":
+	normalized := strings.ToLower(strings.TrimSpace(requested))
+	switch normalized {
+	case "low", "medium":
+		return normalized
+	case "high":
 		return "high"
-	case "low":
-		return "low"
-	case "medium":
-		return "medium"
+	}
+	if slices.Contains(freshnessHighTerms, normalized) {
+		return "high"
 	}
 	lower := strings.ToLower(query)
-	for _, term := range []string{
-		"latest", "recent", "current", "today", "now", "real-time", "realtime",
-		"最新", "最近", "当前", "今天", "今日", "实时", "现在",
-	} {
+	for _, term := range freshnessHighQueryTerms {
 		if strings.Contains(lower, term) {
 			return "high"
 		}

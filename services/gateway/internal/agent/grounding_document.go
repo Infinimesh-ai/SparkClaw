@@ -10,7 +10,7 @@ import (
 func groundedDocumentPendingApprovalSummary(calls []app.ToolCall) (string, bool) {
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
-		if call.Status == "approval_pending" && isDocumentMutationTool(call.Tool) {
+		if call.Status == app.ToolCallStatusApprovalPending && isDocumentMutationTool(call.Tool) {
 			return pendingApprovalAnswer(call), true
 		}
 	}
@@ -52,7 +52,7 @@ func isTerminalApprovedActionTool(tool string) bool {
 
 func hasMutatingOrPendingNonReadTool(calls []app.ToolCall) bool {
 	for _, call := range calls {
-		if call.Status == "approval_pending" || isDocumentMutationTool(call.Tool) {
+		if call.Status == app.ToolCallStatusApprovalPending || isDocumentMutationTool(call.Tool) {
 			return true
 		}
 		if !isReadOnlyEvidenceTool(call.Tool) && call.Tool != "" {

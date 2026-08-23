@@ -371,7 +371,7 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 				t.Fatal(err)
 			}
 			definition, _ := hub.Definition("browser.list_tabs")
-			call := app.ToolCall{ID: "tc_tabs", Tool: definition.Name, Status: "completed", Result: map[string]any{"pages": test.pages}, WorkflowNodeID: nodeID}
+			call := app.ToolCall{ID: "tc_tabs", Tool: definition.Name, Status: app.ToolCallStatusCompleted, Result: map[string]any{"pages": test.pages}, WorkflowNodeID: nodeID}
 			outcome, err := adaptWorkflowOutcome(definition, call)
 			if err != nil {
 				t.Fatal(err)

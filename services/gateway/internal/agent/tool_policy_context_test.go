@@ -25,7 +25,7 @@ func TestExternalMCPWorkspaceToolQueuesApprovalBeforeFilesystemAccess(t *testing
 	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
-	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil || approval.PolicyContext == nil ||
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending || call.PolicyContext == nil || approval.PolicyContext == nil ||
 		call.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData || call.Result != nil {
 		t.Fatalf("external MCP workspace search touched the missing root instead of pausing: call=%#v approval=%#v", call, approval)
 	}
@@ -46,7 +46,7 @@ func TestLocalWorkflowWorkspaceToolKeepsRegisteredPolicy(t *testing.T) {
 	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
-	if approval != nil || call.Status != "completed" || call.PolicyContext != nil {
+	if approval != nil || call.Status != app.ToolCallStatusCompleted || call.PolicyContext != nil {
 		t.Fatalf("local model execution was treated as an external AI principal: call=%#v approval=%#v", call, approval)
 	}
 }
@@ -76,14 +76,14 @@ func TestExternalMCPWorkspaceDerivativeReadUsesSameEscalation(t *testing.T) {
 	run := externalMCPPolicyTestRun(session, "run_external_derivative")
 	testSaveRun(st, run)
 	testSaveToolCall(st, app.ToolCall{
-		ID: "tc_workspace_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
+		ID: "tc_workspace_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: app.ToolCallStatusCompleted,
 		ObservationRef: "artifact://sparkclaw/observations/source.json", StartedAt: time.Now().UTC(),
 	})
 
 	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "observation.read", Args: map[string]any{"artifact_uri": "artifact://sparkclaw/observations/source.json", "max_bytes": 100},
 	})
-	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil ||
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending || call.PolicyContext == nil ||
 		call.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
 		t.Fatalf("cached workspace derivative bypassed contextual approval: call=%#v approval=%#v", call, approval)
 	}
@@ -95,7 +95,7 @@ func TestExternalMCPWorkspaceDerivativePolicyUsesCapabilityNotToolName(t *testin
 	run := externalMCPPolicyTestRun(session, "run_external_derivative_capability")
 	testSaveRun(st, run)
 	testSaveToolCall(st, app.ToolCall{
-		ID: "tc_workspace_capability_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
+		ID: "tc_workspace_capability_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: app.ToolCallStatusCompleted,
 		ObservationRef: "artifact://sparkclaw/observations/capability-source.json", StartedAt: time.Now().UTC(),
 	})
 
@@ -130,7 +130,7 @@ func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing
 		SessionID:          session.ID,
 		RunID:              "run_prior_document",
 		Tool:               "files.read",
-		Status:             "completed",
+		Status:             app.ToolCallStatusCompleted,
 		ObservationSummary: "private workspace-derived tool evidence",
 		StartedAt:          time.Now().UTC(),
 	})
@@ -161,7 +161,7 @@ func TestContextBoundApprovalRejectsChangedMCPIdentity(t *testing.T) {
 	if pending == nil {
 		t.Fatal("external MCP workspace search did not queue approval")
 	}
-	approved, err := st.ResolveApproval(t.Context(), pending.ID, "approved", "owner approved")
+	approved, err := st.ResolveApproval(t.Context(), pending.ID, app.ApprovalStatusApproved, "owner approved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestContextBoundApprovalRejectsChangedMCPIdentity(t *testing.T) {
 	changed.MessageContext.MCP.RequesterDeviceID = "different-device"
 	testSaveRun(st, changed)
 	executed, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
-	if err != nil || executed.ID != call.ID || executed.Status != "failed_after_approval" || executed.ErrorCode != string(app.ToolErrorPolicyBlocked) {
+	if err != nil || executed.ID != call.ID || executed.Status != app.ToolCallStatusFailedAfterApproval || executed.ErrorCode != string(app.ToolErrorPolicyBlocked) {
 		t.Fatalf("changed MCP identity reused contextual approval: call=%#v err=%v", executed, err)
 	}
 }
@@ -185,7 +185,7 @@ func TestContextBoundApprovalRejectsChangedAuthorizationPrincipal(t *testing.T) 
 	if pending == nil {
 		t.Fatal("external MCP workspace search did not queue approval")
 	}
-	approved, err := st.ResolveApproval(t.Context(), pending.ID, "approved", "owner approved")
+	approved, err := st.ResolveApproval(t.Context(), pending.ID, app.ApprovalStatusApproved, "owner approved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestContextBoundApprovalRejectsChangedAuthorizationPrincipal(t *testing.T) 
 	changed.MessageContext.Authorization.PrincipalID = "different-principal"
 	testSaveRun(st, changed)
 	executed, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
-	if err != nil || executed.ID != call.ID || executed.Status != "failed_after_approval" || executed.ErrorCode != string(app.ToolErrorPolicyBlocked) {
+	if err != nil || executed.ID != call.ID || executed.Status != app.ToolCallStatusFailedAfterApproval || executed.ErrorCode != string(app.ToolErrorPolicyBlocked) {
 		t.Fatalf("changed authorization principal reused contextual approval: call=%#v err=%v", executed, err)
 	}
 }
@@ -206,7 +206,7 @@ func TestApprovedToolExecutionUsesPersistedResolvedApproval(t *testing.T) {
 	call, pending, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{
 		Name: "files.search", Args: map[string]any{"query": "quarterly report"},
 	})
-	if pending == nil || call.Status != "approval_pending" {
+	if pending == nil || call.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("workspace search did not queue approval: call=%#v approval=%#v", call, pending)
 	}
 	if _, err := runtime.ExecuteApprovedToolCall(t.Context(), *pending); err == nil {
@@ -214,11 +214,11 @@ func TestApprovedToolExecutionUsesPersistedResolvedApproval(t *testing.T) {
 	}
 	forged := *pending
 	forged.ID = "approval-forged"
-	forged.Status = "approved"
+	forged.Status = app.ApprovalStatusApproved
 	if _, err := runtime.ExecuteApprovedToolCall(t.Context(), forged); err == nil {
 		t.Fatal("non-persisted approval identity was accepted as executable authority")
 	}
-	if current, ok := testGetToolCall(st, call.ID); !ok || current.Status != "approval_pending" {
+	if current, ok := testGetToolCall(st, call.ID); !ok || current.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("invalid approval attempt changed the tool call: %#v ok=%v", current, ok)
 	}
 }
@@ -236,21 +236,21 @@ func TestLegacyExternalSendApprovalCannotResumeDelivery(t *testing.T) {
 	testSaveRun(st, run)
 	call := app.ToolCall{
 		ID: "tc_legacy_external_send", SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval",
-		Status: "approval_pending", Arguments: map[string]any{"message_control_action": legacyExternalSendApprovalAction}, StartedAt: time.Now().UTC(),
+		Status: app.ToolCallStatusApprovalPending, Arguments: map[string]any{"message_control_action": legacyExternalSendApprovalAction}, StartedAt: time.Now().UTC(),
 	}
 	approval := app.Approval{
 		ID: "ap_legacy_external_send", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
-		Status: "pending", Arguments: call.Arguments, CreatedAt: time.Now().UTC(),
+		Status: app.ApprovalStatusPending, Arguments: call.Arguments, CreatedAt: time.Now().UTC(),
 	}
 	call.ApprovalID = approval.ID
 	testSaveToolCall(st, call)
 	storetest.MustSaveApproval(t, st, approval)
-	approved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "old approval")
+	approved, err := st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "old approval")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
-	if err != nil || executed.Status != "failed_after_approval" {
+	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval {
 		t.Fatalf("legacy external-send approval executed: call=%#v err=%v", executed, err)
 	}
 	result, resumed, err := runtime.ResumeRunAfterApproval(t.Context(), session.ID, run.ID)

@@ -95,7 +95,7 @@ func (h *ToolHub) executeBrowserFormDraft(ctx context.Context, operation string,
 func latestBrowserSnapshotRecord(calls []app.ToolCall, runID string) (browserSnapshotRecord, bool) {
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
-		if call.RunID != runID || call.Tool != "browser.snapshot" || call.Status != "completed" {
+		if call.RunID != runID || call.Tool != "browser.snapshot" || call.Status != app.ToolCallStatusCompleted {
 			continue
 		}
 		snapshot, ok := browserSnapshotMap(call.Result)

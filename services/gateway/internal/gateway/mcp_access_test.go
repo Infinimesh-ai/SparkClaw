@@ -591,7 +591,7 @@ func TestWorkspaceApprovalPresentationUsesFrozenContextAndManagedSessionTitle(t 
 			PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 			ResourceClass:  app.PolicyResourceSparkClawWorkspaceData,
 			AccessClass:    app.PolicyAccessWorkspaceDerivativeDisclosure,
-			OutputClass:    "response_media",
+			OutputClass:    app.PolicyOutputResponseMedia,
 			ReturnRoute:    app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "mcp:binding-a"},
 		},
 	}
@@ -601,7 +601,7 @@ func TestWorkspaceApprovalPresentationUsesFrozenContextAndManagedSessionTitle(t 
 	}
 	if presentation == nil || presentation.Requester != session.Title || presentation.Requester == "untrusted-display-override" ||
 		presentation.LocatorStatus != "unverified" || len(presentation.Locators) != 1 || presentation.Locators[0].Query != "quarterly report" ||
-		presentation.AccessClass != app.PolicyAccessWorkspaceDerivativeDisclosure || presentation.OutputClass != "response_media" ||
+		presentation.AccessClass != app.PolicyAccessWorkspaceDerivativeDisclosure || presentation.OutputClass != app.PolicyOutputResponseMedia ||
 		presentation.ReturnRoute.SourceEndpointID != "mcp:binding-a" || presentation.Scope != "single_operation" {
 		t.Fatalf("workspace approval presentation did not preserve its display contract: %#v", presentation)
 	}

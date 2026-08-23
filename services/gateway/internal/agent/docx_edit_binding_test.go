@@ -127,7 +127,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if conflictingApproval != nil || conflictingCall.Status != "blocked" ||
+	if conflictingApproval != nil || conflictingCall.Status != app.ToolCallStatusBlocked ||
 		!strings.Contains(conflictingCall.Error, "source_hash conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting model source_hash was not blocked before approval: call=%#v approval=%#v", conflictingCall, conflictingApproval)
 	}
@@ -142,7 +142,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if conflictingDocumentApproval != nil || conflictingDocumentCall.Status != "blocked" ||
+	if conflictingDocumentApproval != nil || conflictingDocumentCall.Status != app.ToolCallStatusBlocked ||
 		!strings.Contains(conflictingDocumentCall.Error, "source_sha256 conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting document hash was not blocked before approval: call=%#v approval=%#v", conflictingDocumentCall, conflictingDocumentApproval)
 	}
@@ -155,7 +155,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if editApproval == nil || editCall.Status != "approval_pending" {
+	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("evidence-bound DOCX edit did not enter approval: call=%#v approval=%#v", editCall, editApproval)
 	}
 	if editCall.Arguments["path"] != inputRef || editCall.Arguments["output_path"] != outputRef ||
@@ -171,12 +171,12 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("runtime did not bind the current DOCX document hash: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, boundEvidence)
 	}
 
-	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, "approved", "approved synthetic DOCX regression edit")
+	resolved, err := st.ResolveApproval(t.Context(), editApproval.ID, app.ApprovalStatusApproved, "approved synthetic DOCX regression edit")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "completed_after_approval" || strings.Contains(executed.Error, "preflight evidence") {
+	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval || strings.Contains(executed.Error, "preflight evidence") {
 		t.Fatalf("evidence-bound DOCX edit failed after approval: call=%#v err=%v", executed, err)
 	}
 	outputRead, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": outputRef}, session.ID, storedRun.ID)
@@ -215,7 +215,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 	}
 	storedRun, _ := advanceDocumentEditToEditor(t, runtime, st, dispatch, "report.docx", "docx.replace_paragraph", "replace_paragraph")
 	testSaveToolCall(st, app.ToolCall{
-		ID: "tc_unrelated_docx_read", SessionID: session.ID, RunID: storedRun.ID, Tool: "files.read", Status: "completed",
+		ID: "tc_unrelated_docx_read", SessionID: session.ID, RunID: storedRun.ID, Tool: "files.read", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": "report.docx"},
 		Result: map[string]any{
 			"rel_path": "report.docx",
@@ -238,7 +238,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if approval != nil || call.Status != "failed" ||
+	if approval != nil || call.Status != app.ToolCallStatusFailed ||
 		!strings.Contains(call.Error, `requires "source_sha256"`) {
 		t.Fatalf("DOCX edit without dependency evidence was not blocked before approval: call=%#v approval=%#v", call, approval)
 	}
@@ -317,7 +317,7 @@ func TestDocumentEditBindsEveryDOCXMutationToCurrentReadEvidence(t *testing.T) {
 				Name: tc.tool, Args: args, WorkflowID: app.WorkflowDocumentEdit,
 				WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 			})
-			if approval == nil || call.Status != "approval_pending" {
+			if approval == nil || call.Status != app.ToolCallStatusApprovalPending {
 				t.Fatalf("evidence-bound %s did not enter approval: call=%#v approval=%#v", tc.operation, call, approval)
 			}
 			if cleanOptionalString(call.Arguments["source_sha256"]) == "" {
@@ -337,7 +337,7 @@ func TestDocumentEditBindsEveryDOCXMutationToCurrentReadEvidence(t *testing.T) {
 			if tc.check != nil {
 				tc.check(t, call.Arguments)
 			}
-			if len(storetest.MustListApprovals(t, st, "pending")) != 1 {
+			if len(storetest.MustListApprovals(t, st, app.ApprovalStatusPending)) != 1 {
 				t.Fatalf("%s did not create exactly one approval", tc.operation)
 			}
 		})
@@ -359,7 +359,7 @@ func TestDocumentEditRejectsCrossRunDOCXEvidenceBeforeApproval(t *testing.T) {
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "source_evidence conflicts") {
+	if approval != nil || call.Status != app.ToolCallStatusBlocked || !strings.Contains(call.Error, "source_evidence conflicts") {
 		t.Fatalf("cross-run evidence was not rejected before approval: call=%#v approval=%#v", call, approval)
 	}
 	if len(storetest.MustListApprovals(t, st, "")) != 0 {
@@ -380,16 +380,16 @@ func TestApprovedDOCXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 		Args:       map[string]any{"paragraph_index": 1, "text": "Approved replacement"},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if approval == nil || call.Status != "approval_pending" {
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("DOCX edit did not wait for approval: call=%#v approval=%#v", call, approval)
 	}
 	writeDOCXParagraphFixture(t, inputPath, []string{"Changed while approval was pending"})
-	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approve stale-source regression")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "approve stale-source regression")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "failed_after_approval" || !strings.Contains(executed.Error, "stale") {
+	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval || !strings.Contains(executed.Error, "stale") {
 		t.Fatalf("stale approved DOCX mutation did not fail closed: call=%#v err=%v", executed, err)
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {

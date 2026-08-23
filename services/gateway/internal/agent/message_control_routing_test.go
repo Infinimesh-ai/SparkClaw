@@ -370,14 +370,14 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 	}
 	completedAt := time.Now().UTC()
 	call := app.ToolCall{
-		ID: "tc_document_output", SessionID: session.ID, RunID: run.ID, Tool: definition.Name, Status: "completed_after_approval",
+		ID: "tc_document_output", SessionID: session.ID, RunID: run.ID, Tool: definition.Name, Status: app.ToolCallStatusCompletedAfterApproval,
 		Result: map[string]any{"output_path": "note-sparkclaw-edit.docx"}, StartedAt: dispatch.Run.StartedAt, CompletedAt: &completedAt,
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
 	testSaveToolCall(st, call)
 	storetest.MustSaveApproval(t, st, app.Approval{
 		ID: "ap_document_edit", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: definition.Name,
-		Risk: app.RiskReversible, Status: "approved", Summary: "Approve document edit", CreatedAt: dispatch.Run.StartedAt, ResolvedAt: &completedAt,
+		Risk: app.RiskReversible, Status: app.ApprovalStatusApproved, Summary: "Approve document edit", CreatedAt: dispatch.Run.StartedAt, ResolvedAt: &completedAt,
 	})
 	storetest.MustAddMessage(t, st, app.Message{
 		SessionID: session.ID, RunID: run.ID, Role: "user", Content: "Replace a paragraph in note.docx", CreatedAt: dispatch.Run.StartedAt,

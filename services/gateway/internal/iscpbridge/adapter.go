@@ -526,9 +526,9 @@ func (a *GatewayAdapter) listApprovals(ctx context.Context, req Request, princip
 	if err := DecodePayload(req.Payload, &payload); err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, err.Error(), false), now)
 	}
-	status := strings.TrimSpace(payload.Status)
+	status := app.ApprovalStatus(strings.TrimSpace(payload.Status))
 	if status == "" {
-		status = "pending"
+		status = app.ApprovalStatusPending
 	}
 	approvals, err := a.store.ListApprovals(ctx, status)
 	if err != nil {
@@ -556,8 +556,8 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	if err := DecodePayload(req.Payload, &payload); err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, err.Error(), false), now)
 	}
-	decision := strings.ToLower(strings.TrimSpace(payload.Decision))
-	if decision != "approved" && decision != "rejected" {
+	decision := app.ApprovalStatus(strings.ToLower(strings.TrimSpace(payload.Decision)))
+	if decision != app.ApprovalStatusApproved && decision != app.ApprovalStatusRejected {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "decision must be approved or rejected", false), now)
 	}
 	if strings.TrimSpace(payload.ExpectedState) != "pending" {
@@ -582,7 +582,7 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	if payload.PreviewHash != ApprovalPreviewHash(approval) {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeStaleState, "approval preview has changed", false), now)
 	}
-	if approval.Status != "pending" {
+	if approval.Status != app.ApprovalStatusPending {
 		if approval.Status == decision {
 			response := newResponse(req, "ok", map[string]any{"approval": ApprovalView{Approval: approval, PreviewHash: ApprovalPreviewHash(approval)}}, nil, nil, now)
 			a.rememberMutation(req, response)
@@ -598,7 +598,7 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 	}
 	var call *app.ToolCall
 	var result *agent.Result
-	if decision == "approved" {
+	if decision == app.ApprovalStatusApproved {
 		executed, execErr := a.runtime().ExecuteApprovedToolCall(ctx, resolved)
 		if execErr != nil {
 			return newResponse(req, "error", nil, nil, bridgeError(CodeInternal, "approved operation failed", false), now)
@@ -613,7 +613,7 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "tool call state is temporarily unavailable", true), now)
 	} else if found {
 		completedAt := time.Now().UTC()
-		rejected.Status = "rejected"
+		rejected.Status = app.ToolCallStatusRejected
 		rejected.Error = "owner rejected approval"
 		rejected.CompletedAt = &completedAt
 		persisted, saveErr := a.store.SaveToolCall(ctx, rejected)

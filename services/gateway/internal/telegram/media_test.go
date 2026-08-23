@@ -151,9 +151,9 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	storetest.MustSaveExternalChatSession(t, st, app.ExternalChatSession{BindingID: binding.ID, Channel: "telegram", ExternalUserID: "1", ExternalChatID: "1", LinkedSessionID: linked.ID, WorkspaceRoot: cfg.Workspaces.DefaultRoot, Status: "active"})
 	run := app.AgentRun{ID: "run_approval", SessionID: linked.ID, State: "approval_pending"}
 	testSaveRun(st, run)
-	call := app.ToolCall{ID: "call_approval", SessionID: linked.ID, RunID: run.ID, Status: "approval_pending"}
+	call := app.ToolCall{ID: "call_approval", SessionID: linked.ID, RunID: run.ID, Status: app.ToolCallStatusApprovalPending}
 	testSaveToolCall(st, call)
-	approval := app.Approval{ID: "approval_opaque_id", SessionID: linked.ID, RunID: run.ID, ToolCallID: call.ID, Status: "pending", Tool: "file.delete"}
+	approval := app.Approval{ID: "approval_opaque_id", SessionID: linked.ID, RunID: run.ID, ToolCallID: call.ID, Status: app.ApprovalStatusPending, Tool: "file.delete"}
 	storetest.MustSaveApproval(t, st, approval)
 	runtime := &approvalRuntime{}
 	bot := &fakeBotAPI{}
@@ -165,7 +165,7 @@ func TestApprovalCallbackExecutesOnce(t *testing.T) {
 	if err := dispatcher.HandleUpdate(context.Background(), binding, update); err != nil {
 		t.Fatal(err)
 	}
-	resolved := storetest.MustListApprovals(t, st, "approved")
+	resolved := storetest.MustListApprovals(t, st, app.ApprovalStatusApproved)
 	if len(resolved) != 1 || runtime.executeCount() != 1 || bot.callbacks() != 2 {
 		t.Fatalf("approval callback was not idempotent: approvals=%#v executes=%d callbacks=%d", resolved, runtime.executeCount(), bot.callbacks())
 	}

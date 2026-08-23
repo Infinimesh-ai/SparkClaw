@@ -158,7 +158,7 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	run := app.AgentRun{ID: "run_dual_normal", SessionID: session.ID, StartedAt: now}
 	testSaveRun(st, run)
 	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_read", Args: map[string]any{}})
-	if approval != nil || call.Status != "completed" {
+	if approval != nil || call.Status != app.ToolCallStatusCompleted {
 		t.Fatalf("normal dynamic call did not complete: %#v %#v", call, approval)
 	}
 	assertSeparated(call)
@@ -172,29 +172,29 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 
 	register("localmind.approved_write", app.RiskReversible, false)
 	pending, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_write", Args: map[string]any{"title": "safe"}})
-	if approval == nil || pending.Status != "approval_pending" {
+	if approval == nil || pending.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("mutation did not enter approval: %#v %#v", pending, approval)
 	}
-	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "approved dynamic write")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "approved dynamic write")
 	if err != nil {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != "completed_after_approval" {
+	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("approved dynamic call did not complete: %#v %v", executed, err)
 	}
 	assertSeparated(executed)
 
 	register("localmind.normal_error", app.RiskRead, true)
 	failed, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_error", Args: map[string]any{}})
-	if approval != nil || failed.Status != "failed" {
+	if approval != nil || failed.Status != app.ToolCallStatusFailed {
 		t.Fatalf("normal error output was not retained: %#v %#v", failed, approval)
 	}
 	assertSeparated(failed)
 
 	register("localmind.manual_error", app.RiskRead, true)
 	manualFailed, err := runtime.InvokeToolManually(context.Background(), "localmind.manual_error", map[string]any{}, session.ID)
-	if err == nil || manualFailed.Call.Status != "failed" {
+	if err == nil || manualFailed.Call.Status != app.ToolCallStatusFailed {
 		t.Fatalf("manual error output was not retained: %#v %v", manualFailed, err)
 	}
 	assertSeparated(manualFailed.Call)
@@ -204,12 +204,12 @@ func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *t
 	if approval == nil {
 		t.Fatal("error fixture mutation did not enter approval")
 	}
-	resolved, err = st.ResolveApproval(t.Context(), approval.ID, "approved", "approved failing dynamic write")
+	resolved, err = st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "approved failing dynamic write")
 	if err != nil {
 		t.Fatal(err)
 	}
 	approvedFailed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || approvedFailed.Status != "failed_after_approval" {
+	if err != nil || approvedFailed.Status != app.ToolCallStatusFailedAfterApproval {
 		t.Fatalf("approved error output was not retained: %#v %v", approvedFailed, err)
 	}
 	assertSeparated(approvedFailed)
@@ -239,7 +239,7 @@ func TestLocalMindApprovalRejectsUnsafeArgumentsBeforePersistence(t *testing.T) 
 	testSaveRun(st, run)
 	rawBase64 := strings.Repeat("QUJD", 2048)
 	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: name, Args: map[string]any{"base64": rawBase64}})
-	if approval != nil || call.Status != "blocked" || call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
+	if approval != nil || call.Status != app.ToolCallStatusBlocked || call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
 		t.Fatalf("unsafe approval arguments did not fail closed: %#v %#v", call, approval)
 	}
 	persisted, ok := testGetToolCall(st, call.ID)
@@ -272,7 +272,7 @@ func TestGenericMCPManualApprovalRejectsUnsafeArgumentsBeforePersistence(t *test
 	}
 	signedURL := "https://storage.test/task?X-Amz-Signature=secret-signature"
 	invocation, err := runtime.InvokeToolManually(context.Background(), name, map[string]any{"url": signedURL}, session.ID)
-	if err == nil || invocation.Approval != nil || invocation.Call.Status != "blocked" || invocation.Call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
+	if err == nil || invocation.Approval != nil || invocation.Call.Status != app.ToolCallStatusBlocked || invocation.Call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
 		t.Fatalf("unsafe generic MCP manual approval did not fail closed: %#v %v", invocation, err)
 	}
 	persisted, ok := testGetToolCall(st, invocation.Call.ID)
@@ -290,7 +290,7 @@ func TestRollingObservationCompactionPreservesRecentEntries(t *testing.T) {
 	defer closeRuntime()
 	observations := []string{}
 	for index := 0; index < 6; index++ {
-		call := app.ToolCall{ID: app.NewID("tc"), Tool: "files.read", Status: "completed"}
+		call := app.ToolCall{ID: app.NewID("tc"), Tool: "files.read", Status: app.ToolCallStatusCompleted}
 		observations = append(observations, adaptToolResult(toolResultAdapterInput{
 			Call: call, Output: map[string]any{"path": "file.txt", "content": strings.Repeat("evidence ", 300)}, MaxBytes: 1600,
 		}))
@@ -380,7 +380,7 @@ func TestObservationReadStageQuotaExcludesBusinessRunAccounting(t *testing.T) {
 		t.Fatalf("stage quota did not allow exactly two reads before blocking a repeated violation: calls=%d failure=%q", len(result.ToolCalls), result.FailureCode)
 	}
 	for _, call := range result.ToolCalls {
-		if call.Capability != app.ToolCapabilityObservationRead || call.Status != "completed" {
+		if call.Capability != app.ToolCapabilityObservationRead || call.Status != app.ToolCallStatusCompleted {
 			t.Fatalf("unexpected support call outcome: %#v", call)
 		}
 	}
@@ -396,7 +396,7 @@ func TestObservationReadStageQuotaExcludesBusinessRunAccounting(t *testing.T) {
 }
 
 func TestFailedObservationReadCountsAfterExecutionAndStageBudgetResets(t *testing.T) {
-	call := app.ToolCall{Capability: app.ToolCapabilityObservationRead, Status: "failed"}
+	call := app.ToolCall{Capability: app.ToolCapabilityObservationRead, Status: app.ToolCallStatusFailed}
 	if !workflowSupportCallExecuted(call, true) || workflowSupportCallExecuted(call, false) {
 		t.Fatal("failed support execution accounting does not distinguish pre-execution rejection")
 	}
@@ -462,7 +462,7 @@ func TestContextSnapshotCompactVariantsAreMeaningfullySmaller(t *testing.T) {
 		snapshot.Memories = append(snapshot.Memories, app.Memory{Kind: "preference", Content: strings.Repeat("memory ", 50)})
 	}
 	for index := 0; index < 6; index++ {
-		snapshot.ToolResults = append(snapshot.ToolResults, app.ToolCall{ID: app.NewID("tc"), Tool: "files.read", Status: "completed", ObservationSummary: strings.Repeat("tool evidence ", 100)})
+		snapshot.ToolResults = append(snapshot.ToolResults, app.ToolCall{ID: app.NewID("tc"), Tool: "files.read", Status: app.ToolCallStatusCompleted, ObservationSummary: strings.Repeat("tool evidence ", 100)})
 	}
 	for index := 0; index < 3; index++ {
 		snapshot.RecentImages = append(snapshot.RecentImages, app.MessageAttachment{RelPath: "media/image.png", Name: "image.png", ContentType: "image/png", Caption: strings.Repeat("caption ", 30), Summary: strings.Repeat("summary ", 40)})
@@ -547,7 +547,7 @@ func archivedEvidenceFixture(t *testing.T, runtime Runtime, st *store.MemoryStor
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: sessionID, StartedAt: now}
 	call := app.ToolCall{
 		ID: app.NewID("tc"), SessionID: sessionID, RunID: run.ID, Tool: tool,
-		Status: "completed", Result: output, StartedAt: now, CompletedAt: &now,
+		Status: app.ToolCallStatusCompleted, Result: output, StartedAt: now, CompletedAt: &now,
 	}
 	call.ObservationRef = store.ArchiveToolObservation(context.Background(), st, runtime.artifacts, call, output)
 	if call.ObservationRef == "" {

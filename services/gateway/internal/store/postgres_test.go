@@ -108,7 +108,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Capability:         "web.page.read",
 		Tool:               "memory.write_candidate",
 		Risk:               app.RiskDraft,
-		Status:             "completed",
+		Status:             app.ToolCallStatusCompleted,
 		Arguments:          map[string]any{"content": "postgres memory"},
 		Result:             map[string]any{"status": "ok"},
 		ObservationSummary: "memory.write_candidate returned 1 result(s). Observation bytes=15.",
@@ -166,7 +166,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		ToolCallID:    call.ID,
 		Tool:          "memory.write_sensitive",
 		Risk:          app.RiskDangerous,
-		Status:        "pending",
+		Status:        app.ApprovalStatusPending,
 		Summary:       "Write sensitive memory",
 		Reason:        "test",
 		Resources:     []string{"memory"},
@@ -175,11 +175,11 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 	}
 	mustSaveApproval(t, st, approval)
-	resolved, err := st.ResolveApproval(t.Context(), approval.ID, "approved", "ok")
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Status != "approved" || resolved.ResolutionNote != "ok" || resolved.PolicyContext == nil ||
+	if resolved.Status != app.ApprovalStatusApproved || resolved.ResolutionNote != "ok" || resolved.PolicyContext == nil ||
 		resolved.PolicyContext.ContractDigest != policyContext.ContractDigest {
 		t.Fatalf("approval did not resolve: %#v", resolved)
 	}
@@ -198,7 +198,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	externalApproval := app.Approval{
 		ID: "ap_happy_postgres", Source: app.ApprovalSourceHappyTeamPlan,
 		ExternalID: "task-postgres", Tool: "mcp.happy-tasks.approve_plan",
-		Risk: app.RiskDangerous, Status: "pending", Summary: "Review PostgreSQL plan",
+		Risk: app.RiskDangerous, Status: app.ApprovalStatusPending, Summary: "Review PostgreSQL plan",
 		ExternalContext: &app.ExternalApprovalContext{
 			Provider: "happy-team", Title: "Postgres task", GoalPrompt: "Persist without a run",
 			Plan: "Database-backed plan", PlanAvailability: app.ExternalPlanAvailable,
@@ -210,7 +210,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		storedExternal.ExternalContext == nil || storedExternal.ExternalContext.Plan != "Database-backed plan" {
 		t.Fatalf("external approval did not round trip without agent references: %#v ok=%v", storedExternal, ok)
 	}
-	if _, err := st.ResolveApproval(t.Context(), externalApproval.ID, "approved", "done"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), externalApproval.ID, app.ApprovalStatusApproved, "done"); err != nil {
 		t.Fatal(err)
 	}
 	externalApproval.ExternalContext.Plan = "stale update"
@@ -218,7 +218,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatal("stale PostgreSQL update reopened a resolved approval")
 	}
 	storedExternal, _ = mustGetApproval(t, st, externalApproval.ID)
-	if storedExternal.Status != "approved" || storedExternal.ExternalContext.Plan != "Database-backed plan" {
+	if storedExternal.Status != app.ApprovalStatusApproved || storedExternal.ExternalContext.Plan != "Database-backed plan" {
 		t.Fatalf("resolved PostgreSQL approval changed after stale update: %#v", storedExternal)
 	}
 

@@ -46,7 +46,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		return true, err
 	}
 	if decision {
-		candidate, err := d.store.ResolveApproval(ctx, approval.ID, "approved", "confirmed from vx")
+		candidate, err := d.store.ResolveApproval(ctx, approval.ID, app.ApprovalStatusApproved, "confirmed from vx")
 		resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 		if err != nil {
 			return true, err
@@ -80,7 +80,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已确认并执行。", approval.RunID, "processed")
 		return true, sendErr
 	}
-	candidate, err := d.store.ResolveApproval(ctx, approval.ID, "rejected", "rejected from vx")
+	candidate, err := d.store.ResolveApproval(ctx, approval.ID, app.ApprovalStatusRejected, "rejected from vx")
 	resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 	if err != nil {
 		return true, err
@@ -89,7 +89,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		return true, err
 	} else if ok {
 		now := time.Now().UTC()
-		call.Status = "rejected"
+		call.Status = app.ToolCallStatusRejected
 		call.Error = "user rejected approval from vx"
 		call.CompletedAt = &now
 		candidate, saveErr := d.store.SaveToolCall(ctx, call)
@@ -108,7 +108,7 @@ func (d *Dispatcher) pendingApprovalForChatSession(ctx context.Context, chatSess
 	if strings.TrimSpace(chatSession.LinkedSessionID) == "" {
 		return app.Approval{}, false, nil
 	}
-	approvals, err := d.store.ListApprovals(ctx, "pending")
+	approvals, err := d.store.ListApprovals(ctx, app.ApprovalStatusPending)
 	if err != nil {
 		return app.Approval{}, false, err
 	}

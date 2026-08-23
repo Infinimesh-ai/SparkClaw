@@ -200,7 +200,7 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "已读取说明文档"})
 	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_student_notice", SessionID: session.ID, RunID: "run_previous",
-		Tool: "files.read", Risk: app.RiskRead, Status: "completed",
+		Tool: "files.read", Risk: app.RiskRead, Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": "student-notice.docx"},
 	})
 
@@ -284,7 +284,7 @@ func TestRecentDocumentResolverPrefersNewestSource(t *testing.T) {
 	toolCompletedAt := base.Add(10 * time.Second)
 	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_old_document", SessionID: session.ID, RunID: "run_old",
-		Tool: "files.read", Status: "completed", StartedAt: base,
+		Tool: "files.read", Status: app.ToolCallStatusCompleted, StartedAt: base,
 		CompletedAt:        &toolCompletedAt,
 		Arguments:          map[string]any{"path": "old.docx"},
 		ObservationSummary: "Read old.docx.",
@@ -320,7 +320,7 @@ func TestRecentDocumentResolverPrefersNewerToolOutput(t *testing.T) {
 	toolCompletedAt := base.Add(20 * time.Second)
 	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_new_output", SessionID: session.ID, RunID: "run_edit",
-		Tool: "docx.replace_paragraph", Status: "completed", StartedAt: base.Add(10 * time.Second),
+		Tool: "docx.replace_paragraph", Status: app.ToolCallStatusCompleted, StartedAt: base.Add(10 * time.Second),
 		CompletedAt:        &toolCompletedAt,
 		Arguments:          map[string]any{"path": "input.docx", "output_path": "input-sparkclaw-edit.docx"},
 		ObservationSummary: "Wrote input-sparkclaw-edit.docx.",
@@ -362,7 +362,7 @@ func TestDocumentEditOutputsShareOneTraceableRecentActivity(t *testing.T) {
 	completedAt := time.Now().UTC()
 	call := app.ToolCall{
 		ID: "tc_split", SessionID: session.ID, RunID: "run_edit",
-		Tool: "pdf.transform", Capability: app.ToolCapabilityDocumentEdit, Status: "completed",
+		Tool: "pdf.transform", Capability: app.ToolCapabilityDocumentEdit, Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": parent.GovernedPath},
 		Result:    map[string]any{"outputs": []any{"split-1.pdf", "split-2.pdf"}},
 		StartedAt: completedAt.Add(-time.Second), CompletedAt: &completedAt,

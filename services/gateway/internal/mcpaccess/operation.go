@@ -83,21 +83,21 @@ type operationRejectionRepository interface {
 }
 
 func rejectPendingApprovals(ctx context.Context, st operationRejectionRepository, operation app.MCPOperation) error {
-	approvals, err := st.ListApprovals(ctx, "pending")
+	approvals, err := st.ListApprovals(ctx, app.ApprovalStatusPending)
 	if err != nil {
 		return err
 	}
 	for _, approval := range approvals {
 		if approval.RunID == operation.Invocation.RunID {
-			candidate, err := st.ResolveApproval(ctx, approval.ID, "rejected", "MCP operation cannot continue approval-backed execution")
+			candidate, err := st.ResolveApproval(ctx, approval.ID, app.ApprovalStatusRejected, "MCP operation cannot continue approval-backed execution")
 			if _, err = store.ReconcileApprovalWrite(ctx, st, candidate, err); err != nil {
 				return err
 			}
 			if call, ok, err := st.GetToolCall(ctx, approval.ToolCallID); err != nil {
 				return err
-			} else if ok && call.Status == "approval_pending" {
+			} else if ok && call.Status == app.ToolCallStatusApprovalPending {
 				now := time.Now().UTC()
-				call.Status = "rejected"
+				call.Status = app.ToolCallStatusRejected
 				call.Error = "MCP operation cannot continue approval-backed execution"
 				call.CompletedAt = &now
 				candidate, saveErr := st.SaveToolCall(ctx, call)

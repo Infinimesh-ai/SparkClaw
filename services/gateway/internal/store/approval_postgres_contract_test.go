@@ -108,7 +108,7 @@ func scanFakeApproval(destinations []any, approval app.Approval, corrupt string)
 	*destinations[6].(*string) = approval.ToolCallID
 	*destinations[7].(*string) = approval.Tool
 	*destinations[8].(*string) = string(approval.Risk)
-	*destinations[9].(*string) = approval.Status
+	*destinations[9].(*string) = string(approval.Status)
 	*destinations[10].(*string) = approval.Summary
 	*destinations[11].(*string) = approval.Reason
 	*destinations[12].(*[]byte) = resources
@@ -156,7 +156,7 @@ func TestPostgresApprovalWritesAreAtomicLifecycleTransactions(t *testing.T) {
 		{
 			name: "resolve", row: fakeApprovalPostgresRow{approval: existing},
 			invoke: func(repository *PostgresStore) error {
-				_, err := repository.ResolveApproval(t.Context(), existing.ID, "approved", "approved")
+				_, err := repository.ResolveApproval(t.Context(), existing.ID, app.ApprovalStatusApproved, "approved")
 				return err
 			},
 			wantSQL: []string{"pg_advisory_xact_lock", "UPDATE approvals", "INSERT INTO audit_events", "INSERT INTO events"},

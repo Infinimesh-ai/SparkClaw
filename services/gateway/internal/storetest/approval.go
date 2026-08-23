@@ -45,7 +45,7 @@ func MustUpdatePendingApproval(t testing.TB, repository store.ApprovalRepository
 	return updated
 }
 
-func MustResolveApproval(t testing.TB, repository store.ApprovalRepository, id, status, note string) app.Approval {
+func MustResolveApproval(t testing.TB, repository store.ApprovalRepository, id string, status app.ApprovalStatus, note string) app.Approval {
 	t.Helper()
 	resolved, err := repository.ResolveApproval(t.Context(), id, status, note)
 	resolved, err = store.ReconcileApprovalWrite(t.Context(), repository, resolved, err)
@@ -55,7 +55,7 @@ func MustResolveApproval(t testing.TB, repository store.ApprovalRepository, id, 
 	return resolved
 }
 
-func MustListApprovals(t testing.TB, repository store.ApprovalRepository, status string) []app.Approval {
+func MustListApprovals(t testing.TB, repository store.ApprovalRepository, status app.ApprovalStatus) []app.Approval {
 	t.Helper()
 	approvals, err := repository.ListApprovals(t.Context(), status)
 	if err != nil {

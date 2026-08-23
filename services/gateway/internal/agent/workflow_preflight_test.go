@@ -457,7 +457,7 @@ func advanceDocumentEditToDecision(t *testing.T, runtime Runtime, st *store.Memo
 	definition := dispatch.Tools[0]
 	call := app.ToolCall{
 		ID: "tc_document_read_" + string(dispatch.Run.Workflow.Route.Slots.Format), SessionID: dispatch.Run.SessionID, RunID: dispatch.Run.ID,
-		Tool: definition.Name, Risk: app.RiskRead, Status: "completed", Arguments: map[string]any{"path": inputPath},
+		Tool: definition.Name, Risk: app.RiskRead, Status: app.ToolCallStatusCompleted, Arguments: map[string]any{"path": inputPath},
 		Result:     map[string]any{"path": inputPath, "rel_path": inputPath, "content": "structured evidence"},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_locate_evidence", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	}

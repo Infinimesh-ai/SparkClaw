@@ -415,14 +415,14 @@ func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
 		RunID:      "run_appr",
 		ToolCallID: "call_missing",
 		Tool:       "shell.exec_sandboxed",
-		Status:     "pending",
+		Status:     app.ApprovalStatusPending,
 		Summary:    "执行一条沙箱命令",
 	})
 
 	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
 		t.Fatal("expected the failed confirmation send to surface an error")
 	}
-	if approval, ok := storetest.MustGetApproval(t, st, "appr_1"); !ok || approval.Status != "approved" {
+	if approval, ok := storetest.MustGetApproval(t, st, "appr_1"); !ok || approval.Status != app.ApprovalStatusApproved {
 		t.Fatalf("approval should be resolved on the first dispatch: %#v ok=%v", approval, ok)
 	}
 	if got := runtime.executedCount(); got != 1 {

@@ -403,7 +403,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		if err != nil {
 			return Result{}, err
 		}
-		storedApprovals, err := r.store.ListApprovals(ctx, "pending")
+		storedApprovals, err := r.store.ListApprovals(ctx, app.ApprovalStatusPending)
 		if err != nil {
 			return Result{}, fmt.Errorf("load pending run approvals: %w", err)
 		}
@@ -1036,7 +1036,7 @@ func approvalsForRun(approvals []app.Approval, runID string) []app.Approval {
 
 func approvalsStillPending(approvals []app.Approval, runID string) bool {
 	for _, approval := range approvals {
-		if approval.RunID == runID && approval.Status == "pending" {
+		if approval.RunID == runID && approval.Status == app.ApprovalStatusPending {
 			return true
 		}
 	}
@@ -1075,7 +1075,7 @@ func completedToolCallsForResume(calls []app.ToolCall) []app.ToolCall {
 	out := []app.ToolCall{}
 	for _, call := range calls {
 		switch call.Status {
-		case "completed", "completed_after_approval", "failed", "failed_after_approval", "blocked", "rejected":
+		case app.ToolCallStatusCompleted, app.ToolCallStatusCompletedAfterApproval, app.ToolCallStatusFailed, app.ToolCallStatusFailedAfterApproval, app.ToolCallStatusBlocked, app.ToolCallStatusRejected:
 			out = append(out, call)
 		}
 	}
@@ -1083,20 +1083,20 @@ func completedToolCallsForResume(calls []app.ToolCall) []app.ToolCall {
 }
 
 func toolCallCompleted(call app.ToolCall) bool {
-	return call.Status == "completed" || call.Status == "completed_after_approval"
+	return call.Status.Completed()
 }
 
 func observationsForResume(calls []app.ToolCall) []string {
 	out := []string{}
 	for _, call := range calls {
 		switch call.Status {
-		case "completed", "completed_after_approval":
+		case app.ToolCallStatusCompleted, app.ToolCallStatusCompletedAfterApproval:
 			if strings.TrimSpace(call.ObservationSummary) != "" {
 				out = append(out, call.ObservationSummary)
 			} else {
 				out = append(out, adaptToolResult(toolResultAdapterInput{Call: call}))
 			}
-		case "failed", "failed_after_approval", "blocked", "rejected":
+		case app.ToolCallStatusFailed, app.ToolCallStatusFailedAfterApproval, app.ToolCallStatusBlocked, app.ToolCallStatusRejected:
 			if strings.TrimSpace(call.ObservationSummary) != "" {
 				out = append(out, call.ObservationSummary)
 			} else if strings.TrimSpace(call.Error) != "" {
@@ -1221,7 +1221,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		SessionID:      sessionID,
 		RunID:          runID,
 		Tool:           plan.Name,
-		Status:         "started",
+		Status:         app.ToolCallStatusStarted,
 		Arguments:      plan.Args,
 		StartedAt:      now,
 		WorkflowID:     plan.WorkflowID,
@@ -1235,7 +1235,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		return app.ToolCall{}, nil, "", fmt.Errorf("load browser persistence context: %w", redactErr)
 	}
 	if !ok {
-		call.Status = "failed"
+		call.Status = app.ToolCallStatusFailed
 		call.Error = "tool not found"
 		done := time.Now().UTC()
 		call.CompletedAt = &done
@@ -1247,7 +1247,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	call.Risk = def.Risk
 	if err := r.tools.Validate(plan.Name, plan.Args); err != nil {
-		call.Status = "failed"
+		call.Status = app.ToolCallStatusFailed
 		call.Error = err.Error()
 		done := time.Now().UTC()
 		call.CompletedAt = &done
@@ -1258,7 +1258,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		return call, nil, call.ObservationSummary, nil
 	}
 	if err := r.validateWorkflowToolPlan(ctx, runID, plan, def); err != nil {
-		call.Status = "blocked"
+		call.Status = app.ToolCallStatusBlocked
 		call.Error = err.Error()
 		done := time.Now().UTC()
 		call.CompletedAt = &done
@@ -1275,7 +1275,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	call.PolicyContext = persistedPolicyExecutionContext(executionContext)
 	decision := r.policy.Decide(def, plan.Args, executionContext)
 	if !decision.Allowed {
-		call.Status = "blocked"
+		call.Status = app.ToolCallStatusBlocked
 		call.Error = decision.Reason
 		done := time.Now().UTC()
 		call.CompletedAt = &done
@@ -1287,7 +1287,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	if decision.RequiresApproval {
 		if err := validateApprovalArgumentPersistence(def, plan.Args); err != nil {
-			call.Status = "blocked"
+			call.Status = app.ToolCallStatusBlocked
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 			call.Arguments = redactedRejectedApprovalArguments(plan.Args)
@@ -1325,7 +1325,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			ToolCallID:    call.ID,
 			Tool:          plan.Name,
 			Risk:          def.Risk,
-			Status:        "pending",
+			Status:        app.ApprovalStatusPending,
 			Summary:       r.approvalSummaryForPlan(ctx, runID, plan.Name, plan.Args),
 			Reason:        decision.Reason,
 			Resources:     decision.Resources,
@@ -1333,7 +1333,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			CreatedAt:     time.Now().UTC(),
 			PolicyContext: persistedPolicyExecutionContext(executionContext),
 		}
-		call.Status = "approval_pending"
+		call.Status = app.ToolCallStatusApprovalPending
 		call.ApprovalID = approval.ID
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
 		if _, err := r.saveToolCall(ctx, call); err != nil {
@@ -1360,7 +1360,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	done := time.Now().UTC()
 	call.CompletedAt = &done
 	if err != nil {
-		call.Status = "failed"
+		call.Status = app.ToolCallStatusFailed
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		call.Result = result.Output
@@ -1378,7 +1378,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		}
 		return call, nil, call.ObservationSummary, nil
 	}
-	call.Status = "completed"
+	call.Status = app.ToolCallStatusCompleted
 	call.Arguments, call.Result, redactErr = r.redactBrowserToolPersistence(ctx, runID, call.Tool, call.Arguments, result.Output)
 	if redactErr != nil {
 		return app.ToolCall{}, nil, "", fmt.Errorf("load browser result persistence context: %w", redactErr)
@@ -1405,7 +1405,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		return call, nil, call.ObservationSummary, fmt.Errorf("persist completed tool call: %w", err)
 	}
 	if err := r.recordDocumentToolActivity(ctx, call); err != nil {
-		call.Status = "failed"
+		call.Status = app.ToolCallStatusFailed
 		call.Error = err.Error()
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
 		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
@@ -1535,17 +1535,17 @@ func summarizeEpisode(goal string, run app.AgentRun, calls []app.ToolCall, appro
 	failures := []string{}
 	repairPerformed := false
 	for _, call := range calls {
-		tools = append(tools, call.Tool+":"+call.Status)
-		if strings.Contains(call.Status, "failed") || call.Error != "" {
+		tools = append(tools, call.Tool+":"+string(call.Status))
+		if call.Status.Failed() || call.Error != "" {
 			failures = append(failures, call.Tool+":"+call.Error)
 		}
-		if call.Status == "repaired" {
+		if call.Status == app.ToolCallStatusRepaired {
 			repairPerformed = true
 		}
 	}
 	approvalRefs := make([]string, 0, len(approvals))
 	for _, approval := range approvals {
-		approvalRefs = append(approvalRefs, approval.Tool+":"+approval.Status)
+		approvalRefs = append(approvalRefs, approval.Tool+":"+string(approval.Status))
 	}
 	return app.EpisodeSummary{
 		ID:              app.NewID("ep"),

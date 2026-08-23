@@ -92,7 +92,7 @@ func TestFileRunUnknownOutcomesReconcileAndSurviveRestart(t *testing.T) {
 		}
 		repository.commitOps = &controlledFileCommitOps{failStage: "dir_sync", failRemaining: 1}
 		proposed := app.ToolCall{
-			ID: "tool-unknown", SessionID: "session", RunID: "run", Tool: "files.read", Status: "completed",
+			ID: "tool-unknown", SessionID: "session", RunID: "run", Tool: "files.read", Status: app.ToolCallStatusCompleted,
 			Arguments: map[string]any{"path": "document.txt"}, StartedAt: time.Now().UTC(),
 		}
 		candidate, writeErr := repository.SaveToolCall(t.Context(), proposed)

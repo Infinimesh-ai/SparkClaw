@@ -462,7 +462,7 @@ func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOpera
 		return operation, err
 	}
 	for _, approval := range approvals {
-		if approval.RunID != operation.Invocation.RunID || approval.Status != "rejected" {
+		if approval.RunID != operation.Invocation.RunID || approval.Status != app.ApprovalStatusRejected {
 			continue
 		}
 		operation.State, operation.ErrorCode, operation.ErrorMessage = app.MCPOperationFailed, "approval_rejected", "The local owner rejected the pending action"
@@ -699,7 +699,7 @@ func (s *Service) syncOperationFromResultWithContent(ctx context.Context, id str
 
 func runHasApprovedApproval(approvals []app.Approval, runID string) bool {
 	for _, approval := range approvals {
-		if approval.Status != "approved" {
+		if approval.Status != app.ApprovalStatusApproved {
 			continue
 		}
 		if approval.RunID == runID {
@@ -711,7 +711,7 @@ func runHasApprovedApproval(approvals []app.Approval, runID string) bool {
 
 func runHasPendingApproval(approvals []app.Approval, runID string) bool {
 	for _, approval := range approvals {
-		if approval.Status != "pending" {
+		if approval.Status != app.ApprovalStatusPending {
 			continue
 		}
 		if approval.RunID == runID {

@@ -182,7 +182,7 @@ func repeatedValidatedBrowserSemanticAction(calls []app.ToolCall, runID string, 
 	}
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
-		if call.RunID != runID || call.Tool != "browser.validate_transition" || call.Status != "completed" {
+		if call.RunID != runID || call.Tool != "browser.validate_transition" || call.Status != app.ToolCallStatusCompleted {
 			continue
 		}
 		payload, ok := browserInteractionMap(call.Result)
@@ -212,7 +212,7 @@ func browserInteractionSemanticControlKey(snapshot browserSnapshotRecord, ref st
 func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (browserSnapshotRecord, bool) {
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
-		if call.RunID != runID || call.Tool != "browser.snapshot" || call.Status != "completed" {
+		if call.RunID != runID || call.Tool != "browser.snapshot" || call.Status != app.ToolCallStatusCompleted {
 			continue
 		}
 		snapshot, ok := browserSnapshotMap(call.Result)
@@ -360,7 +360,7 @@ func completedBrowserDraftCount(calls []app.ToolCall, runID string, throughIndex
 }
 
 func browserInteractionToolCallCompleted(call app.ToolCall) bool {
-	return call.Status == "completed" || call.Status == "completed_after_approval"
+	return call.Status.Completed()
 }
 
 func priorValidatedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {
@@ -371,7 +371,7 @@ func priorValidatedBrowserState(calls []app.ToolCall, runID string, beforeIndex 
 		if index >= beforeIndex {
 			break
 		}
-		if call.RunID != runID || call.Tool != "browser.validate_transition" || call.Status != "completed" {
+		if call.RunID != runID || call.Tool != "browser.validate_transition" || call.Status != app.ToolCallStatusCompleted {
 			continue
 		}
 		output, ok := browserInteractionMap(call.Result)

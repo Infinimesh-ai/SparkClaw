@@ -263,10 +263,10 @@ func (s *PostgresStore) SaveToolCall(ctx context.Context, call app.ToolCall) (ap
 				observation_ref=EXCLUDED.observation_ref, observation_summary=EXCLUDED.observation_summary,
 				started_at=EXCLUDED.started_at, completed_at=EXCLUDED.completed_at, policy_context=EXCLUDED.policy_context
 		`, call.ID, call.SessionID, call.RunID, string(call.WorkflowID), string(call.WorkflowNodeID), call.ScopeRevision, call.Capability,
-			call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ErrorCode, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt, policyContext); err != nil {
+			call.Tool, string(call.Risk), string(call.Status), args, result, call.Error, call.ErrorCode, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt, policyContext); err != nil {
 			return err
 		}
-		return appendRunLifecycle(transaction, commandCtx, "tool_call."+call.Status, call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
+		return appendRunLifecycle(transaction, commandCtx, "tool_call."+string(call.Status), call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 			"risk": call.Risk, "id": call.ID,
 		}, call)
 	})

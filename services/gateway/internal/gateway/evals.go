@@ -643,7 +643,7 @@ func (s *Server) evalNotifyApproval(ctx context.Context) app.EvalCase {
 		if !ok || out["status"] != "approval_requested" {
 			return fmt.Errorf("unexpected notify output: %#v", result.Output)
 		}
-		approvals, err := st.ListApprovals(ctx, "pending")
+		approvals, err := st.ListApprovals(ctx, app.ApprovalStatusPending)
 		if err != nil {
 			return err
 		}

@@ -63,7 +63,7 @@ func browserVerifiedResultAnswerFromCalls(goal string, calls []app.ToolCall) (st
 func browserInteractionFailureAnswerFromCalls(calls []app.ToolCall) (string, bool) {
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
-		if call.Tool != "browser.click" || call.Status == "completed" {
+		if call.Tool != "browser.click" || call.Status == app.ToolCallStatusCompleted {
 			continue
 		}
 		// Prose matching is the fallback for records persisted before
@@ -175,7 +175,7 @@ func browserScreenshotAnswerFromCalls(goal, fallback string, calls []app.ToolCal
 	if asksForBrowserScreenshot(goal) {
 		for i := len(calls) - 1; i >= 0; i-- {
 			call := calls[i]
-			if strings.HasPrefix(call.Tool, "browser.") && call.Status == "failed" && call.Error != "" {
+			if strings.HasPrefix(call.Tool, "browser.") && call.Status == app.ToolCallStatusFailed && call.Error != "" {
 				return "未能完成截图。浏览器自动化在 `" + call.Tool + "` 失败：" + call.Error, true
 			}
 		}

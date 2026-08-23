@@ -87,7 +87,7 @@ func TestBrowserAssessGoalCountsApprovedDraftActions(t *testing.T) {
 
 	testSaveToolCall(st, browserVerificationSnapshotCall("session", "run", 1, "", "before", "before", browserVerificationRef(1)))
 	testSaveToolCall(st, app.ToolCall{
-		ID: "draft_1", SessionID: "session", RunID: "run", Tool: "browser.type", Status: "completed_after_approval",
+		ID: "draft_1", SessionID: "session", RunID: "run", Tool: "browser.type", Status: app.ToolCallStatusCompletedAfterApproval,
 		Arguments: map[string]any{"snapshot_id": "snapshot_1", "uid": browserVerificationRef(1), "page_id": "page_1"},
 		StartedAt: browserVerificationCallTime(2),
 	})
@@ -113,7 +113,7 @@ func TestBrowserAssessGoalUsesLatestSnapshotWhenLegacyIDsCollide(t *testing.T) {
 	hidden := browserVerificationSnapshotCall("session", "run", 1, "", "inbox", "inbox", ref)
 	testSaveToolCall(st, hidden)
 	testSaveToolCall(st, app.ToolCall{
-		ID: "click_hidden", SessionID: "session", RunID: "run", Tool: "browser.click", Status: "completed",
+		ID: "click_hidden", SessionID: "session", RunID: "run", Tool: "browser.click", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"snapshot_id": "snapshot_1", "uid": ref, "page_id": "page_1"},
 		StartedAt: browserVerificationCallTime(3),
 	})
@@ -241,7 +241,7 @@ func TestBrowserInteractionClickRejectsRepeatedValidatedSemanticControl(t *testi
 		t.Fatal(err)
 	}
 	testSaveToolCall(st, app.ToolCall{
-		ID: "validate_1", SessionID: "session", RunID: "run", Tool: "browser.validate_transition", Status: "completed",
+		ID: "validate_1", SessionID: "session", RunID: "run", Tool: "browser.validate_transition", Status: app.ToolCallStatusCompleted,
 		Result: validation.Output, StartedAt: browserVerificationCallTime(10),
 	})
 
@@ -271,7 +271,7 @@ func seedBrowserVerificationCycle(st *store.MemoryStore, sessionID, runID string
 	ref := browserVerificationRef(beforeNumber)
 	testSaveToolCall(st, browserVerificationSnapshotCall(sessionID, runID, beforeNumber, "", beforeDigest, beforeContentDigest, ref))
 	testSaveToolCall(st, app.ToolCall{
-		ID: "click_" + beforeID, SessionID: sessionID, RunID: runID, Tool: "browser.click", Status: "completed",
+		ID: "click_" + beforeID, SessionID: sessionID, RunID: runID, Tool: "browser.click", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"snapshot_id": beforeID, "uid": ref, "page_id": "page_1"},
 		Result:    browserautomation.Result{Output: map[string]any{"snapshot_id": beforeID, "clicked": ref, "page_id": "page_1"}},
 		StartedAt: browserVerificationCallTime(beforeNumber*2 + 1),
@@ -287,7 +287,7 @@ func browserVerificationSnapshotCall(sessionID, runID string, number int, previo
 	}
 	snapshotID := browserVerificationSnapshotID(number)
 	return app.ToolCall{
-		ID: "call_" + snapshotID, SessionID: sessionID, RunID: runID, Tool: "browser.snapshot", Status: "completed",
+		ID: "call_" + snapshotID, SessionID: sessionID, RunID: runID, Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 		StartedAt: browserVerificationCallTime(number * 2),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
 			"snapshot_id": snapshotID, "previous_snapshot_id": previousID, "page_id": "page_1",

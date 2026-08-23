@@ -111,7 +111,7 @@ func runRunRepositoryContract(t *testing.T, repository RunRepository, sessionID 
 	}
 
 	toolCall := app.ToolCall{
-		ID: "tool-contract-a", SessionID: sessionID, RunID: runID, Tool: "files.read", Status: "completed",
+		ID: "tool-contract-a", SessionID: sessionID, RunID: runID, Tool: "files.read", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": "original.txt", "nested": map[string]any{"value": "original"}},
 		Result:    map[string]any{"text": "original result"}, StartedAt: base,
 	}
@@ -131,7 +131,7 @@ func runRunRepositoryContract(t *testing.T, repository RunRepository, sessionID 
 		t.Fatalf("GetToolCall returned a mutable alias: %#v found=%t err=%v", storedToolCall, found, err)
 	}
 	secondToolCall, err := repository.SaveToolCall(ctx, app.ToolCall{
-		ID: "tool-contract-b", SessionID: sessionID, RunID: runID, Tool: "files.read", Status: "completed", StartedAt: savedToolCall.StartedAt,
+		ID: "tool-contract-b", SessionID: sessionID, RunID: runID, Tool: "files.read", Status: app.ToolCallStatusCompleted, StartedAt: savedToolCall.StartedAt,
 	})
 	if err != nil {
 		t.Fatal(err)

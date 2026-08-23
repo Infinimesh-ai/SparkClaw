@@ -106,7 +106,7 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			return d.resetConversation(ctx, binding, chatSession, message)
 		case "status":
 			pending := 0
-			approvals, err := d.store.ListApprovals(ctx, "pending")
+			approvals, err := d.store.ListApprovals(ctx, app.ApprovalStatusPending)
 			if err != nil {
 				return NewConnectorError("approval_store_unavailable", true, err)
 			}
@@ -283,7 +283,7 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 	if err != nil {
 		return NewConnectorError("approval_store_unavailable", true, err)
 	}
-	if !ok || approval.Status != "pending" || approval.SessionID != chatSession.LinkedSessionID {
+	if !ok || approval.Status != app.ApprovalStatusPending || approval.SessionID != chatSession.LinkedSessionID {
 		_ = d.client.AnswerCallbackQuery(ctx, query.ID, "This approval is no longer pending")
 		return nil
 	}
@@ -298,10 +298,10 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 
 func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, chatID, threadID int64, approval app.Approval, approved bool, actor string) error {
 	if approved {
-		candidate, err := d.store.ResolveApproval(ctx, approval.ID, "approved", "approved from "+actor)
+		candidate, err := d.store.ResolveApproval(ctx, approval.ID, app.ApprovalStatusApproved, "approved from "+actor)
 		resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 		if err != nil {
-			if approval.Status != "pending" {
+			if approval.Status != app.ApprovalStatusPending {
 				return nil
 			}
 			return err
@@ -324,10 +324,10 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 		}
 		return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Approved and executed.", "approval:"+approval.ID, approval.RunID, nil)
 	}
-	candidate, err := d.store.ResolveApproval(ctx, approval.ID, "rejected", "rejected from "+actor)
+	candidate, err := d.store.ResolveApproval(ctx, approval.ID, app.ApprovalStatusRejected, "rejected from "+actor)
 	resolved, err := store.ReconcileApprovalWrite(ctx, d.store, candidate, err)
 	if err != nil {
-		if approval.Status != "pending" {
+		if approval.Status != app.ApprovalStatusPending {
 			return nil
 		}
 		return err
@@ -336,7 +336,7 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 		return err
 	} else if ok {
 		now := time.Now().UTC()
-		call.Status = "rejected"
+		call.Status = app.ToolCallStatusRejected
 		call.Error = "user rejected approval from Telegram"
 		call.CompletedAt = &now
 		candidate, saveErr := d.store.SaveToolCall(ctx, call)
@@ -538,7 +538,7 @@ func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.Notifica
 }
 
 func (d *Dispatcher) pendingApproval(ctx context.Context, sessionID string) (app.Approval, bool, error) {
-	approvals, err := d.store.ListApprovals(ctx, "pending")
+	approvals, err := d.store.ListApprovals(ctx, app.ApprovalStatusPending)
 	if err != nil {
 		return app.Approval{}, false, err
 	}

@@ -50,7 +50,7 @@ func asksForCodeDiagnostics(goal string) bool {
 
 func pendingShellCall(calls []app.ToolCall) *app.ToolCall {
 	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].Tool == "shell.exec_sandboxed" && calls[i].Status == "approval_pending" {
+		if calls[i].Tool == "shell.exec_sandboxed" && calls[i].Status == app.ToolCallStatusApprovalPending {
 			return &calls[i]
 		}
 	}

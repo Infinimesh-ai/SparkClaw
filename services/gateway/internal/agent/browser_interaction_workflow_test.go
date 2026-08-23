@@ -25,7 +25,7 @@ func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			outcome := adaptBrowserHealthOutcome(app.ToolCall{
-				ID: "tc_health", Tool: "browser.status", Status: "completed",
+				ID: "tc_health", Tool: "browser.status", Status: app.ToolCallStatusCompleted,
 				Result: map[string]any{"output": test.payload},
 			}, "browser_interaction")
 			if len(outcome.Signals) != 1 || outcome.Signals[0] != test.want {
@@ -37,7 +37,7 @@ func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing
 
 func TestAdaptBrowserFocusOutcomeCarriesFocusedPageWithoutPagesArray(t *testing.T) {
 	outcome := adaptBrowserFocusOutcome(app.ToolCall{
-		ID: "tc_focus", Tool: "browser.focus", Status: "completed",
+		ID: "tc_focus", Tool: "browser.focus", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"page_id": "page_7"},
 		Result: map[string]any{"output": map[string]any{
 			"tabId": "t7", "url": "https://example.test/workspace", "title": "Workspace",
@@ -311,7 +311,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	if !ok || stored.Workflow == nil {
 		t.Fatal("browser interaction workflow was not persisted")
 	}
-	snapshotCall := app.ToolCall{ID: "tc_snapshot", Tool: "browser.snapshot", Status: "completed", Result: map[string]any{"output": map[string]any{
+	snapshotCall := app.ToolCall{ID: "tc_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted, Result: map[string]any{"output": map[string]any{
 		"snapshot": map[string]any{
 			"snapshot_id": "snapshot_1", "page_id": "page_1", "url": "https://mail.qq.com/",
 			"controls": []any{map[string]any{"ref": "snapshot_1:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱", "fingerprint": "fingerprint"}},
@@ -344,7 +344,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 		t.Fatalf("materialized short ref did not pass the frozen workflow boundary: %v", err)
 	}
 
-	visibleSnapshotCall := app.ToolCall{ID: "tc_visible_snapshot", Tool: "browser.snapshot", Status: "completed", Result: map[string]any{"output": map[string]any{
+	visibleSnapshotCall := app.ToolCall{ID: "tc_visible_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted, Result: map[string]any{"output": map[string]any{
 		"snapshot": map[string]any{
 			"snapshot_id": "snapshot_2", "page_id": "page_1", "url": "https://mail.qq.com/#/drafts",
 			"controls": []any{map[string]any{"ref": "snapshot_2:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱", "fingerprint": "fingerprint"}},
@@ -455,7 +455,7 @@ func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 	testSaveRun(st, run)
 	runtime := Runtime{store: st}
 	call := app.ToolCall{
-		ID: "tc_snapshot", SessionID: session.ID, RunID: run.ID, Tool: "browser.snapshot", Status: "completed",
+		ID: "tc_snapshot", SessionID: session.ID, RunID: run.ID, Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"browser_mode": "collaborative", "presentation": "visible", "surface_visible": true},
 		Result: map[string]any{"output": map[string]any{"snapshot": map[string]any{
 			"title": "登录QQ邮箱", "url": "https://wx.mail.qq.com/?cancel_login=true", "snapshot_id": "snapshot_1", "page_id": "page_1",
@@ -472,7 +472,7 @@ func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 
 func TestQQMailAuthenticatedSnapshotUsesStructuredPageEvidence(t *testing.T) {
 	call := app.ToolCall{
-		Tool: "browser.snapshot", Status: "completed",
+		Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{"output": map[string]any{
 			"snapshot": map[string]any{
 				"browser_page_auth_state":      "authenticated",
@@ -853,19 +853,19 @@ func TestAdaptBrowserClickOutcomeClassifiesFailuresByTypedCodeWithProseFallback(
 			// The typed code decides even when the redacted prose carries none
 			// of the legacy marker words.
 			name: "typed unsafe click code",
-			call: app.ToolCall{Tool: "browser.click", Status: "failed", ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "rejected"},
+			call: app.ToolCall{Tool: "browser.click", Status: app.ToolCallStatusFailed, ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "rejected"},
 			want: app.OutcomeSignalUnsafeClickTarget,
 		},
 		{
 			name: "typed stale snapshot code",
-			call: app.ToolCall{Tool: "browser.click", Status: "failed", ErrorCode: string(app.ToolErrorSnapshotStale), Error: "rejected"},
+			call: app.ToolCall{Tool: "browser.click", Status: app.ToolCallStatusFailed, ErrorCode: string(app.ToolErrorSnapshotStale), Error: "rejected"},
 			want: app.OutcomeSignalSnapshotStale,
 		},
 		{
 			// Records persisted before ErrorCode existed still classify
 			// through the documented prose fallback.
 			name: "legacy record falls back to prose",
-			call: app.ToolCall{Tool: "browser.click", Status: "failed", Error: "stale or unknown snapshot; take a new browser.snapshot"},
+			call: app.ToolCall{Tool: "browser.click", Status: app.ToolCallStatusFailed, Error: "stale or unknown snapshot; take a new browser.snapshot"},
 			want: app.OutcomeSignalSnapshotStale,
 		},
 	} {
@@ -880,7 +880,7 @@ func TestAdaptBrowserClickOutcomeClassifiesFailuresByTypedCodeWithProseFallback(
 
 func TestUnsafeBrowserClickGroundingUsesTypedErrorCode(t *testing.T) {
 	calls := []app.ToolCall{{
-		Tool: "browser.click", Status: "failed",
+		Tool: "browser.click", Status: app.ToolCallStatusFailed,
 		ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "交互被拒绝",
 	}}
 	answer, ok := groundedBrowserAutomationSummary("点击当前页面的下一步", "fallback", calls)
@@ -891,8 +891,8 @@ func TestUnsafeBrowserClickGroundingUsesTypedErrorCode(t *testing.T) {
 
 func TestUnsafeBrowserClickGroundingOverridesEarlierTabEvidence(t *testing.T) {
 	calls := []app.ToolCall{
-		{Tool: "browser.list_tabs", Status: "completed", Result: map[string]any{"pages": []any{map[string]any{"page_id": "page_1", "selected": true}}}},
-		{Tool: "browser.click", Status: "failed", Error: `unsafe click target "Delete account" is outside browser.interaction revision 2`},
+		{Tool: "browser.list_tabs", Status: app.ToolCallStatusCompleted, Result: map[string]any{"pages": []any{map[string]any{"page_id": "page_1", "selected": true}}}},
+		{Tool: "browser.click", Status: app.ToolCallStatusFailed, Error: `unsafe click target "Delete account" is outside browser.interaction revision 2`},
 	}
 	answer, ok := groundedBrowserAutomationSummary("点击当前页面的下一步", "fallback", calls)
 	if !ok || answer != "页面交互已阻止：目标点击可能产生不允许的后果。" {
@@ -903,13 +903,13 @@ func TestUnsafeBrowserClickGroundingOverridesEarlierTabEvidence(t *testing.T) {
 func TestVerifiedVisibleBrowserResultGroundingOverridesEarlierBlankTab(t *testing.T) {
 	calls := []app.ToolCall{
 		{
-			Tool: "browser.list_tabs", Status: "completed",
+			Tool: "browser.list_tabs", Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{"pages": []any{map[string]any{
 				"page_id": "page_1", "url": "about:blank", "selected": true,
 			}}},
 		},
 		{
-			Tool: "browser.snapshot", Status: "completed",
+			Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{"output": map[string]any{"snapshot": map[string]any{
 				"snapshot_id":  "snapshot_visible",
 				"url":          "https://wx.mail.qq.com/home/index#/list/4",
@@ -917,7 +917,7 @@ func TestVerifiedVisibleBrowserResultGroundingOverridesEarlierBlankTab(t *testin
 			}}},
 		},
 		{
-			Tool: "browser.assess_goal", Status: "completed",
+			Tool: "browser.assess_goal", Status: app.ToolCallStatusCompleted,
 			Result: map[string]any{
 				"status": "succeeded", "goal_satisfied": true, "snapshot_id": "snapshot_visible",
 			},

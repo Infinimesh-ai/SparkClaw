@@ -128,7 +128,7 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 	}
 	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_weather", SessionID: session.ID, RunID: runID,
-		Tool: "weather.lookup", Status: "completed", Result: lookup.Output,
+		Tool: "weather.lookup", Status: app.ToolCallStatusCompleted, Result: lookup.Output,
 	})
 
 	result, err := hub.Execute(context.Background(), "media.render_weather_card", map[string]any{
@@ -164,12 +164,12 @@ func TestRenderWeatherCardRejectsIncompleteOrLegacyPayloadReferences(t *testing.
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSessionWithScope(t, st, "weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
 	testSaveToolCall(st, app.ToolCall{
-		ID: "tc_incomplete", SessionID: session.ID, RunID: "run", Tool: "weather.lookup", Status: "completed",
+		ID: "tc_incomplete", SessionID: session.ID, RunID: "run", Tool: "weather.lookup", Status: app.ToolCallStatusCompleted,
 		Result: weatherPayload{Status: "completed", SchemaVersion: WeatherPayloadSchemaVersion, RequestID: "request", Location: "杭州"},
 	})
 
 	testSaveToolCall(st, app.ToolCall{
-		ID: "tc_wrong_tool", SessionID: session.ID, RunID: "run", Tool: "web.search", Status: "completed",
+		ID: "tc_wrong_tool", SessionID: session.ID, RunID: "run", Tool: "web.search", Status: app.ToolCallStatusCompleted,
 		Result: dedicatedWeatherResponse(),
 	})
 

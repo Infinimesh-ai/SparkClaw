@@ -31,17 +31,17 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		persistedApproval.Tool != call.Tool {
 		return app.ToolCall{}, fmt.Errorf("approval does not match its persisted tool call")
 	}
-	if persistedApproval.Status != "approved" {
+	if persistedApproval.Status != app.ApprovalStatusApproved {
 		return app.ToolCall{}, fmt.Errorf("approval cannot execute from status %q", persistedApproval.Status)
 	}
 	approval = persistedApproval
-	if call.Status != "approval_pending" {
+	if call.Status != app.ToolCallStatusApprovalPending {
 		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
 	}
 	if call.Tool == "notify.ask_approval" {
 		now := time.Now().UTC()
 		if isLegacyExternalSendApproval(approval) {
-			call.Status = "failed_after_approval"
+			call.Status = app.ToolCallStatusFailedAfterApproval
 			call.CompletedAt = &now
 			call.Error = "legacy external-send approval is retired; submit a fresh instruction"
 			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
@@ -50,7 +50,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 			}
 			return call, nil
 		}
-		call.Status = "completed_after_approval"
+		call.Status = app.ToolCallStatusCompletedAfterApproval
 		call.CompletedAt = &now
 		call.Result = map[string]any{"status": "approval_confirmed"}
 		call.Error = ""
@@ -66,7 +66,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if workspaceDataApproval {
 		if err := r.validateWorkspaceDataAccessApproval(ctx, call, approval); err != nil {
 			now := time.Now().UTC()
-			call.Status = "failed_after_approval"
+			call.Status = app.ToolCallStatusFailedAfterApproval
 			call.CompletedAt = &now
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
@@ -86,7 +86,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if call.PolicyContext != nil && !workspaceDataApproval {
 		if err := r.validateContextBoundToolApproval(ctx, call, approval, def); err != nil {
 			now := time.Now().UTC()
-			call.Status = "failed_after_approval"
+			call.Status = app.ToolCallStatusFailedAfterApproval
 			call.CompletedAt = &now
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
@@ -104,7 +104,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	defer cancel()
 	if err := r.revalidateApprovedDocumentOperation(execCtx, call, def); err != nil {
 		now := time.Now().UTC()
-		call.Status = "failed_after_approval"
+		call.Status = app.ToolCallStatusFailedAfterApproval
 		call.CompletedAt = &now
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
@@ -113,7 +113,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		}
 		return call, nil
 	}
-	call.Status = "running_after_approval"
+	call.Status = app.ToolCallStatusRunningAfterApproval
 	if _, err := r.saveToolCall(ctx, call); err != nil {
 		return app.ToolCall{}, fmt.Errorf("persist running approved tool call: %w", err)
 	}
@@ -121,7 +121,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	now := time.Now().UTC()
 	call.CompletedAt = &now
 	if err != nil {
-		call.Status = "failed_after_approval"
+		call.Status = app.ToolCallStatusFailedAfterApproval
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		if result.Output != nil {
@@ -134,7 +134,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		}
 		return call, nil
 	}
-	call.Status = "completed_after_approval"
+	call.Status = app.ToolCallStatusCompletedAfterApproval
 	call.Result = result.Output
 	call.Error = ""
 	call.ErrorCode = ""
@@ -167,7 +167,7 @@ func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID strin
 		return fmt.Errorf("load run approvals: %w", err)
 	}
 	for _, approval := range approvals {
-		if approval.Status != "pending" {
+		if approval.Status != app.ApprovalStatusPending {
 			continue
 		}
 		if approval.RunID == runID {
@@ -176,7 +176,7 @@ func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID strin
 	}
 	now := time.Now().UTC()
 	for _, approval := range approvalsForRun(approvals, runID) {
-		if approval.Status != "rejected" && !isLegacyExternalSendApproval(approval) {
+		if approval.Status != app.ApprovalStatusRejected && !isLegacyExternalSendApproval(approval) {
 			continue
 		}
 		run.State = "blocked"

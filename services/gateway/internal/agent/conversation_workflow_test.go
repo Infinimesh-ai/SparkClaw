@@ -450,7 +450,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"rep
 	}
 	approvals := approvalsForRun(storetest.MustListApprovals(t, st, ""), result.Run.ID)
 	calls := toolCallsForRun(testListToolCalls(st, session.ID), result.Run.ID)
-	if len(approvals) != 1 || len(calls) != 2 || calls[0].Tool != app.ToolWorkspaceDataAccess || calls[1].Tool != "files.read" || calls[1].Status != "completed" {
+	if len(approvals) != 1 || len(calls) != 2 || calls[0].Tool != app.ToolWorkspaceDataAccess || calls[1].Tool != "files.read" || calls[1].Status != app.ToolCallStatusCompleted {
 		t.Fatalf("approved document operation did not reuse its single data-boundary approval: approvals=%#v calls=%#v", approvals, calls)
 	}
 }
@@ -476,14 +476,14 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"rep
 	result := approveMCPWorkspaceAccess(t, runtime, st, pending)
 	foreignArtifact := "artifact://sparkclaw/observations/foreign-path.json"
 	testSaveToolCall(st, app.ToolCall{
-		ID: "tc_foreign_path", SessionID: session.ID, RunID: result.Run.ID, Tool: "files.read", Status: "completed",
+		ID: "tc_foreign_path", SessionID: session.ID, RunID: result.Run.ID, Tool: "files.read", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": "other.txt"}, ObservationRef: foreignArtifact, StartedAt: time.Now().UTC(),
 	})
 
 	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, result.Run.ID, toolPlan{
 		Name: "observation.read", Args: map[string]any{"artifact_uri": foreignArtifact, "max_bytes": 100},
 	})
-	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil ||
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending || call.PolicyContext == nil ||
 		call.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
 		t.Fatalf("different-path derivative reused the document approval: call=%#v approval=%#v", call, approval)
 	}
@@ -503,7 +503,7 @@ func TestRejectedMCPWorkspaceApprovalExposesNoResourceFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPendingMCPWorkspaceApproval(t, st, pending)
-	if _, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, "rejected", "not authorized"); err != nil {
+	if _, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, app.ApprovalStatusRejected, "not authorized"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.CompleteRunIfApprovalsResolved(t.Context(), pending.Run.ID); err != nil {
@@ -547,7 +547,7 @@ func TestMCPWorkspaceApprovalCannotBeReusedAfterLocatorOrTargetChange(t *testing
 				t.Fatal(err)
 			}
 			assertPendingMCPWorkspaceApproval(t, st, pending)
-			approved, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, "approved", "owner approved original contract")
+			approved, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, app.ApprovalStatusApproved, "owner approved original contract")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -555,7 +555,7 @@ func TestMCPWorkspaceApprovalCannotBeReusedAfterLocatorOrTargetChange(t *testing
 			test.mutate(&changed)
 			testSaveRun(st, changed)
 			call, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
-			if err != nil || call.Status != "failed_after_approval" {
+			if err != nil || call.Status != app.ToolCallStatusFailedAfterApproval {
 				t.Fatalf("changed workspace contract reused approval: call=%#v err=%v", call, err)
 			}
 			result, resumed, err := runtime.ResumeRunAfterApproval(t.Context(), session.ID, pending.Run.ID)
@@ -589,12 +589,12 @@ func assertPendingMCPWorkspaceApproval(t *testing.T, st *store.MemoryStore, resu
 
 func approveMCPWorkspaceAccess(t *testing.T, runtime Runtime, st *store.MemoryStore, pending Result) Result {
 	t.Helper()
-	approval, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, "approved", "owner approved exact workspace request")
+	approval, err := st.ResolveApproval(t.Context(), pending.Approvals[0].ID, app.ApprovalStatusApproved, "owner approved exact workspace request")
 	if err != nil {
 		t.Fatal(err)
 	}
 	call, err := runtime.ExecuteApprovedToolCall(t.Context(), approval)
-	if err != nil || call.Status != "completed_after_approval" {
+	if err != nil || call.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("workspace approval confirmation failed: call=%#v err=%v", call, err)
 	}
 	result, resumed, err := runtime.ResumeRunAfterApproval(t.Context(), pending.Run.SessionID, pending.Run.ID)

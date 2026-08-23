@@ -413,6 +413,73 @@ func getJSON(t *testing.T, url string, destination any) {
 	}
 }
 
+func TestJingSiLANGuardRejectsPublicPeers(t *testing.T) {
+	server, _, _, _ := newJingSiTestServer(t)
+	for peer, want := range map[string]int{
+		"127.0.0.1:40000":     http.StatusOK,
+		"[::1]:40000":         http.StatusOK,
+		"10.1.2.3:40000":      http.StatusOK,
+		"172.18.0.5:40000":    http.StatusOK,
+		"192.168.1.30:40000":  http.StatusOK,
+		"203.0.113.9:40000":   http.StatusForbidden,
+		"8.8.8.8:40000":       http.StatusForbidden,
+		"[2001:db8::1]:40000": http.StatusForbidden,
+		"":                    http.StatusForbidden,
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/api/jingsi/v0/readyz", nil)
+		request.RemoteAddr = peer
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != want {
+			t.Fatalf("peer %q returned %d, want %d", peer, recorder.Code, want)
+		}
+	}
+}
+
+func TestJingSiLANGuardKeepsDisabledSurfaceIndistinguishable(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/jingsi/v0/readyz", nil)
+	request.RemoteAddr = "203.0.113.9:40000"
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("disabled surface with public peer returned %d, want 404", recorder.Code)
+	}
+}
+
+func TestJingSiLANGuardValidatesBrowserOrigin(t *testing.T) {
+	_, _, _, ts := newJingSiTestServer(t)
+	for origin, want := range map[string]int{
+		"http://localhost:5173":     http.StatusOK,
+		"http://127.0.0.1:18790":    http.StatusOK,
+		"http://192.168.1.20:18790": http.StatusOK,
+		"http://10.4.4.4:18793":     http.StatusOK,
+		"https://evil.example":      http.StatusForbidden,
+		"http://8.8.8.8:18790":      http.StatusForbidden,
+		"null":                      http.StatusForbidden,
+	} {
+		request, err := http.NewRequest(http.MethodGet, ts.URL+"/api/jingsi/v0/readyz", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Origin", origin)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != want {
+			t.Fatalf("origin %q returned %d, want %d", origin, response.StatusCode, want)
+		}
+	}
+}
+
 func TestJingSiLANStreamConcurrencyIsBounded(t *testing.T) {
 	srv, _, session, ts := newJingSiTestServer(t)
 	for i := 0; i < maxPassiveNotificationStreamsPerOwner; i++ {

@@ -124,6 +124,14 @@ schedule、file、approval 和 delivery administration 均返回 `404`；allowli
 已实现的 presentation listener 通过内部网络将准确的 method/path 映射到 Gateway-owned handler，不能
 把 caller 提交的 session ID 插入 upstream path。
 
+### Gateway 层隔离
+
+Nginx allowlist 是打包方式，不是安全边界。Gateway 在每条 `/api/jingsi/` route 上
+自行实施同样的隔离：surface 关闭时每条 route 都保持不可区分的 `404`；启用后，直接
+TCP peer 不是 loopback 或私有地址的请求返回 `403`，浏览器 `Origin` header 也必须
+指向 loopback 或私有地址 origin。因此即使 Gateway 端口被误配置或直接暴露，也仍会
+拒绝公网调用方；公网网页也无法借助位于 LAN 内的浏览器读取 fixed-session feed。
+
 ### 文本发送
 
 JingSi 发送：

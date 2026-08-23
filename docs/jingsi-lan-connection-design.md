@@ -143,6 +143,17 @@ The implemented presentation listener maps exact methods and paths to Gateway-ow
 handlers over the internal network. It must not interpolate a caller-provided
 session ID into an upstream path.
 
+### Gateway-Layer Isolation
+
+The Nginx allowlist is packaging, not the security boundary. The Gateway
+enforces the same isolation itself on every `/api/jingsi/` route: while the
+surface is disabled each route stays an indistinguishable `404`; when enabled,
+a request whose direct TCP peer is not a loopback or private address is
+rejected with `403`, and a browser `Origin` header must itself name a loopback
+or private-address origin. A misconfigured or directly exposed Gateway port
+therefore still refuses public callers, and a public web page cannot read the
+fixed-session feed through a browser that sits on the LAN.
+
 ### Text Send
 
 JingSi sends:

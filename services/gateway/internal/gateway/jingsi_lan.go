@@ -13,8 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"net"
+	"net/url"
+
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -25,6 +29,67 @@ const (
 
 var errJingSiLANDisabled = errors.New("JingSi LAN presentation is disabled")
 var errJingSiSessionUnavailable = errors.New("configured JingSi LAN session is unavailable")
+
+// jingSiLANGuard is the gateway's own JingSi LAN isolation boundary. The
+// Compose deployment fronts these routes with an exact Nginx allowlist on the
+// dedicated LAN port, but that proxy is packaging, not the security boundary:
+// a direct or misconfigured exposure of the gateway port must not widen the
+// presentation surface beyond a trusted private network. A disabled surface
+// stays an indistinguishable 404. When enabled, the direct TCP peer must be a
+// loopback or private address, and any browser Origin must itself be loopback
+// or private so that a public page cannot read the fixed-session feed through
+// a LAN browser.
+func (s *Server) jingSiLANGuard(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.cfg.JingSiLAN.Enabled {
+			http.NotFound(w, r)
+			return
+		}
+		if !jingSiPeerAllowed(r.RemoteAddr) {
+			writeError(w, http.StatusForbidden, errors.New("JingSi LAN presentation is limited to private-network peers"))
+			return
+		}
+		if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" && !jingSiOriginAllowed(origin) {
+			writeError(w, http.StatusForbidden, errors.New("origin is not allowed on the JingSi LAN presentation"))
+			return
+		}
+		next(w, r)
+	}
+}
+
+// jingSiPeerAllowed reports whether the direct TCP peer may use the JingSi
+// LAN routes. In the Compose topology the peer is the Nginx container on the
+// Docker-internal (RFC1918) network; for a host-run gateway it is the phone's
+// own LAN address. Public and unparseable peers are rejected.
+func jingSiPeerAllowed(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(strings.Trim(strings.TrimSpace(host), "[]"))
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
+
+// jingSiOriginAllowed mirrors the /mcp DNS-rebinding defense for the
+// presentation surface: a browser context is admitted only from a loopback or
+// private-address origin. Hostnames other than localhost are rejected because
+// a public DNS name can resolve to a LAN address.
+func jingSiOriginAllowed(rawOrigin string) bool {
+	origin, err := config.NormalizeOrigin(rawOrigin)
+	if err != nil {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
 
 type jingSiSendInput struct {
 	Content string `json:"content"`

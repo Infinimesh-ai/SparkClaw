@@ -9,7 +9,7 @@
 | SparkClaw 基线 | `76a72aa` |
 | JingSi Android 基线 | `ZZZZJJJ0928/JingSi-Windows` 的 `1708fd9` |
 | 首期结果 | 一个服务端绑定的文本对话与空闲实时更新 |
-| LAN 呈现端口 | 实验性 `18793`，默认关闭且不发布 |
+| LAN 呈现端口 | 实验性，默认关闭且不发布；未用 `SPARKCLAW_JINGSI_LAN_PORT` 覆盖时为 `18793` |
 | 实时传输 | 基于现有 session event log 的 SSE 与 cursor 补拉 |
 | 鉴权 | 延后 |
 | ISCP | 不在范围内 |
@@ -102,15 +102,19 @@ fallback 到 latest session。若 configured session 缺失、hidden 或 owner �
 
 ### 精确 Route Allowlist
 
+所有 JingSi route 都位于单一 `/api/jingsi/` 前缀之下，以 `/api/jingsi/v0/` 版本化。
+因此 `18790` 上的宽 WebChat proxy 只需一条规则屏蔽整个前缀，而不必跟踪各个
+path；Gateway 也能在不查路由清单的情况下守护同一前缀。
+
 临时 `18793` listener 只暴露：
 
 | Method 与 path | 用途 |
 |---|---|
-| `GET /readyz` | 确认所选 SparkClaw process 和 binding ready |
-| `POST /api/messages/stream` | 通过 Web ingress 向服务端绑定 session 发送纯文本 |
-| `GET /api/client-events/v0/head` | 首次连接时获取当前 visible event cursor |
-| `GET /api/client-events/v0?after={cursor}&limit=100` | 补回 saved cursor 之后的新 message event |
-| `GET /api/client-events/v0/stream?after={cursor}` | 从 cursor replay，随后在空闲时接收新消息 |
+| `GET /api/jingsi/v0/readyz` | 确认所选 SparkClaw process 和 binding ready |
+| `POST /api/jingsi/v0/messages/stream` | 通过 Web ingress 向服务端绑定 session 发送纯文本 |
+| `GET /api/jingsi/v0/client-events/head` | 首次连接时获取当前 visible event cursor |
+| `GET /api/jingsi/v0/client-events?after={cursor}&limit=100` | 补回 saved cursor 之后的新 message event |
+| `GET /api/jingsi/v0/client-events/stream?after={cursor}` | 从 cursor replay，随后在空闲时接收新消息 |
 
 刻意不提供 session route 和 message-history route。具体来说，`/api/sessions`、
 `/api/sessions/*`、`/api/messages`、`/mcp`、SPA、configuration、connector、tool、trace、
@@ -120,12 +124,20 @@ schedule、file、approval 和 delivery administration 均返回 `404`；allowli
 已实现的 presentation listener 通过内部网络将准确的 method/path 映射到 Gateway-owned handler，不能
 把 caller 提交的 session ID 插入 upstream path。
 
+### Gateway 层隔离
+
+Nginx allowlist 是打包方式，不是安全边界。Gateway 在每条 `/api/jingsi/` route 上
+自行实施同样的隔离：surface 关闭时每条 route 都保持不可区分的 `404`；启用后，直接
+TCP peer 不是 loopback 或私有地址的请求返回 `403`，浏览器 `Origin` header 也必须
+指向 loopback 或私有地址 origin。因此即使 Gateway 端口被误配置或直接暴露，也仍会
+拒绝公网调用方；公网网页也无法借助位于 LAN 内的浏览器读取 fixed-session feed。
+
 ### 文本发送
 
 JingSi 发送：
 
 ```http
-POST /api/messages/stream
+POST /api/jingsi/v0/messages/stream
 Content-Type: application/json
 
 {"content":"Reply with exactly: SparkClaw LAN connected"}
@@ -189,7 +201,7 @@ memory/file 在当前 critical-section/snapshot boundary 内同时保留两者�
 
 首次连接刻意不恢复 transcript：
 
-1. JingSi 读取 `/api/client-events/v0/head` 并保存 cursor `C0`。
+1. JingSi 读取 `/api/jingsi/v0/client-events/head` 并保存 cursor `C0`。
 2. JingSi 从 `C0` 打开 SSE。
 3. 只显示 `C0` 之后创建的消息。
 
@@ -240,7 +252,8 @@ correlation ID，用 content matching 对账会产生歧义。UI 应显示独立
 profile 不含 session ID、owner ID、bearer token、ISCP material 或 cached server transcript。
 base URL 改变时清除旧 cursor 和 local row。
 
-首期 validator 只接受 `http://A.B.C.D:18793`；decimal IPv4 literal 必须属于 loopback、
+首期 validator 只接受 `http://A.B.C.D:18793`（默认 presentation 端口；部署若覆盖
+`SPARKCLAW_JINGSI_LAN_PORT`，手机必须配置同一端口）；decimal IPv4 literal 必须属于 loopback、
 `10.0.0.0/8`、`172.16.0.0/12` 或 `192.168.0.0/16`。任何 request 之前先拒绝 hostname、IPv6、
 user info、fragment、query string、non-root path、缺失或其他 port、含糊 octet 和 public
 address。可接受并移除一个末尾 `/`。
@@ -276,13 +289,13 @@ field 的 UTF-8 JSON，绝不发送 session、history、attachment、target 或 
 receive state 使用 `DISCONNECTED -> PROBING -> CATCHING_UP -> STREAMING`；send 是独立
 operation，绝不能作为 receive 的前置条件。
 
-1. 校验 saved profile，调用 `GET /readyz`，要求 event version 为 `v0` 且
+1. 校验 saved profile，调用 `GET /api/jingsi/v0/readyz`，要求 event version 为 `v0` 且
    `session_ready=true`。
-2. 若没有 cursor，调用 `GET /api/client-events/v0/head`，持久化该 cursor，保持 local list
+2. 若没有 cursor，调用 `GET /api/jingsi/v0/client-events/head`，持久化该 cursor，保持 local list
    为空，然后直接进入 streaming。
 3. 若已有 cursor，从其后分页 catch up。按 message ID 应用每条 event，随后原子持久化
    `next_cursor`；`has_more=true` 时继续。
-4. 打开 `/api/client-events/v0/stream?after={cursor}`。每条合法 event 必须先应用并持久化，再读
+4. 打开 `/api/jingsi/v0/client-events/stream?after={cursor}`。每条合法 event 必须先应用并持久化，再读
    下一 frame。stream 会先 replay catch-up 到 SSE 之间 race window 的 event，再等待 idle
    update。
 5. 遇到 EOF、heartbeat timeout 或 network change 时，从最后 persisted cursor 重新 catch up，
@@ -298,8 +311,9 @@ suspended 或 force-stopped delivery 继续延后。
 
 ## 局域网发布
 
-base Compose product 不发布 `18793`。专用 JingSi-LAN override 将其显式绑定到一个指定 RFC1918
-host address，绝不能默认绑定 `0.0.0.0`。手机不打开 listener，WebChat 保持在 `18790`，Gateway
+base Compose product 不发布 presentation 端口。专用 JingSi-LAN override 将其显式绑定到一个
+指定 RFC1918 host address，绝不能默认绑定 `0.0.0.0`。端口默认 `18793`，Nginx listener、
+Compose 端口映射与 restart helper 统一遵循 `SPARKCLAW_JINGSI_LAN_PORT`。手机不打开 listener，WebChat 保持在 `18790`，Gateway
 `18789` 保持 Docker-internal。
 
 端口分离和 private-address validation 只能减少意外暴露，不等于鉴权。在 authentication/TLS
@@ -326,10 +340,10 @@ bash scripts/restart_jingsi_lan_compose.sh
 
 script 会拒绝 wildcard、public、hostname 和 malformed bind；使用
 `docker/compose.jingsi-lan.yaml` rebuild Gateway/WebChat；并等待
-`http://$SPARKCLAW_JINGSI_LAN_BIND:18793/readyz`。配置手机前确认 allowlist：
+`http://$SPARKCLAW_JINGSI_LAN_BIND:18793/api/jingsi/v0/readyz`。配置手机前确认 allowlist：
 
 ```bash
-curl -fsS http://192.168.1.20:18793/readyz
+curl -fsS http://192.168.1.20:18793/api/jingsi/v0/readyz
 curl -i http://192.168.1.20:18793/api/sessions  # 必须为 404
 ```
 

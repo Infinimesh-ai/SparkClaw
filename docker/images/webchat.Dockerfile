@@ -8,6 +8,11 @@ COPY apps/webchat apps/webchat
 RUN npm --workspace @sparkclaw/webchat run build
 
 FROM nginx:1.29-alpine
-COPY docker/images/webchat.nginx.conf /etc/nginx/conf.d/default.conf
+# The stock nginx entrypoint renders /etc/nginx/templates/*.template with
+# envsubst on start. The filter limits substitution to SPARKCLAW_* variables
+# so nginx's own $request_uri/$http_* variables pass through untouched.
+ENV NGINX_ENVSUBST_FILTER=^SPARKCLAW_ \
+    SPARKCLAW_JINGSI_LAN_PORT=18793
+COPY docker/images/webchat.nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /src/apps/webchat/dist /usr/share/nginx/html
 EXPOSE 18790

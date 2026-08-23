@@ -42,8 +42,9 @@ causes the model to shorten, rewrite, or retry content.
 
 ## Problem
 
-The current coordinated updater in
-`services/gateway/internal/toolhub/scripts/pptx_slide.py` estimates text width
+The current coordinated updater in the
+`services/gateway/internal/toolhub/scripts/pptx_slide/` package (layout logic
+in `layout.py`) estimates text width
 from character classes and estimates height from a fixed line-height factor.
 It then recognizes a small set of geometric patterns and adjusts text boxes,
 backgrounds, rows, and cards. This is useful as a bounded safety layer, but it

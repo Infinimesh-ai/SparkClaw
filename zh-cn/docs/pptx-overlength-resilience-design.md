@@ -40,8 +40,8 @@ ToolHub、配置、提示词、部署和运行时行为均未改变。
 
 ## 问题
 
-当前 `services/gateway/internal/toolhub/scripts/pptx_slide.py` 中的协调更新器根据字符类别估算
-文字宽度，并以固定行高系数估算高度。当替换文字无法容纳时，它抛出
+当前 `services/gateway/internal/toolhub/scripts/pptx_slide/` package（排版逻辑在
+`layout.py`）中的协调更新器根据字符类别估算文字宽度，并以固定行高系数估算高度。当替换文字无法容纳时，它抛出
 `PPTXLayoutFitError`。预检把该情况映射为 `pptx_layout_fit_conflict`，Workflow 随后给
 Fast 一次语义修复机会，要求它缩短或省略替换。第二次仍冲突时，Workflow 会在审批前被拒绝。
 

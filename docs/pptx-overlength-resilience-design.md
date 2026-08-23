@@ -50,8 +50,9 @@ changed.
 
 ## Problem
 
-The current coordinated updater in
-`services/gateway/internal/toolhub/scripts/pptx_slide.py` estimates text width
+The current coordinated updater in the
+`services/gateway/internal/toolhub/scripts/pptx_slide/` package (layout logic
+in `layout.py`) estimates text width
 from character classes and height from a fixed line-height factor. When it
 cannot fit a replacement, it raises `PPTXLayoutFitError`. Preflight maps that
 condition to `pptx_layout_fit_conflict`, and Workflow gives Fast one semantic

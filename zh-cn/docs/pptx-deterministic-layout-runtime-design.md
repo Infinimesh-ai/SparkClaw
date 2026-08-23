@@ -34,8 +34,8 @@ LibreOffice、Aspose、其他渲染器或字符估算补丁。资格测试失败
 
 ## 问题
 
-当前 `services/gateway/internal/toolhub/scripts/pptx_slide.py` 中的协调更新器根据字符类别
-估算文字宽度，并通过固定行高系数估算高度；随后识别少量几何模式，调整文本框、背景、行和
+当前 `services/gateway/internal/toolhub/scripts/pptx_slide/` package（排版逻辑在
+`layout.py`）中的协调更新器根据字符类别估算文字宽度，并通过固定行高系数估算高度；随后识别少量几何模式，调整文本框、背景、行和
 卡片。这可以充当受限安全层，但它不是演示文稿渲染器，无法可靠判断混合字体、中日韩文字、
 项目符号、显式换行、继承的主题属性、AutoFit 或 PowerPoint 特有排版行为是否会溢出。
 

@@ -48,7 +48,10 @@ identity。
 
 每个 repository method 都以 `context.Context` 为首个参数，以 `error` 为最后返回值。Caller
 传播 request、worker 或 shutdown context 并处理 error；production code 不得替换为
-`context.Background()`，也不得丢弃 error。
+`context.Background()`，也不得丢弃 error。Lookup 绝不把 backend 失败伪装成不存在或空列表。
+
+Repository interface 不暴露 pgx、SQL、filesystem、encryption 或 supervisor 类型。需要多个
+repository 的消费者在自身代码旁声明本地 composite interface，而不是加宽 `store`。
 
 package 通过 `StoreError` 暴露有限 error code：
 
@@ -63,6 +66,9 @@ package 通过 `StoreError` 暴露有限 error code：
 | `unknown_outcome` | submission 可能已经 commit；caller 必须按稳定 identity reconciliation 后才能 retry。 |
 | `corrupt` | 持久状态与所有有效预期状态均不一致。 |
 | `internal` | 无法归入更具体 public code 的已分类内部失败。 |
+
+Store error 为内部诊断保留原始 cause，支持 `errors.Is`/`errors.As`；public projection 只暴露
+有限 code 与安全文案。Caller 取消报告为 `canceled`，绝不改标为 `timeout`。
 
 Mutation 返回 canonical persisted record。如果 backend 已产生 candidate，但不能证明是否 commit，
 则随 `unknown_outcome` 返回该 candidate；repository-specific reconciliation 通过稳定 ID、version、
@@ -84,8 +90,10 @@ validation、normalization、clone、conditional command、replay comparison 与
 ### File
 
 `FileStore` 是 `MemoryStore` 的 write-through decorator。所有 operation 进入同一个
-context-aware admission gate：read 获取共享容量，command 获取全部容量。Command 捕获完整
-rollback state，执行 memory mutation，编码一份 snapshot，再通过同目录 temporary file 提交：
+context-aware admission gate：read 获取共享容量，command 获取全部容量。因此 read 只会观察到
+command 之前的完整状态，或 durable commit 之后的完整状态，绝不会观察到暂态 in-memory
+mutation。Command 捕获完整 rollback state，执行 memory mutation，编码一份 snapshot，再通过
+以 `0600` 权限创建的同目录唯一 temporary file 提交：
 
 ```text
 encode -> create temp -> write all -> fsync temp -> close
@@ -124,12 +132,20 @@ Gateway 是 application schema 的唯一 authority。`internal/store/migrations`
 checksum 漂移、未知或缺口 version、歧义 legacy identity 与 catalog drift 都会令 startup 失败。
 PostgreSQL integration test 保留原有 `SPARKCLAW_TEST_POSTGRES_DSN` gate；未配置时继续 skip。
 
+## 配置
+
+Store 设置在 `config.Load` 阶段失败，而不是等到第一次持久化操作：state backend 必须恰为
+`memory`、`file` 或 `postgres`；File backend 要求非空 state path；PostgreSQL 要求非空 DSN；
+File encryption 要求恰好一个可用 key 来源。需要 non-durable state 的测试使用 `MemoryStore`，
+而不是无 path 的 File Store。DSN 与 encryption key 绝不出现在 public projection 或日志中。
+
 ## Runtime 与监管
 
 `store.NewRuntime` 只构造一个 backend 与一组 repository。Backend probe 通过后 startup 才成功。
 Runtime 负责：
 
-- 默认 10、30、60 秒的 read、write、transaction budget；
+- 默认 10、30、60 秒的 read、write、transaction budget，startup 与 schema 操作使用 180 秒
+  budget；
 - 将每个 method 映射到 repository、mode、timeout class 的单一 finite-operation registry；
 - active-operation admission、有限 outcome counter 与总 duration；
 - readiness state 与周期 recovery probe；
@@ -137,8 +153,8 @@ Runtime 负责：
 
 状态为 `starting`、`ready`、`unready`、`closing`、`closed`。`corrupt` outcome 会立即使 Runtime
 unready。对 durable backend，`durability_failed` 或 `unknown_outcome` 也会使其 unready。同一
-operation 连续三次 `timeout` 或 `unavailable` 后进入 unready。Probe 成功会恢复 readiness 并清除
-failure streak。
+operation 连续三次 `timeout` 或 `unavailable` 后进入 unready。只有 recovery probe 成功才会
+恢复 readiness 并清除 failure streak；无关 operation 的成功不会清除降级状态。
 
 Memory probe 检查 map 已初始化。File probe 会在 snapshot 同目录执行并清理一次
 write/fsync/rename/directory-fsync/read cycle。PostgreSQL probe 会 ping pool 并验证完整 migration
@@ -146,10 +162,10 @@ ledger。Probe diagnostic 留在内部；public readiness 只暴露有限 runtim
 
 Store unready 时 `/readyz` fail closed。`/metrics` 通过 `sparkclaw_store_*` metric 只导出有限的
 backend、repository、operation、mode、outcome label，绝不导出 path、DSN、owner、record ID
-或 raw error。
+或 raw error。Store telemetry 绝不写入被监管的 Store 自身。
 
 Shutdown 时 Runtime 停止 recovery、拒绝新 operation、在 close context 内等待已获准 operation，
-最后关闭 backend。Caller 不得在 Runtime shutdown 后继续持有 repository。
+最后关闭 backend。Close 幂等且有界。Caller 不得在 Runtime shutdown 后继续持有 repository。
 
 ## Source 布局
 

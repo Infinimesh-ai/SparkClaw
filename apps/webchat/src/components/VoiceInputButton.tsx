@@ -1,50 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, CornerDownLeft, LoaderCircle, Mic, MicOff, RotateCcw, Square, Volume2, X } from "lucide-react";
 import type { Copy as CopyText } from "../i18n";
-import type { MicrophoneDevice } from "../audio/microphones";
-import type { SilenceMode } from "../audio/silenceDetector";
-import type { VoiceInputState } from "../hooks/useVoiceInput";
+import type { VoiceInputModel, VoiceInputState } from "../hooks/useVoiceInput";
+import { voiceCaptureFailureLabel, voiceInputLabel, voiceInputTitle } from "../lib/voiceLabels";
 import { voicePhaseIsRecording } from "../lib/voiceState";
 
 export function VoiceInputControl({
-  state,
-  disabled,
-  active,
-  title,
-  devices,
-  selectedDeviceId,
-  silenceMode,
-  previewState,
-  previewLevel,
-  previewError,
+  voice,
   text,
-  onClick,
-  onRefreshDevices,
-  onSelectDevice,
-  onSelectSilenceMode,
-  onTogglePreview,
-  onClosePicker
+  onToggle
 }: {
-  state: VoiceInputState;
-  disabled: boolean;
-  active: boolean;
-  title: string;
-  devices: MicrophoneDevice[];
-  selectedDeviceId: string;
-  silenceMode: SilenceMode;
-  previewState: "idle" | "starting" | "active";
-  previewLevel: number;
-  previewError: string;
+  voice: VoiceInputModel;
   text: CopyText;
-  onClick: () => void;
-  onRefreshDevices: () => void;
-  onSelectDevice: (deviceId: string) => void;
-  onSelectSilenceMode: (mode: SilenceMode) => void;
-  onTogglePreview: () => void;
-  onClosePicker: () => void;
+  onToggle: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement | null>(null);
+  const { state, disabled, active, devices, selectedDeviceId, silenceMode, previewState, previewLevel, stopPreview } = voice;
+  const label = voiceInputLabel(state, voice.errorCode, voice.errorDetail, voice.deviceFallback, text);
+  const title = voiceInputTitle(state, label, text);
+  const previewError = voiceCaptureFailureLabel(voice.previewErrorCode, "", text);
   const recording = state !== "disabled" && voicePhaseIsRecording(state);
   const icon = state === "disabled"
     ? <MicOff size={18} />
@@ -69,8 +44,8 @@ export function VoiceInputControl({
 
   useEffect(() => {
     if (!open) return;
-    return () => onClosePicker();
-  }, [onClosePicker, open]);
+    return () => void stopPreview();
+  }, [open, stopPreview]);
 
   return (
     <div className="voiceControl" ref={root}>
@@ -81,7 +56,7 @@ export function VoiceInputControl({
         aria-label={title}
         aria-pressed={recording}
         title={title}
-        onClick={onClick}
+        onClick={onToggle}
       >
         {icon}
       </button>
@@ -95,7 +70,7 @@ export function VoiceInputControl({
         onClick={() => {
           const next = !open;
           setOpen(next);
-          if (next) onRefreshDevices();
+          if (next) void voice.refreshDevices();
         }}
       >
         <ChevronDown size={13} />
@@ -106,7 +81,7 @@ export function VoiceInputControl({
           <button
             type="button"
             className={!selectedDeviceId ? "selected" : ""}
-            onClick={() => onSelectDevice("")}
+            onClick={() => voice.selectDevice("")}
           >
             <span>{text.chat.voiceDefaultMicrophone}</span>
             {!selectedDeviceId && <Check size={14} />}
@@ -116,7 +91,7 @@ export function VoiceInputControl({
               type="button"
               className={selectedDeviceId === device.deviceId ? "selected" : ""}
               key={device.deviceId}
-              onClick={() => onSelectDevice(device.deviceId)}
+              onClick={() => voice.selectDevice(device.deviceId)}
             >
               <span>{device.label}</span>
               {selectedDeviceId === device.deviceId && <Check size={14} />}
@@ -128,14 +103,14 @@ export function VoiceInputControl({
               type="button"
               className={silenceMode === mode ? "selected" : ""}
               key={mode}
-              onClick={() => onSelectSilenceMode(mode)}
+              onClick={() => voice.setSilenceMode(mode)}
             >
               <span>{mode === "off" ? text.chat.voiceSilenceOff : mode === "standard" ? text.chat.voiceSilenceStandard : text.chat.voiceSilencePatient}</span>
               {silenceMode === mode && <Check size={14} />}
             </button>
           ))}
           <div className="voicePreviewRow">
-            <button type="button" className="voicePreviewButton" onClick={onTogglePreview}>
+            <button type="button" className="voicePreviewButton" onClick={voice.togglePreview}>
               {previewState === "starting" ? <LoaderCircle className="spin" size={14} /> : previewState === "active" ? <Square size={13} /> : <Volume2 size={15} />}
               <span>{previewState === "active" ? text.chat.voiceStopPreview : text.chat.voicePreview}</span>
             </button>

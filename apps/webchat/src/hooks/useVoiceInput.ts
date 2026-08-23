@@ -562,6 +562,8 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   };
 }
 
+export type VoiceInputModel = ReturnType<typeof useVoiceInput>;
+
 function createRequestID() {
   const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `voice-${suffix}`;

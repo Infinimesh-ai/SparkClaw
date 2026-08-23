@@ -164,10 +164,17 @@ func (s *Server) getSpeechRealtime(w http.ResponseWriter, r *http.Request) {
 	var acknowledged atomic.Int64
 	clientResults := make(chan speechRealtimeRelayResult, 1)
 	serverResults := make(chan speechRealtimeRelayResult, 1)
+	// Register both relays with the shutdown drain like every other stream
+	// goroutine; they terminate promptly once the session closes.
+	s.streamWG.Add(2)
 	go func() {
+		defer s.streamWG.Done()
 		clientResults <- relayRealtimeClient(opCtx, client, ticket.session, &acknowledged, ticket.maxAudioSeconds)
 	}()
-	go func() { serverResults <- relayRealtimeServer(opCtx, client, ticket.session, &writeMu, &acknowledged) }()
+	go func() {
+		defer s.streamWG.Done()
+		serverResults <- relayRealtimeServer(opCtx, client, ticket.session, &writeMu, &acknowledged)
+	}()
 
 	result := waitSpeechRealtimeRelay(clientResults, serverResults, ticket.session)
 	if result.code != "" && !result.alreadySent && result.kind != "cancelled" && result.kind != "disconnected" {

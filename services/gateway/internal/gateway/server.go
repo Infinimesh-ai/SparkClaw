@@ -3303,7 +3303,7 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Method == http.MethodGet && r.URL.Path == "/api/speech/realtime" {
+		if isTicketAuthenticatedRoute(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -3351,6 +3351,15 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isTicketAuthenticatedRoute lists routes whose credential is a single-use
+// ticket validated by the handler itself (consumeSpeechRealtimeTicket), so
+// they bypass bearer auth. Keep this list explicit: a bare path-equality
+// check inside withAuth would silently exempt any future handler mounted on
+// the same path.
+func isTicketAuthenticatedRoute(r *http.Request) bool {
+	return r.Method == http.MethodGet && r.URL.Path == "/api/speech/realtime"
 }
 
 func (s *Server) isPublicRoute(r *http.Request) bool {

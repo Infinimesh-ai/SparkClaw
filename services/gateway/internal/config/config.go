@@ -2071,10 +2071,13 @@ func normalizeStateConfig(state *StateConfig) error {
 		return errors.New("state.transaction_timeout_seconds must be between 1 and 900")
 	}
 	switch state.Backend {
-	case "memory":
-		return nil
-	case "postgres":
-		if state.DSN == "" {
+	case "memory", "postgres":
+		// Encryption at rest is only implemented by the file backend; accepting
+		// the knobs here would silently store plaintext.
+		if state.EncryptAtRest || strings.TrimSpace(state.EncryptionKey) != "" || state.EncryptionKeyFile != "" {
+			return fmt.Errorf("state.encrypt_at_rest and encryption keys are only supported by the file backend, not %q", state.Backend)
+		}
+		if state.Backend == "postgres" && state.DSN == "" {
 			return errors.New("state.dsn is required when state.backend is postgres")
 		}
 		return nil

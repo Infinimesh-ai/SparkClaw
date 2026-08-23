@@ -6,6 +6,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+// In-package twin of the shared fixtures in internal/storetest/run.go: the
+// store package's own tests cannot import storetest without an import cycle.
+// Keep both files in sync when the RunRepository contract changes. The
+// feedback fixtures exist only here because no other package exercises them.
+
 func testSaveRunFeedback(repository RunRepository, feedback app.RunFeedback) app.RunFeedback {
 	saved, err := repository.SaveRunFeedback(context.Background(), feedback)
 	if err != nil {

@@ -1,4 +1,4 @@
-package telegram
+package storetest
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func mustTelegramListAudit(t testing.TB, repository store.AuditRepository, sessionID string) []app.AuditEvent {
+func MustListAudit(t testing.TB, repository store.AuditRepository, sessionID string) []app.AuditEvent {
 	t.Helper()
 	events, err := repository.ListAudit(t.Context(), sessionID)
 	if err != nil {

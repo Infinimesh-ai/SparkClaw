@@ -167,6 +167,12 @@ func TestRepositorySourceGuard(t *testing.T) {
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
+		// internal/storetest holds shared test fixtures, not production
+		// callers; its legacy run fixtures intentionally use
+		// context.Background because their call sites have no testing.TB.
+		if strings.Contains(filepath.ToSlash(path), "/internal/storetest/") {
+			return nil
+		}
 		parsed, parseErr := parser.ParseFile(files, path, nil, 0)
 		if parseErr != nil {
 			return parseErr

@@ -542,8 +542,12 @@ func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, c
 	if documentContext := formatDocumentRoutingContext(documentResolution); documentContext != "" {
 		sections = append(sections, "Resolved governed document context:\n"+documentContext)
 	}
-	if context := snapshot.ForIntentRouting(); context != "" {
-		sections = append(sections, "Recent Agent context:\n"+trimForEpisode(context, 12000))
+	routingContext, err := snapshot.ForIntentRouting(intentRoutingContextTokenBudget)
+	if err != nil {
+		return "", err
+	}
+	if routingContext != "" {
+		sections = append(sections, "Recent Agent context:\n"+trimForEpisode(routingContext, 12000))
 	}
 	return strings.Join(sections, "\n\n"), nil
 }

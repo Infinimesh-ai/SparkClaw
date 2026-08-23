@@ -415,7 +415,10 @@ func TestContextBuilderDegradesLowerPrioritySectionFirst(t *testing.T) {
 		degradingContextSection("low", 10, strings.Repeat("low ", 1000), "low compact", true),
 		fixedContextSection("required", 100, contextChannelUser, "required contract"),
 	}}
-	rendered := builder.Render(30)
+	rendered, renderErr := builder.Render(30)
+	if renderErr != nil {
+		t.Fatal(renderErr)
+	}
 	if !strings.Contains(rendered, "required contract") || strings.Contains(rendered, strings.Repeat("low ", 20)) {
 		t.Fatalf("context builder degraded the wrong section: %s", rendered)
 	}

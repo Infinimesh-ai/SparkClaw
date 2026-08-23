@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 const (
@@ -65,12 +67,34 @@ func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, curre
 	}, nil
 }
 
-func (snapshot agentContextSnapshot) ForIntentRouting() string {
-	return snapshot.contextBuilder(contextRenderIntent).Render(0)
+// intentRoutingContextTokenBudget matches the pre-existing 12000-character
+// hard trim in semanticRoutingContext (~4 bytes per token), so admission
+// degrades whole sections instead of the trim cutting mid-sentence.
+const intentRoutingContextTokenBudget = 3000
+
+// conversationContextTokenFloor keeps a minimal conversation-context window
+// even when the fixed prompt parts already crowd the lane budget.
+const conversationContextTokenFloor = 1024
+
+// conversationContextTokenBudget bounds the snapshot section of the
+// conversation final-answer prompt to the execution lane's input budget net
+// of the fixed prompt parts, mirroring the workflow step loop's admission.
+func (r Runtime) conversationContextTokenBudget(system string, fixedUserParts []string) int {
+	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: workflowExecutionModelLane})
+	available := int(math.Floor(float64(contextLimit-maxOutputTokens) * workflowStepPromptCompressionThreshold))
+	budget := available - estimatePromptTokens(append([]string{system}, fixedUserParts...)...)
+	if budget < conversationContextTokenFloor {
+		return conversationContextTokenFloor
+	}
+	return budget
 }
 
-func (snapshot agentContextSnapshot) ForWorkflowStep() string {
-	return snapshot.contextBuilder(contextRenderWorkflow).Render(0)
+func (snapshot agentContextSnapshot) ForIntentRouting(maxTokens int) (string, error) {
+	return snapshot.contextBuilder(contextRenderIntent).Render(maxTokens)
+}
+
+func (snapshot agentContextSnapshot) ForWorkflowStep(maxTokens int) (string, error) {
+	return snapshot.contextBuilder(contextRenderWorkflow).Render(maxTokens)
 }
 
 type contextRenderMode string

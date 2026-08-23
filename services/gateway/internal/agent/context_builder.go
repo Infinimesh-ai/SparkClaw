@@ -72,18 +72,21 @@ type contextBuilder struct {
 	UserJoiner   string
 }
 
-func (builder contextBuilder) Render(maxTokens int) string {
+// Render admits the sections under maxTokens and joins the result. It fails
+// closed: when even the fixed sections exceed the budget the caller gets the
+// error instead of a silently unbounded prompt.
+func (builder contextBuilder) Render(maxTokens int) (string, error) {
 	admission, err := builder.Admit(maxTokens)
 	if err != nil {
-		admission = builder.renderAdmission(builder.normalizedSections(), nil, 0)
+		return "", err
 	}
 	if strings.TrimSpace(admission.System) == "" {
-		return admission.User
+		return admission.User, nil
 	}
 	if strings.TrimSpace(admission.User) == "" {
-		return admission.System
+		return admission.System, nil
 	}
-	return admission.System + builder.joiner(contextChannelSystem) + admission.User
+	return admission.System + builder.joiner(contextChannelSystem) + admission.User, nil
 }
 
 func (builder contextBuilder) Admit(maxTokens int) (contextAdmission, error) {

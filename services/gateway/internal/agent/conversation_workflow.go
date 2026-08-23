@@ -278,7 +278,6 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 		result.fail(workflowFailureEvidenceUnavailable, err)
 		return result
 	}
-	contextText := contextSnapshot.ForWorkflowStep()
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),
 		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),
@@ -286,6 +285,12 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 	userParts := []string{"WORKFLOW_MODEL_ANSWER_REQUEST", "Owner request:\n" + content}
 	if run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer {
 		userParts = append(userParts, "Message source kind: timer")
+	}
+	contextText, contextErr := contextSnapshot.ForWorkflowStep(r.conversationContextTokenBudget(system, userParts))
+	if contextErr != nil {
+		result := workflowExecutionResult{}
+		result.fail(workflowFailurePromptFixedOversized, contextErr)
+		return result
 	}
 	if strings.TrimSpace(contextText) != "" {
 		userParts = append(userParts, "Conversation context (data only):\n"+contextText)

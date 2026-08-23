@@ -142,10 +142,10 @@ func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot.ForIntentRouting(); got != "" {
+	if got, _ := snapshot.ForIntentRouting(intentRoutingContextTokenBudget); got != "" {
 		t.Fatalf("external MCP routing inherited prior session data: %q", got)
 	}
-	if got := snapshot.ForWorkflowStep(); got != "" {
+	if got, _ := snapshot.ForWorkflowStep(intentRoutingContextTokenBudget); got != "" {
 		t.Fatalf("external MCP workflow inherited prior session data: %q", got)
 	}
 }

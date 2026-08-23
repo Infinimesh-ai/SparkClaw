@@ -2120,7 +2120,10 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	contextText := snapshot.ForIntentRouting()
+	contextText, contextErr := snapshot.ForIntentRouting(intentRoutingContextTokenBudget)
+	if contextErr != nil {
+		t.Fatal(contextErr)
+	}
 	if !strings.Contains(contextText, "Recent tool results") ||
 		!strings.Contains(contextText, "张三") ||
 		!strings.Contains(contextText, "document_pipeline={status=succeeded") ||
@@ -3300,7 +3303,10 @@ func TestAgentContextSnapshotIncludesEpisodeSummariesAndMemories(t *testing.T) {
 			Content: "用户希望追问时沿用上一轮主题。",
 		}},
 	}
-	context := snapshot.ForIntentRouting()
+	context, contextErr := snapshot.ForIntentRouting(intentRoutingContextTokenBudget)
+	if contextErr != nil {
+		t.Fatal(contextErr)
+	}
 	if !strings.Contains(context, "Recent episode summaries") ||
 		!strings.Contains(context, "Relevant accepted memories") ||
 		!strings.Contains(context, "2026年全国高考报名人数") ||

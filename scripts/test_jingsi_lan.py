@@ -9,6 +9,18 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "restart_jingsi_lan_compose.sh"
 
+# The one JingSi LAN route list. Every gateway-side JingSi route lives under
+# this prefix, so the wide 18790 proxy blocks the prefix instead of tracking
+# individual paths.
+JINGSI_PREFIX = "/api/jingsi/"
+JINGSI_ROUTES = (
+    "/api/jingsi/v0/readyz",
+    "/api/jingsi/v0/messages/stream",
+    "/api/jingsi/v0/client-events/head",
+    "/api/jingsi/v0/client-events",
+    "/api/jingsi/v0/client-events/stream",
+)
+
 
 class JingSiLANDeploymentTest(unittest.TestCase):
     def run_check(self, bind, session_id="session-visible"):
@@ -51,21 +63,9 @@ class JingSiLANDeploymentTest(unittest.TestCase):
         nginx = (ROOT / "docker" / "images" / "webchat.nginx.conf").read_text(encoding="utf-8")
         base = nginx.split("listen 18793;", 1)[0]
         presentation = nginx.split("listen 18793;", 1)[1]
-        for route in (
-            "/api/jingsi/v0/readyz",
-            "/api/messages/stream",
-            "/api/client-events/v0/head",
-            "/api/client-events/v0",
-            "/api/client-events/v0/stream",
-        ):
-            self.assertIn(f"location = {route} {{\n    return 404;", base)
-        for route in (
-            "/readyz",
-            "/api/messages/stream",
-            "/api/client-events/v0/head",
-            "/api/client-events/v0",
-            "/api/client-events/v0/stream",
-        ):
+        self.assertIn(f"location {JINGSI_PREFIX} {{\n    return 404;", base)
+        for route in JINGSI_ROUTES:
+            self.assertTrue(route.startswith(JINGSI_PREFIX), route)
             self.assertIn(f"location = {route} {{", presentation)
         self.assertNotIn("location /api/ {", presentation)
         self.assertIn("location / {\n    return 404;", presentation)

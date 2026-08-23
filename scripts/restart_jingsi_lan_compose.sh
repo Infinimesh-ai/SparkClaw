@@ -50,7 +50,7 @@ export SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE=docker/compose.jingsi-lan.yaml
 bash scripts/restart_runtime_compose.sh gateway webchat
 
 for _ in $(seq 1 30); do
-  if curl --noproxy '*' -fsS "http://$bind:18793/readyz" >/dev/null 2>&1; then
+  if curl --noproxy '*' -fsS "http://$bind:18793/api/jingsi/v0/readyz" >/dev/null 2>&1; then
     echo "JingSi LAN presentation ready on the configured private address"
     exit 0
   fi

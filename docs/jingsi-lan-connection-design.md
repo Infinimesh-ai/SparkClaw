@@ -118,15 +118,20 @@ unavailable until the operator corrects the configuration.
 
 ### Exact Route Allowlist
 
+Every JingSi route lives under the single `/api/jingsi/` prefix, versioned as
+`/api/jingsi/v0/`. The wide WebChat proxy on `18790` therefore blocks the whole
+prefix with one rule instead of tracking individual paths, and the Gateway can
+guard the same prefix without consulting a route list.
+
 The provisional `18793` listener exposes only:
 
 | Method and path | Purpose |
 |---|---|
-| `GET /readyz` | Confirm that the selected SparkClaw process and binding are ready |
-| `POST /api/messages/stream` | Send plain text to the server-bound session through Web ingress |
-| `GET /api/client-events/v0/head` | Obtain the current visible event cursor for first connection |
-| `GET /api/client-events/v0?after={cursor}&limit=100` | Recover new message events after a saved cursor |
-| `GET /api/client-events/v0/stream?after={cursor}` | Replay after a cursor and receive later messages while idle |
+| `GET /api/jingsi/v0/readyz` | Confirm that the selected SparkClaw process and binding are ready |
+| `POST /api/jingsi/v0/messages/stream` | Send plain text to the server-bound session through Web ingress |
+| `GET /api/jingsi/v0/client-events/head` | Obtain the current visible event cursor for first connection |
+| `GET /api/jingsi/v0/client-events?after={cursor}&limit=100` | Recover new message events after a saved cursor |
+| `GET /api/jingsi/v0/client-events/stream?after={cursor}` | Replay after a cursor and receive later messages while idle |
 
 There is deliberately no session route and no message-history route. In
 particular, `/api/sessions`, `/api/sessions/*`, `/api/messages`, `/mcp`, the SPA,
@@ -143,7 +148,7 @@ session ID into an upstream path.
 JingSi sends:
 
 ```http
-POST /api/messages/stream
+POST /api/jingsi/v0/messages/stream
 Content-Type: application/json
 
 {"content":"Reply with exactly: SparkClaw LAN connected"}
@@ -220,7 +225,7 @@ gap without creating a second message system.
 
 First connection deliberately does not restore a transcript:
 
-1. JingSi reads `/api/client-events/v0/head` and persists cursor `C0`.
+1. JingSi reads `/api/jingsi/v0/client-events/head` and persists cursor `C0`.
 2. JingSi opens SSE after `C0`.
 3. Only messages created after `C0` are displayed.
 
@@ -324,14 +329,14 @@ fields.
 Use `DISCONNECTED -> PROBING -> CATCHING_UP -> STREAMING` for receive state;
 sending is an independent operation and never gates receiving.
 
-1. Validate the saved profile and call `GET /readyz`; require event version
+1. Validate the saved profile and call `GET /api/jingsi/v0/readyz`; require event version
    `v0` and `session_ready=true`.
-2. If no cursor exists, call `GET /api/client-events/v0/head`, persist that
+2. If no cursor exists, call `GET /api/jingsi/v0/client-events/head`, persist that
    cursor, keep the local list empty, and continue directly to streaming.
 3. If a cursor exists, call bounded catch-up pages after it. Apply every event
    by message ID, then atomically persist `next_cursor`; repeat while
    `has_more=true`.
-4. Open `/api/client-events/v0/stream?after={cursor}`. Apply and persist each
+4. Open `/api/jingsi/v0/client-events/stream?after={cursor}`. Apply and persist each
    valid event before reading the next frame. The stream replays the catch-up to
    SSE race window before waiting for idle updates.
 5. On EOF, heartbeat timeout, or network change, return to catch-up after the
@@ -382,11 +387,11 @@ bash scripts/restart_jingsi_lan_compose.sh
 
 The script rejects wildcard, public, hostname, and malformed binds; rebuilds
 Gateway and WebChat with `docker/compose.jingsi-lan.yaml`; and waits for
-`http://$SPARKCLAW_JINGSI_LAN_BIND:18793/readyz`. Confirm the allowlist before
+`http://$SPARKCLAW_JINGSI_LAN_BIND:18793/api/jingsi/v0/readyz`. Confirm the allowlist before
 configuring the phone:
 
 ```bash
-curl -fsS http://192.168.1.20:18793/readyz
+curl -fsS http://192.168.1.20:18793/api/jingsi/v0/readyz
 curl -i http://192.168.1.20:18793/api/sessions  # must be 404
 ```
 

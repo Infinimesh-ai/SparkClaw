@@ -35,7 +35,7 @@ func TestJingSiLANIsDisabledByDefault(t *testing.T) {
 	for _, path := range []string{
 		"/api/jingsi/v0/readyz",
 		"/api/jingsi/v0/readyz?debug=1",
-		"/api/client-events/v0?after=ce_invalid&after=ce_invalid",
+		"/api/jingsi/v0/client-events?after=ce_invalid&after=ce_invalid",
 	} {
 		response, err := http.Get(ts.URL + path)
 		if err != nil {
@@ -57,7 +57,7 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 		Version string `json:"version"`
 		Cursor  string `json:"cursor"`
 	}
-	getJSON(t, ts.URL+"/api/client-events/v0/head", &head)
+	getJSON(t, ts.URL+"/api/jingsi/v0/client-events/head", &head)
 	if head.Version != jingsiEventVersion || !strings.HasPrefix(head.Cursor, "evt_") {
 		t.Fatalf("unexpected head: %#v", head)
 	}
@@ -66,7 +66,7 @@ func TestJingSiLANHeadCatchUpFiltersConfiguredSession(t *testing.T) {
 	storetest.MustAddMessage(t, st, app.Message{SessionID: other.ID, Role: "assistant", Content: "must stay hidden"})
 	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "idle update"})
 
-	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + head.Cursor + "&limit=100")
+	response, err := http.Get(ts.URL + "/api/jingsi/v0/client-events?after=" + head.Cursor + "&limit=100")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestJingSiLANRejectsWrongSessionCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + cursor)
+	response, err := http.Get(ts.URL + "/api/jingsi/v0/client-events?after=" + cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +151,14 @@ func TestJingSiLANEmptyHeadCursorIsBoundToConfiguredSession(t *testing.T) {
 	var head struct {
 		Cursor string `json:"cursor"`
 	}
-	getJSON(t, ts.URL+"/api/client-events/v0/head", &head)
+	getJSON(t, ts.URL+"/api/jingsi/v0/client-events/head", &head)
 	if !strings.HasPrefix(head.Cursor, "ce_") || strings.Contains(head.Cursor, session.ID) {
 		t.Fatalf("empty head cursor is not opaque: %q", head.Cursor)
 	}
 
 	other := storetest.MustCreateSessionWithScope(t, st, "other", app.DefaultOwnerID, server.cfg.Workspaces.DefaultRoot, "webchat", false)
 	server.cfg.JingSiLAN.SessionID = other.ID
-	response, err := http.Get(ts.URL + "/api/client-events/v0?after=" + head.Cursor)
+	response, err := http.Get(ts.URL + "/api/jingsi/v0/client-events?after=" + head.Cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestJingSiLANCatchUpAdvancesAcrossFilteredMessageRoles(t *testing.T) {
 	var head struct {
 		Cursor string `json:"cursor"`
 	}
-	getJSON(t, ts.URL+"/api/client-events/v0/head", &head)
+	getJSON(t, ts.URL+"/api/jingsi/v0/client-events/head", &head)
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "tool", Content: "internal result"})
 
 	var page struct {
@@ -185,13 +185,13 @@ func TestJingSiLANCatchUpAdvancesAcrossFilteredMessageRoles(t *testing.T) {
 		NextCursor string              `json:"next_cursor"`
 		HasMore    bool                `json:"has_more"`
 	}
-	getJSON(t, ts.URL+"/api/client-events/v0?after="+head.Cursor, &page)
+	getJSON(t, ts.URL+"/api/jingsi/v0/client-events?after="+head.Cursor, &page)
 	if len(page.Events) != 0 || page.NextCursor == head.Cursor || page.HasMore {
 		t.Fatalf("filtered message did not advance page cursor: %#v", page)
 	}
 
 	wanted := storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "visible"})
-	getJSON(t, ts.URL+"/api/client-events/v0?after="+page.NextCursor, &page)
+	getJSON(t, ts.URL+"/api/jingsi/v0/client-events?after="+page.NextCursor, &page)
 	if len(page.Events) != 1 || page.Events[0].Message.ID != wanted.ID {
 		t.Fatalf("visible message after filtered cursor = %#v", page)
 	}
@@ -202,11 +202,11 @@ func TestJingSiLANSSEReceivesIdleMessage(t *testing.T) {
 	head := struct {
 		Cursor string `json:"cursor"`
 	}{}
-	getJSON(t, ts.URL+"/api/client-events/v0/head", &head)
+	getJSON(t, ts.URL+"/api/jingsi/v0/client-events/head", &head)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/client-events/v0/stream?after="+head.Cursor, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/jingsi/v0/client-events/stream?after="+head.Cursor, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestJingSiLANSendUsesConfiguredWebIngressAndStrictBody(t *testing.T) {
 		return agent.Result{Message: app.Message{ID: "m_assistant"}}, nil
 	}
 
-	response, err := http.Post(ts.URL+"/api/messages/stream", "application/json", strings.NewReader(`{"content":"  hello from phone  "}`))
+	response, err := http.Post(ts.URL+"/api/jingsi/v0/messages/stream", "application/json", strings.NewReader(`{"content":"  hello from phone  "}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestJingSiLANSendUsesConfiguredWebIngressAndStrictBody(t *testing.T) {
 		t.Fatalf("send did not reuse configured Web ingress: %#v", got)
 	}
 
-	response, err = http.Post(ts.URL+"/api/messages/stream", "application/json", strings.NewReader(`{"content":"blocked","attachments":[]}`))
+	response, err = http.Post(ts.URL+"/api/jingsi/v0/messages/stream", "application/json", strings.NewReader(`{"content":"blocked","attachments":[]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestJingSiLANSendRejectsWrongMediaTypeAndOversizedText(t *testing.T) {
 		return agent.Result{}, nil
 	}
 
-	response, err := http.Post(ts.URL+"/api/messages/stream", "text/plain", strings.NewReader(`{"content":"hello"}`))
+	response, err := http.Post(ts.URL+"/api/jingsi/v0/messages/stream", "text/plain", strings.NewReader(`{"content":"hello"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestJingSiLANSendRejectsWrongMediaTypeAndOversizedText(t *testing.T) {
 	}
 
 	oversized := `{"content":"` + strings.Repeat("x", server.cfg.JingSiLAN.MaxMessageBytes+1) + `"}`
-	response, err = http.Post(ts.URL+"/api/messages/stream", "application/json", strings.NewReader(oversized))
+	response, err = http.Post(ts.URL+"/api/jingsi/v0/messages/stream", "application/json", strings.NewReader(oversized))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,9 +335,9 @@ func TestJingSiLANRejectsUnsupportedOrRepeatedQueryParameters(t *testing.T) {
 	_, _, _, ts := newJingSiTestServer(t)
 	for _, path := range []string{
 		"/api/jingsi/v0/readyz?debug=1",
-		"/api/client-events/v0/head?debug=1",
-		"/api/client-events/v0?after=ce_invalid&after=ce_invalid",
-		"/api/client-events/v0/stream?after=ce_invalid&after=ce_invalid",
+		"/api/jingsi/v0/client-events/head?debug=1",
+		"/api/jingsi/v0/client-events?after=ce_invalid&after=ce_invalid",
+		"/api/jingsi/v0/client-events/stream?after=ce_invalid&after=ce_invalid",
 	} {
 		response, err := http.Get(ts.URL + path)
 		if err != nil {
@@ -420,7 +420,7 @@ func TestJingSiLANStreamConcurrencyIsBounded(t *testing.T) {
 			t.Fatalf("stream slot %d unexpectedly denied", i)
 		}
 	}
-	response, err := http.Get(ts.URL + "/api/client-events/v0/stream")
+	response, err := http.Get(ts.URL + "/api/jingsi/v0/client-events/stream")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func TestJingSiLANStreamConcurrencyIsBounded(t *testing.T) {
 	srv.releasePassiveNotificationStream(jingsiStreamKey(session.ID))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/client-events/v0/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/jingsi/v0/client-events/stream", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,10 +15,6 @@ import (
 )
 
 func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
-		writeMemoryStoreError(w, err)
-		return
-	}
 	memories, err := s.store.SearchMemories(r.Context(), r.URL.Query().Get("query"))
 	if err != nil {
 		writeMemoryStoreError(w, err)
@@ -87,9 +83,6 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error) {
-	if _, err := s.applyMemoryRetention(ctx); err != nil {
-		return app.MemoryExport{}, err
-	}
 	candidates, err := s.store.ListMemoryCandidates(ctx, "")
 	if err != nil {
 		return app.MemoryExport{}, err
@@ -128,10 +121,6 @@ func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error
 }
 
 func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
-		writeMemoryStoreError(w, err)
-		return
-	}
 	var req struct {
 		Kind    string `json:"kind"`
 		Content string `json:"content"`
@@ -165,10 +154,6 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMemory(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
-		writeMemoryStoreError(w, err)
-		return
-	}
 	memory, err := s.store.DeleteMemory(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeMemoryStoreError(w, err)

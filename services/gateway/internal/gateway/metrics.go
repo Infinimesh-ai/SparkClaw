@@ -10,10 +10,6 @@ import (
 )
 
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.applyMemoryRetention(r.Context()); err != nil {
-		writeMemoryStoreError(w, err)
-		return
-	}
 	sessions, err := s.store.ListSessions(r.Context())
 	if err != nil {
 		writeSessionStoreError(w, err)

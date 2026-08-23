@@ -1360,6 +1360,8 @@ func TestMemoryRetentionPrunesExpiredMemories(t *testing.T) {
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
+	server.runRetentionSweep(context.Background())
+
 	resp, err := http.Get(ts.URL + "/api/memories?query=retention")
 	if err != nil {
 		t.Fatal(err)

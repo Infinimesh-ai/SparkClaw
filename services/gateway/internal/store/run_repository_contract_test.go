@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -183,5 +184,38 @@ func runRunRepositoryContract(t *testing.T, repository RunRepository, sessionID 
 	}
 	if _, err := repository.SaveToolCall(cancelled, app.ToolCall{ID: "cancelled-tool"}); StoreErrorCodeOf(err) != StoreErrorCanceled {
 		t.Fatalf("cancelled SaveToolCall error = %v code=%q", err, StoreErrorCodeOf(err))
+	}
+}
+
+func TestRunWriteReconciliationRequiresExactCandidate(t *testing.T) {
+	repository := NewMemoryStore()
+	run, err := repository.SaveRun(t.Context(), app.AgentRun{ID: "run-reconcile", SessionID: "session", State: "completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownRun := storeError(context.Background(), OperationRunSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
+	if reconciled, err := ReconcileRunWrite(t.Context(), repository, run, unknownRun); err != nil || !runRecordsEqual(reconciled, run) {
+		t.Fatalf("exact Run reconciliation = %#v err=%v", reconciled, err)
+	}
+	mismatchedRun := run
+	mismatchedRun.State = "failed"
+	if reconciled, err := ReconcileRunWrite(t.Context(), repository, mismatchedRun, unknownRun); reconciled.ID != "" || !errors.Is(err, unknownRun) {
+		t.Fatalf("mismatched Run reconciliation = %#v err=%v", reconciled, err)
+	}
+
+	toolCall, err := repository.SaveToolCall(t.Context(), app.ToolCall{
+		ID: "tool-reconcile", SessionID: "session", RunID: run.ID, Tool: "files.read", Status: "completed", Arguments: map[string]any{"path": "a.txt"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownTool := storeError(context.Background(), OperationToolCallSave, StoreErrorUnknownOutcome, errors.New("commit uncertain"))
+	if reconciled, err := ReconcileToolCallWrite(t.Context(), repository, toolCall, unknownTool); err != nil || !runRecordsEqual(reconciled, toolCall) {
+		t.Fatalf("exact ToolCall reconciliation = %#v err=%v", reconciled, err)
+	}
+	mismatchedTool := toolCall
+	mismatchedTool.Status = "failed"
+	if reconciled, err := ReconcileToolCallWrite(t.Context(), repository, mismatchedTool, unknownTool); reconciled.ID != "" || !errors.Is(err, unknownTool) {
+		t.Fatalf("mismatched ToolCall reconciliation = %#v err=%v", reconciled, err)
 	}
 }

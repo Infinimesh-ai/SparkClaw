@@ -6,6 +6,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+// In-package twin of storetest.MustListAudit (plus the store-only AddAudit
+// and EventsAfter fixtures): the store package's own tests cannot import
+// storetest without an import cycle.
+
 func mustAddAudit(t testing.TB, repository AuditRepository, event app.AuditEvent) {
 	t.Helper()
 	if err := repository.AddAudit(t.Context(), event); err != nil {

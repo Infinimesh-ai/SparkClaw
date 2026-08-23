@@ -31,9 +31,47 @@ type responseMediaCandidate struct {
 	name    string
 }
 
+// detectResponseMediaNodeID identifies the conversation-answer stage that
+// gates external MCP access to response media.
+const detectResponseMediaNodeID app.WorkflowNodeID = "detect_response_media"
+
+// responseMediaDetectionStage reports whether the run is parked exactly on
+// the conversation-answer response-media detection node. The check is keyed
+// on the plan's node content rather than a profile-revision literal so a
+// revision bump cannot silently disable the workspace approval gate.
+func responseMediaDetectionStage(run *app.AgentRun) bool {
+	if run == nil || run.Workflow == nil || run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer {
+		return false
+	}
+	if len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != detectResponseMediaNodeID {
+		return false
+	}
+	for _, node := range run.Workflow.Plan.Nodes {
+		if node.ID == detectResponseMediaNodeID {
+			return true
+		}
+	}
+	return false
+}
+
+// requireApprovedWorkspaceAccessCall verifies that the workspace data access
+// call completed through an approved, still-valid owner approval.
+func (r Runtime) requireApprovedWorkspaceAccessCall(ctx context.Context, call *app.ToolCall) error {
+	if call == nil || call.Status != "completed_after_approval" {
+		return errors.New("external MCP workspace data access requires owner approval")
+	}
+	approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
+	if err != nil {
+		return err
+	}
+	if !ok || approval.Status != "approved" {
+		return errors.New("external MCP workspace data access approval is unavailable")
+	}
+	return r.validateWorkspaceDataAccessApproval(ctx, *call, approval)
+}
+
 func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *app.AgentRun) error {
-	if run == nil || run.Workflow == nil || run.MessageContext == nil || run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer ||
-		run.Workflow.Plan.ProfileRevision != 3 || len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != "detect_response_media" {
+	if run == nil || run.MessageContext == nil || !responseMediaDetectionStage(run) {
 		return nil
 	}
 	if _, required, err := mcpResponseMediaAccessRequest(run); err != nil {
@@ -43,17 +81,7 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 		if err != nil {
 			return err
 		}
-		if call == nil || call.Status != "completed_after_approval" {
-			return errors.New("external MCP workspace data access requires owner approval")
-		}
-		approval, ok, err := r.store.GetApproval(ctx, call.ApprovalID)
-		if err != nil {
-			return err
-		}
-		if !ok || approval.Status != "approved" {
-			return errors.New("external MCP workspace data access approval is unavailable")
-		}
-		if err := r.validateWorkspaceDataAccessApproval(ctx, *call, approval); err != nil {
+		if err := r.requireApprovedWorkspaceAccessCall(ctx, call); err != nil {
 			return err
 		}
 	}

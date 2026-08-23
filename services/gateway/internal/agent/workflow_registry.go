@@ -341,11 +341,23 @@ func (r workflowProfileRegistry) Resolve(catalog capability.Catalog, decision ap
 	return resolvedWorkflow{Profile: profile, Intent: intent, Plan: plan}, nil
 }
 
+// workflowProfileAlwaysDirect reports the always-direct marker, unwrapping
+// legacyWorkflowProfile: the wrapper embeds the workflowProfile interface, so
+// marker methods outside that interface are not promoted and a bare type
+// assertion on the wrapper would silently diverge from the wrapped profile.
+func workflowProfileAlwaysDirect(profile workflowProfile) bool {
+	if legacy, ok := profile.(legacyWorkflowProfile); ok {
+		return workflowProfileAlwaysDirect(legacy.workflowProfile)
+	}
+	_, alwaysDirect := profile.(workflowAlwaysDirectProfile)
+	return alwaysDirect
+}
+
 func freezeWorkflowSupportRequirements(profile workflowProfile, plan *app.WorkflowPlan) {
 	if plan == nil {
 		return
 	}
-	if _, alwaysDirect := profile.(workflowAlwaysDirectProfile); alwaysDirect {
+	if workflowProfileAlwaysDirect(profile) {
 		return
 	}
 	support := []app.CapabilityRequirement{{Name: app.ToolCapabilityObservationRead}}

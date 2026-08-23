@@ -71,7 +71,7 @@ func (conversationAnswerProfile) Resolve(route app.RouteDecision, sourceTurnID s
 	}
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainConversation, operation, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopeLocal)
 	intent.Objectives[0].Output = output
-	detectNodeID := app.WorkflowNodeID("detect_response_media")
+	detectNodeID := detectResponseMediaNodeID
 	answerNodeID := app.WorkflowNodeID("answer")
 	return intent, app.WorkflowPlan{
 		SchemaVersion: 1, ProfileID: app.WorkflowConversationAnswer, ProfileRevision: 3,

@@ -60,9 +60,8 @@ func (r Runtime) queueMCPWorkspaceDataApproval(ctx context.Context, run *app.Age
 }
 
 func mcpResponseMediaAccessRequest(run *app.AgentRun) ([]app.MessageMediaLocator, bool, error) {
-	if run == nil || run.Workflow == nil || run.MessageContext == nil || !isExternalMCPInvocation(run.MessageContext.MCP) ||
-		run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer || run.Workflow.Plan.ProfileRevision != 3 ||
-		len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != "detect_response_media" {
+	if run == nil || run.MessageContext == nil || !isExternalMCPInvocation(run.MessageContext.MCP) ||
+		!responseMediaDetectionStage(run) {
 		return nil, false, nil
 	}
 	locators := append([]app.MessageMediaLocator(nil), run.MessageContext.MediaLocators...)

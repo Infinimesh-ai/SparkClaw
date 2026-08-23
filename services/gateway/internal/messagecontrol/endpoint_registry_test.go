@@ -26,7 +26,7 @@ func TestEndpointRegistryResolvesWebAndProviderNeutralBinding(t *testing.T) {
 	if err != nil || web.Kind != app.EndpointKindWeb || web.ProviderKey != "" {
 		t.Fatalf("unexpected web endpoint: %#v err=%v", web, err)
 	}
-	device, err := registry.Get(t.Context(), BindingEndpointID(binding.ID))
+	device, err := registry.Get(t.Context(), app.EndpointID(binding.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

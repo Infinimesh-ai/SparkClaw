@@ -6,10 +6,6 @@ import (
 	"time"
 )
 
-func temporalContext(now time.Time) string {
-	return temporalContextForTimezone(now, "")
-}
-
 func temporalContextForTimezone(now time.Time, timezone string) string {
 	if now.IsZero() {
 		now = time.Now()

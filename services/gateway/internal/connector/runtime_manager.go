@@ -334,24 +334,16 @@ func (r *Registry) connectorSetting(ownerID, channel string) (app.ConnectorSetti
 	key := connectorSettingCacheKey(ownerID, channel)
 	r.settingsMu.RLock()
 	entry, cached := r.settings[key]
-	loaded := r.settingsLoaded
 	r.settingsMu.RUnlock()
 	if cached {
 		return entry.setting, entry.exists
-	}
-	if loaded || r.store == nil {
-		return app.ConnectorSetting{}, false
 	}
 	return app.ConnectorSetting{}, false
 }
 
 func (r *Registry) connectorSettingLocked(ownerID, channel string) (app.ConnectorSetting, bool) {
-	key := connectorSettingCacheKey(ownerID, channel)
-	if entry, cached := r.settings[key]; cached {
+	if entry, cached := r.settings[connectorSettingCacheKey(ownerID, channel)]; cached {
 		return entry.setting, entry.exists
-	}
-	if r.settingsLoaded || r.store == nil {
-		return app.ConnectorSetting{}, false
 	}
 	return app.ConnectorSetting{}, false
 }

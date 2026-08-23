@@ -225,11 +225,10 @@ const (
 
 type operationSpec struct {
 	ID               StoreOperation
-	Repository       string
-	Method           string
-	Mode             operationMode
-	Timeout          operationTimeoutClass
-	AffectsReadiness bool
+	Repository string
+	Method     string
+	Mode       operationMode
+	Timeout    operationTimeoutClass
 }
 
 var operationSpecs = map[StoreOperation]operationSpec{
@@ -774,13 +773,6 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationMCPOperationUpdate: {
 		ID: OperationMCPOperationUpdate, Repository: "MCPRepository", Method: "UpdateMCPOperation", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
-}
-
-func init() {
-	for id, spec := range operationSpecs {
-		spec.AffectsReadiness = true
-		operationSpecs[id] = spec
-	}
 }
 
 func normalizeOperationTimeouts(timeouts OperationTimeouts) OperationTimeouts {

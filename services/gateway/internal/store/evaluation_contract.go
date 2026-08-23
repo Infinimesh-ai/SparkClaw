@@ -31,4 +31,3 @@ func cloneEvalRun(run app.EvalRun) app.EvalRun {
 	run.CompletedAt = cloneTimePointer(run.CompletedAt)
 	return run
 }
-

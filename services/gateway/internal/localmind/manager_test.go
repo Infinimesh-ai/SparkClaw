@@ -12,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpsafety"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -258,8 +259,8 @@ func TestLocalMindResultProjectionRedactsSecretsAndBoundsState(t *testing.T) {
 		"token": "secret-token", "url": "https://storage.example/file?X-Amz-Signature=signed&X-Amz-Expires=60",
 		"base64": base64Value, "text": strings.Repeat("document text ", 3000),
 	}
-	state := boundedProjection(value, projectionState, 16<<10).(map[string]any)
-	archive := boundedProjection(value, projectionArchive, 1<<20).(map[string]any)
+	state := mcpsafety.BoundedProjection(value, projectionState, 16<<10).(map[string]any)
+	archive := mcpsafety.BoundedProjection(value, projectionArchive, 1<<20).(map[string]any)
 	for label, projected := range map[string]map[string]any{"state": state, "archive": archive} {
 		raw, _ := json.Marshal(projected)
 		text := string(raw)

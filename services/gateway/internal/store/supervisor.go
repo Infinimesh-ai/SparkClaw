@@ -134,8 +134,9 @@ func (s *Supervisor) finish(span *operationSpan, code StoreErrorCode) {
 }
 
 func (s *Supervisor) observeHealthLocked(operation StoreOperation, code StoreErrorCode, now time.Time) {
-	spec, exists := operationSpecs[operation]
-	if !exists || !spec.AffectsReadiness || s.closing {
+	// Every registered operation affects readiness; unregistered operations
+	// cannot influence health.
+	if _, exists := operationSpecs[operation]; !exists || s.closing {
 		return
 	}
 	if code != StoreErrorTimeout && code != StoreErrorUnavailable {

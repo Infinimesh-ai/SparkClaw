@@ -37,10 +37,6 @@ func WebEndpointID(sessionID string) app.EndpointID {
 	return app.EndpointID("session:" + strings.TrimSpace(sessionID))
 }
 
-func BindingEndpointID(bindingID string) app.EndpointID {
-	return app.EndpointID(strings.TrimSpace(bindingID))
-}
-
 func (r *EndpointRegistry) Get(ctx context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
 	return r.get(ctx, id, false)
 }

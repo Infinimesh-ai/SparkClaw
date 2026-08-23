@@ -647,12 +647,10 @@ func finalizeRevokedOperations(ctx context.Context, st Repository, operations []
 }
 
 func (s *Service) toolsForBinding(binding app.MCPBinding) []Tool {
-	tools := []Tool{conversationTool()}
 	if binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation {
 		return []Tool{}
 	}
-	tools = append(tools, operationTools()...)
-	return tools
+	return append([]Tool{conversationTool()}, operationTools()...)
 }
 
 func (s *Service) syncOperationFromResult(ctx context.Context, id string, result agent.Result) error {

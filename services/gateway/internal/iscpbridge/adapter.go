@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -907,15 +906,4 @@ func HTTPStatus(response Response) int {
 	default:
 		return 500
 	}
-}
-
-func SanitizeError(err error) *BridgeError {
-	if err == nil {
-		return nil
-	}
-	var bridgeErr *BridgeError
-	if errors.As(err, &bridgeErr) {
-		return bridgeErr
-	}
-	return bridgeError(CodeInternal, fmt.Sprintf("bridge operation failed (%T)", err), false)
 }

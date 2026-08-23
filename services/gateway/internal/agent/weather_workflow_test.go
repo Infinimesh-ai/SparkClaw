@@ -2,6 +2,7 @@ package agent
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
@@ -31,7 +32,7 @@ func TestWeatherRouteRecognizesGroundedLocations(t *testing.T) {
 	for _, test := range tests {
 		decision := mustRouteIntent(t, runtime, test.query)
 		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserWeather ||
-			decision.Slots.FactScope != app.RouteFactScopeWeatherSnapshot || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserWeather, test.query, currentSearchDate()) || decision.Slots.TargetKind != string(app.TargetKindLocation) ||
+			decision.Slots.FactScope != app.RouteFactScopeWeatherSnapshot || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserWeather, test.query, currentSearchDateForTimezone(time.Now(), "")) || decision.Slots.TargetKind != string(app.TargetKindLocation) ||
 			decision.Slots.TargetRef != test.location || decision.Slots.Location != test.location {
 			t.Fatalf("unexpected weather route for %q: %#v", test.query, decision)
 		}

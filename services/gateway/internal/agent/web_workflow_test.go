@@ -43,7 +43,7 @@ func TestFusionRouterMapsCurrentInternetFactsToOneSearchLeaf(t *testing.T) {
 			t.Fatalf("route %q: %v", goal, err)
 		}
 		if routing.Route.Status != app.RouteMatched || len(routing.Route.CapabilityPath) != 2 || routing.Route.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
-			routing.Route.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) || routing.Route.Slots.FactScope != app.RouteFactScopeCurrentInternet {
+			routing.Route.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDateForTimezone(time.Now(), "")) || routing.Route.Slots.FactScope != app.RouteFactScopeCurrentInternet {
 			t.Fatalf("current fact did not normalize to browser.internet_search: goal=%q route=%#v fusion=%+v", goal, routing.Route, routing.Fusion)
 		}
 		resolved, err := runtime.profiles.Resolve(runtime.capabilities, routing.Route, "turn")
@@ -65,7 +65,7 @@ func TestInternetSearchSemanticRoutingCoversShortFreshnessPhrases(t *testing.T) 
 	} {
 		decision := mustRouteIntent(t, runtime, goal)
 		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
-			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) {
+			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDateForTimezone(time.Now(), "")) {
 			t.Fatalf("fresh Internet fact did not deterministically route to browser.internet_search: goal=%q route=%#v", goal, decision)
 		}
 	}
@@ -82,7 +82,7 @@ func TestInternetSearchSemanticRoutingCoversPublishedCatalogResearch(t *testing.
 	} {
 		decision := mustRouteIntent(t, runtime, goal)
 		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
-			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) {
+			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDateForTimezone(time.Now(), "")) {
 			t.Fatalf("published catalog research did not route to browser.internet_search: goal=%q route=%#v", goal, decision)
 		}
 	}
@@ -235,7 +235,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInternetSearch, app.WorkflowBrowserInternetSearch,
 		[]string{"web.search"}, []string{app.ToolCapabilityWebDiscovery})
-	wantQuery := frozenQuery + " " + currentSearchDate()
+	wantQuery := frozenQuery + " " + currentSearchDateForTimezone(time.Now(), "")
 	if requestedQuery != wantQuery || result.RouteDecision == nil || result.RouteDecision.Slots.Query != wantQuery {
 		t.Fatalf("provider query was rewritten after route freeze: route=%#v provider_query=%q", result.RouteDecision, requestedQuery)
 	}
@@ -348,7 +348,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"�
 		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
 	}
 	calls := toolCallsForRun(testListToolCalls(st, session.ID), run.ID)
-	wantQuery := materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate())
+	wantQuery := materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDateForTimezone(time.Now(), ""))
 	if requestedQuery != wantQuery || routing.Route.Slots.Query != wantQuery || len(calls) != 1 || calls[0].Tool != "web.search" || calls[0].Capability != app.ToolCapabilityWebDiscovery {
 		t.Fatalf("gold search did not preserve its frozen route query: route=%#v provider_query=%q calls=%#v", routing.Route, requestedQuery, calls)
 	}
@@ -413,7 +413,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"�
 	if result.Run.State != "completed" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Status != "completed" {
 		t.Fatalf("canonical search should complete, got %#v", result)
 	}
-	want := "今天杭州新闻 " + currentSearchDate()
+	want := "今天杭州新闻 " + currentSearchDateForTimezone(time.Now(), "")
 	if result.RouteDecision == nil || result.RouteDecision.Slots.Query != want {
 		t.Fatalf("route did not persist the canonical query: %#v", result.RouteDecision)
 	}

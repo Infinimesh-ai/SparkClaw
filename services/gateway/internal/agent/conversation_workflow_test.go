@@ -211,7 +211,7 @@ func TestTimerSourceDoesNotOverrideSupportedSearchRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if routing.Route.Status != app.RouteMatched || routing.Route.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
-		routing.Route.Slots.Operation != app.RouteOperationSearch || routing.Route.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) {
+		routing.Route.Slots.Operation != app.RouteOperationSearch || routing.Route.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDateForTimezone(time.Now(), "")) {
 		t.Fatalf("Timer source overrode the supported search request: %#v", routing.Route)
 	}
 }

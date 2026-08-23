@@ -25,18 +25,6 @@ func (m *Manager) projectToolResult(result mcpclient.ToolResult, remoteName stri
 	return toolhub.Result{Output: projected.Output, ArchiveOutput: projected.ArchiveOutput}
 }
 
-func (m *Manager) projectValue(value any, method string) toolhub.Result {
-	normalized := mcpsafety.NormalizeJSONValue(value)
-	projected := mcpsafety.ProjectValue(normalized, map[string]any{
-		"provider": "localmind", "method": method, "result": normalized, "untrusted": true,
-	}, m.projectionLimits())
-	return toolhub.Result{Output: projected.Output, ArchiveOutput: projected.ArchiveOutput}
-}
-
-func boundedProjection(value any, mode projectionMode, maxBytes int) any {
-	return mcpsafety.BoundedProjection(value, mode, maxBytes)
-}
-
 func toolResultText(result mcpclient.ToolResult) string {
 	return mcpsafety.ToolResultText(result)
 }

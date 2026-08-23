@@ -83,10 +83,6 @@ type DeviceFiles struct {
 	KeyFile      string
 }
 
-func GenerateEnrollmentRequest(directory, domainID, deviceID, hardwareClass string, now time.Time) (EnrollmentRequest, DeviceFiles, error) {
-	return GenerateEnrollmentRequestWithKeyBackend(directory, domainID, deviceID, hardwareClass, IdentityKeyBackendFile, DefaultIdentityKeyringService, now)
-}
-
 func GenerateEnrollmentRequestWithKeyBackend(directory, domainID, deviceID, hardwareClass, keyBackend, keyringService string, now time.Time) (EnrollmentRequest, DeviceFiles, error) {
 	return GenerateEnrollmentRequestWithProof(directory, domainID, deviceID, hardwareClass, keyBackend, keyringService, EnrollmentProofOptions{}, now)
 }
@@ -183,10 +179,6 @@ func GenerateEnrollmentRequestWithProof(directory, domainID, deviceID, hardwareC
 		request.DeviceProof = &proof
 	}
 	return request, files, nil
-}
-
-func LoadDevice(identityFile, keyFile string) (identity.Device, error) {
-	return LoadDeviceWithKeyBackend(identityFile, keyFile, IdentityKeyBackendFile, DefaultIdentityKeyringService)
 }
 
 func LoadDeviceWithKeyBackend(identityFile, keyFile, keyBackend, keyringService string) (identity.Device, error) {

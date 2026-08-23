@@ -75,10 +75,6 @@ func queryHasFreshnessIntent(query, date string) bool {
 	return strings.TrimSpace(date) != "" && strings.Contains(query, strings.TrimSpace(date))
 }
 
-func currentSearchDate() string {
-	return currentSearchDateForTimezone(time.Now(), "")
-}
-
 func currentSearchDateForTimezone(now time.Time, timezone string) string {
 	if now.IsZero() {
 		now = time.Now()

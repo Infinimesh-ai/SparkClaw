@@ -684,10 +684,6 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	return admission.System, admission.User, evidenceVariant, nil
 }
 
-func workflowStepContextBuilder(goal string, step int, observations []workflowObservation, stageContext workflowStageContext, visibleTools []app.ToolDefinition, provisioned provisionedWorkflowEvidence, snapshot agentContextSnapshot) contextBuilder {
-	return workflowStepContextBuilderForTimezone(goal, step, observations, stageContext, visibleTools, provisioned, snapshot, "")
-}
-
 func workflowStepContextBuilderForTimezone(goal string, step int, observations []workflowObservation, stageContext workflowStageContext, visibleTools []app.ToolDefinition, provisioned provisionedWorkflowEvidence, snapshot agentContextSnapshot, clientTimezone string) contextBuilder {
 	sections := []contextSection{
 		fixedContextSection("base_instructions", 1000, contextChannelSystem, systemPromptForTimezone(clientTimezone)),

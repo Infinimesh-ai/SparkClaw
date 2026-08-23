@@ -210,7 +210,10 @@ if ! "$DOCKER_BIN" ps >/dev/null 2>&1; then
   fi
 fi
 "${docker_cmd[@]}" compose version >/dev/null
-"${docker_cmd[@]}" compose up --help | grep -Fq -- '--wait-timeout' ||
+# Capture first: grep -q exiting early would SIGPIPE the compose process
+# under pipefail and misreport a healthy plugin as too old.
+compose_up_help="$("${docker_cmd[@]}" compose up --help)"
+grep -F -- '--wait-timeout' >/dev/null <<<"$compose_up_help" ||
   fail "the Docker Compose plugin is too old; install a release that supports --wait-timeout"
 
 model_cache_setting="$(dotenv_value SPARKCLAW_MODEL_CACHE)"
@@ -223,7 +226,11 @@ fi
 mkdir -p "$model_cache"
 chmod u+rwx "$model_cache"
 
-cache_gib="$(( $(du -sk "$model_cache" | awk '{print $1}') / 1024 / 1024 ))"
+# du exits non-zero on unreadable (container-owned root) subdirectories; a
+# partial size is fine for the headroom estimate, so don't let the ERR trap
+# abort a healthy deploy.
+cache_kib="$(du -sk "$model_cache" 2>/dev/null | awk '{print $1}' || true)"
+cache_gib="$(( ${cache_kib:-0} / 1024 / 1024 ))"
 free_gib="$(( $(df -Pk "$model_cache" | awk 'NR == 2 {print $4}') / 1024 / 1024 ))"
 # Reserve the uncached portion of the resident checkpoints plus image/build headroom.
 remaining_model_gib=$((85 - cache_gib))

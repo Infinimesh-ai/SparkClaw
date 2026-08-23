@@ -13,30 +13,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-var fileCommandMethods = map[string]struct{}{
-	"AddAudit": {}, "AddMemoryCandidate": {}, "AddMessage": {},
-	"ClaimDueReminders": {}, "ClaimPairingCode": {}, "CreateMCPOperation": {},
-	"CreateNotificationBinding": {}, "CreatePassiveNotification": {}, "CreateSession": {}, "CreateSessionWithScope": {},
-	"DeleteCredentialSecret": {}, "DeleteMCPAccessRecords": {}, "DeleteMCPAccessTicket": {},
-	"DeleteMCPBinding": {}, "DeleteMemory": {}, "DeleteSession": {},
-	"MarkAllPassiveNotificationsRead": {}, "MarkPassiveNotificationRead": {},
-	"PruneMemories": {}, "PrunePassiveNotifications": {}, "RedeemMCPAccessTicket": {},
-	"ResolveApproval": {}, "ResolveMemoryCandidate": {}, "RevokeBrowserAuthRecord": {},
-	"RevokeClient": {}, "RevokeMCPAccessTicket": {}, "RevokeMCPBinding": {},
-	"SaveApproval": {}, "SaveArtifactObject": {},
-	"SaveBrowserAuthRecord": {}, "SaveBrowserLoginBlock": {}, "SaveChannelInboxUpdate": {},
-	"SaveCredentialSecret": {}, "SaveDocumentRecord": {},
-	"SaveEpisodeSummary": {}, "SaveEvalRun": {}, "SaveExternalChatMessage": {},
-	"SaveExternalChatSession": {}, "SaveISCPOnboarding": {}, "SaveMCPAccessTicket": {},
-	"SaveMessageDelivery": {}, "SaveMessageReceive": {}, "SaveModelCall": {},
-	"SaveOwnerProfile": {}, "SavePairingCode": {},
-	"SaveReminder": {}, "SaveReminderDelivery": {}, "SaveRun": {},
-	"SaveRunFeedback": {}, "SaveToolCall": {}, "TouchClient": {},
-	"TouchMCPBinding": {}, "UpdateBrowserLoginBlock": {}, "UpdateConnectorSetting": {}, "UpdateNotificationBinding": {},
-	"UpdateMCPOperation": {}, "UpdateMemory": {}, "UpdateOwnerProfile": {},
-	"UpdatePendingApproval": {}, "UpdatePendingReminder": {}, "UpdateSessionTitle": {},
-}
-
 var migratedFileAdmissions = map[string]string{
 	"SaveISCPOnboarding":  "saveISCPOnboarding",
 	"GetISCPOnboarding":   "getISCPOnboarding",
@@ -112,12 +88,9 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 	if len(accepted) != 140 {
 		t.Fatalf("accepted FileStore method count = %d, want 140", len(accepted))
 	}
-	if len(fileCommandMethods) != 61 {
-		t.Fatalf("FileStore command classification count = %d, want 61", len(fileCommandMethods))
-	}
-	for method := range fileCommandMethods {
+	for method := range migratedFileAdmissions {
 		if _, exists := accepted[method]; !exists {
-			t.Fatalf("command classification contains unknown FileStore method %s", method)
+			t.Fatalf("admission classification contains unknown FileStore method %s", method)
 		}
 	}
 
@@ -151,12 +124,10 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			}
 			found[name] = entry.Name()
 
-			want := "admitLegacyRead"
-			if _, command := fileCommandMethods[name]; command {
-				want = "admitLegacyCommand"
-			}
-			if migrated := migratedFileAdmissions[name]; migrated != "" {
-				want = migrated
+			want := migratedFileAdmissions[name]
+			if want == "" {
+				t.Errorf("FileStore method %s has no registered admission wrapper; every method must use a migrated admission", name)
+				continue
 			}
 			got := firstFileAdmission(function)
 			if got != want {
@@ -232,8 +203,7 @@ func countFileAdmissions(function *ast.FuncDecl) int {
 	count := 0
 	ast.Inspect(function.Body, func(node ast.Node) bool {
 		selector, ok := node.(*ast.SelectorExpr)
-		if ok && (selector.Sel.Name == "admitLegacyRead" || selector.Sel.Name == "admitLegacyCommand" ||
-			selector.Sel.Name == "admitMigrated" || selector.Sel.Name == "saveISCPOnboarding" ||
+		if ok && (selector.Sel.Name == "admitMigrated" || selector.Sel.Name == "saveISCPOnboarding" ||
 			selector.Sel.Name == "getISCPOnboarding" || selector.Sel.Name == "listISCPOnboardings") {
 			count++
 		}
@@ -245,7 +215,7 @@ func countFileAdmissions(function *ast.FuncDecl) int {
 func TestFileStoreAdmissionBlocksReadersAndCommandsUntilPersistence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store := newTestFileStore(path)
-	release := store.admitLegacyCommand()
+	release := holdFileAdmission(t, store, fileAdmissionCapacity)
 	released := false
 	t.Cleanup(func() {
 		if !released {
@@ -297,7 +267,7 @@ func TestFileStoreAdmissionBlocksReadersAndCommandsUntilPersistence(t *testing.T
 
 func TestFileStoreAdmissionAllowsConcurrentReads(t *testing.T) {
 	store := newTestFileStore("")
-	release := store.admitLegacyRead()
+	release := holdFileAdmission(t, store, 1)
 	defer release()
 
 	done := make(chan struct{})
@@ -310,7 +280,7 @@ func TestFileStoreAdmissionAllowsConcurrentReads(t *testing.T) {
 
 func TestFileStoreAdmissionDoesNotLetReadersBypassQueuedCommand(t *testing.T) {
 	store := newTestFileStore(filepath.Join(t.TempDir(), "state.json"))
-	releaseRead := store.admitLegacyRead()
+	releaseRead := holdFileAdmission(t, store, 1)
 
 	commandStarted := make(chan struct{})
 	commandDone := make(chan struct{})
@@ -343,6 +313,17 @@ func TestFileStoreAdmissionDoesNotLetReadersBypassQueuedCommand(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("reader remained blocked after queued command completed")
 	}
+}
+
+// holdFileAdmission occupies admission weight directly (weight 1 emulates a
+// reader, fileAdmissionCapacity an exclusive command) so the tests can observe
+// blocking semantics without a production admission shim.
+func holdFileAdmission(t *testing.T, store *FileStore, weight int64) func() {
+	t.Helper()
+	if err := store.admission.Acquire(t.Context(), weight); err != nil {
+		t.Fatal(err)
+	}
+	return func() { store.admission.Release(weight) }
 }
 
 func newTestFileStore(path string) *FileStore {

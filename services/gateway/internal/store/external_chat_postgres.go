@@ -354,7 +354,7 @@ func appendExternalChatSessionLifecycle(transaction onboardingPostgresTx, ctx co
 	if _, err := transaction.Exec(ctx, `
 		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
 		VALUES ($1, $2, $3, nullif($4, ''), NULL, 'gateway', $5, $6)
-	`, app.NewID("audit"), at, eventType, session.LinkedSessionID, redactPostgresExternalID(session.ExternalUserID), optionalJSON(map[string]any{
+	`, app.NewID("audit"), at, eventType, session.LinkedSessionID, redactExternalID(session.ExternalUserID), optionalJSON(map[string]any{
 		"chat_session_id": session.ID, "binding_id": session.BindingID, "channel": session.Channel, "provider": session.Provider,
 	})); err != nil {
 		return err

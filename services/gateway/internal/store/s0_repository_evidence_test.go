@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -54,10 +53,6 @@ func s0LifecycleTest(repository string) s0EvidenceCell {
 	return s0Tests("TestS0BackendNeutralRepositoryLifecycleEvidence/" + repository + "@s0_repository_lifecycle_test.go")
 }
 
-func s0PostgresRowsErrTest(repository, function string) string {
-	return "TestS0DefectEvidencePostgresRowsErrIsNotChecked/" + repository + "/" + function + "@s0_contract_characterization_test.go"
-}
-
 func s0EvidenceRow(cells ...s0EvidenceCell) map[string]s0EvidenceCell {
 	if len(cells) != len(s0CharacterizationDimensions) {
 		panic("S0 evidence row has the wrong dimension count")
@@ -82,7 +77,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0LifecycleTest("OwnerRepository"),
 		s0Tests("TestS0BackendNeutralContractCharacterization/file/restart@s0_contract_characterization_test.go"),
 		s0NA("Owner commands expose no repository revision or idempotent-create result; Memory/File serialize them through the backend lock."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go"),
 	),
 	"ClientRepository": s0EvidenceRow(
 		s0RepositoryTest("ClientRepository", s0DimensionSuccess),
@@ -94,7 +89,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0LifecycleTest("ClientRepository"),
 		s0Tests("TestFileStorePersistsAndReloadsState@file_test.go"),
 		s0NA("Client and pairing commands expose no CAS/revision result; claim and revoke conflicts are covered separately from scheduling concurrency."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go"),
 	),
 	"ISCPOnboardingRepository": s0EvidenceRow(
 		s0RepositoryTest("ISCPOnboardingRepository", s0DimensionSuccess),
@@ -130,7 +125,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0LifecycleTest("SessionRepository"),
 		s0Tests("TestS0BackendNeutralContractCharacterization/file/restart@s0_contract_characterization_test.go"),
 		s0NA("Session commands expose existence conflicts but no version/revision or idempotent-create contract."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", "TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", "TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks@postgres_test.go"),
 	),
 	"ConversationRepository": s0EvidenceRow(
 		s0RepositoryTest("ConversationRepository", s0DimensionSuccess),
@@ -142,7 +137,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0Tests("TestS0BackendNeutralRepositoryLifecycleEvidence/ConversationRepository@s0_repository_lifecycle_test.go", "TestMemoryMessageEventsAreBoundedAndSessionScoped@message_events_test.go"),
 		s0Tests("TestFileMessageEventsSurviveRestart@message_events_test.go", "TestS0BackendNeutralContractCharacterization/file/restart@s0_contract_characterization_test.go"),
 		s0NA("Message append has no repository revision; event sequence ordering, not a caller-visible CAS version, is its concurrency contract."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go"),
 	),
 	"RunRepository": s0EvidenceRow(
 		s0RepositoryTest("RunRepository", s0DimensionSuccess),
@@ -154,7 +149,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0Tests("TestS0BackendNeutralRepositoryLifecycleEvidence/RunRepository@s0_repository_lifecycle_test.go", "TestMemoryStoreSavesRunFeedback@memory_test.go"),
 		s0Tests("TestFileStorePersistsAndReloadsState@file_test.go", "TestFileStorePersistsWorkflowStateAndToolBinding@file_test.go"),
 		s0NA("Run methods expose no revision or idempotent-create result; backend locking serializes overwrites without a caller-visible winner contract."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go"),
 	),
 	"DocumentRepository": s0EvidenceRow(
 		s0RepositoryTest("DocumentRepository", s0DimensionSuccess),
@@ -166,7 +161,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0LifecycleTest("DocumentRepository"),
 		s0Tests("TestFileStorePersistsDocumentRecords@file_test.go"),
 		s0NA("Document records expose no revision or idempotent-create result; writes are serialized ID overwrites."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go"),
 	),
 	"ApprovalRepository": s0EvidenceRow(
 		s0RepositoryTest("ApprovalRepository", s0DimensionSuccess),
@@ -202,7 +197,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0LifecycleTest("ConnectorRepository"),
 		s0Tests("TestFileStorePersistsConnectorSettingVersion@connector_settings_test.go", "TestS0FileRepositoryRestartGaps/ConnectorRepository@s0_repository_characterization_test.go"),
 		s0Tests("TestMemoryStoreConnectorSettingUsesCASAndOwnerScope@connector_settings_test.go"),
-		s0Tests("TestPostgresStoreListsAllConnectorSettings@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
+		s0Tests("TestPostgresStoreListsAllConnectorSettings@postgres_test.go"),
 	),
 	"PassiveNotificationRepository": s0EvidenceRow(
 		s0Tests("TestPassiveNotificationRepositoryMemoryAndFileContract@passive_notification_repository_contract_test.go"),
@@ -356,40 +351,6 @@ func TestS0RepositoryCharacterizationMatrixCompleteness(t *testing.T) {
 	}
 }
 
-func TestS0RepositoryEvidenceMapsCollectRowsDefect(t *testing.T) {
-	paths, err := filepath.Glob("*postgres.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owners := map[string]string{}
-	for repository, methods := range s0RepositoryMethods {
-		for _, method := range methods {
-			owners[method] = repository
-		}
-	}
-	want := s0PostgresRowsErrTest("shared", "collectRows")
-	for _, path := range paths {
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, declaration := range parsed.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || function.Body == nil || !s0CallsFunction(function.Body, "collectRows") {
-				continue
-			}
-			repository, ok := owners[function.Name.Name]
-			if !ok {
-				continue
-			}
-			cell := s0RepositoryCharacterizationEvidence[repository][s0DimensionPostgresRows]
-			if !s0ContainsString(cell.Tests, want) {
-				t.Errorf("%s.%s calls collectRows but its PostgreSQL evidence does not reference %s", repository, function.Name.Name, want)
-			}
-		}
-	}
-}
-
 func s0CallsFunction(node ast.Node, name string) bool {
 	found := false
 	ast.Inspect(node, func(node ast.Node) bool {
@@ -491,9 +452,6 @@ func addS0DynamicTestPaths(pathsByFile map[string]map[string]struct{}) {
 		}
 	}
 	contractPaths["TestS0BackendNeutralContractCharacterization/file/restart"] = struct{}{}
-	for _, testCase := range s0PostgresRowsErrCases {
-		contractPaths["TestS0DefectEvidencePostgresRowsErrIsNotChecked/"+testCase.repository+"/"+testCase.function] = struct{}{}
-	}
 }
 
 func assertS0TestReference(t *testing.T, testsByFile map[string]map[string]struct{}, repository, dimension, reference string) {

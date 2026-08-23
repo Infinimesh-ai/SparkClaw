@@ -116,14 +116,6 @@ func cloneRunJSON[T any](value T) (T, error) {
 	return cloned, nil
 }
 
-func mustCloneRun[T any](value T) T {
-	cloned, err := cloneRunJSON(value)
-	if err != nil {
-		panic(err)
-	}
-	return cloned
-}
-
 func cloneRunFeedback(values []app.RunFeedback) []app.RunFeedback {
 	return append([]app.RunFeedback(nil), values...)
 }

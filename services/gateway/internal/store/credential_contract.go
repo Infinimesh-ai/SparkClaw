@@ -110,11 +110,6 @@ func normalizeAndValidatePersistedCredentialSecrets(secrets map[string]app.Crede
 	return nil
 }
 
-func credentialSecretsEqual(left, right app.CredentialSecret) bool {
-	return left.Ref == right.Ref && left.Kind == right.Kind && left.Value == right.Value &&
-		left.CreatedAt.Equal(right.CreatedAt) && left.UpdatedAt.Equal(right.UpdatedAt)
-}
-
 func latestCredentialTime(secret app.CredentialSecret) time.Time {
 	if secret.UpdatedAt.After(secret.CreatedAt) {
 		return secret.UpdatedAt

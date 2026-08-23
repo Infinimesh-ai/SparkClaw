@@ -464,40 +464,10 @@ func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreClosed(t *testing.T) {
 	}
 }
 
-type s0PostgresRowsErrCase struct {
-	repository string
-	file       string
-	function   string
-	loops      int
-}
-
-var s0PostgresRowsErrCases = []s0PostgresRowsErrCase{
-	{"shared", "postgres.go", "collectRows", 1},
-}
-
-func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
-	loopCount := 0
-	for _, testCase := range s0PostgresRowsErrCases {
-		t.Run(testCase.repository+"/"+testCase.function, func(t *testing.T) {
-			body := sourceFunctionBody(t, testCase.file, testCase.function)
-			if !strings.Contains(body, ".Next()") || strings.Contains(body, ".Err()") {
-				t.Errorf("%s.%s no longer matches the recorded rows.Err defect evidence; replace this evidence in the owning migration stage", testCase.file, testCase.function)
-			}
-			if got := strings.Count(body, ".Next()"); got != testCase.loops {
-				t.Errorf("%s.%s row loops = %d, want %d", testCase.file, testCase.function, got, testCase.loops)
-			}
-			loopCount += strings.Count(body, ".Next()")
-		})
-	}
-	if loopCount != 1 {
-		t.Fatalf("unchecked PostgreSQL row loop count = %d, want remaining S0 defect baseline 1", loopCount)
-	}
-}
-
 func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	count := strings.Count(readS0ProductionSources(t, "*postgres.go"), "_, _ = ")
-	if count != 2 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 2", count)
+	if count != 0 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want 0 (every Exec result must be checked)", count)
 	}
 }
 
@@ -525,24 +495,6 @@ func readS0Source(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return string(raw)
-}
-
-func sourceFunctionBody(t *testing.T, file, name string) string {
-	t.Helper()
-	raw := readS0Source(t, file)
-	parsed, err := parser.ParseFile(token.NewFileSet(), file, raw, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != name || function.Body == nil {
-			continue
-		}
-		return raw[function.Body.Pos()-1 : function.Body.End()-1]
-	}
-	t.Fatalf("function %s not found in %s", name, file)
-	return ""
 }
 
 func TestS0CatalogRepositoryNamesAreStable(t *testing.T) {

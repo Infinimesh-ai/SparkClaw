@@ -11,41 +11,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
-
-func (s *FileStore) persistSnapshot() error {
-	if s.path == "" {
-		return nil
-	}
-	return s.persistSnapshotLocked()
-}
-
-func (s *FileStore) persistSnapshotLocked() error {
-	if s.path == "" {
-		return nil
-	}
-	snapshot := s.inner.snapshot()
-	raw, err := json.MarshalIndent(snapshot, "", "  ")
-	if err != nil {
-		return err
-	}
-	if s.encryption != nil {
-		raw, err = s.encryption.encrypt(raw)
-		if err != nil {
-			return err
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
-}
 
 type encryptedSnapshot struct {
 	Version    int    `json:"version"`

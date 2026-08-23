@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/semaphore"
@@ -256,43 +255,6 @@ func (s *PostgresStore) seedDefaultOwner(ctx context.Context) error {
 	return nil
 }
 
-func mapValues[K comparable, V any](values map[K]V) []V {
-	out := make([]V, 0, len(values))
-	for _, value := range values {
-		out = append(out, value)
-	}
-	return out
-}
-
-func (s *PostgresStore) appendAudit(ctx context.Context, typ, sessionID, runID, actor, summary string, fields map[string]any) {
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO audit_events (id, happened_at, type, session_id, run_id, actor, summary, fields)
-		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6, $7, $8)
-	`, app.NewID("audit"), time.Now().UTC(), typ, sessionID, runID, actor, summary, optionalJSON(fields))
-}
-
-func (s *PostgresStore) appendEvent(ctx context.Context, typ, sessionID, runID string, payload any) {
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
-		VALUES ($1, $2, $3, nullif($4, ''), nullif($5, ''), $6)
-	`, app.NewID("evt"), time.Now().UTC(), typ, sessionID, runID, mustJSON(payload))
-}
-
-type scanner interface {
-	Scan(dest ...any) error
-}
-
-func collectRows[T any](rows pgx.Rows, scan func(scanner) (T, error)) []T {
-	out := []T{}
-	for rows.Next() {
-		value, err := scan(rows)
-		if err == nil {
-			out = append(out, value)
-		}
-	}
-	return out
-}
-
 func mustJSON(value any) []byte {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -315,17 +277,6 @@ func optionalJSON(value any) []byte {
 	return mustJSON(value)
 }
 
-func decodeJSON(raw []byte) any {
-	if len(raw) == 0 {
-		return nil
-	}
-	var out any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil
-	}
-	return out
-}
-
 func zeroTimeToNil(t time.Time) any {
 	if t.IsZero() {
 		return nil
@@ -333,15 +284,3 @@ func zeroTimeToNil(t time.Time) any {
 	return t
 }
 
-func redactPostgresExternalID(value string) string {
-	value = strings.TrimSpace(value)
-	runes := []rune(value)
-	if len(runes) <= 6 {
-		return value
-	}
-	return string(runes[:3]) + "***" + string(runes[len(runes)-2:])
-}
-
-func rollbackTx(ctx context.Context, tx pgx.Tx) {
-	_ = tx.Rollback(ctx)
-}

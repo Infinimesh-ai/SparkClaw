@@ -347,32 +347,6 @@ func newFileAdmission() *semaphore.Weighted {
 	return semaphore.NewWeighted(fileAdmissionCapacity)
 }
 
-func (s *FileStore) admitLegacyRead() func() {
-	return s.admitLegacy(1)
-}
-
-func (s *FileStore) admitLegacyCommand() func() {
-	return s.admitLegacy(fileAdmissionCapacity)
-}
-
-func (s *FileStore) admitLegacy(weight int64) func() {
-	for {
-		if fence := s.currentFileFence(); fence != nil {
-			<-fence.done
-			continue
-		}
-		if err := s.admission.Acquire(context.Background(), weight); err != nil {
-			panic(fmt.Sprintf("acquire FileStore admission: %v", err))
-		}
-		if fence := s.currentFileFence(); fence == nil {
-			return func() { s.admission.Release(weight) }
-		} else {
-			s.admission.Release(weight)
-			<-fence.done
-		}
-	}
-}
-
 func (s *FileStore) SaveISCPOnboarding(ctx context.Context, onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error) {
 	return s.saveISCPOnboarding(ctx, onboarding)
 }

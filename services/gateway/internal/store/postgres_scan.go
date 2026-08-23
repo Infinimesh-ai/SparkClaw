@@ -11,6 +11,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+type scanner interface {
+	Scan(dest ...any) error
+}
+
 func scanSession(row scanner) (app.Session, error) {
 	var session app.Session
 	err := row.Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt)

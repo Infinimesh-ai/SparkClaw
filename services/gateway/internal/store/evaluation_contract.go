@@ -32,10 +32,3 @@ func cloneEvalRun(run app.EvalRun) app.EvalRun {
 	return run
 }
 
-func cloneEvalRuns(runs []app.EvalRun) []app.EvalRun {
-	out := make([]app.EvalRun, len(runs))
-	for index, run := range runs {
-		out[index] = cloneEvalRun(run)
-	}
-	return out
-}

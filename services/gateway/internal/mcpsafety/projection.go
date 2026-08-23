@@ -147,10 +147,10 @@ func SafeErrorText(value string, maxBytes int) string {
 	}
 	projected := BoundedProjection(value, State, maxBytes)
 	if text, ok := projected.(string); ok {
-		return truncateUTF8(text, maxBytes)
+		return TruncateUTF8(text, maxBytes)
 	}
 	raw, _ := json.Marshal(projected)
-	return truncateUTF8(string(raw), maxBytes)
+	return TruncateUTF8(string(raw), maxBytes)
 }
 
 func ToolResultText(result mcpclient.ToolResult) string {
@@ -226,7 +226,7 @@ func sanitizeString(value string, mode Mode, maxBytes int) any {
 			limit = 1024
 		}
 		if len(value) > limit {
-			return truncateUTF8(value, limit) + "... [truncated]"
+			return TruncateUTF8(value, limit) + "... [truncated]"
 		}
 	}
 	return value
@@ -270,7 +270,9 @@ func LikelyBase64(value string) bool {
 	return err == nil
 }
 
-func truncateUTF8(value string, maxBytes int) string {
+// TruncateUTF8 cuts value to at most maxBytes without splitting a rune. It
+// is the shared byte-bounded truncation for MCP surfaces; keep one copy.
+func TruncateUTF8(value string, maxBytes int) string {
 	if maxBytes <= 0 || len(value) <= maxBytes {
 		return value
 	}

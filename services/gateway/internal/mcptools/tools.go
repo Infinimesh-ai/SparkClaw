@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpsafety"
 )
 
 type Policy struct {
@@ -126,15 +126,7 @@ func AnnotationBool(annotations map[string]any, key string) bool {
 }
 
 func BoundedText(value string, maxBytes int) string {
-	value = strings.TrimSpace(value)
-	if maxBytes <= 0 || len(value) <= maxBytes {
-		return value
-	}
-	value = value[:maxBytes]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
-	}
-	return value
+	return mcpsafety.TruncateUTF8(strings.TrimSpace(value), maxBytes)
 }
 
 func cloneMap(value map[string]any) map[string]any {

@@ -12,6 +12,8 @@
 | 机器结果 | [`pptx-overlength-phase0-result.json`](../../benchmarks/pptx-overlength-phase0-result.json) |
 | 生产影响 | 无；Gateway 和 ToolHub 保持不变 |
 
+> 保留说明：资格测试 harness 保留用于候选策略变化时重跑 Phase 0；若提案被撤回，则与设计文档一并删除。
+
 ## 决策
 
 当前提案不进入生产接入。固定的 ARM64 渲染栈通过了合成完整性、可见性、确定性、保真、digest、

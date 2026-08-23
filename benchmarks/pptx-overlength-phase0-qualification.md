@@ -12,6 +12,8 @@
 | Machine result | [`pptx-overlength-phase0-result.json`](pptx-overlength-phase0-result.json) |
 | Production effect | None; Gateway and ToolHub remain unchanged |
 
+> Retention: the qualification harness is retained to re-run Phase 0 if the candidate policy changes, and is deleted together with the design document if the proposal is withdrawn.
+
 ## Decision
 
 The current proposal does not advance to production integration. The pinned

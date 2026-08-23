@@ -25,8 +25,18 @@ func runPptxSlideAdapter(ctx context.Context, request map[string]any) (map[strin
 // against an ephemeral output before Policy creates an approval. It detects
 // generated text that cannot fit safely without leaving a user-visible file.
 func (h *ToolHub) PreflightPPTXLayout(ctx context.Context, name string, args map[string]any, sessionID string) error {
-	operation := strings.TrimPrefix(strings.TrimSpace(name), "pptx.")
-	if operation != "update_slide" && operation != "update_deck" {
+	// Resolve the operation through the provider registry instead of the
+	// tool-name prefix so a renamed or aliased tool cannot silently skip the
+	// layout preflight.
+	registry := toolhubDocumentProviderRegistry()
+	operation := ""
+	for _, candidate := range []string{app.DocumentOperationUpdateSlide, app.DocumentOperationUpdateDeck} {
+		if provider, ok := registry.operation(app.DocumentFormatPPTX, candidate); ok && provider.acceptsTool(strings.TrimSpace(name)) {
+			operation = candidate
+			break
+		}
+	}
+	if operation == "" {
 		return nil
 	}
 	if err := h.Validate(name, args); err != nil {

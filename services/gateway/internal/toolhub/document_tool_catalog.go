@@ -150,9 +150,9 @@ func sharedDocumentToolProviders() []documentToolProvider {
 		"Read one explicitly identified file inside the configured workspace.",
 	)
 	officeReplace := documentEditRegistration(
-		documentEditExecutor("replace_text"),
+		documentEditExecutor(app.DocumentOperationReplaceText),
 		app.DocumentFormatDOCX,
-		"replace_text",
+		app.DocumentOperationReplaceText,
 		"Replace bounded text and write an Office output copy.",
 	)
 	applyDocumentToolBoundary(&officeReplace, "office.replace_text")

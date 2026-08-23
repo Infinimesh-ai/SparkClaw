@@ -39,7 +39,7 @@ func pdfToolDefinitions() []app.ToolDefinition {
 			Description: "Perform a bounded extract_pages, delete_pages, rotate_pages, or split operation and write a new PDF copy.",
 			InputSchema: strictObjectSchema([]string{"operation", "path", "output_path"}, map[string]any{
 				"path":        stringSchema(),
-				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "split"}},
+				"operation":   map[string]any{"enum": documentOperationEnum(app.DocumentFormatPDF)},
 				"pages":       pdfPageIndexesSchema(),
 				"rotation":    pdfRotationSchema(),
 				"output_path": stringSchema(),

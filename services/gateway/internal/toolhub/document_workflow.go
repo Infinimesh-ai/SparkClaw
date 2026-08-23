@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -62,7 +63,7 @@ func applyTextReplacement(_ context.Context, request document.ApplyRequest) (doc
 	}
 	return document.ApplyResult{
 		OutputPath: request.Edit.OutputPath, Changed: changed,
-		Details: map[string]any{"status": "text_version_written", "operation": "replace_text", "replacements": changed, "bytes": len([]byte(updated))},
+		Details: map[string]any{"status": "text_version_written", "operation": app.DocumentOperationReplaceText, "replacements": changed, "bytes": len([]byte(updated))},
 	}, nil
 }
 

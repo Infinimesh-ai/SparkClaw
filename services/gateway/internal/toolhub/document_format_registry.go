@@ -176,6 +176,46 @@ func (r documentProviderRegistry) errorWrapper(toolName, operation string) docum
 	return nil
 }
 
+// documentOperationEnum derives a JSON-schema enum from the canonical
+// operation catalog so tool schemas cannot drift from it.
+func documentOperationEnum(format string) []any {
+	operations, ok := app.DocumentOperationsForFormat(format)
+	if !ok {
+		panic(fmt.Sprintf("document operation enum requested for unknown format %q", format))
+	}
+	out := make([]any, 0, len(operations))
+	for _, operation := range operations {
+		out = append(out, operation.Name)
+	}
+	return out
+}
+
+// errorWrapperForTool resolves the registered error wrapper for any operation
+// the tool serves, so early failures (before an operation is parsed) are
+// wrapped by registry metadata instead of tool-name prefix conventions.
+func (r documentProviderRegistry) errorWrapperForTool(toolName string) documentErrorWrapper {
+	formats := make([]string, 0, len(r.formats))
+	for format := range r.formats {
+		formats = append(formats, format)
+	}
+	sort.Strings(formats)
+	for _, format := range formats {
+		provider := r.formats[format]
+		operations := make([]string, 0, len(provider.Operations))
+		for operation := range provider.Operations {
+			operations = append(operations, operation)
+		}
+		sort.Strings(operations)
+		for _, operation := range operations {
+			candidate := provider.Operations[operation]
+			if candidate.ToolName == toolName && candidate.WrapError != nil {
+				return candidate.WrapError
+			}
+		}
+	}
+	return nil
+}
+
 func (p documentOperationProvider) acceptsTool(toolName string) bool {
 	if p.ToolName == toolName {
 		return true

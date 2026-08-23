@@ -400,11 +400,21 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	if err := validateInput(def, args); err != nil {
 		return Result{}, err
 	}
+	// The declared TimeoutMS is authoritative when the caller carries no
+	// deadline: direct-hub entry points previously fell through to the
+	// unrelated 60s document adapter fallback, cutting tools that declare a
+	// longer bound (e.g. 125s PPTX edits) or leaving undeclared ones to
+	// adapter-level bounds only.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && def.TimeoutMS > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(def.TimeoutMS)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	h, err = h.forSession(ctx, sessionID)
 	if err != nil {
-		if strings.HasPrefix(name, "pptx.") {
-			return Result{}, wrapPPTXToolError(ctx, err)
+		if wrapper := toolhubDocumentProviderRegistry().errorWrapperForTool(name); wrapper != nil {
+			return Result{}, wrapper(ctx, err)
 		}
 		return Result{}, err
 	}

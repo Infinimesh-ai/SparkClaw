@@ -63,6 +63,12 @@ func (h *ToolHub) OpenManagedBrowserWindow(ctx context.Context, ownerID, windowI
 	if h == nil || h.browser == nil || !h.cfg.Tools.BrowserAutomation.Enabled {
 		return browserautomation.ErrDisabled
 	}
+	// Fail closed at open time: an adapter that cannot release sessions
+	// would otherwise open a visible window nothing can ever close, and the
+	// gap would only surface at shutdown as an orphaned browser.
+	if _, ok := h.browser.(browserautomation.SessionReleaser); !ok {
+		return errors.New("browser adapter cannot release a managed session")
+	}
 	args, key, err := managedBrowserWindowArgs(ownerID, windowID)
 	if err != nil {
 		return err

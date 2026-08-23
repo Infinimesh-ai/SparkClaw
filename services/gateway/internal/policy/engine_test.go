@@ -12,7 +12,7 @@ func TestPolicyApprovalRequiredTools(t *testing.T) {
 	cfg.Security.ApprovalRequiredTools = []string{"files.write_draft"}
 	def := app.ToolDefinition{Name: "files.write_draft", Risk: app.RiskDraft}
 
-	decision := New(cfg).Decide(def, map[string]any{"path": "draft.md"})
+	decision := New(cfg).Decide(def, map[string]any{"path": "draft.md"}, app.PolicyExecutionContext{})
 	if !decision.Allowed || !decision.RequiresApproval {
 		t.Fatalf("expected approval-required draft tool, got %#v", decision)
 	}
@@ -29,7 +29,7 @@ func TestMayExposeIsStaticAndExecutionRemainsArgumentAware(t *testing.T) {
 		t.Fatalf("static exposure must not make an execution decision: %#v", exposure)
 	}
 
-	execution := engine.Decide(def, map[string]any{"path": "notes.txt"})
+	execution := engine.Decide(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{})
 	if !execution.Allowed || !execution.RequiresApproval || len(execution.Resources) != 1 {
 		t.Fatalf("execution decision did not use exact arguments: %#v", execution)
 	}
@@ -42,7 +42,7 @@ func TestRemoteMutationKeepsApprovalWithoutClaimingLocalSandbox(t *testing.T) {
 		RequiresApproval: true, Sandbox: "remote",
 	}
 
-	decision := New(cfg).Decide(def, map[string]any{"title": "Draft"})
+	decision := New(cfg).Decide(def, map[string]any{"title": "Draft"}, app.PolicyExecutionContext{})
 	if !decision.Allowed || !decision.RequiresApproval {
 		t.Fatalf("remote mutation lost approval: %#v", decision)
 	}
@@ -56,11 +56,11 @@ func TestExternalMCPWorkspaceDataContextEscalatesReadOnlyTool(t *testing.T) {
 	def := app.ToolDefinition{Name: "files.read", Risk: app.RiskRead}
 	engine := New(cfg)
 
-	human := engine.Decide(def, map[string]any{"path": "notes.txt"})
+	human := engine.Decide(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{})
 	if !human.Allowed || human.RequiresApproval {
 		t.Fatalf("human workspace read changed its registered baseline: %#v", human)
 	}
-	external := engine.DecideWithContext(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{
+	external := engine.Decide(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{
 		PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 		ResourceClass:  app.PolicyResourceSparkClawWorkspaceData,
 		AccessClass:    app.PolicyAccessWorkspaceSourceRead,
@@ -73,7 +73,7 @@ func TestExternalMCPWorkspaceDataContextEscalatesReadOnlyTool(t *testing.T) {
 func TestExternalMCPContextDoesNotEscalateSafeNonWorkspaceTool(t *testing.T) {
 	cfg := config.Default()
 	def := app.ToolDefinition{Name: "weather.lookup", Risk: app.RiskRead}
-	decision := New(cfg).DecideWithContext(def, map[string]any{"location": "Shanghai"}, app.PolicyExecutionContext{
+	decision := New(cfg).Decide(def, map[string]any{"location": "Shanghai"}, app.PolicyExecutionContext{
 		PrincipalClass: app.PolicyPrincipalExternalMCPAI,
 	})
 	if !decision.Allowed || decision.RequiresApproval {
@@ -84,7 +84,7 @@ func TestExternalMCPContextDoesNotEscalateSafeNonWorkspaceTool(t *testing.T) {
 func TestExecutionContextCannotDowngradeRegisteredApproval(t *testing.T) {
 	cfg := config.Default()
 	def := app.ToolDefinition{Name: "file.delete", Risk: app.RiskDangerous, RequiresApproval: true}
-	decision := New(cfg).DecideWithContext(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{})
+	decision := New(cfg).Decide(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{})
 	if !decision.Allowed || !decision.RequiresApproval {
 		t.Fatalf("empty execution context downgraded registered approval: %#v", decision)
 	}

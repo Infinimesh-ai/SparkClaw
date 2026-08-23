@@ -1273,7 +1273,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		return app.ToolCall{}, nil, "", fmt.Errorf("load tool policy context: %w", err)
 	}
 	call.PolicyContext = persistedPolicyExecutionContext(executionContext)
-	decision := r.policy.DecideWithContext(def, plan.Args, executionContext)
+	decision := r.policy.Decide(def, plan.Args, executionContext)
 	if !decision.Allowed {
 		call.Status = "blocked"
 		call.Error = decision.Reason

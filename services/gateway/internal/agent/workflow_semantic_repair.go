@@ -88,7 +88,7 @@ func (r Runtime) prepareWorkflowSemanticPlan(ctx context.Context, runID string, 
 	if err := r.validateWorkflowToolPlan(ctx, runID, prepared, definition); err != nil {
 		return prepared, nil, fmt.Errorf("PPTX mutation preflight validation failed: %w", err)
 	}
-	if decision := r.policy.Decide(definition, prepared.Args); !decision.Allowed {
+	if decision := r.policy.Decide(definition, prepared.Args, app.PolicyExecutionContext{}); !decision.Allowed {
 		return prepared, nil, fmt.Errorf("PPTX mutation preflight blocked by Policy: %s", decision.Reason)
 	}
 	if err := r.tools.PreflightPPTXLayout(ctx, prepared.Name, prepared.Args, run.SessionID); err != nil {

@@ -70,7 +70,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		Arguments: args,
 		StartedAt: now,
 	}
-	decision := r.policy.Decide(def, args)
+	decision := r.policy.Decide(def, args, app.PolicyExecutionContext{})
 	if !decision.Allowed {
 		done := time.Now().UTC()
 		if _, err := r.saveRun(ctx, app.AgentRun{

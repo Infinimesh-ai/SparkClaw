@@ -72,7 +72,7 @@ func TestLocalMindTaskToolPolicyIsConservativeWithoutWorkflowPlanning(t *testing
 		if !ok || definition.Risk != app.RiskDangerous || !definition.RequiresApproval || definition.Sandbox != "remote" || !definition.Idempotent {
 			t.Fatalf("dangerous LocalMind definition mismatch for %s: %#v", name, definition)
 		}
-		decision := engine.Decide(definition, map[string]any{"request": "test"})
+		decision := engine.Decide(definition, map[string]any{"request": "test"}, app.PolicyExecutionContext{})
 		if !decision.RequiresApproval || decision.RequiresSandbox || !decision.RequiresDeep {
 			t.Fatalf("dangerous LocalMind policy mismatch for %s: %#v", name, decision)
 		}

@@ -2047,7 +2047,7 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		decision := s.policies.Decide(def, args)
+		decision := s.policies.Decide(def, args, app.PolicyExecutionContext{})
 		if !decision.Allowed {
 			writeError(w, http.StatusForbidden, errors.New(decision.Reason))
 			return

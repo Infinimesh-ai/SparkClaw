@@ -64,7 +64,7 @@ func TestExternalMCPWeatherToolDoesNotGainWorkspaceApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision := runtime.policy.DecideWithContext(definition, map[string]any{"location": "Shanghai"}, execution)
+	decision := runtime.policy.Decide(definition, map[string]any{"location": "Shanghai"}, execution)
 	if execution.PrincipalClass != app.PolicyPrincipalExternalMCPAI || execution.ResourceClass != "" || decision.RequiresApproval {
 		t.Fatalf("external MCP weather lookup gained workspace approval: context=%#v decision=%#v", execution, decision)
 	}

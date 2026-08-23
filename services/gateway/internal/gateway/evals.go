@@ -599,7 +599,7 @@ func (s *Server) evalApprovalPolicy(ctx context.Context) app.EvalCase {
 		if !ok {
 			return errors.New("shell.exec_sandboxed definition missing")
 		}
-		decision := policy.New(s.cfg).Decide(def, map[string]any{"command": "ls -la"})
+		decision := policy.New(s.cfg).Decide(def, map[string]any{"command": "ls -la"}, app.PolicyExecutionContext{})
 		if !decision.Allowed {
 			return fmt.Errorf("shell tool was blocked instead of held for approval: %s", decision.Reason)
 		}

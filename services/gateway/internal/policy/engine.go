@@ -32,11 +32,11 @@ func (e Engine) MayExpose(def app.ToolDefinition) Decision {
 	return Decision{Allowed: true, Reason: "tool is statically exposable"}
 }
 
-func (e Engine) Decide(def app.ToolDefinition, args map[string]any) Decision {
-	return e.DecideWithContext(def, args, app.PolicyExecutionContext{})
-}
-
-func (e Engine) DecideWithContext(def app.ToolDefinition, args map[string]any, execution app.PolicyExecutionContext) Decision {
+// Decide requires the execution context at every call site so a caller
+// cannot silently skip the external-MCP workspace gate; pass a zero
+// PolicyExecutionContext only where the invocation is genuinely
+// owner-principal (manual invocation, diagnostics).
+func (e Engine) Decide(def app.ToolDefinition, args map[string]any, execution app.PolicyExecutionContext) Decision {
 	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) {
 		return Decision{Allowed: false, Reason: "tool is denied by policy"}
 	}

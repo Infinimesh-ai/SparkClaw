@@ -518,10 +518,11 @@ ready 检查不包含该端口。
 
 重要环境变量：
 
-- `SPARKCLAW_VLLM_IMAGE`
+- `SPARKCLAW_VLLM_IMAGE`（embedding、guard 与 ASR 的基础 image）
+- `SPARKCLAW_CHAT_VLLM_IMAGE`（Fast/Deep chat image；NVFP4 默认使用 vLLM 0.24.0）
 - `SPARKCLAW_FORCE_MODEL_RECREATE`（默认 `false`；一次显式完整模型组刷新时设为 `true`）
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_CONTEXT_TOKENS`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_CONTEXT_TOKENS`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
 - `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
@@ -676,7 +677,11 @@ scripts/restart_runtime_compose.sh
 该命令应用单 Fast、ASR 与 OCR 环境，并复用 `docker/compose.dual-light.yaml`、
 `docker/compose.asr.yaml` 和 `docker/compose.ocr.yaml` 中有界的服务设置；Fast、embedding、
 guard、ASR 与 OCR 一起启动。Gateway 的两个逻辑 chat profiles 都发送到
-`sparkclaw-fast`，语音转写使用 `sparkclaw-asr`，文档 OCR 使用 `sparkclaw-ocr`。
+`sparkclaw-fast`，语音转写使用 `sparkclaw-asr`，文档 OCR 使用 `sparkclaw-ocr`。chat endpoint
+通过独立 vLLM 0.24.0 image 加载 `nvidia/Qwen3.6-35B-A3B-NVFP4`。SparkClaw 只提供
+checkpoint ID 与容量预算；vLLM 读取 ModelOpt metadata，并负责 activation precision、
+quantization dispatch 与 kernel/backend 选择。产品与定向 chat 加载默认值均不再保留
+FP8 chat checkpoint。
 
 历史轻量双常驻实验：
 
@@ -710,7 +715,7 @@ BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh
 ```
 
-历史已验证 real-model run 完成 58 个 golden cases。当前活动矩阵为 43 个 case，模型栈发生变化后应重新运行。benchmark rows 和运行说明见 [model_baseline.md](../benchmarks/model_baseline.md)。
+历史已验证 real-model run 完成 58 个 golden cases。2026-08-24，恢复后的 vLLM-managed 路径通过当前 47-case matrix，包含 15 次 tool call、2 次 approval 和 1 个 memory candidate；Fast、Deep、Embedding 与 Guard 调用均为真实模型调用（`mock=0`），且没有 model error。强制 W4A4 结果因实验已回滚而只保留为历史记录。benchmark rows 和运行说明见 [model_baseline.md](../benchmarks/model_baseline.md)。
 
 ## Backup And Restore
 

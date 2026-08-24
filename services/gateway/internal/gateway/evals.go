@@ -300,8 +300,8 @@ func (s *Server) evalModelRouting(ctx context.Context) app.EvalCase {
 		if s.cfg.Model.Fast.ContextTokens < 8192 || s.cfg.Model.Deep.ContextTokens < 8192 {
 			return fmt.Errorf("fast/deep context tokens below 8192: fast=%d deep=%d", s.cfg.Model.Fast.ContextTokens, s.cfg.Model.Deep.ContextTokens)
 		}
-		if !s.cfg.Model.Fast.MTP || !s.cfg.Model.Deep.MTP {
-			return errors.New("fast/deep MTP is not enabled")
+		if s.cfg.Model.Fast.MTP || s.cfg.Model.Deep.MTP {
+			return errors.New("fast/deep MTP must be disabled for the vLLM-managed NVFP4 checkpoint")
 		}
 		return nil
 	})

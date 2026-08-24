@@ -33,7 +33,7 @@ Implemented and validated:
 - File-backed state for local runs, PostgreSQL 18/pgvector for durable runtime records, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
-- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. The 43-case runner still contains assertions for retired prototype code/shell workflows and must be aligned with the current capability matrix before it can serve as a full current acceptance result.
+- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. On 2026-08-24, the restored vLLM-managed NVFP4 path passed all 47 real-model golden cases with no mock calls or model errors.
 
 Known operating boundary:
 
@@ -121,7 +121,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-Current golden eval coverage is 43 cases. It verifies direct chat, config/tool visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
+Current golden eval coverage is 47 cases. It verifies direct chat, config/tool visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
 
 ## Open Source
 
@@ -158,11 +158,11 @@ Default served lanes:
 
 | Lane | Served name | Port | Default checkpoint |
 |---|---|---:|---|
-| fast | `sparkclaw-fast` | 8001 | `Qwen/Qwen3.6-35B-A3B-FP8` |
-| deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
+| fast | `sparkclaw-fast` | 8001 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| deep | `sparkclaw-deep` | 8002 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 
-The current single-machine product profile is intentionally conservative: only `fast` serves chat, MTP is off, and embedding and guard use small explicit KV budgets. Deep and dual-light commands remain available only for targeted tests and historical comparisons.
+The current single-machine product profile is intentionally conservative: only `fast` serves chat, both logical chat profiles use that NVFP4 endpoint, MTP is off, and embedding and guard use small explicit KV budgets. The dedicated vLLM 0.24.0 chat image interprets the checkpoint's quantization metadata and owns activation and kernel selection; SparkClaw supplies no quantization override. Deep and dual-light commands remain available for targeted controls but no longer load an FP8 chat checkpoint.
 
 Loading strategy lives in [docs/model-loading.md](docs/model-loading.md). Benchmark evidence, endpoint snapshots and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
 

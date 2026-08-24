@@ -32,7 +32,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 本地 file-backed state，PostgreSQL 18/pgvector 持久化 runtime records，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
-- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding endpoints。当前 Fast + Embedding 校准在 15 条标注意图上达到 15/15。43-case runner 仍包含已退役 code/shell 原型 Workflow 的断言，在与当前能力矩阵对齐前不能作为完整的当前验收结果。
+- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding endpoints。当前 Fast + Embedding 校准在 15 条标注意图上达到 15/15。2026-08-24，恢复后的 vLLM-managed NVFP4 路径通过全部 47 个 real-model golden cases，没有 mock call 或 model error。
 
 已知运行边界：
 
@@ -116,7 +116,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-当前 golden eval 覆盖 43 个 case，验证 direct chat、config/tool visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
+当前 golden eval 覆盖 47 个 case，验证 direct chat、config/tool visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
 
 ## 开源
 
@@ -153,11 +153,11 @@ scripts/serve_models_compose.sh embedding
 
 | Lane | Served name | Port | Default checkpoint |
 |---|---|---:|---|
-| fast | `sparkclaw-fast` | 8001 | `Qwen/Qwen3.6-35B-A3B-FP8` |
-| deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
+| fast | `sparkclaw-fast` | 8001 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| deep | `sparkclaw-deep` | 8002 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 
-当前单机产品 profile 保持保守：chat 只由 `fast` 提供，MTP 关闭，embedding 与 guard 使用较小的显式 KV budget。Deep 和 dual-light 命令只保留给定向测试与历史对照。
+当前单机产品 profile 保持保守：chat 只由 `fast` 提供，两个逻辑 chat profile 都使用该 NVFP4 endpoint，MTP 关闭，embedding 与 guard 使用较小的显式 KV budget。独立 vLLM 0.24.0 chat image 负责解释 checkpoint quantization metadata，并自主选择 activation 与 kernel；SparkClaw 不提供 quantization override。Deep 和 dual-light 命令仍可用于定向对照，但不再加载 FP8 chat checkpoint。
 
 加载策略见 [docs/model-loading.md](docs/model-loading.md)。Benchmark 证据、endpoint 快照和运行说明见 [benchmarks/model_baseline.md](benchmarks/model_baseline.md)。
 

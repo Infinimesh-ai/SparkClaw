@@ -29,8 +29,8 @@ scripts/serve_models_compose.sh guard
 
 | Lane | Model | Served name | Port | Context | MTP |
 |---|---|---|---:|---:|---:|
-| fast | Qwen/Qwen3.6-35B-A3B-FP8 | sparkclaw-fast | 8001 | 131072 | 2 speculative tokens |
-| deep | Qwen/Qwen3.6-27B-FP8 | sparkclaw-deep | 8002 | 131072 | 2 speculative tokens |
+| fast | nvidia/Qwen3.6-35B-A3B-NVFP4 | sparkclaw-fast | 8001 | 32768 | off |
+| deep | nvidia/Qwen3.6-35B-A3B-NVFP4 | sparkclaw-deep | 8002 | 65536 | off |
 | embedding | Qwen/Qwen3-Embedding-0.6B | sparkclaw-embedding | 8003 | 32768 | off |
 | guard | Qwen/Qwen3Guard-Gen-0.6B | Qwen/Qwen3Guard-Gen-0.6B | 8005 | 32768 | off |
 
@@ -44,7 +44,7 @@ endpoint 时发送的 served model name。
 
 | Profile | Fast | Deep | MTP | Notes |
 |---|---|---|---|---|
-| `dual-light` | 32K context、8G KV、4 seqs、768 max tokens | 64K context、12G KV、2 seqs、1536 max tokens | off | 单用户产品 profile。Embedding 使用 8K/2G KV/1 seq；guard 使用 16K/2G KV/1 seq。 |
+| `dual-light` | NVFP4、32K context、8G KV、4 seqs、768 max tokens | NVFP4、64K context、12G KV、2 seqs、1536 max tokens | off | 可选双 endpoint 对照；产品 profile 将逻辑 Deep 别名到 Fast。Embedding 使用 8K/2G KV/1 seq；guard 使用 16K/2G KV/1 seq。 |
 
 ## 检查
 
@@ -118,6 +118,11 @@ Runtime 准入据此按每四个 UTF-8 bytes 一个 token，再加 12-token chat
 | 2026-07-24 | NVIDIA GB10 | Fast + Embedding 意图校准 | Passed | 当前全候选链路在 `alpha = 0.50` 时达到 exact Top-1 15/15；纯 Embedding 为 13/15，Fast 通道为 15/15。没有 reranker 服务或调用参与。 |
 | 2026-07-24 | NVIDIA GB10 | Qwen3Guard endpoint | Passed | `Qwen/Qwen3Guard-Gen-0.6B` 以 16K context、2 GiB KV、单序列运行。vLLM 报告模型占用 1.12 GiB，进程使用 3,659 MiB；warm Safe/Controversial 检查耗时 79-107 ms。被拒绝的 32K 配置需要 3.5 GiB KV。 |
 | 2026-07-24 | NVIDIA GB10 | 当前 43-case runner | 需要对齐 | Runner 在预期 `code.apply_patch` approval 处停止：当前 Catalog 没有自然语言 code/shell Workflow，但未更新的矩阵仍断言已退役的 `code.apply_patch`、`shell.exec_sandboxed` 和 `files.search` 路径。因此这次运行不能作为当前路由质量验收结果。 |
+| 2026-08-24 | NVIDIA GB10 | vLLM-managed NVFP4 checkpoint | 有回退但通过 | `nvidia/Qwen3.6-35B-A3B-NVFP4` 使用 vLLM 0.24.0，以 32K context、8 GiB KV 和 4 条 sequence 成功加载。vLLM 解释 ModelOpt metadata，并将 W4A16 linear 路由到其支持的 Marlin weight-only 回退。checkpoint 为 21.82 GiB，加载后 model memory 为 19.55 GiB，权重加载为 124.83 秒，完整 model loading 为 132.78 秒。这是恢复后的职责边界。 |
+| 2026-08-24 | NVIDIA GB10 | 强制原生 W4A4 实验 | 已回滚 | 项目 compatibility hook 曾重写 161 个 W4A16 标签，并产生 FlashInfer Cutlass FP4 linear 与 FlashInfer B12x MoE dispatch。虽然模型成功加载并完成 smoke request，但应用代码不应重新解释 checkpoint activation precision，因此该实验被否决。 |
+| 2026-08-24 | NVIDIA GB10 | 强制 W4A4 real-model golden eval | 仅作历史参考 | 被否决的实验通过活动 47-case matrix，包含 15 次 tool call、2 次 approval 和 1 个 memory candidate。该结果只用于记录已回滚的实验。 |
+| 2026-08-24 | NVIDIA GB10 | 恢复后的 vLLM-managed real-model golden eval | Passed | 干净恢复后的路径通过全部 47 个 case，包含 15 次 tool call、2 次 approval 和 1 个 memory candidate。Model telemetry 记录 11 次 Guard、10 次 Embedding、11 次 Fast 和 1 次 Deep 调用；所有调用都是真实模型调用（`mock=0`），且没有 model call error。 |
+| 2026-08-24 | NVIDIA GB10 | FP8/NVFP4 checkpoint 对比 | 通过但有后续项 | 每个 checkpoint 固定运行 51 次业务样例，vLLM-managed NVFP4 总体为 88.24%，FP8 为 86.27%；Fast 为 92.59% 对 85.19%，Deep Workflow 为 77.78% 对 83.33%。使用自动 KV-cache dtype 时 XLSX 达到 56/60，与 FP8 相同。Deep 下降仍需后续处理。 |
 
 工作树中的历史证据文件：
 
@@ -183,8 +188,9 @@ Profile: `dual-light-v1`
 - 历史 chat-only 对照没有显著改变 `deep` 吞吐。
 - 两个 chat lanes 已常驻时，embedding 不能使用宽松的 context/memory 设置。
   Embedding 32K 启动失败；embedding 8K + 2G 显式 KV + 1 seq 恢复了完整栈。
-- 历史 58-case 结果早于 reranking lane 的移除。应先让 43-case runner 与当前能力矩阵
-  对齐，再运行它并声明当前产品质量等价。
+- 历史 58-case 结果早于 reranking lane 的移除。恢复后的 vLLM-managed 路径已于
+  2026-08-24 通过当前 47-case matrix；强制 W4A4 结果只保留为历史记录，不是当前
+  验收证据。
 - Qwen3Guard 输出原生 `Safety: Safe|Unsafe|Controversial` 标签，Gateway 映射为
   `allow`、`block`、`review`。由于没有人工 review queue，`review` 和 `block`
   都会终止 run；endpoint 不可用时，model-call telemetry 会显示 `mock=true`。

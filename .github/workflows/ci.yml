@@ -206,6 +206,8 @@ jobs:
           assert environment["SPARKCLAW_OCR_ENABLED"] == "true"
           assert environment["SPARKCLAW_DEEP_BASE_URL"] == environment["SPARKCLAW_FAST_BASE_URL"]
           assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
+          assert environment["SPARKCLAW_FAST_CONTEXT_TOKENS"] == "32768"
+          assert environment["SPARKCLAW_DEEP_CONTEXT_TOKENS"] == "32768"
           assert "postgres" in config["services"]
           assert "sparkclaw-asr" in config["services"]
           assert "sparkclaw-ocr" in config["services"]
@@ -214,8 +216,30 @@ jobs:
           assert asr_command[asr_command.index("--kv-cache-memory-bytes") + 1] == "2G"
           assert not config["services"]["gateway"].get("ports")
           fast = config["services"]["sparkclaw-fast"]
-          assert fast["image"] == "sparkclaw-vllm-readiness:local"
+          assert fast["image"] == "sparkclaw-chat-vllm-readiness:local"
           assert fast["build"]["dockerfile"] == "docker/images/vllm.Dockerfile"
+          assert fast["build"]["args"]["SPARKCLAW_VLLM_IMAGE"] == "vllm/vllm-openai:v0.24.0"
+          assert "SPARKCLAW_VLLM_NATIVE_NVFP4_W4A4" not in fast["build"]["args"]
+          assert fast["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
+          assert fast["command"][fast["command"].index("--max-model-len") + 1] == "32768"
+          assert fast["command"][fast["command"].index("--kv-cache-memory-bytes") + 1] == "8G"
+          assert fast["command"][fast["command"].index("--max-num-seqs") + 1] == "4"
+          assert all(flag not in fast["command"] for flag in (
+              "--quantization", "--moe-backend", "--attention-backend", "--kv-cache-dtype",
+          ))
+          assert "--speculative-config" not in fast["command"]
+          assert fast["healthcheck"]["test"][1] == "python3"
+          deep = config["services"]["sparkclaw-deep"]
+          assert deep["image"] == "sparkclaw-chat-vllm-readiness:local"
+          assert deep["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
+          assert deep["command"][deep["command"].index("--max-model-len") + 1] == "65536"
+          assert deep["command"][deep["command"].index("--kv-cache-memory-bytes") + 1] == "12G"
+          assert deep["command"][deep["command"].index("--max-num-seqs") + 1] == "2"
+          assert all(flag not in deep["command"] for flag in (
+              "--quantization", "--moe-backend", "--attention-backend", "--kv-cache-dtype",
+          ))
+          assert "--speculative-config" not in deep["command"]
+          assert deep["healthcheck"]["test"][1] == "python3"
           assert all(
               volume["target"] != "/opt/sparkclaw/model_readiness.py"
               for volume in fast.get("volumes", [])
@@ -231,6 +255,23 @@ jobs:
               "published": "18790",
               "protocol": "tcp",
           }]
+          PY
+          docker compose \
+            --env-file .env \
+            --env-file docker/env/sparkclaw.dual-light.env \
+            -f docker/compose.yaml \
+            -f docker/compose.dual-light.yaml \
+            --profile models-local \
+            config --format json > /tmp/sparkclaw-dual-light-compose.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/sparkclaw-dual-light-compose.json", encoding="utf-8") as source:
+              config = json.load(source)
+          environment = config["services"]["gateway"]["environment"]
+          assert environment["SPARKCLAW_FAST_CONTEXT_TOKENS"] == "32768"
+          assert environment["SPARKCLAW_DEEP_CONTEXT_TOKENS"] == "65536"
+          assert environment["SPARKCLAW_DEEP_BASE_URL"] == "http://sparkclaw-deep:8002/v1"
           PY
       - name: Verify custom WebChat host port
         run: |

@@ -4,11 +4,27 @@
 
 本文记录 SparkClaw 在 DGX Spark 级硬件上的模型加载策略。它补充 [模型基线](../benchmarks/model_baseline.md) 中的实测证据，以及 [部署文档](deployment.md) 中的运行步骤。
 
-简短结论：当前单机产品 runtime 会同时加载响应快的 `fast` MoE chat 模型、embedding、guard、Qwen3-ASR 语音转写与 OvisOCR2 文档适配器。逻辑 Deep Workflow profile 暂时别名到 Fast endpoint，因此不会启动 Deep 模型进程。历史 Deep 与双常驻实测继续保留给后续评估，但不再是当前启动策略。
+简短结论：当前单机产品 runtime 会把 `nvidia/Qwen3.6-35B-A3B-NVFP4` 作为 `fast` MoE chat 模型，并同时加载 embedding、guard、Qwen3-ASR 语音转写与 OvisOCR2 文档适配器。逻辑 Deep Workflow profile 别名到同一个 Fast endpoint，因此不会启动 Deep 模型进程。所有可执行 chat 加载默认值现已统一为该 NVFP4 checkpoint；原 FP8 实测只作为历史证据保留。
 
-## 当前基线
+## 当前 NVFP4 基线
 
-已验证的 GB10 运行结果是：一次只加载一个 chat lane，128K context，vLLM，FP8 Qwen 模型，并且 MTP 设为 2 个 speculative tokens。
+当前 GB10 配置使用 vLLM 0.24.0、32K context、8 GiB KV cache、4 条 sequence，并关闭
+MTP。SparkClaw 只选择 NVIDIA checkpoint 并设置运行容量；项目不覆盖 checkpoint
+quantization metadata、activation scale、linear/MoE kernel、attention backend 或 KV-cache
+dtype。vLLM 读取 checkpoint 的 ModelOpt 配置，并完整负责权重与激活的 dispatch。
+
+checkpoint 声明 130 个 FP8 层和 161 个 `W4A16_NVFP4` 层；这些标签会原样交给 vLLM。
+此前标准加载中，vLLM 对 W4A16 linear 使用其支持的 weight-only FP4 回退。该行为是可接受的：
+模型 ID 包含 NVFP4，并不代表 SparkClaw 有权重新解释 activation precision。
+
+chat 服务具有独立的 `SPARKCLAW_CHAT_VLLM_IMAGE` 默认值，因为原共享 vLLM 0.19.2
+image 无法加载官方 NVFP4 checkpoint。Embedding、guard、ASR 与 OCR 继续使用各自已验证的 runtime。
+该派生 image 只增加 SparkClaw readiness helper，不包含 quantization compatibility hook
+或 activation 处理代码。
+
+## 历史 FP8 基线
+
+早期 GB10 运行结果是：一次只加载一个 chat lane，128K context，vLLM，FP8 Qwen 模型，并且 MTP 设为 2 个 speculative tokens。这些数据只用于对比，不再是加载默认值。
 
 | Lane | Model | Context | Model memory | KV cache | Model + KV | 实测表现 |
 |---|---|---:|---:|---:|---:|---|
@@ -35,7 +51,9 @@
 
 单机阶段的性能项保持保守：
 
-- 轻量双常驻实验先关闭 MTP。
+- 不修改 quantization metadata 或 activation scale；checkpoint 的 mixed-precision 解释与
+  kernel 选择完全由 vLLM 负责。
+- NVFP4 chat endpoint 保持关闭 MTP。
 - 单机方案不依赖 DFlash 或类似 attention/runtime 加速。
 - 加速项放在 residency 稳定之后再评估。
 - 每次修改 context、KV budget、MTP、serving image 或 model checkpoint 后，都重新跑 endpoint benchmark 和 golden eval。
@@ -60,7 +78,7 @@ configuration hash。healthy/current 模型组会被保留；任一成员缺失�
 模型 checkpoint 与 Hugging Face 元数据继续持久化在 `data/models`。GPU 进程缓存与其分离：
 vLLM/TorchInductor AOT 产物、Triton kernel、FlashInfer cache 与 NVIDIA runtime 注入都
 留在可丢弃的容器实例中。整体重建会清除这些进程内缓存并刷新 GPU device 注入，但不会重新
-下载 checkpoint。当前 Fast
+下载 checkpoint。当前 NVFP4 Fast
 容量仍保持在已实际运行过的 32K context 与 8 GiB KV cache，不把 Deep 释放的内存
 直接当作未经测量的容量提升。模型启动会等待 Docker health。Fast health 会为每个模型进程
 执行一次贴近生产负载的 chat completion：当前合成输入在 Qwen3.6 上约为 3.4K token，并强制
@@ -96,9 +114,10 @@ guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一�
 预算或 OCR 质量基线。一次并发图片与扫描 PDF 冒烟调用已成功，但宣称模型质量前仍需更广泛
 的质量测量。
 
-## 历史轻量双常驻实验
+## 可选双 NVFP4 endpoint 对照
 
-如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。
+如果单台 DGX Spark 需要独立的 Fast 与 Deep endpoint，两者现在都会加载同一个 NVFP4
+checkpoint。应从 reduced residency settings 开始，而不是沿用原 full 128K/MTP profile。
 
 建议第一轮目标：
 
@@ -118,14 +137,15 @@ guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一�
 - Profile 元数据：`configs/model.profiles.json`
 - 启动快捷方式：`scripts/serve_models_compose.sh dual-light`
 
-更推荐的取舍是 `deep` priority：
+双 endpoint 更推荐优先保留 `deep` context：
 
 - `deep` 保留能稳定运行的最大 context。
 - `fast` 降到 32K 或 64K。
 - MTP 和 DFlash 类优化都先关闭。
-- 升级为推荐 profile 前，必须测 startup、idle residency、warm request、long-context request 和当前 43-case golden eval。
+- 升级为推荐 profile 前，必须测 startup、idle residency、warm request、long-context request 和当前 47-case golden eval。
 
-这样 SparkClaw 仍然有一个响应快的本地 `fast` lane，同时保住 `deep` 最重要的价值：在更大的证据窗口里处理复杂推理。
+这样 SparkClaw 仍然有一个响应快的本地 `fast` endpoint，同时给逻辑 `deep` surface 更大的
+证据窗口。两者权重完全相同，差异只来自 endpoint budget 与业务 Prompt。
 
 历史 `dual-light-v1` 实验说明两个 chat lanes 加小型辅助端点可以在单机常驻。
 Warm `fast` 约 48-50 tok/s，warm `deep` 约 7.3 tok/s；chat-only 对照中 `deep`
@@ -134,9 +154,11 @@ Warm `fast` 约 48-50 tok/s，warm `deep` 约 7.3 tok/s；chat-only 对照中 `d
 warm moderation request 约 80-110 ms。Guard 32K 因需要 3.5 GiB KV 被 vLLM 拒绝。
 
 这个单用户 profile 的验收标准是综合任务表现，而不是并发。2026-05-25 的历史模型栈
-通过了当时的 58-case real-model golden eval。移除 reranking lane 改变了路由模型栈，
-因此当前 Fast + Embedding + Guard profile 仍需重新运行活动的 43-case real-model
-matrix，才能与历史结果进行质量比较。
+通过了当时的 58-case real-model golden eval。后续强制 W4A4 实验虽通过当前 47-case
+matrix，但因应用代码不应重新解释 activation precision 而回滚。2026-08-24，干净恢复后的
+vLLM-managed 路径通过全部 47 个当前 case，包含 15 次 tool call、2 次 approval 和 1 个
+memory candidate。Fast、Deep、Embedding 与 Guard 调用都是真实模型调用（`mock=0`），
+且没有 model call error。
 
 ### 轻量双常驻测试循环
 

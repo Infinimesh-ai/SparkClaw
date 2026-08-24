@@ -1241,17 +1241,17 @@ func Default() Config {
 			Fast: ModelProfile{
 				Name:          "sparkclaw-fast",
 				BaseURL:       "http://127.0.0.1:8001/v1",
-				Model:         "Qwen/Qwen3.6-35B-A3B-FP8",
-				ContextTokens: 131072,
-				MTP:           true,
+				Model:         "nvidia/Qwen3.6-35B-A3B-NVFP4",
+				ContextTokens: 32768,
+				MTP:           false,
 				MaxTokens:     1024,
 			},
 			Deep: ModelProfile{
 				Name:          "sparkclaw-deep",
 				BaseURL:       "http://127.0.0.1:8002/v1",
-				Model:         "Qwen/Qwen3.6-27B-FP8",
-				ContextTokens: 131072,
-				MTP:           true,
+				Model:         "nvidia/Qwen3.6-35B-A3B-NVFP4",
+				ContextTokens: 65536,
+				MTP:           false,
 				MaxTokens:     2048,
 			},
 			Embedding: ModelProfile{

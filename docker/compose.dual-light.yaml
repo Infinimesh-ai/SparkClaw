@@ -3,7 +3,7 @@ name: sparkclaw
 services:
   sparkclaw-fast:
     command:
-      - ${SPARKCLAW_FAST_MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}
+      - ${SPARKCLAW_FAST_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -20,6 +20,8 @@ services:
       - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
       - --max-num-seqs
       - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -29,7 +31,7 @@ services:
 
   sparkclaw-deep:
     command:
-      - ${SPARKCLAW_DEEP_MODEL_ID:-Qwen/Qwen3.6-27B-FP8}
+      - ${SPARKCLAW_DEEP_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -41,12 +43,13 @@ services:
       - --max-model-len
       - ${SPARKCLAW_DEEP_MAX_MODEL_LEN:-65536}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.44}
+      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
       - --kv-cache-memory-bytes
       - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
       - --max-num-seqs
       - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
-      - --enforce-eager
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice

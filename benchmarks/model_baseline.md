@@ -31,8 +31,8 @@ Defaults:
 
 | Lane | Model | Served name | Port | Context | MTP |
 |---|---|---|---:|---:|---:|
-| fast | Qwen/Qwen3.6-35B-A3B-FP8 | sparkclaw-fast | 8001 | 131072 | 2 speculative tokens |
-| deep | Qwen/Qwen3.6-27B-FP8 | sparkclaw-deep | 8002 | 131072 | 2 speculative tokens |
+| fast | nvidia/Qwen3.6-35B-A3B-NVFP4 | sparkclaw-fast | 8001 | 32768 | off |
+| deep | nvidia/Qwen3.6-35B-A3B-NVFP4 | sparkclaw-deep | 8002 | 65536 | off |
 | embedding | Qwen/Qwen3-Embedding-0.6B | sparkclaw-embedding | 8003 | 32768 | off |
 | guard | Qwen/Qwen3Guard-Gen-0.6B | Qwen/Qwen3Guard-Gen-0.6B | 8005 | 32768 | off |
 
@@ -46,7 +46,7 @@ Experimental single-machine dual residency:
 
 | Profile | Fast | Deep | MTP | Notes |
 |---|---|---|---|---|
-| `dual-light` | 32K context, 8G KV, 4 seqs, 768 max tokens | 64K context, 12G KV, 2 seqs, 1536 max tokens | off | Single-user product profile. Embedding uses 8K/2G KV/1 seq; guard uses 16K/2G KV/1 seq. |
+| `dual-light` | NVFP4, 32K context, 8G KV, 4 seqs, 768 max tokens | NVFP4, 64K context, 12G KV, 2 seqs, 1536 max tokens | off | Optional two-endpoint control. The product profile aliases logical Deep to Fast. Embedding uses 8K/2G KV/1 seq; guard uses 16K/2G KV/1 seq. |
 
 ## Checks
 
@@ -121,6 +121,11 @@ samples and requires no online tokenizer dependency.
 | 2026-07-24 | NVIDIA GB10 | Fast + Embedding intent calibration | Passed | The current full-candidate pipeline reached exact Top-1 15/15 at `alpha = 0.50`; pure Embedding reached 13/15 and the Fast channel reached 15/15. No reranker service or call participated. |
 | 2026-07-24 | NVIDIA GB10 | Qwen3Guard endpoint | Passed | `Qwen/Qwen3Guard-Gen-0.6B` ran at 16K context with 2 GiB KV and one sequence. vLLM reported 1.12 GiB model memory; the process used 3,659 MiB and warmed Safe/Controversial checks completed in 79-107 ms. The rejected 32K setting required 3.5 GiB KV. |
 | 2026-07-24 | NVIDIA GB10 | Current 43-case runner | Needs alignment | The runner stopped at its expected `code.apply_patch` approval because the current Catalog has no natural-language code/shell Workflow, while the unchanged matrix still asserts retired `code.apply_patch`, `shell.exec_sandboxed`, and `files.search` paths. This is not a current routing-quality acceptance result. |
+| 2026-08-24 | NVIDIA GB10 | vLLM-managed NVFP4 checkpoint | Passed with fallback | `nvidia/Qwen3.6-35B-A3B-NVFP4` loaded with vLLM 0.24.0 at 32K context, 8 GiB KV and four sequences. vLLM interpreted the ModelOpt metadata and routed W4A16 linear layers through its supported Marlin weight-only fallback. The checkpoint was 21.82 GiB, loaded model memory was 19.55 GiB, weight loading took 124.83 seconds, and complete model loading took 132.78 seconds. This is the restored ownership boundary. |
+| 2026-08-24 | NVIDIA GB10 | Forced native-W4A4 experiment | Rolled back | A project compatibility hook rewrote 161 W4A16 labels and produced FlashInfer Cutlass FP4 linear plus FlashInfer B12x MoE dispatch. Although it loaded and completed a smoke request, the experiment was rejected because application code must not reinterpret checkpoint activation precision. |
+| 2026-08-24 | NVIDIA GB10 | Forced-W4A4 real-model golden eval | Historical only | The rejected experiment passed the active 47-case matrix with 15 tool calls, 2 approvals and 1 memory candidate. This result is retained only to describe the rolled-back experiment. |
+| 2026-08-24 | NVIDIA GB10 | Restored vLLM-managed real-model golden eval | Passed | The clean restored path passed all 47 cases with 15 tool calls, 2 approvals and 1 memory candidate. Model telemetry recorded 11 Guard, 10 Embedding, 11 Fast and 1 Deep call; every call was real (`mock=0`) and no model call reported an error. |
+| 2026-08-24 | NVIDIA GB10 | FP8/NVFP4 checkpoint comparison | Passed with follow-up | Across 51 fixed business runs per checkpoint, the vLLM-managed NVFP4 run reached 88.24% overall versus FP8 at 86.27%; Fast reached 92.59% versus 85.19%, while Deep Workflow reached 77.78% versus 83.33%. XLSX reached 56/60 with automatic KV-cache dtype, matching FP8. Retain the Deep decline as a follow-up. |
 
 Historical evidence files in this working tree:
 
@@ -174,9 +179,10 @@ Historical evidence files in this working tree:
 - When both chat lanes are resident, embedding must not use broad default
   context or memory settings. Embedding 32K failed after chat residency;
   embedding 8K with a 2G explicit KV cap and one sequence restored the stack.
-- The historical 58-case result predates removal of the reranking lane. Align
-  the 43-case runner with the current capability matrix, then run it before
-  claiming equivalent current product quality.
+- The historical 58-case result predates removal of the reranking lane. The
+  restored vLLM-managed path passed the current 47-case matrix on 2026-08-24;
+  the forced-W4A4 result remains historical and is not the current acceptance
+  evidence.
 - Qwen3Guard emits native `Safety: Safe|Unsafe|Controversial` labels. Gateway
   maps them to `allow`, `block`, and `review`. With no human review queue,
   `review` and `block` both stop the run; an unavailable endpoint remains

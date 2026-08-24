@@ -23,16 +23,16 @@
       "name": "sparkclaw-fast",
       "base_url": "",
       "model": "sparkclaw-fast",
-      "context_tokens": 8192,
-      "mtp": true,
+      "context_tokens": 32768,
+      "mtp": false,
       "max_tokens": 1024
     },
     "deep": {
       "name": "sparkclaw-deep",
       "base_url": "",
       "model": "sparkclaw-deep",
-      "context_tokens": 12288,
-      "mtp": true,
+      "context_tokens": 65536,
+      "mtp": false,
       "max_tokens": 2048
     },
     "embedding": {

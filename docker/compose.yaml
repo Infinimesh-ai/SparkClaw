@@ -23,6 +23,15 @@ x-vllm-common: &vllm-common
   networks:
     - sparkclaw_internal
 
+x-chat-vllm-common: &chat-vllm-common
+  <<: *vllm-common
+  image: sparkclaw-chat-vllm-readiness:local
+  build:
+    context: ..
+    dockerfile: docker/images/vllm.Dockerfile
+    args:
+      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_CHAT_VLLM_IMAGE:-vllm/vllm-openai:v0.24.0}
+
 services:
   gateway:
     profiles: ["dev", "eval", "compat", "models-local"]
@@ -102,10 +111,12 @@ services:
       SPARKCLAW_FAST_MODEL: ${SPARKCLAW_FAST_MODEL:-sparkclaw-fast}
       SPARKCLAW_FAST_SERVED_NAME: ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
       SPARKCLAW_FAST_MAX_TOKENS: ${SPARKCLAW_FAST_MAX_TOKENS:-1024}
+      SPARKCLAW_FAST_CONTEXT_TOKENS: ${SPARKCLAW_FAST_CONTEXT_TOKENS:-32768}
       SPARKCLAW_DEEP_BASE_URL: ${SPARKCLAW_DEEP_BASE_URL:-http://sparkclaw-fast:8001/v1}
       SPARKCLAW_DEEP_MODEL: ${SPARKCLAW_DEEP_MODEL:-sparkclaw-fast}
       SPARKCLAW_DEEP_SERVED_NAME: ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
       SPARKCLAW_DEEP_MAX_TOKENS: ${SPARKCLAW_DEEP_MAX_TOKENS:-2048}
+      SPARKCLAW_DEEP_CONTEXT_TOKENS: ${SPARKCLAW_DEEP_CONTEXT_TOKENS:-32768}
       SPARKCLAW_EMBEDDING_BASE_URL: ${SPARKCLAW_EMBEDDING_BASE_URL:-http://sparkclaw-embedding:8003/v1}
       SPARKCLAW_EMBEDDING_MODEL: ${SPARKCLAW_EMBEDDING_MODEL:-sparkclaw-embedding}
       SPARKCLAW_GUARD_BASE_URL: ${SPARKCLAW_GUARD_BASE_URL:-http://sparkclaw-guard:8005/v1}
@@ -190,9 +201,9 @@ services:
       - sparkclaw_internal
 
   sparkclaw-fast:
-    <<: *vllm-common
+    <<: *chat-vllm-common
     command:
-      - ${SPARKCLAW_FAST_MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}
+      - ${SPARKCLAW_FAST_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -202,16 +213,20 @@ services:
       - --tensor-parallel-size
       - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
       - --max-model-len
-      - ${SPARKCLAW_FAST_MAX_MODEL_LEN:-131072}
+      - ${SPARKCLAW_FAST_MAX_MODEL_LEN:-32768}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.82}
+      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
+      - --max-num-seqs
+      - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      - --speculative-config
-      - ${SPARKCLAW_FAST_SPECULATIVE_CONFIG:-{"method":"qwen3_next_mtp","num_speculative_tokens":2}}
       - --language-model-only
     ports:
       - "127.0.0.1:8001:8001"
@@ -242,9 +257,9 @@ services:
       start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
 
   sparkclaw-deep:
-    <<: *vllm-common
+    <<: *chat-vllm-common
     command:
-      - ${SPARKCLAW_DEEP_MODEL_ID:-Qwen/Qwen3.6-27B-FP8}
+      - ${SPARKCLAW_DEEP_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -254,16 +269,20 @@ services:
       - --tensor-parallel-size
       - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
       - --max-model-len
-      - ${SPARKCLAW_DEEP_MAX_MODEL_LEN:-131072}
+      - ${SPARKCLAW_DEEP_MAX_MODEL_LEN:-65536}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.82}
+      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
+      - --max-num-seqs
+      - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      - --speculative-config
-      - ${SPARKCLAW_DEEP_SPECULATIVE_CONFIG:-{"method":"qwen3_next_mtp","num_speculative_tokens":2}}
       - --language-model-only
     ports:
       - "127.0.0.1:8002:8002"

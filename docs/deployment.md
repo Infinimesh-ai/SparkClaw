@@ -579,10 +579,11 @@ startup and is not part of the current single-Fast readiness check.
 
 Important environment variables:
 
-- `SPARKCLAW_VLLM_IMAGE`
+- `SPARKCLAW_VLLM_IMAGE` (embedding, guard, and ASR base image)
+- `SPARKCLAW_CHAT_VLLM_IMAGE` (Fast/Deep chat image; defaults to vLLM 0.24.0 for NVFP4)
 - `SPARKCLAW_FORCE_MODEL_RECREATE` (`false` by default; set `true` for one explicit full model-group refresh)
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_CONTEXT_TOKENS`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_CONTEXT_TOKENS`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
 - `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
@@ -752,7 +753,11 @@ settings from `docker/compose.dual-light.yaml`, `docker/compose.asr.yaml`, and
 `docker/compose.ocr.yaml`. Fast, embedding, guard, ASR, and OCR start together.
 Gateway sends both logical chat profiles to `sparkclaw-fast`, uses
 `sparkclaw-asr` for speech transcription, and uses `sparkclaw-ocr` for document
-OCR.
+OCR. The chat endpoint loads `nvidia/Qwen3.6-35B-A3B-NVFP4` through the
+dedicated vLLM 0.24.0 image. SparkClaw supplies the checkpoint ID and capacity
+budgets only; vLLM reads the ModelOpt metadata and owns activation precision,
+quantization dispatch, and kernel/backend selection. No product or targeted
+chat-loading default retains an FP8 chat checkpoint.
 
 Historical light dual-residency experiment:
 
@@ -786,7 +791,7 @@ BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh
 ```
 
-The historical validated real-model run completed 58 golden cases. The active matrix now contains 43 cases and should be rerun after model-stack changes. See [model_baseline.md](../benchmarks/model_baseline.md) for benchmark rows and operating notes.
+The historical validated real-model run completed 58 golden cases. On 2026-08-24, the restored vLLM-managed path passed the current 47-case matrix with 15 tool calls, 2 approvals and 1 memory candidate; all Fast, Deep, Embedding and Guard calls were real (`mock=0`) with no model errors. The forced-W4A4 result remains historical because that experiment was rolled back. See [model_baseline.md](../benchmarks/model_baseline.md) for benchmark rows and operating notes.
 
 ## Backup And Restore
 

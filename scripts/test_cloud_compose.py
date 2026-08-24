@@ -38,7 +38,7 @@ import sys
 with Path(os.environ["CLOUD_TEST_CURL_LOG"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\n")
 mode = os.environ["CLOUD_TEST_MODEL_MODE"]
-print('{"ok":true,"model_mode":"%s","state_backend":"postgres"}' % mode)
+print('{"ok":true,"auth_required":true,"model_mode":"%s","state_backend":"postgres"}' % mode)
 """
 
 
@@ -169,6 +169,10 @@ class CloudComposeTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         config = json.loads(result.stdout)
+        self.assertEqual(
+            config["services"]["gateway"]["environment"]["SPARKCLAW_API_TOKEN"],
+            "replace-with-random-webchat-token",
+        )
         self.assertEqual(config["services"]["gateway"]["environment"]["SPARKCLAW_MODEL_MODE"], "mock")
         self.assertEqual(config["services"]["gateway"]["environment"]["SPARKCLAW_STATE_BACKEND"], "postgres")
         for service in ("postgres", "sandbox-runner", "gateway", "webchat"):
@@ -177,4 +181,3 @@ class CloudComposeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

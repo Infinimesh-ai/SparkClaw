@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SPARKCLAW_API_TOKEN: ${SPARKCLAW_API_TOKEN:-}
 
   webchat:
     restart: unless-stopped
-

@@ -90,6 +90,7 @@ for _ in $(seq 1 30); do
     -H "Authorization: Bearer $api_token" "$ready_url" 2>/dev/null || true)"
   if [[ -n "$ready_json" ]]; then
     if printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' &&
+      printf '%s' "$ready_json" | grep -Eq '"auth_required"[[:space:]]*:[[:space:]]*true' &&
       printf '%s' "$ready_json" | grep -Fq "\"model_mode\":\"$expected_model_mode\"" &&
       printf '%s' "$ready_json" | grep -Fq '"state_backend":"postgres"'; then
       echo "SparkClaw cloud runtime ready: $expected_model_mode/postgres"
@@ -104,4 +105,3 @@ done
 
 echo "Timed out waiting for Gateway ready check at $ready_url" >&2
 exit 1
-

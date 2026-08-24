@@ -100,6 +100,51 @@ are read from `.env`, and an invalid port fails before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
+## Cloud-Model Server Runtime
+
+Use the cloud runtime on a Linux server or VM that owns the SparkClaw
+application and durable state but not the model processes. It starts exactly
+PostgreSQL, Sandbox Runner, Gateway, and WebChat; the model services in the
+`models-local` profile are not selected.
+
+Prepare the local secret file:
+
+```bash
+cp docker/env/sparkclaw.cloud.example.env .env
+chmod 0600 .env
+```
+
+Replace `SPARKCLAW_API_TOKEN` with a random owner token. The template initially
+sets `SPARKCLAW_MODEL_MODE=mock` and uses `.invalid` model URLs so WebChat and
+the control plane can be deployed before cloud endpoint details arrive. Start
+or reconcile the runtime with:
+
+```bash
+bash scripts/start_cloud_compose.sh
+```
+
+The command applies `docker/compose.cloud.yaml`, builds the application images,
+starts only `postgres`, `sandbox-runner`, `gateway`, and `webchat`, and verifies
+`mock/postgres` readiness through the published WebChat port. The overlay gives
+those four services `restart: unless-stopped`; keep the Docker service enabled
+to recover them after a host reboot. Do not install the DGX Spark autostart unit
+for this topology because that unit owns local NVIDIA model reconciliation.
+
+When the real OpenAI-compatible endpoints are available, update `.env` with
+the Fast, Deep, embedding, and guard base URLs and model names, set
+`OPENAI_API_KEY` when the endpoints require one shared Bearer credential, and
+change `SPARKCLAW_MODEL_MODE=external`. Fast and Deep may use the same endpoint
+and model. SparkClaw appends `/chat/completions` or `/embeddings` to each base
+URL. The current model router uses one `OPENAI_API_KEY` for every lane; use a
+trusted compatibility proxy when providers require different credentials or
+headers. Re-run the same startup command. External mode rejects empty,
+`replace-with-*`, and `.invalid` endpoint values before Docker is changed.
+
+Speech and OCR remain disabled in the cloud template. Enable them only after
+configuring their separate OpenAI-compatible transcription or OCR adapters.
+Gateway remains Docker-internal, while WebChat publishes the configured host
+port, `18790` by default.
+
 ## Product Runtime
 
 The deployment entrypoint ultimately delegates to the same product startup

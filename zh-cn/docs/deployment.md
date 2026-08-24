@@ -86,6 +86,45 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 `SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。两个值都从 `.env` 读取，非法端口会在修改容器前失败。
 模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
 
+## 云模型服务器运行态
+
+当 Linux 服务器或虚拟机只负责 SparkClaw 应用与持久化状态、不负责模型进程时，使用云模型
+运行态。它只启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat，不会选择
+`models-local` profile 中的模型服务。
+
+先准备本地 secret 文件：
+
+```bash
+cp docker/env/sparkclaw.cloud.example.env .env
+chmod 0600 .env
+```
+
+把 `SPARKCLAW_API_TOKEN` 替换为随机 owner token。模板初始设置
+`SPARKCLAW_MODEL_MODE=mock`，并使用 `.invalid` 模型 URL，因此在云端 endpoint 细节到位前，
+WebChat 与 control plane 仍可先完成部署。启动或 reconcile 运行态：
+
+```bash
+bash scripts/start_cloud_compose.sh
+```
+
+该命令叠加 `docker/compose.cloud.yaml`，构建应用镜像，只启动 `postgres`、
+`sandbox-runner`、`gateway` 与 `webchat`，并通过发布的 WebChat 端口验证
+`mock/postgres` readiness。overlay 为这四个服务设置 `restart: unless-stopped`；保持 Docker
+service enabled 即可在宿主机重启后恢复。此拓扑不要安装 DGX Spark autostart unit，因为该
+unit 负责本地 NVIDIA 模型的 reconciliation。
+
+真实 OpenAI-compatible endpoints 到位后，在 `.env` 中填写 Fast、Deep、embedding、guard
+的 base URL 和模型名；如果 endpoints 使用同一个 Bearer credential，则设置
+`OPENAI_API_KEY`；最后把 `SPARKCLAW_MODEL_MODE` 改为 `external`。Fast 与 Deep 可以共用
+同一 endpoint 和模型。SparkClaw 会在每个 base URL 后追加 `/chat/completions` 或
+`/embeddings`。当前 Model Router 对所有 lanes 共用一个 `OPENAI_API_KEY`；若不同 provider
+需要不同 credential 或 header，应使用可信 compatibility proxy。再次执行同一启动命令即可。
+external mode 会在修改 Docker 前拒绝空值、`replace-with-*` 和 `.invalid` endpoint。
+
+云模板默认关闭语音与 OCR。只有配置其各自的 OpenAI-compatible transcription 或 OCR
+adapter 后才启用。Gateway 仍只在 Docker 内部可达；WebChat 发布配置的 host port，默认是
+`18790`。
+
 ## Product Runtime
 
 部署入口最终会调用仓库根目录暴露的同一个产品启动命令。已有 `.env` 的 operator

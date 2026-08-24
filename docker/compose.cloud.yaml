@@ -1,0 +1,15 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  sandbox-runner:
+    restart: unless-stopped
+
+  gateway:
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+  webchat:
+    restart: unless-stopped
+

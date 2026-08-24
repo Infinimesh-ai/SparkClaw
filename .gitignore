@@ -4,7 +4,6 @@
 .claude/
 .codex/
 .mcp.json
-AGENTS.md
 CLAUDE.md
 configs/iscp-bridge.local-lab.json
 node_modules/

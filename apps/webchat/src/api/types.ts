@@ -279,6 +279,7 @@ export type ReadyStatus = {
   model_mode: string;
   gateway_binding: string;
   speech: SpeechStatus;
+  resident_services: ResidentServiceStatus[];
   store?: {
     backend: "memory" | "file" | "postgres" | string;
     state: "starting" | "ready" | "unready" | "closing" | "closed" | string;
@@ -291,6 +292,14 @@ export type ReadyStatus = {
     degraded_at?: string;
     last_recovered_at?: string;
   };
+};
+
+export type ResidentServiceStatus = {
+  lane: "fast" | "embedding" | "guard" | "asr" | "ocr" | string;
+  backend: string;
+  model: string;
+  readiness: string;
+  last_call_status?: string;
 };
 
 export type SpeechStatus = {

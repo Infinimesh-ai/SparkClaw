@@ -440,21 +440,27 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	speechStatus := s.speech.Status(r.Context())
+	residentServices, err := s.residentServiceStatuses(r.Context(), speechStatus)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	payload := map[string]any{
-		"ok":               true,
-		"workspace_root":   s.cfg.Workspaces.DefaultRoot,
-		"trace_dir":        s.cfg.Storage.TraceDir,
-		"artifact_backend": s.cfg.Storage.ArtifactBackend,
-		"artifact_dir":     s.cfg.Storage.ArtifactDir,
-		"artifact_bucket":  s.cfg.Storage.ArtifactBucket,
-		"state_backend":    s.cfg.State.Backend,
-		"state_path":       s.cfg.State.Path,
-		"state_dsn":        stateDSNStatus(s.cfg),
-		"auth_required":    s.authRequired(),
-		"rate_limit":       publicRateLimitConfig(s.cfg.Gateway.RateLimit),
-		"model_mode":       modelMode(s.cfg),
-		"gateway_binding":  s.Addr(),
-		"speech":           speechStatus,
+		"ok":                true,
+		"workspace_root":    s.cfg.Workspaces.DefaultRoot,
+		"trace_dir":         s.cfg.Storage.TraceDir,
+		"artifact_backend":  s.cfg.Storage.ArtifactBackend,
+		"artifact_dir":      s.cfg.Storage.ArtifactDir,
+		"artifact_bucket":   s.cfg.Storage.ArtifactBucket,
+		"state_backend":     s.cfg.State.Backend,
+		"state_path":        s.cfg.State.Path,
+		"state_dsn":         stateDSNStatus(s.cfg),
+		"auth_required":     s.authRequired(),
+		"rate_limit":        publicRateLimitConfig(s.cfg.Gateway.RateLimit),
+		"model_mode":        modelMode(s.cfg),
+		"gateway_binding":   s.Addr(),
+		"speech":            speechStatus,
+		"resident_services": residentServices,
 	}
 	if storeStatus != nil {
 		payload["store"] = storeStatus

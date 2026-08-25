@@ -80,6 +80,22 @@ export function StatusPanel({ ready, modelCalls, auditEvents, text }: { ready: R
         </dl>
       )}
       <div className="diagnosticList">
+        <strong>{text.status.residentServices}</strong>
+        {(ready?.resident_services ?? []).map((service) => (
+          <article className="diagnosticRow" key={service.lane}>
+            <div>
+              <span>{service.lane}</span>
+              <small>{service.backend} · {service.model}</small>
+            </div>
+            <small>
+              {formatState(service.readiness, text)} · {service.last_call_status
+                ? `${text.status.lastCall}: ${formatState(service.last_call_status, text)}`
+                : text.status.noServiceCalls}
+            </small>
+          </article>
+        ))}
+      </div>
+      <div className="diagnosticList">
         <strong>{text.status.modelCalls}</strong>
         {recentModelCalls.length === 0 ? (
           <span className="muted">{text.status.noModelCalls}</span>

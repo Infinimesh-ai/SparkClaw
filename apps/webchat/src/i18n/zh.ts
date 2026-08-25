@@ -289,6 +289,9 @@ export const zh = {
       trace: "Trace",
       state: "状态",
       dsn: "DSN",
+      residentServices: "常驻服务",
+      lastCall: "最近调用",
+      noServiceCalls: "尚无调用",
       modelCalls: "模型调用",
       noModelCalls: "此会话还没有模型调用。",
       audit: "审计",
@@ -447,7 +450,14 @@ export const zh = {
       rejected: "已拒绝",
       running: "运行中",
       resolved_elsewhere: "已在其他位置处理",
-      passed: "通过"
+      passed: "通过",
+      configured: "已配置",
+      ready: "就绪",
+      disabled: "已禁用",
+      unavailable: "不可用",
+      warming: "预热中",
+      busy: "繁忙",
+      degraded: "降级"
     },
     units: {
       bytes: "字节",

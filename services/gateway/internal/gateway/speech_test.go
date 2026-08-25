@@ -164,6 +164,11 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 	if calls := testListToolCalls(st, session.ID); len(calls) != 0 {
 		t.Fatalf("speech transcription must not create tool calls: %#v", calls)
 	}
+	modelCalls := testListModelCalls(st, session.ID, "")
+	if len(modelCalls) != 1 || modelCalls[0].Lane != "asr" || modelCalls[0].Profile != "openai-http" ||
+		modelCalls[0].Model != "fake-asr" || modelCalls[0].Operation != "speech_transcription" || modelCalls[0].Status != "completed" {
+		t.Fatalf("speech transcription model call was not recorded: %#v", modelCalls)
+	}
 	audits := mustGatewayListAudit(t, st, session.ID)
 	speechAudits := make([]any, 0, 2)
 	startedAudit := false

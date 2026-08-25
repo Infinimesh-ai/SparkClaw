@@ -188,6 +188,11 @@ approval, or artifact. Audio bytes are not retained by Gateway; audit stores
 bounded metadata and outcome only. Queue and concurrency limits return explicit
 busy or unavailable states.
 
+The shared transcriber records one `ModelCall` with lane `asr` for every batch
+invocation and one for every realtime session, including Telegram voice notes.
+The record contains backend profile, model, wall-clock latency, terminal status,
+bounded error, and start/completion times; it never contains transcript or audio.
+
 `GET /api/speech/status` reports `supports_streaming=true` and the structured
 protocol/format projection only when the configured runtime advertises the
 exact native contract. Otherwise WebChat retains the complete-WAV batch path

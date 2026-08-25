@@ -287,6 +287,9 @@ export const en = {
       trace: "Trace",
       state: "State",
       dsn: "DSN",
+      residentServices: "Resident Services",
+      lastCall: "Last call",
+      noServiceCalls: "No calls yet",
       modelCalls: "Model Calls",
       noModelCalls: "No model calls in this session.",
       audit: "Audit",
@@ -445,7 +448,14 @@ export const en = {
       rejected: "rejected",
       running: "running",
       resolved_elsewhere: "resolved elsewhere",
-      passed: "passed"
+      passed: "passed",
+      configured: "configured",
+      ready: "ready",
+      disabled: "disabled",
+      unavailable: "unavailable",
+      warming: "warming",
+      busy: "busy",
+      degraded: "degraded"
     },
     units: {
       bytes: "bytes",

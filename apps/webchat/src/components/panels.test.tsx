@@ -1,8 +1,40 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig } from "../api/types";
+import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig, ReadyStatus } from "../api/types";
 import { dictionaries } from "../i18n";
 import { ApprovalPanel, SettingsPanel } from "./panels";
+import { StatusPanel } from "./panels/status";
+
+describe("StatusPanel resident services", () => {
+  it("renders all Gateway-projected lanes with readiness and latest call state", () => {
+    const ready = {
+      ok: true,
+      gateway_binding: "127.0.0.1:18789",
+      model_mode: "external",
+      workspace_root: "/workspace",
+      trace_dir: "/traces",
+      state_backend: "file",
+      state_path: "/state.json",
+      speech: { enabled: true, ready: true, state: "ready", backend: "openai-http", model: "asr" },
+      resident_services: [
+        { lane: "fast", backend: "openai-http", model: "fast-model", readiness: "configured", last_call_status: "completed" },
+        { lane: "embedding", backend: "openai-http", model: "embedding-model", readiness: "configured" },
+        { lane: "guard", backend: "openai-http", model: "guard-model", readiness: "configured", last_call_status: "failed" },
+        { lane: "asr", backend: "openai-http", model: "asr-model", readiness: "ready", last_call_status: "completed" },
+        { lane: "ocr", backend: "openai-http", model: "ocr-model", readiness: "disabled" }
+      ]
+    } as ReadyStatus;
+    const markup = renderToStaticMarkup(
+      <StatusPanel ready={ready} modelCalls={[]} auditEvents={[]} text={dictionaries.en} />
+    );
+    expect(markup).toContain(dictionaries.en.status.residentServices);
+    for (const value of ["fast-model", "embedding-model", "guard-model", "asr-model", "ocr-model"]) {
+      expect(markup).toContain(value);
+    }
+    expect(markup).toContain(`${dictionaries.en.status.lastCall}: completed`);
+    expect(markup).toContain(dictionaries.en.status.noServiceCalls);
+  });
+});
 
 function happyApproval(planAvailability: string, plan = "# Plan\n\nInspect, implement, verify."): Approval {
   return {

@@ -38,6 +38,7 @@ func newGatewayServices(
 ) (*gatewayServices, error) {
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
+	transcriber = speech.WithModelCallRecording(transcriber, st, cfg.Speech)
 	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber, endpoints)
 	if err != nil {
 		return nil, err

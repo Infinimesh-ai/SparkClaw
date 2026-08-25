@@ -158,7 +158,7 @@ func WithExternalApprovalResolver(resolver ExternalApprovalResolver) Option {
 func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
 	return func(server *Server) {
 		if transcriber != nil {
-			server.speech = transcriber
+			server.speech = speech.WithModelCallRecording(transcriber, server.store, server.cfg.Speech)
 		}
 	}
 }

@@ -150,6 +150,10 @@ busy、timeout、unavailable 和 network failure 会在内存中保留 byte-iden
 转写不创建 chat message、Agent run、Tool Call、approval 或 artifact。Gateway 不保留 audio byte；
 audit 只记录有界 metadata 和 outcome。queue/concurrency 超限返回明确 busy 或 unavailable 状态。
 
+共享 transcriber 会为每次 batch invocation 记录一条 lane 为 `asr` 的 `ModelCall`，并为每个
+realtime session 记录一条；Telegram voice note 也走同一路径。记录只包含 backend profile、model、
+wall-clock latency、终态、受限 error 与开始/完成时间，绝不包含 transcript 或 audio。
+
 只有 configured runtime 宣告精确的 native contract 时，`GET /api/speech/status` 才报告
 `supports_streaming=true` 和 structured protocol/format projection；否则 WebChat 保留 complete-WAV
 batch path，且不宣称 live transcription。SparkClaw 绝不通过切分或重复上传 WAV 模拟 streaming。

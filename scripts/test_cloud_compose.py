@@ -43,7 +43,7 @@ print('{"ok":true,"auth_required":true,"model_mode":"%s","state_backend":"postgr
 
 
 class CloudComposeTest(unittest.TestCase):
-    def run_script(self, env_text: str, expected_mode: str) -> tuple[
+    def run_script(self, env_text: str, expected_mode: str, *args: str) -> tuple[
         subprocess.CompletedProcess[str], list[list[str]], list[list[str]]
     ]:
         with tempfile.TemporaryDirectory() as directory:
@@ -70,7 +70,7 @@ class CloudComposeTest(unittest.TestCase):
                 }
             )
             result = subprocess.run(
-                ["bash", str(SCRIPT)],
+                ["bash", str(SCRIPT), *args],
                 cwd=ROOT,
                 env=environment,
                 check=False,
@@ -105,6 +105,9 @@ class CloudComposeTest(unittest.TestCase):
         self.assertEqual(len(curl_calls), 1)
         self.assertIn("http://127.0.0.1:19876/readyz", curl_calls[0])
         self.assertIn("Authorization: Bearer test-webchat-token", curl_calls[0])
+        browser_call = next(call for call in docker_calls if "exec" in call)
+        self.assertIn("gateway", browser_call)
+        self.assertIn("agent-browser", " ".join(browser_call))
 
     def test_external_runtime_rejects_placeholder_endpoints(self) -> None:
         result, docker_calls, curl_calls = self.run_script(
@@ -128,7 +131,6 @@ class CloudComposeTest(unittest.TestCase):
             SPARKCLAW_API_TOKEN=test-webchat-token
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
-            OPENAI_API_KEY=test-model-token
             SPARKCLAW_FAST_BASE_URL=https://models.test/v1
             SPARKCLAW_FAST_MODEL=fast-model
             SPARKCLAW_DEEP_BASE_URL=https://models.test/v1
@@ -144,7 +146,57 @@ class CloudComposeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any("up" in call for call in docker_calls))
 
-    def test_example_expands_to_mock_postgres_with_restart_policy(self) -> None:
+    def test_check_validates_compose_without_starting_services(self) -> None:
+        result, docker_calls, curl_calls = self.run_script(
+            """
+            SPARKCLAW_API_TOKEN=test-webchat-token
+            SPARKCLAW_MODEL_MODE=external
+            SPARKCLAW_STATE_BACKEND=postgres
+            SPARKCLAW_FAST_BASE_URL=https://models.test/v1
+            SPARKCLAW_FAST_MODEL=fast-model
+            SPARKCLAW_DEEP_BASE_URL=https://models.test/v1
+            SPARKCLAW_DEEP_MODEL=deep-model
+            SPARKCLAW_EMBEDDING_BASE_URL=https://models.test/v1
+            SPARKCLAW_EMBEDDING_MODEL=embedding-model
+            SPARKCLAW_GUARD_BASE_URL=https://models.test/v1
+            SPARKCLAW_GUARD_MODEL=guard-model
+            """,
+            "external",
+            "--check",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("configuration valid", result.stdout)
+        self.assertFalse(any("up" in call for call in docker_calls))
+        self.assertFalse(any("exec" in call for call in docker_calls))
+        self.assertEqual(curl_calls, [])
+
+    def test_example_contains_no_model_endpoints_or_api_key(self) -> None:
+        values = {}
+        for line in EXAMPLE_ENV.read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                values[key] = value
+
+        self.assertNotIn("OPENAI_API_KEY", values)
+        self.assertEqual(values["SPARKCLAW_API_TOKEN"], "")
+        for key in (
+            "SPARKCLAW_FAST_BASE_URL",
+            "SPARKCLAW_FAST_MODEL",
+            "SPARKCLAW_DEEP_BASE_URL",
+            "SPARKCLAW_DEEP_MODEL",
+            "SPARKCLAW_EMBEDDING_BASE_URL",
+            "SPARKCLAW_EMBEDDING_MODEL",
+            "SPARKCLAW_GUARD_BASE_URL",
+            "SPARKCLAW_GUARD_MODEL",
+            "SPARKCLAW_SPEECH_BASE_URL",
+            "SPARKCLAW_SPEECH_MODEL",
+            "SPARKCLAW_OCR_BASE_URL",
+            "SPARKCLAW_OCR_MODEL",
+        ):
+            self.assertEqual(values[key], "", key)
+
+    def test_cloud_overlay_keeps_restart_policy(self) -> None:
         result = subprocess.run(
             [
                 "docker",
@@ -169,12 +221,9 @@ class CloudComposeTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         config = json.loads(result.stdout)
-        self.assertEqual(
-            config["services"]["gateway"]["environment"]["SPARKCLAW_API_TOKEN"],
-            "replace-with-random-webchat-token",
-        )
-        self.assertEqual(config["services"]["gateway"]["environment"]["SPARKCLAW_MODEL_MODE"], "mock")
-        self.assertEqual(config["services"]["gateway"]["environment"]["SPARKCLAW_STATE_BACKEND"], "postgres")
+        environment = config["services"]["gateway"]["environment"]
+        self.assertEqual(environment["SPARKCLAW_MODEL_MODE"], "external")
+        self.assertEqual(environment["SPARKCLAW_STATE_BACKEND"], "postgres")
         for service in ("postgres", "sandbox-runner", "gateway", "webchat"):
             self.assertEqual(config["services"][service]["restart"], "unless-stopped")
 

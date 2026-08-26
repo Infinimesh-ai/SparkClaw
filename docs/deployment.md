@@ -23,7 +23,7 @@ for the containerized deployment path.
 Starting from a prepared DGX Spark host:
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 The project website can serve the repository's top-level `install.sh` unchanged
@@ -34,7 +34,9 @@ The streamed bootstrap and deployment entrypoints:
 
 1. Clone the configured branch/tag into `$HOME/SparkClaw`, or fast-forward an
    existing clean checkout. A checkout with local changes or a divergent history
-   is left untouched and reported as an error.
+   is left untouched and reported as an error. A clean checkout created with the
+   former official repository URL is migrated to the current origin after a
+   successful fast-forward; every other origin mismatch is rejected.
 2. Reattach stdin from the curl pipe to `/dev/tty`, allowing the Hugging Face
    token prompt to remain hidden and interactive.
 3. Require Linux/ARM64, NVIDIA GB10, at least 100 GiB of memory, Docker
@@ -62,13 +64,13 @@ file:
 
 ```bash
 export HF_TOKEN=hf_example
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 Install/update the repository and run only deployment preflight with:
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | \
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | \
   bash -s -- --check
 ```
 

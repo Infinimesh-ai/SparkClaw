@@ -48,7 +48,7 @@ On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
 toolkit already installed, run the streamed installer:
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 The website may mirror the repository's top-level `install.sh` and replace the

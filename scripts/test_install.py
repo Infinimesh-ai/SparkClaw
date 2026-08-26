@@ -1,5 +1,7 @@
+import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import tempfile
@@ -8,6 +10,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.sh"
+CANONICAL_REPOSITORY_URL = "https://github.com/Infinimesh-ai/SparkClaw.git"
+LEGACY_REPOSITORY_URL = "https://github.com/Chiiz0/SparkClaw.git"
+CANONICAL_RAW_INSTALLER_URL = (
+    "https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh"
+)
 
 
 class InstallerTest(unittest.TestCase):
@@ -63,7 +70,7 @@ class InstallerTest(unittest.TestCase):
             timeout=10,
         )
 
-    def run_installer(self, *args, repository_url=None):
+    def run_installer(self, *args, repository_url=None, use_default_repository=False):
         environment = os.environ.copy()
         environment.update(
             {
@@ -72,11 +79,24 @@ class InstallerTest(unittest.TestCase):
                 "HOME": str(self.base / "home"),
                 "SPARKCLAW_BOOTSTRAP_TIMEOUT_SECONDS": "30",
                 "SPARKCLAW_INSTALL_DIR": str(self.target),
-                "SPARKCLAW_REPOSITORY_URL": repository_url
-                or f"ssh://bootstrap-test{self.source}",
                 "SPARKCLAW_TEST_DEPLOY_RECORD": str(self.deploy_record),
             }
         )
+        if use_default_repository:
+            environment.pop("SPARKCLAW_REPOSITORY_URL", None)
+            environment.update(
+                {
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": (
+                        f"url.ssh://bootstrap-test{self.source}.insteadOf"
+                    ),
+                    "GIT_CONFIG_VALUE_0": CANONICAL_REPOSITORY_URL,
+                }
+            )
+        else:
+            environment["SPARKCLAW_REPOSITORY_URL"] = (
+                repository_url or f"ssh://bootstrap-test{self.source}"
+            )
         return subprocess.run(
             ["bash", "-s", "--", *args],
             cwd=ROOT,
@@ -125,6 +145,12 @@ class InstallerTest(unittest.TestCase):
         self.assertIn("has local changes", dirty.stderr)
         self.assertEqual(target_marker.read_text(encoding="utf-8"), "local change\n")
 
+    def test_default_repository_clones_canonical_origin(self):
+        result = self.run_installer("--check", use_default_repository=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        origin = self.git("remote", "get-url", "origin", cwd=self.target).stdout.strip()
+        self.assertEqual(origin, CANONICAL_REPOSITORY_URL)
+
     def test_rejects_insecure_or_credentialed_repository_urls(self):
         insecure = self.run_installer(
             "--check", repository_url="http://example.invalid/SparkClaw.git"
@@ -144,6 +170,49 @@ class InstallerTest(unittest.TestCase):
         )
         self.assertEqual(query_secret.returncode, 1)
         self.assertIn("query strings and fragments are not allowed", query_secret.stderr)
+
+    def test_migrates_clean_legacy_default_origin(self):
+        first = self.run_installer("--check")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.git("remote", "set-url", "origin", LEGACY_REPOSITORY_URL, cwd=self.target)
+
+        migrated = self.run_installer("--check", use_default_repository=True)
+        self.assertEqual(migrated.returncode, 0, migrated.stderr)
+        self.assertIn("migrated the legacy origin", migrated.stdout)
+        origin = self.git("remote", "get-url", "origin", cwd=self.target).stdout.strip()
+        self.assertEqual(origin, CANONICAL_REPOSITORY_URL)
+
+    def test_deployment_surfaces_use_canonical_repository(self):
+        installer = INSTALLER.read_text(encoding="utf-8")
+        default_match = re.search(
+            r'^DEFAULT_REPOSITORY_URL="([^"]+)"$',
+            installer,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(default_match)
+        self.assertEqual(default_match.group(1), CANONICAL_REPOSITORY_URL)
+
+        for relative_path in (
+            "README.md",
+            "zh-cn/README.md",
+            "docs/deployment.md",
+            "zh-cn/docs/deployment.md",
+        ):
+            with self.subTest(path=relative_path):
+                text = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn(CANONICAL_RAW_INSTALLER_URL, text)
+                self.assertNotIn("Chiiz0/SparkClaw", text)
+
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            package["homepage"],
+            CANONICAL_REPOSITORY_URL.removesuffix(".git") + "#readme",
+        )
+        self.assertEqual(package["repository"]["url"], "git+" + CANONICAL_REPOSITORY_URL)
+        self.assertEqual(
+            package["bugs"]["url"],
+            CANONICAL_REPOSITORY_URL.removesuffix(".git") + "/issues",
+        )
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ Node.js 26/npm 11 与 Go 1.25 只用于宿主开发，容器化部署不依赖�
 从已准备好的 DGX Spark 宿主开始：
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 项目网站可以原样提供仓库根目录的 `install.sh`，并在上述命令中使用自己的 HTTPS URL；
@@ -29,7 +29,8 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
 流式 bootstrap 与部署入口会：
 
 1. 把指定 branch/tag 克隆到 `$HOME/SparkClaw`，或 fast-forward 已有的干净 checkout；
-   存在本地改动或历史分叉时不改动目录并明确报错。
+   存在本地改动或历史分叉时不改动目录并明确报错。由原官方仓库地址创建的干净 checkout
+   会在成功 fast-forward 后迁移到当前 origin；其他 origin 不匹配仍会被拒绝。
 2. 将 curl 管道的 stdin 重新连接到 `/dev/tty`，让 Hugging Face token 保持隐藏式交互输入。
 3. 硬性校验 Linux/ARM64、NVIDIA GB10、至少 100 GiB 内存、Docker Compose、
    `nvidia-smi` 与磁盘空间。
@@ -52,13 +53,13 @@ drifted 的模型组才使用新的 GPU runtime 状态与进程本地 cache 进�
 
 ```bash
 export HF_TOKEN=hf_example
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 安装/更新仓库后只运行部署预检：
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | \
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | \
   bash -s -- --check
 ```
 

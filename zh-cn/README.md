@@ -47,7 +47,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 运行流式安装入口：
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 网站可以原样镜像仓库根目录的 `install.sh`，并替换上述 URL。bootstrap 会在

@@ -251,11 +251,14 @@ Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅
 
 LocalMind 在 workspace-scoped manager 后复用 MCP 2025-06-18 Streamable HTTP client。
 manager 每次刷新都重新解析环境 credential，校验固定 server identity 和 workspace endpoint，
-拒绝 Resources 和任何不符合 delegate/get/cancel 精确 task contract 的 schema，并原子注册恰好
-三个 SparkClaw 工具；刷新失败会移除全部 stale LocalMind 工具。task result 进入有界、不可信
-observation/artifact 路径；delegate/cancel 保留 dangerous remote-effect approval，但不声称在
-本地 sandbox 执行。当前没有 Catalog leaf 或自然语言 Workflow 消费这些工具，业务编排留待
-后续规划。
+拒绝 Resources 和任何不符合 delegate/get/cancel 精确 task contract 的 schema，并把三个远端
+工具原子投影为 read delegation、write delegation、get、cancel 四个本地注册；刷新失败会移除
+全部 stale LocalMind 工具。四个仅显式调用的 r1 Catalog leaf/Workflow 可以委派本次消息文字、
+查询一个已引用 task 或取消一个已引用 task。read delegation/query 不审批，write
+delegation/cancel 审批。delegation 使用冻结 endpoint/contract snapshot 和有界状态轮询等待终态，
+总体最多 10 分钟，并且只有 `completed` 算成功。task result 进入有界、不可信
+observation/artifact 路径，不声称在本地 sandbox 执行。external-AI principal 不能选择这些 route。
+详见 [LocalMind Workflow](localmind-task-workflow-design.md)。
 
 当前旧反向链路使用 ISCP：通过认证的 LocalMind peer 可通过
 `agent.notification.deliver.v1` 提交结构化提及。Gateway 校验不可信 deep link，并在确认前

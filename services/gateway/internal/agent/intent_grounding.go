@@ -20,11 +20,12 @@ type groundedTarget struct {
 }
 
 type intentGroundingProjection struct {
-	Targets       []groundedTarget
-	WorkspaceRoot string
-	SessionID     string
-	RunID         string
-	ExternalMCP   bool
+	Targets             []groundedTarget
+	WorkspaceRoot       string
+	SessionID           string
+	RunID               string
+	ExternalMCP         bool
+	HasUnsupportedMedia bool
 }
 
 func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, content string, documents documentContextResolution) (intentGroundingProjection, error) {
@@ -76,6 +77,11 @@ func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, c
 			Kind: "workspace_path", Ref: document.Ref, Facts: facts, Document: document,
 		})
 	}
+	localMindTargets, err := r.resolveLocalMindTaskTargets(ctx, sessionID, content)
+	if err != nil {
+		return intentGroundingProjection{}, err
+	}
+	projection.Targets = append(projection.Targets, localMindTargets...)
 	projection.Targets = dedupeGroundedTargets(projection.Targets)
 	return projection, nil
 }
@@ -120,6 +126,19 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 	node, ok := r.capabilities.Node(candidate.Capability)
 	if !ok || node.Route == nil {
 		return app.RouteDecision{}, errors.New("semantic candidate no longer resolves to a Catalog route")
+	}
+	if isLocalMindCapability(candidate.Capability) {
+		if !containsEnglishSemanticTerm(content, "localmind") {
+			base.Status = app.RouteUnmatched
+			base.Reason = "explicit_localmind_assignment_required"
+			return base, nil
+		}
+		base.CapabilityPath = append([]app.CapabilityID(nil), candidate.CapabilityPath...)
+		if grounding.HasUnsupportedMedia {
+			base.Status = app.RouteBlocked
+			base.Reason = "localmind_text_only_input_required"
+			return base, nil
+		}
 	}
 	base.CapabilityPath = append([]app.CapabilityID(nil), candidate.CapabilityPath...)
 	base.Status = app.RouteMatched
@@ -219,6 +238,9 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 			base.Facts = map[string]string{}
 		}
 		base.Facts["browser_visual_reason"] = "owner_requested"
+	}
+	if isLocalMindCapability(candidate.Capability) {
+		r.groundLocalMindRouteIdentity(candidate.Capability, &base)
 	}
 	if err := r.capabilities.ValidateDecision(base); err != nil {
 		return app.RouteDecision{}, err

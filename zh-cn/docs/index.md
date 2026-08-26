@@ -26,6 +26,7 @@
 | [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
+| [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |
 | [WebChat 语音输入闭环设计](webchat-voice-input-design.md) | Phase 1 稳定采集闭环，以及 Phase 2 native record-time ASR、partial/final reconciliation、silence stop 与 batch fallback 设计；LLM 润色推迟到 Phase 3 |
 | [WebChat 语音 Phase 2 设计](webchat-voice-phase2-design.md) | 规范性的 native record-time Qwen ASR transport、revisioned partial/final output、silence auto-stop、完整 WAV fallback 与 acceptance gate |
 | [JingSi 局域网 Web 客户端互联](jingsi-lan-connection-design.md) | SparkClaw 侧已实现：专用 allowlisted LAN port 上一个服务端绑定 WebChat session、文本发送和过滤后的实时/补拉消息投影；JingSi client 改造与实体验证仍待完成 |

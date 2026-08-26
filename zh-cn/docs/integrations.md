@@ -44,9 +44,10 @@ endpoint，并把 `LOCALMIND_MCP_TOKEN` 设为绑定该 workspace 的 credential
 task contract 不再提供 `allow_mutations`、`tool_allow` 或 `tool_deny` 配置。
 
 Gateway 通过共享 MCP 2025-06-18 Streamable HTTP client 初始化，校验 `localmind-ai`，拒绝
-Resources 和任何不完全等于三工具 task contract 的 catalog，并原子注册恰好三个 SparkClaw
-工具：`localmind.task.delegate`、`localmind.task.get`、`localmind.task.cancel`。delegate 与
-cancel 保守地视为 dangerous、需要审批的 remote effect；get 为 read-only。远端执行继续受
+Resources 和任何不完全等于远端三工具 task contract 的 catalog，再把这些操作投影为四个本地
+ToolHub 注册：`localmind.task.delegate_read`、`localmind.task.delegate`、
+`localmind.task.get` 和 `localmind.task.cancel`。read delegation 与 get 为 read-only；write
+delegation 与 cancel 是需要审批的 remote effect。远端执行继续受
 LocalMind authorization、DLP 和 audit 约束，绝不表示为运行在 SparkClaw 本地 sandbox 中。
 
 每个 wrapper 都要求 `structuredContent.result` 中存在 `localmind.task.v1` 值；MCP `isError`
@@ -54,8 +55,10 @@ LocalMind authorization、DLP 和 audit 约束，绝不表示为运行在 SparkC
 `knownStateVersion`/`waitMs` 长轮询。结果与大归档作为有界、不可信 evidence 处理；认证失败后
 不会重放调用。
 
-这三个工具当前不挂接 Catalog leaf 或自然语言 Workflow。其业务编排有意留待后续规划；仅完成
-ToolHub 注册不代表已经提供用户可见的 LocalMind 能力。
+四个仅显式调用的 r1 Workflow 是 `localmind.read`、`localmind.write`、`localmind.query` 和
+`localmind.cancel`。delegation 只发送本次消息文字并省略 `documentIds`；read/write 随后通过
+有界状态调用等待终态，总体最多 10 分钟。query 只读取一次，cancel 在审批后只调用一次。入站
+external-AI principal 不能选择这些 route。详见 [LocalMind Workflow](localmind-task-workflow-design.md)。
 
 应尽量使用公网 HTTPS。从 Gateway container 看，`localhost` 指向该 container，而不是
 host。请使用共享 Compose network 上的 LocalMind service name、`host.docker.internal` 或

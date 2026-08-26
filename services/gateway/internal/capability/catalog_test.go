@@ -257,3 +257,28 @@ func TestCatalogRoutesFutureRegistrationWithoutCoreNameSwitch(t *testing.T) {
 		t.Fatalf("future routing directory was not derived from registration: %#v", options)
 	}
 }
+
+func TestDefaultCatalogRegistersFourLocalMindWorkflowLeaves(t *testing.T) {
+	catalog := MustDefaultCatalog()
+	for _, test := range []struct {
+		id        app.CapabilityID
+		operation app.RouteOperation
+		target    bool
+	}{
+		{id: app.CapabilityLocalMindRead, operation: app.RouteOperationRead},
+		{id: app.CapabilityLocalMindWrite, operation: app.RouteOperationEdit},
+		{id: app.CapabilityLocalMindQuery, operation: app.RouteOperationRead, target: true},
+		{id: app.CapabilityLocalMindCancel, operation: app.RouteOperationDelete, target: true},
+	} {
+		node, ok := catalog.Node(test.id)
+		if !ok || node.ParentID != "localmind" || node.Workflow == nil || node.Workflow.ID != app.WorkflowID(test.id) || node.Workflow.Revision != 1 || node.Route == nil || len(node.Route.Operations) != 1 || node.Route.Operations[0] != test.operation {
+			t.Fatalf("LocalMind leaf %s is incomplete: %#v", test.id, node)
+		}
+		if node.Route.RequireTarget != test.target {
+			t.Fatalf("LocalMind leaf %s target contract = %#v", test.id, node.Route)
+		}
+		if test.target && (len(node.Route.TargetKinds) != 1 || node.Route.TargetKinds[0] != string(app.TargetKindLocalMindTask)) {
+			t.Fatalf("LocalMind leaf %s does not require a task target: %#v", test.id, node.Route)
+		}
+	}
+}

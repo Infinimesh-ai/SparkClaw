@@ -35,6 +35,10 @@
 | `browser.form_draft` r2 | 在普通可逆字段中 type 或 select 最多五个由 owner 原文提供的精确值，不提交表单。目标可以是当前托管 tab、明确 URL、注册站点或经 Info 识别的公网网站。 | hidden interaction 风格 acquisition -> fresh structured snapshot -> 初始 `browser.assess_goal` -> visible open/focus -> settle -> fresh visible snapshot 与评估 -> 一次独立审批的 visible `browser.type` 或 `browser.select` -> settle -> fresh 且 page generation 更高的 visible snapshot -> draft 校验；在同一 visible session 中按五次上限重复，并在不重新打开目标的情况下原位验证最终草稿。 | draft stage 不暴露 click 或可提交 tool。每个 approval 绑定一个字段、operation、精确值、snapshot digest、page ID 和 session/page generation；approval 前和执行时都会复核 freshness 与字段安全。password、passkey、token、OTP、captcha、payment、purchase、delete、upload、submit、send 和 publish control 一律拒绝。值在 approval summary 与持久化浏览器 projection 中会被脱敏。 |
 | `document.read` r4 | 读取、总结一个从当前请求或最近文档记录解析出的明确受治理 Workspace 文件，或逐字提取图片内原文。支持识别文本、DOCX、XLSX、PPTX、PDF 和图片。 | 最近文档解析和确定性路径/类型 preflight -> 持久化 `confirm_document_target` 证据 -> Runtime 按冻结格式直接调用一次 `files.read`、`pdf.extract_text` 或 `images.inspect` -> Fast 基于已完成证据生成最终回答。external MCP invocation 只先对当前明确相对路径做 lexical classification；一次 workspace-data approval 必须先于 recent-record lookup、path preflight、symlink check、format detection 和 read。 | 唯一的格式限定 reader 是 `direct_once`，模型不决定是否调用它。已批准的 external-MCP contract 只覆盖精确绑定的 reader 与冻结 return route，其他路径不能复用。OCR 始终是不可信证据，不是模型 lane 或独立 Workflow。PDF partial read 会精确列出缺失页面，不能声称完整覆盖。唯一的最近文档可以满足 human follow-up，但在审批前不会向 external MCP caller 披露。路径必须指向 Workspace 内普通非符号链接文件。不支持文件搜索、多文件比较、修改和任意外部路径。 |
 | `document.edit` r7 | 对一个受治理的 text、DOCX、XLSX、PPTX 或 PDF 执行一次受支持的有界编辑，并写入一个或多个可追溯输出副本。XLSX 支持类型化 cell/row 证据、只更新前缀的行修改和已验证 OOXML package preservation；PPTX 支持精确文本、单页、有界整份及结构 scope。 | 确定性路径/类型与格式专属 scope preflight -> `confirm_document_target` -> Runtime 在 `document_locate_evidence` 中按冻结格式直接调用一次 reader -> 显式且有重试上限的 `select_edit_operation` 决策 -> `document_edit` 只物化已持久化的格式/operation entry。XLSX 选择与执行共享有界 `xlsx_sheet_evidence_v1`，Runtime 在 approval 前绑定工作簿和目标 hash；PPTX 绑定当前读取中的 slide、shape、layout 与 template 证据；PDF transform 使用只包含已选 operation 字段的 strict schema。默认输出为 `<name>-sparkclaw-edit.<ext>`，后续副本依次递增为 `-2`、`-3` 等。 | 所有由模型驱动的文档阶段都使用 Fast。定位阶段不会询问模型是否调用 reader，也不会重复读取。operation/target 证据缺失、无效、不受支持、过期或有歧义时，在修改前显式 block。含未验证特性的 XLSX package 在 approval 前阻断，写后出现未声明 part drift 时删除输出。PPTX scope 歧义会澄清，SmartArt、动画、图表数据、母版和宏目标会阻断。PDF 页码数组是唯一的正整数且从 1 开始，rotation 是六值 enum，`merge` 不可用。可逆写入需要审批，每个输出都关联 parent 和 activity；无关对话不会继承最新文档。 |
+| `localmind.read` r1 | 把本次文字显式委派为不修改内容的回答、阅读、调研、比较或总结任务。 | 调用一次 `localmind.task.delegate_read` -> 内部 `query_current_task` 使用最新 state version 长轮询直到终态。 | 必须明确写出 LocalMind。只传本次消息文字，不包含历史、媒体、文件、tool output 或 `documentIds`。无需审批；只有 `completed` 算成功，总等待最多 10 分钟。 |
+| `localmind.write` r1 | 把创建、更新、重命名、转换、导出、删除或其他会修改 LocalMind workspace 内容的本次文字任务显式委派出去。 | Approval -> 调用一次 `localmind.task.delegate` -> 进入同一条有界内部 `query_current_task` 路径。 | 远端与 read 使用同一 delegation 操作，但 SparkClaw write route 需要审批。endpoint/contract snapshot、task ID、return route 和不断更新的 state version 都保持冻结。 |
+| `localmind.query` r1 | 读取一个精确指定或同 session 最近 LocalMind task 的当前状态或结果。 | 以 `wait_ms=0` 立即调用一次 `localmind.task.get`。 | 不轮询、不修改、不恢复，也不发现 task。引用缺失或有歧义时在 MCP 调用前澄清；无需审批。 |
+| `localmind.cancel` r1 | 请求取消一个精确指定或同 session 最近的 LocalMind task。 | Approval -> 调用一次 `localmind.task.cancel`。 | 不先查询，也不在调用后轮询；原样返回 LocalMind 校验通过的取消请求状态。 |
 | `schedule.manage` r3 | 通过对话或类型化 WebChat 任务栏操作创建、列出、修改或取消定时任务。 | Create/Read 为单阶段；Edit/Delete 执行 `reminders.list` -> 唯一 pending 目标与冻结版本 -> `reminders.update` 或 `reminders.cancel`；全部写入使用 `ScheduleRegistry` Compare-and-Swap。 | 任务栏 ID 只是 Hint，必须存在于最新 owner 范围列表。到期内容重新进入普通 Message Runtime，Timer 不选择能力也不直接发送；编辑保持原提醒端。 |
 | `coding.agent_manage` r2 | 通过已配置的 Happy Team 与个人 bridge MCP 端点读取和管理编码 Agent 的任务与会话。 | 单个活动 Stage 只暴露已发现的 `mcp.external` 工具。读取请求可以调用任务/会话列表、详情、计划、机器和 transcript 工具；创建、启动、发消息、停止和取消走正常审批路径。 | MCP observation 是不可信数据，使用前必须摘要。个人 bridge 离线不会停用 Team 任务工具。计划批准/拒绝不进入聊天，只属于人工审批收件箱。 |
 
@@ -56,8 +60,6 @@ layout 或 template-slide 引用及证据绑定位置；含 notes 的 clone 来�
 
 ## 未迁移能力
 
-代码/命令辅助、图片检查、记忆、LocalMind task 和其他没有注册 Workflow 的领域会终止为
-`unmatched`。LocalMind 的三个 task 工具只完成协议注册与验证，在使用方式规划前没有 Catalog
-leaf 或 Workflow。旧的通用循环已删除；恢复迁移前持久化的运行会以明确的“旧运行时已下线”
-消息终止。当前 Workflow 矩阵之外的已注册工具继续保留在 ToolHub 中等待后续迁移，但不能作为
-可用功能对外宣称。
+代码/命令辅助、图片检查、记忆和其他没有注册 Workflow 的领域会终止为 `unmatched`。旧的
+通用循环已删除；恢复迁移前持久化的运行会以明确的“旧运行时已下线”消息终止。当前 Workflow
+矩阵之外的已注册工具继续保留在 ToolHub 中等待后续迁移，但不能作为可用功能对外宣称。

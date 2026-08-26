@@ -284,7 +284,7 @@ claim 不会产生另一个 assertion。Semantic verdict 是 decision event；�
 | 浏览器 | Profile/tab、规范 URL、hidden/visible mode、session/page generation、settled snapshot digest、control ref membership、transition before/after digest | 当前 goal/control/tool 判断所需的有界 rendered text、control label/state 和 opaque candidate ref；不接收 generation/digest 转录任务 |
 | 定时任务与消息 | Owner-scoped record ID、version、endpoint、return route、idempotency key、CAS result、delivery receipt | 只有 owner 表述导致 target 歧义时才提供 candidate label 或 content |
 | 通用外部 MCP 与 coding agent | 配置的 endpoint identity、credential scope snapshot、catalog revision、namespaced entry ID、remote object ID/version、mutation class | 有界 eligible operation/object 描述和不可信 returned content |
-| LocalMind task | 配置的 endpoint identity、固定 contract revision、task ID、state version 和内部生成的 idempotency key | LocalMind Workflow 规划前不向模型提供；直接工具结果仍是有界、不可信数据 |
+| LocalMind task | 配置的 endpoint identity、固定 contract revision、task ID、state version、本次消息 request 和内部生成的 idempotency key | 四个显式 r1 Workflow 只暴露绑定的本地 task operation；read/write 状态轮询从已校验 outcome ref 推进，结果保持有界、不可信数据 |
 | 搜索与天气 | Provider、request/result ID、query binding、source URL、observation time、response/card status | 比较、综合或解释所需的 result snippet 或 payload fact |
 | Artifact 与 multipart message | Session ownership、artifact URI/key、media kind、digest、ordered part index、governed source message | 解释所需的 content；ordering 与 ownership 绝不依赖模型输出 |
 

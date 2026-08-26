@@ -27,9 +27,10 @@ const (
 	getTaskRemoteName  = "get_localmind_task"
 	controlRemoteName  = "control_localmind_task"
 
-	delegateLocalName = "localmind.task.delegate"
-	getTaskLocalName  = "localmind.task.get"
-	cancelLocalName   = "localmind.task.cancel"
+	delegateReadLocalName  = "localmind.task.delegate_read"
+	delegateWriteLocalName = "localmind.task.delegate"
+	getTaskLocalName       = "localmind.task.get"
+	cancelLocalName        = "localmind.task.cancel"
 )
 
 type Snapshot struct {

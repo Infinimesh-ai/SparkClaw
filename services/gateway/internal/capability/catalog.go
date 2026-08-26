@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-19.v23"
+	DefaultCatalogRevision = "2026-08-26.v24"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -162,6 +162,19 @@ func DefaultCatalog() (Catalog, error) {
 		}),
 		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 7, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireQuery: true, RequireTarget: true, RequiredFacts: []string{"path"},
+		}),
+		branch("localmind", string(RootID), "Explicitly delegate text tasks to LocalMind or manage a referenced LocalMind task."),
+		leaf(string(app.CapabilityLocalMindRead), "localmind", "Explicitly delegate a non-mutating answer, reading, research, comparison, or summary task to LocalMind.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead}, RequireQuery: true,
+		}),
+		leaf(string(app.CapabilityLocalMindWrite), "localmind", "Explicitly delegate creation, update, rename, conversion, or other mutating work to LocalMind.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationEdit}, RequireQuery: true,
+		}),
+		leaf(string(app.CapabilityLocalMindQuery), "localmind", "Read the current state or result of one explicitly referenced or same-session recent LocalMind task.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{string(app.TargetKindLocalMindTask)}, RequireTarget: true,
+		}),
+		leaf(string(app.CapabilityLocalMindCancel), "localmind", "Request cancellation of one explicitly referenced or same-session recent LocalMind task.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationDelete}, TargetKinds: []string{string(app.TargetKindLocalMindTask)}, RequireTarget: true,
 		}),
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
 		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 3, RouteContract{

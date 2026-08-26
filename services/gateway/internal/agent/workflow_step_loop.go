@@ -143,7 +143,7 @@ func (r Runtime) newWorkflowRunBudget(seedCalls []app.ToolCall) *workflowRunBudg
 // failures and rejected finals between two identical calls do not launder
 // the repetition.
 func (b *workflowRunBudget) observeToolCall(call app.ToolCall) {
-	if b == nil || call.Capability == app.ToolCapabilityObservationRead {
+	if b == nil || call.Capability == app.ToolCapabilityObservationRead || call.Capability == app.ToolCapabilityLocalMindTaskStatus {
 		return
 	}
 	b.ToolCalls++

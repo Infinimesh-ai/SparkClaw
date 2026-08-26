@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -38,6 +39,7 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterDocumentEdit:        adaptDocumentEditOutcome,
 	app.OutcomeAdapterScheduleList:        adaptScheduleListOutcome,
 	app.OutcomeAdapterScheduleChange:      adaptScheduleChangeOutcome,
+	app.OutcomeAdapterLocalMindTask:       adaptLocalMindTaskOutcome,
 }
 
 func adaptBrowserPublicTargetOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -185,6 +187,50 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		if ref := firstNonEmptyString(output["output_path"], output["screenshot_path"], output["path"]); ref != "" {
 			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: ref, Provenance: call.ID}}
 		}
+	}
+	return outcome
+}
+
+func adaptLocalMindTaskOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		return outcome
+	}
+	output, ok := anyMap(call.Result)
+	if !ok {
+		return outcome
+	}
+	taskID := strings.TrimSpace(stringValue(output["taskId"]))
+	stateVersion := strings.TrimSpace(stringValue(output["stateVersion"]))
+	status := strings.ToLower(strings.TrimSpace(stringValue(output["status"])))
+	terminal, terminalOK := output["terminal"].(bool)
+	if taskID == "" || taskID == "<nil>" || stateVersion == "" || stateVersion == "<nil>" || status == "" || status == "<nil>" || !terminalOK {
+		return outcome
+	}
+	attributes := map[string]string{
+		"state_version": stateVersion,
+		"status":        status,
+		"terminal":      strconv.FormatBool(terminal),
+		"observed_at":   completedToolCallTime(call).UTC().Format(time.RFC3339Nano),
+	}
+	if call.Tool == "localmind.task.delegate" || call.Tool == "localmind.task.delegate_read" {
+		attributes["accepted_at"] = completedToolCallTime(call).UTC().Format(time.RFC3339Nano)
+	}
+	if _, exists := call.Arguments["wait_ms"]; exists {
+		attributes["wait_ms"] = strings.TrimSpace(stringValue(call.Arguments["wait_ms"]))
+	}
+	outcome.Refs = []app.ResourceRef{{
+		Kind: string(app.TargetKindLocalMindTask), Ref: taskID, Provenance: call.ID, Attributes: attributes,
+	}}
+	switch {
+	case !terminal:
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalLocalMindTaskPending}
+	case status == "completed":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalLocalMindTaskCompleted}
+	case status == "cancelled" || status == "canceled":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalLocalMindTaskCancelled}
+	default:
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalLocalMindTaskFailed}
 	}
 	return outcome
 }

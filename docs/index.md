@@ -28,6 +28,7 @@ documentation tree.
 | [Browser runtime](browser-runtime.md) | agent-browser transport, managed Chromium profiles, browser Workflow boundaries, and security |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
+| [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |
 | [WebChat voice input design](webchat-voice-input-design.md) | Phase 1 stable capture loop and Phase 2 native record-time ASR, partial/final reconciliation, silence stop, and batch fallback design; LLM polish deferred to Phase 3 |
 | [WebChat voice Phase 2 design](webchat-voice-phase2-design.md) | Normative native record-time Qwen ASR transport, revisioned partial/final output, silence auto-stop, complete-WAV fallback, and acceptance gates |
 | [JingSi LAN Web client connection](jingsi-lan-connection-design.md) | SparkClaw side implemented for one server-bound WebChat session, text send, and filtered realtime/catch-up message projection on a dedicated allowlisted LAN port; JingSi client work and physical validation remain pending |

@@ -20,31 +20,8 @@ import (
 const maxTaskPollWaitMS = 30_000
 
 func (m *Manager) taskRegistrations(client *mcpclient.Client, snapshot Snapshot) []toolhub.DynamicToolRegistration {
-	delegate := toolhub.DynamicToolRegistration{
-		Definition: app.ToolDefinition{
-			Name: delegateLocalName, Title: "Delegate a LocalMind task",
-			Description: "Start one self-contained task in the configured LocalMind workspace.",
-			InputSchema: objectSchema([]string{"request"}, map[string]any{
-				"request": map[string]any{"type": "string", "minLength": 1, "maxLength": 12000},
-				"document_ids": map[string]any{
-					"type": "array", "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 256}, "maxItems": 20,
-				},
-			}),
-			Risk: app.RiskDangerous, RequiresApproval: true, Idempotent: true,
-			TimeoutMS: m.requestTimeoutMS(), Sandbox: "remote", Audit: "always",
-			Capabilities: []app.CapabilityDescriptor{taskCapability(snapshot, "mutation", "delegate")},
-			Directory: app.ToolDirectoryMetadata{
-				Summary:      "Start one bounded task in the configured LocalMind workspace.",
-				WhenToUse:    "Reserved for a later LocalMind workflow plan.",
-				WhenNotToUse: "Do not select this tool from an unplanned natural-language workflow.",
-				Effects:      []app.ToolEffect{app.ToolEffectExternalInteract, app.ToolEffectWorkspaceWrite},
-			},
-		},
-		RemoteName: delegateRemoteName,
-		Execute: func(ctx context.Context, args map[string]any, sessionID, runID string) (toolhub.Result, error) {
-			return m.executeDelegate(ctx, client, snapshot, args, sessionID, runID)
-		},
-	}
+	delegateRead := m.delegateRegistration(client, snapshot, delegateReadLocalName, app.RiskRead, false, app.ToolCapabilityLocalMindDelegateRead)
+	delegateWrite := m.delegateRegistration(client, snapshot, delegateWriteLocalName, app.RiskDangerous, true, app.ToolCapabilityLocalMindDelegateWrite)
 	getTask := toolhub.DynamicToolRegistration{
 		Definition: app.ToolDefinition{
 			Name: getTaskLocalName, Title: "Get a LocalMind task",
@@ -55,10 +32,14 @@ func (m *Manager) taskRegistrations(client *mcpclient.Client, snapshot Snapshot)
 				"wait_ms":             map[string]any{"type": "integer", "minimum": 0, "maximum": maxTaskPollWaitMS},
 			}),
 			Risk: app.RiskRead, Idempotent: true, TimeoutMS: m.longPollTimeoutMS(maxTaskPollWaitMS), Sandbox: "remote", Audit: "always",
-			Capabilities: []app.CapabilityDescriptor{taskCapability(snapshot, "read", "get")},
+			Capabilities: []app.CapabilityDescriptor{
+				localMindWorkflowCapability(snapshot, app.ToolCapabilityLocalMindTaskStatus),
+				taskCapability(snapshot, "read", "get"),
+			},
+			OutcomeAdapter: app.OutcomeAdapterLocalMindTask,
 			Directory: app.ToolDirectoryMetadata{
 				Summary:      "Read or long-poll one known LocalMind task.",
-				WhenToUse:    "Reserved for a later LocalMind workflow plan.",
+				WhenToUse:    "Use from the LocalMind query Workflow or its bounded delegation status node.",
 				WhenNotToUse: "Do not use to start work or discover workspace content.",
 				Effects:      []app.ToolEffect{app.ToolEffectExternalRead},
 			},
@@ -78,10 +59,14 @@ func (m *Manager) taskRegistrations(client *mcpclient.Client, snapshot Snapshot)
 			}),
 			Risk: app.RiskDangerous, RequiresApproval: true, Idempotent: true,
 			TimeoutMS: m.requestTimeoutMS(), Sandbox: "remote", Audit: "always",
-			Capabilities: []app.CapabilityDescriptor{taskCapability(snapshot, "mutation", "cancel")},
+			Capabilities: []app.CapabilityDescriptor{
+				localMindWorkflowCapability(snapshot, app.ToolCapabilityLocalMindTaskCancel),
+				taskCapability(snapshot, "mutation", "cancel"),
+			},
+			OutcomeAdapter: app.OutcomeAdapterLocalMindTask,
 			Directory: app.ToolDirectoryMetadata{
 				Summary:      "Cancel one explicitly identified unfinished LocalMind task.",
-				WhenToUse:    "Reserved for a later LocalMind workflow plan.",
+				WhenToUse:    "Use only from the approval-gated LocalMind cancellation Workflow.",
 				WhenNotToUse: "Do not use for approval, rejection, retry, or resume.",
 				Effects:      []app.ToolEffect{app.ToolEffectExternalInteract},
 			},
@@ -91,7 +76,52 @@ func (m *Manager) taskRegistrations(client *mcpclient.Client, snapshot Snapshot)
 			return m.executeCancelTask(ctx, client, snapshot, args, sessionID, runID)
 		},
 	}
-	return []toolhub.DynamicToolRegistration{delegate, getTask, cancelTask}
+	return []toolhub.DynamicToolRegistration{delegateRead, delegateWrite, getTask, cancelTask}
+}
+
+func (m *Manager) delegateRegistration(client *mcpclient.Client, snapshot Snapshot, name string, risk app.RiskLevel, approval bool, capability string) toolhub.DynamicToolRegistration {
+	effects := []app.ToolEffect{app.ToolEffectExternalRead}
+	mode := "read"
+	if approval {
+		effects = []app.ToolEffect{app.ToolEffectExternalInteract, app.ToolEffectWorkspaceWrite}
+		mode = "mutation"
+	}
+	return toolhub.DynamicToolRegistration{
+		Definition: app.ToolDefinition{
+			Name: name, Title: "Delegate a LocalMind task",
+			Description: "Start one self-contained text task in the configured LocalMind workspace.",
+			InputSchema: objectSchema([]string{"request"}, map[string]any{
+				"request": map[string]any{"type": "string", "minLength": 1, "maxLength": 12000},
+			}),
+			Risk: risk, RequiresApproval: approval, Idempotent: true,
+			TimeoutMS: m.requestTimeoutMS(), Sandbox: "remote", Audit: "always",
+			Capabilities: []app.CapabilityDescriptor{
+				localMindWorkflowCapability(snapshot, capability),
+				taskCapability(snapshot, mode, "delegate"),
+			},
+			OutcomeAdapter: app.OutcomeAdapterLocalMindTask,
+			Directory: app.ToolDirectoryMetadata{
+				Summary:      "Start one bounded text task in the configured LocalMind workspace.",
+				WhenToUse:    "Use only from the matching explicit LocalMind delegation Workflow.",
+				WhenNotToUse: "Do not select from another Workflow or include files, media, or document IDs.",
+				Effects:      effects,
+			},
+		},
+		RemoteName: delegateRemoteName,
+		Execute: func(ctx context.Context, args map[string]any, sessionID, runID string) (toolhub.Result, error) {
+			return m.executeDelegate(ctx, client, snapshot, args, sessionID, runID)
+		},
+	}
+}
+
+func localMindWorkflowCapability(snapshot Snapshot, name string) app.CapabilityDescriptor {
+	return app.CapabilityDescriptor{
+		Name: name,
+		Qualifiers: map[string]string{
+			app.CapabilityQualifierEndpointID:       snapshot.EndpointID,
+			app.CapabilityQualifierSnapshotRevision: snapshot.Revision,
+		},
+	}
 }
 
 func taskCapability(snapshot Snapshot, mode, operation string) app.CapabilityDescriptor {
@@ -112,13 +142,9 @@ func (m *Manager) executeDelegate(ctx context.Context, client *mcpclient.Client,
 	if request == "" || utf8.RuneCountInString(request) > 12000 {
 		return toolhub.Result{}, errors.New("LocalMind request must contain between 1 and 12000 characters")
 	}
-	documentIDs, err := parseDocumentIDs(args["document_ids"])
-	if err != nil {
-		return toolhub.Result{}, err
-	}
-	key := deterministicTaskKey(snapshot.EndpointID, sessionID, runID, "delegate", request, strings.Join(documentIDs, "\x00"))
+	key := deterministicTaskKey(snapshot.EndpointID, sessionID, runID, "delegate", request)
 	return m.callTaskTool(ctx, client, delegateRemoteName, map[string]any{
-		"request": request, "documentIds": documentIDs, "idempotencyKey": key,
+		"request": request, "idempotencyKey": key,
 	}, "")
 }
 
@@ -228,36 +254,6 @@ func deterministicTaskKey(parts ...string) string {
 		_, _ = hash.Write([]byte{0})
 	}
 	return "sparkclaw:v1:" + hex.EncodeToString(hash.Sum(nil))
-}
-
-func parseDocumentIDs(value any) ([]string, error) {
-	if value == nil {
-		return []string{}, nil
-	}
-	items := []any{}
-	switch typed := value.(type) {
-	case []any:
-		items = typed
-	case []string:
-		for _, item := range typed {
-			items = append(items, item)
-		}
-	default:
-		return nil, errors.New("LocalMind document_ids must be an array")
-	}
-	if len(items) > 20 {
-		return nil, errors.New("LocalMind document_ids exceeds 20 items")
-	}
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		id, ok := item.(string)
-		id = strings.TrimSpace(id)
-		if !ok || id == "" || utf8.RuneCountInString(id) > 256 {
-			return nil, errors.New("LocalMind document_ids contains an invalid document ID")
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
 }
 
 func (m *Manager) safeCurrentError(err error) error {

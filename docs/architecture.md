@@ -332,11 +332,16 @@ LocalMind uses the shared MCP 2025-06-18 Streamable HTTP client behind a
 workspace-scoped manager. The manager resolves environment credentials on every
 refresh, verifies the `localmind-ai` identity and workspace endpoint, rejects
 Resources and any schema outside the exact delegate/get/cancel task contract,
-and atomically registers exactly three SparkClaw tools. A refresh failure removes
-all stale LocalMind tools. Task results enter the bounded untrusted observation
-and artifact path; delegate and cancel retain dangerous remote-effect approval
-without claiming local sandbox execution. No Catalog leaf or natural-language
-Workflow currently consumes these tools; that orchestration is deferred.
+and atomically projects those three remote tools into four local registrations:
+read delegation, write delegation, get, and cancel. A refresh failure removes
+all stale LocalMind tools. The four explicit-only r1 Catalog leaves and
+Workflows delegate current-message text, query one referenced task, or cancel
+one referenced task. Read delegation and query need no approval; write
+delegation and cancel do. Delegation waits through a frozen endpoint/contract
+snapshot and bounded status polls for at most 10 minutes, and only `completed`
+is success. Task results enter the bounded untrusted observation and artifact
+path without claiming local sandbox execution. External-AI principals cannot
+select these routes. See [LocalMind Workflows](localmind-task-workflow-design.md).
 
 The current legacy reverse direction uses ISCP: an authenticated LocalMind peer
 can submit a structured mention through `agent.notification.deliver.v1`.

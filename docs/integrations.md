@@ -54,10 +54,11 @@ task contract has no `allow_mutations`, `tool_allow`, or `tool_deny` setting.
 
 Gateway initializes through the shared MCP 2025-06-18 Streamable HTTP client,
 verifies `localmind-ai`, rejects Resources and any catalog other than the exact
-three-tool task contract, and atomically registers exactly three SparkClaw
-tools: `localmind.task.delegate`, `localmind.task.get`, and
-`localmind.task.cancel`. Delegate and cancel are conservatively dangerous,
-approval-gated remote effects; get is read-only. Remote execution remains
+three-tool remote task contract. It projects those operations into four local
+ToolHub registrations: `localmind.task.delegate_read`,
+`localmind.task.delegate`, `localmind.task.get`, and `localmind.task.cancel`.
+Read delegation and get are read-only; write delegation and cancel are
+approval-gated remote effects. Remote execution remains
 subject to LocalMind authorization, DLP, and audit and is never represented as
 running in SparkClaw's local sandbox.
 
@@ -68,9 +69,12 @@ the protocol's bounded `knownStateVersion`/`waitMs` long poll. Results and large
 archives remain bounded untrusted evidence. Calls are not replayed after an
 authentication failure.
 
-These tools are not currently attached to a Catalog leaf or natural-language
-Workflow. Their business orchestration is intentionally deferred; registration
-alone does not advertise a user-visible LocalMind capability.
+The four explicit-only r1 Workflows are `localmind.read`, `localmind.write`,
+`localmind.query`, and `localmind.cancel`. Delegation sends only current-message
+text and omits `documentIds`; read/write then wait through bounded status calls
+for at most 10 minutes. Query reads once and cancel calls once after approval.
+Inbound external-AI principals cannot select these routes. See
+[LocalMind Workflows](localmind-task-workflow-design.md).
 
 Use public HTTPS whenever possible. From the Gateway container, `localhost`
 means that container, not the host. Use a LocalMind service name on the shared

@@ -179,7 +179,7 @@ func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument stri
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
 	case "query", "location", "path", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot",
-		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "public_target_url", "browser_click", "browser_draft", "schedule", "schedule_patch":
+		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "public_target_url", "browser_click", "browser_draft", "schedule", "schedule_patch", "localmind_task":
 		return true
 	default:
 		return false

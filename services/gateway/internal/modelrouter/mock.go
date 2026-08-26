@@ -651,6 +651,25 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 	scheduleDiscussion := contains("为什么", "失败", "没有触发", "没触发", "why", "failed", "failure")
 	scheduleStatement := contains("我会", "我将", "我参加", "i will ", "i am going")
 	switch candidateID {
+	case "localmind.read#delegate_read":
+		localMind := contains("localmind")
+		management := contains("状态", "进度", "结果", "取消", "停止", "status", "progress", "result", "cancel", "stop")
+		mutation := contains("创建", "新建", "更新", "修改", "编辑", "重命名", "转换", "导出", "删除", "create", "update", "modify", "edit", "rename", "convert", "export", "delete")
+		if localMind && !management && !mutation && contains("让", "请", "交给", "委派", "阅读", "总结", "调研", "比较", "回答", "ask", "delegate", "read", "summarize", "research", "compare", "answer") {
+			return 0.99
+		}
+	case "localmind.write#delegate_write":
+		if contains("localmind") && contains("创建", "新建", "更新", "修改", "编辑", "重命名", "转换", "导出", "删除", "create", "update", "modify", "edit", "rename", "convert", "export", "delete") {
+			return 0.99
+		}
+	case "localmind.query#query_task":
+		if contains("localmind") && contains("状态", "进度", "完成了吗", "结果", "status", "progress", "finished", "result") {
+			return 0.99
+		}
+	case "localmind.cancel#cancel_task":
+		if contains("localmind") && contains("取消", "停止", "停掉", "cancel", "stop") {
+			return 0.99
+		}
 	case "coding.agent_manage#read":
 		codingTarget := contains("happy", "coding agent", "编码任务", "编码会话", "agent 任务", "agent 会话")
 		approvalDecision := contains("批准", "同意计划", "拒绝计划", "approve plan", "reject plan")

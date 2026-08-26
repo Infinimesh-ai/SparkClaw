@@ -4,6 +4,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -23,6 +25,7 @@ const (
 	strategyFileReadNoFinal    = "files.read_no_final"
 	strategyBrowserReadNoFinal = "browser.read_no_final"
 	strategySandboxShell       = "sandbox_shell_result"
+	strategyLocalMindTask      = "localmind_task_result"
 )
 
 func (r Runtime) applyGroundedSummary(ctx context.Context, sessionID, runID, goal, fallback string, calls []app.ToolCall) string {
@@ -67,6 +70,9 @@ func groundedSummary(goal, fallback string, calls []app.ToolCall) string {
 }
 
 func groundedSummaryWithStrategy(goal, fallback string, calls []app.ToolCall) (string, string) {
+	if grounded, ok := groundedLocalMindTaskSummary(calls); ok {
+		return grounded, strategyLocalMindTask
+	}
 	if cleaned := cleanUserFinalAnswer(fallback); cleaned != "" && !isBlockedFinalAnswer(cleaned) {
 		return cleaned, strategyGroundedResult
 	}
@@ -110,6 +116,64 @@ func groundedSummaryWithStrategy(goal, fallback string, calls []app.ToolCall) (s
 		return grounded, strategySandboxShell
 	}
 	return fallback, strategyGroundedResult
+}
+
+func groundedLocalMindTaskSummary(calls []app.ToolCall) (string, bool) {
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if !toolCallCompleted(call) || !isLocalMindTaskToolCall(call) {
+			continue
+		}
+		output, ok := anyMap(call.Result)
+		if !ok {
+			continue
+		}
+		taskID := strings.TrimSpace(stringValue(output["taskId"]))
+		status := strings.ToLower(strings.TrimSpace(stringValue(output["status"])))
+		terminal, terminalOK := output["terminal"].(bool)
+		if taskID == "" || taskID == "<nil>" || status == "" || status == "<nil>" || !terminalOK {
+			continue
+		}
+		if !terminal && (call.WorkflowID == app.WorkflowLocalMindRead || call.WorkflowID == app.WorkflowLocalMindWrite) && strings.TrimSpace(stringValue(call.Arguments["wait_ms"])) == "0" {
+			return fmt.Sprintf("LocalMind 任务 `%s` 等待已达到 10 分钟上限，最新状态：%s。", taskID, status), true
+		}
+		if status == "completed" {
+			if result := localMindResultText(output["result"]); result != "" {
+				return fmt.Sprintf("%s\n\nLocalMind 任务 `%s`：completed", result, taskID), true
+			}
+		}
+		if status == "failed" {
+			if detail := localMindResultText(output["error"]); detail != "" {
+				return fmt.Sprintf("LocalMind 任务 `%s` 失败：%s", taskID, detail), true
+			}
+		}
+		if status == "cancelled" || status == "canceled" {
+			return fmt.Sprintf("LocalMind 任务 `%s` 已取消。", taskID), true
+		}
+		return fmt.Sprintf("LocalMind 任务 `%s` 当前状态：%s。", taskID, status), true
+	}
+	return "", false
+}
+
+func localMindResultText(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	if object, ok := anyMap(value); ok {
+		for _, key := range []string{"answer", "message", "summary"} {
+			if text := strings.TrimSpace(stringValue(object[key])); text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	raw, err := json.Marshal(value)
+	if err != nil || string(raw) == "null" || string(raw) == "{}" {
+		return ""
+	}
+	return trimForEpisode(string(raw), 4000)
 }
 
 func groundedFailureSummary(goal string, calls []app.ToolCall) (string, bool) {

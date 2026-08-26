@@ -107,12 +107,16 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
+	grounding.HasUnsupportedMedia = len(resources) > 0 || len(locators) > 0
 	routingContext, err := r.semanticRoutingContext(ctx, sessionID, runID, ownerText, resources, documents)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
 	channelInputs := newSemanticChannelInputs(businessContent, routingContext)
 	eligible := r.semanticRouter.graph.EligibleCandidates(sourceKind)
+	if grounding.ExternalMCP || !containsEnglishSemanticTerm(content, "localmind") {
+		eligible = withoutLocalMindCandidates(eligible)
+	}
 	if len(eligible) == 0 {
 		return IntentRoutingOutput{}, errors.New("semantic routing graph has no source-eligible candidates")
 	}
@@ -167,6 +171,25 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	})
 
 	return IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion}, nil
+}
+
+func withoutLocalMindCandidates(candidates []semanticrouting.Candidate) []semanticrouting.Candidate {
+	filtered := make([]semanticrouting.Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !isLocalMindCapability(candidate.Capability) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
+func isLocalMindCapability(capability app.CapabilityID) bool {
+	switch capability {
+	case app.CapabilityLocalMindRead, app.CapabilityLocalMindWrite, app.CapabilityLocalMindQuery, app.CapabilityLocalMindCancel:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r Runtime) routeMediaOnlyMessage(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {

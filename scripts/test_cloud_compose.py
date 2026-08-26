@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "start_cloud_compose.sh"
 COMPOSE = ROOT / "docker" / "compose.yaml"
 CLOUD_COMPOSE = ROOT / "docker" / "compose.cloud.yaml"
+VISIBLE_BROWSER_COMPOSE = ROOT / "docker" / "compose.visible-browser.yaml"
 EXAMPLE_ENV = ROOT / "docker" / "env" / "sparkclaw.cloud.example.env"
 
 
@@ -26,6 +27,14 @@ import sys
 
 with Path(os.environ["CLOUD_TEST_DOCKER_LOG"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\n")
+if os.environ.get("CLOUD_TEST_REQUIRE_SUDO") == "true":
+    if os.environ.get("CLOUD_TEST_UNDER_SUDO") != "true":
+        raise SystemExit(1)
+    if sys.argv[1:] != ["ps"] and os.environ.get("CLOUD_TEST_BROWSER_MODE") == "visible":
+        if os.environ.get("SPARKCLAW_BROWSER_DISPLAY") != ":77":
+            raise SystemExit(2)
+        if os.environ.get("SPARKCLAW_BROWSER_XAUTHORITY") != "/tmp/cloud-test-Xauthority":
+            raise SystemExit(3)
 raise SystemExit(0)
 """
 
@@ -41,9 +50,36 @@ mode = os.environ["CLOUD_TEST_MODEL_MODE"]
 print('{"ok":true,"auth_required":false,"model_mode":"%s","state_backend":"postgres"}' % mode)
 """
 
+FAKE_DISPLAY_RESOLVER = r"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${CLOUD_TEST_BROWSER_MODE}" != "visible" ]]; then
+  exit 1
+fi
+printf ':77\n/tmp/cloud-test-Xauthority\n'
+"""
+
+FAKE_SUDO = r"""#!/usr/bin/env python3
+import os
+import sys
+
+args = sys.argv[1:]
+if args and args[0] == "-n":
+    args = args[1:]
+environment = os.environ.copy()
+environment["CLOUD_TEST_UNDER_SUDO"] = "true"
+os.execvpe(args[0], args, environment)
+"""
+
 
 class CloudComposeTest(unittest.TestCase):
-    def run_script(self, env_text: str, expected_mode: str, *args: str) -> tuple[
+    def run_script(
+        self,
+        env_text: str,
+        expected_mode: str,
+        *args: str,
+        visible_browser: bool = False,
+        require_sudo: bool = False,
+    ) -> tuple[
         subprocess.CompletedProcess[str], list[list[str]], list[list[str]]
     ]:
         with tempfile.TemporaryDirectory() as directory:
@@ -52,10 +88,18 @@ class CloudComposeTest(unittest.TestCase):
             env_file.write_text(textwrap.dedent(env_text), encoding="utf-8")
             docker = temp_path / "docker"
             curl = temp_path / "curl"
+            sudo = temp_path / "sudo"
+            display_resolver = temp_path / "resolve-browser-display.sh"
             docker.write_text(textwrap.dedent(FAKE_DOCKER), encoding="utf-8")
             curl.write_text(textwrap.dedent(FAKE_CURL), encoding="utf-8")
+            sudo.write_text(textwrap.dedent(FAKE_SUDO), encoding="utf-8")
+            display_resolver.write_text(
+                textwrap.dedent(FAKE_DISPLAY_RESOLVER), encoding="utf-8"
+            )
             docker.chmod(0o755)
             curl.chmod(0o755)
+            sudo.chmod(0o755)
+            display_resolver.chmod(0o755)
             docker_log = temp_path / "docker.jsonl"
             curl_log = temp_path / "curl.jsonl"
             environment = os.environ.copy()
@@ -67,6 +111,9 @@ class CloudComposeTest(unittest.TestCase):
                     "CLOUD_TEST_DOCKER_LOG": str(docker_log),
                     "CLOUD_TEST_CURL_LOG": str(curl_log),
                     "CLOUD_TEST_MODEL_MODE": expected_mode,
+                    "CLOUD_TEST_BROWSER_MODE": "visible" if visible_browser else "hidden",
+                    "CLOUD_TEST_REQUIRE_SUDO": "true" if require_sudo else "false",
+                    "SPARKCLAW_BROWSER_DISPLAY_RESOLVER": str(display_resolver),
                 }
             )
             result = subprocess.run(
@@ -108,6 +155,41 @@ class CloudComposeTest(unittest.TestCase):
         browser_call = next(call for call in docker_calls if "exec" in call)
         self.assertIn("gateway", browser_call)
         self.assertIn("agent-browser", " ".join(browser_call))
+        self.assertNotIn(str(VISIBLE_BROWSER_COMPOSE), up_call)
+
+    def test_desktop_runtime_stacks_visible_browser_overlay(self) -> None:
+        result, docker_calls, _ = self.run_script(
+            """
+            SPARKCLAW_MODEL_MODE=mock
+            SPARKCLAW_STATE_BACKEND=postgres
+            """,
+            "mock",
+            visible_browser=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Visible Chromium display: :77", result.stdout)
+        self.assertIn("hidden and visible Chromium ready", result.stdout)
+        up_call = next(call for call in docker_calls if "up" in call)
+        self.assertIn(str(VISIBLE_BROWSER_COMPOSE), up_call)
+        browser_call = next(call for call in docker_calls if "exec" in call)
+        self.assertIn(str(VISIBLE_BROWSER_COMPOSE), browser_call)
+        self.assertIn("AGENT_BROWSER_HEADED=true", " ".join(browser_call))
+
+    def test_desktop_runtime_preserves_display_when_docker_requires_sudo(self) -> None:
+        result, docker_calls, _ = self.run_script(
+            """
+            SPARKCLAW_MODEL_MODE=mock
+            SPARKCLAW_STATE_BACKEND=postgres
+            """,
+            "mock",
+            visible_browser=True,
+            require_sudo=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        up_call = next(call for call in docker_calls if "up" in call)
+        self.assertIn(str(VISIBLE_BROWSER_COMPOSE), up_call)
 
     def test_external_runtime_rejects_placeholder_endpoints(self) -> None:
         result, docker_calls, curl_calls = self.run_script(

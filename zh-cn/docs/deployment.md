@@ -122,6 +122,30 @@ Chromium、`agent-browser`、Xvfb、中日韩/Emoji 字体和 ffmpeg。只有 Ga
 容器内 Chromium 打开页面及 snapshot smoke test 都通过，部署才算成功。浏览器状态持久化在
 `data/browser-profiles`；VM 不需要 Ubuntu Desktop，也不需要宿主机 Chromium。
 
+无桌面的 VM 可以正常使用 hidden Chromium，但微信扫码登录不同：它会在 VM owner 的桌面上
+打开 visible Chromium 窗口供 owner 扫码。cloud 启动脚本解析到本地 X11/XWayland display
+时，会自动叠加 `docker/compose.visible-browser.yaml`，并输出 `Visible Chromium display:
+...`。没有可用 display 时，部署仍会以 hidden Chromium 正常启动并明确告警，但打开微信登录
+窗口会按设计失败。窗口显示在 VM 桌面上，不会显示在仅仅访问 WebChat 的另一台电脑上。
+
+请从 VM 的桌面会话运行部署，或先通过 PVE console 登录该桌面，然后 reconcile 运行态：
+
+```bash
+cd "$HOME/SparkClaw"
+bash scripts/resolve-browser-display.sh
+bash scripts/start_cloud_compose.sh
+```
+
+VM 存在多个 display 时，先显式选择当前 display 和 authority 文件，再执行第二条命令：
+
+```bash
+export SPARKCLAW_BROWSER_DISPLAY=:1
+export SPARKCLAW_BROWSER_XAUTHORITY=/run/user/$(id -u)/gdm/Xauthority
+bash scripts/start_cloud_compose.sh
+```
+
+微信扫码登录不要使用虚拟 Xvfb display：它适合 hidden 自动化，但不是 owner 可见的扫码界面。
+
 不更新 checkout、只 reconcile 当前运行态时执行：
 
 ```bash

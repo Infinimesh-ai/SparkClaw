@@ -145,6 +145,36 @@ container-local Chromium open/snapshot smoke test pass. Browser state persists
 under `data/browser-profiles`. No Ubuntu desktop or host Chromium package is
 required.
 
+Hidden Chromium works on a headless VM. Weixin QR login is different: it opens
+a visible Chromium window on the VM owner's desktop so the owner can scan it.
+When the cloud start script resolves a local X11/XWayland display, it
+automatically stacks `docker/compose.visible-browser.yaml` and prints `Visible
+Chromium display: ...`. If no display is available, deployment remains healthy
+with hidden Chromium only and prints an explicit warning; opening the Weixin
+login window will then fail by design. The window appears on the VM desktop,
+not on a different computer that merely opened WebChat.
+
+Run the deployment from the VM desktop session, or use the PVE console to log
+in to that desktop, then reconcile the stack:
+
+```bash
+cd "$HOME/SparkClaw"
+bash scripts/resolve-browser-display.sh
+bash scripts/start_cloud_compose.sh
+```
+
+If the VM has multiple displays, select the active display and authority file
+explicitly before the second command:
+
+```bash
+export SPARKCLAW_BROWSER_DISPLAY=:1
+export SPARKCLAW_BROWSER_XAUTHORITY=/run/user/$(id -u)/gdm/Xauthority
+bash scripts/start_cloud_compose.sh
+```
+
+Do not use a synthetic Xvfb display for QR login: it is suitable for hidden
+automation but is not an owner-visible scan surface.
+
 Re-run the repository deployment entrypoint to reconcile the runtime without
 updating the checkout:
 

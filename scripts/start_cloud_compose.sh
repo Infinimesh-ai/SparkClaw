@@ -9,7 +9,12 @@ DOCKER_BIN="${DOCKER_BIN:-docker}"
 ENV_FILE="${SPARKCLAW_CLOUD_ENV_FILE:-$ROOT/.env}"
 COMPOSE_FILE="$ROOT/docker/compose.yaml"
 CLOUD_COMPOSE_FILE="$ROOT/docker/compose.cloud.yaml"
+VISIBLE_BROWSER_COMPOSE_FILE="$ROOT/docker/compose.visible-browser.yaml"
+BROWSER_DISPLAY_RESOLVER="${SPARKCLAW_BROWSER_DISPLAY_RESOLVER:-$ROOT/scripts/resolve-browser-display.sh}"
 MODE="start"
+browser_display=""
+browser_xauthority=""
+visible_browser=false
 
 usage() {
   cat <<'EOF'
@@ -90,6 +95,18 @@ state_backend="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_STATE_BACKEND
   exit 1
 }
 
+if browser_display_info="$(bash "$BROWSER_DISPLAY_RESOLVER")"; then
+  browser_display="${browser_display_info%%$'\n'*}"
+  browser_xauthority="${browser_display_info#*$'\n'}"
+  visible_browser=true
+  export SPARKCLAW_BROWSER_DISPLAY="$browser_display"
+  export SPARKCLAW_BROWSER_XAUTHORITY="$browser_xauthority"
+  echo "Visible Chromium display: $browser_display"
+else
+  echo "warn visible Chromium is unavailable; Weixin QR login requires a local desktop display" >&2
+  echo "warn hidden Chromium automation remains enabled" >&2
+fi
+
 docker_cmd=("$DOCKER_BIN")
 if ! "${docker_cmd[@]}" ps >/dev/null 2>&1; then
   if command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then
@@ -101,19 +118,34 @@ if ! "${docker_cmd[@]}" ps >/dev/null 2>&1; then
     exit 1
   fi
 fi
+if [[ "$visible_browser" == true && "${docker_cmd[0]}" == "sudo" ]]; then
+  docker_cmd=(
+    sudo -n env
+    "SPARKCLAW_BROWSER_DISPLAY=$SPARKCLAW_BROWSER_DISPLAY"
+    "SPARKCLAW_BROWSER_XAUTHORITY=$SPARKCLAW_BROWSER_XAUTHORITY"
+    "$DOCKER_BIN"
+  )
+fi
 
 compose_args=(
   compose
   --env-file "$ENV_FILE"
   -f "$COMPOSE_FILE"
   -f "$CLOUD_COMPOSE_FILE"
-  --profile models-local
 )
+if [[ "$visible_browser" == true ]]; then
+  compose_args+=(-f "$VISIBLE_BROWSER_COMPOSE_FILE")
+fi
+compose_args+=(--profile models-local)
 services=(postgres sandbox-runner gateway webchat)
 
 if [[ "$MODE" == "check" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" config --quiet
-  echo "SparkClaw cloud configuration valid: $expected_model_mode/postgres"
+  if [[ "$visible_browser" == true ]]; then
+    echo "SparkClaw cloud configuration valid: $expected_model_mode/postgres; visible Chromium enabled"
+  else
+    echo "SparkClaw cloud configuration valid: $expected_model_mode/postgres; hidden Chromium only"
+  fi
   exit 0
 fi
 
@@ -144,13 +176,16 @@ if [[ "$gateway_ready" != true ]]; then
   exit 1
 fi
 
-browser_namespace="sparkclaw-cloud-smoke-$$"
+browser_namespace="sc-cloud-$$"
 "${docker_cmd[@]}" "${compose_args[@]}" exec -T gateway sh -eu -c '
   namespace="$1"
+  visible="$2"
   browser=/app/node_modules/.bin/agent-browser
   chromium=/usr/bin/chromium
   profile=/var/lib/sparkclaw/browser-profiles
-  session=deploy-smoke
+  hidden_session=hidden
+  visible_session=visible
+  visible_namespace="${namespace}-v"
 
   test -x "$browser"
   test -x "$chromium"
@@ -160,16 +195,41 @@ browser_namespace="sparkclaw-cloud-smoke-$$"
   export AGENT_BROWSER_EXECUTABLE_PATH="$chromium"
   export AGENT_BROWSER_NAMESPACE="$namespace"
   cleanup_browser() {
-    "$browser" --session "$session" close >/dev/null 2>&1 || true
+    AGENT_BROWSER_NAMESPACE="$namespace" \
+      "$browser" --session "$hidden_session" close >/dev/null 2>&1 || true
+    AGENT_BROWSER_NAMESPACE="$visible_namespace" \
+      "$browser" --session "$visible_session" close >/dev/null 2>&1 || true
   }
   trap cleanup_browser EXIT INT TERM
 
   agent_version="$("$browser" --version)"
   chromium_version="$("$chromium" --version)"
-  "$browser" --session "$session" open about:blank >/dev/null
-  snapshot="$("$browser" --session "$session" snapshot -i)"
+  "$browser" --session "$hidden_session" open about:blank >/dev/null
+  snapshot="$("$browser" --session "$hidden_session" snapshot -i)"
   test -n "$snapshot"
-  printf "%s\n%s\n" "$agent_version" "$chromium_version"
-' sh "$browser_namespace"
 
-echo "SparkClaw cloud runtime ready: $expected_model_mode/postgres; Chromium automation ready"
+  if [ "$visible" = true ]; then
+    test -n "${DISPLAY:-}"
+    test -n "${XAUTHORITY:-}"
+    test -r "$XAUTHORITY"
+    test -s "$XAUTHORITY"
+    display_number="${DISPLAY#:}"
+    display_number="${display_number%%.*}"
+    test -S "/tmp/.X11-unix/X${display_number}"
+
+    AGENT_BROWSER_NAMESPACE="$visible_namespace" \
+      AGENT_BROWSER_HEADED=true \
+      AGENT_BROWSER_NO_XVFB=true \
+      "$browser" --session "$visible_session" open about:blank >/dev/null
+    visible_snapshot="$(AGENT_BROWSER_NAMESPACE="$visible_namespace" \
+      "$browser" --session "$visible_session" snapshot -i)"
+    test -n "$visible_snapshot"
+  fi
+  printf "%s\n%s\n" "$agent_version" "$chromium_version"
+' sh "$browser_namespace" "$visible_browser"
+
+if [[ "$visible_browser" == true ]]; then
+  echo "SparkClaw cloud runtime ready: $expected_model_mode/postgres; hidden and visible Chromium ready"
+else
+  echo "SparkClaw cloud runtime ready: $expected_model_mode/postgres; hidden Chromium ready"
+fi

@@ -5,13 +5,13 @@
   "description": "Reliable local agent runtime for DGX Spark.",
   "license": "Apache-2.0",
   "author": "SparkClaw contributors",
-  "homepage": "https://github.com/Chiiz0/SparkClaw#readme",
+  "homepage": "https://github.com/Infinimesh-ai/SparkClaw#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Chiiz0/SparkClaw.git"
+    "url": "git+https://github.com/Infinimesh-ai/SparkClaw.git"
   },
   "bugs": {
-    "url": "https://github.com/Chiiz0/SparkClaw/issues"
+    "url": "https://github.com/Infinimesh-ai/SparkClaw/issues"
   },
   "keywords": [
     "agent",

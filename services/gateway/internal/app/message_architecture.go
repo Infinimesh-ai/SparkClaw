@@ -284,6 +284,10 @@ type MessageRunContext struct {
 	IntentFusion    *IntentFusionDecision  `json:"intent_fusion,omitempty"`
 	MCP             *MCPInvocationRef      `json:"mcp,omitempty"`
 	ClientTimezone  string                 `json:"client_timezone,omitempty"`
+	// AuthorizedContextData is provider-supplied task context. It is persisted
+	// for deterministic workflow resume, but is never part of owner intent,
+	// risk, guard, message-control, or capability admission.
+	AuthorizedContextData string `json:"authorized_context_data,omitempty"`
 }
 
 type RouteOperation string

@@ -66,16 +66,23 @@ approval-requiring tools. Per-request deadline, maximum runtime, maximum tool-ca
 count, and maximum output bytes only narrow the existing global Runtime policy.
 
 Memory is included only when JingSi supplied the bounded v1 `memory_context`.
-It is clearly marked as task context, never authorization. Results expose only
-coarse state, bounded summary, and opaque versioned trace/artifact references;
+The goal remains the sole owner-intent input for risk, guard, semantic routing,
+message control, and capability admission. Memory summary is persisted in a
+separate task-context field for deterministic resume and is added to workflow
+prompts only after the route and authority boundary are frozen, under an explicit
+data-only marker. A malicious or merely off-topic Memory Context therefore cannot
+select a capability, add a return endpoint, or widen tool authority. Results expose
+only coarse state, bounded summary, and opaque versioned trace/artifact references;
 internal paths and store identifiers do not cross this surface.
 
 ## Evidence and remaining boundary
 
 Provider tests cover exact replay/drift, durable negative fences across restart,
 lost-response lookup, monotonic event pages, uniform authorization, idempotent
-cancel, dedicated bearer routing, and dispatch into the existing Agent Runtime.
-This is development-host evidence. It does not prove the JingSi consumer/worker,
-two-process integration, production credential provisioning, or GB10 physical
-acceptance; those remain cross-repository exit gates.
-
+cancel, dedicated bearer routing, `return_nowhere`, data-only Memory Context, and
+dispatch into the existing Agent Runtime. JingSi additionally owns a development
+gate that starts PostgreSQL 18, IMMS, SparkClaw, JingSi and a real JingSi-Node
+process independently, then proves successful Task result reconciliation,
+Observation writeback and origin notification/ACK. This evidence does not prove
+production credential provisioning, power-loss recovery, real networking, or
+GB10 physical acceptance; those remain cross-repository exit gates.

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -78,6 +79,24 @@ func TestDefaultMessageControlChangesOnlyFrozenDeliveryEndpoint(t *testing.T) {
 	}
 	if route != want {
 		t.Fatalf("message control changed the typed return route: got=%#v want=%#v", route, want)
+	}
+}
+
+func TestReturnNowhereSkipsEndpointResolutionForOrdinaryReply(t *testing.T) {
+	requests := []MessageControlRouteRequest{}
+	runtime := Runtime{messageControl: fixedMessageControlRouter{
+		err: errors.New("endpoint resolution must not run"), requests: &requests,
+	}}
+	want := app.ReturnRoute{Mode: app.ReturnNowhere}
+	selection, route, err := runtime.resolveMessageControl(context.Background(), "session_runtime", DeliveryDirective{}, app.MessageEnvelope{
+		Source:      app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "jingsi-runtime-v1"},
+		ReturnRoute: want,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 0 || selection.Status != TargetDefaultWeb || selection.ResolvedEndpointID != "" || route != want {
+		t.Fatalf("return-nowhere route resolved an endpoint: requests=%#v selection=%#v route=%#v", requests, selection, route)
 	}
 }
 

@@ -82,6 +82,16 @@ func TestEndpointMessageControlRouterRejectsMismatchedSourceRoute(t *testing.T) 
 	}
 }
 
+func TestFrozenSourceEndpointAllowsReturnNowhereWithoutSyntheticEndpoint(t *testing.T) {
+	endpoint, err := frozenSourceEndpoint(agent.MessageControlRouteRequest{
+		Source:      app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "jingsi-runtime-v1"},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnNowhere},
+	})
+	if err != nil || endpoint != "" {
+		t.Fatalf("return-nowhere route = %q, %v", endpoint, err)
+	}
+}
+
 func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
 	cfg := integrationTestConfig(t)
 	st := store.NewMemoryStore()

@@ -33,7 +33,7 @@ Implemented and validated:
 - File-backed state for local runs, PostgreSQL 18/pgvector for durable runtime records, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
-- The JingSi→SparkClaw Runtime JSON/HTTP v1 provider is implemented behind an explicit loopback-only, dedicated bearer configuration. It persists request-key bindings and irreversible negative fences before execution, exposes submit/lookup/status/cancel/event-page actions, recovers unfinished records, and dispatches accepted work into the existing Agent Runtime with request-scoped tool and budget narrowing. The repository still reads the central decision 0007 Schema/binding/fixtures directly.
+- The JingSi→SparkClaw Runtime JSON/HTTP v1 provider is implemented behind an explicit loopback-only, dedicated bearer configuration. It persists request-key bindings and irreversible negative fences before execution, exposes submit/lookup/status/cancel/event-page actions, recovers unfinished records, and dispatches accepted work into the existing Agent Runtime with request-scoped tool and budget narrowing. `return_nowhere` performs no endpoint lookup, while bounded IMMS Memory Context is persisted and supplied as data only after intent and capability admission. The repository still reads the central decision 0007 Schema/binding/fixtures directly.
 - DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. The 43-case runner still contains assertions for retired prototype code/shell workflows and must be aligned with the current capability matrix before it can serve as a full current acceptance result.
 
 Known operating boundary:
@@ -42,7 +42,7 @@ Known operating boundary:
 - The current single-machine product profile is `single-fast-v1`: fast runs at 32K context with an 8G KV cache and MTP off; embedding, guard, and OvisOCR2 retain bounded auxiliary profiles. The historical `dual-light-v1` measurements remain as evidence, not as the startup default.
 - Gateway still records its logical fast/deep Workflow choice, but both chat profiles resolve to `sparkclaw-fast` in the current deployment configuration. No `sparkclaw-deep` model process is started.
 - Workflow capabilities are the only execution path; see the [Workflow capability matrix](docs/workflow-capabilities.md) for the current capability surface.
-- The provider implementation and an in-process real Agent Runtime integration test do not complete the JingSi product loop: the JingSi consumer/worker, two-process restart proof, GB10 service credential provisioning and physical end-to-end validation remain pending.
+- A development-host gate now runs PostgreSQL 18, real IMMS/SparkClaw/JingSi services and a real JingSi-Node process independently through Task Intake, Memory Context, successful Runtime result, IMMS Observation and origin notification/ACK. Production service credentials, power-loss/backup recovery, real networking and GB10 physical validation remain pending.
 
 ## Quick Start
 

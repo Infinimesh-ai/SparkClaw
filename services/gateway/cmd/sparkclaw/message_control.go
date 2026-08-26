@@ -54,10 +54,15 @@ func (r endpointMessageControlRouter) ResolveMessageControl(ctx context.Context,
 }
 
 func frozenSourceEndpoint(request agent.MessageControlRouteRequest) (app.EndpointID, error) {
-	if request.Directive.ExplicitExternal || request.Source.Kind != app.MessageSourceThirdPartyDevice {
+	// A third-party ingress only needs a frozen endpoint when the workflow is
+	// actually returning to that source. JingSi Runtime v1 deliberately uses
+	// return_nowhere and retrieves the result through its status contract, so it
+	// must not be forced into an unrelated message-delivery boundary.
+	if request.Directive.ExplicitExternal || request.Source.Kind != app.MessageSourceThirdPartyDevice ||
+		request.ReturnRoute.Mode != app.ReturnToSource {
 		return "", nil
 	}
-	if request.ReturnRoute.Mode != app.ReturnToSource || request.ReturnRoute.SourceEndpointID == "" ||
+	if request.ReturnRoute.SourceEndpointID == "" ||
 		request.Source.EndpointID != request.ReturnRoute.SourceEndpointID {
 		return "", errors.New("third-party source reply requires one matching frozen endpoint")
 	}

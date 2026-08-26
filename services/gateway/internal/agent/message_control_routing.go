@@ -57,7 +57,12 @@ func (r Runtime) resolveMessageControl(ctx context.Context, sessionID string, di
 		return DeliveryTargetSelection{}, app.ReturnRoute{}, err
 	}
 	selection := defaultDeliveryTargetSelection(envelope)
-	if r.messageControl != nil {
+	// A caller that explicitly selected no return route has no endpoint to
+	// resolve for an ordinary reply. External-send intent still goes through
+	// message control so it cannot use return_nowhere to bypass destination
+	// authorization.
+	resolveEndpoint := envelope.ReturnRoute.Mode != app.ReturnNowhere || normalized.ExplicitExternal
+	if r.messageControl != nil && resolveEndpoint {
 		resolved, err := r.messageControl.ResolveMessageControl(ctx, MessageControlRouteRequest{
 			SessionID: sessionID, Directive: normalized, Source: envelope.Source, OwnerID: envelope.OwnerID, ActorID: envelope.ActorID,
 			Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute,
@@ -66,7 +71,7 @@ func (r Runtime) resolveMessageControl(ctx context.Context, sessionID string, di
 			return DeliveryTargetSelection{}, app.ReturnRoute{}, err
 		}
 		selection = resolved
-	} else if normalized.ExplicitExternal && envelope.ReturnRoute.Mode != app.ReturnToEndpoint {
+	} else if r.messageControl == nil && normalized.ExplicitExternal && envelope.ReturnRoute.Mode != app.ReturnToEndpoint {
 		return DeliveryTargetSelection{}, app.ReturnRoute{}, errors.New("external delivery target resolver is unavailable")
 	}
 	if err := validateDeliveryTargetSelection(selection, normalized, envelope.ReturnRoute); err != nil {

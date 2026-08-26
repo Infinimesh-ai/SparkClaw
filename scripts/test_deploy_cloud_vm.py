@@ -65,6 +65,15 @@ def configured_env() -> str:
 
 
 class DeployCloudVMTest(unittest.TestCase):
+    def test_cloud_template_disables_model_thinking(self) -> None:
+        values = dict(
+            line.split("=", 1)
+            for line in TEMPLATE.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        )
+
+        self.assertEqual(values["SPARKCLAW_MODEL_DISABLE_THINKING"], "true")
+
     def run_script(
         self, env_text: str, *args: str, input_text: str | None = None
     ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], str]:

@@ -65,6 +65,10 @@ func newGatewayServices(
 	if _, configured := cfg.MCPServers[happyapproval.ServerName]; configured {
 		happyApprovals = happyapproval.New(st, mcpManager, 0)
 	}
+	jingsiRuntime, err := gateway.NewJingSiRuntimeProvider(cfg, runtime, st)
+	if err != nil {
+		return nil, err
+	}
 
 	return &gatewayServices{
 		server: gateway.NewWithTrace(
@@ -81,6 +85,7 @@ func newGatewayServices(
 			gateway.WithManagedBrowserWindows(tools),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 			gateway.WithStoreRuntime(storeRuntime),
+			gateway.WithJingSiRuntime(jingsiRuntime),
 		),
 		connectors:        connectors,
 		reminderScheduler: reminderScheduler,

@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
@@ -91,6 +92,7 @@ type Server struct {
 	approvalLocks            sync.Map
 	pairing                  *pairingCoordinator
 	storeRuntime             StoreRuntimeMonitor
+	jingsiRuntime            *jingsiruntime.Provider
 }
 
 func (s *Server) addAudit(ctx context.Context, event app.AuditEvent) {
@@ -175,6 +177,12 @@ func WithStoreRuntime(runtime StoreRuntimeMonitor) Option {
 	}
 }
 
+func WithJingSiRuntime(provider *jingsiruntime.Provider) Option {
+	return func(server *Server) {
+		server.jingsiRuntime = provider
+	}
+}
+
 func WithMessageDelivery(endpoints *messagecontrol.EndpointRegistry, providers *delivery.ProviderRegistry, gateway *delivery.Gateway) Option {
 	return func(server *Server) {
 		server.endpoints = endpoints
@@ -244,7 +252,18 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.withCORS(s.withRateLimit(s.withAuth(s.mux)))
+	standard := s.withCORS(s.withRateLimit(s.withAuth(s.mux)))
+	if s.jingsiRuntime == nil {
+		return standard
+	}
+	root := http.NewServeMux()
+	root.Handle("POST /v1/executions:submit", s.jingsiRuntime)
+	root.Handle("POST /v1/executions:lookup", s.jingsiRuntime)
+	root.Handle("POST /v1/executions:status", s.jingsiRuntime)
+	root.Handle("POST /v1/executions:cancel", s.jingsiRuntime)
+	root.Handle("POST /v1/execution-events:list", s.jingsiRuntime)
+	root.Handle("/", standard)
+	return root
 }
 
 func (s *Server) Addr() string {
@@ -258,6 +277,9 @@ func (s *Server) BindLifecycleContext(ctx context.Context) {
 	s.lifecycleMu.Lock()
 	s.lifecycleCtx = ctx
 	s.lifecycleMu.Unlock()
+	if s.jingsiRuntime != nil {
+		s.jingsiRuntime.Start(ctx)
+	}
 }
 
 func (s *Server) executionContext() context.Context {
@@ -299,6 +321,9 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
+		if s.jingsiRuntime != nil {
+			return s.jingsiRuntime.Wait(ctx)
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

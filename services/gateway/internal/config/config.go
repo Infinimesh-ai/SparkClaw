@@ -33,19 +33,20 @@ var (
 )
 
 type Config struct {
-	Gateway     GatewayConfig              `json:"gateway"`
-	JingSiLAN   JingSiLANConfig            `json:"jingsi_lan"`
-	Model       ModelConfig                `json:"model"`
-	Speech      SpeechConfig               `json:"speech"`
-	ISCPPairing ISCPPairingConfig          `json:"iscp_pairing"`
-	MCPAccess   MCPAccessConfig            `json:"mcp_access"`
-	MCPServers  map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
-	Plugins     PluginsConfig              `json:"plugins"`
-	Tools       ToolsConfig                `json:"tools"`
-	Security    SecurityConfig             `json:"security"`
-	Sandbox     SandboxConfig              `json:"sandbox"`
-	Adapters    AdapterConfig              `json:"adapters"`
-	Memory      MemoryConfig               `json:"memory"`
+	Gateway       GatewayConfig              `json:"gateway"`
+	JingSiLAN     JingSiLANConfig            `json:"jingsi_lan"`
+	JingSiRuntime JingSiRuntimeConfig        `json:"jingsi_runtime_v1"`
+	Model         ModelConfig                `json:"model"`
+	Speech        SpeechConfig               `json:"speech"`
+	ISCPPairing   ISCPPairingConfig          `json:"iscp_pairing"`
+	MCPAccess     MCPAccessConfig            `json:"mcp_access"`
+	MCPServers    map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Plugins       PluginsConfig              `json:"plugins"`
+	Tools         ToolsConfig                `json:"tools"`
+	Security      SecurityConfig             `json:"security"`
+	Sandbox       SandboxConfig              `json:"sandbox"`
+	Adapters      AdapterConfig              `json:"adapters"`
+	Memory        MemoryConfig               `json:"memory"`
 	// PassiveNotifications bounds the durable ISCP notification inbox.
 	PassiveNotifications PassiveNotificationsConfig `json:"passive_notifications"`
 	Workspaces           WorkspaceConfig            `json:"workspaces"`
@@ -59,6 +60,17 @@ type JingSiLANConfig struct {
 	Enabled         bool   `json:"enabled"`
 	SessionID       string `json:"session_id,omitempty"`
 	MaxMessageBytes int    `json:"max_message_bytes"`
+}
+
+// JingSiRuntimeConfig owns the accepted JingSi→SparkClaw Runtime v1 surface.
+// The bearer itself is secret-only and can only enter through the environment
+// or an owner-only file; it is never serialized back into public config.
+type JingSiRuntimeConfig struct {
+	Enabled         bool   `json:"enabled"`
+	StateDir        string `json:"state_dir"`
+	BearerTokenFile string `json:"bearer_token_file,omitempty"`
+	MaxConcurrent   int    `json:"max_concurrent"`
+	BearerToken     string `json:"-"`
 }
 
 type GatewayConfig struct {
@@ -477,6 +489,9 @@ func Load(path string) (Config, error) {
 	if cfg.JingSiLAN.Enabled && cfg.JingSiLAN.SessionID == "" {
 		return Config{}, errors.New("jingsi_lan.session_id is required when JingSi LAN is enabled")
 	}
+	if err := normalizeJingSiRuntimeConfig(&cfg); err != nil {
+		return Config{}, err
+	}
 	if cfg.Workspaces.DefaultRoot == "" {
 		cfg.Workspaces.DefaultRoot = "./data/workspaces"
 	}
@@ -587,6 +602,62 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func normalizeJingSiRuntimeConfig(cfg *Config) error {
+	value := &cfg.JingSiRuntime
+	value.StateDir = strings.TrimSpace(value.StateDir)
+	value.BearerTokenFile = strings.TrimSpace(value.BearerTokenFile)
+	value.BearerToken = strings.TrimSpace(value.BearerToken)
+	if value.StateDir == "" {
+		value.StateDir = "./data/jingsi-runtime-v1"
+	}
+	absoluteStateDir, err := filepath.Abs(value.StateDir)
+	if err != nil {
+		return fmt.Errorf("resolve jingsi_runtime_v1.state_dir: %w", err)
+	}
+	value.StateDir = absoluteStateDir
+	if value.MaxConcurrent == 0 {
+		value.MaxConcurrent = 4
+	}
+	if value.MaxConcurrent < 1 || value.MaxConcurrent > 64 {
+		return errors.New("jingsi_runtime_v1.max_concurrent must be between 1 and 64")
+	}
+	if value.BearerToken != "" && value.BearerTokenFile != "" {
+		return errors.New("JingSi Runtime bearer token must use exactly one of environment or file")
+	}
+	if value.BearerTokenFile != "" {
+		info, err := os.Lstat(value.BearerTokenFile)
+		if err != nil {
+			return fmt.Errorf("inspect JingSi Runtime bearer token file: %w", err)
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("JingSi Runtime bearer token file must be a regular non-symlink file")
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return errors.New("JingSi Runtime bearer token file must not be accessible by group or other users")
+		}
+		if info.Size() <= 0 || info.Size() > 4096 {
+			return errors.New("JingSi Runtime bearer token file must contain at most 4096 bytes")
+		}
+		raw, err := os.ReadFile(value.BearerTokenFile)
+		if err != nil {
+			return fmt.Errorf("read JingSi Runtime bearer token file: %w", err)
+		}
+		value.BearerToken = strings.TrimSpace(string(raw))
+	}
+	if !value.Enabled {
+		value.BearerToken = ""
+		return nil
+	}
+	bindIP := net.ParseIP(strings.TrimSpace(cfg.Gateway.Bind))
+	if bindIP == nil || !bindIP.IsLoopback() {
+		return errors.New("jingsi_runtime_v1 requires gateway.bind to be a literal loopback IP")
+	}
+	if len(value.BearerToken) < 16 {
+		return errors.New("JingSi Runtime bearer token must contain at least 16 characters")
+	}
+	return nil
 }
 
 func normalizeISCPPairingConfig(pairing *ISCPPairingConfig) error {
@@ -1231,6 +1302,9 @@ func Default() Config {
 			Enabled:         false,
 			MaxMessageBytes: 64 << 10,
 		},
+		JingSiRuntime: JingSiRuntimeConfig{
+			Enabled: false, StateDir: "./data/jingsi-runtime-v1", MaxConcurrent: 4,
+		},
 		Model: ModelConfig{
 			Mock:               false,
 			HTTPTimeoutSeconds: 300,
@@ -1479,6 +1553,23 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_JINGSI_MAX_MESSAGE_BYTES"); v != "" {
 		if limit, err := strconv.Atoi(v); err == nil {
 			cfg.JingSiLAN.MaxMessageBytes = limit
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_RUNTIME_V1_ENABLED"); v != "" {
+		cfg.JingSiRuntime.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_RUNTIME_V1_STATE_DIR"); v != "" {
+		cfg.JingSiRuntime.StateDir = v
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_RUNTIME_V1_BEARER_TOKEN"); v != "" {
+		cfg.JingSiRuntime.BearerToken = v
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_RUNTIME_V1_BEARER_TOKEN_FILE"); v != "" {
+		cfg.JingSiRuntime.BearerTokenFile = v
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_RUNTIME_V1_MAX_CONCURRENT"); v != "" {
+		if count, err := strconv.Atoi(v); err == nil {
+			cfg.JingSiRuntime.MaxConcurrent = count
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_PAIRING_REQUIRED"); v != "" {

@@ -15,6 +15,11 @@
     "session_id": "",
     "max_message_bytes": 65536
   },
+  "jingsi_runtime_v1": {
+    "enabled": false,
+    "state_dir": "./data/jingsi-runtime-v1",
+    "max_concurrent": 4
+  },
   "model": {
     "mock": true,
     "http_timeout_seconds": 300,

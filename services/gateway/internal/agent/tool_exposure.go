@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -216,6 +217,9 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 		if len(definition.Capabilities) == 0 || hasDeniedEffect(definition.Directory.Effects, deniedEffects) {
 			continue
 		}
+		if !jingsiRuntimeToolAuthorized(run, definition) {
+			continue
+		}
 		if !e.policy.MayExpose(definition).Allowed {
 			continue
 		}
@@ -228,6 +232,30 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 		}
 	}
 	return out
+}
+
+func jingsiRuntimeToolAuthorized(run app.AgentRun, definition app.ToolDefinition) bool {
+	if run.MessageContext == nil || run.MessageContext.Source.Adapter != "jingsi-runtime-v1" {
+		return true
+	}
+	allowed := false
+	approvalPolicy := ""
+	maxToolCalls := -1
+	for _, scope := range run.MessageContext.Authorization.Scope {
+		if strings.HasPrefix(scope, "sparkclaw.tool:") && strings.TrimPrefix(scope, "sparkclaw.tool:") == definition.Name {
+			allowed = true
+		}
+		if strings.HasPrefix(scope, "sparkclaw.approval:") {
+			approvalPolicy = strings.TrimPrefix(scope, "sparkclaw.approval:")
+		}
+		if strings.HasPrefix(scope, "sparkclaw.budget.max_tool_calls:") {
+			maxToolCalls, _ = strconv.Atoi(strings.TrimPrefix(scope, "sparkclaw.budget.max_tool_calls:"))
+		}
+	}
+	if !allowed || maxToolCalls == 0 {
+		return false
+	}
+	return approvalPolicy != "deny" || !definition.RequiresApproval
 }
 
 func (e *toolExposureEngine) activeNode(ctx context.Context, runID string, workflowID app.WorkflowID, nodeID app.WorkflowNodeID, scopeRevision int) (app.AgentRun, app.WorkflowNode, app.WorkflowNodeState, error) {

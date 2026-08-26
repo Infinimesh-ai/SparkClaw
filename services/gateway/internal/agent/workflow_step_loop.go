@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -103,6 +104,10 @@ func (r Runtime) newWorkflowStageBudget() workflowStageBudget {
 }
 
 func (r Runtime) newWorkflowRunBudget(seedCalls []app.ToolCall) *workflowRunBudget {
+	return r.newWorkflowRunBudgetForRun(app.AgentRun{}, seedCalls)
+}
+
+func (r Runtime) newWorkflowRunBudgetForRun(run app.AgentRun, seedCalls []app.ToolCall) *workflowRunBudget {
 	cfg := r.tools.Config().Runtime
 	maxDurationSeconds := cfg.RunMaxDurationSeconds
 	if maxDurationSeconds <= 0 {
@@ -111,6 +116,9 @@ func (r Runtime) newWorkflowRunBudget(seedCalls []app.ToolCall) *workflowRunBudg
 	maxToolCalls := cfg.RunMaxToolCalls
 	if maxToolCalls <= 0 {
 		maxToolCalls = 32
+	}
+	if scopedMaximum, ok := jingsiRuntimeMaxToolCalls(run); ok && scopedMaximum < maxToolCalls {
+		maxToolCalls = scopedMaximum
 	}
 	maxObservationBytes := cfg.RunMaxObservationBytes
 	if maxObservationBytes <= 0 {
@@ -136,6 +144,22 @@ func (r Runtime) newWorkflowRunBudget(seedCalls []app.ToolCall) *workflowRunBudg
 		budget.observeToolCall(call)
 	}
 	return budget
+}
+
+func jingsiRuntimeMaxToolCalls(run app.AgentRun) (int, bool) {
+	if run.MessageContext == nil || run.MessageContext.Source.Adapter != "jingsi-runtime-v1" {
+		return 0, false
+	}
+	for _, scope := range run.MessageContext.Authorization.Scope {
+		if !strings.HasPrefix(scope, "sparkclaw.budget.max_tool_calls:") {
+			continue
+		}
+		value, err := strconv.Atoi(strings.TrimPrefix(scope, "sparkclaw.budget.max_tool_calls:"))
+		if err == nil && value >= 0 {
+			return value, true
+		}
+	}
+	return 0, false
 }
 
 // observeToolCall accounts one executed tool call against the run budget.
@@ -202,7 +226,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		return result
 	}
 	if runBudget == nil {
-		runBudget = r.newWorkflowRunBudget(seedCalls)
+		runBudget = r.newWorkflowRunBudgetForRun(run, seedCalls)
 	}
 	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
 	if err != nil {

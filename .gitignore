@@ -33,6 +33,7 @@ data/eval/*
 data/models/*
 data/workspaces/*
 data/browser-profiles/*
+data/jingsi-runtime-v1/*
 !data/browser-profiles/.gitkeep
 services/gateway/internal/*/data/browser-profiles/
 !data/workspaces/.gitkeep

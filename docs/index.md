@@ -22,6 +22,7 @@ documentation tree.
 | Document | Scope |
 |---|---|
 | [Workflow execution](workflow-execution.md) | Workflow-native execution pipeline, the step loop and its protocol, budgets, resume semantics, and extension points |
+| [JingSi Runtime v1 provider](jingsi-runtime-v1.md) | Dedicated authenticated submit/lookup/status/cancel/events surface, durable request-key reconciliation, scope projection, recovery, and operator configuration |
 | [Workflow evidence ownership and reuse](workflow-evidence-ownership.md) | Active Runtime/model ownership migration, single-acquisition multi-consumer reuse, typed locator binding, and profile migration gates |
 | [Intent routing](intent-routing.md) | Semantic graph, embedding and Fast/Tree fusion, Top-2 grounding, and one-leaf dispatch |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |

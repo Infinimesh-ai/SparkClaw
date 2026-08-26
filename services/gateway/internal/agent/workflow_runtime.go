@@ -501,7 +501,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 	allApprovals := []app.Approval{}
 	allObservations := workflowObservationsFromText(seedObservations)
 	latest := workflowExecutionResult{}
-	runBudget := r.newWorkflowRunBudget(seedCalls)
+	runBudget := r.newWorkflowRunBudgetForRun(run, seedCalls)
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
 		if stop, reason := runBudget.exceeded(allObservations); stop {

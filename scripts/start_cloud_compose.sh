@@ -54,12 +54,6 @@ sparkclaw_tcp_port_valid "$webchat_port" || {
   exit 1
 }
 
-api_token="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_API_TOKEN '')"
-if [[ -z "$api_token" || "$api_token" == replace-with-* ]]; then
-  echo "SPARKCLAW_API_TOKEN must be set to a non-placeholder value" >&2
-  exit 1
-fi
-
 model_mode="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_MODEL_MODE external)"
 case "${model_mode,,}" in
   mock)
@@ -129,10 +123,10 @@ ready_url="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:$webchat_port/readyz}
 gateway_ready=false
 for _ in $(seq 1 30); do
   ready_json="$(curl -fsS --connect-timeout 2 --max-time 5 \
-    -H "Authorization: Bearer $api_token" "$ready_url" 2>/dev/null || true)"
+    "$ready_url" 2>/dev/null || true)"
   if [[ -n "$ready_json" ]]; then
     if printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' &&
-      printf '%s' "$ready_json" | grep -Eq '"auth_required"[[:space:]]*:[[:space:]]*true' &&
+      printf '%s' "$ready_json" | grep -Eq '"auth_required"[[:space:]]*:[[:space:]]*false' &&
       printf '%s' "$ready_json" | grep -Fq "\"model_mode\":\"$expected_model_mode\"" &&
       printf '%s' "$ready_json" | grep -Fq '"state_backend":"postgres"'; then
       gateway_ready=true

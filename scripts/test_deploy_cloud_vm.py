@@ -30,7 +30,7 @@ raise SystemExit(0)
 """
 
 FAKE_CURL = r"""#!/usr/bin/env python3
-print('{"ok":true,"auth_required":true,"model_mode":"external","state_backend":"postgres"}')
+print('{"ok":true,"auth_required":false,"model_mode":"external","state_backend":"postgres"}')
 """
 
 
@@ -49,7 +49,7 @@ def set_env_value(text: str, key: str, value: str) -> str:
 def configured_env() -> str:
     text = TEMPLATE.read_text(encoding="utf-8")
     values = {
-        "SPARKCLAW_API_TOKEN": "test-owner-token",
+        "SPARKCLAW_API_TOKEN": "legacy-owner-token",
         "SPARKCLAW_FAST_BASE_URL": "https://models.test/fast/v1",
         "SPARKCLAW_FAST_MODEL": "fast-model",
         "SPARKCLAW_DEEP_BASE_URL": "https://models.test/deep/v1",
@@ -107,6 +107,8 @@ class DeployCloudVMTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("deployment complete", result.stdout)
+        self.assertIn("SPARKCLAW_API_TOKEN=\n", final_env)
+        self.assertNotIn("legacy-owner-token", final_env)
         self.assertNotIn("OPENAI_API_KEY=", final_env)
         self.assertTrue(any("up" in call for call in calls))
         browser_call = next(call for call in calls if "exec" in call)

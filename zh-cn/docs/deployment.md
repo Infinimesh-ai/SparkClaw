@@ -106,12 +106,16 @@ stdin 重新连接到终端，再执行 `scripts/deploy_cloud_vm.sh`。VM 部署
 Docker Engine 与 Compose plugin；已有 checkout 存在 tracked 或 untracked 本地修改时绝不
 覆盖。
 
-首次运行会自动生成 WebChat owner token，并交互输入私有的 Fast、embedding、guard endpoint。
-脚本自动填入 SparkClaw 标准模型名，同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，
-也可以单独配置 endpoint。模型 API Key 是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
+首次运行会交互输入私有的 Fast、embedding、guard endpoint。脚本自动填入 SparkClaw 标准模型名，
+同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，也可以单独配置 endpoint。模型 API Key
+是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
 Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。Endpoint 与凭据不会
 进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的
 `.env`。
+
+当前 cloud overlay 是可信局域网 profile，明确关闭可选的 Gateway owner-token 认证边界，
+WebChat 因此不会要求输入 token。正常部署还会清空旧的 `SPARKCLAW_API_TOKEN`，readiness 会拒绝
+仍报告 `auth_required: true` 的 cloud 运行态。
 
 脚本构建并启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。Gateway 镜像内会安装
 Chromium、`agent-browser`、Xvfb、中日韩/Emoji 字体和 ffmpeg。只有 Gateway readiness 与
@@ -145,8 +149,9 @@ credential 或 header 时应使用可信 compatibility proxy。speech adapter �
 
 cloud overlay 为四个应用服务配置 `restart: unless-stopped`，安装器会启用 Docker，因此 VM
 重启后会自动恢复。Gateway 仍只在 Docker 内部可达；WebChat 默认发布 `18790`，使用
-`http://<VM-IP>:18790` 访问。当前测试拓扑不安装 TLS，也不修改防火墙规则。此拓扑不要安装
-DGX Spark autostart unit，因为该 unit 负责本地 NVIDIA 模型的 reconciliation。
+`http://<VM-IP>:18790` 访问。当前测试拓扑不安装 TLS，也不修改防火墙规则，必须只放在可信
+局域网中：任何能访问 WebChat 端口的设备都可以操作 SparkClaw。此拓扑不要安装 DGX Spark
+autostart unit，因为该 unit 负责本地 NVIDIA 模型的 reconciliation。
 
 ## Product Runtime
 

@@ -38,7 +38,7 @@ import sys
 with Path(os.environ["CLOUD_TEST_CURL_LOG"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\n")
 mode = os.environ["CLOUD_TEST_MODEL_MODE"]
-print('{"ok":true,"auth_required":true,"model_mode":"%s","state_backend":"postgres"}' % mode)
+print('{"ok":true,"auth_required":false,"model_mode":"%s","state_backend":"postgres"}' % mode)
 """
 
 
@@ -88,7 +88,7 @@ class CloudComposeTest(unittest.TestCase):
     def test_mock_runtime_starts_only_server_services(self) -> None:
         result, docker_calls, curl_calls = self.run_script(
             """
-            SPARKCLAW_API_TOKEN=test-webchat-token
+            SPARKCLAW_API_TOKEN=legacy-owner-token
             SPARKCLAW_MODEL_MODE=mock
             SPARKCLAW_STATE_BACKEND=postgres
             SPARKCLAW_WEBCHAT_PORT=19876
@@ -104,7 +104,7 @@ class CloudComposeTest(unittest.TestCase):
         self.assertNotIn("sparkclaw-fast", up_call)
         self.assertEqual(len(curl_calls), 1)
         self.assertIn("http://127.0.0.1:19876/readyz", curl_calls[0])
-        self.assertIn("Authorization: Bearer test-webchat-token", curl_calls[0])
+        self.assertNotIn("Authorization", " ".join(curl_calls[0]))
         browser_call = next(call for call in docker_calls if "exec" in call)
         self.assertIn("gateway", browser_call)
         self.assertIn("agent-browser", " ".join(browser_call))
@@ -112,7 +112,6 @@ class CloudComposeTest(unittest.TestCase):
     def test_external_runtime_rejects_placeholder_endpoints(self) -> None:
         result, docker_calls, curl_calls = self.run_script(
             """
-            SPARKCLAW_API_TOKEN=test-webchat-token
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
             SPARKCLAW_FAST_BASE_URL=https://fast.models.example.invalid/v1
@@ -128,7 +127,6 @@ class CloudComposeTest(unittest.TestCase):
     def test_external_runtime_accepts_complete_openai_compatible_config(self) -> None:
         result, docker_calls, _ = self.run_script(
             """
-            SPARKCLAW_API_TOKEN=test-webchat-token
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
             SPARKCLAW_FAST_BASE_URL=https://models.test/v1
@@ -149,7 +147,6 @@ class CloudComposeTest(unittest.TestCase):
     def test_check_validates_compose_without_starting_services(self) -> None:
         result, docker_calls, curl_calls = self.run_script(
             """
-            SPARKCLAW_API_TOKEN=test-webchat-token
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
             SPARKCLAW_FAST_BASE_URL=https://models.test/v1
@@ -224,6 +221,7 @@ class CloudComposeTest(unittest.TestCase):
         environment = config["services"]["gateway"]["environment"]
         self.assertEqual(environment["SPARKCLAW_MODEL_MODE"], "external")
         self.assertEqual(environment["SPARKCLAW_STATE_BACKEND"], "postgres")
+        self.assertEqual(environment["SPARKCLAW_API_TOKEN"], "")
         self.assertEqual(
             config["services"]["gateway"]["depends_on"]["postgres"]["condition"],
             "service_healthy",

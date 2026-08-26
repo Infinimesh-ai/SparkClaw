@@ -53,8 +53,8 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
 ```
 
-模型 endpoint 不需要认证时，交互配置中的 API Key 直接回车留空。部署完成后访问
-`http://<VM-IP>:18790`。
+模型 endpoint 不需要认证时，交互配置中的 API Key 直接回车留空。当前可信局域网 cloud
+profile 不启用 Gateway owner-token 认证，部署完成后直接访问 `http://<VM-IP>:18790`。
 
 在已安装 Docker、Compose 与 NVIDIA Container Toolkit 的 NVIDIA GB10 DGX Spark 上，
 运行流式安装入口：

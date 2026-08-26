@@ -123,15 +123,20 @@ repository under `$HOME/SparkClaw`, reconnects stdin to the terminal, and runs
 Compose plugin when necessary. Existing checkouts with tracked or untracked
 local changes are never overwritten.
 
-On the first run, the deployment generates the WebChat owner token and prompts
-for the private Fast, embedding, and guard endpoints. Standard SparkClaw model
-names are filled automatically, while existing configured names are preserved.
-The logical Deep lane can reuse Fast or use a separate endpoint. The shared
-model API key is optional: submit an empty value when the endpoints do not
-require Bearer auth.
+On the first run, the deployment prompts for the private Fast, embedding, and
+guard endpoints. Standard SparkClaw model names are filled automatically, while
+existing configured names are preserved. The logical Deep lane can reuse Fast
+or use a separate endpoint. The shared model API key is optional: submit an
+empty value when the endpoints do not require Bearer auth.
 Speech/ASR and OCR are optional and remain disabled unless their endpoints are
 provided. Endpoint and credential values are never included in the repository;
 they are written only to the VM's ignored, mode-0600 `.env` file.
+
+The current cloud overlay is a trusted-LAN profile and explicitly disables the
+optional Gateway owner-token authentication boundary. WebChat therefore opens
+without a token prompt. A normal deployment also clears a legacy
+`SPARKCLAW_API_TOKEN` value, and readiness rejects a cloud runtime that still
+reports `auth_required: true`.
 
 The command builds and starts PostgreSQL, Sandbox Runner, Gateway, and WebChat.
 The Gateway image installs Chromium, `agent-browser`, Xvfb, Chinese/emoji fonts,
@@ -171,8 +176,9 @@ The cloud overlay gives the four application services `restart: unless-stopped`,
 and the installer enables Docker so they recover after a host
 reboot. Gateway remains Docker-internal; WebChat publishes `18790` by default
 and is reachable at `http://<vm-ip>:18790`. This test topology does not install
-TLS or firewall rules. Do not install the DGX Spark autostart unit because that
-unit owns local NVIDIA model reconciliation.
+TLS or firewall rules and must remain on a trusted LAN: every device that can
+reach the WebChat port can operate SparkClaw. Do not install the DGX Spark
+autostart unit because that unit owns local NVIDIA model reconciliation.
 
 ## Product Runtime
 

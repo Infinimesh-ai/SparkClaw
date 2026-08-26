@@ -323,8 +323,6 @@ configuration_complete() {
 validate_configuration() {
   local key value
 
-  value="$(dotenv_value SPARKCLAW_API_TOKEN)"
-  [[ -n "$value" && "$value" != replace-with-* ]] || fail "SPARKCLAW_API_TOKEN is missing"
   [[ "$(dotenv_value SPARKCLAW_MODEL_MODE)" == "external" ]] || fail "SPARKCLAW_MODEL_MODE must be external"
   [[ "$(dotenv_value SPARKCLAW_STATE_BACKEND)" == "postgres" ]] || fail "SPARKCLAW_STATE_BACKEND must be postgres"
 
@@ -398,15 +396,9 @@ else
     log "preserving private environment file: $ENV_FILE"
   fi
 
-  api_token="$(dotenv_value SPARKCLAW_API_TOKEN)"
-  if [[ -z "$api_token" || "$api_token" == replace-with-* ]]; then
-    api_token="$(LC_ALL=C od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-    [[ ${#api_token} -eq 64 ]] || fail "failed to generate the WebChat owner token"
-    set_dotenv_value SPARKCLAW_API_TOKEN "$api_token"
-    log "generated the WebChat owner token"
-  fi
-  unset api_token
-
+  # Keep existing installations aligned with the trusted-LAN cloud profile.
+  # The Compose overlay also forces this empty so --check remains read-only.
+  set_dotenv_value SPARKCLAW_API_TOKEN ""
   set_dotenv_value SPARKCLAW_CONTAINER_UID "$(id -u)"
   set_dotenv_value SPARKCLAW_CONTAINER_GID "$(id -g)"
   set_dotenv_value SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT "$ROOT/data/workspaces"
@@ -479,5 +471,4 @@ if [[ -n "$vm_address" ]]; then
 else
   log "WebChat port: $webchat_port"
 fi
-log "owner token: read SPARKCLAW_API_TOKEN from $ENV_FILE"
 log "deployment complete"

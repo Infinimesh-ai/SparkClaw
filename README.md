@@ -56,7 +56,9 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
 ```
 
 The interactive setup accepts an empty model API key when the endpoints do not
-require authentication. Open `http://<vm-ip>:18790` after it completes.
+require authentication. The current trusted-LAN cloud profile does not enable
+Gateway owner-token authentication, so open `http://<vm-ip>:18790` directly
+after deployment.
 
 On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
 toolkit already installed, run the streamed installer:

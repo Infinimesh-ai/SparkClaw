@@ -32,6 +32,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 本地 file-backed state，PostgreSQL 18/pgvector 持久化 runtime records，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
+- JingSi→SparkClaw Runtime JSON/HTTP v1 机器契约已由 InfiniCenter 决策 0007 accepted；仓内测试直接读取中央 7-case manifest、Schema 与 HTTP binding，不复制协议类型。
 - DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding endpoints。当前 Fast + Embedding 校准在 15 条标注意图上达到 15/15。43-case runner 仍包含已退役 code/shell 原型 Workflow 的断言，在与当前能力矩阵对齐前不能作为完整的当前验收结果。
 
 已知运行边界：
@@ -40,6 +41,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 当前单机产品 profile 是 `single-fast-v1`：fast 使用 32K context + 8G KV cache 并关闭 MTP；embedding、guard 与 OvisOCR2 保持有界的辅助配置。历史 `dual-light-v1` 实测仍作为证据保留，但不再是默认启动项。
 - Gateway 仍记录逻辑 fast/deep Workflow 选择，但当前部署配置把两个 chat profiles 都解析到 `sparkclaw-fast`，不会启动 `sparkclaw-deep` 模型进程。
 - Workflow capability 是唯一执行路径；当前能力面以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
+- accepted 的 JingSi 契约不等于 provider 已实现：submit/request-key lookup/status/cancel/event endpoints、durable negative fence、service credential 与真实 JingSi 进程联调仍未完成。
 
 ## 快速开始
 

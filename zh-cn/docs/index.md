@@ -45,6 +45,7 @@
 | [Issue #18 文档操作契约](issue-18-document-operation-contract-design.md) | 已实现的 canonical format-operation catalog、统一 source-hash contract 与 runtime-only provenance 边界 |
 | [Issue #20 巨型文件拆分](issue-20-god-file-split-design.md) | 已实现的行为不变 panel、CSS、i18n、ToolHub 测试与内嵌 PPTX package 拆分 |
 | [模型基线](../benchmarks/model_baseline.md) | 模型端点实测证据和运行边界 |
+| [聊天模型对比（2026-08-25）](../benchmarks/model_comparison_2026-08-25.md) | 四个本地聊天模型的生产形状 Fast/Deep 质量、延迟、常驻与 promotion 证据 |
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
 | [Store](store.md) | 类型化 repository、风险分级可靠性、三 backend、内嵌 PostgreSQL migration、Runtime 监管、source layout 与验证；已完成的 S0-S5 迁移的长期规则并入本文，阶段计划保留在 Git 历史中 |

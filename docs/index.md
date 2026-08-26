@@ -47,6 +47,7 @@ documentation tree.
 | [Issue #18 document operation contract](issue-18-document-operation-contract-design.md) | Implemented canonical format-operation catalog, source-hash contract, and runtime-only provenance boundary |
 | [Issue #20 god-file splits](issue-20-god-file-split-design.md) | Implemented behavior-preserving panel, CSS, i18n, ToolHub test, and embedded PPTX package split |
 | [Model baseline](../benchmarks/model_baseline.md) | Measured model endpoint evidence and operating limits |
+| [Chat model comparison (2026-08-25)](../benchmarks/model_comparison_2026-08-25.md) | Production-shaped Fast/Deep quality, latency, residency, and promotion evidence for four local chat models |
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
 | [Store](store.md) | Typed repositories, risk-tiered reliability, three backends, embedded PostgreSQL migrations, Runtime supervision, source layout, and verification; the shipped S0-S5 migration's durable rules live here and the stage plans live in Git history |

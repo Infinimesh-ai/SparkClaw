@@ -124,11 +124,13 @@ Compose plugin when necessary. Existing checkouts with tracked or untracked
 local changes are never overwritten.
 
 On the first run, the deployment generates the WebChat owner token and prompts
-for the private Fast, embedding, and guard endpoint/model pairs. The logical
-Deep lane can reuse Fast or use a separate pair. The shared model API key is
-optional: submit an empty value when the endpoints do not require Bearer auth.
-Speech/ASR and OCR are optional and remain disabled unless their endpoint and
-model values are provided. These values are never included in the repository;
+for the private Fast, embedding, and guard endpoints. Standard SparkClaw model
+names are filled automatically, while existing configured names are preserved.
+The logical Deep lane can reuse Fast or use a separate endpoint. The shared
+model API key is optional: submit an empty value when the endpoints do not
+require Bearer auth.
+Speech/ASR and OCR are optional and remain disabled unless their endpoints are
+provided. Endpoint and credential values are never included in the repository;
 they are written only to the VM's ignored, mode-0600 `.env` file.
 
 The command builds and starts PostgreSQL, Sandbox Runner, Gateway, and WebChat.

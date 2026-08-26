@@ -153,6 +153,19 @@ model_name_valid() {
   [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/+:-]*$ ]]
 }
 
+configured_model_name() {
+  local key="$1"
+  local default_value="$2"
+  local value=""
+
+  value="$(dotenv_value "$key")"
+  if [[ -z "$value" || "$value" == replace-with-* ]]; then
+    value="$default_value"
+  fi
+  model_name_valid "$value" || fail "$key is invalid"
+  printf '%s' "$value"
+}
+
 api_key_valid() {
   local value="${1:-}"
   [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *' '* &&
@@ -220,7 +233,7 @@ configure_models() {
 
   log "configuration is written only to $ENV_FILE"
   fast_url="$(prompt_required "Fast base URL" "$(dotenv_value SPARKCLAW_FAST_BASE_URL)" http_url_valid)"
-  fast_model="$(prompt_required "Fast model name" "$(dotenv_value SPARKCLAW_FAST_MODEL)" model_name_valid)"
+  fast_model="$(configured_model_name SPARKCLAW_FAST_MODEL sparkclaw-fast)"
   set_dotenv_value SPARKCLAW_FAST_BASE_URL "$fast_url"
   set_dotenv_value SPARKCLAW_FAST_MODEL "$fast_model"
   set_dotenv_value SPARKCLAW_FAST_SERVED_NAME "$fast_model"
@@ -235,19 +248,19 @@ configure_models() {
     deep_model="$fast_model"
   else
     deep_url="$(prompt_required "Deep base URL" "$(dotenv_value SPARKCLAW_DEEP_BASE_URL)" http_url_valid)"
-    deep_model="$(prompt_required "Deep model name" "$(dotenv_value SPARKCLAW_DEEP_MODEL)" model_name_valid)"
+    deep_model="$(configured_model_name SPARKCLAW_DEEP_MODEL sparkclaw-deep)"
   fi
   set_dotenv_value SPARKCLAW_DEEP_BASE_URL "$deep_url"
   set_dotenv_value SPARKCLAW_DEEP_MODEL "$deep_model"
   set_dotenv_value SPARKCLAW_DEEP_SERVED_NAME "$deep_model"
 
   embedding_url="$(prompt_required "Embedding base URL" "$(dotenv_value SPARKCLAW_EMBEDDING_BASE_URL)" http_url_valid)"
-  embedding_model="$(prompt_required "Embedding model name" "$(dotenv_value SPARKCLAW_EMBEDDING_MODEL)" model_name_valid)"
+  embedding_model="$(configured_model_name SPARKCLAW_EMBEDDING_MODEL sparkclaw-embedding)"
   set_dotenv_value SPARKCLAW_EMBEDDING_BASE_URL "$embedding_url"
   set_dotenv_value SPARKCLAW_EMBEDDING_MODEL "$embedding_model"
 
   guard_url="$(prompt_required "Guard base URL" "$(dotenv_value SPARKCLAW_GUARD_BASE_URL)" http_url_valid)"
-  guard_model="$(prompt_required "Guard model name" "$(dotenv_value SPARKCLAW_GUARD_MODEL)" model_name_valid)"
+  guard_model="$(configured_model_name SPARKCLAW_GUARD_MODEL sparkclaw-guard)"
   set_dotenv_value SPARKCLAW_GUARD_BASE_URL "$guard_url"
   set_dotenv_value SPARKCLAW_GUARD_MODEL "$guard_model"
 
@@ -272,7 +285,7 @@ configure_models() {
 
   if prompt_yes_no "Enable speech/ASR" "$(is_true "$(dotenv_value SPARKCLAW_SPEECH_ENABLED)" && printf true || printf false)"; then
     speech_url="$(prompt_required "Speech service root URL" "$(dotenv_value SPARKCLAW_SPEECH_BASE_URL)" http_url_valid)"
-    speech_model="$(prompt_required "Speech model name" "$(dotenv_value SPARKCLAW_SPEECH_MODEL)" model_name_valid)"
+    speech_model="$(configured_model_name SPARKCLAW_SPEECH_MODEL sparkclaw-asr)"
     set_dotenv_value SPARKCLAW_SPEECH_ENABLED true
     set_dotenv_value SPARKCLAW_SPEECH_BASE_URL "$speech_url"
     set_dotenv_value SPARKCLAW_SPEECH_ALLOWED_HOSTS "$(url_host "$speech_url")"
@@ -283,7 +296,7 @@ configure_models() {
 
   if prompt_yes_no "Enable document OCR" "$(is_true "$(dotenv_value SPARKCLAW_OCR_ENABLED)" && printf true || printf false)"; then
     ocr_url="$(prompt_required "OCR OpenAI base URL" "$(dotenv_value SPARKCLAW_OCR_BASE_URL)" http_url_valid)"
-    ocr_model="$(prompt_required "OCR model name" "$(dotenv_value SPARKCLAW_OCR_MODEL)" model_name_valid)"
+    ocr_model="$(configured_model_name SPARKCLAW_OCR_MODEL sparkclaw-ocr)"
     set_dotenv_value SPARKCLAW_OCR_ENABLED true
     set_dotenv_value SPARKCLAW_OCR_PROVIDER openai-http
     set_dotenv_value SPARKCLAW_OCR_BASE_URL "$ocr_url"

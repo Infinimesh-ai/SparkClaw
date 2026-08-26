@@ -7,6 +7,9 @@ services:
 
   gateway:
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SPARKCLAW_API_TOKEN: ${SPARKCLAW_API_TOKEN:-}

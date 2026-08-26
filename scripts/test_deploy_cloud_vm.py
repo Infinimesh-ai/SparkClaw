@@ -124,24 +124,85 @@ class DeployCloudVMTest(unittest.TestCase):
         answers = "\n".join(
             (
                 "https://private.models.test/fast/v1",
-                "private-fast",
                 "",
                 "https://private.models.test/embedding/v1",
-                "private-embedding",
                 "https://private.models.test/guard/v1",
-                "private-guard",
-                "",
                 "",
                 "",
                 "",
             )
-        )
+        ) + "\n"
         result, _, final_env = self.run_script(TEMPLATE.read_text(encoding="utf-8"), input_text=answers)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SPARKCLAW_FAST_BASE_URL=https://private.models.test/fast/v1", final_env)
         self.assertIn("SPARKCLAW_DEEP_BASE_URL=https://private.models.test/fast/v1", final_env)
+        self.assertIn("SPARKCLAW_FAST_MODEL=sparkclaw-fast", final_env)
+        self.assertIn("SPARKCLAW_DEEP_MODEL=sparkclaw-fast", final_env)
+        self.assertIn("SPARKCLAW_EMBEDDING_MODEL=sparkclaw-embedding", final_env)
+        self.assertIn("SPARKCLAW_GUARD_MODEL=sparkclaw-guard", final_env)
         self.assertIn("OPENAI_API_KEY=\n", final_env)
+        self.assertNotIn("model name", result.stderr.lower())
+
+    def test_separate_deep_endpoint_uses_standard_deep_name(self) -> None:
+        answers = "\n".join(
+            (
+                "https://private.models.test/fast/v1",
+                "n",
+                "https://private.models.test/deep/v1",
+                "https://private.models.test/embedding/v1",
+                "https://private.models.test/guard/v1",
+                "",
+                "",
+                "",
+            )
+        ) + "\n"
+        result, _, final_env = self.run_script(
+            TEMPLATE.read_text(encoding="utf-8"), input_text=answers
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "SPARKCLAW_DEEP_BASE_URL=https://private.models.test/deep/v1", final_env
+        )
+        self.assertIn("SPARKCLAW_DEEP_MODEL=sparkclaw-deep", final_env)
+        self.assertIn("SPARKCLAW_DEEP_SERVED_NAME=sparkclaw-deep", final_env)
+        self.assertNotIn("model name", result.stderr.lower())
+
+    def test_reconfiguration_preserves_existing_model_names_without_prompting(self) -> None:
+        result, _, final_env = self.run_script(
+            configured_env(), "--configure", input_text="\n" * 8
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SPARKCLAW_FAST_MODEL=fast-model", final_env)
+        self.assertIn("SPARKCLAW_DEEP_MODEL=deep-model", final_env)
+        self.assertIn("SPARKCLAW_EMBEDDING_MODEL=embedding-model", final_env)
+        self.assertIn("SPARKCLAW_GUARD_MODEL=guard-model", final_env)
+        self.assertNotIn("model name", result.stderr.lower())
+
+    def test_optional_services_use_standard_names_without_prompting(self) -> None:
+        answers = "\n".join(
+            (
+                "https://private.models.test/fast/v1",
+                "",
+                "https://private.models.test/embedding/v1",
+                "https://private.models.test/guard/v1",
+                "",
+                "y",
+                "https://private.models.test/asr",
+                "y",
+                "https://private.models.test/ocr/v1",
+            )
+        ) + "\n"
+        result, _, final_env = self.run_script(
+            TEMPLATE.read_text(encoding="utf-8"), input_text=answers
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SPARKCLAW_SPEECH_MODEL=sparkclaw-asr", final_env)
+        self.assertIn("SPARKCLAW_OCR_MODEL=sparkclaw-ocr", final_env)
+        self.assertNotIn("model name", result.stderr.lower())
 
     def test_legacy_placeholder_key_is_rejected_without_reconfiguration(self) -> None:
         env_text = set_env_value(configured_env(), "OPENAI_API_KEY", "replace-with-cloud-api-key")

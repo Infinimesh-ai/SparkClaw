@@ -106,10 +106,11 @@ stdin 重新连接到终端，再执行 `scripts/deploy_cloud_vm.sh`。VM 部署
 Docker Engine 与 Compose plugin；已有 checkout 存在 tracked 或 untracked 本地修改时绝不
 覆盖。
 
-首次运行会自动生成 WebChat owner token，并交互输入私有的 Fast、embedding、guard endpoint
-和模型名。逻辑 Deep lane 可以复用 Fast，也可以单独配置。模型 API Key 是可选项：endpoint
-不需要 Bearer 认证时直接回车留空。Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自
-的 endpoint 和模型名。这些值不会进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的
+首次运行会自动生成 WebChat owner token，并交互输入私有的 Fast、embedding、guard endpoint。
+脚本自动填入 SparkClaw 标准模型名，同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，
+也可以单独配置 endpoint。模型 API Key 是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
+Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。Endpoint 与凭据不会
+进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的
 `.env`。
 
 脚本构建并启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。Gateway 镜像内会安装

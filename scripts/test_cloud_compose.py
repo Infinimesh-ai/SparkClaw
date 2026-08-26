@@ -171,7 +171,7 @@ class CloudComposeTest(unittest.TestCase):
         self.assertFalse(any("exec" in call for call in docker_calls))
         self.assertEqual(curl_calls, [])
 
-    def test_example_contains_no_model_endpoints_or_api_key(self) -> None:
+    def test_example_contains_standard_model_names_but_no_endpoints_or_api_key(self) -> None:
         values = {}
         for line in EXAMPLE_ENV.read_text(encoding="utf-8").splitlines():
             if line and not line.startswith("#") and "=" in line:
@@ -182,19 +182,19 @@ class CloudComposeTest(unittest.TestCase):
         self.assertEqual(values["SPARKCLAW_API_TOKEN"], "")
         for key in (
             "SPARKCLAW_FAST_BASE_URL",
-            "SPARKCLAW_FAST_MODEL",
             "SPARKCLAW_DEEP_BASE_URL",
-            "SPARKCLAW_DEEP_MODEL",
             "SPARKCLAW_EMBEDDING_BASE_URL",
-            "SPARKCLAW_EMBEDDING_MODEL",
             "SPARKCLAW_GUARD_BASE_URL",
-            "SPARKCLAW_GUARD_MODEL",
             "SPARKCLAW_SPEECH_BASE_URL",
-            "SPARKCLAW_SPEECH_MODEL",
             "SPARKCLAW_OCR_BASE_URL",
-            "SPARKCLAW_OCR_MODEL",
         ):
             self.assertEqual(values[key], "", key)
+        self.assertEqual(values["SPARKCLAW_FAST_MODEL"], "sparkclaw-fast")
+        self.assertEqual(values["SPARKCLAW_DEEP_MODEL"], "sparkclaw-deep")
+        self.assertEqual(values["SPARKCLAW_EMBEDDING_MODEL"], "sparkclaw-embedding")
+        self.assertEqual(values["SPARKCLAW_GUARD_MODEL"], "sparkclaw-guard")
+        self.assertEqual(values["SPARKCLAW_SPEECH_MODEL"], "sparkclaw-asr")
+        self.assertEqual(values["SPARKCLAW_OCR_MODEL"], "sparkclaw-ocr")
 
     def test_cloud_overlay_keeps_restart_policy(self) -> None:
         result = subprocess.run(
@@ -224,6 +224,10 @@ class CloudComposeTest(unittest.TestCase):
         environment = config["services"]["gateway"]["environment"]
         self.assertEqual(environment["SPARKCLAW_MODEL_MODE"], "external")
         self.assertEqual(environment["SPARKCLAW_STATE_BACKEND"], "postgres")
+        self.assertEqual(
+            config["services"]["gateway"]["depends_on"]["postgres"]["condition"],
+            "service_healthy",
+        )
         for service in ("postgres", "sandbox-runner", "gateway", "webchat"):
             self.assertEqual(config["services"][service]["restart"], "unless-stopped")
 

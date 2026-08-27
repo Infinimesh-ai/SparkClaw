@@ -10,6 +10,12 @@
 
 ### Added
 
+- 新增 ISCP v0.2 托管模式：`iscp-bridge enroll-ticket` 子命令把 Cloud 签发的 pairing
+  ticket v3 兑换为 `mode: "managed"` 注册 bundle；新增托管 session 层，由 Bridge 持有
+  Trust Grant 并主动向只作应答方的手机发起会话；并按 Relay descriptor 声明的能力，主动
+  完成 Trust Grant 自动续期与 Relay 凭据恢复。旧版外部签发的双 grant 注册契约保持不变。
+- 新增面向手机首页的只读投影 `agent.activity.list.v1` 与 `agent.snapshot.get.v1`
+  （能力 `agent.snapshot` v1），完全基于已有的审批、run 与通知状态聚合，不新增 store 实体。
 - 新增 WebChat 原生边录边转写：Qwen3-ASR 持续返回 revisioned partial，同一 session 返回
   authoritative final；增加 browser-local 静音结束模式（默认关闭），并在录音中途发生任意
   realtime failure 后自动使用一份完整 WAV 执行 batch recovery。

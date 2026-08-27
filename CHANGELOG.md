@@ -10,6 +10,16 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
+- ISCP v0.2 managed Bridge operation: an `iscp-bridge enroll-ticket`
+  subcommand that redeems a Cloud-issued pairing ticket v3 into a
+  `mode: "managed"` enrollment bundle, a managed session layer in which the
+  Bridge holds the Trust Grant and initiates toward the responder-only phone,
+  and proactive grant auto-renewal plus Relay credential recovery gated on the
+  Relay descriptor's advertised capabilities. The legacy externally-issued
+  dual-grant enrollment contract is unchanged.
+- Read-only phone home-screen projections `agent.activity.list.v1` and
+  `agent.snapshot.get.v1` (capability `agent.snapshot` v1), aggregated from
+  existing approval, run, and notification state with no new store entity.
 - Native record-time WebChat speech transcription with revisioned Qwen3-ASR
   partials, an authoritative same-session final, browser-local silence stop
   modes (Off by default), and automatic complete-WAV batch recovery after any

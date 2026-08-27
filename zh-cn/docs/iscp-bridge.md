@@ -34,8 +34,18 @@ Bridge 只声明当前 Gateway 已实现的能力：
 - `agent.conversation` v1；
 - `agent.streaming` v1；
 - `agent.activities` v1；
+- `agent.snapshot` v1；
 - `agent.approvals` v1；
 - `agent.notifications` v1。
+
+`agent.activity.list.v1` 与 `agent.snapshot.get.v1` 是对 Gateway 已存储状态
+（待审批、agent run、未读被动通知）的只读投影，不新增任何 store 实体、入口或结果
+通路，且只覆盖该 principal 自己的非隐藏 session。`agent.activity.list.v1` 接受可选的
+UTC `date`（`YYYY-MM-DD`，默认今天）与 `limit`（默认 50，上限 200）；待审批项无论属于
+哪一天都会返回，因为在被处理前它始终可操作。活动的 `kind` 是开放词表——当前为
+`approval_pending`、`run_running`、`run_completed`、`run_failed`——消费方必须容忍未知
+取值。run 的分桶来自与 `agent.operation.status.v1` 相同的归一化逻辑，因此两个面向手机的
+接口对同一个 run 的判断永远一致。
 
 `agent.notification.deliver.v1` 只接收结构化的 LocalMind `document_mention` 或
 `comment_mention`、有界 deep link 和发生时间。Gateway 先把 owner-scoped 收件箱记录持久化，
@@ -63,6 +73,44 @@ Schema 位于
 - Bridge 校验 peer 身份、Domain、Trust Grant audience、confirmation thumbprint、permission、Relay constraint、revocation epoch、过期时间、Hello 时间窗、endpoint 绑定和 envelope 序号。
 
 ## 注册
+
+注册存在两套契约。**托管注册**（ISCP v0.2，见下）是 JingSi Cloud 部署所用的路径；其后
+记录的**旧版**外部签发 bundle 流程仅保留给 LocalMind。
+
+### 托管注册（ISCP v0.2 Pairing Ticket v3）
+
+手机 App 签发 `iscp.pairing_ticket.v3`，Bridge 用一次注册调用兑换它，同时获得官方
+device id、Relay 凭据，以及一份预授权的出站 Trust Grant（subject = Bridge，
+audience = 发起邀请的手机）：
+
+```bash
+cd services/gateway
+go run ./cmd/iscp-bridge enroll-ticket \
+  -config ../../configs/iscp-bridge.json \
+  -ticket "<App 提供的二维码 / deep-link / 复制字符串>" \
+  -relay-url https://iscp.infinimesh.cloud \
+  -relay-ws-url wss://iscp.infinimesh.cloud/v2/relay/connect \
+  -display-name "客厅 GB10"
+```
+
+命令会打印六位设备确认码。**在手机上批准邀请之前必须先核对该确认码**——它由 Bridge 的身份
+密钥派生，是把这台设备与本次邀请绑定的带外校验。命令会拒绝只携带 v2 ticket 的载荷；并且在
+一次性 ticket 于服务端被消费之前就先校验 grant 角色不变式，因此被拒绝的尝试不会浪费 ticket。
+
+托管 bundle 以 `mode: "managed"` 写入，与旧契约有三点不同：
+
+- session 方向反转——Bridge 持有 Trust Grant 并**主动发起**，手机只作为应答方，回应中
+  `grant_id` 为空；
+- 每个 peer 只有一份出站 grant，取代原本的双 grant 组合，因此不再需要入站 grant 绑定；
+- Trust Root 是托管的多租户根，从自己的平台 Domain 签名，因此不要求与设备 Domain 相同。
+
+在托管模式下运行时，Bridge 会主动维持自身凭据：Trust Grant 在其可续期窗口内
+（到期前 `min(24h, ttl/5)`）自动续期，Relay 凭据在 refresh TTL 失效前完成恢复。两者都属于
+可选的 Relay 能力，每轮通过 Relay descriptor 的能力元数据做特性探测，未声明该能力的部署
+不会被探测。任何会扩大配对范围的续期——audience、subject、确认指纹发生变化，或新增任何
+permission——都会被拒绝且不改动已存储的 grant；扩大授权范围必须重新走人工批准的配对流程。
+
+### 旧版注册
 
 对 LocalMind 而言，以下流程只记录旧链路的当前运维方式。生成的 request 与外部返回 bundle
 不得被目标 MCP gateway 接受，也不得转换为目标 peer binding；切换时，现有 LocalMind device

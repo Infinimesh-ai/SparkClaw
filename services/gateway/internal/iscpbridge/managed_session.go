@@ -40,8 +40,8 @@ const (
 func bridgeManifest() map[string]any {
 	capabilityIDs := []string{
 		"agent.sessions", "agent.conversation", "agent.streaming",
-		"agent.activities", "agent.approvals", "agent.notifications",
-		"agent.operations",
+		"agent.activities", "agent.snapshot", "agent.approvals",
+		"agent.notifications", "agent.operations",
 	}
 	capabilities := make([]map[string]any, 0, len(capabilityIDs))
 	for _, id := range capabilityIDs {

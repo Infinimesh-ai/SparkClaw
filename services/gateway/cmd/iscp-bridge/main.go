@@ -33,11 +33,48 @@ func run(args []string) error {
 		return runBridge(args[1:])
 	case "enroll":
 		return createEnrollmentRequest(args[1:])
+	case "enroll-ticket":
+		return enrollWithTicket(args[1:])
 	case "mock":
 		return runMockBridge(args[1:])
 	default:
-		return errors.New("usage: iscp-bridge run -config PATH | enroll [options] | mock [options]")
+		return errors.New("usage: iscp-bridge run -config PATH | enroll [options] | enroll-ticket [options] | mock [options]")
 	}
+}
+
+// enrollWithTicket consumes an ISCP v0.2 pairing ticket (v3) from the JingSi
+// App and persists the managed enrollment bundle the Bridge runs from.
+func enrollWithTicket(args []string) error {
+	flags := flag.NewFlagSet("enroll-ticket", flag.ContinueOnError)
+	configPath := flags.String("config", "", "Bridge config path (identity/keyring/enrollment locations)")
+	payload := flags.String("ticket", "", "enrollment payload from the App (QR/deep-link/copy string)")
+	relayURL := flags.String("relay-url", "", "managed relay base URL (e.g. https://iscp.infinimesh.cloud)")
+	relayWebSocketURL := flags.String("relay-ws-url", "", "managed relay WebSocket URL")
+	trustURL := flags.String("trust-url", "", "trust root base URL (defaults to the relay base URL)")
+	displayName := flags.String("display-name", "", "device display name registered with the Cloud")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *configPath == "" || *payload == "" || *relayURL == "" || *relayWebSocketURL == "" {
+		return errors.New("enroll-ticket requires -config, -ticket, -relay-url, and -relay-ws-url")
+	}
+	config, err := iscpbridge.LoadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	files := config.DeviceFiles()
+	_, err = iscpbridge.EnrollWithTicket(context.Background(), iscpbridge.TicketEnrollmentOptions{
+		Payload:           *payload,
+		RelayBaseURL:      *relayURL,
+		RelayWebSocketURL: *relayWebSocketURL,
+		TrustBaseURL:      *trustURL,
+		DisplayName:       *displayName,
+		IdentityDirectory: files.Directory,
+		KeyBackend:        config.IdentityKeyBackend,
+		KeyringService:    config.IdentityKeyringService,
+		Profile:           config.Profile,
+	}, config.EnrollmentFile, func(line string) { fmt.Println(line) })
+	return err
 }
 
 func runMockBridge(args []string) error {

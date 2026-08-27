@@ -54,9 +54,10 @@ type Service struct {
 	gateway  *GatewayClient
 	relay    *RelayClient
 
-	mu       sync.RWMutex
-	sessions map[string]*secureSession
-	pumps    map[string]context.CancelFunc
+	mu           sync.RWMutex
+	sessions     map[string]*secureSession
+	pumps        map[string]context.CancelFunc
+	managedPeers map[string]*managedPeer
 }
 
 func NewService(config Config, gateway *GatewayClient, relay *RelayClient, device identity.Device) (*Service, error) {
@@ -105,6 +106,11 @@ func LoadService(config Config) (*Service, error) {
 }
 
 func (s *Service) Run(ctx context.Context) error {
+	// Managed bundles flip the session direction: the Bridge holds the grant
+	// and initiates toward the responder-only phone (ISCP v0.2).
+	if s.managedMode() {
+		s.runManagedInitiators(ctx)
+	}
 	backoff := time.Duration(s.config.Relay.ReconnectMinSeconds) * time.Second
 	maxBackoff := time.Duration(s.config.Relay.ReconnectMaxSeconds) * time.Second
 	for {
@@ -137,6 +143,9 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) handleRelayMessage(ctx context.Context, raw json.RawMessage) error {
+	if s.managedMode() {
+		return s.managedHandleRelayMessage(ctx, raw)
+	}
 	var metadata struct {
 		Type string `json:"type"`
 	}

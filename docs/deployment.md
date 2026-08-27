@@ -102,6 +102,114 @@ are read from `.env`, and an invalid port fails before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
+## Cloud-Model Server Runtime
+
+Use the cloud runtime on a Linux server or VM that owns the SparkClaw
+application and durable state but not the model processes. It starts exactly
+PostgreSQL, Sandbox Runner, Gateway, and WebChat; the model services in the
+`models-local` profile are not selected.
+
+On an Ubuntu VM, run the streamed installer as a normal sudo-capable user:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+```
+
+The bootstrap installs Git when necessary, safely clones or fast-forwards the
+repository under `$HOME/SparkClaw`, reconnects stdin to the terminal, and runs
+`scripts/deploy_cloud_vm.sh`. The VM deployment installs Docker Engine and the
+Compose plugin when necessary. Existing checkouts with tracked or untracked
+local changes are never overwritten.
+
+On the first run, the deployment prompts for the private Fast, embedding, and
+guard endpoints. Standard SparkClaw model names are filled automatically, while
+existing configured names are preserved. The logical Deep lane can reuse Fast
+or use a separate endpoint. The shared model API key is optional: submit an
+empty value when the endpoints do not require Bearer auth.
+Speech/ASR and OCR are optional and remain disabled unless their endpoints are
+provided. Endpoint and credential values are never included in the repository;
+they are written only to the VM's ignored, mode-0600 `.env` file.
+
+The current cloud overlay is a trusted-LAN profile and explicitly disables the
+optional Gateway owner-token authentication boundary. WebChat therefore opens
+without a token prompt. A normal deployment also clears a legacy
+`SPARKCLAW_API_TOKEN` value, and readiness rejects a cloud runtime that still
+reports `auth_required: true`.
+
+The command builds and starts PostgreSQL, Sandbox Runner, Gateway, and WebChat.
+The Gateway image installs Chromium, `agent-browser`, Xvfb, Chinese/emoji fonts,
+and ffmpeg. Deployment succeeds only after both Gateway readiness and a
+container-local Chromium open/snapshot smoke test pass. Browser state persists
+under `data/browser-profiles`. No Ubuntu desktop or host Chromium package is
+required.
+
+Hidden Chromium works on a headless VM. Weixin QR login is different: it opens
+a visible Chromium window on the VM owner's desktop so the owner can scan it.
+When the cloud start script resolves a local X11/XWayland display, it
+automatically stacks `docker/compose.visible-browser.yaml` and prints `Visible
+Chromium display: ...`. If no display is available, deployment remains healthy
+with hidden Chromium only and prints an explicit warning; opening the Weixin
+login window will then fail by design. The window appears on the VM desktop,
+not on a different computer that merely opened WebChat.
+
+Run the deployment from the VM desktop session, or use the PVE console to log
+in to that desktop, then reconcile the stack:
+
+```bash
+cd "$HOME/SparkClaw"
+bash scripts/resolve-browser-display.sh
+bash scripts/start_cloud_compose.sh
+```
+
+If the VM has multiple displays, select the active display and authority file
+explicitly before the second command:
+
+```bash
+export SPARKCLAW_BROWSER_DISPLAY=:1
+export SPARKCLAW_BROWSER_XAUTHORITY=/run/user/$(id -u)/gdm/Xauthority
+bash scripts/start_cloud_compose.sh
+```
+
+Do not use a synthetic Xvfb display for QR login: it is suitable for hidden
+automation but is not an owner-visible scan surface.
+
+Re-run the repository deployment entrypoint to reconcile the runtime without
+updating the checkout:
+
+```bash
+bash "$HOME/SparkClaw/scripts/deploy_cloud_vm.sh"
+```
+
+Re-enter the private configuration or perform a read-only deployment check:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | \
+  bash -s -- --configure
+
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | \
+  bash -s -- --check
+```
+
+SparkClaw appends `/chat/completions` or `/embeddings` to the model base URLs.
+The current model router uses one optional `OPENAI_API_KEY` for Fast, Deep,
+embedding, and guard; use a trusted compatibility proxy when providers require
+different credentials or headers. The speech adapter expects its service root
+because it appends `/v1/audio/*`; OCR expects an OpenAI-compatible base URL.
+
+The cloud overlay gives the four application services `restart: unless-stopped`,
+and the installer enables Docker so they recover after a host
+reboot. Gateway remains Docker-internal; WebChat publishes `18790` by default
+and is reachable at `http://<vm-ip>:18790`. This test topology does not install
+TLS or firewall rules and must remain on a trusted LAN: every device that can
+reach the WebChat port can operate SparkClaw. Do not install the DGX Spark
+autostart unit because that unit owns local NVIDIA model reconciliation.
+
 ## Product Runtime
 
 The deployment entrypoint ultimately delegates to the same product startup

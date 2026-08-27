@@ -246,9 +246,9 @@ Linux setup 检查还要求 fontconfig 和已安装的中文字体。Debian 和 
 `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`、`SPARKCLAW_BROWSER_PROFILE_DIR` 和
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`。常规 host 与 Compose 命令见[部署](deployment.md)。
 
-`npm run dev` 会自动解析这两个 desktop 值并应用
-`docker/compose.visible-browser.yaml` overlay。直接调用 Compose 时先导出，并显式
-叠加 overlay：
+`npm run dev` 与 `scripts/start_cloud_compose.sh` 都会自动解析这两个 desktop 值并应用
+`docker/compose.visible-browser.yaml` overlay；没有本地 display 时，cloud 脚本保留
+hidden-only 运行。直接调用 Compose 时先导出，并显式叠加 overlay：
 
 ```bash
 mapfile -t browser_display < <(scripts/resolve-browser-display.sh)

@@ -73,14 +73,6 @@ func infoEnabled(cfg config.Config) bool {
 	return cfg.Tools.Web.Search.Enabled
 }
 
-// infoWeatherEnabled gates weather.lookup on the Infinimesh Info credentials
-// it actually calls with, not on the unrelated web-search toggle: an
-// unconfigured deployment must not offer the tool, and a configured one must
-// not lose it because web search is off.
-func infoWeatherEnabled(cfg config.Config) bool {
-	return cfg.Plugins.Entries.InfinimeshInfo.Config.Configured()
-}
-
 func browserAutomationPassthrough() toolExecutor {
 	return func(h *ToolHub, ctx context.Context, name string, args map[string]any, sessionID, _ string) (Result, error) {
 		return h.browserAutomationTool(ctx, name, args, sessionID)
@@ -242,7 +234,7 @@ var toolRegistry = func() map[string]toolRegistration {
 			"Do not use for public Web search, knowledge-index search, or file mutation.", app.ToolEffectWorkspaceRead),
 		"images.inspect": documentReadRegistration(ctxArgsSessionRun((*ToolHub).imageInspect), []string{app.DocumentFormatImage},
 			"Inspect one explicitly identified image with Fast visual semantics and, when OCR is enabled, verbatim in-image Markdown with explicit text/no-text classification."),
-		"weather.lookup": workflowRegistration(toolRegistration{enabled: infoWeatherEnabled, run: ctxArgs((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
+		"weather.lookup": workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
 			map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWeatherPayload,
 			"Read normalized metric weather for one bound city from the dedicated Infinimesh Info weather endpoint.",
 			"Use only as the lookup stage of browser.weather.",
@@ -257,7 +249,7 @@ var toolRegistry = func() map[string]toolRegistration {
 		"browser.read":                   browserReadRegistration(),
 		"browser.identify_public_target": browserPublicTargetRegistration(),
 		"browser.visual_inspect":         browserVisualRegistration(),
-		"web.search": workflowRegistration(toolRegistration{enabled: infoEnabled, run: ctxArgs((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
+		"web.search": workflowRegistration(toolRegistration{enabled: infoEnabled, run: ctxArgsSessionRun((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
 			map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWebSearch,
 			"Discover public web sources when the target URL is unknown.",
 			"Use for public search, freshness checks, and source discovery.",

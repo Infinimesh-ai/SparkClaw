@@ -19,6 +19,8 @@ import (
 
 const maxTaskPollWaitMS = 30_000
 
+const LocalMindIntegrationID = "localmind"
+
 func (m *Manager) taskRegistrations(client *mcpclient.Client, snapshot Snapshot) []toolhub.DynamicToolRegistration {
 	delegateRead := m.delegateRegistration(client, snapshot, delegateReadLocalName, app.RiskRead, false, app.ToolCapabilityLocalMindDelegateRead)
 	delegateWrite := m.delegateRegistration(client, snapshot, delegateWriteLocalName, app.RiskDangerous, true, app.ToolCapabilityLocalMindDelegateWrite)
@@ -76,7 +78,52 @@ func (m *Manager) taskRegistrations(client *mcpclient.Client, snapshot Snapshot)
 			return m.executeCancelTask(ctx, client, snapshot, args, sessionID, runID)
 		},
 	}
-	return []toolhub.DynamicToolRegistration{delegateRead, delegateWrite, getTask, cancelTask}
+	return m.wrapTaskRegistrations([]toolhub.DynamicToolRegistration{delegateRead, delegateWrite, getTask, cancelTask})
+}
+
+func (m *Manager) wrapTaskRegistrations(registrations []toolhub.DynamicToolRegistration) []toolhub.DynamicToolRegistration {
+	for index := range registrations {
+		execute := registrations[index].Execute
+		registrations[index].Execute = func(ctx context.Context, args map[string]any, sessionID, runID string) (toolhub.Result, error) {
+			callCtx, finish, err := m.beginTaskCall(ctx, runID)
+			if err != nil {
+				return toolhub.Result{}, err
+			}
+			defer finish()
+			result, err := execute(callCtx, args, sessionID, runID)
+			if cause := context.Cause(callCtx); app.ToolErrorCodeFrom(cause) == app.ToolErrorLocalMindCredentialsChanged {
+				return result, cause
+			}
+			return result, err
+		}
+	}
+	return registrations
+}
+
+func (m *Manager) beginTaskCall(ctx context.Context, runID string) (context.Context, func(), error) {
+	m.runtimeMu.Lock()
+	if m.updating {
+		m.runtimeMu.Unlock()
+		return nil, nil, &app.CodedToolError{Code: app.ToolErrorLocalMindUpdating, Err: errors.New("LocalMind credentials are being updated")}
+	}
+	generation := m.generation
+	if m.runs != nil {
+		if err := m.runs.Use(runID, LocalMindIntegrationID, generation); err != nil {
+			m.runtimeMu.Unlock()
+			return nil, nil, &app.CodedToolError{Code: app.ToolErrorLocalMindCredentialsChanged, Err: errors.New("LocalMind credentials changed; the task was stopped")}
+		}
+	}
+	callCtx, cancel := context.WithCancelCause(ctx)
+	m.nextCallID++
+	callID := m.nextCallID
+	m.calls[callID] = cancel
+	m.runtimeMu.Unlock()
+	return callCtx, func() {
+		m.runtimeMu.Lock()
+		delete(m.calls, callID)
+		m.runtimeMu.Unlock()
+		cancel(nil)
+	}, nil
 }
 
 func (m *Manager) delegateRegistration(client *mcpclient.Client, snapshot Snapshot, name string, risk app.RiskLevel, approval bool, capability string) toolhub.DynamicToolRegistration {

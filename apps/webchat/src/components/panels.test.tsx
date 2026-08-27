@@ -4,6 +4,22 @@ import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig, Read
 import { dictionaries } from "../i18n";
 import { ApprovalPanel, SettingsPanel } from "./panels";
 import { StatusPanel } from "./panels/status";
+import { ConnectorBindingSettings } from "./panels/settingsBindings";
+
+const settingsConfig = {
+  tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
+  iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
+  model: {
+    mock: true,
+    fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
+    deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
+    embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
+    guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
+  },
+  gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
+  workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
+  storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
+} as unknown as PublicConfig;
 
 describe("StatusPanel resident services", () => {
   it("renders all Gateway-projected lanes with readiness and latest call state", () => {
@@ -145,23 +161,9 @@ describe("SettingsPanel External MCP", () => {
       running: false, state: "disabled", binding_status: "", binding_startable: false,
       supports_multiple_bindings: false, version: 0
     };
-    const config = {
-      tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
-      iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
-      model: {
-        mock: true,
-        fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
-        deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
-        embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
-        guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
-      },
-      gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
-      workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
-      storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
-    } as unknown as PublicConfig;
     const markup = renderToStaticMarkup(
       <SettingsPanel
-        runtimeConfig={config} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
+        runtimeConfig={settingsConfig} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
         text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
         onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
         onOpenNotificationBindingBrowser={async () => {}}
@@ -169,9 +171,8 @@ describe("SettingsPanel External MCP", () => {
       />
     );
     expect(markup).toContain(dictionaries.en.settings.externalMCP);
-    expect(markup).toContain(dictionaries.en.settings.useISCP);
-    expect(markup).toContain(dictionaries.en.settings.allowLANAccess);
-    expect(markup).toContain(dictionaries.en.settings.iscpPairing);
+    expect(markup).toContain(dictionaries.en.settings.connections);
+    expect(markup).toContain(dictionaries.en.settings.messaging);
     expect(markup).not.toContain(dictionaries.en.settings.addWeixinBinding);
   });
 });
@@ -188,27 +189,17 @@ describe("SettingsPanel Weixin login", () => {
       status: "waiting_scan", qr_code_url: "https://liteapp.weixin.qq.com/q/provider-ticket",
       default_for_channel: false, scopes: [], created_at: "2026-08-13T00:00:00Z", updated_at: "2026-08-13T00:00:00Z"
     };
-    const config = {
-      tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
-      iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
-      model: {
-        mock: true,
-        fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
-        deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
-        embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
-        guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
-      },
-      gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
-      workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
-      storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
-    } as unknown as PublicConfig;
     const markup = renderToStaticMarkup(
-      <SettingsPanel
-        runtimeConfig={config} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[binding]}
-        text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-        onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => binding}
-        onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
-        onUpdateConnector={async () => connector} onUpdatePolicy={async () => {}}
+      <ConnectorBindingSettings
+        connectors={[connector]}
+        notificationBindings={[binding]}
+        text={dictionaries.en}
+        language="en"
+        onStartNotificationBinding={async () => {}}
+        onRefreshNotificationBinding={async () => binding}
+        onOpenNotificationBindingBrowser={async () => {}}
+        onRevokeNotificationBinding={async () => {}}
+        onUpdateConnector={async () => connector}
       />
     );
     expect(markup).toContain(dictionaries.en.settings.openWeixinLogin);

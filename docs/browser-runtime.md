@@ -304,9 +304,11 @@ Environment overrides use `SPARKCLAW_BROWSER_AUTOMATION_*`,
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`. See [Deployment](deployment.md) for the
 normal host and Compose commands.
 
-`npm run dev` resolves the two desktop values and applies the
-`docker/compose.visible-browser.yaml` overlay automatically. For a direct
-Compose invocation, export them and stack the overlay explicitly:
+`npm run dev` and `scripts/start_cloud_compose.sh` resolve the two desktop
+values and apply the `docker/compose.visible-browser.yaml` overlay
+automatically. The cloud script retains hidden-only operation when no local
+display is available. For a direct Compose invocation, export the values and
+stack the overlay explicitly:
 
 ```bash
 mapfile -t browser_display < <(scripts/resolve-browser-display.sh)

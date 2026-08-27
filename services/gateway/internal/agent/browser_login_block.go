@@ -412,6 +412,8 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 			"original run for browser login block was not found", userReply)
 		return Result{}, false, nil
 	}
+	ctx, endRun := r.bindIntegrationRun(ctx, run.ID)
+	defer endRun()
 	if run.Workflow != nil && run.Workflow.Browser != nil &&
 		block.WorkflowID == run.Workflow.Plan.ProfileID &&
 		block.WorkflowRevision == run.Workflow.Plan.ProfileRevision {

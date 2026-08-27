@@ -71,6 +71,7 @@ describe("SettingsPanel binding polling", () => {
     vi.spyOn(api, "mcpAccessTickets").mockResolvedValue({ tickets: [] });
     vi.spyOn(api, "mcpBindings").mockResolvedValue({ bindings: [] });
     vi.spyOn(api, "updateMCPTransports").mockResolvedValue(connector);
+	vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [] });
   });
 
   afterEach(() => {
@@ -108,6 +109,9 @@ describe("SettingsPanel binding polling", () => {
     );
 
     await act(async () => render(waitingBinding("2026-08-13T00:00:00Z")));
+	const messaging = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes(dictionaries.en.settings.messaging));
+	expect(messaging).toBeTruthy();
+	await act(async () => messaging?.click());
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(refresh).toHaveBeenCalledTimes(1);
 

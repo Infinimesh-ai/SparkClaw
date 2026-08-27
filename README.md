@@ -44,6 +44,22 @@ Known operating boundary:
 
 ## Quick Start
 
+For an Ubuntu test VM that uses externally managed model endpoints, run the
+cloud installer as a normal sudo-capable user. It installs Docker when needed,
+keeps all endpoint and optional API-key values in a local mode-0600 file, and
+verifies the containerized Chromium automation runtime:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+```
+
+The interactive setup accepts an empty model API key when the endpoints do not
+require authentication. The current trusted-LAN cloud profile does not enable
+Gateway owner-token authentication, so open `http://<vm-ip>:18790` directly
+after deployment.
+
 On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
 toolkit already installed, run the streamed installer:
 

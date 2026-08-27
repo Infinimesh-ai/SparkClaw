@@ -87,6 +87,96 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 `SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。两个值都从 `.env` 读取，非法端口会在修改容器前失败。
 模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
 
+## 云模型服务器运行态
+
+当 Linux 服务器或虚拟机只负责 SparkClaw 应用与持久化状态、不负责模型进程时，使用云模型
+运行态。它只启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat，不会选择
+`models-local` profile 中的模型服务。
+
+在 Ubuntu VM 上，以具备 sudo 权限的普通用户运行流式安装入口：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+```
+
+bootstrap 会在需要时安装 Git，把仓库安全 clone 或 fast-forward 到 `$HOME/SparkClaw`，把
+stdin 重新连接到终端，再执行 `scripts/deploy_cloud_vm.sh`。VM 部署脚本会在需要时安装
+Docker Engine 与 Compose plugin；已有 checkout 存在 tracked 或 untracked 本地修改时绝不
+覆盖。
+
+首次运行会交互输入私有的 Fast、embedding、guard endpoint。脚本自动填入 SparkClaw 标准模型名，
+同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，也可以单独配置 endpoint。模型 API Key
+是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
+Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。Endpoint 与凭据不会
+进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的
+`.env`。
+
+当前 cloud overlay 是可信局域网 profile，明确关闭可选的 Gateway owner-token 认证边界，
+WebChat 因此不会要求输入 token。正常部署还会清空旧的 `SPARKCLAW_API_TOKEN`，readiness 会拒绝
+仍报告 `auth_required: true` 的 cloud 运行态。
+
+脚本构建并启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。Gateway 镜像内会安装
+Chromium、`agent-browser`、Xvfb、中日韩/Emoji 字体和 ffmpeg。只有 Gateway readiness 与
+容器内 Chromium 打开页面及 snapshot smoke test 都通过，部署才算成功。浏览器状态持久化在
+`data/browser-profiles`；VM 不需要 Ubuntu Desktop，也不需要宿主机 Chromium。
+
+无桌面的 VM 可以正常使用 hidden Chromium，但微信扫码登录不同：它会在 VM owner 的桌面上
+打开 visible Chromium 窗口供 owner 扫码。cloud 启动脚本解析到本地 X11/XWayland display
+时，会自动叠加 `docker/compose.visible-browser.yaml`，并输出 `Visible Chromium display:
+...`。没有可用 display 时，部署仍会以 hidden Chromium 正常启动并明确告警，但打开微信登录
+窗口会按设计失败。窗口显示在 VM 桌面上，不会显示在仅仅访问 WebChat 的另一台电脑上。
+
+请从 VM 的桌面会话运行部署，或先通过 PVE console 登录该桌面，然后 reconcile 运行态：
+
+```bash
+cd "$HOME/SparkClaw"
+bash scripts/resolve-browser-display.sh
+bash scripts/start_cloud_compose.sh
+```
+
+VM 存在多个 display 时，先显式选择当前 display 和 authority 文件，再执行第二条命令：
+
+```bash
+export SPARKCLAW_BROWSER_DISPLAY=:1
+export SPARKCLAW_BROWSER_XAUTHORITY=/run/user/$(id -u)/gdm/Xauthority
+bash scripts/start_cloud_compose.sh
+```
+
+微信扫码登录不要使用虚拟 Xvfb display：它适合 hidden 自动化，但不是 owner 可见的扫码界面。
+
+不更新 checkout、只 reconcile 当前运行态时执行：
+
+```bash
+bash "$HOME/SparkClaw/scripts/deploy_cloud_vm.sh"
+```
+
+重新进入私有配置或只做只读检查：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | \
+  bash -s -- --configure
+
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | \
+  bash -s -- --check
+```
+
+SparkClaw 会在模型 base URL 后追加 `/chat/completions` 或 `/embeddings`。当前 Model Router
+对 Fast、Deep、embedding、guard 共用一个可选的 `OPENAI_API_KEY`；不同 provider 需要不同
+credential 或 header 时应使用可信 compatibility proxy。speech adapter 输入 service root，
+因为它会自行追加 `/v1/audio/*`；OCR 输入 OpenAI-compatible base URL。
+
+cloud overlay 为四个应用服务配置 `restart: unless-stopped`，安装器会启用 Docker，因此 VM
+重启后会自动恢复。Gateway 仍只在 Docker 内部可达；WebChat 默认发布 `18790`，使用
+`http://<VM-IP>:18790` 访问。当前测试拓扑不安装 TLS，也不修改防火墙规则，必须只放在可信
+局域网中：任何能访问 WebChat 端口的设备都可以操作 SparkClaw。此拓扑不要安装 DGX Spark
+autostart unit，因为该 unit 负责本地 NVIDIA 模型的 reconciliation。
+
 ## Product Runtime
 
 部署入口最终会调用仓库根目录暴露的同一个产品启动命令。已有 `.env` 的 operator

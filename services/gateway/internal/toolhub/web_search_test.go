@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
-// configureTestInfoCredentials satisfies InfinimeshInfoConfig.Configured so
-// tests can register the credential-gated weather.lookup tool.
+// configureTestInfoCredentials supplies a usable operator credential.
 func configureTestInfoCredentials(cfg *config.Config) {
 	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_test"
 	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_test.test-key"
@@ -27,8 +27,8 @@ func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 	if _, ok := disabled.Definition("web.search"); ok {
 		t.Fatal("web.search should not register when disabled")
 	}
-	if _, ok := disabled.Definition("weather.lookup"); ok {
-		t.Fatal("weather.lookup should not register without Info credentials")
+	if _, ok := disabled.Definition("weather.lookup"); !ok {
+		t.Fatal("weather.lookup should register without Info credentials")
 	}
 
 	cfg.Tools.Web.Search.Enabled = true
@@ -36,8 +36,8 @@ func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 	if _, ok := enabled.Definition("web.search"); !ok {
 		t.Fatal("web.search should register when enabled")
 	}
-	if _, ok := enabled.Definition("weather.lookup"); ok {
-		t.Fatal("weather.lookup must not register from the web-search toggle alone")
+	if _, ok := enabled.Definition("weather.lookup"); !ok {
+		t.Fatal("weather.lookup must remain registered independently of credentials")
 	}
 
 	cfg.Tools.Web.Search.Enabled = false
@@ -60,8 +60,8 @@ func TestWeatherLookupDegradesWithoutUsableInfoClient(t *testing.T) {
 	// The client constructor fails on the base URL; the tool must surface a
 	// clean unavailability error instead of dereferencing a typed-nil client.
 	_, err := hub.Execute(context.Background(), "weather.lookup", map[string]any{"location": "Shanghai"}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "unavailable") {
-		t.Fatalf("expected adapter-unavailable error, got %v", err)
+	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorInfoNotConfigured {
+		t.Fatalf("expected typed not-configured error, got %v", err)
 	}
 }
 

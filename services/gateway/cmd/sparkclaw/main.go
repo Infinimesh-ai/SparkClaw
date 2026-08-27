@@ -45,19 +45,6 @@ func main() {
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
 	defer tools.Close()
-	localMindManager, err := newLocalMindManager(cfg, tools, nil)
-	if err != nil {
-		slog.Error("failed to initialize LocalMind MCP integration", "error", err)
-		os.Exit(1)
-	}
-	if localMindManager != nil {
-		startupTimeout := time.Duration(cfg.MCPServers[config.LocalMindMCPServerKey].RequestTimeoutSeconds+5) * time.Second
-		startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupTimeout)
-		if _, err := localMindManager.Refresh(startupCtx); err != nil {
-			slog.Warn("LocalMind MCP startup refresh failed; discovery remains retryable", "error", err)
-		}
-		cancelStartup()
-	}
 	policyEngine := policy.New(cfg)
 	models := modelrouter.New(cfg)
 	transcriber, err := speech.New(cfg.Speech)
@@ -87,9 +74,6 @@ func main() {
 		os.Exit(1)
 	}
 	storeRuntime.StartRecovery(serverCtx)
-	if localMindManager != nil {
-		go localMindManager.Run(serverCtx)
-	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

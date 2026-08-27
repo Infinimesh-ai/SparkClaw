@@ -43,6 +43,19 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 
 ## 快速开始
 
+Ubuntu 测试 VM 使用外部模型 endpoint 时，以具备 sudo 权限的普通用户运行 cloud 安装入口。
+它会在需要时安装 Docker，把 endpoint 和可选 API Key 只保存在本机 `0600` 配置文件中，并
+验证容器内 Chromium 自动化运行态：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+```
+
+模型 endpoint 不需要认证时，交互配置中的 API Key 直接回车留空。当前可信局域网 cloud
+profile 不启用 Gateway owner-token 认证，部署完成后直接访问 `http://<VM-IP>:18790`。
+
 在已安装 Docker、Compose 与 NVIDIA Container Toolkit 的 NVIDIA GB10 DGX Spark 上，
 运行流式安装入口：
 

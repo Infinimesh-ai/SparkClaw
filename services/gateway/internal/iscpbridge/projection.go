@@ -56,6 +56,26 @@ type SnapshotCard struct {
 	Priority int    `json:"priority"`
 }
 
+// activityKindForRun buckets a run for the phone feed. The run-state
+// vocabulary is NOT restated here: it is derived from operationStateForRun,
+// the package's single normalizer for app.AgentRun.State (adapter.go), which
+// already lowercases, trims, and covers every state the runtime writes
+// (received/routing/executing/workflow_step/approval_pending/blocked/
+// browser_login_blocked/clarification_required/...). Bucketing on raw
+// run.State instead silently dropped every in-flight run, because the
+// runtime never writes "running" or "pending" at all.
+func activityKindForRun(run app.AgentRun) string {
+	switch operationStateForRun(run) {
+	case "completed":
+		return ActivityKindRunCompleted
+	case "failed", "cancelled":
+		return ActivityKindRunFailed
+	default:
+		// running + approval_required: still in flight from the phone's view.
+		return ActivityKindRunRunning
+	}
+}
+
 // visibleSessionIDs returns the principal's visible session ids, the scope
 // every projection below is limited to.
 func (a *GatewayAdapter) visibleSessionIDs(ctx context.Context, principal Principal) (map[string]struct{}, error) {
@@ -135,24 +155,13 @@ func (a *GatewayAdapter) listActivities(ctx context.Context, req Request, princi
 			if occurred.Before(day) || !occurred.Before(dayEnd) {
 				continue
 			}
-			kind := ""
-			switch run.State {
-			case "running", "pending", "approval_required":
-				kind = ActivityKindRunRunning
-			case "completed":
-				kind = ActivityKindRunCompleted
-			case "failed", "cancelled":
-				kind = ActivityKindRunFailed
-			default:
-				continue
-			}
 			title := run.Summary
 			if strings.TrimSpace(title) == "" {
 				title = "Agent run " + run.ID
 			}
 			activities = append(activities, ActivityView{
 				ID:         "run-" + run.ID,
-				Kind:       kind,
+				Kind:       activityKindForRun(run),
 				Title:      title,
 				SessionID:  run.SessionID,
 				RunID:      run.ID,
@@ -219,17 +228,17 @@ func (a *GatewayAdapter) snapshot(ctx context.Context, req Request, principal Pr
 			continue
 		}
 		for _, run := range runs {
-			switch run.State {
-			case "running", "pending", "approval_required":
+			switch activityKindForRun(run) {
+			case ActivityKindRunRunning:
 				running++
 				if latestRunning == "" && strings.TrimSpace(run.Summary) != "" {
 					latestRunning = run.Summary
 				}
-			case "completed":
+			case ActivityKindRunCompleted:
 				if run.CompletedAt != nil && !run.CompletedAt.UTC().Before(day) {
 					completed++
 				}
-			case "failed", "cancelled":
+			case ActivityKindRunFailed:
 				if run.CompletedAt != nil && !run.CompletedAt.UTC().Before(day) {
 					failed++
 				}

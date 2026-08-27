@@ -133,3 +133,42 @@ func TestSnapshotProjection(t *testing.T) {
 		t.Fatalf("foreign owner saw cards: %#v", foreignResult.Cards)
 	}
 }
+
+// TestActivityKindCoversRuntimeRunStates pins the projection to the run
+// states the runtime actually writes. The original switch bucketed on
+// "running"/"pending"/"approval_required" — none of which any writer in
+// internal/agent produces — so every in-flight run fell through to the
+// default and vanished from both the feed and the snapshot.
+func TestActivityKindCoversRuntimeRunStates(t *testing.T) {
+	inFlight := []string{
+		"received", "routing", "executing", "workflow_step",
+		"approval_pending", "browser_login_blocked", "clarification_required",
+		"accepted",
+	}
+	for _, state := range inFlight {
+		run := app.AgentRun{ID: "r", State: state, StartedAt: time.Now().UTC()}
+		if kind := activityKindForRun(run); kind != ActivityKindRunRunning {
+			t.Errorf("state %q bucketed as %q, want %q", state, kind, ActivityKindRunRunning)
+		}
+	}
+	terminal := map[string]string{
+		"completed": ActivityKindRunCompleted,
+		"succeeded": ActivityKindRunCompleted,
+		"failed":    ActivityKindRunFailed,
+		"blocked":   ActivityKindRunFailed,
+		"cancelled": ActivityKindRunFailed,
+		"canceled":  ActivityKindRunFailed,
+	}
+	completedAt := time.Now().UTC()
+	for state, want := range terminal {
+		run := app.AgentRun{ID: "r", State: state, StartedAt: completedAt, CompletedAt: &completedAt}
+		if kind := activityKindForRun(run); kind != want {
+			t.Errorf("state %q bucketed as %q, want %q", state, kind, want)
+		}
+	}
+	// Casing and padding are normalized, never dropped.
+	padded := app.AgentRun{ID: "r", State: "  Executing  ", StartedAt: time.Now().UTC()}
+	if kind := activityKindForRun(padded); kind != ActivityKindRunRunning {
+		t.Errorf("padded state bucketed as %q", kind)
+	}
+}

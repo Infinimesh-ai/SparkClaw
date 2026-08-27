@@ -3,6 +3,7 @@ package localmind
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -277,7 +278,7 @@ func TestRefreshRejectsAnythingOutsideExactTaskContract(t *testing.T) {
 			fake := newFakeLocalMind(t)
 			test.mutate(fake)
 			manager, hub := newTestManager(t, fake.server.URL)
-			if _, err := manager.Refresh(t.Context()); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := manager.Refresh(t.Context()); err == nil || !errors.Is(err, ErrContractInvalid) || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("invalid LocalMind contract was accepted: %v", err)
 			}
 			for _, name := range []string{delegateReadLocalName, delegateWriteLocalName, getTaskLocalName, cancelLocalName} {
@@ -286,6 +287,21 @@ func TestRefreshRejectsAnythingOutsideExactTaskContract(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCheckCredentialsTypesInvalidEndpointBeforeNetworkValidation(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, _ := newTestManager(t, fake.server.URL)
+	_, err := manager.CheckCredentials(t.Context(), Credentials{
+		Endpoint:    "https://localmind.example/not-a-workspace-endpoint",
+		BearerToken: "token",
+	})
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("invalid endpoint error=%v", err)
+	}
+	if requests := fake.requestsSnapshot(); len(requests) != 0 {
+		t.Fatalf("invalid endpoint reached LocalMind: %#v", requests)
 	}
 }
 

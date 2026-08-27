@@ -2,8 +2,10 @@ package integrationconfig
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,9 +15,93 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/localmind"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
+
+type unavailableBindingVault struct{}
+
+func (unavailableBindingVault) Ready() error { return errors.New("vault unavailable") }
+func (unavailableBindingVault) OpenBinding(context.Context, string, string) ([]byte, bool, error) {
+	return nil, false, errors.New("vault unavailable")
+}
+func (unavailableBindingVault) ReplaceBinding(context.Context, string, string, []byte) error {
+	return errors.New("vault unavailable")
+}
+func (unavailableBindingVault) DeleteBinding(context.Context, string, string) error {
+	return errors.New("vault unavailable")
+}
+
+type localMindRuntimeStub struct {
+	operatorConfigured    bool
+	clearCalls            int
+	activateOperatorCalls int
+}
+
+func (*localMindRuntimeStub) CheckCredentials(context.Context, localmind.Credentials) (localmind.Snapshot, error) {
+	return localmind.Snapshot{}, nil
+}
+func (*localMindRuntimeStub) ActivateCredentials(context.Context, localmind.Credentials) (localmind.Snapshot, error) {
+	return localmind.Snapshot{}, nil
+}
+func (s *localMindRuntimeStub) ActivateOperator(context.Context) (localmind.Snapshot, error) {
+	s.activateOperatorCalls++
+	return localmind.Snapshot{}, nil
+}
+func (s *localMindRuntimeStub) ClearRuntime() error {
+	s.clearCalls++
+	return nil
+}
+func (s *localMindRuntimeStub) OperatorConfigured() bool { return s.operatorConfigured }
+func (*localMindRuntimeStub) Run(context.Context)        {}
+
+func TestInitializeFailsClosedWhenCredentialVaultIsUnavailable(t *testing.T) {
+	cfg := config.Default()
+	cfg.Plugins.Entries.InfinimeshInfo.Config.BaseURL = "https://info.example"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "operator"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.operator.secret"
+	st := store.NewMemoryStore()
+	hub := toolhub.New(cfg, st)
+	t.Cleanup(func() { _ = hub.Close() })
+	if !hub.InfoConfigured() {
+		t.Fatal("test precondition: operator Info runtime was not configured")
+	}
+	localRuntime := &localMindRuntimeStub{operatorConfigured: true}
+	controller := newController(cfg, unavailableBindingVault{}, st, hub, localRuntime)
+
+	controller.Initialize(t.Context())
+
+	if hub.InfoConfigured() {
+		t.Fatal("vault failure silently retained the operator Info runtime")
+	}
+	if localRuntime.clearCalls != 1 || localRuntime.activateOperatorCalls != 0 {
+		t.Fatalf("LocalMind clear=%d activate_operator=%d", localRuntime.clearCalls, localRuntime.activateOperatorCalls)
+	}
+	for _, id := range []string{InfoID, LocalMindID} {
+		status, err := controller.Get(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status.State != StateVaultUnavailable || status.Source != SourceNone || status.Configured || !status.OperatorAvailable {
+			t.Fatalf("%s did not fail closed: %#v", id, status)
+		}
+	}
+}
+
+func TestClassifyLocalMindCheckUsesTypedErrors(t *testing.T) {
+	for _, test := range []struct {
+		err      error
+		wantCode string
+	}{
+		{err: localmind.ErrInvalidCredentials, wantCode: "credential_invalid"},
+		{err: localmind.ErrContractInvalid, wantCode: "credential_contract_invalid"},
+	} {
+		if got := ErrorCode(classifyLocalMindCheck(test.err)); got != test.wantCode {
+			t.Fatalf("error %v classified as %q, want %q", test.err, got, test.wantCode)
+		}
+	}
+}
 
 func TestInfoCredentialsAreValidatedRetainedAndExplicitlyActivated(t *testing.T) {
 	info := newInfoCheckServer(t)

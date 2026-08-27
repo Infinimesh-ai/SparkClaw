@@ -53,6 +53,15 @@ type AuditRepository interface {
 	AddAudit(context.Context, app.AuditEvent) error
 }
 
+type localMindRuntime interface {
+	CheckCredentials(context.Context, localmind.Credentials) (localmind.Snapshot, error)
+	ActivateCredentials(context.Context, localmind.Credentials) (localmind.Snapshot, error)
+	ActivateOperator(context.Context) (localmind.Snapshot, error)
+	ClearRuntime() error
+	OperatorConfigured() bool
+	Run(context.Context)
+}
+
 type CredentialSummary struct {
 	ID            string    `json:"id"`
 	Label         string    `json:"label"`
@@ -174,12 +183,20 @@ type Controller struct {
 	vault     BindingVault
 	audits    AuditRepository
 	tools     *toolhub.ToolHub
-	localMind *localmind.Manager
+	localMind localMindRuntime
 	bundles   map[string]credentialBundle
 	runtime   map[string]runtimeState
 }
 
 func New(cfg config.Config, vault BindingVault, audits AuditRepository, tools *toolhub.ToolHub, localMind *localmind.Manager) *Controller {
+	var runtime localMindRuntime
+	if localMind != nil {
+		runtime = localMind
+	}
+	return newController(cfg, vault, audits, tools, runtime)
+}
+
+func newController(cfg config.Config, vault BindingVault, audits AuditRepository, tools *toolhub.ToolHub, localMind localMindRuntime) *Controller {
 	return &Controller{
 		cfg: cfg, vault: vault, audits: audits, tools: tools, localMind: localMind,
 		bundles: map[string]credentialBundle{InfoID: {Version: 1}, LocalMindID: {Version: 1}},
@@ -197,12 +214,26 @@ func (c *Controller) Initialize(ctx context.Context) {
 		if err != nil {
 			bundle = credentialBundle{Version: 1}
 			c.bundles[id] = bundle
-			c.activateLoaded(ctx, id, bundle)
+			c.clearRuntime(id)
 			c.runtime[id] = runtimeState{state: StateVaultUnavailable, errorCode: "vault_unavailable"}
 			continue
 		}
 		c.bundles[id] = bundle
 		c.activateLoaded(ctx, id, bundle)
+	}
+}
+
+func (c *Controller) clearRuntime(id string) {
+	if id == InfoID {
+		if c.tools != nil {
+			c.tools.ReplaceInfoAdapters(nil, nil)
+		}
+		return
+	}
+	if c.localMind != nil {
+		if err := c.localMind.ClearRuntime(); err != nil {
+			slog.Warn("LocalMind runtime could not be cleared", "error", err)
+		}
 	}
 }
 
@@ -560,7 +591,10 @@ func (c *Controller) statusLocked(id string) Status {
 	} else {
 		status.Category = "outbound_mcp"
 	}
-	if bundle.ActiveCredentialID != "" {
+	if runtime.state == StateVaultUnavailable {
+		status.Source = SourceNone
+		status.Configured = false
+	} else if bundle.ActiveCredentialID != "" {
 		status.Source = SourceHousehold
 		status.Configured = true
 	} else if status.OperatorAvailable {
@@ -678,8 +712,10 @@ func classifyLocalMindCheck(err error) error {
 	if app.ToolErrorCodeFrom(err) == app.ToolErrorMCPAuthorization {
 		return newError("credential_auth_failed", false, err)
 	}
-	text := strings.ToLower(err.Error())
-	if strings.Contains(text, "contract") || strings.Contains(text, "protocol") || strings.Contains(text, "server name") || strings.Contains(text, "resources") || strings.Contains(text, "advertise tools") {
+	if errors.Is(err, localmind.ErrInvalidCredentials) {
+		return newError("credential_invalid", false, err)
+	}
+	if errors.Is(err, localmind.ErrContractInvalid) {
 		return newError("credential_contract_invalid", false, err)
 	}
 	return newError("credential_check_unavailable", true, err)

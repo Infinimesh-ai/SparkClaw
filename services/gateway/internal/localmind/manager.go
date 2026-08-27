@@ -35,6 +35,11 @@ const (
 	cancelLocalName        = "localmind.task.cancel"
 )
 
+var (
+	ErrInvalidCredentials = errors.New("LocalMind credentials are invalid")
+	ErrContractInvalid    = errors.New("LocalMind MCP contract is invalid")
+)
+
 type Snapshot struct {
 	ServerInfo          mcpclient.ServerInfo `json:"server_info"`
 	ProtocolVersion     string               `json:"protocol_version"`
@@ -232,26 +237,30 @@ func (m *Manager) prepare(ctx context.Context, runtime resolvedRuntime) (Snapsho
 	}
 	initialized, err := client.Initialize(ctx)
 	if err != nil {
+		var unexpectedServer *mcpclient.UnexpectedServerError
+		if errors.As(err, &unexpectedServer) {
+			return Snapshot{}, nil, contractError(err)
+		}
 		return Snapshot{}, nil, safeError(err, runtime)
 	}
 	if initialized.ProtocolVersion != m.cfg.ProtocolVersion {
-		return Snapshot{}, nil, fmt.Errorf("LocalMind negotiated unsupported MCP protocol version %q", initialized.ProtocolVersion)
+		return Snapshot{}, nil, contractError(fmt.Errorf("LocalMind negotiated unsupported MCP protocol version %q", initialized.ProtocolVersion))
 	}
 	if _, advertised := initialized.Capabilities["resources"]; advertised {
-		return Snapshot{}, nil, errors.New("LocalMind task MCP must not advertise Resources")
+		return Snapshot{}, nil, contractError(errors.New("LocalMind task MCP must not advertise Resources"))
 	}
 	if _, advertised := initialized.Capabilities["tools"]; !advertised {
-		return Snapshot{}, nil, errors.New("LocalMind task MCP did not advertise tools")
+		return Snapshot{}, nil, contractError(errors.New("LocalMind task MCP did not advertise tools"))
 	}
 	listed, err := client.ListTools(ctx, "")
 	if err != nil {
 		return Snapshot{}, nil, safeError(err, runtime)
 	}
 	if strings.TrimSpace(listed.NextCursor) != "" {
-		return Snapshot{}, nil, errors.New("LocalMind task MCP returned a paginated tool contract")
+		return Snapshot{}, nil, contractError(errors.New("LocalMind task MCP returned a paginated tool contract"))
 	}
 	if err := validateTaskToolContract(listed.Tools); err != nil {
-		return Snapshot{}, nil, err
+		return Snapshot{}, nil, contractError(err)
 	}
 
 	snapshot := Snapshot{
@@ -329,23 +338,23 @@ func (m *Manager) resolveRuntime(endpoint, token string) (resolvedRuntime, error
 	endpoint = strings.TrimSpace(endpoint)
 	token = strings.TrimSpace(token)
 	if endpoint == "" {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint is not configured")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint is not configured")
 	}
 	if token == "" {
-		return resolvedRuntime{}, errors.New("LocalMind bearer token is not configured")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind bearer token is not configured")
 	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint must be an absolute HTTP(S) URL")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint must be an absolute HTTP(S) URL")
 	}
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint cannot contain credentials, query parameters, or a fragment")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint cannot contain credentials, query parameters, or a fragment")
 	}
 	if !validWorkspaceEndpointPath(parsed.EscapedPath()) {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint must end with /api/workspaces/<workspace-id>/mcp")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint must end with /api/workspaces/<workspace-id>/mcp")
 	}
 	if parsed.Scheme == "http" && (!m.cfg.AllowPrivateHTTP || !privateHTTPHost(parsed.Hostname())) {
-		return resolvedRuntime{}, errors.New("LocalMind plain HTTP requires allow_private_http and a loopback, private, or container host")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind plain HTTP requires allow_private_http and a loopback, private, or container host")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawPath = ""
@@ -381,6 +390,14 @@ func (m *Manager) clearState() error {
 	m.hasState = false
 	m.mu.Unlock()
 	return clearErr
+}
+
+func invalidCredentialsError(message string) error {
+	return fmt.Errorf("%w: %s", ErrInvalidCredentials, message)
+}
+
+func contractError(err error) error {
+	return fmt.Errorf("%w: %v", ErrContractInvalid, err)
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {

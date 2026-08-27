@@ -136,11 +136,13 @@ bash scripts/resolve-browser-display.sh
 bash scripts/start_cloud_compose.sh
 ```
 
-VM 存在多个 display 时，先显式选择当前 display 和 authority 文件，再执行第二条命令：
+解析器会使用可用的 Xauthority 文件逐个探测 socket，忽略无法建立 X11 连接的初始化或
+残留 socket；存在多个可用 display 时，自动选择编号最小的一个。如需覆盖这个自动选择，
+可在执行第二条命令前显式指定 display 及其 authority 文件：
 
 ```bash
-export SPARKCLAW_BROWSER_DISPLAY=:1
-export SPARKCLAW_BROWSER_XAUTHORITY=/run/user/$(id -u)/gdm/Xauthority
+export SPARKCLAW_BROWSER_DISPLAY=:2
+export SPARKCLAW_BROWSER_XAUTHORITY=/path/to/that/display/Xauthority
 bash scripts/start_cloud_compose.sh
 ```
 

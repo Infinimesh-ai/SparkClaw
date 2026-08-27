@@ -163,12 +163,15 @@ bash scripts/resolve-browser-display.sh
 bash scripts/start_cloud_compose.sh
 ```
 
-If the VM has multiple displays, select the active display and authority file
-explicitly before the second command:
+The resolver tests each socket with the available Xauthority files, ignores
+initialization or stale sockets that cannot open an X11 connection, and chooses
+the lowest-numbered usable display when several are available. To override that
+automatic choice, set the display and its authority file before the second
+command:
 
 ```bash
-export SPARKCLAW_BROWSER_DISPLAY=:1
-export SPARKCLAW_BROWSER_XAUTHORITY=/run/user/$(id -u)/gdm/Xauthority
+export SPARKCLAW_BROWSER_DISPLAY=:2
+export SPARKCLAW_BROWSER_XAUTHORITY=/path/to/that/display/Xauthority
 bash scripts/start_cloud_compose.sh
 ```
 

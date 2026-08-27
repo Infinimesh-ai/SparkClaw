@@ -293,3 +293,21 @@ func validateRelayURLs(profile, baseURL, websocketURL string) error {
 func randomNonce() string {
 	return newWireID("nonce")
 }
+
+// UpdateEnrollment applies a mutation to the enrollment bundle under the
+// client lock and persists it atomically (used by grant renewal and
+// credential recovery). The mutation must keep the bundle valid.
+func (c *RelayClient) UpdateEnrollment(mutate func(*EnrollmentBundle)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	updated := c.enrollment
+	mutate(&updated)
+	if err := updated.Validate(time.Now().UTC()); err != nil {
+		return fmt.Errorf("validate updated enrollment: %w", err)
+	}
+	if err := SaveEnrollment(c.enrollmentPath, updated); err != nil {
+		return fmt.Errorf("persist updated enrollment: %w", err)
+	}
+	c.enrollment = updated
+	return nil
+}

@@ -110,6 +110,7 @@ func (s *Service) Run(ctx context.Context) error {
 	// and initiates toward the responder-only phone (ISCP v0.2).
 	if s.managedMode() {
 		s.runManagedInitiators(ctx)
+		go s.runManagedLifecycle(ctx)
 	}
 	backoff := time.Duration(s.config.Relay.ReconnectMinSeconds) * time.Second
 	maxBackoff := time.Duration(s.config.Relay.ReconnectMaxSeconds) * time.Second

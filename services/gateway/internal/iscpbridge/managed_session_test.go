@@ -23,12 +23,16 @@ import (
 // driven directly through the ISCP SDK exactly as the JingSi responder
 // behaves (no grant of its own; it answers a grant-authorized hello).
 type managedHarness struct {
-	t        *testing.T
-	provider iscpcrypto.Provider
-	service  *Service
-	bridge   identity.Device
-	phone    identity.Device
-	grant    trust.Grant
+	t           *testing.T
+	provider    iscpcrypto.Provider
+	service     *Service
+	bridge      identity.Device
+	phone       identity.Device
+	trustSigner identity.Device
+	grant       trust.Grant
+	// lifecycleHandler lets lifecycle tests plug the optional device
+	// lifecycle endpoints into the relay stub; return true when handled.
+	lifecycleHandler func(http.ResponseWriter, *http.Request) bool
 
 	mu        sync.Mutex
 	submitted []envelope.SecureEnvelope
@@ -68,9 +72,12 @@ func newManagedHarness(t *testing.T) *managedHarness {
 		t.Fatal(err)
 	}
 
-	h := &managedHarness{t: t, provider: provider, bridge: bridge, phone: phone, grant: grant}
+	h := &managedHarness{t: t, provider: provider, bridge: bridge, phone: phone, trustSigner: trustSigner, grant: grant}
 
 	relayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.lifecycleHandler != nil && h.lifecycleHandler(w, r) {
+			return
+		}
 		if r.URL.Path == relayEnvelopePath {
 			var env envelope.SecureEnvelope
 			if err := json.NewDecoder(r.Body).Decode(&env); err != nil {

@@ -3,6 +3,16 @@
 // notifications) into the JingSi home-screen shapes. Deliberately a
 // projection, not a new store entity — no second ingress, result path, or
 // message store (docs/jingsi-lan-connection-design.md invariants).
+//
+// Scaling, deliberately deferred: both handlers scan every run of every
+// visible session per request and filter in Go, because Store.ListRuns takes
+// only a session id. That is the right trade at a household's scale (tens of
+// sessions), and the honest alternative is a time-bounded store query, which
+// means an interface change across all three backends plus the operationSpecs
+// guards. Half-measures — capping sessions scanned, or stopping early — would
+// silently skew a feed that claims to be newest-first, which is worse than a
+// linear scan. Revisit when a deployment's run count makes the scan visible,
+// and do it in the store, not here.
 package iscpbridge
 
 import (
@@ -16,9 +26,6 @@ import (
 )
 
 const (
-	TypeActivityList = "agent.activity.list.v1"
-	TypeSnapshotGet  = "agent.snapshot.get.v1"
-
 	activityListMaxLimit     = 200
 	activityListDefaultLimit = 50
 )

@@ -33,7 +33,9 @@ const (
 	TypeOperationStatus      = "agent.operation.status.v1"
 	TypeResponse             = "agent.response.v1"
 	// Read-only phone projections (WS-5 Phase C): activities feed and the
-	// home-screen snapshot. See internal/iscpbridge/projection.go.
+	// home-screen snapshot, implemented in internal/iscpbridge/projection.go.
+	TypeActivityList = "agent.activity.list.v1"
+	TypeSnapshotGet  = "agent.snapshot.get.v1"
 )
 
 const (

@@ -324,8 +324,8 @@ func (s *Service) managedHandleHello(ctx context.Context, peer *managedPeer, env
 		return errors.New("Session Hello binding is invalid")
 	}
 	peer.mu.Lock()
-	defer peer.mu.Unlock()
 	if peer.isStale(hello.SessionID) {
+		peer.mu.Unlock()
 		return nil // late reply to an abandoned session
 	}
 	if peer.sessionID != hello.SessionID {
@@ -335,12 +335,15 @@ func (s *Service) managedHandleHello(ctx context.Context, peer *managedPeer, env
 		// responder-only, so a differing id here means it answered an older
 		// hello of ours — treat it as stale.
 		if peer.state != nil && peer.state.Ready() {
+			peer.mu.Unlock()
 			return nil
 		}
 		peer.markStale(hello.SessionID)
+		peer.mu.Unlock()
 		return nil
 	}
 	if peer.state != nil {
+		peer.mu.Unlock()
 		return nil // duplicate hello
 	}
 	// The responder-only phone carries no grant of its own (grant_id "");
@@ -349,14 +352,21 @@ func (s *Service) managedHandleHello(ctx context.Context, peer *managedPeer, env
 	// Establish.
 	state, err := session.Establish(s.provider, peer.local, hello, s.device.Identity, peer.identity)
 	if err != nil {
+		peer.mu.Unlock()
 		return errors.New("establish ISCP session")
 	}
 	ready, err := state.CreateReady(s.provider, s.device)
 	if err != nil {
+		peer.mu.Unlock()
 		return errors.New("create Session Ready")
 	}
 	peer.state = state
-	return s.submitHandshake(ctx, peer.identity.DeviceID, peer.sessionID, session.TypeReady, ready)
+	sessionID := peer.sessionID
+	// Release before the Relay submit: holding peer.mu across a network round
+	// trip stalls every other handler for this peer (and the initiator loop)
+	// behind one slow or hanging send.
+	peer.mu.Unlock()
+	return s.submitHandshake(ctx, peer.identity.DeviceID, sessionID, session.TypeReady, ready)
 }
 
 func (s *Service) managedHandleReady(ctx context.Context, peer *managedPeer, env envelope.SecureEnvelope) error {

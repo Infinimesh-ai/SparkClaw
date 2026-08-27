@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -140,13 +141,17 @@ func (s *Service) autoRenewGrant(ctx context.Context, client *http.Client, peer 
 	if err != nil {
 		return errors.New("local identity thumbprint is invalid")
 	}
-	permission := ""
-	if len(renewal.Grant.Permissions) > 0 {
-		permission = renewal.Grant.Permissions[0]
-	}
 	peer.mu.Lock()
 	previous := peer.grant
 	peer.mu.Unlock()
+	// Verify against the PREVIOUS grant's permission, not the renewed grant's
+	// own: trust.VerifyGrant only checks slices.Contains(grant.Permissions,
+	// opts.Permission), so feeding it renewal.Grant.Permissions[0] would be
+	// tautological and would wave through any permission the Cloud added.
+	permission := ""
+	if len(previous.Permissions) > 0 {
+		permission = previous.Permissions[0]
+	}
 	if err := trust.VerifyGrant(s.provider, renewal.Grant, bundle.TrustRootIdentity, trust.VerifyOptions{
 		Audience:               previous.Audience,
 		SubjectDeviceID:        bundle.DeviceID,
@@ -157,11 +162,18 @@ func (s *Service) autoRenewGrant(ctx context.Context, client *http.Client, peer 
 	}); err != nil {
 		return errors.New("renewed Trust Grant verification failed")
 	}
-	// Bounds: silent renewal must never widen the pairing.
+	// Bounds: silent renewal extends the pairing's lifetime and nothing else.
+	// A renewal may drop permissions but must never add one — widening is an
+	// authorization change and requires a human-approved re-pairing.
 	if renewal.Grant.Audience != previous.Audience ||
 		renewal.Grant.SubjectDeviceID != previous.SubjectDeviceID ||
 		renewal.Grant.ConfirmationThumbprint != previous.ConfirmationThumbprint {
 		return errors.New("renewed Trust Grant deviates from the authorized pairing")
+	}
+	for _, granted := range renewal.Grant.Permissions {
+		if !slices.Contains(previous.Permissions, granted) {
+			return errors.New("renewed Trust Grant widens the authorized permissions")
+		}
 	}
 	if err := s.relay.UpdateEnrollment(func(b *EnrollmentBundle) {
 		for index := range b.Peers {

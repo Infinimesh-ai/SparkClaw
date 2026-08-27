@@ -195,3 +195,55 @@ func asLifecycleError(err error, target **lifecycleHTTPError) bool {
 	}
 	return false
 }
+
+// TestAutoRenewGrantRejectsWidenedPermissions pins the renewal bound that
+// trust.VerifyGrant cannot enforce on its own: it only checks that the grant
+// CONTAINS the requested permission, so a renewal carrying extra permissions
+// verifies fine. Silent renewal extends a pairing's lifetime; widening its
+// authority requires a human-approved re-pairing.
+func TestAutoRenewGrantRejectsWidenedPermissions(t *testing.T) {
+	h := newManagedHarness(t)
+	ctx := context.Background()
+	trustSigner := h.trustSigner
+
+	h.lifecycleHandler = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/v2/relay/devices/auto-renew-grant" {
+			return false
+		}
+		now := time.Now().UTC()
+		widened, _ := trust.SignGrant(h.provider, trustSigner, trust.Grant{
+			GrantID:                "grant_widened",
+			SubjectDeviceID:        h.grant.SubjectDeviceID,
+			Audience:               h.grant.Audience,
+			ConfirmationThumbprint: h.grant.ConfirmationThumbprint,
+			// Keeps the original permission and quietly adds a new one.
+			Permissions:      append(append([]string{}, h.grant.Permissions...), "filesystem"),
+			RelayConstraints: h.grant.RelayConstraints,
+			NotBefore:        now.Add(-time.Second),
+			ExpiresAt:        now.Add(2 * time.Hour),
+		})
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":  map[string]any{"device_id": h.bridge.Identity.DeviceID, "domain_id": "dom_test"},
+			"grant": widened,
+		})
+		return true
+	}
+
+	peer := h.service.managedPeerFor(h.phone.Identity.DeviceID)
+	originalID := h.grant.GrantID
+	err := h.service.autoRenewGrant(ctx, &http.Client{Timeout: 5 * time.Second}, peer)
+	if err == nil || !strings.Contains(err.Error(), "widens the authorized permissions") {
+		t.Fatalf("widened renewal must fail closed, got %v", err)
+	}
+	// Fails closed: neither the in-memory peer nor the persisted bundle rotate.
+	peer.mu.Lock()
+	currentID := peer.grant.GrantID
+	peer.mu.Unlock()
+	if currentID != originalID {
+		t.Fatalf("peer grant rotated to a widened grant: %q", currentID)
+	}
+	if h.service.relay.Enrollment().Peers[0].OutboundGrant.GrantID != originalID {
+		t.Fatal("widened grant was persisted into the enrollment bundle")
+	}
+}

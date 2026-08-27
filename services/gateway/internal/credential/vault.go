@@ -105,6 +105,7 @@ const (
 	pendingCreate pendingMode = iota + 1
 	pendingDelete
 	pendingLegacyRewrap
+	pendingReplace
 )
 
 type pendingCommand struct {
@@ -116,6 +117,7 @@ type pendingCommand struct {
 	fingerprint [sha256.Size]byte
 	command     store.CredentialSaveCommand
 	condition   store.CredentialDeleteCondition
+	previous    app.CredentialSecret
 	candidate   app.CredentialSecret
 }
 
@@ -312,6 +314,112 @@ func (v *Vault) Open(ctx context.Context, ref string) ([]byte, error) {
 	return nil, v.mapRepositoryError(err)
 }
 
+// OpenBinding opens a Vault-owned stable binding without exposing its
+// deterministic repository reference. The boolean is false when the binding
+// has never been created.
+func (v *Vault) OpenBinding(ctx context.Context, bindingID, kind string) ([]byte, bool, error) {
+	if err := v.Ready(); err != nil {
+		return nil, false, err
+	}
+	bindingID = strings.TrimSpace(bindingID)
+	kind = strings.TrimSpace(kind)
+	if bindingID == "" || len([]byte(bindingID)) > maxSealIdentityBytes || kind == "" {
+		return nil, false, credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, credentialError(CodeCanceled, err)
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	ref := v.credentialRef(bindingID)
+	if _, _, err := v.resolvePendingLocked(ctx, pendingCommand{ref: ref}); err != nil {
+		return nil, false, err
+	}
+	stored, found, err := v.repository.GetCredentialSecret(ctx, ref)
+	if err != nil {
+		return nil, false, v.mapRepositoryError(err)
+	}
+	if !found {
+		return nil, false, nil
+	}
+	if stored.Kind != kind {
+		return nil, false, credentialError(CodeUnsealFailed, errors.New("credential binding kind does not match"))
+	}
+	plaintext, isEnvelope, err := v.openEnvelope(stored)
+	if !isEnvelope || err != nil {
+		zero(plaintext)
+		return nil, false, credentialError(CodeUnsealFailed, errors.New("credential envelope is invalid"))
+	}
+	return plaintext, true, nil
+}
+
+// ReplaceBinding atomically creates or replaces the encrypted value at a
+// stable binding. Connector Seal semantics intentionally remain immutable.
+func (v *Vault) ReplaceBinding(ctx context.Context, bindingID, kind string, plaintext []byte) error {
+	if err := v.Ready(); err != nil {
+		return err
+	}
+	bindingID = strings.TrimSpace(bindingID)
+	kind = strings.TrimSpace(kind)
+	if bindingID == "" || len([]byte(bindingID)) > maxSealIdentityBytes || kind == "" || len(plaintext) == 0 {
+		return credentialError(CodeInvalid, errors.New("credential binding, kind, and value are required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return credentialError(CodeCanceled, err)
+	}
+	fingerprint := v.plaintextFingerprint(kind, plaintext)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	intent := pendingCommand{mode: pendingReplace, bindingID: bindingID, kind: kind, fingerprint: fingerprint}
+	if _, completed, err := v.resolvePendingLocked(ctx, intent); err != nil || completed {
+		return err
+	}
+	ref := v.credentialRef(bindingID)
+	stored, found, err := v.repository.GetCredentialSecret(ctx, ref)
+	if err != nil {
+		return v.mapRepositoryError(err)
+	}
+	sealedValue, err := v.sealEnvelope(ref, kind, plaintext)
+	if err != nil {
+		return credentialError(CodeUnavailable, err)
+	}
+	replacement := app.CredentialSecret{Ref: ref, Kind: kind, Value: sealedValue}
+	var command store.CredentialSaveCommand
+	if found {
+		if stored.Kind != kind {
+			return credentialError(CodeInvalid, errors.New("credential binding is already in use"))
+		}
+		command = store.NewCredentialReplace(stored, replacement)
+	} else {
+		command = store.NewCredentialCreate(replacement)
+	}
+	candidate, err := v.repository.SaveCredentialSecret(ctx, command)
+	if err == nil {
+		return nil
+	}
+	if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome && candidate.Ref != "" {
+		v.pending = &pendingCommand{
+			mode: pendingReplace, generation: v.lifecycleGeneration, bindingID: bindingID, kind: kind,
+			ref: ref, fingerprint: fingerprint, command: command, previous: stored, candidate: candidate,
+		}
+	}
+	return v.mapRepositoryError(err)
+}
+
+// DeleteBinding deletes only the value owned by the supplied stable binding
+// and kind. A missing binding is already in the desired state.
+func (v *Vault) DeleteBinding(ctx context.Context, bindingID, kind string) error {
+	if err := v.Ready(); err != nil {
+		return err
+	}
+	bindingID = strings.TrimSpace(bindingID)
+	kind = strings.TrimSpace(kind)
+	if bindingID == "" || len([]byte(bindingID)) > maxSealIdentityBytes || kind == "" {
+		return credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
+	}
+	return v.deleteAuthenticated(ctx, v.credentialRef(bindingID), kind, false)
+}
+
 func (v *Vault) Delete(ctx context.Context, ref string) error {
 	if err := v.Ready(); err != nil {
 		return err
@@ -491,6 +599,33 @@ func (v *Vault) resolvePendingLocked(ctx context.Context, intent pendingCommand)
 			pending.candidate = candidate
 		}
 		return "", false, v.mapRepositoryError(err)
+	case pendingReplace:
+		stored, found, err := v.repository.GetCredentialSecret(ctx, pending.ref)
+		if err != nil {
+			return "", false, v.mapRepositoryError(err)
+		}
+		same := intent.mode == pendingReplace && intent.bindingID == pending.bindingID && intent.kind == pending.kind && hmac.Equal(intent.fingerprint[:], pending.fingerprint[:])
+		if found && credentialSecretsEqual(stored, pending.candidate) {
+			v.clearPendingLocked()
+			return "", same, nil
+		}
+		previousStillCurrent := (!found && pending.previous.Ref == "") || (found && credentialSecretsEqual(stored, pending.previous))
+		if !previousStillCurrent {
+			return "", false, credentialError(CodeUnavailable, errors.New("pending credential replace conflicts with stored state"))
+		}
+		if !same {
+			v.clearPendingLocked()
+			return "", false, nil
+		}
+		candidate, err := v.repository.SaveCredentialSecret(ctx, pending.command)
+		if err == nil {
+			v.clearPendingLocked()
+			return "", true, nil
+		}
+		if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome && candidate.Ref != "" {
+			pending.candidate = candidate
+		}
+		return "", false, v.mapRepositoryError(err)
 	default:
 		return "", false, credentialError(CodeUnavailable, errors.New("credential pending state is invalid"))
 	}
@@ -501,6 +636,7 @@ func (v *Vault) clearPendingLocked() {
 		return
 	}
 	v.pending.candidate.Value = ""
+	v.pending.previous.Value = ""
 	v.pending.command = store.CredentialSaveCommand{}
 	v.pending.condition = store.CredentialDeleteCondition{}
 	zero(v.pending.fingerprint[:])

@@ -40,6 +40,13 @@ const (
 	ToolErrorMCPAuthorization                ToolErrorCode = "mcp_authorization"
 	ToolErrorMCPPersistenceUnsafe            ToolErrorCode = "mcp_persistence_unsafe"
 	ToolErrorPolicyBlocked                   ToolErrorCode = "policy_blocked"
+	ToolErrorInfoNotConfigured               ToolErrorCode = "info_not_configured"
+	ToolErrorInfoUpdating                    ToolErrorCode = "info_updating"
+	ToolErrorInfoAuthFailed                  ToolErrorCode = "info_auth_failed"
+	ToolErrorInfoTemporarilyUnavailable      ToolErrorCode = "info_temporarily_unavailable"
+	ToolErrorInfoCredentialsChanged          ToolErrorCode = "info_credentials_changed"
+	ToolErrorLocalMindUpdating               ToolErrorCode = "localmind_updating"
+	ToolErrorLocalMindCredentialsChanged     ToolErrorCode = "localmind_credentials_changed"
 	// ToolErrorObservationBinaryContent: an observation.read window contains
 	// bytes that are not valid UTF-8. The error message carries the offset to
 	// retry with so the caller can skip past the binary region.

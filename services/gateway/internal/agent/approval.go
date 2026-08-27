@@ -38,6 +38,20 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if call.Status != app.ToolCallStatusApprovalPending {
 		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
 	}
+	ctx, endRun := r.bindIntegrationRun(ctx, call.RunID)
+	defer endRun()
+	if cause := integrationCredentialChangeCause(ctx); cause != nil {
+		now := time.Now().UTC()
+		call.Status = app.ToolCallStatusFailedAfterApproval
+		call.CompletedAt = &now
+		call.Error = cause.Error()
+		call.ErrorCode = string(app.ToolErrorCodeFrom(cause))
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: cause, MaxBytes: r.observationSummaryLimit()})
+		if _, err := r.saveToolCall(context.WithoutCancel(ctx), call); err != nil {
+			return app.ToolCall{}, fmt.Errorf("persist credential-changed approved tool call: %w", err)
+		}
+		return call, nil
+	}
 	if call.Tool == "notify.ask_approval" {
 		now := time.Now().UTC()
 		if isLegacyExternalSendApproval(approval) {
@@ -121,15 +135,16 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	now := time.Now().UTC()
 	call.CompletedAt = &now
 	if err != nil {
+		persistCtx := integrationCredentialPersistenceContext(ctx)
 		call.Status = app.ToolCallStatusFailedAfterApproval
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		if result.Output != nil {
 			call.Result = result.Output
-			call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
+			call.ObservationRef = store.ArchiveToolObservation(persistCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 		}
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.observationSummaryLimit()})
-		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+		if _, saveErr := r.saveToolCall(persistCtx, call); saveErr != nil {
 			return app.ToolCall{}, fmt.Errorf("persist failed approved tool call: %w", saveErr)
 		}
 		return call, nil
@@ -182,11 +197,17 @@ func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID strin
 		run.State = "blocked"
 		run.CompletedAt = &now
 		_, err := r.saveRun(ctx, run)
+		if err == nil && r.integrationRuns != nil {
+			r.integrationRuns.Forget(runID)
+		}
 		return err
 	}
 	run.State = "completed"
 	run.CompletedAt = &now
 	_, err = r.saveRun(ctx, run)
+	if err == nil && r.integrationRuns != nil {
+		r.integrationRuns.Forget(runID)
+	}
 	return err
 }
 

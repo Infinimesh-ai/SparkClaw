@@ -550,6 +550,33 @@ export type MCPAccessRecordDeletion = {
   deleted_bindings: number;
 };
 
+export type IntegrationID = "infinimesh-info" | "localmind";
+
+export type IntegrationCredential = {
+  id: string;
+  label: string;
+  validated_at: string;
+  last_checked_at?: string;
+  state: string;
+  error_code?: string;
+  active: boolean;
+};
+
+export type IntegrationStatus = {
+  id: IntegrationID;
+  category: "data_provider" | "outbound_mcp";
+  configured: boolean;
+  source: "household" | "operator" | "none";
+  state: string;
+  editable: boolean;
+  checkable: boolean;
+  operator_available: boolean;
+  active_credential_id?: string;
+  credentials: IntegrationCredential[];
+  last_checked_at?: string;
+  error_code?: string;
+};
+
 export type PublicModelProfile = {
   name: string;
   base_url: string;

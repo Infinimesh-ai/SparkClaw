@@ -251,6 +251,31 @@ func TestVaultReconcilesUnknownCreateAndCleansOrphanBeforeDifferentMutation(t *t
 	}
 }
 
+func TestVaultReplaceBindingReconcilesUnknownOutcome(t *testing.T) {
+	repository := &unknownOnceRepository{inner: store.NewMemoryStore()}
+	vault := New(repository, Options{Key: testKey(13)})
+	if err := vault.ReplaceBinding(t.Context(), "integration:test", "bundle-v1", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	repository.unknownSaveOnce = true
+	if err := vault.ReplaceBinding(t.Context(), "integration:test", "bundle-v1", []byte("second")); ErrorCode(err) != CodeUnavailable {
+		t.Fatalf("unknown replace error=%v code=%q", err, ErrorCode(err))
+	}
+	if err := vault.ReplaceBinding(t.Context(), "integration:test", "bundle-v1", []byte("second")); err != nil {
+		t.Fatalf("reconciled replace: %v", err)
+	}
+	opened, found, err := vault.OpenBinding(t.Context(), "integration:test", "bundle-v1")
+	if err != nil || !found || string(opened) != "second" {
+		t.Fatalf("opened=%q found=%v err=%v", opened, found, err)
+	}
+	if err := vault.DeleteBinding(t.Context(), "integration:test", "bundle-v1"); err != nil {
+		t.Fatal(err)
+	}
+	if opened, found, err := vault.OpenBinding(t.Context(), "integration:test", "bundle-v1"); err != nil || found || opened != nil {
+		t.Fatalf("deleted binding opened=%q found=%v err=%v", opened, found, err)
+	}
+}
+
 func TestVaultReconcilesUnknownLegacyRewrap(t *testing.T) {
 	repository := &unknownOnceRepository{inner: store.NewMemoryStore()}
 	legacy := "legacy-rewrap-unknown-token"

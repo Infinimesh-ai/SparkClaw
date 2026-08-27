@@ -4,6 +4,358 @@
   max-width: 100%;
 }
 
+.settingsPanel {
+  min-width: 0;
+}
+
+.settingsCategoryTabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  overflow: hidden;
+  background: var(--surface-deep);
+}
+
+.settingsCategoryTabs button {
+  display: grid;
+  grid-template-rows: 18px minmax(18px, auto);
+  place-items: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 3px;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.settingsCategoryTabs button:last-child {
+  border-right: 0;
+}
+
+.settingsCategoryTabs button span {
+  width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.settingsCategoryTabs button.selected {
+  color: var(--text-primary);
+  background: var(--surface);
+  box-shadow: inset 0 -2px 0 var(--cyber-blue);
+}
+
+.settingsCategoryTabs button:focus-visible,
+.settingsDirectoryRow:focus-visible,
+.settingsBack:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--cyber-blue);
+  outline-offset: -2px;
+}
+
+.settingsDirectory,
+.settingsDetailView,
+.integrationDetail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settingsDirectory {
+  gap: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settingsDirectoryRow {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  text-align: left;
+  background: transparent;
+}
+
+.settingsDirectoryRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsDirectoryRow:hover {
+  background: var(--surface-hover);
+}
+
+.settingsDirectoryRow > svg {
+  color: var(--text-muted);
+}
+
+.settingsDirectoryIcon,
+.credentialIcon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--cyber-blue);
+  background: var(--surface-muted);
+}
+
+.settingsDirectoryIdentity,
+.credentialIdentity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settingsDirectoryIdentity strong,
+.credentialIdentity strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.settingsDirectoryIdentity small,
+.credentialIdentity small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.settingsBack {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  text-align: left;
+  background: transparent;
+}
+
+.settingsBack span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.integrationStatusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.integrationStatusBar > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.integrationStatusBar strong,
+.integrationStatusBar span {
+  overflow-wrap: anywhere;
+}
+
+.integrationState {
+  flex: 0 1 auto;
+  max-width: 48%;
+  padding: 4px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  font-size: 9px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.integrationState.ready {
+  border-color: rgba(96, 208, 68, 0.38);
+  color: var(--emerald-success);
+}
+
+.integrationState.needs_attention,
+.integrationState.vault_unavailable {
+  border-color: rgba(239, 68, 68, 0.42);
+  color: var(--crimson-danger);
+}
+
+.integrationState.checking,
+.integrationState.temporarily_unavailable {
+  border-color: rgba(245, 158, 11, 0.42);
+  color: var(--amber-warning);
+}
+
+.credentialList {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.credentialRow {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.credentialRow:last-child {
+  border-bottom: 0;
+}
+
+.credentialRow.selected {
+  box-shadow: inset 2px 0 0 var(--cyber-blue);
+}
+
+.credentialActions {
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  gap: 3px;
+}
+
+.credentialActions .miniIconButton,
+.credentialRow > .miniIconButton {
+  width: 28px;
+  height: 28px;
+}
+
+.dangerIcon {
+  color: var(--crimson-danger);
+}
+
+.integrationEmpty {
+  padding: 14px 4px;
+}
+
+.credentialForm {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.credentialSubmit {
+  justify-self: stretch;
+  min-height: 36px;
+}
+
+.credentialSubmit .spin,
+.credentialActions .spin,
+.credentialValidationFeedback .spin {
+  animation: integration-spin 850ms linear infinite;
+}
+
+.credentialValidationFeedback {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--amber-warning);
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+}
+
+.credentialValidationFeedback.success {
+  border-left-color: var(--emerald-success);
+}
+
+.credentialValidationFeedback.error {
+  border-left-color: var(--crimson-danger);
+}
+
+.credentialValidationIcon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--amber-warning);
+}
+
+.credentialValidationFeedback.success .credentialValidationIcon {
+  color: var(--emerald-success);
+}
+
+.credentialValidationFeedback.error .credentialValidationIcon {
+  color: var(--crimson-danger);
+}
+
+.credentialValidationCopy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.credentialValidationCopy strong,
+.credentialValidationCopy small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+}
+
+.credentialValidationCopy strong {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.credentialValidationCopy small {
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+@keyframes integration-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .credentialSubmit .spin,
+  .credentialActions .spin,
+  .credentialValidationFeedback .spin {
+    animation: none;
+  }
+}
+
+@media (max-width: 390px) {
+  .credentialRow {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .credentialActions,
+  .credentialRow > .miniIconButton {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
 .bindingCapability {
   min-height: 16px;
   overflow-wrap: anywhere;
@@ -524,4 +876,3 @@
 .evalHistory button strong.failed {
   color: var(--crimson-danger);
 }
-

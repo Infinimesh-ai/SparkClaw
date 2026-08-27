@@ -25,12 +25,11 @@ func TestNewLocalMindManagerRequiresExplicitConfig(t *testing.T) {
 			StateOutputMaxBytes: 16 << 10, ArchiveOutputMaxBytes: 16 << 20, RefreshIntervalSeconds: 300,
 		},
 	}
-	// The config block alone is not an integration: the shipped default
-	// config carries it so the env-var names are documented, and installs
-	// that never set them must not register the discovery tool.
+	// The manager must exist without operator environment variables so a
+	// household credential can be activated later through settings.
 	manager, err = newLocalMindManager(cfg, hub, nil)
-	if err != nil || manager != nil {
-		t.Fatalf("LocalMind manager was created without resolved env vars: %#v %v", manager, err)
+	if err != nil || manager == nil {
+		t.Fatalf("LocalMind manager was not created for household configuration: %#v %v", manager, err)
 	}
 
 	t.Setenv("LOCALMIND_MCP_URL", "https://localmind.example.test/mcp")

@@ -1,6 +1,7 @@
 package localmind
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,9 +9,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpsafety"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -174,6 +177,67 @@ func TestLocalMindAuthorizationFailureNeverReplaysDelegate(t *testing.T) {
 	}
 }
 
+func TestCredentialSwitchCancelsActiveLocalMindCall(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, hub := newTestManager(t, fake.server.URL)
+	runs := integrationrun.New()
+	manager.WithIntegrationRuns(runs)
+	if _, err := manager.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fake.blockToolCalls()
+	runCtx, finishRun := runs.Begin(t.Context(), "run-active")
+	defer finishRun(false)
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := hub.Execute(runCtx, delegateReadLocalName, map[string]any{"request": "read task"}, "session", "run-active")
+		callDone <- err
+	}()
+	fake.waitForBlockedToolCall(t)
+	if _, err := manager.ActivateCredentials(t.Context(), Credentials{
+		Endpoint: fake.server.URL + "/api/workspaces/ws-1/mcp", BearerToken: "token-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-callDone; app.ToolErrorCodeFrom(err) != app.ToolErrorLocalMindCredentialsChanged {
+		t.Fatalf("active call error=%v", err)
+	}
+	if cause := context.Cause(runCtx); app.ToolErrorCodeFrom(cause) != app.ToolErrorLocalMindCredentialsChanged {
+		t.Fatalf("active run cause=%v", cause)
+	}
+}
+
+func TestCredentialSwitchPreventsSuspendedLocalMindRunFromUsingNewGeneration(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, hub := newTestManager(t, fake.server.URL)
+	runs := integrationrun.New()
+	manager.WithIntegrationRuns(runs)
+	if _, err := manager.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	runCtx, suspendRun := runs.Begin(t.Context(), "run-suspended")
+	if _, err := hub.Execute(runCtx, delegateReadLocalName, map[string]any{"request": "first task"}, "session", "run-suspended"); err != nil {
+		t.Fatal(err)
+	}
+	suspendRun(true)
+	if _, err := manager.ActivateCredentials(t.Context(), Credentials{
+		Endpoint: fake.server.URL + "/api/workspaces/ws-1/mcp", BearerToken: "token-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resumedCtx, finishRun := runs.Begin(t.Context(), "run-suspended")
+	defer finishRun(false)
+	_, err := hub.Execute(resumedCtx, delegateReadLocalName, map[string]any{"request": "second task"}, "session", "run-suspended")
+	if app.ToolErrorCodeFrom(err) != app.ToolErrorLocalMindCredentialsChanged {
+		t.Fatalf("resumed call error=%v", err)
+	}
+	if calls := len(fake.toolRequests(delegateRemoteName)); calls != 1 {
+		t.Fatalf("resumed run reached new LocalMind generation: calls=%d", calls)
+	}
+}
+
 func TestRefreshFailureRemovesAllStaleLocalMindTools(t *testing.T) {
 	fake := newFakeLocalMind(t)
 	manager, hub := newTestManager(t, fake.server.URL)
@@ -321,6 +385,8 @@ type fakeLocalMind struct {
 	tools        []mcpclient.Tool
 	toolResults  map[string]mcpclient.ToolResult
 	requests     []fakeRequest
+	blockCalls   bool
+	callStarted  chan struct{}
 }
 
 func newFakeLocalMind(t *testing.T) *fakeLocalMind {
@@ -385,6 +451,18 @@ func (f *fakeLocalMind) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 	case "tools/call":
 		f.mu.Lock()
+		blockCalls := f.blockCalls
+		callStarted := f.callStarted
+		f.mu.Unlock()
+		if blockCalls {
+			select {
+			case callStarted <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return
+		}
+		f.mu.Lock()
 		result = f.toolResults[toolName]
 		f.mu.Unlock()
 	default:
@@ -442,6 +520,25 @@ func (f *fakeLocalMind) setToolResult(name string, result mcpclient.ToolResult) 
 	f.mu.Lock()
 	f.toolResults[name] = result
 	f.mu.Unlock()
+}
+
+func (f *fakeLocalMind) blockToolCalls() {
+	f.mu.Lock()
+	f.blockCalls = true
+	f.callStarted = make(chan struct{}, 1)
+	f.mu.Unlock()
+}
+
+func (f *fakeLocalMind) waitForBlockedToolCall(t *testing.T) {
+	t.Helper()
+	f.mu.Lock()
+	started := f.callStarted
+	f.mu.Unlock()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for LocalMind tool call")
+	}
 }
 
 func (f *fakeLocalMind) requestsSnapshot() []fakeRequest {

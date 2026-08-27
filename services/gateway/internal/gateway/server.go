@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
@@ -74,6 +75,7 @@ type Server struct {
 	providers                *delivery.ProviderRegistry
 	connectors               ConnectorController
 	mcp                      MCPController
+	integrations             IntegrationController
 	mcpAccess                *mcpaccess.Service
 	iscpPairing              *iscppairing.Service
 	externalApprovalResolver ExternalApprovalResolver
@@ -122,6 +124,16 @@ type MCPController interface {
 	Refresh(context.Context, string) (mcpintegration.Status, error)
 }
 
+type IntegrationController interface {
+	List(context.Context) []integrationconfig.Status
+	Get(context.Context, string) (integrationconfig.Status, error)
+	AddInfoCredential(context.Context, integrationconfig.AddInfoCredentialInput) (integrationconfig.Status, error)
+	AddLocalMindCredential(context.Context, integrationconfig.AddLocalMindCredentialInput) (integrationconfig.Status, error)
+	Activate(context.Context, string, string, bool) (integrationconfig.Status, error)
+	Check(context.Context, string, string) (integrationconfig.Status, error)
+	Delete(context.Context, string, string) (integrationconfig.Status, error)
+}
+
 type ExternalApprovalResolver interface {
 	Resolve(context.Context, app.Approval, app.ApprovalStatus) (resolvedElsewhere bool, err error)
 }
@@ -140,6 +152,12 @@ func WithConnectorController(controller ConnectorController) Option {
 func WithMCPController(controller MCPController) Option {
 	return func(server *Server) {
 		server.mcp = controller
+	}
+}
+
+func WithIntegrationController(controller IntegrationController) Option {
+	return func(server *Server) {
+		server.integrations = controller
 	}
 }
 
@@ -328,6 +346,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notifications/events/stream", s.streamPassiveNotifications)
 	s.mux.HandleFunc("GET /api/connectors", s.listConnectors)
 	s.mux.HandleFunc("PATCH /api/connectors/{channel}", s.updateConnector)
+	s.mux.HandleFunc("GET /api/integrations", s.listIntegrations)
+	s.mux.HandleFunc("GET /api/integrations/{id}", s.getIntegration)
+	s.mux.HandleFunc("POST /api/integrations/infinimesh-info/credentials", s.addInfoCredential)
+	s.mux.HandleFunc("POST /api/integrations/localmind/credentials", s.addLocalMindCredential)
+	s.mux.HandleFunc("PUT /api/integrations/{id}/active-credential", s.activateIntegrationCredential)
+	s.mux.HandleFunc("POST /api/integrations/{id}/credentials/{credential_id}/check", s.checkIntegrationCredential)
+	s.mux.HandleFunc("DELETE /api/integrations/{id}/credentials/{credential_id}", s.deleteIntegrationCredential)
 	s.mux.HandleFunc("GET /api/mcp-servers", s.listMCPServers)
 	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)

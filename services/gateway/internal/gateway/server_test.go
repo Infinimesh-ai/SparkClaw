@@ -3369,7 +3369,7 @@ func TestCORSPreflightAdvertisesMCPAccessControlMethods(t *testing.T) {
 		t.Fatalf("CORS preflight returned %d", response.Code)
 	}
 	methods := response.Header().Get("Access-Control-Allow-Methods")
-	for _, method := range []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"} {
+	for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
 		if !strings.Contains(methods, method) {
 			t.Fatalf("Access-Control-Allow-Methods %q is missing %s", methods, method)
 		}

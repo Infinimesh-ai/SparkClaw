@@ -20,6 +20,8 @@ import type {
   NotificationBinding,
   ISCPOnboarding,
   ISCPPairingStatus,
+  IntegrationID,
+  IntegrationStatus,
   IssuedISCPPairing,
   IssuedMCPAccessTicket,
   MCPAccessRecordDeletion,
@@ -330,6 +332,37 @@ export const api = {
   markAllNotificationsRead: () =>
     request<{ updated: number; unread_count: number }>("/api/notifications/read-all", { method: "POST", body: "{}" }),
   connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
+  integrations: () => request<{ integrations: IntegrationStatus[] }>("/api/integrations"),
+  integration: (id: IntegrationID) => request<IntegrationStatus>(`/api/integrations/${encodeURIComponent(id)}`),
+  addInfoCredential: (label: string, licenseId: string, licenseKey: string) =>
+    request<IntegrationStatus>("/api/integrations/infinimesh-info/credentials", {
+      method: "POST",
+      body: JSON.stringify({ label, license_id: licenseId, license_key: licenseKey })
+    }),
+  addLocalMindCredential: (label: string, endpoint: string, bearerToken: string) =>
+    request<IntegrationStatus>("/api/integrations/localmind/credentials", {
+      method: "POST",
+      body: JSON.stringify({ label, endpoint, bearer_token: bearerToken })
+    }),
+  activateIntegrationCredential: (id: IntegrationID, credentialId: string) =>
+    request<IntegrationStatus>(`/api/integrations/${encodeURIComponent(id)}/active-credential`, {
+      method: "PUT",
+      body: JSON.stringify({ credential_id: credentialId })
+    }),
+  activateIntegrationOperator: (id: IntegrationID) =>
+    request<IntegrationStatus>(`/api/integrations/${encodeURIComponent(id)}/active-credential`, {
+      method: "PUT",
+      body: JSON.stringify({ use_operator: true })
+    }),
+  checkIntegrationCredential: (id: IntegrationID, credentialId: string) =>
+    request<IntegrationStatus>(`/api/integrations/${encodeURIComponent(id)}/credentials/${encodeURIComponent(credentialId)}/check`, {
+      method: "POST",
+      body: "{}"
+    }),
+  deleteIntegrationCredential: (id: IntegrationID, credentialId: string) =>
+    request<IntegrationStatus>(`/api/integrations/${encodeURIComponent(id)}/credentials/${encodeURIComponent(credentialId)}`, {
+      method: "DELETE"
+    }),
   updateConnector: (channel: string, enabled: boolean, expectedVersion: number) =>
     request<ConnectorStatus>(`/api/connectors/${encodeURIComponent(channel)}`, {
       method: "PATCH",

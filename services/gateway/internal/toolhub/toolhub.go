@@ -48,8 +48,7 @@ type ToolHub struct {
 	runner                sandbox.Runner
 	artifacts             artifact.Store
 	reminders             *remindertarget.Resolver
-	webSearch             websearch.Adapter
-	weatherInfo           WeatherInfoAdapter
+	info                  *infoRuntime
 	browser               browserautomation.Adapter
 	managedBrowserWindows *managedBrowserWindowRegistry
 	ocr                   documentocr.Adapter
@@ -115,7 +114,12 @@ func New(cfg config.Config, st Repository) *ToolHub {
 	infoCfg := cfg.Plugins.Entries.InfinimeshInfo.Config
 	// A failed constructor must leave the interface field nil, not hold a
 	// typed-nil *Client that defeats the availability guard in lookupWeather.
+	var searchInfo websearch.Adapter
 	var weatherInfo WeatherInfoAdapter
+	provider := strings.ToLower(strings.TrimSpace(cfg.Tools.Web.Search.Provider))
+	if provider != "" && provider != websearch.InfoProviderName {
+		searchInfo = websearch.NewAdapter(cfg)
+	}
 	if client, err := infinimeshinfo.NewClient(infinimeshinfo.Config{
 		BaseURL:              infoCfg.BaseURL,
 		LicenseID:            infoCfg.LicenseID,
@@ -127,6 +131,9 @@ func New(cfg config.Config, st Repository) *ToolHub {
 		ResponseBodyMaxBytes: infoCfg.ResponseBodyMaxBytes,
 	}, nil); err == nil {
 		weatherInfo = client
+		if adapter, adapterErr := websearch.NewInfinimeshInfoAdapter(infoCfg, nil); adapterErr == nil {
+			searchInfo = adapter
+		}
 	}
 	ocrAdapter, err := documentocr.New(cfg.Adapters.DocumentOCR)
 	ocrConstructorErr := err
@@ -147,8 +154,7 @@ func New(cfg config.Config, st Repository) *ToolHub {
 		runner:                sandbox.NewRunner(cfg),
 		artifacts:             artifact.NewStore(cfg.Storage),
 		reminders:             remindertarget.NewResolver(st),
-		webSearch:             websearch.NewAdapter(cfg),
-		weatherInfo:           weatherInfo,
+		info:                  newInfoRuntime(searchInfo, weatherInfo),
 		browser:               browserautomation.NewAdapter(cfg),
 		managedBrowserWindows: newManagedBrowserWindowRegistry(),
 		ocr:                   ocrAdapter,
@@ -209,7 +215,11 @@ func (h *ToolHub) WithBrowserAutomationAdapter(adapter browserautomation.Adapter
 }
 
 func (h *ToolHub) WithWeatherInfoAdapter(adapter WeatherInfoAdapter) *ToolHub {
-	h.weatherInfo = adapter
+	if h.info != nil {
+		h.info.mu.Lock()
+		h.info.weather = adapter
+		h.info.mu.Unlock()
+	}
 	return h
 }
 
@@ -388,6 +398,9 @@ func (h *ToolHub) Validate(name string, args map[string]any) error {
 }
 
 func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any, sessionID, runID string) (Result, error) {
+	if cause := integrationCredentialChangeCause(ctx); cause != nil {
+		return Result{}, cause
+	}
 	def, ok := h.Definition(name)
 	if !ok {
 		return Result{}, fmt.Errorf("tool %q not found", name)
@@ -408,6 +421,9 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	var err error
 	h, err = h.forSession(ctx, sessionID)
 	if err != nil {
+		if cause := integrationCredentialChangeCause(ctx); cause != nil {
+			return Result{}, cause
+		}
 		if wrapper := toolhubDocumentProviderRegistry().errorWrapperForTool(name); wrapper != nil {
 			return Result{}, wrapper(ctx, err)
 		}
@@ -421,12 +437,25 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	}
 	result, err := executor(h, ctx, name, args, sessionID, runID)
 	if err != nil {
+		if cause := integrationCredentialChangeCause(ctx); cause != nil {
+			return result, cause
+		}
 		return result, err
 	}
 	if err := validateOutput(def, result.Output); err != nil {
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func integrationCredentialChangeCause(ctx context.Context) error {
+	cause := context.Cause(ctx)
+	switch app.ToolErrorCodeFrom(cause) {
+	case app.ToolErrorInfoCredentialsChanged, app.ToolErrorLocalMindCredentialsChanged:
+		return cause
+	default:
+		return nil
+	}
 }
 
 func stringArg(args map[string]any, key, fallback string) string {

@@ -9,6 +9,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/happyapproval"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
@@ -25,6 +27,7 @@ type gatewayServices struct {
 	reminderScheduler *reminder.Scheduler
 	mcpManager        *mcpintegration.Manager
 	happyApprovals    *happyapproval.Service
+	integrations      *integrationconfig.Controller
 }
 
 func newGatewayServices(
@@ -36,6 +39,9 @@ func newGatewayServices(
 	transcriber speech.Transcriber,
 	storeRuntime *store.Runtime,
 ) (*gatewayServices, error) {
+	integrationRuns := integrationrun.New()
+	tools.WithIntegrationRuns(integrationRuns)
+	runtime = runtime.WithIntegrationRuns(integrationRuns)
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
 	transcriber = speech.WithModelCallRecording(transcriber, st, cfg.Speech)
@@ -58,6 +64,14 @@ func newGatewayServices(
 		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery), cfg.Tools.Reminders.MaxDeliveryAttempts)
 	}
 	mcpManager := mcpintegration.New(withoutLocalMindMCPServer(cfg.MCPServers), tools, nil)
+	localMindManager, err := newLocalMindManager(cfg, tools, nil)
+	if err != nil {
+		return nil, err
+	}
+	if localMindManager != nil {
+		localMindManager.WithIntegrationRuns(integrationRuns)
+	}
+	integrations := integrationconfig.New(cfg, connectors.credentials, st, tools, localMindManager)
 	iscpPairing, err := newISCPPairingService(cfg, st)
 	if err != nil {
 		return nil, err
@@ -77,6 +91,7 @@ func newGatewayServices(
 			gateway.WithSpeechTranscriber(transcriber),
 			gateway.WithConnectorController(connectors.registry),
 			gateway.WithMCPController(mcpManager),
+			gateway.WithIntegrationController(integrations),
 			gateway.WithISCPPairing(iscpPairing),
 			gateway.WithExternalApprovalResolver(happyApprovals),
 			gateway.WithManagedBrowserWindows(tools),
@@ -87,6 +102,7 @@ func newGatewayServices(
 		reminderScheduler: reminderScheduler,
 		mcpManager:        mcpManager,
 		happyApprovals:    happyApprovals,
+		integrations:      integrations,
 	}, nil
 }
 
@@ -116,6 +132,7 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 	s.server.BindLifecycleContext(ctx)
 	s.server.StartRetentionSweeps(ctx)
 	s.connectors.credentials.BindLifecycle(ctx)
+	s.integrations.Initialize(ctx)
 	if err := s.connectors.registry.Start(ctx); err != nil {
 		return err
 	}
@@ -128,5 +145,6 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 	if s.happyApprovals != nil {
 		s.happyApprovals.Run(ctx)
 	}
+	go s.integrations.Run(ctx)
 	return nil
 }

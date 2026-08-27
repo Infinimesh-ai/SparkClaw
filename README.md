@@ -52,7 +52,7 @@ verifies the containerized Chromium automation runtime:
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
 ```
 
 The interactive setup accepts an empty model API key when the endpoints do not

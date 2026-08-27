@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/settings-integration-configuration-design.md) | 简体中文
 
-状态：已接受，并在 `codex/server-deployment` 实现。
+状态：已接受，并在 `main` 实现。
 
 ## 范围
 

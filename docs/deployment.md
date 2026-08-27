@@ -114,7 +114,7 @@ On an Ubuntu VM, run the streamed installer as a normal sudo-capable user:
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
 ```
 
 The bootstrap installs Git when necessary, safely clones or fast-forwards the
@@ -187,12 +187,12 @@ Re-enter the private configuration or perform a read-only deployment check:
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
   bash -s -- --configure
 
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
   bash -s -- --check
 ```
 

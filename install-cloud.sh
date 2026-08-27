@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 REPOSITORY_URL="${SPARKCLAW_REPOSITORY_URL:-https://github.com/Infinimesh-ai/SparkClaw.git}"
-GIT_REF="${SPARKCLAW_GIT_REF:-codex/server-deployment}"
+GIT_REF="${SPARKCLAW_GIT_REF:-main}"
 INSTALL_DIR="${SPARKCLAW_INSTALL_DIR:-${HOME:-}/SparkClaw}"
 BOOTSTRAP_TIMEOUT_SECONDS="${SPARKCLAW_BOOTSTRAP_TIMEOUT_SECONDS:-900}"
 MODE="deploy"
@@ -14,7 +14,7 @@ usage() {
   cat <<'EOF'
 Usage: curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
          --connect-timeout 15 --max-time 300 \
-         https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+         https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
        bash install-cloud.sh [--check] [--configure]
 
 Install or safely update SparkClaw, then deploy the Ubuntu cloud-model VM
@@ -29,7 +29,7 @@ Options:
 Environment:
   SPARKCLAW_INSTALL_DIR                 Install path (default: $HOME/SparkClaw)
   SPARKCLAW_REPOSITORY_URL              HTTPS or SSH Git repository URL
-  SPARKCLAW_GIT_REF                     Branch or tag (default: codex/server-deployment)
+  SPARKCLAW_GIT_REF                     Branch or tag (default: main)
   SPARKCLAW_BOOTSTRAP_TIMEOUT_SECONDS   Git network timeout (default: 900)
   SPARKCLAW_CLOUD_ENV_FILE              Optional local env file path
 EOF

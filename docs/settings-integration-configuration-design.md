@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/settings-integration-configuration-design.md)
 
-Status: Accepted and implemented on `codex/server-deployment`.
+Status: Accepted and implemented on `main`.
 
 ## Scope
 

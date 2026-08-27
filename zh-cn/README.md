@@ -50,7 +50,7 @@ Ubuntu 测试 VM 使用外部模型 endpoint 时，以具备 sudo 权限的普�
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/codex/server-deployment/install-cloud.sh | bash
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
 ```
 
 模型 endpoint 不需要认证时，交互配置中的 API Key 直接回车留空。当前可信局域网 cloud

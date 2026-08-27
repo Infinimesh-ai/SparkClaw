@@ -33,7 +33,7 @@ class CloudInstallerTest(unittest.TestCase):
         deploy.chmod(deploy.stat().st_mode | stat.S_IXUSR)
         (self.source / "README.md").write_text("cloud bootstrap fixture\n", encoding="utf-8")
 
-        self.git("init", "-b", "codex/server-deployment")
+        self.git("init", "-b", "main")
         self.git("add", ".")
         self.git(
             "-c",

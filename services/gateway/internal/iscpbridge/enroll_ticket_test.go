@@ -47,8 +47,15 @@ func TestEnrollWithTicketV3(t *testing.T) {
 			desc := descriptor.RelayDescriptor{
 				Type: "iscp.relay.descriptor.v2", RelayID: "relay-test", DomainID: "infinimesh-cloud",
 				BaseURL: server.URL, WebSocketURL: "ws" + strings.TrimPrefix(server.URL, "http") + "/v2/relay/connect",
-				SigningKeys: []descriptor.PublicKey{},
-				IssuedAt:    now, ExpiresAt: now.Add(24 * time.Hour),
+				// A real deployment's descriptor declares the key it is signed
+				// with; an empty key set is unverifiable and now rejected.
+				SigningKeys: []descriptor.PublicKey{{
+					KTY: "Ed25519", Use: "identity-signature",
+					KID:    trustSigner.Identity.PublicKey.KID,
+					Public: trustSigner.Identity.PublicKey.Public,
+					State:  "active",
+				}},
+				IssuedAt: now, ExpiresAt: now.Add(24 * time.Hour),
 				Metadata: map[string]string{"grant_renewal": "true", "recovery_anchor": "true"},
 			}
 			signed, _ := descriptor.Sign(provider, trustSigner, desc.Type, desc, now)
@@ -217,4 +224,94 @@ func mustJSON(v any) []byte {
 		panic(err)
 	}
 	return raw
+}
+
+// TestDescriptorVerificationRejectsUnusableDescriptors pins the discovery
+// checks that were previously absent: descriptors were unmarshalled and
+// trusted without verifying their signature or expiry, so an expired document,
+// one rolled back to a retired key set, or one signed by a key it does not
+// declare was accepted and its trust-root keys used to verify the ticket.
+func TestDescriptorVerificationRejectsUnusableDescriptors(t *testing.T) {
+	provider := iscpcrypto.NewProvider()
+	now := time.Now().UTC()
+	signer, err := identity.NewDevice(provider, "infinimesh-cloud", "trust-root-test", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeKey := descriptor.PublicKey{
+		KTY: "Ed25519", Use: "identity-signature",
+		KID: signer.Identity.PublicKey.KID, Public: signer.Identity.PublicKey.Public,
+		State: "active",
+	}
+
+	serve := func(t *testing.T, keys []descriptor.PublicKey, issuedAt, expiresAt time.Time) string {
+		t.Helper()
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/.well-known/iscp/relay" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			desc := descriptor.RelayDescriptor{
+				Type: "iscp.relay.descriptor.v2", RelayID: "relay-test", DomainID: "infinimesh-cloud",
+				BaseURL: server.URL, WebSocketURL: "ws" + strings.TrimPrefix(server.URL, "http") + "/v2/relay/connect",
+				SigningKeys: keys, IssuedAt: issuedAt, ExpiresAt: expiresAt,
+			}
+			signed, _ := descriptor.Sign(provider, signer, desc.Type, desc, issuedAt)
+			_ = json.NewEncoder(w).Encode(map[string]any{"descriptor": signed})
+		}))
+		t.Cleanup(server.Close)
+		return server.URL
+	}
+
+	t.Run("expired", func(t *testing.T) {
+		url := serve(t, []descriptor.PublicKey{activeKey}, now.Add(-48*time.Hour), now.Add(-24*time.Hour))
+		_, _, err := fetchVerifiedRelayDescriptor(t.Context(), &http.Client{Timeout: 5 * time.Second},
+			provider, url, ProfileProduction, now)
+		if err == nil || !strings.Contains(err.Error(), "verification failed") {
+			t.Fatalf("expired descriptor must be rejected, got %v", err)
+		}
+	})
+
+	t.Run("retired key set", func(t *testing.T) {
+		retired := activeKey
+		retired.State = "revoked"
+		url := serve(t, []descriptor.PublicKey{retired}, now, now.Add(24*time.Hour))
+		_, _, err := fetchVerifiedRelayDescriptor(t.Context(), &http.Client{Timeout: 5 * time.Second},
+			provider, url, ProfileProduction, now)
+		if err == nil || !strings.Contains(err.Error(), "active key it declares") {
+			t.Fatalf("revoked signing key must be rejected, got %v", err)
+		}
+	})
+
+	t.Run("signed by an undeclared key", func(t *testing.T) {
+		other, err := identity.NewDevice(provider, "infinimesh-cloud", "impostor", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foreign := descriptor.PublicKey{
+			KTY: "Ed25519", Use: "identity-signature",
+			KID: other.Identity.PublicKey.KID, Public: other.Identity.PublicKey.Public,
+			State: "active",
+		}
+		// Declares only the impostor's key while being signed by `signer`.
+		url := serve(t, []descriptor.PublicKey{foreign}, now, now.Add(24*time.Hour))
+		_, _, err = fetchVerifiedRelayDescriptor(t.Context(), &http.Client{Timeout: 5 * time.Second},
+			provider, url, ProfileProduction, now)
+		if err == nil {
+			t.Fatal("descriptor signed by an undeclared key must be rejected")
+		}
+	})
+
+	t.Run("accepts a well-formed descriptor", func(t *testing.T) {
+		url := serve(t, []descriptor.PublicKey{activeKey}, now, now.Add(24*time.Hour))
+		relayDesc, pin, err := fetchVerifiedRelayDescriptor(t.Context(), &http.Client{Timeout: 5 * time.Second},
+			provider, url, ProfileProduction, now)
+		if err != nil {
+			t.Fatalf("valid descriptor rejected: %v", err)
+		}
+		if relayDesc.RelayID != "relay-test" || pin == "" {
+			t.Fatalf("descriptor = %#v, pin = %q", relayDesc, pin)
+		}
+	})
 }

@@ -21,7 +21,6 @@ import (
 	"time"
 
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
-	"github.com/Infinimesh-ai/ISCP/pkg/iscp/descriptor"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/recovery"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
@@ -52,15 +51,15 @@ func grantRenewalWindow(grant trust.Grant) time.Duration {
 
 // fetchRelayCapabilities re-reads the relay descriptor's metadata capability
 // keys. Descriptors are short-lived (24h), so feature detection is never
-// cached beyond one lifecycle pass.
-func fetchRelayCapabilities(ctx context.Context, client *http.Client, baseURL string) (map[string]string, error) {
-	signed, _, err := fetchSignedDescriptor(ctx, client, baseURL, "/.well-known/iscp/relay")
+// cached beyond one lifecycle pass. The descriptor is signature- and
+// expiry-verified before its metadata steers anything: a forged capability
+// only costs a probe (both endpoints re-prove possession and verify their
+// results against pinned identities), but reading an unverified document is
+// not a habit worth keeping in the lifecycle loop.
+func (s *Service) fetchRelayCapabilities(ctx context.Context, client *http.Client, baseURL string) (map[string]string, error) {
+	relayDesc, _, err := fetchVerifiedRelayDescriptor(ctx, client, s.provider, baseURL, s.config.Profile, time.Now().UTC())
 	if err != nil {
 		return nil, err
-	}
-	var relayDesc descriptor.RelayDescriptor
-	if err := json.Unmarshal(signed.Descriptor, &relayDesc); err != nil {
-		return nil, errors.New("relay descriptor is invalid")
 	}
 	if relayDesc.Metadata == nil {
 		return map[string]string{}, nil
@@ -310,7 +309,7 @@ func (s *Service) runManagedLifecycle(ctx context.Context) {
 		if !needsRenewal && !needsRecovery {
 			continue
 		}
-		capabilities, err := fetchRelayCapabilities(ctx, client, bundle.RelayBaseURL)
+		capabilities, err := s.fetchRelayCapabilities(ctx, client, bundle.RelayBaseURL)
 		if err != nil {
 			continue
 		}

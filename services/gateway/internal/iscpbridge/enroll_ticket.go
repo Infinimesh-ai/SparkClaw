@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	iscpconfig "github.com/Infinimesh-ai/ISCP/pkg/iscp/config"
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/descriptor"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -123,7 +124,90 @@ func fetchSignedDescriptor(ctx context.Context, client *http.Client, baseURL, we
 	if err := json.Unmarshal(wire.Descriptor, &signed); err != nil {
 		return descriptor.SignedDescriptor{}, "", errors.New("signed descriptor is invalid")
 	}
-	return signed, wire.Pin, nil
+	// The pin is computed locally, never taken from the response: a
+	// server-supplied pin attests to nothing.
+	pin, err := descriptor.Pin(signed)
+	if err != nil {
+		return descriptor.SignedDescriptor{}, "", errors.New("signed descriptor is not canonicalizable")
+	}
+	return signed, pin, nil
+}
+
+// descriptorSelfSigner builds the verification identity for the key a signed
+// descriptor names in its OWN signature.
+//
+// Trust model, deliberately: relay and trust-root descriptors are self-signed
+// and ISCP v0.2's pairing ticket carries no descriptor pins, so verifying one
+// cannot establish first-contact authenticity — that rests on TLS to the
+// operator-supplied URL, plus the six-digit confirmation code the human
+// compares on the phone. Nor is the descriptor pin a durable anchor: it covers
+// issued_at/expires_at and therefore rotates on every re-issue.
+//
+// What verification does buy, and why it is not optional: it rejects a
+// descriptor that is expired, rolled back to a retired key set, or truncated
+// in transit, and it proves the serving origin holds the private key for a key
+// the descriptor lists. The durable anchor after enrollment is separate and
+// already in place — EnrollmentBundle.TrustRootIdentity pins the grant signer,
+// and every VerifyGrant on session initiation and renewal checks against it.
+func descriptorSelfSigner(keys []descriptor.PublicKey, domainID, deviceID, kid string) (identity.DeviceIdentity, error) {
+	for _, key := range keys {
+		if key.KID != kid || key.KTY != "Ed25519" {
+			continue
+		}
+		if key.State == "revoked" || key.State == "next" {
+			continue
+		}
+		return identity.DeviceIdentity{
+			Type:     identity.TypeDeviceIdentity,
+			DomainID: domainID,
+			DeviceID: deviceID,
+			PublicKey: identity.PublicKey{
+				KTY: "Ed25519", Use: "identity-signature", KID: key.KID, Public: key.Public,
+			},
+		}, nil
+	}
+	return identity.DeviceIdentity{}, errors.New("descriptor is not signed by an active key it declares")
+}
+
+// fetchVerifiedRelayDescriptor discovers the relay descriptor and verifies its
+// signature and expiry under the profile's gate before any field is trusted.
+func fetchVerifiedRelayDescriptor(ctx context.Context, client *http.Client, provider iscpcrypto.Provider, baseURL, profile string, now time.Time) (descriptor.RelayDescriptor, string, error) {
+	signed, pin, err := fetchSignedDescriptor(ctx, client, baseURL, "/.well-known/iscp/relay")
+	if err != nil {
+		return descriptor.RelayDescriptor{}, "", err
+	}
+	var relayDesc descriptor.RelayDescriptor
+	if err := json.Unmarshal(signed.Descriptor, &relayDesc); err != nil {
+		return descriptor.RelayDescriptor{}, "", errors.New("relay descriptor is invalid")
+	}
+	signer, err := descriptorSelfSigner(relayDesc.SigningKeys, relayDesc.DomainID, relayDesc.RelayID, signed.Signature.KID)
+	if err != nil {
+		return descriptor.RelayDescriptor{}, "", fmt.Errorf("relay %w", err)
+	}
+	if err := descriptor.Verify(provider, signed, signer, iscpconfig.DefaultGate(iscpconfig.Profile(profile)), now); err != nil {
+		return descriptor.RelayDescriptor{}, "", fmt.Errorf("relay descriptor verification failed: %w", err)
+	}
+	return relayDesc, pin, nil
+}
+
+// fetchVerifiedTrustRootDescriptor is the trust-root counterpart.
+func fetchVerifiedTrustRootDescriptor(ctx context.Context, client *http.Client, provider iscpcrypto.Provider, baseURL, profile string, now time.Time) (descriptor.TrustRootDescriptor, string, error) {
+	signed, pin, err := fetchSignedDescriptor(ctx, client, baseURL, "/.well-known/iscp/trust-root")
+	if err != nil {
+		return descriptor.TrustRootDescriptor{}, "", err
+	}
+	var trustDesc descriptor.TrustRootDescriptor
+	if err := json.Unmarshal(signed.Descriptor, &trustDesc); err != nil {
+		return descriptor.TrustRootDescriptor{}, "", errors.New("trust root descriptor is invalid")
+	}
+	signer, err := descriptorSelfSigner(trustDesc.Keys, trustDesc.DomainID, trustDesc.TrustRootID, signed.Signature.KID)
+	if err != nil {
+		return descriptor.TrustRootDescriptor{}, "", fmt.Errorf("trust root %w", err)
+	}
+	if err := descriptor.Verify(provider, signed, signer, iscpconfig.DefaultGate(iscpconfig.Profile(profile)), now); err != nil {
+		return descriptor.TrustRootDescriptor{}, "", fmt.Errorf("trust root descriptor verification failed: %w", err)
+	}
+	return trustDesc, pin, nil
 }
 
 // trustSignerIdentity builds the verification identity for the trust root's
@@ -186,27 +270,20 @@ func EnrollWithTicket(ctx context.Context, opts TicketEnrollmentOptions, enrollm
 		return EnrollmentBundle{}, err
 	}
 
-	// 1. Discover and verify both descriptors; the ticket must be bound to
-	//    exactly this relay/trust-root pair.
-	signedRelay, _, err := fetchSignedDescriptor(ctx, client, opts.RelayBaseURL, "/.well-known/iscp/relay")
+	// 1. Discover and verify both descriptors (signature + expiry under the
+	//    profile gate); the ticket must be bound to exactly this
+	//    relay/trust-root pair.
+	relayDesc, _, err := fetchVerifiedRelayDescriptor(ctx, client, provider, opts.RelayBaseURL, opts.Profile, now)
 	if err != nil {
 		return EnrollmentBundle{}, err
-	}
-	var relayDesc descriptor.RelayDescriptor
-	if err := json.Unmarshal(signedRelay.Descriptor, &relayDesc); err != nil {
-		return EnrollmentBundle{}, errors.New("relay descriptor is invalid")
 	}
 	trustBase := strings.TrimSpace(opts.TrustBaseURL)
 	if trustBase == "" {
 		trustBase = opts.RelayBaseURL
 	}
-	signedTrust, _, err := fetchSignedDescriptor(ctx, client, trustBase, "/.well-known/iscp/trust-root")
+	trustDesc, _, err := fetchVerifiedTrustRootDescriptor(ctx, client, provider, trustBase, opts.Profile, now)
 	if err != nil {
 		return EnrollmentBundle{}, err
-	}
-	var trustDesc descriptor.TrustRootDescriptor
-	if err := json.Unmarshal(signedTrust.Descriptor, &trustDesc); err != nil {
-		return EnrollmentBundle{}, errors.New("trust root descriptor is invalid")
 	}
 	if ticket.RelayID != relayDesc.RelayID || ticket.TrustRootID != trustDesc.TrustRootID {
 		return EnrollmentBundle{}, fmt.Errorf("ticket is bound to relay %q / trust root %q, not this deployment", ticket.RelayID, ticket.TrustRootID)

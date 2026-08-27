@@ -120,6 +120,38 @@ describe("Integration credential settings", () => {
     await act(async () => root.unmount());
   });
 
+  it("refreshes persisted integration status after a failed connection check", async () => {
+    const failedStatus: IntegrationStatus = {
+      ...infoStatus,
+      state: "needs_attention",
+      error_code: "credential_auth_failed",
+      credentials: infoStatus.credentials.map((item) => item.id === "info-a"
+        ? { ...item, state: "needs_attention", error_code: "credential_auth_failed" }
+        : item)
+    };
+    const check = vi.spyOn(api, "checkIntegrationCredential").mockRejectedValue(new Error("credentials were rejected"));
+    const refresh = vi.spyOn(api, "integration").mockResolvedValue(failedStatus);
+    const onStatus = vi.fn();
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={dictionaries.en} language="en" onStatus={onStatus} />);
+    });
+
+    const row = Array.from(container.querySelectorAll(".credentialRow")).find((item) => item.textContent?.includes("Family account"));
+    const checkButton = row?.querySelector(`button[title="${dictionaries.en.settings.checkConnection}"]`) as HTMLButtonElement;
+    await act(async () => {
+      checkButton.click();
+      await Promise.resolve();
+    });
+
+    expect(check).toHaveBeenCalledWith("infinimesh-info", "info-a");
+    expect(refresh).toHaveBeenCalledWith("infinimesh-info");
+    expect(onStatus).toHaveBeenCalledWith(failedStatus);
+    expect(container.textContent).toContain("credentials were rejected");
+    await act(async () => root.unmount());
+  });
+
   it("requires confirmation before selecting another effective credential", async () => {
     const activate = vi.spyOn(api, "activateIntegrationCredential").mockResolvedValue({
       ...infoStatus,

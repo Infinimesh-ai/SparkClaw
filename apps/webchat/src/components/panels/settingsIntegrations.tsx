@@ -13,6 +13,7 @@ type CredentialFeedback = {
 
 type RunOptions = {
   clearInputs?: boolean;
+  refreshStatusOnError?: boolean;
   successTitle?: string;
   successMessage?: string;
   errorTitle?: string;
@@ -77,6 +78,13 @@ export function IntegrationCredentialSettings({
         title: options.errorTitle ?? text.errors.integration,
         message: errorMessage(reason, text.errors.integration)
       });
+      if (options.refreshStatusOnError) {
+        try {
+          onStatus(await api.integration(id));
+        } catch {
+          // Retain the original action error when the status refresh also fails.
+        }
+      }
     } finally {
       if (options.clearInputs) clearCredentialInputs();
       setBusy("");
@@ -186,6 +194,7 @@ export function IntegrationCredentialSettings({
                 className="miniIconButton"
                 type="button"
                 onClick={() => void run(`check:${credential.id}`, () => api.checkIntegrationCredential(id, credential.id), {
+                  refreshStatusOnError: true,
                   successTitle: text.settings.connectionCheckSucceeded,
                   successMessage: text.settings.connectionCheckSucceededDetail,
                   errorTitle: text.settings.validationFailed

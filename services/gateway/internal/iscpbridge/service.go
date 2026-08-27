@@ -58,6 +58,9 @@ type Service struct {
 	sessions     map[string]*secureSession
 	pumps        map[string]context.CancelFunc
 	managedPeers map[string]*managedPeer
+	// in-flight credential recovery whose outcome is unknown; see
+	// pendingRecovery in managed_lifecycle.go.
+	pendingRecovery *pendingRecovery
 }
 
 func NewService(config Config, gateway *GatewayClient, relay *RelayClient, device identity.Device) (*Service, error) {

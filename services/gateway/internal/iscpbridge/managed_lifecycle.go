@@ -3,8 +3,11 @@
 // Both are OPTIONAL relay surface, feature-detected through the relay
 // descriptor's metadata capability keys; both require a fresh possession
 // proof with the enrolled key on every attempt (no long-lived bearer ever
-// reaches the Bridge), and both are single-shot per idempotency key — a
-// retry after an unknown outcome replays the byte-identical original request.
+// reaches the Bridge), and both are single-shot per idempotency key — a retry
+// after an UNKNOWN outcome replays the original key so the Cloud can dedupe
+// it (see pendingRecovery / managedPeer.pendingRenewKey). The proof itself is
+// regenerated per attempt because it carries its own nonce and timestamp; the
+// key it commits to is what stays fixed.
 package iscpbridge
 
 import (
@@ -80,6 +83,37 @@ func (e *lifecycleHTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.status)
 }
 
+// lifecycleOutcomeKnown reports whether the Cloud's handling of the request is
+// settled, so its idempotency key can be retired. A transport failure, 5xx,
+// 408 or 429 leaves the outcome unknown or unattempted — the next attempt must
+// replay the SAME key, or a request that timed out after the Cloud committed
+// mints a second grant or a second credential pair. Any other response, error
+// or not, is an answer: the key has done its job.
+func lifecycleOutcomeKnown(err error) bool {
+	if err == nil {
+		return true
+	}
+	var httpErr *lifecycleHTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	switch httpErr.status {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return false
+	}
+	return httpErr.status < 500
+}
+
+// pendingRecovery holds one logical credential recovery across retries. The
+// wrap key pair is part of the replayed identity, not per-attempt state: a
+// deduped replay returns the blob sealed to the ORIGINAL wrap key, so minting
+// a fresh key per attempt would leave that blob permanently unopenable.
+type pendingRecovery struct {
+	idempotencyKey string
+	wrapPrivate    iscpcrypto.X25519PrivateKey
+	wrapPublic     string
+}
+
 func (s *Service) lifecyclePost(ctx context.Context, client *http.Client, path, idempotencyKey string, body []byte) ([]byte, error) {
 	bundle := s.relay.Enrollment()
 	endpoint := strings.TrimRight(bundle.RelayBaseURL, "/") + path
@@ -114,7 +148,13 @@ func (s *Service) lifecyclePost(ctx context.Context, client *http.Client, path, 
 // deviation fails closed).
 func (s *Service) autoRenewGrant(ctx context.Context, client *http.Client, peer *managedPeer) error {
 	bundle := s.relay.Enrollment()
-	idempotencyKey := newWireID("renew")
+	// Reuse the key of an attempt whose outcome we never learned.
+	peer.mu.Lock()
+	if peer.pendingRenewKey == "" {
+		peer.pendingRenewKey = newWireID("renew")
+	}
+	idempotencyKey := peer.pendingRenewKey
+	peer.mu.Unlock()
 	proof, err := s.device.CreateProof(s.provider, bundle.RelayID, idempotencyKey, randomNonce(), time.Now().UTC())
 	if err != nil {
 		return errors.New("create renewal proof")
@@ -127,6 +167,11 @@ func (s *Service) autoRenewGrant(ctx context.Context, client *http.Client, peer 
 		return errors.New("encode renewal request")
 	}
 	raw, err := s.lifecyclePost(ctx, client, "/v2/relay/devices/auto-renew-grant", idempotencyKey, body)
+	if lifecycleOutcomeKnown(err) {
+		peer.mu.Lock()
+		peer.pendingRenewKey = ""
+		peer.mu.Unlock()
+	}
 	if err != nil {
 		return err
 	}
@@ -201,12 +246,24 @@ func (s *Service) autoRenewGrant(ctx context.Context, client *http.Client, peer 
 // the three-language v0.2 vectors pin).
 func (s *Service) recoverCredentials(ctx context.Context, client *http.Client) error {
 	bundle := s.relay.Enrollment()
-	wrapPriv, wrapPub, err := s.provider.GenerateSessionKey()
-	if err != nil {
-		return errors.New("generate recovery wrap key")
+	// Resume an attempt whose outcome we never learned — key AND wrap key.
+	s.mu.Lock()
+	if s.pendingRecovery == nil {
+		wrapPriv, wrapPub, keyErr := s.provider.GenerateSessionKey()
+		if keyErr != nil {
+			s.mu.Unlock()
+			return errors.New("generate recovery wrap key")
+		}
+		s.pendingRecovery = &pendingRecovery{
+			idempotencyKey: newWireID("recover"),
+			wrapPrivate:    wrapPriv,
+			wrapPublic:     iscpcrypto.Base64URL(wrapPub.Bytes()),
+		}
 	}
-	wrapPublic := iscpcrypto.Base64URL(wrapPub.Bytes())
-	idempotencyKey := newWireID("recover")
+	attempt := *s.pendingRecovery
+	s.mu.Unlock()
+	wrapPriv, wrapPublic := attempt.wrapPrivate, attempt.wrapPublic
+	idempotencyKey := attempt.idempotencyKey
 	challenge := recovery.Challenge(idempotencyKey, wrapPublic)
 	proof, err := s.device.CreateProof(s.provider, bundle.RelayID, challenge, randomNonce(), time.Now().UTC())
 	if err != nil {
@@ -224,6 +281,11 @@ func (s *Service) recoverCredentials(ctx context.Context, client *http.Client) e
 		return errors.New("encode recovery request")
 	}
 	raw, err := s.lifecyclePost(ctx, client, "/v2/relay/devices/recover-credentials", idempotencyKey, body)
+	if lifecycleOutcomeKnown(err) {
+		s.mu.Lock()
+		s.pendingRecovery = nil
+		s.mu.Unlock()
+	}
 	if err != nil {
 		return err
 	}
@@ -313,6 +375,18 @@ func (s *Service) runManagedLifecycle(ctx context.Context) {
 		if err != nil {
 			continue
 		}
+		// Retry-After from either endpoint paces the whole loop: they share
+		// one Relay, so being told to back off by one is being told by both.
+		// Honor the longest pause any endpoint asked for this pass.
+		pace := func(err error) {
+			var httpErr *lifecycleHTTPError
+			if !errors.As(err, &httpErr) || httpErr.retryAfter <= 0 {
+				return
+			}
+			if until := now.Add(httpErr.retryAfter); until.After(retryNotBefore) {
+				retryNotBefore = until
+			}
+		}
 		if needsRenewal && capabilities[capabilityGrantRenewal] == "true" {
 			for _, peer := range peers {
 				peer.mu.Lock()
@@ -321,16 +395,11 @@ func (s *Service) runManagedLifecycle(ctx context.Context) {
 				if !due {
 					continue
 				}
-				if err := s.autoRenewGrant(ctx, client, peer); err != nil {
-					var httpErr *lifecycleHTTPError
-					if errors.As(err, &httpErr) && httpErr.retryAfter > 0 {
-						retryNotBefore = now.Add(httpErr.retryAfter)
-					}
-				}
+				pace(s.autoRenewGrant(ctx, client, peer))
 			}
 		}
 		if needsRecovery && capabilities[capabilityCredentialRecovery] == "true" {
-			_ = s.recoverCredentials(ctx, client)
+			pace(s.recoverCredentials(ctx, client))
 		}
 	}
 }

@@ -71,6 +71,10 @@ type managedPeer struct {
 	stale []string
 	// seen reopen request ids (bounded LRU): repeats coalesce silently.
 	reopenSeen []string
+	// idempotency key of a renewal whose outcome we never learned; replayed
+	// on the next attempt so the Cloud dedupes instead of minting a second
+	// grant (managed_lifecycle.go).
+	pendingRenewKey string
 	reinit     chan struct{}
 }
 

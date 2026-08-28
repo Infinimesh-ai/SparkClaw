@@ -62,8 +62,16 @@ type PeerAuthorization struct {
 	OutboundRevocationEpoch uint64                  `json:"outbound_revocation_epoch"`
 }
 
+// BundleModeManaged marks a bundle produced by Cloud managed provisioning
+// (ISCP v0.2 pairing ticket v3): the Bridge holds the single outbound Trust
+// Grant (subject = bridge, audience = phone) and the phone peer is a
+// responder without a grant of its own. The empty mode is the legacy
+// externally-issued dual-grant contract.
+const BundleModeManaged = "managed"
+
 type EnrollmentBundle struct {
 	Type              string                  `json:"type"`
+	Mode              string                  `json:"mode,omitempty"`
 	DomainID          string                  `json:"domain_id"`
 	DeviceID          string                  `json:"device_id"`
 	RelayID           string                  `json:"relay_id"`
@@ -310,7 +318,13 @@ func (b EnrollmentBundle) Validate(now time.Time) error {
 	if b.Access.ExpiresAt.IsZero() || b.Refresh.ExpiresAt.IsZero() || !now.Before(b.Refresh.ExpiresAt) {
 		return errors.New("enrollment Relay credentials are expired or incomplete")
 	}
-	if b.TrustRootIdentity.DomainID != b.DomainID || strings.TrimSpace(b.TrustRootIdentity.DeviceID) == "" {
+	// A managed multi-tenant Trust Root (Infinimesh Cloud) signs for many
+	// device domains from its own platform domain, so the domain-equality
+	// check applies only to the legacy single-domain contract.
+	if strings.TrimSpace(b.TrustRootIdentity.DeviceID) == "" {
+		return errors.New("Trust Root identity is required")
+	}
+	if b.Mode != BundleModeManaged && b.TrustRootIdentity.DomainID != b.DomainID {
 		return errors.New("Trust Root identity is outside the enrolled Domain")
 	}
 	if b.IssuedAt.IsZero() || b.ExpiresAt.IsZero() || !b.IssuedAt.Before(b.ExpiresAt) {
@@ -331,8 +345,10 @@ func (b EnrollmentBundle) Validate(now time.Time) error {
 			return errors.New("enrollment bundle contains duplicate peers")
 		}
 		seen[peer.Identity.DeviceID] = struct{}{}
-		if peer.InboundGrant.SubjectDeviceID != peer.Identity.DeviceID || peer.InboundGrant.Audience != b.DeviceID {
-			return errors.New("peer inbound grant binding is invalid")
+		if b.Mode != BundleModeManaged {
+			if peer.InboundGrant.SubjectDeviceID != peer.Identity.DeviceID || peer.InboundGrant.Audience != b.DeviceID {
+				return errors.New("peer inbound grant binding is invalid")
+			}
 		}
 		if peer.OutboundGrant.SubjectDeviceID != b.DeviceID || peer.OutboundGrant.Audience != peer.Identity.DeviceID {
 			return errors.New("peer outbound grant binding is invalid")

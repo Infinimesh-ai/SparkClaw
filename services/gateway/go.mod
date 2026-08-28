@@ -3,7 +3,7 @@ module github.com/Chiiz0/SparkClaw/services/gateway
 go 1.25.5
 
 require (
-	github.com/Infinimesh-ai/ISCP v0.1.0
+	github.com/Infinimesh-ai/ISCP v0.2.0-rc.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/zalando/go-keyring v0.2.8

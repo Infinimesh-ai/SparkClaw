@@ -185,6 +185,10 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 		return a.resolveApproval(ctx, req, principal, now)
 	case TypeOperationStatus:
 		return a.operationStatus(ctx, req, principal, now)
+	case TypeActivityList:
+		return a.listActivities(ctx, req, principal, now)
+	case TypeSnapshotGet:
+		return a.snapshot(ctx, req, principal, now)
 	default:
 		return newResponse(req, "error", nil, nil, bridgeError(CodeUnsupportedCapability, "unsupported request type", false), now)
 	}

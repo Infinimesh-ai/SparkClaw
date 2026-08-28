@@ -94,7 +94,7 @@ func (r *EndpointRegistry) get(ctx context.Context, id app.EndpointID, admittedS
 		}
 		return app.MessageEndpoint{
 			ID: id, OwnerID: binding.OwnerID, ActorID: binding.ActorID,
-			SourceActorID: binding.RequesterDeviceID, Kind: app.EndpointKindThirdPartyDevice,
+			SourceActorID: binding.ActorID, Kind: app.EndpointKindThirdPartyDevice,
 			ProviderKey: "mcp", BindingRef: binding.ID, RequesterDeviceID: binding.RequesterDeviceID,
 			Address: binding.RequesterDeviceID, ThreadRef: binding.LatestISCPSessionID, SessionID: binding.LinkedSessionID,
 			SoftwareDisplayName: "MCP", AccountDisplayName: binding.RequesterDeviceID,

@@ -397,7 +397,7 @@ the optional overlay:
 ip -4 -o addr show scope global
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh
+bash scripts/restart_jingsi_lan_compose.sh online
 ```
 
 The script rejects wildcard, public, hostname, and malformed binds; rebuilds

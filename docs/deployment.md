@@ -321,7 +321,7 @@ ip -4 -o addr show scope global
 
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh
+bash scripts/restart_jingsi_lan_compose.sh online
 ```
 
 This adds only the exact presentation allowlist on port `18793` (override
@@ -630,10 +630,19 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 For model-backed operation, recreate Gateway in external mode after the selected endpoints are healthy:
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh online
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. It loads `docker/env/sparkclaw.single-fast.env`, `docker/env/sparkclaw.asr.env`, and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks the ASR and OCR overlays. This selects PostgreSQL, keeps both logical chat profiles mapped to Fast, and enables speech transcription and document OCR against the co-resident services. The script starts and waits for PostgreSQL when Gateway is requested, then checks `/readyz` with a bounded request and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the ASR and OCR environments remain part of this product runtime.
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. Its required first argument selects exactly one chat/runtime profile: `online` loads `docker/env/sparkclaw.online-fast.env`, while `local` loads `docker/env/sparkclaw.single-fast.env`. The script does not infer the profile from running model containers and does not read a profile selector from `.env`. After the selected profile, it loads the ASR and OCR environments and overlays. Both chat profiles select PostgreSQL and preserve local embedding, guard, speech, and OCR services; only the logical Fast and Deep endpoint changes.
+
+The named npm commands expose the same explicit switch. `npm run dev:gateway` is an alias for the online command on this machine:
+
+```bash
+npm run dev:gateway:online
+npm run dev:gateway:local
+```
+
+When Gateway is requested, the script starts and waits for PostgreSQL, then checks `/readyz` with a bounded request and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. The ASR and OCR environments remain part of both product runtimes.
 
 When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
 
@@ -773,7 +782,7 @@ curl -fsS http://127.0.0.1:8007/v1/models
 Run Gateway and WebChat with the matching OCR adapter configuration:
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 For host-side doctor checks, keep the Compose service URL for Gateway and
@@ -879,7 +888,7 @@ Current single-Fast product startup:
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 This applies the single-Fast, ASR, and OCR environments plus the bounded service

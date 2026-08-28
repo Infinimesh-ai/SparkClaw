@@ -267,7 +267,7 @@ ip -4 -o addr show scope global
 
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh
+bash scripts/restart_jingsi_lan_compose.sh online
 ```
 
 该操作只增加端口 `18793`（可用 `SPARKCLAW_JINGSI_LAN_PORT` 覆盖）上的精确 presentation
@@ -539,17 +539,27 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 模型端点 healthy 后，用 external mode 重建 Gateway 与 WebChat：
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh online
 ```
 
 durable 产品运行态应使用该脚本，而不是直接执行
-`docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
-`docker/env/sparkclaw.single-fast.env`、`docker/env/sparkclaw.asr.env` 与
-`docker/env/sparkclaw.ocr.env`，并叠加 ASR 与 OCR overlay。这会选择 PostgreSQL，保持两个
-逻辑 chat profile 都映射到 Fast，同时让语音转写和文档 OCR adapter 指向共同常驻的服务。
-请求启动 Gateway 时，脚本会先启动并等待 PostgreSQL；随后通过有界请求检查 `/readyz`，只有 Gateway 报告 `model_mode=external` 且
-`state_backend=postgres` 时才成功退出。需要其他 chat/runtime profile 时应显式设置
-`SPARKCLAW_RUNTIME_ENV`；ASR 与 OCR 环境仍属于该产品运行态。
+`docker compose up --force-recreate gateway webchat`。脚本要求第一个参数明确选择一套
+chat/runtime profile：`online` 只加载 `docker/env/sparkclaw.online-fast.env`，`local` 只加载
+`docker/env/sparkclaw.single-fast.env`。脚本不会根据正在运行的模型容器推断 profile，也不会从
+`.env` 读取 profile selector。选中 profile 后，脚本再加载 ASR 与 OCR 环境及 overlay。两套
+chat profile 都选择 PostgreSQL，并保留本地 embedding、guard、speech 与 OCR 服务；只有逻辑
+Fast 与 Deep endpoint 会切换。
+
+npm 命令提供同样的显式切换；本机的 `npm run dev:gateway` 是在线命令的别名：
+
+```bash
+npm run dev:gateway:online
+npm run dev:gateway:local
+```
+
+请求启动 Gateway 时，脚本会先启动并等待 PostgreSQL；随后通过有界请求检查 `/readyz`，只有
+Gateway 报告 `model_mode=external` 且 `state_backend=postgres` 时才成功退出。ASR 与 OCR
+环境仍属于两套产品运行态。
 
 当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
 `docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
@@ -679,7 +689,7 @@ curl -fsS http://127.0.0.1:8007/v1/models
 使用匹配的 OCR adapter 配置启动 Gateway 和 WebChat：
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 host 侧 doctor 保留 Gateway 使用的 Compose service URL，只覆盖检查目标：
@@ -777,7 +787,7 @@ SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 该命令应用单 Fast、ASR 与 OCR 环境，并复用 `docker/compose.dual-light.yaml`、

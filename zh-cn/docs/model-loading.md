@@ -68,8 +68,9 @@ image 无法加载官方 NVFP4 checkpoint。Embedding、guard、ASR 与 OCR 继�
 - 启动快捷方式：`scripts/serve_models_compose.sh single-fast`
 
 快捷方式会先停止此前运行的 Deep 容器，再通过一次 Compose 操作同时启动 Fast、embedding、
-guard、ASR 和 OCR。随后运行 `scripts/restart_runtime_compose.sh`；该脚本默认使用单 Fast、ASR
-与 OCR 环境。修改目标组之前，启动脚本会验证每个容器存在、running、healthy，并使用当前 Compose
+guard、ASR 和 OCR。随后运行 `scripts/restart_runtime_compose.sh local`，明确选择匹配的本地
+chat profile，并叠加 ASR 与 OCR 环境。独立的 `online` profile 不会使用常驻 Fast endpoint。
+修改目标组之前，启动脚本会验证每个容器存在、running、healthy，并使用当前 Compose
 configuration hash。healthy/current 模型组会被保留；任一成员缺失、停止、不健康或配置漂移
 时，完整目标组会先停止再 force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对
 健康模型组执行相同的完整刷新。产品启动或故障恢复不要直接使用 `docker start` 或

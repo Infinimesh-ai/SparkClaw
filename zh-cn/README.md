@@ -102,8 +102,9 @@ Chromium 位于非标准路径时，设置
 npm run dev
 ```
 
-只重建一个应用容器时，使用 `npm run dev:gateway` 或 `npm run dev:webchat`。
-直接运行宿主 mock/file Gateway 或 Vite 仅用于隔离调试，对应
+重建 Gateway 时，用 `npm run dev:gateway:online` 或 `npm run dev:gateway:local` 明确选择
+chat profile；`npm run dev:gateway` 选择在线。只重建 WebChat 时使用对应的
+`dev:webchat:online` 或 `dev:webchat:local`。直接运行宿主 mock/file Gateway 或 Vite 仅用于隔离调试，对应
 `npm run dev:gateway:host` 和 `npm run dev:webchat:host`。
 
 direct model-router smoke test：
@@ -145,10 +146,10 @@ npm workspace root 保持 `private`，用于避免误发布 package。仓库本�
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
-`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，并同时启动 Fast、embedding、guard 与 OCR。`scripts/restart_runtime_compose.sh` 随后使用单 Fast 与 OCR 环境重启 Gateway/WebChat，把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，启用文档 OCR adapter，并在 Gateway 未 ready 时失败退出。
+`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，并同时启动 Fast、embedding、guard 与 OCR。明确选择 `local` 后，脚本使用单 Fast 与 OCR 环境重启 Gateway/WebChat，把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，启用文档 OCR adapter，并在 Gateway 未 ready 时失败退出。
 
 其他服务入口用于定向测试和对照实验：
 

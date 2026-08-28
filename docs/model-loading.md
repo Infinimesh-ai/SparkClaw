@@ -75,8 +75,9 @@ The current profile is implemented as `dgx-spark-single-fast-v1`:
 
 The shortcut first stops a previously running Deep container, then starts Fast,
 embedding, guard, ASR, and OCR in one Compose operation. Run
-`scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast, ASR,
-and OCR environments by default. Before changing the selected group, startup verifies
+`scripts/restart_runtime_compose.sh local` afterward to select the matching local
+chat profile plus the ASR and OCR environments. The independent `online` profile
+does not consume the resident Fast endpoint. Before changing the selected group, startup verifies
 that every container exists, is running and healthy, and carries the current
 Compose configuration hash. A healthy/current group is retained. If any member
 is absent, stopped, unhealthy, or drifted, the complete selected group is

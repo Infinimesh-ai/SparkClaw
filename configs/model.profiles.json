@@ -18,6 +18,7 @@
     },
     "infinimesh-online-fast-v1": {
       "description": "Current hosted Fast endpoint. Gateway deliberately admits only the input needed by SparkClaw workflows instead of exposing the complete provider window.",
+      "env_file": "docker/env/sparkclaw.online-fast.env",
       "fast": {
         "base_url": "https://sparkclaw.infinimesh.cloud/fast/v1",
         "model": "sparkclaw-fast",

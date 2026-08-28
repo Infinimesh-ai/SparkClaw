@@ -109,8 +109,10 @@ this machine:
 npm run dev
 ```
 
-Use `npm run dev:gateway` or `npm run dev:webchat` to rebuild only one
-application container. Direct host mock/file and Vite debugging remain
+Use `npm run dev:gateway:online` or `npm run dev:gateway:local` to choose the
+chat profile while rebuilding Gateway; `npm run dev:gateway` selects online.
+Equivalent `dev:webchat:online` and `dev:webchat:local` commands rebuild only
+WebChat. Direct host mock/file and Vite debugging remain
 available as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
 
 For a direct model-router smoke test without starting an Agent session or executing tools:
@@ -153,10 +155,10 @@ For the current local-model path, start the single-Fast product profile first:
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
-`single-fast` stops any old `sparkclaw-deep` container and starts Fast, embedding, guard, and OCR together. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat with the single-Fast and OCR environments, maps both logical chat profiles to `sparkclaw-fast`, enables the document OCR adapter, and fails if Gateway is not ready.
+`single-fast` stops any old `sparkclaw-deep` container and starts Fast, embedding, guard, and OCR together. The explicit `local` selection then reloads Gateway/WebChat with the single-Fast and OCR environments, maps both logical chat profiles to `sparkclaw-fast`, enables the document OCR adapter, and fails if Gateway is not ready.
 
 Other serving entrypoints are available for targeted tests and controls:
 

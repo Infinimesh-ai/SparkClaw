@@ -135,9 +135,10 @@ byte，但不计入 business tool-call 或重复调用预算。
 ### 3.5 ContextBuilder 整合
 
 供给证据注册为独立可降级小节和独立预算，排在当前 run 观测与固定输出契约之间。
-一个 builder 强制执行合计准入预算（lane 上下文 × 0.85），依次降级命名 variant，
-并只对明确声明的 section 做 UTF-8 安全截断。每个获准 prompt 都低于阈值；固定 section
-超限会在模型调用前失败。
+一个 builder 强制执行通道显式配置的 `max_input_tokens`；未配置时则使用物理
+`context_tokens` 减去输出额度。它依次降级命名 variant，并只对明确声明的 section
+做 UTF-8 安全截断。每个获准 prompt 都低于该输入阈值；固定 section 超限会在模型
+调用前失败。
 
 ### 3.6 跨 run 上下文有意保持索引定位
 

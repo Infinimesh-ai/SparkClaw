@@ -981,7 +981,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	return chat, answer, nil
 }
 
-const workflowFinalEvidenceMaxRunes = 8000
+const defaultWorkflowFinalEvidenceMaxBytes = 8000
 
 func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, calls []app.ToolCall, observations []string) (workflowFinalEvidenceProjection, error) {
 	materialized := append([]app.ToolCall(nil), calls...)
@@ -1009,7 +1009,7 @@ func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, ca
 		materialized[index].Result = output
 		archivedBytesByCall[call.ID] = artifactBytes
 	}
-	return buildWorkflowFinalEvidenceProjection(run, materialized, observations, archivedBytesByCall), nil
+	return buildWorkflowFinalEvidenceProjection(run, materialized, observations, archivedBytesByCall, r.workflowStageEvidenceLimit()), nil
 }
 
 func workflowFinalEvidence(calls []app.ToolCall, observations []string) []string {

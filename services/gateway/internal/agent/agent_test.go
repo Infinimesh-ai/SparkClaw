@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -329,7 +328,7 @@ func TestWorkflowFinalAnswerContentAcceptsOnlyUsableFinals(t *testing.T) {
 }
 
 func TestWorkflowFinalEvidenceUsesDocumentContentWithoutLocatorDuplication(t *testing.T) {
-	content := strings.Repeat("儿童人工智能教育正文。", 700)
+	content := strings.Repeat("儿童人工智能教育正文。", 200)
 	evidence := workflowFinalEvidence([]app.ToolCall{{
 		Tool:       "files.read",
 		Status:     app.ToolCallStatusCompleted,
@@ -1821,28 +1820,31 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 	}
 }
 
-func TestEffectiveWorkflowStepPromptBudgetUsesSelectedLaneAndSafetyFactor(t *testing.T) {
+func TestEffectiveWorkflowStepPromptBudgetUsesSelectedLaneAndExplicitInputWindow(t *testing.T) {
 	cfg := agentTestConfig()
 	cfg.Model.Fast.ContextTokens = 32000
+	cfg.Model.Fast.MaxInputTokens = 24000
 	cfg.Model.Fast.MaxTokens = 768
 	cfg.Model.Deep.ContextTokens = 64000
+	cfg.Model.Deep.MaxInputTokens = 50000
 	cfg.Model.Deep.MaxTokens = 1536
 	runtime := Runtime{models: modelrouter.New(cfg)}
 
-	if contextTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != 27200 || outputTokens != 768 {
-		t.Fatalf("fast prompt budget = (%d, %d), want (27200, 768)", contextTokens, outputTokens)
+	if inputTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); inputTokens != 24000 || outputTokens != 768 {
+		t.Fatalf("fast prompt budget = (%d, %d), want (24000, 768)", inputTokens, outputTokens)
 	}
-	if contextTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"}); contextTokens != 54400 || outputTokens != 1536 {
-		t.Fatalf("deep prompt budget = (%d, %d), want (54400, 1536)", contextTokens, outputTokens)
+	if inputTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"}); inputTokens != 50000 || outputTokens != 1536 {
+		t.Fatalf("deep prompt budget = (%d, %d), want (50000, 1536)", inputTokens, outputTokens)
 	}
-	if contextTokens, _ := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast", Risk: app.RiskDangerous}); contextTokens != 54400 {
-		t.Fatalf("dangerous task should use the Deep profile budget, got %d", contextTokens)
+	if inputTokens, _ := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast", Risk: app.RiskDangerous}); inputTokens != 50000 {
+		t.Fatalf("dangerous task should use the Deep profile budget, got %d", inputTokens)
 	}
 
 	cfg.Model.Fast.ContextTokens = 0
+	cfg.Model.Fast.MaxInputTokens = 0
 	fallbackRuntime := Runtime{models: modelrouter.New(cfg)}
-	if contextTokens, _ := fallbackRuntime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != defaultWorkflowStepContextTokens {
-		t.Fatalf("missing profile context should use fallback %d, got %d", defaultWorkflowStepContextTokens, contextTokens)
+	if inputTokens, _ := fallbackRuntime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); inputTokens != defaultWorkflowStepContextTokens-768 {
+		t.Fatalf("missing profile context should leave the output reserve inside fallback %d, got %d", defaultWorkflowStepContextTokens, inputTokens)
 	}
 }
 
@@ -1880,10 +1882,9 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	if strings.TrimSpace(system) == "" || !strings.Contains(user, minimalEvidence) || strings.Contains(user, "FULL_EVIDENCE") || strings.Contains(user, "COMPACT_EVIDENCE") {
 		t.Fatalf("prompt admission did not select the minimal consumer projection:\nsystem=%s\nuser=%s", system, user)
 	}
-	contextLimit, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"})
-	threshold := int(math.Floor(float64(contextLimit-outputTokens) * workflowStepPromptCompressionThreshold))
-	if estimatePromptTokens(system, user) > threshold || !strings.HasSuffix(user, workflowStepOutputContract()) {
-		t.Fatalf("admitted prompt violates terminal contract: estimate=%d threshold=%d", estimatePromptTokens(system, user), threshold)
+	maxInputTokens, _ := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"})
+	if estimatePromptTokens(system, user) > maxInputTokens || !strings.HasSuffix(user, workflowStepOutputContract()) {
+		t.Fatalf("admitted prompt violates terminal contract: estimate=%d max_input=%d", estimatePromptTokens(system, user), maxInputTokens)
 	}
 	auditRaw, _ := json.Marshal(mustAgentListAudit(t, st, session.ID))
 	if !strings.Contains(string(auditRaw), `"to_variant":"minimal"`) {
@@ -3648,10 +3649,10 @@ func TestGroundedSummaryPlainTextMutationReturnsOutputCopy(t *testing.T) {
 		Tool:   "text.replace_text",
 		Status: app.ToolCallStatusCompletedAfterApproval,
 		Result: map[string]any{
-			"status": "text_version_written", "path": "note.md", "output_path": "note-sparkclaw-edit.md", "replacements": 1,
+			"status": "text_version_written", "path": "note.md", "output_path": "note-2.md", "replacements": 1,
 		},
 	}})
-	if got != "修改好的文件：note-sparkclaw-edit.md" {
+	if got != "修改好的文件：note-2.md" {
 		t.Fatalf("expected plain-text mutation summary, got %q", got)
 	}
 }

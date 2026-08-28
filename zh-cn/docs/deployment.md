@@ -109,9 +109,22 @@ Docker Engine 与 Compose plugin；已有 checkout 存在 tracked 或 untracked 
 首次运行会交互输入私有的 Fast、embedding、guard endpoint。脚本自动填入 SparkClaw 标准模型名，
 同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，也可以单独配置 endpoint。模型 API Key
 是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
-Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。Endpoint 与凭据不会
-进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的
-`.env`。
+Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。运营方专属 endpoint
+与凭据不会进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的 `.env`；作为文档化部署
+默认值的公共服务 URL 可以记录在版本化 profile 中。
+
+托管 Fast endpoint `https://sparkclaw.infinimesh.cloud/fast/v1` 在
+2026-08-28 报告 `max_model_len=262144`。cloud 模板用
+`SPARKCLAW_FAST_CONTEXT_TOKENS=262144` 记录这个物理容量，Deep 复用 Fast 时也使用相同值；
+Gateway 准入则分别设置 `SPARKCLAW_FAST_MAX_INPUT_TOKENS=98304` 与
+`SPARKCLAW_DEEP_MAX_INPUT_TOKENS=98304`。这不是对 provider window 随意打折：200,000 字节的
+文档抽取合同在该托管 endpoint 约为 49,700 tokens，96,000 字节的 run observation 窗口另占约
+24,000 tokens，剩余输入空间覆盖已观察到的 Workflow/schema 开销而不触发上下文变体降级
+（1,461 份已保存 trace 中模型 prompt 最大为 13,278 tokens）；2,048/4,096 的输出额度单独
+预留。因此 cloud profile 把 `SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 提高到 200,000，
+并把 run observation 边界提高到 72,000 字节开始压缩、96,000 字节硬停止；浏览器 evidence
+保持 8,000 字节，observation 信封保持 2,400 字节，`observation.read` 单次保持 32,768 字节且
+每阶段最多 2 次。
 
 当前 cloud overlay 是可信局域网 profile，明确关闭可选的 Gateway owner-token 认证边界，
 WebChat 因此不会要求输入 token。正常部署还会清空旧的 `SPARKCLAW_API_TOKEN`，readiness 会拒绝

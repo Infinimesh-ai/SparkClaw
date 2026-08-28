@@ -270,6 +270,13 @@ class CloudComposeTest(unittest.TestCase):
             self.assertEqual(values[key], "", key)
         self.assertEqual(values["SPARKCLAW_FAST_MODEL"], "sparkclaw-fast")
         self.assertEqual(values["SPARKCLAW_DEEP_MODEL"], "sparkclaw-deep")
+        self.assertEqual(values["SPARKCLAW_FAST_CONTEXT_TOKENS"], "262144")
+        self.assertEqual(values["SPARKCLAW_FAST_MAX_INPUT_TOKENS"], "98304")
+        self.assertEqual(values["SPARKCLAW_DEEP_CONTEXT_TOKENS"], "262144")
+        self.assertEqual(values["SPARKCLAW_DEEP_MAX_INPUT_TOKENS"], "98304")
+        self.assertEqual(values["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "200000")
+        self.assertEqual(values["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"], "72000")
+        self.assertEqual(values["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"], "96000")
         self.assertEqual(values["SPARKCLAW_EMBEDDING_MODEL"], "sparkclaw-embedding")
         self.assertEqual(values["SPARKCLAW_GUARD_MODEL"], "sparkclaw-guard")
         self.assertEqual(values["SPARKCLAW_SPEECH_MODEL"], "sparkclaw-asr")
@@ -304,6 +311,15 @@ class CloudComposeTest(unittest.TestCase):
         self.assertEqual(environment["SPARKCLAW_MODEL_MODE"], "external")
         self.assertEqual(environment["SPARKCLAW_STATE_BACKEND"], "postgres")
         self.assertEqual(environment["SPARKCLAW_API_TOKEN"], "")
+        self.assertEqual(environment["SPARKCLAW_FAST_CONTEXT_TOKENS"], "262144")
+        self.assertEqual(environment["SPARKCLAW_FAST_MAX_INPUT_TOKENS"], "98304")
+        self.assertEqual(environment["SPARKCLAW_DEEP_CONTEXT_TOKENS"], "262144")
+        self.assertEqual(environment["SPARKCLAW_DEEP_MAX_INPUT_TOKENS"], "98304")
+        self.assertEqual(environment["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "200000")
+        self.assertEqual(
+            environment["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"], "72000"
+        )
+        self.assertEqual(environment["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"], "96000")
         self.assertEqual(
             config["services"]["gateway"]["depends_on"]["postgres"]["condition"],
             "service_healthy",

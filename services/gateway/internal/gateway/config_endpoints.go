@@ -128,12 +128,13 @@ func publicModelConfig(cfg config.ModelConfig) map[string]any {
 
 func publicModelProfile(profile config.ModelProfile) map[string]any {
 	return map[string]any{
-		"name":           profile.Name,
-		"base_url":       profile.BaseURL,
-		"model":          profile.Model,
-		"context_tokens": profile.ContextTokens,
-		"mtp":            profile.MTP,
-		"max_tokens":     profile.MaxTokens,
+		"name":             profile.Name,
+		"base_url":         profile.BaseURL,
+		"model":            profile.Model,
+		"context_tokens":   profile.ContextTokens,
+		"max_input_tokens": profile.MaxInputTokens,
+		"mtp":              profile.MTP,
+		"max_tokens":       profile.MaxTokens,
 	}
 }
 

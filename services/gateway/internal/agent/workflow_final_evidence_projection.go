@@ -30,6 +30,7 @@ func buildWorkflowFinalEvidenceProjection(
 	calls []app.ToolCall,
 	observations []string,
 	archivedBytesByCall map[string]int,
+	maxEvidenceBytes ...int,
 ) workflowFinalEvidenceProjection {
 	projection := workflowFinalEvidenceProjection{
 		Coverage: workflowEvidenceProjectionCoverage{
@@ -41,7 +42,10 @@ func buildWorkflowFinalEvidenceProjection(
 		RuntimeBindingManifestRef: "workflow_state:" + run.ID + ":finalization",
 		DerivedAssertionIDs:       workflowFinalizationDerivedAssertionIDs(run.Workflow),
 	}
-	remaining := workflowFinalEvidenceMaxRunes
+	remaining := defaultWorkflowFinalEvidenceMaxBytes
+	if len(maxEvidenceBytes) > 0 && maxEvidenceBytes[0] > 0 {
+		remaining = maxEvidenceBytes[0]
+	}
 	documentEvidence := false
 	for _, call := range calls {
 		if !toolCallCompleted(call) || call.Capability != app.ToolCapabilityDocumentRead {
@@ -68,9 +72,9 @@ func buildWorkflowFinalEvidenceProjection(
 			format = firstNonEmptyString(document["format"], format)
 		}
 		sourceComplete := fileReadComplete(result)
-		projected := trimForEpisode(text, remaining)
-		modelTruncated := len([]rune(text)) > len([]rune(projected))
-		remaining -= len([]rune(projected))
+		projected := boundedUTF8Prefix([]byte(text), remaining)
+		modelTruncated := len([]byte(text)) > len([]byte(projected))
+		remaining -= len([]byte(projected))
 		limitationRequired := !sourceComplete || modelTruncated
 		if !sourceComplete {
 			projection.Coverage.Source = workflowCoveragePartial
@@ -106,8 +110,8 @@ func buildWorkflowFinalEvidenceProjection(
 		if observation == "" {
 			continue
 		}
-		projected := trimForEpisode(observation, remaining)
-		truncated := len([]rune(observation)) > len([]rune(projected))
+		projected := boundedUTF8Prefix([]byte(observation), remaining)
+		truncated := len([]byte(observation)) > len([]byte(projected))
 		if truncated {
 			projection.Coverage.Claim = workflowCoveragePartial
 			projection.Coverage.Omissions = appendUniqueString(projection.Coverage.Omissions, "finalizer_observation_truncated")
@@ -116,7 +120,7 @@ func buildWorkflowFinalEvidenceProjection(
 			continue
 		}
 		projection.Evidence = append(projection.Evidence, projected)
-		remaining -= len([]rune(projected))
+		remaining -= len([]byte(projected))
 		if call, ok := workflowCallForFinalObservation(calls, observation, index); ok {
 			projection.SourceEventIDs = appendUniqueString(projection.SourceEventIDs, firstNonEmptyString(call.ObservationRef, call.ID))
 			projection.ArchivedBytes += archivedBytesByCall[call.ID]

@@ -92,12 +92,13 @@ type ModelConfig struct {
 }
 
 type ModelProfile struct {
-	Name          string `json:"name"`
-	BaseURL       string `json:"base_url"`
-	Model         string `json:"model"`
-	ContextTokens int    `json:"context_tokens"`
-	MTP           bool   `json:"mtp"`
-	MaxTokens     int    `json:"max_tokens"`
+	Name           string `json:"name"`
+	BaseURL        string `json:"base_url"`
+	Model          string `json:"model"`
+	ContextTokens  int    `json:"context_tokens"`
+	MaxInputTokens int    `json:"max_input_tokens,omitempty"`
+	MTP            bool   `json:"mtp"`
+	MaxTokens      int    `json:"max_tokens"`
 }
 
 type SpeechConfig struct {
@@ -912,6 +913,23 @@ func normalizeRemindersConfig(reminders *RemindersToolConfig) error {
 // profiles have no endpoint, so a missing base_url fails at load time instead
 // of at the first model call.
 func validateModelConfig(model *ModelConfig) error {
+	for name, profile := range map[string]ModelProfile{
+		"fast": model.Fast,
+		"deep": model.Deep,
+	} {
+		if profile.ContextTokens <= 0 {
+			return fmt.Errorf("model.%s.context_tokens must be positive", name)
+		}
+		if profile.MaxInputTokens < 0 {
+			return fmt.Errorf("model.%s.max_input_tokens must not be negative", name)
+		}
+		if profile.MaxTokens < 0 {
+			return fmt.Errorf("model.%s.max_tokens must not be negative", name)
+		}
+		if profile.MaxInputTokens > 0 && profile.MaxInputTokens+profile.MaxTokens > profile.ContextTokens {
+			return fmt.Errorf("model.%s.max_input_tokens plus max_tokens must not exceed context_tokens", name)
+		}
+	}
 	if model.Mock {
 		return nil
 	}
@@ -1688,6 +1706,11 @@ func applyEnv(cfg *Config) error {
 			cfg.Model.Fast.ContextTokens = tokens
 		}
 	}
+	if v := os.Getenv("SPARKCLAW_FAST_MAX_INPUT_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Fast.MaxInputTokens = tokens
+		}
+	}
 	if v := os.Getenv("SPARKCLAW_DEEP_BASE_URL"); v != "" {
 		cfg.Model.Deep.BaseURL = v
 	}
@@ -1705,6 +1728,11 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_DEEP_CONTEXT_TOKENS"); v != "" {
 		if tokens, err := strconv.Atoi(v); err == nil {
 			cfg.Model.Deep.ContextTokens = tokens
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_DEEP_MAX_INPUT_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Deep.MaxInputTokens = tokens
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_EMBEDDING_BASE_URL"); v != "" {

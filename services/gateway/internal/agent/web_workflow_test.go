@@ -842,7 +842,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatDOCX || route.Facts["document_operation"] != "" ||
-		route.Facts["output_path"] != "note-sparkclaw-edit.docx" {
+		route.Facts["output_path"] != "note-2.docx" {
 		t.Fatalf("document edit preflight did not freeze format and output copy only: %#v", route)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
@@ -863,7 +863,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	call := app.ToolCall{
 		ID: "tc_document_edit", SessionID: session.ID, RunID: dispatch.Run.ID, Tool: definition.Name, Status: app.ToolCallStatusCompleted, Result: map[string]any{
-			"output_path":    "note-sparkclaw-edit.docx",
+			"output_path":    "note-2.docx",
 			"change_summary": map[string]any{"operation": "replace_paragraph", "original_unchanged": true, "changed": 1},
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
@@ -877,7 +877,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	if _, err := applyWorkflowOutcome(&dispatch.Run, outcome, assessment); err != nil {
 		t.Fatal(err)
 	}
-	writeTestOfficePackage(t, filepath.Join(session.WorkspaceRoot, "note-sparkclaw-edit.docx"), "word/document.xml")
+	writeTestOfficePackage(t, filepath.Join(session.WorkspaceRoot, "note-2.docx"), "word/document.xml")
 	dispatch.Run.State = "completed"
 	result := mustWorkflowResultForRun(t, runtime, dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
 	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 1 {
@@ -888,7 +888,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	filePart := result.Content.Parts[0]
 	if filePart.Kind != app.MessagePartFile || filePart.Disposition != app.MessageDispositionAttachment || filePart.Resource == nil ||
-		filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-sparkclaw-edit.docx" || filePart.ArtifactID == "" {
+		filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-2.docx" || filePart.ArtifactID == "" {
 		t.Fatalf("unexpected document output part: %#v", filePart)
 	}
 	foundArtifact := false
@@ -901,9 +901,9 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	if !foundArtifact {
 		t.Fatalf("document output was not registered as a governed artifact: %#v", storetest.MustListArtifactObjects(t, st, 0))
 	}
-	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "Modified file: note-sparkclaw-edit.docx"}, result)
-	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "note-sparkclaw-edit.docx" ||
-		message.Attachments[0].URI != "workspace://note-sparkclaw-edit.docx" {
+	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "Modified file: note-2.docx"}, result)
+	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "note-2.docx" ||
+		message.Attachments[0].URI != "workspace://note-2.docx" {
 		t.Fatalf("document output was not projected as an assistant attachment: %#v", message)
 	}
 

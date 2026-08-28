@@ -98,8 +98,10 @@ request that is still in flight when the budget trips.
   effective input threshold; fixed-section overflow returns
   `workflow_prompt_fixed_sections_oversized` before a model call. Decisions are
   audited as `workflow_step.prompt_compressed` without recording dropped text.
-  The threshold derives from the model profile chosen by the same router task
-  policy as execution, with an 85% context-window safety factor.
+  The threshold is the model profile's explicit `max_input_tokens` when set,
+  otherwise its physical `context_tokens` minus the declared output allowance.
+  Configuration rejects an input-plus-output budget above the physical model
+  context.
 
 ### Tool Results And Evidence
 
@@ -107,7 +109,8 @@ Every tool result is archived in full, while its model-visible observation uses
 the same `observation_summary_max_bytes` envelope (default 2400) regardless of
 tool name. A truncated envelope retains its artifact URI and directs the model
 to `observation.read`, which reads a bounded UTF-8-safe window from an artifact
-owned by the current session. A model node declares this helper through frozen
+owned by the current session, capped at 32,768 bytes per call. A model node
+declares this helper through frozen
 `CapabilityScope.SupportRequirements`; normal exposure and exact directory
 selection persist its entry beside the primary business entries. Old persisted
 plans without that requirement do not gain it on resume. Direct nodes project
@@ -185,8 +188,11 @@ Stage budgets stop the step loop (audited as `workflow_step.budget_stopped`):
 | `workflow_stage_max_observation_reads` | 2 | executed `observation.read` support calls reach the stage quota |
 
 `workflow_stage_evidence_max_bytes` (default 8000) clamps total persisted
-evidence provisioned to one stage. A required source that is missing, empty, or
-cannot fit blocks the stage fail closed. The
+evidence provisioned to one stage and also bounds document-read evidence sent
+to finalization. A required source that is missing, empty, or cannot fit blocks
+the stage fail closed. The hosted 256K Fast profile sets this to 200,000 bytes,
+the existing maximum extracted-document contract; browser requirements keep
+their own 8,000-byte component cap. The
 `SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` environment variable overrides
 this limit.
 

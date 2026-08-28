@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"path/filepath"
 	"strings"
 
@@ -80,9 +79,8 @@ const conversationContextTokenFloor = 1024
 // conversation final-answer prompt to the execution lane's input budget net
 // of the fixed prompt parts, mirroring the workflow step loop's admission.
 func (r Runtime) conversationContextTokenBudget(system string, fixedUserParts []string) int {
-	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: workflowExecutionModelLane})
-	available := int(math.Floor(float64(contextLimit-maxOutputTokens) * workflowStepPromptCompressionThreshold))
-	budget := available - estimatePromptTokens(append([]string{system}, fixedUserParts...)...)
+	maxInputTokens, _ := r.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: workflowExecutionModelLane})
+	budget := maxInputTokens - estimatePromptTokens(append([]string{system}, fixedUserParts...)...)
 	if budget < conversationContextTokenFloor {
 		return conversationContextTokenFloor
 	}

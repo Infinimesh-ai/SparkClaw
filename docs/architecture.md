@@ -191,10 +191,13 @@ materialize declared, consumer-sized slices of persisted evidence into a
 may expose `observation.read` for bounded, session-scoped read-back when the
 declared slice is insufficient. Support entries use ordinary exposure,
 selection, Policy, and persisted-scope validation; old plans are not widened
-on resume. Prompt
-admission uses the model profile selected by the same Router task policy as
-execution, an 85% context-window safety factor, and an offline-calibrated
-conservative token estimate. It degrades session/tool context first, then
+on resume. Prompt admission uses the model profile selected by the same Router
+task policy as execution, reserves its declared output allowance, and admits no
+more than the profile's explicit `max_input_tokens` when one is configured.
+That Gateway input window is distinct from the provider's physical
+`context_tokens`; the offline-calibrated conservative token estimate enforces
+it without treating all available provider capacity as useful application
+context. It degrades session/tool context first, then
 provisioned slices, then older observations while preserving the newest two;
 the output contract remains the user-prompt tail, and an oversized fixed tail
 fails before model invocation. Run-level observations begin compaction at

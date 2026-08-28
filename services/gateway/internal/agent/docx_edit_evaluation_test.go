@@ -242,7 +242,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	inputPath := filepath.Join(workspace, "report.docx")
-	outputPath := filepath.Join(workspace, "report-sparkclaw-edit.docx")
+	outputPath := filepath.Join(workspace, "report-2.docx")
 	writeDOCXParagraphFixture(t, inputPath, []string{"First paragraph", "Second paragraph"})
 	inputBefore, err := os.ReadFile(inputPath)
 	if err != nil {
@@ -272,7 +272,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) < 2 || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
-		route.Slots.TargetRef != "report.docx" || route.Slots.OutputRef != "report-sparkclaw-edit.docx" {
+		route.Slots.TargetRef != "report.docx" || route.Slots.OutputRef != "report-2.docx" {
 		t.Fatalf("real DOCX request did not freeze its input/output route: %#v", route)
 	}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
@@ -323,7 +323,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("real DOCX mutation did not wait for approval: call=%#v approval=%#v", editCall, editApproval)
 	}
-	if editCall.Arguments["path"] != "report.docx" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.docx" ||
+	if editCall.Arguments["path"] != "report.docx" || editCall.Arguments["output_path"] != "report-2.docx" ||
 		cleanOptionalString(editCall.Arguments["source_sha256"]) == "" || cleanOptionalString(editCall.Arguments["before_format_sha256"]) == "" {
 		t.Fatalf("approval omitted frozen path/version/format evidence: %#v", editCall.Arguments)
 	}
@@ -352,7 +352,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		changeSummary["operation"] != "set_text_style" {
 		t.Fatalf("real DOCX mutation omitted preservation evidence: %#v", changeSummary)
 	}
-	outputRead, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": "report-sparkclaw-edit.docx"}, session.ID, run.ID)
+	outputRead, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": "report-2.docx"}, session.ID, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	result, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, run.ID)
 	if err != nil || !resumed || result.Run.State != "completed" || result.WorkflowResult == nil ||
 		result.WorkflowResult.Status != app.WorkflowResultSucceeded || len(result.Message.Attachments) != 1 ||
-		result.Message.Attachments[0].RelPath != "report-sparkclaw-edit.docx" {
+		result.Message.Attachments[0].RelPath != "report-2.docx" {
 		t.Fatalf("approved DOCX workflow did not resume with its output copy: resumed=%t result=%#v err=%v", resumed, result, err)
 	}
 	if !hasAgentAuditType(mustAgentListAudit(t, st, session.ID), "workflow.decision_resolved") ||

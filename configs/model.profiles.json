@@ -16,6 +16,33 @@
       "optional_ocr_base_url_env": "SPARKCLAW_OCR_BASE_URL",
       "optional_ocr_model_env": "SPARKCLAW_OCR_MODEL"
     },
+    "infinimesh-online-fast-v1": {
+      "description": "Current hosted Fast endpoint. Gateway deliberately admits only the input needed by SparkClaw workflows instead of exposing the complete provider window.",
+      "fast": {
+        "base_url": "https://sparkclaw.infinimesh.cloud/fast/v1",
+        "model": "sparkclaw-fast",
+        "checkpoint": "Qwen/Qwen3.6-35B-A3B-FP8",
+        "served_name": "sparkclaw-fast",
+        "context_tokens": 262144,
+        "max_input_tokens": 98304,
+        "max_tokens": 2048
+      },
+      "deep_alias": {
+        "target_lane": "fast",
+        "model": "sparkclaw-fast",
+        "context_tokens": 262144,
+        "max_input_tokens": 98304,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "workflow_stage_evidence_max_bytes": 200000,
+        "workflow_stage_max_observation_reads": 2,
+        "observation_summary_max_bytes": 2400,
+        "workflow_run_observation_compaction_bytes": 72000,
+        "workflow_run_max_observation_bytes": 96000
+      },
+      "verified_at": "2026-08-28"
+    },
     "dgx-spark-local": {
       "description": "DGX Spark local model profile with NVFP4 chat endpoints.",
       "fast": "nvidia/Qwen3.6-35B-A3B-NVFP4",

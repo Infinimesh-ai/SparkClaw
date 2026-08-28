@@ -87,11 +87,11 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending {
 		t.Fatalf("text edit did not enter recoverable approval: call=%#v approval=%#v", editCall, editApproval)
 	}
-	if editCall.Arguments["path"] != "notes.md" || editCall.Arguments["output_path"] != "notes-sparkclaw-edit.md" ||
-		editApproval.Arguments["path"] != "notes.md" || editApproval.Arguments["output_path"] != "notes-sparkclaw-edit.md" {
+	if editCall.Arguments["path"] != "notes.md" || editCall.Arguments["output_path"] != "notes-2.md" ||
+		editApproval.Arguments["path"] != "notes.md" || editApproval.Arguments["output_path"] != "notes-2.md" {
 		t.Fatalf("workflow did not inject its frozen input/output paths: call=%#v approval=%#v", editCall.Arguments, editApproval.Arguments)
 	}
-	if _, err := os.Stat(filepath.Join(root, "notes-sparkclaw-edit.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "notes-2.md")); !os.IsNotExist(err) {
 		t.Fatalf("text output existed before approval: %v", err)
 	}
 	storedRun, _ = testGetRun(st, storedRun.ID)
@@ -114,7 +114,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if result.Run.State != "completed" || result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded {
 		t.Fatalf("document workflow did not complete after approval: %#v", result)
 	}
-	if result.Message.Content != "" || len(result.Message.Attachments) != 1 || result.Message.Attachments[0].RelPath != "notes-sparkclaw-edit.md" {
+	if result.Message.Content != "" || len(result.Message.Attachments) != 1 || result.Message.Attachments[0].RelPath != "notes-2.md" {
 		t.Fatalf("document workflow did not return the modified file as an attachment: %#v", result.Message)
 	}
 	if result.WorkflowResult.Data == nil || result.WorkflowResult.Data["change_summary"] == nil || len(result.WorkflowResult.Content.Parts) != 1 ||
@@ -122,7 +122,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		t.Fatalf("unified document result omitted change summary or file: %#v", result.WorkflowResult)
 	}
 	documentRecords := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
-	if len(documentRecords) < 2 || documentRecords[0].GovernedPath != "notes-sparkclaw-edit.md" ||
+	if len(documentRecords) < 2 || documentRecords[0].GovernedPath != "notes-2.md" ||
 		documentRecords[0].ParentDocumentID == "" || documentRecords[0].SourceToolCallID != executed.ID ||
 		documentRecords[0].LastActivity != app.DocumentActivityEdited {
 		t.Fatalf("approved edit output was not recorded with document lineage: %#v", documentRecords)
@@ -147,8 +147,8 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	followUpRoute := mustRouteIntentOutput(t, runtime, session.ID, followUp, nil, app.MessageSourceWeb).Route
 	if followUpRoute.Status != app.RouteMatched || len(followUpRoute.CapabilityPath) != 2 ||
 		followUpRoute.CapabilityPath[1] != app.CapabilityDocumentEdit ||
-		followUpRoute.Slots.TargetRef != "notes-sparkclaw-edit.md" ||
-		followUpRoute.Slots.OutputRef != "notes-sparkclaw-edit-2.md" ||
+		followUpRoute.Slots.TargetRef != "notes-2.md" ||
+		followUpRoute.Slots.OutputRef != "notes-3.md" ||
 		followUpRoute.Facts["document_id"] != outputRecord.ID ||
 		followUpRoute.Facts["document_parent_id"] != outputRecord.ParentDocumentID {
 		t.Fatalf("follow-up edit did not bind the latest edited document: %#v", followUpRoute)
@@ -158,7 +158,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if err != nil || string(original) != "# Notes\nOriginal reflection" {
 		t.Fatalf("original text changed: %q err=%v", original, err)
 	}
-	updated, err := os.ReadFile(filepath.Join(root, "notes-sparkclaw-edit.md"))
+	updated, err := os.ReadFile(filepath.Join(root, "notes-2.md"))
 	if err != nil || string(updated) != "# Notes\nImproved reflection" {
 		t.Fatalf("output text mismatch: %q err=%v", updated, err)
 	}

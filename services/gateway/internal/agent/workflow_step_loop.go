@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -16,8 +15,6 @@ import (
 
 const (
 	defaultWorkflowStepContextTokens        = 12288
-	workflowStepContextSafetyFactor         = 0.85
-	workflowStepPromptCompressionThreshold  = 0.80
 	promptEstimateBytesPerToken             = 4
 	promptEstimateChatOverheadTokens        = 12
 	compactWorkflowStepToolDescriptionLimit = 180
@@ -639,13 +636,11 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	clientTimezone string,
 ) (string, string, string, error) {
 	builder := workflowStepContextBuilderForTimezone(goal, step, observations, stageContext, visibleTools, provisioned, snapshot, clientTimezone)
-	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
-	availableInputTokens := contextLimit - maxOutputTokens
-	threshold := int(math.Floor(float64(availableInputTokens) * workflowStepPromptCompressionThreshold))
-	if threshold <= 0 {
+	maxInputTokens, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
+	if maxInputTokens <= 0 {
 		return "", "", "", errPromptFixedSectionsOversized
 	}
-	admission, err := builder.Admit(threshold)
+	admission, err := builder.Admit(maxInputTokens)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -653,7 +648,7 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	if selected, ok := admission.SelectedVariants["provisioned_evidence"]; ok {
 		evidenceVariant = selected.Text
 	}
-	if admission.EstimatedTokens > threshold || !strings.HasSuffix(admission.User, workflowStepOutputContract()) {
+	if admission.EstimatedTokens > maxInputTokens || !strings.HasSuffix(admission.User, workflowStepOutputContract()) {
 		return "", "", "", errPromptFixedSectionsOversized
 	}
 	if len(admission.SectionDecisions) == 0 {
@@ -666,18 +661,16 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 		Type:      "workflow_step.prompt_compressed",
 		Summary:   "Degraded workflow prompt sections under the model input budget",
 		Fields: map[string]any{
-			"step":                   step,
-			"context_tokens":         contextLimit,
-			"max_output_tokens":      maxOutputTokens,
-			"available_input_tokens": availableInputTokens,
-			"threshold_ratio":        workflowStepPromptCompressionThreshold,
-			"threshold_tokens":       threshold,
-			"initial_estimate":       admission.InitialTokens,
-			"compressed_estimate":    admission.EstimatedTokens,
-			"section_decisions":      admission.SectionDecisions,
-			"hard_truncated":         admission.HardTruncated,
-			"evidence_bytes_before":  len([]byte(provisioned.Text)),
-			"evidence_bytes_after":   len([]byte(evidenceVariant)),
+			"step":                  step,
+			"model_context_tokens":  r.models.ChooseModel(task).ContextTokens,
+			"max_output_tokens":     maxOutputTokens,
+			"max_input_tokens":      maxInputTokens,
+			"initial_estimate":      admission.InitialTokens,
+			"compressed_estimate":   admission.EstimatedTokens,
+			"section_decisions":     admission.SectionDecisions,
+			"hard_truncated":        admission.HardTruncated,
+			"evidence_bytes_before": len([]byte(provisioned.Text)),
+			"evidence_bytes_after":  len([]byte(evidenceVariant)),
 		},
 	})
 
@@ -820,8 +813,6 @@ func (r Runtime) effectiveWorkflowStepPromptBudget(task modelrouter.Task) (int, 
 	contextTokens := profile.ContextTokens
 	if contextTokens <= 0 {
 		contextTokens = defaultWorkflowStepContextTokens
-	} else {
-		contextTokens = int(math.Floor(float64(contextTokens) * workflowStepContextSafetyFactor))
 	}
 	maxOutputTokens := profile.MaxTokens
 	if maxOutputTokens <= 0 {
@@ -830,12 +821,17 @@ func (r Runtime) effectiveWorkflowStepPromptBudget(task modelrouter.Task) (int, 
 	if maxOutputTokens >= contextTokens {
 		maxOutputTokens = contextTokens / 4
 	}
-	return contextTokens, maxOutputTokens
+	maxInputTokens := contextTokens - maxOutputTokens
+	if profile.MaxInputTokens > 0 && profile.MaxInputTokens < maxInputTokens {
+		maxInputTokens = profile.MaxInputTokens
+	}
+	return maxInputTokens, maxOutputTokens
 }
 
-// Calibrated 2026-07-27 against the local Qwen /tokenize endpoint with
-// scripts/calibrate_prompt_tokens.py. Four bytes per token conservatively
-// covered representative English, Chinese, JSON, and mixed workflow step samples.
+// Calibrated with scripts/calibrate_prompt_tokens.py and rechecked 2026-08-28
+// against https://sparkclaw.infinimesh.cloud/fast/tokenize. Four bytes per
+// token conservatively covers representative English, Chinese, JSON, and mixed
+// workflow step samples without adding an online tokenizer dependency.
 func estimatePromptTokens(values ...string) int {
 	total := promptEstimateChatOverheadTokens
 	for _, value := range values {

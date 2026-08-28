@@ -70,7 +70,7 @@ func TestDocumentFinalEvidenceClaimCoverageDistinguishesSourceAndProjectionLimit
 			wantOmission: "source_read_incomplete", wantLimitation: true,
 		},
 		{
-			name: "complete source exceeds finalizer window", call: pdfCoverageToolCall("complete", strings.Repeat("projected content ", workflowFinalEvidenceMaxRunes), true),
+			name: "complete source exceeds finalizer window", call: pdfCoverageToolCall("complete", strings.Repeat("projected content ", defaultWorkflowFinalEvidenceMaxBytes), true),
 			wantSource: workflowCoverageComplete, wantClaim: workflowCoveragePartial,
 			wantOmission: "finalizer_content_truncated", wantLimitation: true,
 		},
@@ -88,6 +88,22 @@ func TestDocumentFinalEvidenceClaimCoverageDistinguishesSourceAndProjectionLimit
 				t.Fatalf("finalizer evidence omitted %q: %#v", wantLimitation, projection.Evidence)
 			}
 		})
+	}
+}
+
+func TestDocumentFinalEvidenceUsesConfiguredStageByteBudget(t *testing.T) {
+	content := strings.Repeat("文档内容", 10_000)
+	projection := buildWorkflowFinalEvidenceProjection(
+		app.AgentRun{},
+		[]app.ToolCall{pdfCoverageToolCall("complete", content, true)},
+		nil,
+		nil,
+		200_000,
+	)
+	if projection.Coverage.Claim != workflowCoverageComplete ||
+		containsString(projection.Coverage.Omissions, "finalizer_content_truncated") ||
+		len(projection.Evidence) != 1 || !strings.Contains(projection.Evidence[0], content) {
+		t.Fatalf("configured finalizer budget did not preserve the complete document: %#v", projection.Coverage)
 	}
 }
 

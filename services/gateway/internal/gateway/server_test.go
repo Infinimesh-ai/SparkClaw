@@ -129,6 +129,9 @@ func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	if decoded.Artifact.Kind != "document_upload" || decoded.Artifact.SessionID != "session_upload" {
 		t.Fatalf("unexpected artifact: %#v", decoded.Artifact)
 	}
+	if filepath.ToSlash(decoded.RelPath) != "uploads/example.md" {
+		t.Fatalf("uploaded filename = %q, want original attachment name", decoded.RelPath)
+	}
 	raw, err := os.ReadFile(decoded.Path)
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +142,66 @@ func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	objects := storetest.MustListArtifactObjects(t, st, 10)
 	if len(objects) == 0 || objects[0].Kind != "document_upload" {
 		t.Fatalf("upload artifact not stored: %#v", objects)
+	}
+}
+
+func TestUploadDocumentUsesNumericVersionsForDuplicateNames(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
+	defer ts.Close()
+
+	upload := func(content string) (string, string) {
+		t.Helper()
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		part, err := writer.CreateFormFile("file", "report.pdf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		request, err := http.NewRequest(http.MethodPost, ts.URL+"/api/documents/upload", &body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", writer.FormDataContentType())
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusCreated {
+			raw, _ := io.ReadAll(response.Body)
+			t.Fatalf("upload returned %d: %s", response.StatusCode, raw)
+		}
+		var decoded struct {
+			Path    string `json:"path"`
+			RelPath string `json:"rel_path"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
+			t.Fatal(err)
+		}
+		return filepath.ToSlash(decoded.RelPath), decoded.Path
+	}
+
+	for index, want := range []string{"uploads/report.pdf", "uploads/report-2.pdf", "uploads/report-3.pdf"} {
+		content := fmt.Sprintf("%%PDF-1.7\nversion %d\n", index+1)
+		relPath, path := upload(content)
+		if relPath != want {
+			t.Fatalf("upload %d rel_path = %q, want %q", index+1, relPath, want)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil || string(raw) != content {
+			t.Fatalf("upload %d content = %q, want %q: %v", index+1, raw, content, err)
+		}
 	}
 }
 
@@ -306,8 +369,8 @@ func TestUploadDocumentAddsExtensionFromContentType(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(decoded.RelPath, ".pdf") {
-		t.Fatalf("expected inferred .pdf extension, got %q", decoded.RelPath)
+	if filepath.ToSlash(decoded.RelPath) != "uploads/pdf.pdf" {
+		t.Fatalf("expected original filename with inferred .pdf extension, got %q", decoded.RelPath)
 	}
 	if decoded.Artifact.ContentType != "application/pdf" {
 		t.Fatalf("unexpected content type: %q", decoded.Artifact.ContentType)
@@ -380,6 +443,9 @@ func TestUploadImageSavesUnderMedia(t *testing.T) {
 	}
 	if !strings.HasPrefix(filepath.ToSlash(decoded.RelPath), "media/") {
 		t.Fatalf("image should be saved under media/: %#v", decoded)
+	}
+	if filepath.ToSlash(decoded.RelPath) != "media/sample.png" {
+		t.Fatalf("uploaded image filename = %q, want original attachment name", decoded.RelPath)
 	}
 	if decoded.Artifact.Kind != "media_image_upload" {
 		t.Fatalf("unexpected image artifact kind: %#v", decoded.Artifact)
@@ -2168,6 +2234,7 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	cfg.Gateway.APIToken = "secret-token"
+	cfg.Model.Fast.MaxInputTokens = 16384
 	cfg.State.EncryptAtRest = true
 	cfg.State.EncryptionKey = "state-secret"
 	cfg.Tools.Web.Search.Enabled = true
@@ -2245,9 +2312,10 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			HTTPTimeoutSeconds int  `json:"http_timeout_seconds"`
 			DisableThinking    bool `json:"disable_thinking"`
 			Fast               struct {
-				Name          string `json:"name"`
-				ContextTokens int    `json:"context_tokens"`
-				MaxTokens     int    `json:"max_tokens"`
+				Name           string `json:"name"`
+				ContextTokens  int    `json:"context_tokens"`
+				MaxInputTokens int    `json:"max_input_tokens"`
+				MaxTokens      int    `json:"max_tokens"`
 			} `json:"fast"`
 		} `json:"model"`
 		State struct {
@@ -2285,7 +2353,7 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if decoded.Gateway.APIToken != "" {
 		t.Fatal("api token was exposed in /api/config")
 	}
-	if decoded.Model.Fast.Name == "" || decoded.Model.Fast.ContextTokens == 0 || decoded.Model.Fast.MaxTokens == 0 || decoded.Model.HTTPTimeoutSeconds == 0 {
+	if decoded.Model.Fast.Name == "" || decoded.Model.Fast.ContextTokens == 0 || decoded.Model.Fast.MaxInputTokens != 16384 || decoded.Model.Fast.MaxTokens == 0 || decoded.Model.HTTPTimeoutSeconds == 0 {
 		t.Fatalf("model profile summary missing: %#v", decoded.Model.Fast)
 	}
 	if decoded.State.DSN != "" {

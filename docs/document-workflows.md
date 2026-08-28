@@ -6,6 +6,10 @@ This document describes the active structured document read and edit pipeline.
 It replaces the first-phase structured-enrichment design record while retaining
 its durable format, evidence, and preservation contracts.
 
+Gateway uploads keep the attachment filename directly under `uploads/` or
+`media/`. A duplicate uses the same numeric family without overwriting the
+existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.
+
 ## Workflow Boundary
 
 `document.read` revision 4 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
@@ -15,9 +19,9 @@ answer from completed evidence. `document.edit` revision 7 reads one exact
 file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named
-`<name>-sparkclaw-edit.<ext>`. If that name already exists, preflight selects
-the first available numbered sibling such as `<name>-sparkclaw-edit-2.<ext>`.
-Further edits to one of those copies continue the same numbered family. All
+`<name>-2.<ext>`. If that name already exists, preflight selects the first
+available numbered sibling such as `<name>-3.<ext>`. Further edits to one of
+those copies continue the same numbered family. All
 model calls owned by both document profiles currently use Fast; the non-document
 Workflow default remains Deep.
 

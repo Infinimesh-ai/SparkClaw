@@ -417,7 +417,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 				readCalls != 1 {
 				t.Fatalf("repair did not reuse one source projection: rejections=%d projections=%#v calls=%#v", rejections, projections, testListToolCalls(st, session.ID))
 			}
-			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 				t.Fatalf("PPTX semantic preflight left a user-visible output before approval: %v", err)
 			}
 			if leftovers, err := filepath.Glob(filepath.Join(root, ".sparkclaw-pptx-preflight-*")); err != nil || len(leftovers) != 0 {
@@ -519,7 +519,7 @@ func TestPPTXWorkflowBlocksStaleAndGroupedTargetsBeforeApproval(t *testing.T) {
 			if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 				t.Fatalf("invalid PPTX target created approval records: %#v", approvals)
 			}
-			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 				t.Fatalf("invalid PPTX target wrote an output: %v", err)
 			}
 		})
@@ -554,7 +554,7 @@ func TestPPTXWorkflowBlocksStaleInsertionRefsBeforeApproval(t *testing.T) {
 			if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 				t.Fatalf("stale insertion reference created approval records: %#v", approvals)
 			}
-			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 				t.Fatalf("stale insertion reference wrote an output: %v", err)
 			}
 		})
@@ -580,7 +580,7 @@ func TestPPTXWorkflowBlocksStaleExactTextBeforeApproval(t *testing.T) {
 	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("stale exact-text target created approval records: %#v", approvals)
 	}
-	if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 		t.Fatalf("stale exact-text target wrote an output: %v", err)
 	}
 }
@@ -615,7 +615,7 @@ func TestPPTXWorkflowBlocksOversizedUpdatesBeforeApproval(t *testing.T) {
 			if approval != nil || call.Status != app.ToolCallStatusBlocked || len(storetest.MustListApprovals(t, st, "")) != 0 {
 				t.Fatalf("oversized PPTX update reached approval: call=%#v approval=%#v", call, approval)
 			}
-			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 				t.Fatalf("oversized PPTX update wrote an output: %v", err)
 			}
 		})
@@ -726,7 +726,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
 	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending || editCall.Arguments["path"] != "deck.pptx" ||
-		editCall.Arguments["output_path"] != "deck-sparkclaw-edit.pptx" || intLikeValue(editCall.Arguments["slide_index"]) != 3 {
+		editCall.Arguments["output_path"] != "deck-2.pptx" || intLikeValue(editCall.Arguments["slide_index"]) != 3 {
 		t.Fatalf("real PPTX edit did not enter approval with frozen resources: call=%#v approval=%#v", editCall, editApproval)
 	}
 	readDocument, _ := anyMap(readCall.Result.(map[string]any)["document"])
@@ -745,7 +745,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if update["old_text"] != "Original third title" {
 		t.Fatalf("PPTX approval did not bind old_text from current read: %#v", editCall.Arguments)
 	}
-	if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 		t.Fatalf("PPTX output existed before approval: %v", err)
 	}
 	storedRun, _ = testGetRun(st, storedRun.ID)
@@ -768,10 +768,10 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil || !resumed || result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded {
 		t.Fatalf("approved PPTX workflow did not complete: resumed=%t result=%#v err=%v", resumed, result, err)
 	}
-	if len(result.Message.Attachments) != 1 || result.Message.Attachments[0].RelPath != "deck-sparkclaw-edit.pptx" {
+	if len(result.Message.Attachments) != 1 || result.Message.Attachments[0].RelPath != "deck-2.pptx" {
 		t.Fatalf("PPTX workflow result omitted its output attachment: %#v", result.Message)
 	}
-	reread, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": "deck-sparkclaw-edit.pptx"}, session.ID, storedRun.ID)
+	reread, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": "deck-2.pptx"}, session.ID, storedRun.ID)
 	if err != nil || !strings.Contains(reread.Output.(map[string]any)["content"].(string), "Improved third title") {
 		t.Fatalf("approved PPTX output could not be reread: output=%#v err=%v", reread.Output, err)
 	}
@@ -780,7 +780,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 		t.Fatalf("approved PPTX edit modified its source: %v", err)
 	}
 	records := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
-	if len(records) < 2 || records[0].GovernedPath != "deck-sparkclaw-edit.pptx" || records[0].ParentDocumentID == "" {
+	if len(records) < 2 || records[0].GovernedPath != "deck-2.pptx" || records[0].ParentDocumentID == "" {
 		t.Fatalf("PPTX output lineage was not persisted: %#v", records)
 	}
 }
@@ -805,7 +805,7 @@ func TestApprovedPPTXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval || !strings.Contains(strings.ToLower(executed.Error), "stale") {
 		t.Fatalf("stale approved PPTX mutation did not fail closed: call=%#v err=%v", executed, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 		t.Fatalf("stale approved PPTX mutation left an output: %v", err)
 	}
 }

@@ -210,7 +210,7 @@ func TestWorkflowPlanRejectsInvalidDecisionNodes(t *testing.T) {
 	resolve := func() (app.IntentEnvelope, app.WorkflowPlan) {
 		intent, plan, err := profile.Resolve(app.RouteDecision{
 			Slots: app.RouteSlots{TargetRef: "report.docx"},
-			Facts: map[string]string{"document_format": app.DocumentFormatDOCX, "output_path": "report-sparkclaw-edit.docx"},
+			Facts: map[string]string{"document_format": app.DocumentFormatDOCX, "output_path": "report-2.docx"},
 		}, "turn")
 		if err != nil {
 			t.Fatal(err)
@@ -256,7 +256,7 @@ func TestWorkflowPlanRejectsInvalidDirectOnceNode(t *testing.T) {
 	resolve := func() (app.IntentEnvelope, app.WorkflowPlan) {
 		intent, plan, err := profile.Resolve(app.RouteDecision{
 			Slots: app.RouteSlots{TargetRef: "report.docx"},
-			Facts: map[string]string{"document_format": app.DocumentFormatDOCX, "output_path": "report-sparkclaw-edit.docx"},
+			Facts: map[string]string{"document_format": app.DocumentFormatDOCX, "output_path": "report-2.docx"},
 		}, "turn")
 		if err != nil {
 			t.Fatal(err)

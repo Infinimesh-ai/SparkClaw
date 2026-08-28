@@ -582,6 +582,7 @@ export type PublicModelProfile = {
   base_url: string;
   model: string;
   context_tokens: number;
+  max_input_tokens?: number;
   mtp: boolean;
   max_tokens?: number;
 };

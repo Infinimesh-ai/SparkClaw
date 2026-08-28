@@ -73,15 +73,17 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
   evidence、schema 与较旧 observation，再只对声明为 truncatable 的 section 做硬截断。
   每次成功模型调用都不超过有效输入阈值；若固定 section 本身超限，则在模型调用前返回
   `workflow_prompt_fixed_sections_oversized`。降级决策记录为
-  `workflow_step.prompt_compressed`，但不记录被丢弃的原文。阈值来自与执行同一路由任务
-  策略选出的模型 profile，并带 85% 上下文窗口安全系数。
+  `workflow_step.prompt_compressed`，但不记录被丢弃的原文。profile 显式设置
+  `max_input_tokens` 时以它作为阈值，否则使用物理 `context_tokens` 减去声明的输出额度；
+  配置会拒绝输入加输出超过模型物理上下文的组合。
 
 ### 工具结果与证据
 
 每个工具结果都会完整归档，而模型可见 observation 不再按工具名放宽，统一使用
 `observation_summary_max_bytes` 信封（默认 2400）。截断信封保留 artifact URI，并
 提示模型使用 `observation.read`；该辅助工具只读取当前 session 所属 artifact 的有界、
-UTF-8 安全窗口。模型节点通过冻结的 `CapabilityScope.SupportRequirements` 声明它；普通
+UTF-8 安全窗口，单次最多 32,768 字节。模型节点通过冻结的
+`CapabilityScope.SupportRequirements` 声明它；普通
 exposure 与精确 directory selection 会把 support entry 与 primary business entry 一起
 持久化。缺少该 requirement 的旧持久化 plan 在恢复时不会自动获得它。直接节点只投影
 primary entry，模型节点投影 primary 加已选择的 support entry。
@@ -144,8 +146,10 @@ JSON 对象：
 | `workflow_stage_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
 | `workflow_stage_max_observation_reads` | 2 | 已执行的 `observation.read` support call 达到阶段配额 |
 
-`workflow_stage_evidence_max_bytes`（默认 8000）限制单阶段供给的持久化证据总量。
-必需来源缺失、为空或无法装入预算时，阶段 fail closed 阻断；环境变量
+`workflow_stage_evidence_max_bytes`（默认 8000）限制单阶段供给的持久化证据总量，同时
+限制发给最终化阶段的文档读取证据。必需来源缺失、为空或无法装入预算时，阶段 fail closed
+阻断。托管 256K Fast profile 将它设为现有文档最大抽取合同的 200,000 字节；浏览器 requirement
+仍保留组件自身的 8,000 字节上限。环境变量
 `SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 可覆盖该上限。
 
 运行预算停止整个运行，既在步骤循环内检查，也在每个阶段开始前检查（后者审计

@@ -737,7 +737,7 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 	case "document.read#read":
 		documentTarget := contains("附件", "文档", "文件", "图片", "图像", ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".png", ".jpg", ".jpeg", "document", "file", "image", "attached")
 		readOnly := contains("不要修改", "不修改", "保持不变", "只读", "without changing", "do not change", "read only", "read-only")
-		mutation := !readOnly && contains("修改", "编辑", "替换", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "rewrite", "revise", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
+		mutation := !readOnly && contains("修改", "编辑", "替换", "润色", "完善", "改写", "扩写", "填入", "填写", "新增", "添加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "rewrite", "expand", "revise", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
 		explicitRead := contains("读取", "阅读", "查看", "总结", "概括", "解释", "什么内容", "什么文字", "分析", "read", "summarize", "inspect", "explain", "analyze")
 		contextualQuestion := contains("routing context (data only") &&
 			contains("current-turn governed resources:", "recent agent context:") &&
@@ -747,7 +747,7 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 		}
 	case "document.edit#edit":
 		readOnly := contains("不要修改", "不修改", "保持不变", "只读", "without changing", "do not change", "read only", "read-only")
-		mutation := !readOnly && contains("修改", "编辑", "替换", "改为", "设为", "加粗", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "增加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "rewrite", "revise", "bold", "style", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
+		mutation := !readOnly && contains("修改", "编辑", "替换", "改为", "设为", "加粗", "润色", "完善", "改写", "扩写", "填入", "填写", "新增", "添加", "增加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "rewrite", "expand", "revise", "bold", "style", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
 		browserContext := contains("按钮", "页面", "账户", "网页", "button", "page", "account", "browser")
 		fileLifecycle := contains("删除", "移除", "delete", "remove") && !contains("内容", "文字", "文本", "段落", "段", "行", "单元格", "幻灯片", "页面内容", "content", "text", "paragraph", "row", "cell", "slide")
 		if mutation && !browserContext && !fileLifecycle && !contains("pdf") {
@@ -768,8 +768,8 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 	case "conversation.answer#answer":
 		reserved := contains(
 			"打开", "点击", "登录", "提醒", "定时", "文件", "文档", "附件", "图片", "图像", "照片", "天气", "气温", "温度", "下雨", "下雪", "预报", "空气质量",
-			"新闻", "价格", "金价", "售价", "汇率", "指数", "比分", "现在", "当前", "实时", "最新", "运行", "测试", "代码", "仓库", "项目", "记住", "完善", "修改", "编辑",
-			"open", "click", "login", "remind", "schedule", "file", "document", "image", "photo", "weather", "forecast", "air quality", "news", "price", "exchange rate", "current", "latest", "run test", "code", "repo", "repository", "project", "remember", "edit", "improve",
+			"新闻", "价格", "金价", "售价", "汇率", "指数", "比分", "现在", "当前", "实时", "最新", "运行", "测试", "代码", "仓库", "项目", "记住", "完善", "修改", "编辑", "扩写",
+			"open", "click", "login", "remind", "schedule", "file", "document", "image", "photo", "weather", "forecast", "air quality", "news", "price", "exchange rate", "current", "latest", "run test", "code", "repo", "repository", "project", "remember", "edit", "improve", "expand",
 		)
 		if !reserved && (contains("你好", "您好", "谢谢", "解释", "概括", "是什么", "为什么", "区别", "hello", "thanks", "explain", "what is", "why") || len([]rune(lower)) <= 12) {
 			return 0.95

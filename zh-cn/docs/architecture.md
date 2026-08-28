@@ -153,9 +153,11 @@ observations 使用统一的小信封，按因果顺序只出现一次并保留 
 声明的、按消费者定尺的持久化证据切片物化到 `PROVISIONED_EVIDENCE` 小节；声明切片
 不足时，冻结的通用 `SupportRequirements` entry 可暴露 `observation.read`，提供当前
 session 内的有界回读。support entry 走普通 exposure、selection、Policy 和持久化 scope
-校验；旧 plan 恢复时不会被扩大。Prompt 准入复用与实际
-执行相同的 Router task policy 选择 model profile，采用 85% context window 安全系数
-和离线标定的保守 token 估算；依次降级 session/tool 上下文、供给切片、较旧
+校验；旧 plan 恢复时不会被扩大。Prompt 准入复用与实际执行相同的 Router task policy
+选择 model profile，先为声明的输出额度预留空间；profile 配置了 `max_input_tokens` 时，
+Gateway 输入不超过该显式窗口。这个 Gateway 输入窗口与 provider 的物理
+`context_tokens` 分开，离线标定的保守 token 估算负责执行该边界，不会把 provider 的全部
+容量误当成应用实际需要的上下文；之后依次降级 session/tool 上下文、供给切片、较旧
 observations，并始终保留最新两条，output contract 仍是 user prompt 尾部；固定尾部超限
 会在模型调用前失败。run 级 observation 在 36,000 byte 开始压缩，但达到 48,000 byte 时
 会先硬停止，不再尝试压缩。support read 有独立的每阶段两次执行配额，不消耗 business

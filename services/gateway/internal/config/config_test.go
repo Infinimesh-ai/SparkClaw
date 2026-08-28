@@ -978,11 +978,13 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_FAST_SERVED_NAME", "fast-lane")
 	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "333")
 	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "12000")
+	t.Setenv("SPARKCLAW_FAST_MAX_INPUT_TOKENS", "8000")
 	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://deep.example.test/v1")
 	t.Setenv("SPARKCLAW_DEEP_MODEL", "sparkclaw-deep")
 	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
 	t.Setenv("SPARKCLAW_DEEP_MAX_TOKENS", "444")
 	t.Setenv("SPARKCLAW_DEEP_CONTEXT_TOKENS", "12288")
+	t.Setenv("SPARKCLAW_DEEP_MAX_INPUT_TOKENS", "9000")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1600000")
@@ -1000,7 +1002,7 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	if cfg.Model.Fast.MaxTokens != 333 {
 		t.Fatalf("fast max tokens env did not apply: %#v", cfg.Model.Fast)
 	}
-	if cfg.Model.Fast.ContextTokens != 12000 {
+	if cfg.Model.Fast.ContextTokens != 12000 || cfg.Model.Fast.MaxInputTokens != 8000 {
 		t.Fatalf("fast context tokens env did not apply: %#v", cfg.Model.Fast)
 	}
 	if cfg.Model.Deep.BaseURL != "http://deep.example.test/v1" || cfg.Model.Deep.Model != "sparkclaw-deep" || cfg.Model.Deep.Name != "deep-lane" {
@@ -1009,7 +1011,7 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	if cfg.Model.Deep.MaxTokens != 444 {
 		t.Fatalf("deep max tokens env did not apply: %#v", cfg.Model.Deep)
 	}
-	if cfg.Model.Deep.ContextTokens != 12288 {
+	if cfg.Model.Deep.ContextTokens != 12288 || cfg.Model.Deep.MaxInputTokens != 9000 {
 		t.Fatalf("deep context tokens env did not apply: %#v", cfg.Model.Deep)
 	}
 	if cfg.Model.HTTPTimeoutSeconds != 555 {
@@ -1017,6 +1019,17 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	}
 	if !cfg.Model.DisableThinking {
 		t.Fatalf("model disable thinking env did not apply: %#v", cfg.Model)
+	}
+}
+
+func TestLoadRejectsModelInputAndOutputBeyondContext(t *testing.T) {
+	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "8192")
+	t.Setenv("SPARKCLAW_FAST_MAX_INPUT_TOKENS", "8000")
+	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "1024")
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), "max_input_tokens plus max_tokens") {
+		t.Fatalf("oversized Fast input/output budget was accepted: %v", err)
 	}
 }
 

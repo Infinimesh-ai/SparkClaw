@@ -16,8 +16,9 @@ export function stripSystemArgs(args: Record<string, unknown>) {
 
 export function profileLabel(profile: PublicConfig["model"]["fast"], text: Copy) {
   const model = profile.model || profile.name;
-  const maxTokens = profile.max_tokens ? ` · ${profile.max_tokens.toLocaleString()} ${text.units.max}` : "";
-  return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ${text.units.ctx}${maxTokens}${profile.mtp ? " · MTP" : ""}`;
+  const inputTokens = profile.max_input_tokens ? ` · ${profile.max_input_tokens.toLocaleString()} ${text.units.input}` : "";
+  const outputTokens = profile.max_tokens ? ` · ${profile.max_tokens.toLocaleString()} ${text.units.output}` : "";
+  return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ${text.units.ctx}${inputTokens}${outputTokens}${profile.mtp ? " · MTP" : ""}`;
 }
 
 export function rateLimitLabel(limit: { enabled: boolean; requests_per_minute: number; burst: number } | undefined, text: Copy) {

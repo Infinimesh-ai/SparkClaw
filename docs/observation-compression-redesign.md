@@ -169,9 +169,10 @@ provides read-back.
 
 Provisioned evidence registers as its own degradable section with its own
 budget, ordered between current-run observations and the fixed output contract.
-One builder enforces the combined admission budget (lane context x 0.85),
-degrades named variants, and UTF-8-safely truncates only declared sections.
-Every admitted prompt remains under the threshold; fixed-section overflow
+One builder enforces the lane's explicit `max_input_tokens` when configured,
+or physical `context_tokens` minus the output allowance otherwise. It degrades
+named variants and UTF-8-safely truncates only declared sections. Every
+admitted prompt remains under that input threshold; fixed-section overflow
 fails before model invocation.
 
 ### 3.6 Cross-run context is an index, on purpose

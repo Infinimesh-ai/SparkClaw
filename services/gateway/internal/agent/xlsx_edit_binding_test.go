@@ -17,7 +17,7 @@ import (
 func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	root := t.TempDir()
 	inputRef := "ledger.xlsx"
-	outputRef := "ledger-sparkclaw-edit.xlsx"
+	outputRef := "ledger-2.xlsx"
 	writeAgentXLSXFixture(t, filepath.Join(root, inputRef))
 
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
@@ -189,7 +189,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing.T) {
 	root := t.TempDir()
 	inputRef := "table.xlsx"
-	outputRef := "table-sparkclaw-edit.xlsx"
+	outputRef := "table-2.xlsx"
 	writeAgentXLSXTableFixture(t, filepath.Join(root, inputRef))
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
@@ -233,7 +233,7 @@ func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing
 func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationThroughPipeline(t *testing.T) {
 	root := t.TempDir()
 	inputRef := "ledger.xlsx"
-	outputRef := "ledger-sparkclaw-edit.xlsx"
+	outputRef := "ledger-2.xlsx"
 	inputPath := filepath.Join(root, inputRef)
 	writeAgentXLSXFixture(t, inputPath)
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)

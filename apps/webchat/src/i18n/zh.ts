@@ -513,7 +513,8 @@ export const zh = {
       tools: "个工具",
       tokens: "tokens",
       ctx: "上下文",
-      max: "最大",
+      input: "输入",
+      output: "输出",
       avg: "平均",
       retentionDays: "天保留"
     }

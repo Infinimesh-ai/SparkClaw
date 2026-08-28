@@ -511,7 +511,8 @@ export const en = {
       tools: "tools",
       tokens: "tokens",
       ctx: "ctx",
-      max: "max",
+      input: "input",
+      output: "output",
       avg: "avg",
       retentionDays: "d retention"
     }

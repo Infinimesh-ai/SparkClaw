@@ -89,15 +89,15 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 	for _, test := range []struct {
 		request, format, operation, tool, output string
 	}{
-		{request: "Replace text in note.txt", format: app.DocumentFormatText, operation: "replace_text", tool: "text.replace_text", output: "note-sparkclaw-edit.txt"},
-		{request: "Replace a paragraph in report.docx", format: app.DocumentFormatDOCX, operation: "replace_paragraph", tool: "docx.replace_paragraph", output: "report-sparkclaw-edit.docx"},
-		{request: "Update a cell in report.xlsx", format: app.DocumentFormatXLSX, operation: "update_cell", tool: "xlsx.update_cell", output: "report-sparkclaw-edit.xlsx"},
-		{request: "Append a row to report.xlsx", format: app.DocumentFormatXLSX, operation: "append_row", tool: "xlsx.append_row", output: "report-sparkclaw-edit.xlsx"},
-		{request: "Insert a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "insert_row", tool: "xlsx.insert_row", output: "report-sparkclaw-edit.xlsx"},
-		{request: "Delete a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "delete_row", tool: "xlsx.delete_row", output: "report-sparkclaw-edit.xlsx"},
-		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "pptx.replace_text", output: "report-sparkclaw-edit.pptx"},
-		{request: "Improve slide 3 in report.pptx", format: app.DocumentFormatPPTX, operation: "update_slide", tool: "pptx.update_slide", output: "report-sparkclaw-edit.pptx"},
-		{request: "Rotate pages in report.pdf", format: app.DocumentFormatPDF, operation: "rotate_pages", tool: "pdf.transform", output: "report-sparkclaw-edit.pdf"},
+		{request: "Replace text in note.txt", format: app.DocumentFormatText, operation: "replace_text", tool: "text.replace_text", output: "note-2.txt"},
+		{request: "Replace a paragraph in report.docx", format: app.DocumentFormatDOCX, operation: "replace_paragraph", tool: "docx.replace_paragraph", output: "report-2.docx"},
+		{request: "Update a cell in report.xlsx", format: app.DocumentFormatXLSX, operation: "update_cell", tool: "xlsx.update_cell", output: "report-2.xlsx"},
+		{request: "Append a row to report.xlsx", format: app.DocumentFormatXLSX, operation: "append_row", tool: "xlsx.append_row", output: "report-2.xlsx"},
+		{request: "Insert a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "insert_row", tool: "xlsx.insert_row", output: "report-2.xlsx"},
+		{request: "Delete a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "delete_row", tool: "xlsx.delete_row", output: "report-2.xlsx"},
+		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "pptx.replace_text", output: "report-2.pptx"},
+		{request: "Improve slide 3 in report.pptx", format: app.DocumentFormatPPTX, operation: "update_slide", tool: "pptx.update_slide", output: "report-2.pptx"},
+		{request: "Rotate pages in report.pdf", format: app.DocumentFormatPDF, operation: "rotate_pages", tool: "pdf.transform", output: "report-2.pdf"},
 	} {
 		t.Run(test.format+"/"+test.operation, func(t *testing.T) {
 			runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
@@ -190,7 +190,7 @@ func TestDocumentPreflightRejectsExtensionSignatureMismatchAndAllowsTextEdit(t *
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("plain text"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if preflight, err := preflightDocumentPath(root, "note.txt", true); err != nil || preflight.Format != app.DocumentFormatText || preflight.OutputRef != "note-sparkclaw-edit.txt" {
+	if preflight, err := preflightDocumentPath(root, "note.txt", true); err != nil || preflight.Format != app.DocumentFormatText || preflight.OutputRef != "note-2.txt" {
 		t.Fatalf("text edit preflight failed: preflight=%#v err=%v", preflight, err)
 	}
 	outside := t.TempDir()
@@ -208,8 +208,8 @@ func TestDocumentPreflightRejectsExtensionSignatureMismatchAndAllowsTextEdit(t *
 func TestDocumentEditPreflightAllocatesNextAvailableOutputCopy(t *testing.T) {
 	root := t.TempDir()
 	writeTestOfficePackage(t, filepath.Join(root, "report.docx"), "word/document.xml")
-	writeTestOfficePackage(t, filepath.Join(root, "report-sparkclaw-edit.docx"), "word/document.xml")
-	writeTestOfficePackage(t, filepath.Join(root, "report-sparkclaw-edit-2.docx"), "word/document.xml")
+	writeTestOfficePackage(t, filepath.Join(root, "report-2.docx"), "word/document.xml")
+	writeTestOfficePackage(t, filepath.Join(root, "report-3.docx"), "word/document.xml")
 
 	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
@@ -217,8 +217,8 @@ func TestDocumentEditPreflightAllocatesNextAvailableOutputCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route.Status != app.RouteMatched || route.Slots.OutputRef != "report-sparkclaw-edit-3.docx" ||
-		route.Facts["output_path"] != "report-sparkclaw-edit-3.docx" {
+	if route.Status != app.RouteMatched || route.Slots.OutputRef != "report-4.docx" ||
+		route.Facts["output_path"] != "report-4.docx" {
 		t.Fatalf("document edit did not route to the next output copy: %#v", route)
 	}
 }
@@ -247,7 +247,7 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 	plan := toolPlan{
 		Name: "pdf.transform", WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1,
 		Capability: app.ToolCapabilityDocumentEdit,
-		Args:       map[string]any{"path": "report.pdf", "output_path": "report-sparkclaw-edit.pdf", "operation": "rotate_pages"},
+		Args:       map[string]any{"path": "report.pdf", "output_path": "report-2.pdf", "operation": "rotate_pages"},
 	}
 	if err := runtime.validateWorkflowToolPlan(context.Background(), dispatch.Run.ID, plan, definition); err != nil {
 		t.Fatalf("matching PDF operation was rejected: %v", err)
@@ -277,7 +277,8 @@ func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
 	}
 	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
-		route.Slots.TargetRef != "uploads/report.docx" || route.Facts["document_operation"] != "" {
+		route.Slots.TargetRef != "uploads/report.docx" || route.Slots.OutputRef != "uploads/report-2.docx" ||
+		route.Facts["output_path"] != "uploads/report-2.docx" || route.Facts["document_operation"] != "" {
 		t.Fatalf("attached document edit did not freeze its unique governed path: %#v", route)
 	}
 }

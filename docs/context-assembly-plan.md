@@ -39,9 +39,10 @@ parse-error recovery path already covers its failure mode.
   1600 bytes per tool message. Full outputs are persisted as artifacts and
   referenced by `artifact_uri` / `ObservationRef`.
 - Loop budgets (`agent/workflow_step_loop.go`): self-imposed prompt cap
-  `defaultWorkflowStepContextTokens = 12288` tokens; one-shot compact compression at
-  80% of the available input budget; run-level observation cap 48000 bytes;
-  token estimation is a chars/3 vs bytes/4 heuristic.
+  `defaultWorkflowStepContextTokens = 12288` tokens; prompt admission degrades
+  named context variants until the request fits the available input budget;
+  run-level observation cap 48000 bytes; token estimation is a chars/3 vs
+  bytes/4 heuristic.
 
 ## 2. Problems Identified At Planning Time (P0)
 
@@ -131,16 +132,18 @@ model logs drop after step 1; record the before/after measurement in
 
 ### 0.4 Lane-aligned token budgets and calibrated estimation (implemented 2026-07-27)
 
-- `effectiveWorkflowStepPromptBudget` uses the active lane profile's
-  `context_tokens` multiplied by a 0.85 safety factor, instead of the 12288
-  clamp. 12288 remains only as the fallback when the profile does not
-  declare a limit.
+- `effectiveWorkflowStepPromptBudget` uses the active lane profile's explicit
+  `max_input_tokens` when configured. Otherwise it reserves `max_tokens` from
+  `context_tokens`; 12288 remains the physical-context fallback when the
+  profile does not declare one. Configuration rejects an explicit input plus
+  output budget above the provider's physical context.
 - Calibrate the `estimatePromptTokens` coefficients once offline against the
   vLLM `/tokenize` endpoint using representative Chinese, English, and JSON
   samples; keep the runtime estimator coefficient-based (no online
   tokenizer dependency) and note the calibration date and script next to the
   constants.
-- The 0.80 compression threshold is unchanged.
+- There is no second percentage threshold: the input budget is the admission
+  threshold, and the builder degrades context only when a prompt exceeds it.
 
 Risk note: larger admitted prompts increase prefill cost; 0.3 offsets this
 for the static prefix, and the per-message caps from the adapter still bound

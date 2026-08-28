@@ -31,9 +31,9 @@ system, user)` 双字符串接口与 JSON-in-text 步骤协议**有意保留**�
   降级压缩，单条 tool message 默认上限 1600 字节。完整输出以 artifact 落盘，
   由 `artifact_uri` / `ObservationRef` 引用。
 - 循环预算（`agent/workflow_step_loop.go`）：自设 prompt 上限
-  `defaultWorkflowStepContextTokens = 12288`；可用输入预算 80% 处做一次性 compact 压
-  缩；run 级 observation 上限 48000 字节；token 估算是 chars/3 与 bytes/4 取
-  大的启发式。
+  `defaultWorkflowStepContextTokens = 12288`；prompt 准入通过命名上下文变体逐级
+  降级，直至请求落入可用输入预算；run 级 observation 上限 48000 字节；token
+  估算是 chars/3 与 bytes/4 取大的启发式。
 
 ## 2. 方案制定时识别的问题（P0）
 
@@ -105,13 +105,15 @@ system, user)` 双字符串接口与 JSON-in-text 步骤协议**有意保留**�
 
 ### 0.4 通道对齐的 token 预算与校准估算（2026-07-27 已实施）
 
-- `effectiveWorkflowStepPromptBudget` 改为读取当前通道 profile 的
-  `context_tokens` 乘以 0.85 安全系数，替代 12288 钳制。12288 仅作为 profile
-  未声明上限时的兜底。
+- `effectiveWorkflowStepPromptBudget` 优先使用当前通道 profile 显式配置的
+  `max_input_tokens`。未配置时，从 `context_tokens` 中预留 `max_tokens`；profile
+  未声明物理上下文时，12288 仅作为物理上下文兜底。配置校验会拒绝显式输入预算
+  与输出预算之和超过 provider 物理上下文的组合。
 - 用 vLLM `/tokenize` 端点对代表性中文、英文、JSON 样本做一次离线校准，得出
   `estimatePromptTokens` 的系数；运行时仍用系数估算（不引入在线 tokenizer 依
   赖），在常量旁注明校准日期与脚本。
-- 0.80 压缩阈值不变。
+- 不再叠加第二层百分比阈值：输入预算本身就是准入阈值，仅在 prompt 超过它时由
+  builder 降级上下文。
 
 风险说明：放宽后的 prompt 增大 prefill 成本；0.3 的前缀缓存抵消静态部分，
 adapter 的单条上限仍约束尾部。

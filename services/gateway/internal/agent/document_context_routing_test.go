@@ -322,13 +322,13 @@ func TestRecentDocumentResolverPrefersNewerToolOutput(t *testing.T) {
 		ID: "tc_new_output", SessionID: session.ID, RunID: "run_edit",
 		Tool: "docx.replace_paragraph", Status: app.ToolCallStatusCompleted, StartedAt: base.Add(10 * time.Second),
 		CompletedAt:        &toolCompletedAt,
-		Arguments:          map[string]any{"path": "input.docx", "output_path": "input-sparkclaw-edit.docx"},
-		ObservationSummary: "Wrote input-sparkclaw-edit.docx.",
+		Arguments:          map[string]any{"path": "input.docx", "output_path": "input-2.docx"},
+		ObservationSummary: "Wrote input-2.docx.",
 	})
 
 	resolution := mustResolveDocumentContext(t, runtime, session.ID, "run_current", "继续检查修改后的内容", nil)
 	if len(resolution.References) != 1 ||
-		resolution.References[0].Ref != "input-sparkclaw-edit.docx" ||
+		resolution.References[0].Ref != "input-2.docx" ||
 		resolution.References[0].Provenance != documentProvenanceRecentTool {
 		t.Fatalf("newer tool output did not become the recent document: %#v", resolution)
 	}

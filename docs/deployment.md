@@ -129,8 +129,29 @@ existing configured names are preserved. The logical Deep lane can reuse Fast
 or use a separate endpoint. The shared model API key is optional: submit an
 empty value when the endpoints do not require Bearer auth.
 Speech/ASR and OCR are optional and remain disabled unless their endpoints are
-provided. Endpoint and credential values are never included in the repository;
-they are written only to the VM's ignored, mode-0600 `.env` file.
+provided. Operator-specific endpoint and credential values are never included
+in the repository; they are written only to the VM's ignored, mode-0600 `.env`
+file. Public service URLs used as documented deployment defaults may be
+recorded in versioned profiles.
+
+The hosted Fast endpoint at
+`https://sparkclaw.infinimesh.cloud/fast/v1` reported
+`max_model_len=262144` on 2026-08-28. The cloud template records that physical
+capacity as `SPARKCLAW_FAST_CONTEXT_TOKENS=262144` (and the same value for a
+Deep alias), but sets `SPARKCLAW_FAST_MAX_INPUT_TOKENS=98304` and
+`SPARKCLAW_DEEP_MAX_INPUT_TOKENS=98304` for Gateway admission. This is a
+workload budget, not an arbitrary fraction of the provider window: the
+200,000-byte document extraction contract tokenized to about 49,700 tokens at
+the hosted endpoint, the 96,000-byte run observation window adds about 24,000
+tokens, and the remaining input space covers the observed Workflow/schema
+overhead without forcing context-variant degradation (1,461 saved traces had a
+13,278-token maximum model prompt). The configured 2,048/4,096 output
+allowances stay separate. The cloud profile therefore raises
+`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` to 200,000 and the run
+observation boundaries to compaction at 72,000 bytes with a 96,000-byte hard
+stop; browser evidence remains 8,000 bytes, observation envelopes remain 2,400
+bytes, and `observation.read` remains 32,768 bytes per call with two calls per
+stage.
 
 The current cloud overlay is a trusted-LAN profile and explicitly disables the
 optional Gateway owner-token authentication boundary. WebChat therefore opens

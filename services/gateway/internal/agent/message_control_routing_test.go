@@ -371,7 +371,7 @@ func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 	completedAt := time.Now().UTC()
 	call := app.ToolCall{
 		ID: "tc_document_output", SessionID: session.ID, RunID: run.ID, Tool: definition.Name, Status: app.ToolCallStatusCompletedAfterApproval,
-		Result: map[string]any{"output_path": "note-sparkclaw-edit.docx"}, StartedAt: dispatch.Run.StartedAt, CompletedAt: &completedAt,
+		Result: map[string]any{"output_path": "note-2.docx"}, StartedAt: dispatch.Run.StartedAt, CompletedAt: &completedAt,
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
 	testSaveToolCall(st, call)

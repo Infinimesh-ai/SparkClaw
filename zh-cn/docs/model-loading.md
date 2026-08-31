@@ -96,6 +96,33 @@ guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一�
 预算或 OCR 质量基线。一次并发图片与扫描 PDF 冒烟调用已成功，但宣称模型质量前仍需更广泛
 的质量测量。
 
+## IMMS E2 证据复刻面边界
+
+ProjectGroup-2 决策 0026 正在评审，来自 InfiniCenter commit
+`7c714e6d903cd8a8d54df320c5000dad2860e0c9`；proposed 文档为
+`b554aea67102ec62b18e7946dcc136071a49d3df55d5097cf5c16063b608d287/11483`。
+SparkClaw 接受 proposed E2 provider 边界，但只限于以下精确范围：
+
+- E2 是 evidence-only 复刻 profile，不属于 `single-fast-v1`，也不是生产个人数据处理方。
+  公网路由只允许合成评测输入；真实 Source/Memory 内容必须保留在未来 GB10 本地
+  loopback 服务内。
+- 项目负责人已确认可提供 evidence-only `Qwen/Qwen3-Reranker-4B` 部署。在
+  IMMS ADR 冻结 exact model revision、prompt/tokenizer、yes/no token log-probability 计算、
+  dtype/量化、batch shape 与 receipt 之前，不得先启动该服务。
+- E2 run 只有在绑定 immutable Hugging Face model revision、immutable vLLM image digest
+  及 reported version、完整 serving config 和 deployment revision 时才可 admission。run 前后
+  `/models` 的可变名称相同只能发现 run 中漂移，不能单独成为 immutable pin。
+- 本仓管理的模型变更由 operator 发起。对已进入 accepted IMMS evidence scope 的端点，
+  SparkClaw 会在主动修改模型、量化、serving image 或评分语义前，通过 ProjectGroup-2
+  status/inbox 通知 IMMS。若独立托管路由是自动或未知更新机制，在它提供可解析
+  immutable deployment revision 之前不具备 E2 admission 资格。
+- reranker lane 已于 2026-07-24 从当前 product profile 移除。因此，托管 reranker 路由或
+  proposed 4B evidence profile 都不得被表述为当前 `single-fast-v1` 依赖。它与未来
+  E3 GB10 profile 的差异当前未知，E3 admission 前必须实测，或明确保留为未知。
+
+本评审不产生 SLA、可用性、专用配额、Gateway wire 或 runtime integration 义务。中断只会
+推迟新 evidence run，不会使已封存证据失效。
+
 ## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。

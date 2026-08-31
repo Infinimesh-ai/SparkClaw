@@ -115,6 +115,42 @@ steady-state residency budget or OCR quality baseline. A concurrent image and
 scanned-PDF smoke call succeeded, but broader quality measurements are still
 required before claiming model quality.
 
+## IMMS E2 Evidence Replica Boundary
+
+ProjectGroup-2 decision 0026 is under review from InfiniCenter commit
+`7c714e6d903cd8a8d54df320c5000dad2860e0c9`; the proposed document is
+`b554aea67102ec62b18e7946dcc136071a49d3df55d5097cf5c16063b608d287/11483`.
+SparkClaw accepts the proposed E2 provider boundary with these exact limits:
+
+- E2 is an evidence-only replica profile, not part of `single-fast-v1` and not
+  a production user-data processor. Only synthetic evaluation inputs may use
+  its public route. Real Source or Memory content must remain on the future
+  GB10-local loopback service.
+- The project owner has confirmed that an evidence-only
+  `Qwen/Qwen3-Reranker-4B` deployment can be provided. It must not start until
+  the IMMS ADR freezes the exact model revision, prompt/tokenizer, yes/no token
+  log-probability calculation, dtype/quantization, batch shape, and receipt.
+- An E2 run is admissible only when it binds an immutable Hugging Face model
+  revision, an immutable vLLM image digest and reported version, the complete
+  serving configuration, and a deployment revision. Matching mutable model
+  names in `/models` before and after a run detect mid-run drift but are not an
+  immutable pin by themselves.
+- Repository-managed model changes are operator-driven. For an endpoint that
+  has entered an accepted IMMS evidence scope, SparkClaw will notify IMMS by
+  ProjectGroup-2 status or inbox before intentionally changing the model,
+  quantization, serving image, or scoring behavior. A separately hosted route
+  with an automatic or unknown update mechanism is not E2-admissible until it
+  exposes a resolvable immutable deployment revision.
+- The reranker lane was removed from the current product profile on 2026-07-24.
+  A hosted reranker route or the proposed 4B evidence profile therefore must
+  not be represented as a current `single-fast-v1` dependency. Its differences
+  from the eventual E3 GB10 profile are currently unknown and must be measured
+  or explicitly retained as unknown before E3 admission.
+
+This review creates no SLA, availability, dedicated-capacity, Gateway wire, or
+runtime integration obligation. Outages only delay new evidence runs and do
+not invalidate already sealed evidence.
+
 ## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.

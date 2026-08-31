@@ -98,17 +98,25 @@ guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一�
 
 ## IMMS E2 证据复刻面边界
 
-ProjectGroup-2 决策 0026 正在评审，来自 InfiniCenter commit
-`7c714e6d903cd8a8d54df320c5000dad2860e0c9`；proposed 文档为
-`b554aea67102ec62b18e7946dcc136071a49d3df55d5097cf5c16063b608d287/11483`。
-SparkClaw 接受 proposed E2 provider 边界，但只限于以下精确范围：
+ProjectGroup-2 决策 0026 已由 InfiniCenter commit `42bc8a4` 接受。SparkClaw 同时接受
+IMMS ADR 0019 proposal `ac9a33d3c55f3c9d55af21e91586902f530aa39f`，exact document 为
+`c073202cff039dee23211ec6785464ef093d13992cfeee16840547cfa7001165/10006`，但只限于
+以下精确范围：
 
 - E2 是 evidence-only 复刻 profile，不属于 `single-fast-v1`，也不是生产个人数据处理方。
   公网路由只允许合成评测输入；真实 Source/Memory 内容必须保留在未来 GB10 本地
   loopback 服务内。
-- 项目负责人已确认可提供 evidence-only `Qwen/Qwen3-Reranker-4B` 部署。在
-  IMMS ADR 冻结 exact model revision、prompt/tokenizer、yes/no token log-probability 计算、
-  dtype/量化、batch shape 与 receipt 之前，不得先启动该服务。
+- 唯一接受目标是
+  `Qwen/Qwen3-Reranker-4B@22e683669bc0f0bd69640a1354a6d0aebcfeede5`，served name
+  为 `imms-qwen3-reranker-4b-e2`，使用 BF16、无量化、tensor parallel 1、
+  max model length 8192、max sequences 1、seed 0、eager execution，并关闭 prefix
+  caching、speculative decoding 与 LoRA。ADR 0019 获 central accepted 前仍不得部署。
+- vLLM completion protocol 无需 scoring adapter 即能表示 ADR 0019：`/v1/completions`
+  接受 direct integer token-ID array，并支持要求的 `allowed_token_ids`、
+  `logprob_token_ids`、`add_special_tokens`、`truncate_prompt_tokens` 和 token-ID response
+  controls。未来 pinned image/version 必须在任何 calibration request 前以 content-free
+  deployment smoke transcript 证明这些字段；只返文本 label、服务端重新分词、fallback 或 retry
+  都不是可接受替代。
 - E2 run 只有在绑定 immutable Hugging Face model revision、immutable vLLM image digest
   及 reported version、完整 serving config 和 deployment revision 时才可 admission。run 前后
   `/models` 的可变名称相同只能发现 run 中漂移，不能单独成为 immutable pin。
@@ -120,8 +128,8 @@ SparkClaw 接受 proposed E2 provider 边界，但只限于以下精确范围：
   proposed 4B evidence profile 都不得被表述为当前 `single-fast-v1` 依赖。它与未来
   E3 GB10 profile 的差异当前未知，E3 admission 前必须实测，或明确保留为未知。
 
-本评审不产生 SLA、可用性、专用配额、Gateway wire 或 runtime integration 义务。中断只会
-推迟新 evidence run，不会使已封存证据失效。
+本评审本身不产生部署，也不产生 SLA、可用性、专用配额、Gateway wire 或 runtime integration
+义务。中断只会推迟新 evidence run，不会使已封存证据失效。
 
 ## 历史轻量双常驻实验
 

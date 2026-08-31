@@ -117,19 +117,29 @@ required before claiming model quality.
 
 ## IMMS E2 Evidence Replica Boundary
 
-ProjectGroup-2 decision 0026 is under review from InfiniCenter commit
-`7c714e6d903cd8a8d54df320c5000dad2860e0c9`; the proposed document is
-`b554aea67102ec62b18e7946dcc136071a49d3df55d5097cf5c16063b608d287/11483`.
-SparkClaw accepts the proposed E2 provider boundary with these exact limits:
+ProjectGroup-2 decision 0026 was accepted by InfiniCenter commit `42bc8a4`.
+SparkClaw also accepts IMMS ADR 0019 proposal
+`ac9a33d3c55f3c9d55af21e91586902f530aa39f`, exact document
+`c073202cff039dee23211ec6785464ef093d13992cfeee16840547cfa7001165/10006`,
+with these exact limits:
 
 - E2 is an evidence-only replica profile, not part of `single-fast-v1` and not
   a production user-data processor. Only synthetic evaluation inputs may use
   its public route. Real Source or Memory content must remain on the future
   GB10-local loopback service.
-- The project owner has confirmed that an evidence-only
-  `Qwen/Qwen3-Reranker-4B` deployment can be provided. It must not start until
-  the IMMS ADR freezes the exact model revision, prompt/tokenizer, yes/no token
-  log-probability calculation, dtype/quantization, batch shape, and receipt.
+- The accepted target is only
+  `Qwen/Qwen3-Reranker-4B@22e683669bc0f0bd69640a1354a6d0aebcfeede5`,
+  served as `imms-qwen3-reranker-4b-e2` with BF16, no quantization, tensor
+  parallel 1, maximum model length 8192, maximum sequences 1, seed 0, eager
+  execution, and no prefix caching, speculative decoding, or LoRA. Deployment
+  still must not start until ADR 0019 is canonically accepted.
+- The vLLM completion protocol can represent ADR 0019 without a scoring
+  adapter: `/v1/completions` accepts a direct integer token-ID array and the
+  requested `allowed_token_ids`, `logprob_token_ids`, `add_special_tokens`,
+  `truncate_prompt_tokens`, and token-ID response controls. The future pinned
+  image/version must prove those exact fields in a content-free deployment
+  smoke transcript before any calibration request; text-only labels, server
+  re-tokenization, fallback, or retry are not admissible substitutes.
 - An E2 run is admissible only when it binds an immutable Hugging Face model
   revision, an immutable vLLM image digest and reported version, the complete
   serving configuration, and a deployment revision. Matching mutable model
@@ -147,9 +157,9 @@ SparkClaw accepts the proposed E2 provider boundary with these exact limits:
   from the eventual E3 GB10 profile are currently unknown and must be measured
   or explicitly retained as unknown before E3 admission.
 
-This review creates no SLA, availability, dedicated-capacity, Gateway wire, or
-runtime integration obligation. Outages only delay new evidence runs and do
-not invalidate already sealed evidence.
+This review creates no deployment by itself and no SLA, availability,
+dedicated-capacity, Gateway wire, or runtime integration obligation. Outages
+only delay new evidence runs and do not invalidate already sealed evidence.
 
 ## Historical Light Dual-Residency Experiment
 

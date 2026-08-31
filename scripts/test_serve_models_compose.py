@@ -110,6 +110,7 @@ class ServeModelsComposeTest(unittest.TestCase):
                     "FAKE_DOCKER_STATE": json.dumps(state or healthy_state()),
                     "SPARKCLAW_FORCE_MODEL_RECREATE": "false",
                     "SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS": "17",
+                    "SPARKCLAW_MODEL_LOADING_PROFILE": "single-fast",
                 }
             )
             env.update(extra_env or {})

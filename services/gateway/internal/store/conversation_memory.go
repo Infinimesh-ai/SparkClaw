@@ -36,6 +36,7 @@ func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.
 		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorCorrupt, err)
 	}
 	s.messages[message.SessionID] = append(s.messages[message.SessionID], cloneMessage(message))
+	slices.SortFunc(s.messages[message.SessionID], compareMessagesAscending)
 	session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt, s.sessionWriteHighWater[session.ID])
 	s.sessionWriteHighWater[session.ID] = session.UpdatedAt
 	if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
@@ -44,6 +45,13 @@ func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.
 	s.sessions[message.SessionID] = session
 	s.appendEventLocked("message.created", message.SessionID, message.RunID, cloneMessage(message))
 	return cloneMessage(message), nil
+}
+
+func compareMessagesAscending(left, right app.Message) int {
+	if compared := left.CreatedAt.Compare(right.CreatedAt); compared != 0 {
+		return compared
+	}
+	return strings.Compare(left.ID, right.ID)
 }
 
 func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]app.Message, error) {
@@ -61,13 +69,34 @@ func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]app
 	if len(messages) == 0 {
 		return []app.Message{}, nil
 	}
-	slices.SortFunc(messages, func(left, right app.Message) int {
-		if compared := left.CreatedAt.Compare(right.CreatedAt); compared != 0 {
-			return compared
-		}
-		return strings.Compare(left.ID, right.ID)
-	})
+	slices.SortFunc(messages, compareMessagesAscending)
 	return messages, nil
+}
+
+func (s *MemoryStore) ListRecentMessages(ctx context.Context, sessionID string, cutoff time.Time, excludeMessageID string, scanLimit int) ([]app.Message, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationListRecent, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationListRecent, ctx); err != nil {
+		return nil, err
+	}
+	if err := validateRecentHistoryQuery(sessionID, cutoff, scanLimit); err != nil {
+		return nil, storeError(ctx, OperationConversationListRecent, StoreErrorInvalid, err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationConversationListRecent, ctx); err != nil {
+		return nil, err
+	}
+	messages := s.messages[sessionID]
+	out := make([]app.Message, 0, min(scanLimit, len(messages)))
+	for index := len(messages) - 1; index >= 0 && len(out) < scanLimit; index-- {
+		message := messages[index]
+		if message.CreatedAt.After(cutoff) || message.ID == excludeMessageID {
+			continue
+		}
+		out = append(out, cloneMessage(message))
+	}
+	return out, nil
 }
 
 func (s *MemoryStore) MessageEventHead(ctx context.Context, sessionID string) (string, error) {

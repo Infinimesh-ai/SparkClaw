@@ -581,10 +581,10 @@ export type PublicModelProfile = {
   name: string;
   base_url: string;
   model: string;
+  capacity_physical_model: string;
   context_tokens: number;
-  max_input_tokens?: number;
+  output_budgets: Record<string, number>;
   mtp: boolean;
-  max_tokens?: number;
 };
 
 export type PublicConfig = {
@@ -601,6 +601,7 @@ export type PublicConfig = {
     };
   };
   model: {
+    capacity_profile: string;
     mock: boolean;
     http_timeout_seconds?: number;
     disable_thinking?: boolean;

@@ -430,6 +430,7 @@ export const en = {
       approval: "Approval",
       deny: "Deny",
       modelProfiles: "Model Profiles",
+      capacityProfile: "Capacity Profile",
       mode: "Mode",
       fast: "Fast",
       deep: "Deep",
@@ -511,7 +512,6 @@ export const en = {
       tools: "tools",
       tokens: "tokens",
       ctx: "ctx",
-      input: "input",
       output: "output",
       avg: "avg",
       retentionDays: "d retention"

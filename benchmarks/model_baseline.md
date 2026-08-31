@@ -172,7 +172,7 @@ Historical evidence files in this working tree:
   `SPARKCLAW_EMBEDDING_MODEL=sparkclaw-embedding`; Compose loads the checkpoint
   through `SPARKCLAW_EMBEDDING_MODEL_ID`.
 - `SPARKCLAW_MODEL_DISABLE_THINKING=true` is required for Qwen3 chat-completions runs that need concise assistant content rather than reasoning-only output.
-- For the real golden run, both fast and deep profiles were routed to the loaded live chat endpoint with lower generation caps (`SPARKCLAW_FAST_MAX_TOKENS=256`, `SPARKCLAW_DEEP_MAX_TOKENS=384`) to keep the 58-case eval stable.
+- For this historical real golden run, both fast and deep profiles were routed to the loaded live chat endpoint with the then-supported lower generation caps (`SPARKCLAW_FAST_MAX_TOKENS=256`, `SPARKCLAW_DEEP_MAX_TOKENS=384`) to keep the 58-case eval stable. Those overrides are now retired and rejected; current runs select output-class budgets from `configs/model.profiles.json`.
 - At 128K context with MTP enabled, fast and deep chat services should be treated as mutually exclusive on this GB10 configuration unless context, MTP or GPU memory utilization is reduced and validated again.
 - `fast` is the responsive MoE lane; `deep` is the dense stability/quality lane. The measured `deep` throughput around 7.3 tok/s is expected for this compromise and should not be optimized in isolation from task quality, eval pass rate and overall product feel.
 - The historical chat-only control did not materially change `deep` throughput.

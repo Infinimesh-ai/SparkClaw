@@ -66,16 +66,17 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
 
 - `runWorkflowModelStep` 是唯一入口。它采用 Profile stage context 指定的通道，只在
   未指定通道时默认使用 Deep，然后调用 `runWorkflowStepLoop`。
-- 一次 `ContextBuilder` 准入统一管理有序 system/user section。section 可以是固定、按命名
-  variant 降级，或允许 UTF-8 安全截断。当前运行的 observation 只按因果顺序出现一次，
-  固定的步骤输出契约始终是 user prompt 的精确末尾。
-- Prompt 准入用标定过的每 token 4 字节系数估算，先降级低价值 session context、供给
-  evidence、schema 与较旧 observation，再只对声明为 truncatable 的 section 做硬截断。
+- 一次 `ContextBuilder` 准入统一管理有序 system/user section。section 只能是 fixed，或按已注册、
+  结构完整的命名 variant 降级。Owner question 与最新两条 current-run observation 固定不变；
+  current-run observation 只按因果顺序出现一次，固定步骤输出契约始终是 user prompt 的精确末尾。
+- Prompt 准入从所选容量 profile 获取 typed operation budget。明显可容纳的请求使用 Router 保守
+  counter，边界请求由所选模型 tokenizer 精确计数。ContextBuilder 只通过已注册 variant 降级
+  低价值 session context、供给 evidence、schema 与较旧 observation。
   每次成功模型调用都不超过有效输入阈值；若固定 section 本身超限，则在模型调用前返回
   `workflow_prompt_fixed_sections_oversized`。降级决策记录为
-  `workflow_step.prompt_compressed`，但不记录被丢弃的原文。profile 显式设置
-  `max_input_tokens` 时以它作为阈值，否则使用物理 `context_tokens` 减去声明的输出额度；
-  配置会拒绝输入加输出超过模型物理上下文的组合。
+  `workflow_step.prompt_compressed`，但不记录被丢弃的原文。阈值始终为物理
+  `context_tokens` 减去 operation 所属的 profile output-class budget；Model Router 会在
+  provider dispatch 前对完整渲染请求重复硬检查。
 
 ### 工具结果与证据
 

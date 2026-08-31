@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -104,6 +105,15 @@ func (s *FileStore) ListToolCalls(ctx context.Context, sessionID string) ([]app.
 	return s.inner.ListToolCalls(ctx, sessionID)
 }
 
+func (s *FileStore) ListRecentToolCalls(ctx context.Context, sessionID string, cutoff time.Time, excludeRunID string, scanLimit int) ([]app.ToolCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationToolCallListRecent, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListRecentToolCalls(ctx, sessionID, cutoff, excludeRunID, scanLimit)
+}
+
 func (s *FileStore) SaveEpisodeSummary(ctx context.Context, summary app.EpisodeSummary) (app.EpisodeSummary, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationEpisodeSummarySave, fileAdmissionCapacity)
 	if err != nil {
@@ -122,4 +132,13 @@ func (s *FileStore) ListEpisodeSummaries(ctx context.Context, sessionID string) 
 	}
 	defer release()
 	return s.inner.ListEpisodeSummaries(ctx, sessionID)
+}
+
+func (s *FileStore) ListRecentEpisodeSummaries(ctx context.Context, sessionID string, cutoff time.Time, scanLimit int) ([]app.EpisodeSummary, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEpisodeSummaryListRecent, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListRecentEpisodeSummaries(ctx, sessionID, cutoff, scanLimit)
 }

@@ -22,6 +22,9 @@
 | [Workflow 执行](workflow-execution.md) | Workflow 原生执行流水线、步骤循环及其协议、预算、恢复语义和扩展点 |
 | [Workflow 证据所有权与复用](workflow-evidence-ownership.md) | 正在迁移的 Runtime/模型职责、单次采集多消费者复用、类型化 locator 绑定和 Profile 迁移门槛 |
 | [意图路由](intent-routing.md) | 语义图、embedding 与 Fast/Tree 融合、Top-2 grounding 和单叶子分发 |
+| [有界上下文历史读取与 Invocation 快照设计](context-history-query-design.md) | 已接受的一次性有界 Store 读取、固定 8/6/4/3 选择，以及不使用 cursor 或持久化 anchor 的单份进程内 invocation snapshot |
+| [Tree 同 Session 上下文一致性设计](tree-session-context-parity-design.md) | 已接受的共享选中历史源与整体 prompt admission，以及已实施的 strict Tree 评分 JSON 结构加固 |
+| [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |

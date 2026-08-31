@@ -269,6 +269,7 @@ export function SettingsPanel({
               <strong>{text.settings.modelProfiles}</strong>
               <dl className="statusGrid compact">
                 <dt>{text.settings.mode}</dt><dd>{runtimeConfig.model.mock ? text.settings.mock : text.settings.externalModel}</dd>
+                <dt>{text.settings.capacityProfile}</dt><dd>{runtimeConfig.model.capacity_profile}</dd>
                 <dt>{text.settings.fast}</dt><dd>{profileLabel(runtimeConfig.model.fast, text)}</dd>
                 <dt>{text.settings.deep}</dt><dd>{profileLabel(runtimeConfig.model.deep, text)}</dd>
                 <dt>{text.settings.embed}</dt><dd>{profileLabel(runtimeConfig.model.embedding, text)}</dd>

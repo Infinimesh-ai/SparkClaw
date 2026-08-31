@@ -381,7 +381,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 			repair := `{"type":"action","tool":"pptx.update_slide","arguments":{"updates":[{"shape_index":1,"text":"` + test.repairText + `"}]}}`
 			content := "Improve the selected slide\nMOCK_STEP_RESPONSE:" + initial + "\nMOCK_STEP_REPAIR_RESPONSE:" + repair
 			result := runtime.runWorkflowStepLoop(
-				context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil,
+				context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil, agentContextSnapshot{},
 			)
 			if result.FailureCode != test.wantFailure || len(result.ToolCalls) != test.wantToolCalls || len(result.Approvals) != test.wantApprovals {
 				t.Fatalf("unexpected semantic repair result: failure=%q calls=%#v approvals=%#v observations=%#v", result.FailureCode, result.ToolCalls, result.Approvals, result.Observations)
@@ -440,7 +440,7 @@ func TestPPTXReplacementTextAliasIsCanonicalizedBeforeApproval(t *testing.T) {
 	content := `Improve the selected slide
 MOCK_STEP_RESPONSE:{"type":"action","tool":"pptx.update_slide","arguments":{"updates":[{"shape_index":1,"replacement_text":"A clearer third-slide title"}]}}`
 	result := runtime.runWorkflowStepLoop(
-		context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil,
+		context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil, agentContextSnapshot{},
 	)
 	if result.FailureCode != "" || len(result.ToolCalls) != 1 || len(result.Approvals) != 1 ||
 		result.ToolCalls[0].Status != app.ToolCallStatusApprovalPending {

@@ -40,6 +40,11 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, err)
 		return result, true, resultErr
 	}
+	history, err := r.buildResumedInvocationHistory(ctx, run)
+	if err != nil {
+		result, resultErr := r.blockPersistedWorkflowResume(ctx, run, content, err)
+		return result, true, resultErr
+	}
 	for _, call := range seedCalls {
 		if call.WorkflowID == "" || workflowAppliedToolCall(run.Workflow, call.ID) {
 			continue
@@ -101,7 +106,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		}
 		workflowExecution = r.runWorkflowWithSeed(
 			ctx, run.SessionID, run, content, profile, stageContext, visibleTools,
-			seedCalls, append(observationsForResume(seedCalls), decisionObservations...),
+			seedCalls, append(observationsForResume(seedCalls), decisionObservations...), history.Selected,
 		)
 		if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
 			return Result{}, true, err

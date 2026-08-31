@@ -121,6 +121,40 @@ func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) ([]a
 	return out, nil
 }
 
+func (s *PostgresStore) ListRecentMessages(ctx context.Context, sessionID string, cutoff time.Time, excludeMessageID string, scanLimit int) ([]app.Message, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationListRecent, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationListRecent, ctx); err != nil {
+		return nil, err
+	}
+	if err := validateRecentHistoryQuery(sessionID, cutoff, scanLimit); err != nil {
+		return nil, storeError(ctx, OperationConversationListRecent, StoreErrorInvalid, err)
+	}
+	rows, err := s.conversationPostgres.Query(ctx, `
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+		FROM messages
+		WHERE session_id = $1 AND created_at <= $2 AND id <> $3
+		ORDER BY created_at DESC, id DESC
+		LIMIT $4
+	`, sessionID, cutoff, excludeMessageID, scanLimit)
+	if err != nil {
+		return nil, classifyConversationPostgresError(OperationConversationListRecent, ctx, err)
+	}
+	defer rows.Close()
+	out := make([]app.Message, 0, scanLimit)
+	for rows.Next() {
+		message, err := scanMessage(rows)
+		if err != nil {
+			return nil, classifyConversationPostgresError(OperationConversationListRecent, ctx, err)
+		}
+		out = append(out, cloneMessage(message))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyConversationPostgresError(OperationConversationListRecent, ctx, err)
+	}
+	return out, nil
+}
+
 func beginPostgresTransaction(ctx context.Context, operation StoreOperation, backend ownerPostgresOps) (onboardingPostgresSession, onboardingPostgresTx, *bool, error) {
 	session, err := backend.Acquire(ctx)
 	if err != nil {

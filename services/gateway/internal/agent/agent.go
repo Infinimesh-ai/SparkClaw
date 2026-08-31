@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -30,7 +31,6 @@ type Repository interface {
 	store.AuditRepository
 	store.ArtifactMetadataRepository
 	store.BrowserStateRepository
-	store.MemoryRepository
 }
 
 type Runtime struct {
@@ -258,6 +258,13 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if err != nil {
 		return Result{}, fmt.Errorf("persist owner message: %w", err)
 	}
+	if admissionErr := r.models.AdmitOwnerQuestion(ctx, agentContent); admissionErr != nil {
+		var tooLong *modelrouter.InputTooLongError
+		if !errors.As(admissionErr, &tooLong) {
+			return Result{}, fmt.Errorf("admit owner question: %w", admissionErr)
+		}
+		return r.rejectOwnerQuestionTooLong(ctx, sessionID, requestedRunID, envelope, invocation, clientTimezone, admissionErr)
+	}
 	if err := r.recordMessageDocuments(ctx, session, userMessage); err != nil {
 		return Result{}, fmt.Errorf("persist message documents: %w", err)
 	}
@@ -360,13 +367,17 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			WorkflowResult: workflowResult,
 		}, nil
 	}
+	history, err := r.buildInvocationHistory(ctx, run, userMessage.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("build invocation history: %w", err)
+	}
 
 	var routing IntentRoutingOutput
 	var routingErr error
 	if scheduleAction != nil {
 		routing.Route, routingErr = r.scheduleActionRoute(*scheduleAction, agentContent)
 	} else {
-		routing, routingErr = r.routeIntentWithRequest(ctx, sessionID, run.ID, agentContent, projection.Resources, envelope.MediaLocators, envelope.Source.Kind)
+		routing, routingErr = r.routeIntentWithHistory(ctx, sessionID, run.ID, agentContent, projection.Resources, envelope.MediaLocators, envelope.Source.Kind, history)
 	}
 	if routing.Fusion != nil {
 		run.MessageContext.IntentFusion = routing.Fusion
@@ -457,7 +468,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		return Result{}, fmt.Errorf("persist executing run: %w", err)
 	}
 
-	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Context, dispatch.Tools, emit)
+	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Context, dispatch.Tools, history.Selected, emit)
 	r.exposure.releaseRun(run.ID)
 	credentialChange := integrationCredentialChangeCause(ctx)
 	if credentialChange != nil {
@@ -570,6 +581,53 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
 	return result, nil
+}
+
+const ownerQuestionTooLongMessage = "问题过长，当前无法解析。请缩短问题后重试。"
+
+func (r Runtime) rejectOwnerQuestionTooLong(ctx context.Context, sessionID, requestedRunID string, envelope app.MessageEnvelope, invocation *app.MCPInvocationRef, clientTimezone string, admissionErr error) (Result, error) {
+	now := time.Now().UTC()
+	route := app.RouteDecision{
+		SchemaVersion:   app.RouteDecisionSchemaVersion,
+		Status:          app.RouteBlocked,
+		CatalogRevision: r.capabilities.Revision(),
+	}
+	run := app.AgentRun{
+		ID: requestedRunID, SessionID: sessionID, State: "blocked", Risk: app.RiskRead,
+		StartedAt: now, CompletedAt: &now, Summary: ownerQuestionTooLongMessage,
+		MessageContext: &app.MessageRunContext{
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source,
+			RequestContent: envelope.Content, MediaLocators: append([]app.MessageMediaLocator(nil), envelope.MediaLocators...),
+			ReturnRoute: envelope.ReturnRoute, Route: route, MCP: invocation, ClientTimezone: clientTimezone,
+		},
+	}
+	if run.ID == "" {
+		run.ID = app.NewID("run")
+	}
+	var err error
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return Result{}, fmt.Errorf("persist oversized owner question run: %w", err)
+	}
+	r.addAudit(ctx, app.AuditEvent{
+		SessionID: sessionID, RunID: run.ID, Actor: "model_router", Type: "owner_question.rejected",
+		Summary: "Owner question exceeded a mandatory pre-routing model capacity",
+		Fields:  map[string]any{"reason_code": "owner_question_too_long", "admission": admissionErr.Error()},
+	})
+	assistant, err := r.store.AddMessage(ctx, app.Message{
+		SessionID: sessionID, RunID: run.ID, Role: "assistant", Content: ownerQuestionTooLongMessage, CreatedAt: now,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("persist oversized owner question response: %w", err)
+	}
+	workflowResult, err := r.workflowResultForTerminalRoute(ctx, run, route, envelope.ReturnRoute, ownerQuestionTooLongMessage)
+	if err != nil {
+		return Result{}, err
+	}
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, nil)
+	return Result{
+		Run: run, Message: assistant, RouteDecision: &route, WorkflowResult: workflowResult,
+		ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{},
+	}, nil
 }
 
 func finalizeWorkflowRunState(run *app.AgentRun, execution workflowExecutionResult, now time.Time) {
@@ -971,12 +1029,12 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	return result, true, nil
 }
 
-func (r Runtime) chatWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, operation, lane, system, user string, emit StreamHandler) (modelrouter.ChatResult, error) {
+func (r Runtime) chatWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, modelOperation modelcapacity.Operation, spanID, lane, system, user string, emit StreamHandler) (modelrouter.ChatResult, error) {
 	if emit == nil {
-		return r.models.ChatWithProfile(ctx, lane, system, user)
+		return r.models.ChatWithProfile(ctx, modelOperation, lane, system, user)
 	}
-	stream := workflowFinalAnswerStream{forward: workflowStreamHandler(run, operation, emit)}
-	return r.models.ChatStreamWithProfile(ctx, lane, system, user, stream.emit)
+	stream := workflowFinalAnswerStream{forward: workflowStreamHandler(run, spanID, emit)}
+	return r.models.ChatStreamWithProfile(ctx, modelOperation, lane, system, user, stream.emit)
 }
 
 func workflowStreamHandler(run app.AgentRun, spanID string, emit StreamHandler) modelrouter.StreamHandler {

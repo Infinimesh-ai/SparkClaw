@@ -88,20 +88,21 @@ request that is still in flight when the budget trips.
   schema, while no-tool answer, operation-selection, and finalization calls name
   their bounded output directly.
 - One `ContextBuilder` admission pass owns ordered system and user sections.
-  Sections are fixed, degradable through named variants, or UTF-8-safe
-  truncatable. Current-run observations appear exactly once in causal order,
-  and the fixed step output contract remains the exact user-prompt tail.
-- Prompt admission estimates tokens with a calibrated 4-bytes-per-token
-  coefficient. It degrades lower-value session context, provisioned evidence,
-  schemas, and older observations before hard-truncating only declared
-  truncatable sections. Every successful model call is at or below the
-  effective input threshold; fixed-section overflow returns
+  Sections are fixed or degradable through named, structurally valid variants.
+  The owner question and newest two current-run observations are fixed;
+  current-run observations appear exactly once in causal order, and the fixed
+  step output contract remains the exact user-prompt tail.
+- Prompt admission receives the typed operation budget from the selected
+  capacity profile. Router's conservative counter handles requests that plainly
+  fit and the selected model tokenizer counts boundary cases. ContextBuilder
+  degrades lower-value session context, provisioned evidence, schemas, and
+  older observations only through registered variants. Every successful model
+  call is at or below the effective input threshold; fixed-section overflow returns
   `workflow_prompt_fixed_sections_oversized` before a model call. Decisions are
   audited as `workflow_step.prompt_compressed` without recording dropped text.
-  The threshold is the model profile's explicit `max_input_tokens` when set,
-  otherwise its physical `context_tokens` minus the declared output allowance.
-  Configuration rejects an input-plus-output budget above the physical model
-  context.
+  The threshold is always physical `context_tokens` minus the operation's
+  profile-owned output-class budget. Model Router repeats the complete rendered
+  request check immediately before provider dispatch.
 
 ### Tool Results And Evidence
 

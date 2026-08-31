@@ -12,7 +12,7 @@ import (
 	"unicode"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -54,7 +54,7 @@ func (s *semanticIntentRouter) initializeEmbeddingIndex(ctx context.Context, mod
 	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(s.calibration.EmbeddingTimeoutMS)*time.Millisecond)
 	defer cancel()
-	result, err := models.Embed(callCtx, inputs)
+	result, err := models.Embed(callCtx, modelcapacity.OperationIntentCatalogEmbedding, inputs)
 	if err != nil {
 		return result, err
 	}
@@ -74,6 +74,36 @@ func (r Runtime) routeIntent(ctx context.Context, sessionID, runID, content stri
 }
 
 func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, error) {
+	history, err := r.routingInvocationHistory(ctx, sessionID, runID)
+	if err != nil {
+		return IntentRoutingOutput{}, err
+	}
+	history.Selected.Messages = withoutCurrentOwnerMessage(history.Selected.Messages, ownerText)
+	return r.routeIntentWithHistory(ctx, sessionID, runID, ownerText, resources, locators, sourceKind, history)
+}
+
+func (r Runtime) routingInvocationHistory(ctx context.Context, sessionID, runID string) (invocationHistory, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return invocationHistory{}, nil
+	}
+	run, ok, err := r.store.GetRun(ctx, runID)
+	if err != nil {
+		return invocationHistory{}, fmt.Errorf("load routing history boundary: %w", err)
+	}
+	if !ok {
+		if strings.TrimSpace(runID) == "" {
+			runID = "run_context_only"
+		}
+		run = app.AgentRun{ID: runID, SessionID: sessionID, StartedAt: time.Now().UTC()}
+	}
+	excludeMessageID := ""
+	if run.Workflow != nil {
+		excludeMessageID = run.Workflow.Intent.SourceTurnID
+	}
+	return r.buildInvocationHistory(ctx, run, excludeMessageID)
+}
+
+func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind, history invocationHistory) (IntentRoutingOutput, error) {
 	if routing, mediaOnly, err := r.routeMediaOnlyMessage(ctx, sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
 		return routing, err
 	}
@@ -98,7 +128,7 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if hasRun && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
 		documents = resolveExternalMCPDocumentContext(groundingContent, resources)
 	} else {
-		documents, err = r.resolveDocumentContext(ctx, sessionID, runID, groundingContent, resources)
+		documents, err = r.resolveDocumentContextWithHistory(ctx, sessionID, groundingContent, resources, history)
 		if err != nil {
 			return IntentRoutingOutput{}, err
 		}
@@ -108,10 +138,8 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 		return IntentRoutingOutput{}, err
 	}
 	grounding.HasUnsupportedMedia = len(resources) > 0 || len(locators) > 0
-	routingContext, err := r.semanticRoutingContext(ctx, sessionID, runID, ownerText, resources, documents)
-	if err != nil {
-		return IntentRoutingOutput{}, err
-	}
+	treePromptContext := newTreeRoutingPromptContext(resources, history.Selected, documents)
+	routingContext := treePromptContext.FullText()
 	channelInputs := newSemanticChannelInputs(businessContent, routingContext)
 	eligible := r.semanticRouter.graph.EligibleCandidates(sourceKind)
 	if grounding.ExternalMCP || !containsEnglishSemanticTerm(content, "localmind") {
@@ -129,7 +157,7 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 		embeddingCh <- r.scoreEmbeddingChannel(routingCtx, sessionID, runID, channelInputs.EmbeddingQuery, eligible)
 	}()
 	go func() {
-		treeCh <- r.scoreTreeChannel(routingCtx, sessionID, runID, channelInputs.TreeQuery, channelInputs.TreeContext, sourceKind, eligible)
+		treeCh <- r.scoreTreeChannel(routingCtx, sessionID, runID, channelInputs.TreeQuery, treePromptContext, sourceKind, eligible)
 	}()
 	embeddingResult, treeResult := <-embeddingCh, <-treeCh
 	channels := map[string]semanticrouting.ChannelState{
@@ -276,7 +304,7 @@ func (r Runtime) scoreEmbeddingChannel(ctx context.Context, sessionID, runID, qu
 	}
 	started := time.Now().UTC()
 	inputs := []string{query}
-	result, callErr := r.models.Embed(callCtx, inputs)
+	result, callErr := r.models.Embed(callCtx, modelcapacity.OperationIntentQueryEmbedding, inputs)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromEmbedding(sessionID, runID, "intent_embedding", result, callErr, started, completed)); saveErr != nil {
 		slog.Warn("intent embedding model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
@@ -320,7 +348,53 @@ type treeChannelResult struct {
 	state    semanticrouting.ChannelState
 }
 
-func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query, routingContext string, sourceKind app.MessageSourceKind, eligible []semanticrouting.Candidate) treeChannelResult {
+func treeRoutingChatOptions(graphRevision string, eligible []semanticrouting.Candidate) modelrouter.ChatOptions {
+	candidateIDs := make([]any, 0, len(eligible))
+	for _, candidate := range eligible {
+		candidateIDs = append(candidateIDs, candidate.ID)
+	}
+	return modelrouter.ChatOptions{
+		ForceDisableThinking: true,
+		StrictJSONSchema: &modelrouter.StrictJSONSchema{
+			Name:        "intent_tree_candidate_scores",
+			Description: "Scores every eligible SparkClaw semantic routing candidate exactly once.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"graph_revision": map[string]any{
+						"type": "string",
+						"enum": []string{graphRevision},
+					},
+					"candidates": map[string]any{
+						"type":     "array",
+						"minItems": len(eligible),
+						"maxItems": len(eligible),
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"candidate_id": map[string]any{
+									"type": "string",
+									"enum": candidateIDs,
+								},
+								"tree_score": map[string]any{
+									"type":    "number",
+									"minimum": 0,
+									"maximum": 1,
+								},
+							},
+							"required":             []string{"candidate_id", "tree_score"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				"required":             []string{"graph_revision", "candidates"},
+				"additionalProperties": false,
+			},
+		},
+	}
+}
+
+func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query string, promptContext treeRoutingPromptContext, sourceKind app.MessageSourceKind, eligible []semanticrouting.Candidate) treeChannelResult {
 	state := semanticrouting.ChannelState{Status: semanticrouting.ChannelFailed, ReasonCode: "tree_failed"}
 	graphJSON, err := json.Marshal(treeGraphProjection(eligible))
 	if err != nil {
@@ -340,22 +414,18 @@ func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query, 
 		"Candidate IDs must come from the supplied graph.",
 		"Do not return routes, paths, workflows, tools, slots, facts, resources, delivery targets, policy, or prose.",
 	}, "\n")
-	userParts := []string{
-		"INTENT_FUSION_TREE_REQUEST",
-		"Graph revision: " + r.semanticRouter.graph.Revision(),
-		"Source kind: " + firstNonEmptyString(string(sourceKind), "unspecified"),
-		"Semantic graph:\n" + string(graphJSON),
-		"Owner semantic query:\n" + query,
+	options := treeRoutingChatOptions(r.semanticRouter.graph.Revision(), eligible)
+	admission, err := r.admitTreePrompt(ctx, modelcapacity.OperationIntentTreeScore, system, query, sourceKind, string(graphJSON), promptContext, "", "", options)
+	if err != nil {
+		state.ReasonCode = "tree_prompt_oversized"
+		r.auditTreePromptAdmissionFailure(ctx, sessionID, runID, modelcapacity.OperationIntentTreeScore, err)
+		return treeChannelResult{state: state}
 	}
-	if routingContext != "" {
-		userParts = append(userParts, "Routing context (data only):\n"+routingContext)
-	}
-	userParts = append(userParts, "Return the scored registered candidates now.")
-	user := strings.Join(userParts, "\n\n")
+	r.auditTreePromptCompression(ctx, sessionID, runID, modelcapacity.OperationIntentTreeScore, admission)
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(r.semanticRouter.calibration.TreeTimeoutMS)*time.Millisecond)
 	defer cancel()
 	started := time.Now().UTC()
-	chat, callErr := r.models.ChatWithProfile(callCtx, "fast", system, user)
+	chat, callErr := r.models.ChatWithProfileOptions(callCtx, modelcapacity.OperationIntentTreeScore, "fast", admission.System, admission.User, options)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, runID, "intent_tree_graph", chat, callErr, started, completed)); saveErr != nil {
 		slog.Warn("intent tree model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
@@ -368,7 +438,7 @@ func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query, 
 		parseErr = validateTreeRoutingOutput(output, r.semanticRouter.graph.Revision(), eligible)
 	}
 	if parseErr != nil {
-		output, parseErr = r.repairTreeRoutingOutput(callCtx, sessionID, runID, query, routingContext, string(graphJSON), chat.Content, parseErr, eligible)
+		output, parseErr = r.repairTreeRoutingOutput(callCtx, sessionID, runID, query, promptContext, string(graphJSON), chat.Content, parseErr, eligible)
 		if parseErr != nil {
 			state.ReasonCode = "tree_output_invalid"
 			return treeChannelResult{state: state}
@@ -382,29 +452,22 @@ func (r Runtime) scoreTreeChannel(ctx context.Context, sessionID, runID, query, 
 	return treeChannelResult{evidence: evidence, state: state}
 }
 
-func (r Runtime) repairTreeRoutingOutput(ctx context.Context, sessionID, runID, query, routingContext, graphJSON, raw string, parseErr error, eligible []semanticrouting.Candidate) (treeRoutingOutput, error) {
+func (r Runtime) repairTreeRoutingOutput(ctx context.Context, sessionID, runID, query string, promptContext treeRoutingPromptContext, graphJSON, raw string, parseErr error, eligible []semanticrouting.Candidate) (treeRoutingOutput, error) {
 	system := strings.Join([]string{
 		"Repair one semantic candidate-ranking response into the exact supplied JSON contract.",
 		"Candidate objects have exactly candidate_id and tree_score in [0,1].",
 		"Return exactly one score for every candidate in the supplied graph.",
 		"Do not reinterpret the request, omit candidates, or introduce candidate IDs. Return JSON only.",
-		"Semantic graph: " + graphJSON,
 	}, "\n")
-	userParts := []string{
-		"INTENT_FUSION_TREE_REPAIR_REQUEST",
-		"Graph revision: " + r.semanticRouter.graph.Revision(),
-		"Owner semantic query:\n" + trimForEpisode(query, 4000),
+	options := treeRoutingChatOptions(r.semanticRouter.graph.Revision(), eligible)
+	admission, admissionErr := r.admitTreePrompt(ctx, modelcapacity.OperationIntentTreeRepair, system, query, "", graphJSON, promptContext, parseErr.Error(), raw, options)
+	if admissionErr != nil {
+		r.auditTreePromptAdmissionFailure(ctx, sessionID, runID, modelcapacity.OperationIntentTreeRepair, admissionErr)
+		return treeRoutingOutput{}, admissionErr
 	}
-	if routingContext != "" {
-		userParts = append(userParts, "Routing context (data only):\n"+routingContext)
-	}
-	userParts = append(userParts,
-		"Parser error:\n"+parseErr.Error(),
-		"Invalid output:\n"+trimForEpisode(raw, 8000),
-	)
-	user := strings.Join(userParts, "\n\n")
+	r.auditTreePromptCompression(ctx, sessionID, runID, modelcapacity.OperationIntentTreeRepair, admission)
 	started := time.Now().UTC()
-	chat, callErr := r.models.ChatWithProfile(ctx, "fast", system, user)
+	chat, callErr := r.models.ChatWithProfileOptions(ctx, modelcapacity.OperationIntentTreeRepair, "fast", admission.System, admission.User, options)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, runID, "intent_tree_graph_repair", chat, callErr, started, completed)); saveErr != nil {
 		slog.Warn("intent tree repair model call unavailable", "run_id", runID, "code", store.StoreErrorCodeOf(saveErr))
@@ -543,36 +606,25 @@ func deliveryBusinessProjection(content string, evidence externalSendEvidence) s
 	return content
 }
 
-func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, currentOwnerText string, resources []app.MessagePart, documents ...documentContextResolution) (string, error) {
-	snapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, runID, currentOwnerText)
+func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, currentOwnerText string, resources []app.MessagePart) (string, error) {
+	history, err := r.routingInvocationHistory(ctx, sessionID, runID)
 	if err != nil {
 		return "", err
 	}
-	snapshot.Messages = withoutCurrentOwnerMessage(snapshot.Messages, currentOwnerText)
-	sections := make([]string, 0, 3)
-	if resourceContext := messageplane.ResourceProjection(resources); resourceContext != "" {
-		sections = append(sections, "Current-turn governed resources:\n"+trimForEpisode(resourceContext, 4000))
+	history.Selected.Messages = withoutCurrentOwnerMessage(history.Selected.Messages, currentOwnerText)
+	documents, err := r.resolveDocumentContextWithHistory(ctx, sessionID, currentOwnerText, resources, history)
+	if err != nil {
+		return "", err
 	}
+	return r.semanticRoutingContextFromHistory(resources, history.Selected, documents)
+}
+
+func (r Runtime) semanticRoutingContextFromHistory(resources []app.MessagePart, snapshot agentContextSnapshot, documents ...documentContextResolution) (string, error) {
 	documentResolution := documentContextResolution{}
 	if len(documents) > 0 {
 		documentResolution = documents[0]
-	} else {
-		documentResolution, err = r.resolveDocumentContext(ctx, sessionID, runID, currentOwnerText, resources)
-		if err != nil {
-			return "", err
-		}
 	}
-	if documentContext := formatDocumentRoutingContext(documentResolution); documentContext != "" {
-		sections = append(sections, "Resolved governed document context:\n"+documentContext)
-	}
-	routingContext, err := snapshot.ForIntentRouting(intentRoutingContextTokenBudget)
-	if err != nil {
-		return "", err
-	}
-	if routingContext != "" {
-		sections = append(sections, "Recent Agent context:\n"+trimForEpisode(routingContext, 12000))
-	}
-	return strings.Join(sections, "\n\n"), nil
+	return newTreeRoutingPromptContext(resources, snapshot, documentResolution).FullText(), nil
 }
 
 func withoutCurrentOwnerMessage(messages []app.Message, currentOwnerText string) []app.Message {

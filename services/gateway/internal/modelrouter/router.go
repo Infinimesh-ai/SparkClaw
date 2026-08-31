@@ -16,6 +16,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 )
 
 type Router struct {
@@ -24,6 +25,7 @@ type Router struct {
 }
 
 type Task struct {
+	Operation      modelcapacity.Operation
 	Message        string
 	Risk           app.RiskLevel
 	LaneHint       string
@@ -42,6 +44,7 @@ type ChatResult struct {
 	Profile        string `json:"profile"`
 	Model          string `json:"model"`
 	Content        string `json:"content"`
+	FinishReason   string `json:"finish_reason"`
 	Mock           bool   `json:"mock"`
 	Fallback       bool   `json:"fallback,omitempty"`
 	ErrorNote      string `json:"error_note,omitempty"`
@@ -140,38 +143,38 @@ func (r Router) LaneFor(profile config.ModelProfile) string {
 
 func (r Router) Chat(ctx context.Context, task Task, system, user string) (ChatResult, error) {
 	profile := r.ChooseModel(task)
-	return r.chatWithProfile(ctx, profile, system, user, true)
+	return r.chatWithProfile(ctx, profile, task.Operation, system, user, ChatOptions{})
 }
 
-func (r Router) ChatWithProfile(ctx context.Context, profileName, system, user string) (ChatResult, error) {
+func (r Router) ChatWithProfile(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string) (ChatResult, error) {
+	return r.ChatWithProfileOptions(ctx, operation, profileName, system, user, ChatOptions{})
+}
+
+func (r Router) ChatWithProfileOptions(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string, options ChatOptions) (ChatResult, error) {
+	if err := options.validate(); err != nil {
+		return ChatResult{}, err
+	}
 	profile, err := r.Profile(profileName)
 	if err != nil {
 		return ChatResult{}, err
 	}
-	return r.chatWithProfile(ctx, profile, system, user, false)
+	return r.chatWithProfile(ctx, profile, operation, system, user, options)
 }
 
-func (r Router) ChatWithImage(ctx context.Context, profileName, system, user string, image ImageInput) (ChatResult, error) {
-	return r.ChatWithImageMaxTokens(ctx, profileName, system, user, image, 0)
-}
-
-func (r Router) ChatWithImageMaxTokens(ctx context.Context, profileName, system, user string, image ImageInput, maxTokens int) (ChatResult, error) {
+func (r Router) ChatWithImage(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string, image ImageInput) (ChatResult, error) {
 	profile, err := r.Profile(profileName)
 	if err != nil {
 		return ChatResult{}, err
 	}
-	if maxTokens > 0 && (profile.MaxTokens <= 0 || maxTokens < profile.MaxTokens) {
-		profile.MaxTokens = maxTokens
-	}
-	return r.chatWithImageProfile(ctx, profile, system, user, image)
+	return r.chatWithImageProfile(ctx, profile, operation, system, user, image)
 }
 
-func (r Router) ChatStreamWithProfile(ctx context.Context, profileName, system, user string, emit StreamHandler) (ChatResult, error) {
+func (r Router) ChatStreamWithProfile(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string, emit StreamHandler) (ChatResult, error) {
 	profile, err := r.Profile(profileName)
 	if err != nil {
 		return ChatResult{}, err
 	}
-	return r.chatStreamWithProfile(ctx, profile, system, user, emit)
+	return r.chatStreamWithProfile(ctx, profile, operation, system, user, emit)
 }
 
 func (r Router) Profile(name string) (config.ModelProfile, error) {
@@ -185,8 +188,12 @@ func (r Router) Profile(name string) (config.ModelProfile, error) {
 	}
 }
 
-func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile, system, user string, allowFallback bool) (ChatResult, error) {
+func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, options ChatOptions) (ChatResult, error) {
 	lane := r.LaneFor(profile)
+	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, options, 0)
+	if err != nil {
+		return ChatResult{}, err
+	}
 	if r.cfg.Model.Mock {
 		content := mockResponse(lane, user)
 		promptTokens := estimateTokens(system) + estimateTokens(user)
@@ -196,32 +203,15 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 			Profile:        profile.Name,
 			Model:          modelID(profile),
 			Content:        content,
+			FinishReason:   "stop",
 			Mock:           true,
 			PromptTokens:   promptTokens,
 			ResponseTokens: responseTokens,
 			TotalTokens:    promptTokens + responseTokens,
 		}, nil
 	}
-	content, usage, err := r.chatCompletions(ctx, profile, system, user)
+	content, finishReason, usage, err := r.chatCompletions(ctx, profile, system, user, options, maxTokens)
 	if err != nil {
-		if allowFallback && lane == "fast" && r.cfg.Model.Deep.BaseURL != "" {
-			deep := r.cfg.Model.Deep
-			deepContent, deepUsage, deepErr := r.chatCompletions(ctx, deep, system, user)
-			if deepErr == nil {
-				return ChatResult{
-					Lane:           "deep",
-					Profile:        deep.Name,
-					Model:          modelID(deep),
-					Content:        deepContent,
-					Mock:           false,
-					Fallback:       true,
-					ErrorNote:      err.Error(),
-					PromptTokens:   deepUsage.PromptTokens,
-					ResponseTokens: deepUsage.ResponseTokens,
-					TotalTokens:    deepUsage.TotalTokens,
-				}, nil
-			}
-		}
 		return ChatResult{}, err
 	}
 	return ChatResult{
@@ -229,6 +219,7 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 		Profile:        profile.Name,
 		Model:          modelID(profile),
 		Content:        content,
+		FinishReason:   finishReason,
 		Mock:           false,
 		PromptTokens:   usage.PromptTokens,
 		ResponseTokens: usage.ResponseTokens,
@@ -236,13 +227,17 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 	}, nil
 }
 
-func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput) (ChatResult, error) {
+func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, image ImageInput) (ChatResult, error) {
 	lane := r.LaneFor(profile)
 	if len(image.Content) == 0 {
 		return ChatResult{}, errors.New("image content cannot be empty")
 	}
 	if strings.TrimSpace(image.ContentType) == "" {
 		image.ContentType = "application/octet-stream"
+	}
+	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, ChatOptions{}, estimateImageTokens(image))
+	if err != nil {
+		return ChatResult{}, err
 	}
 	if r.cfg.Model.Mock {
 		content := "Mock image inspection: image content was received and can be described by the multimodal model."
@@ -253,13 +248,14 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 			Profile:        profile.Name,
 			Model:          modelID(profile),
 			Content:        content,
+			FinishReason:   "stop",
 			Mock:           true,
 			PromptTokens:   promptTokens,
 			ResponseTokens: responseTokens,
 			TotalTokens:    promptTokens + responseTokens,
 		}, nil
 	}
-	content, usage, err := r.chatCompletionsWithImage(ctx, profile, system, user, image)
+	content, finishReason, usage, err := r.chatCompletionsWithImage(ctx, profile, system, user, image, maxTokens)
 	if err != nil {
 		return ChatResult{}, err
 	}
@@ -268,6 +264,7 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 		Profile:        profile.Name,
 		Model:          modelID(profile),
 		Content:        content,
+		FinishReason:   finishReason,
 		Mock:           false,
 		PromptTokens:   usage.PromptTokens,
 		ResponseTokens: usage.ResponseTokens,
@@ -275,8 +272,12 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 	}, nil
 }
 
-func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelProfile, system, user string, emit StreamHandler) (ChatResult, error) {
+func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, emit StreamHandler) (ChatResult, error) {
 	lane := r.LaneFor(profile)
+	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, ChatOptions{}, 0)
+	if err != nil {
+		return ChatResult{}, err
+	}
 	if emit == nil {
 		emit = func(ModelStreamEvent) error { return nil }
 	}
@@ -295,13 +296,14 @@ func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelP
 			Profile:        profile.Name,
 			Model:          modelID(profile),
 			Content:        content,
+			FinishReason:   "stop",
 			Mock:           true,
 			PromptTokens:   promptTokens,
 			ResponseTokens: responseTokens,
 			TotalTokens:    promptTokens + responseTokens,
 		}, nil
 	}
-	content, usage, err := r.chatCompletionsStream(ctx, profile, system, user, emit)
+	content, finishReason, usage, err := r.chatCompletionsStream(ctx, profile, system, user, emit, maxTokens)
 	if err != nil {
 		return ChatResult{}, err
 	}
@@ -310,6 +312,7 @@ func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelP
 		Profile:        profile.Name,
 		Model:          modelID(profile),
 		Content:        content,
+		FinishReason:   finishReason,
 		Mock:           false,
 		PromptTokens:   usage.PromptTokens,
 		ResponseTokens: usage.ResponseTokens,
@@ -317,13 +320,16 @@ func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelP
 	}, nil
 }
 
-func (r Router) Embed(ctx context.Context, inputs []string) (EmbeddingResult, error) {
+func (r Router) Embed(ctx context.Context, operation modelcapacity.Operation, inputs []string) (EmbeddingResult, error) {
 	if len(inputs) == 0 {
 		return EmbeddingResult{}, errors.New("embedding inputs cannot be empty")
 	}
 	profile := r.cfg.Model.Embedding
 	if strings.TrimSpace(profile.Name) == "" {
 		profile.Name = "sparkclaw-embedding"
+	}
+	if err := r.admitEmbedding(ctx, profile, operation, inputs); err != nil {
+		return EmbeddingResult{}, err
 	}
 	if r.cfg.Model.Mock {
 		promptTokens := estimateTokenList(inputs)
@@ -361,6 +367,10 @@ func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) 
 	if strings.TrimSpace(profile.Name) == "" {
 		profile.Name = "sparkclaw-guard"
 	}
+	maxTokens, err := r.admitChat(ctx, profile, modelcapacity.OperationGuardModeration, guardSystemPrompt, content, ChatOptions{}, 0)
+	if err != nil {
+		return GuardResult{}, err
+	}
 	if r.cfg.Model.Mock {
 		promptTokens := estimateTokens(content)
 		result := mockGuard(content)
@@ -373,7 +383,7 @@ func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) 
 		result.TotalTokens = result.PromptTokens + result.ResponseTokens
 		return result, nil
 	}
-	result, usage, err := r.guard(ctx, profile, content)
+	result, usage, err := r.guard(ctx, profile, content, maxTokens)
 	if err != nil {
 		result := mockGuard(content)
 		result.Lane = "guard"
@@ -400,13 +410,13 @@ func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) 
 	return result, nil
 }
 
-func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile, system, user string) (string, tokenUsage, error) {
-	return r.chatCompletionsWithTemperature(ctx, profile, system, user, 0.2)
+func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile, system, user string, options ChatOptions, maxTokens int) (string, string, tokenUsage, error) {
+	return r.chatCompletionsWithTemperature(ctx, profile, system, user, 0.2, options, maxTokens)
 }
 
-func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile config.ModelProfile, system, user string, temperature float64) (string, tokenUsage, error) {
+func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile config.ModelProfile, system, user string, temperature float64, options ChatOptions, maxTokens int) (string, string, tokenUsage, error) {
 	if profile.BaseURL == "" {
-		return "", tokenUsage{}, errors.New("model base_url is empty")
+		return "", "", tokenUsage{}, errors.New("model base_url is empty")
 	}
 	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/chat/completions"
 	body := map[string]any{
@@ -417,19 +427,17 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 		},
 		"temperature": temperature,
 	}
-	if r.cfg.Model.DisableThinking {
-		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+	if err := options.applyToRequest(body, r.cfg.Model.DisableThinking); err != nil {
+		return "", "", tokenUsage{}, err
 	}
-	if profile.MaxTokens > 0 {
-		body["max_tokens"] = profile.MaxTokens
-	}
+	body["max_tokens"] = maxTokens
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
@@ -437,11 +445,11 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 	}
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+		return "", "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
 	}
 	var decoded struct {
 		Choices []struct {
@@ -457,21 +465,25 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 			TotalTokens      int `json:"total_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return "", tokenUsage{}, err
+	if err := decodeBoundedJSON(resp.Body, &decoded); err != nil {
+		return "", "", tokenUsage{}, err
 	}
 	if len(decoded.Choices) == 0 {
-		return "", tokenUsage{}, errors.New("model response had no choices")
+		return "", "", tokenUsage{}, errors.New("model response had no choices")
 	}
 	content := ""
 	if decoded.Choices[0].Message.Content != nil {
 		content = strings.TrimSpace(*decoded.Choices[0].Message.Content)
 	}
 	if content == "" && strings.TrimSpace(decoded.Choices[0].Message.Reasoning) != "" {
-		return "", tokenUsage{}, fmt.Errorf("model response contained reasoning but no assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+		return "", "", tokenUsage{}, fmt.Errorf("model response contained reasoning but no assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
 	}
 	if content == "" {
-		return "", tokenUsage{}, fmt.Errorf("model response had empty assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+		return "", "", tokenUsage{}, fmt.Errorf("model response had empty assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+	}
+	finishReason, err := validateFinishReason(decoded.Choices[0].FinishReason)
+	if err != nil {
+		return "", finishReason, tokenUsage{}, err
 	}
 	usage := tokenUsage{
 		PromptTokens:   decoded.Usage.PromptTokens,
@@ -487,12 +499,12 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
 	}
-	return content, usage, nil
+	return content, finishReason, usage, nil
 }
 
-func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput) (string, tokenUsage, error) {
+func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput, maxTokens int) (string, string, tokenUsage, error) {
 	if profile.BaseURL == "" {
-		return "", tokenUsage{}, errors.New("model base_url is empty")
+		return "", "", tokenUsage{}, errors.New("model base_url is empty")
 	}
 	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/chat/completions"
 	dataURL := "data:" + image.ContentType + ";base64," + base64.StdEncoding.EncodeToString(image.Content)
@@ -513,16 +525,14 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 	if r.cfg.Model.DisableThinking {
 		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
 	}
-	if profile.MaxTokens > 0 {
-		body["max_tokens"] = profile.MaxTokens
-	}
+	body["max_tokens"] = maxTokens
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
@@ -530,11 +540,11 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 	}
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+		return "", "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
 	}
 	var decoded struct {
 		Choices []struct {
@@ -550,21 +560,25 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 			TotalTokens      int `json:"total_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return "", tokenUsage{}, err
+	if err := decodeBoundedJSON(resp.Body, &decoded); err != nil {
+		return "", "", tokenUsage{}, err
 	}
 	if len(decoded.Choices) == 0 {
-		return "", tokenUsage{}, errors.New("model response had no choices")
+		return "", "", tokenUsage{}, errors.New("model response had no choices")
 	}
 	content := ""
 	if decoded.Choices[0].Message.Content != nil {
 		content = strings.TrimSpace(*decoded.Choices[0].Message.Content)
 	}
 	if content == "" && strings.TrimSpace(decoded.Choices[0].Message.Reasoning) != "" {
-		return "", tokenUsage{}, fmt.Errorf("model response contained reasoning but no assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+		return "", "", tokenUsage{}, fmt.Errorf("model response contained reasoning but no assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
 	}
 	if content == "" {
-		return "", tokenUsage{}, fmt.Errorf("model response had empty assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+		return "", "", tokenUsage{}, fmt.Errorf("model response had empty assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+	}
+	finishReason, err := validateFinishReason(decoded.Choices[0].FinishReason)
+	if err != nil {
+		return "", finishReason, tokenUsage{}, err
 	}
 	usage := tokenUsage{
 		PromptTokens:   decoded.Usage.PromptTokens,
@@ -580,12 +594,12 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
 	}
-	return content, usage, nil
+	return content, finishReason, usage, nil
 }
 
-func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelProfile, system, user string, emit StreamHandler) (string, tokenUsage, error) {
+func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelProfile, system, user string, emit StreamHandler, maxTokens int) (string, string, tokenUsage, error) {
 	if profile.BaseURL == "" {
-		return "", tokenUsage{}, errors.New("model base_url is empty")
+		return "", "", tokenUsage{}, errors.New("model base_url is empty")
 	}
 	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/chat/completions"
 	body := map[string]any{
@@ -600,16 +614,14 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 	if r.cfg.Model.DisableThinking {
 		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
 	}
-	if profile.MaxTokens > 0 {
-		body["max_tokens"] = profile.MaxTokens
-	}
+	body["max_tokens"] = maxTokens
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
@@ -618,17 +630,24 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 	}
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+		return "", "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
 	}
 	var content strings.Builder
 	usage := tokenUsage{}
+	finishReason := ""
+	responseBytes := 0
+	sawDone := false
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		responseBytes += len(scanner.Bytes())
+		if responseBytes > maxModelResponseBytes {
+			return "", "", tokenUsage{}, errors.New("model stream response exceeded byte limit")
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") {
 			continue
@@ -638,15 +657,16 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
-			if err := emit(ModelStreamEvent{Type: "done"}); err != nil {
-				return "", tokenUsage{}, err
-			}
+			sawDone = true
 			break
 		}
-		delta, deltaUsage, err := parseOpenAIStreamChunk(data)
+		delta, chunkFinishReason, deltaUsage, err := parseOpenAIStreamChunk(data)
 		if err != nil {
 			_ = emit(ModelStreamEvent{Type: "error", Error: err.Error()})
-			return "", tokenUsage{}, err
+			return "", "", tokenUsage{}, err
+		}
+		if chunkFinishReason != "" {
+			finishReason = chunkFinishReason
 		}
 		if deltaUsage.TotalTokens > 0 || deltaUsage.PromptTokens > 0 || deltaUsage.ResponseTokens > 0 {
 			usage = deltaUsage
@@ -656,17 +676,26 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 				content.WriteString(event.Text)
 			}
 			if err := emit(event); err != nil {
-				return "", tokenUsage{}, err
+				return "", "", tokenUsage{}, err
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		_ = emit(ModelStreamEvent{Type: "error", Error: err.Error()})
-		return "", tokenUsage{}, err
+		return "", "", tokenUsage{}, err
 	}
 	text := strings.TrimSpace(content.String())
 	if text == "" {
-		return "", tokenUsage{}, errors.New("model stream had empty assistant content")
+		return "", "", tokenUsage{}, errors.New("model stream had empty assistant content")
+	}
+	finishReason, err = validateFinishReason(finishReason)
+	if err != nil {
+		return "", finishReason, tokenUsage{}, err
+	}
+	if sawDone {
+		if err := emit(ModelStreamEvent{Type: "done"}); err != nil {
+			return "", "", tokenUsage{}, err
+		}
 	}
 	if usage.PromptTokens == 0 {
 		usage.PromptTokens = estimateTokens(system) + estimateTokens(user)
@@ -677,10 +706,10 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
 	}
-	return text, usage, nil
+	return text, finishReason, usage, nil
 }
 
-func parseOpenAIStreamChunk(data string) ([]ModelStreamEvent, tokenUsage, error) {
+func parseOpenAIStreamChunk(data string) ([]ModelStreamEvent, string, tokenUsage, error) {
 	var decoded struct {
 		Choices []struct {
 			Delta struct {
@@ -693,6 +722,7 @@ func parseOpenAIStreamChunk(data string) ([]ModelStreamEvent, tokenUsage, error)
 					} `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"delta"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -701,10 +731,14 @@ func parseOpenAIStreamChunk(data string) ([]ModelStreamEvent, tokenUsage, error)
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(data), &decoded); err != nil {
-		return nil, tokenUsage{}, err
+		return nil, "", tokenUsage{}, err
 	}
 	events := []ModelStreamEvent{}
+	finishReason := ""
 	for _, choice := range decoded.Choices {
+		if strings.TrimSpace(choice.FinishReason) != "" {
+			finishReason = choice.FinishReason
+		}
 		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
 			events = append(events, ModelStreamEvent{Type: "text_delta", Text: *choice.Delta.Content})
 		}
@@ -717,7 +751,7 @@ func parseOpenAIStreamChunk(data string) ([]ModelStreamEvent, tokenUsage, error)
 			})
 		}
 	}
-	return events, tokenUsage{
+	return events, finishReason, tokenUsage{
 		PromptTokens:   decoded.Usage.PromptTokens,
 		ResponseTokens: decoded.Usage.CompletionTokens,
 		TotalTokens:    decoded.Usage.TotalTokens,
@@ -779,7 +813,7 @@ func (r Router) embeddings(ctx context.Context, profile config.ModelProfile, inp
 			TotalTokens  int `json:"total_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+	if err := decodeBoundedJSON(resp.Body, &decoded); err != nil {
 		return nil, tokenUsage{}, err
 	}
 	if len(decoded.Data) == 0 {
@@ -807,12 +841,13 @@ func (r Router) embeddings(ctx context.Context, profile config.ModelProfile, inp
 	return vectors, usage, nil
 }
 
-func (r Router) guard(ctx context.Context, profile config.ModelProfile, content string) (GuardResult, tokenUsage, error) {
+const guardSystemPrompt = "Classify the user content for SparkClaw safety. Return compact JSON with verdict allow, review, or block; categories array; and reason."
+
+func (r Router) guard(ctx context.Context, profile config.ModelProfile, content string, maxTokens int) (GuardResult, tokenUsage, error) {
 	if profile.BaseURL == "" {
 		return GuardResult{}, tokenUsage{}, errors.New("guard base_url is empty")
 	}
-	system := "Classify the user content for SparkClaw safety. Return compact JSON with verdict allow, review, or block; categories array; and reason."
-	rawContent, usage, err := r.chatCompletionsWithTemperature(ctx, profile, system, content, 0)
+	rawContent, _, usage, err := r.chatCompletionsWithTemperature(ctx, profile, guardSystemPrompt, content, 0, ChatOptions{}, maxTokens)
 	if err != nil {
 		return GuardResult{}, tokenUsage{}, err
 	}

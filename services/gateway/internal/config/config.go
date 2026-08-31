@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
@@ -82,6 +83,8 @@ type RateLimitConfig struct {
 }
 
 type ModelConfig struct {
+	CapacityProfile    string       `json:"capacity_profile"`
+	CapacityCatalog    string       `json:"capacity_catalog"`
 	Fast               ModelProfile `json:"fast"`
 	Deep               ModelProfile `json:"deep"`
 	Embedding          ModelProfile `json:"embedding"`
@@ -92,13 +95,13 @@ type ModelConfig struct {
 }
 
 type ModelProfile struct {
-	Name           string `json:"name"`
-	BaseURL        string `json:"base_url"`
-	Model          string `json:"model"`
-	ContextTokens  int    `json:"context_tokens"`
-	MaxInputTokens int    `json:"max_input_tokens,omitempty"`
-	MTP            bool   `json:"mtp"`
-	MaxTokens      int    `json:"max_tokens"`
+	Name                  string                                  `json:"name"`
+	BaseURL               string                                  `json:"base_url"`
+	Model                 string                                  `json:"model"`
+	MTP                   bool                                    `json:"mtp"`
+	CapacityPhysicalModel string                                  `json:"-"`
+	ContextTokens         int                                     `json:"-"`
+	OutputBudgets         map[modelcapacity.OutputBudgetClass]int `json:"-"`
 }
 
 type SpeechConfig struct {
@@ -309,7 +312,8 @@ type DocumentOCRAdapterConfig struct {
 	TimeoutSeconds int      `json:"timeoutSeconds"`
 	MaxUploadBytes int64    `json:"maxUploadBytes"`
 	MaxOutputBytes int      `json:"maxOutputBytes"`
-	MaxTokens      int      `json:"maxTokens"`
+	MaxTokens      int      `json:"-"`
+	ContextTokens  int      `json:"-"`
 	MaxConcurrency int      `json:"maxConcurrency"`
 	MaxPending     int      `json:"maxPending"`
 }
@@ -446,11 +450,17 @@ func Load(path string) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
+		if err := rejectLegacyModelCapacity(raw); err != nil {
+			return Config{}, err
+		}
 		if err := json.Unmarshal(raw, &cfg); err != nil {
 			return Config{}, err
 		}
 	}
 	if err := applyEnv(&cfg); err != nil {
+		return Config{}, err
+	}
+	if err := applySelectedModelCapacity(&cfg, path); err != nil {
 		return Config{}, err
 	}
 	if err := applyInfinimeshInfoCredentials(&cfg); err != nil {
@@ -910,26 +920,9 @@ func normalizeRemindersConfig(reminders *RemindersToolConfig) error {
 }
 
 // validateModelConfig rejects a non-mock model configuration whose core chat
-// profiles have no endpoint, so a missing base_url fails at load time instead
-// of at the first model call.
+// profiles have no endpoint. Capacity itself has already been loaded and
+// validated from the selected catalog profile.
 func validateModelConfig(model *ModelConfig) error {
-	for name, profile := range map[string]ModelProfile{
-		"fast": model.Fast,
-		"deep": model.Deep,
-	} {
-		if profile.ContextTokens <= 0 {
-			return fmt.Errorf("model.%s.context_tokens must be positive", name)
-		}
-		if profile.MaxInputTokens < 0 {
-			return fmt.Errorf("model.%s.max_input_tokens must not be negative", name)
-		}
-		if profile.MaxTokens < 0 {
-			return fmt.Errorf("model.%s.max_tokens must not be negative", name)
-		}
-		if profile.MaxInputTokens > 0 && profile.MaxInputTokens+profile.MaxTokens > profile.ContextTokens {
-			return fmt.Errorf("model.%s.max_input_tokens plus max_tokens must not exceed context_tokens", name)
-		}
-	}
 	if model.Mock {
 		return nil
 	}
@@ -1140,8 +1133,8 @@ func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
 	if ocr.MaxOutputBytes <= 0 {
 		ocr.MaxOutputBytes = defaults.MaxOutputBytes
 	}
-	if ocr.MaxTokens <= 0 {
-		ocr.MaxTokens = defaults.MaxTokens
+	if ocr.MaxTokens <= 0 || ocr.ContextTokens <= 0 || ocr.MaxTokens >= ocr.ContextTokens {
+		return errors.New("document OCR capacity must come from a valid selected model capacity profile")
 	}
 	if ocr.MaxConcurrency <= 0 {
 		ocr.MaxConcurrency = defaults.MaxConcurrency
@@ -1188,9 +1181,6 @@ func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
 	if ocr.MaxOutputBytes < 1024 || ocr.MaxOutputBytes > 2<<20 {
 		return errors.New("document OCR output limit must be between 1024 and 2097152 bytes")
 	}
-	if ocr.MaxTokens > 32768 {
-		return errors.New("document OCR maxTokens must not exceed 32768")
-	}
 	if ocr.MaxConcurrency > 8 {
 		return errors.New("document OCR maxConcurrency must not exceed 8")
 	}
@@ -1233,7 +1223,7 @@ func containsFold(values []string, target string) bool {
 }
 
 func Default() Config {
-	return Config{
+	cfg := Config{
 		Gateway: GatewayConfig{
 			Bind:            "127.0.0.1",
 			Port:            18789,
@@ -1250,6 +1240,8 @@ func Default() Config {
 			MaxMessageBytes: 64 << 10,
 		},
 		Model: ModelConfig{
+			CapacityProfile:    "dgx-spark-dual-light-v1",
+			CapacityCatalog:    defaultModelCapacityCatalogPath(),
 			Mock:               false,
 			HTTPTimeoutSeconds: 300,
 			// Matches configs/sparkclaw.default.json: the local model
@@ -1257,33 +1249,26 @@ func Default() Config {
 			// guard lane's 128) are spent on the answer, not reasoning.
 			DisableThinking: true,
 			Fast: ModelProfile{
-				Name:          "sparkclaw-fast",
-				BaseURL:       "http://127.0.0.1:8001/v1",
-				Model:         "nvidia/Qwen3.6-35B-A3B-NVFP4",
-				ContextTokens: 32768,
-				MTP:           false,
-				MaxTokens:     1024,
+				Name:    "sparkclaw-fast",
+				BaseURL: "http://127.0.0.1:8001/v1",
+				Model:   "nvidia/Qwen3.6-35B-A3B-NVFP4",
+				MTP:     false,
 			},
 			Deep: ModelProfile{
-				Name:          "sparkclaw-deep",
-				BaseURL:       "http://127.0.0.1:8002/v1",
-				Model:         "nvidia/Qwen3.6-35B-A3B-NVFP4",
-				ContextTokens: 65536,
-				MTP:           false,
-				MaxTokens:     2048,
+				Name:    "sparkclaw-deep",
+				BaseURL: "http://127.0.0.1:8002/v1",
+				Model:   "nvidia/Qwen3.6-35B-A3B-NVFP4",
+				MTP:     false,
 			},
 			Embedding: ModelProfile{
-				Name:          "sparkclaw-embedding",
-				BaseURL:       "http://127.0.0.1:8003/v1",
-				Model:         "Qwen/Qwen3-Embedding-0.6B",
-				ContextTokens: 32768,
+				Name:    "sparkclaw-embedding",
+				BaseURL: "http://127.0.0.1:8003/v1",
+				Model:   "Qwen/Qwen3-Embedding-0.6B",
 			},
 			Guard: ModelProfile{
-				Name:          "sparkclaw-guard",
-				BaseURL:       "http://127.0.0.1:8005/v1",
-				Model:         "Qwen/Qwen3Guard-Gen-0.6B",
-				ContextTokens: 32768,
-				MaxTokens:     128,
+				Name:    "sparkclaw-guard",
+				BaseURL: "http://127.0.0.1:8005/v1",
+				Model:   "Qwen/Qwen3Guard-Gen-0.6B",
 			},
 		},
 		Speech: SpeechConfig{
@@ -1411,7 +1396,6 @@ func Default() Config {
 				TimeoutSeconds: 120,
 				MaxUploadBytes: 12 << 20,
 				MaxOutputBytes: 1 << 20,
-				MaxTokens:      16384,
 				MaxConcurrency: 2,
 				MaxPending:     2,
 			},
@@ -1471,9 +1455,16 @@ func Default() Config {
 			RedactPatterns: []string{"api_key", "password", "token", "ssh_key"},
 		},
 	}
+	if err := applySelectedModelCapacity(&cfg, ""); err != nil {
+		panic(fmt.Sprintf("load default model capacity: %v", err))
+	}
+	return cfg
 }
 
 func applyEnv(cfg *Config) error {
+	if err := rejectLegacyModelCapacityEnv(); err != nil {
+		return err
+	}
 	if v := os.Getenv("SPARKCLAW_BIND"); v != "" {
 		cfg.Gateway.Bind = v
 	}
@@ -1696,21 +1687,6 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_FAST_SERVED_NAME"); v != "" {
 		cfg.Model.Fast.Name = v
 	}
-	if v := os.Getenv("SPARKCLAW_FAST_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Fast.MaxTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_FAST_CONTEXT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Fast.ContextTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_FAST_MAX_INPUT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Fast.MaxInputTokens = tokens
-		}
-	}
 	if v := os.Getenv("SPARKCLAW_DEEP_BASE_URL"); v != "" {
 		cfg.Model.Deep.BaseURL = v
 	}
@@ -1719,21 +1695,6 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("SPARKCLAW_DEEP_SERVED_NAME"); v != "" {
 		cfg.Model.Deep.Name = v
-	}
-	if v := os.Getenv("SPARKCLAW_DEEP_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Deep.MaxTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_DEEP_CONTEXT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Deep.ContextTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_DEEP_MAX_INPUT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Deep.MaxInputTokens = tokens
-		}
 	}
 	if v := os.Getenv("SPARKCLAW_EMBEDDING_BASE_URL"); v != "" {
 		cfg.Model.Embedding.BaseURL = v
@@ -1747,15 +1708,8 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_GUARD_MODEL"); v != "" {
 		cfg.Model.Guard.Model = v
 	}
-	if v := os.Getenv("SPARKCLAW_GUARD_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Guard.MaxTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_GUARD_CONTEXT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Guard.ContextTokens = tokens
-		}
+	if v := os.Getenv("SPARKCLAW_MODEL_CAPACITY_PROFILE"); v != "" {
+		cfg.Model.CapacityProfile = v
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_READ_ALLOW_HOSTS"); v != "" {
 		cfg.Security.BrowserReadAllowHosts = splitCSV(v)
@@ -1847,11 +1801,6 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_OCR_MAX_OUTPUT_BYTES"); v != "" {
 		if maxBytes, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.DocumentOCR.MaxOutputBytes = maxBytes
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_OCR_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Adapters.DocumentOCR.MaxTokens = tokens
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_OCR_MAX_CONCURRENCY"); v != "" {

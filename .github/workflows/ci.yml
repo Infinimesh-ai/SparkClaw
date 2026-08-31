@@ -172,6 +172,7 @@ jobs:
       - run: python3 -m unittest scripts/test_install.py
       - run: python3 -m unittest scripts/test_dotenv.py
       - run: python3 -m unittest scripts/test_model_readiness.py
+      - run: python3 -m unittest scripts/test_model_capacity_entrypoint.py
       - run: python3 -m unittest scripts/test_serve_models_compose.py
       - run: python3 -m unittest scripts/test_runtime_compose.py
       - run: python3 -m unittest scripts/test_resolve_browser_display.py
@@ -209,8 +210,11 @@ jobs:
           assert environment["SPARKCLAW_OCR_ENABLED"] == "true"
           assert environment["SPARKCLAW_DEEP_BASE_URL"] == environment["SPARKCLAW_FAST_BASE_URL"]
           assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
-          assert environment["SPARKCLAW_FAST_CONTEXT_TOKENS"] == "32768"
-          assert environment["SPARKCLAW_DEEP_CONTEXT_TOKENS"] == "32768"
+          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-single-fast-v1"
+          assert all(key not in environment for key in (
+              "SPARKCLAW_FAST_CONTEXT_TOKENS", "SPARKCLAW_FAST_MAX_INPUT_TOKENS", "SPARKCLAW_FAST_MAX_TOKENS",
+              "SPARKCLAW_DEEP_CONTEXT_TOKENS", "SPARKCLAW_DEEP_MAX_INPUT_TOKENS", "SPARKCLAW_DEEP_MAX_TOKENS",
+          ))
           assert "postgres" in config["services"]
           assert "sparkclaw-asr" in config["services"]
           assert "sparkclaw-ocr" in config["services"]
@@ -224,7 +228,10 @@ jobs:
           assert fast["build"]["args"]["SPARKCLAW_VLLM_IMAGE"] == "vllm/vllm-openai:v0.24.0"
           assert "SPARKCLAW_VLLM_NATIVE_NVFP4_W4A4" not in fast["build"]["args"]
           assert fast["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
-          assert fast["command"][fast["command"].index("--max-model-len") + 1] == "32768"
+          assert "--max-model-len" not in fast["command"]
+          assert fast["entrypoint"] == ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
+          assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "fast"
+          assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-single-fast-v1"
           assert fast["command"][fast["command"].index("--kv-cache-memory-bytes") + 1] == "8G"
           assert fast["command"][fast["command"].index("--max-num-seqs") + 1] == "4"
           assert all(flag not in fast["command"] for flag in (
@@ -235,7 +242,8 @@ jobs:
           deep = config["services"]["sparkclaw-deep"]
           assert deep["image"] == "sparkclaw-chat-vllm-readiness:local"
           assert deep["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
-          assert deep["command"][deep["command"].index("--max-model-len") + 1] == "65536"
+          assert "--max-model-len" not in deep["command"]
+          assert deep["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "deep"
           assert deep["command"][deep["command"].index("--kv-cache-memory-bytes") + 1] == "12G"
           assert deep["command"][deep["command"].index("--max-num-seqs") + 1] == "2"
           assert all(flag not in deep["command"] for flag in (
@@ -272,9 +280,9 @@ jobs:
           with open("/tmp/sparkclaw-dual-light-compose.json", encoding="utf-8") as source:
               config = json.load(source)
           environment = config["services"]["gateway"]["environment"]
-          assert environment["SPARKCLAW_FAST_CONTEXT_TOKENS"] == "32768"
-          assert environment["SPARKCLAW_DEEP_CONTEXT_TOKENS"] == "65536"
+          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-dual-light-v1"
           assert environment["SPARKCLAW_DEEP_BASE_URL"] == "http://sparkclaw-deep:8002/v1"
+          assert config["services"]["sparkclaw-deep"]["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-dual-light-v1"
           PY
       - name: Verify custom WebChat host port
         run: |

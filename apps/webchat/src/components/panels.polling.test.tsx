@@ -12,11 +12,12 @@ const config = {
   tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
   iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
   model: {
+    capacity_profile: "mock",
     mock: true,
-    fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
-    deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
-    embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
-    guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
+    fast: { name: "fast", model: "fast", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {}, mtp: false },
+    deep: { name: "deep", model: "deep", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {}, mtp: false },
+    embedding: { name: "embedding", model: "embedding", base_url: "", capacity_physical_model: "mock-embedding", context_tokens: 8192, output_budgets: {}, mtp: false },
+    guard: { name: "guard", model: "guard", base_url: "", capacity_physical_model: "mock-guard", context_tokens: 8192, output_budgets: {}, mtp: false }
   },
   gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
   workspaces: { default_root: "/tmp" },

@@ -169,11 +169,12 @@ provides read-back.
 
 Provisioned evidence registers as its own degradable section with its own
 budget, ordered between current-run observations and the fixed output contract.
-One builder enforces the lane's explicit `max_input_tokens` when configured,
-or physical `context_tokens` minus the output allowance otherwise. It degrades
-named variants and UTF-8-safely truncates only declared sections. Every
-admitted prompt remains under that input threshold; fixed-section overflow
-fails before model invocation.
+One builder enforces physical `context_tokens` minus the typed operation's
+profile-owned output-class budget. It changes only named, structurally valid
+variants; the owner question and newest two observations are never truncated.
+Router uses a conservative count for requests that plainly fit and the selected
+model tokenizer near the boundary, then repeats final admission before provider
+dispatch. Fixed-section overflow fails before model invocation.
 
 ### 3.6 Cross-run context is an index, on purpose
 

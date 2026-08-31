@@ -2234,7 +2234,6 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	cfg.Gateway.APIToken = "secret-token"
-	cfg.Model.Fast.MaxInputTokens = 16384
 	cfg.State.EncryptAtRest = true
 	cfg.State.EncryptionKey = "state-secret"
 	cfg.Tools.Web.Search.Enabled = true
@@ -2312,10 +2311,9 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			HTTPTimeoutSeconds int  `json:"http_timeout_seconds"`
 			DisableThinking    bool `json:"disable_thinking"`
 			Fast               struct {
-				Name           string `json:"name"`
-				ContextTokens  int    `json:"context_tokens"`
-				MaxInputTokens int    `json:"max_input_tokens"`
-				MaxTokens      int    `json:"max_tokens"`
+				Name          string         `json:"name"`
+				ContextTokens int            `json:"context_tokens"`
+				OutputBudgets map[string]int `json:"output_budgets"`
 			} `json:"fast"`
 		} `json:"model"`
 		State struct {
@@ -2353,7 +2351,7 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if decoded.Gateway.APIToken != "" {
 		t.Fatal("api token was exposed in /api/config")
 	}
-	if decoded.Model.Fast.Name == "" || decoded.Model.Fast.ContextTokens == 0 || decoded.Model.Fast.MaxInputTokens != 16384 || decoded.Model.Fast.MaxTokens == 0 || decoded.Model.HTTPTimeoutSeconds == 0 {
+	if decoded.Model.Fast.Name == "" || decoded.Model.Fast.ContextTokens == 0 || decoded.Model.Fast.OutputBudgets["answer"] == 0 || decoded.Model.HTTPTimeoutSeconds == 0 {
 		t.Fatalf("model profile summary missing: %#v", decoded.Model.Fast)
 	}
 	if decoded.State.DSN != "" {

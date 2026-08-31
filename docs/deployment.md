@@ -136,17 +136,21 @@ recorded in versioned profiles.
 
 The hosted Fast endpoint at
 `https://sparkclaw.infinimesh.cloud/fast/v1` reported
-`max_model_len=262144` on 2026-08-28. The cloud template records that physical
-capacity as `SPARKCLAW_FAST_CONTEXT_TOKENS=262144` (and the same value for a
-Deep alias), but sets `SPARKCLAW_FAST_MAX_INPUT_TOKENS=98304` and
-`SPARKCLAW_DEEP_MAX_INPUT_TOKENS=98304` for Gateway admission. This is a
-workload budget, not an arbitrary fraction of the provider window: the
-200,000-byte document extraction contract tokenized to about 49,700 tokens at
-the hosted endpoint, the 96,000-byte run observation window adds about 24,000
-tokens, and the remaining input space covers the observed Workflow/schema
-overhead without forcing context-variant degradation (1,461 saved traces had a
-13,278-token maximum model prompt). The configured 2,048/4,096 output
-allowances stay separate. The cloud profile therefore raises
+`max_model_len=262144` on 2026-08-28. The executable
+`infinimesh-online-fast-v1` entry in `configs/model.profiles.json` records that
+physical window and maps both logical chat lanes to it. Gateway has no separate
+input ceiling: each typed operation reserves its profile-owned output-class
+budget from the physical `context_tokens`, and Model Router admits the complete
+rendered request. The profile currently assigns 2,048 tokens to compact
+structured Fast output, 8,192 to Workflow structured and answer output, and
+4,096 to Fast vision output. Missing, zero, or illegal capacity prevents profile
+loading; legacy per-lane capacity variables are rejected.
+
+The cloud workload limits remain semantic evidence boundaries rather than
+competing model windows. The 200,000-byte document extraction contract
+tokenized to about 49,700 tokens at the hosted endpoint, the 96,000-byte run
+observation window adds about 24,000 tokens, and 1,461 saved traces had a
+13,278-token maximum model prompt. The cloud profile therefore raises
 `SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` to 200,000 and the run
 observation boundaries to compaction at 72,000 bytes with a 96,000-byte hard
 stop; browser evidence remains 8,000 bytes, observation envelopes remain 2,400
@@ -722,22 +726,28 @@ startup and is not part of the current single-Fast readiness check.
 
 Important environment variables:
 
+- `SPARKCLAW_MODEL_CAPACITY_PROFILE` (required executable entry in `configs/model.profiles.json`; the catalog owns physical windows and output-class budgets)
+- `SPARKCLAW_MODEL_CAPACITY_CATALOG` (advanced host-script/catalog path override; product containers use the mounted versioned catalog)
 - `SPARKCLAW_VLLM_IMAGE` (embedding, guard, and ASR base image)
 - `SPARKCLAW_CHAT_VLLM_IMAGE` (Fast/Deep chat image; defaults to vLLM 0.24.0 for NVFP4)
 - `SPARKCLAW_FORCE_MODEL_RECREATE` (`false` by default; set `true` for one explicit full model-group refresh)
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_CONTEXT_TOKENS`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_CONTEXT_TOKENS`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
-- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
-- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
+- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
-- `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_PROVIDER` (`openai-http`, the default and only adapter today; `disabled` turns the adapter off explicitly), `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
-- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
+- `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_PROVIDER` (`openai-http`, the default and only adapter today; `disabled` turns the adapter off explicitly), `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
+- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`
 
 Use `*_MODEL_ID` for the Hugging Face checkpoint loaded by the serving container and `*_MODEL` for the OpenAI-compatible served name sent by Gateway.
+Fast, Deep, Embedding, Guard, and OCR context/output capacity does not have an
+environment override. Supplying a retired `*_CONTEXT_TOKENS`,
+`*_MAX_INPUT_TOKENS`, `*_MAX_TOKENS`, or `*_MAX_MODEL_LEN` capacity variable
+fails configuration instead of changing or repairing the selected profile.
 
 ### Dedicated Qwen3Guard
 

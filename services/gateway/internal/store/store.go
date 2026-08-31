@@ -103,6 +103,7 @@ type SessionRepository interface {
 type ConversationRepository interface {
 	AddMessage(context.Context, app.Message) (app.Message, error)
 	ListMessages(context.Context, string) ([]app.Message, error)
+	ListRecentMessages(context.Context, string, time.Time, string, int) ([]app.Message, error)
 	MessageEventHead(context.Context, string) (string, error)
 	MessageEventsAfter(context.Context, string, string, int) (MessageEventPage, error)
 }
@@ -118,8 +119,10 @@ type RunRepository interface {
 	SaveToolCall(context.Context, app.ToolCall) (app.ToolCall, error)
 	GetToolCall(context.Context, string) (app.ToolCall, bool, error)
 	ListToolCalls(context.Context, string) ([]app.ToolCall, error)
+	ListRecentToolCalls(context.Context, string, time.Time, string, int) ([]app.ToolCall, error)
 	SaveEpisodeSummary(context.Context, app.EpisodeSummary) (app.EpisodeSummary, error)
 	ListEpisodeSummaries(context.Context, string) ([]app.EpisodeSummary, error)
+	ListRecentEpisodeSummaries(context.Context, string, time.Time, int) ([]app.EpisodeSummary, error)
 }
 
 type DocumentRepository interface {

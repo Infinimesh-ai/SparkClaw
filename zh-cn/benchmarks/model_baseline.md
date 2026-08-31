@@ -182,7 +182,7 @@ Profile: `dual-light-v1`
   `SPARKCLAW_EMBEDDING_MODEL=sparkclaw-embedding`；Compose 通过
   `SPARKCLAW_EMBEDDING_MODEL_ID` 加载 checkpoint。
 - 对 Qwen3 chat-completions，`SPARKCLAW_MODEL_DISABLE_THINKING=true` 是必要的；否则容易得到 reasoning-only output，而不是简洁 assistant content。
-- 真实 golden run 中，fast 与 deep profiles 都路由到已加载的 live chat endpoint，并使用较低 generation caps：`SPARKCLAW_FAST_MAX_TOKENS=256`、`SPARKCLAW_DEEP_MAX_TOKENS=384`，以保证 58-case eval 稳定。
+- 这次历史真实 golden run 中，fast 与 deep profiles 都路由到已加载的 live chat endpoint，并使用当时支持的较低 generation caps：`SPARKCLAW_FAST_MAX_TOKENS=256`、`SPARKCLAW_DEEP_MAX_TOKENS=384`，以保证 58-case eval 稳定。这些 override 现已退役并会被拒绝；当前运行从 `configs/model.profiles.json` 选择 output-class budget。
 - 在 128K context 且 MTP enabled 时，本 GB10 配置上 fast 与 deep chat services 应视为互斥常驻，除非降低 context、MTP 或 GPU memory utilization 后重新验证。
 - `fast` 是响应快的 MoE lane；`deep` 是稠密的稳定性/质量 lane。`deep` 实测约 7.3 tok/s 属于这个取舍的预期表现，不应脱离任务质量、eval 通过率和整体产品体验单独优化。
 - 历史 chat-only 对照没有显著改变 `deep` 吞吐。

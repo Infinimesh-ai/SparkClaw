@@ -15,6 +15,14 @@ metadata, activation scales, linear kernels, MoE kernels, attention backends,
 or KV-cache dtype. vLLM reads the checkpoint's ModelOpt configuration and owns
 all weight and activation dispatch.
 
+`configs/model.profiles.json` is also the executable capacity source. Each
+selected lane resolves one physical model's positive `context_tokens`; the
+SparkClaw vLLM entrypoint injects that value as `--max-model-len` and rejects a
+hand-supplied flag. The same profile assigns a small set of output capability
+classes to logical lanes for Gateway admission. Context and output capacity are
+therefore not duplicated in loading environment files, and an invalid selected
+profile stops both Gateway and model startup.
+
 The checkpoint declares a mixed layout with 130 FP8 layers and 161
 `W4A16_NVFP4` layers. Those labels are passed to vLLM unchanged. In the earlier
 standard bring-up, vLLM used its supported weight-only FP4 fallback for the
@@ -125,7 +133,8 @@ product profile loads `ATH-MaaS/OvisOCR2` with Fast, embedding, guard, and ASR t
 command remains an alias for the same five-service startup. That
 overlay pins the model's documented vLLM `0.22.1` runtime, disables thinking,
 uses deterministic generation, assigns a fixed 2 GiB KV cache, and keeps
-response, concurrency, and queue limits in Gateway. On the GB10, combined
+response-byte, concurrency, and queue limits in Gateway. Its generative token
+budget comes from the profile's `ocr_document` output class. On the GB10, combined
 startup was validated only after stopping the already-resident model services
 and reloading Fast, embedding, guard, and OCR together. The current product
 startup extends that atomic group with ASR. Adding OCR to the
@@ -152,7 +161,7 @@ Recommended first target:
 | Context | 32768 | 65536 | 8192 | 16384 | Preserve deep context; keep auxiliary contexts sufficient for their bounded inputs. |
 | MTP | off | off | off | off | Save memory and reduce moving parts while validating residency. |
 | KV cache budget | 8 GiB | 12 GiB | 2 GiB | 2 GiB | Cap the real pressure point instead of letting each server reserve a full lane. |
-| Max response tokens | 768 | 1536 | n/a | 128 | Keep agent loops and moderation responsive. |
+| Output class budgets | compact 1024; workflow/answer 4096; vision 2048 | workflow/answer 8192 | n/a | guard 256 | Coarse evaluated classes, not per-request output planning. |
 | Max concurrent sequences | 4 | 2 | 1 | 1 | The product is single-user; optimize for fit and latency, not concurrency. |
 | GPU memory utilization | 0.42 | 0.36 | 0.06 | 0.04 | Explicit KV budgets bind capacity; utilization stays conservative for startup checks. |
 

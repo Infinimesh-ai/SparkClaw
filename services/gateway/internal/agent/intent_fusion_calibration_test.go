@@ -91,7 +91,7 @@ func TestRealIntentFusionAlphaCalibration(t *testing.T) {
 				embeddingCh <- runtime.scoreEmbeddingChannel(ctx, "", fmt.Sprintf("calibration_%d", index), test.query, eligible)
 			}()
 			go func() {
-				treeCh <- runtime.scoreTreeChannel(ctx, "", fmt.Sprintf("calibration_%d", index), test.query, "", app.MessageSourceWeb, eligible)
+				treeCh <- runtime.scoreTreeChannel(ctx, "", fmt.Sprintf("calibration_%d", index), test.query, treeRoutingPromptContext{}, app.MessageSourceWeb, eligible)
 			}()
 			results[index] = channelScores{embedding: <-embeddingCh, tree: <-treeCh}
 		}()

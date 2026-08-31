@@ -198,10 +198,12 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: "请看一下这份通识选修课说明"})
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "assistant", Content: "已读取说明文档"})
+	completedAt := time.Now().UTC().Add(-time.Second)
 	testSaveToolCall(st, app.ToolCall{
 		ID: "tc_student_notice", SessionID: session.ID, RunID: "run_previous",
 		Tool: "files.read", Risk: app.RiskRead, Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"path": "student-notice.docx"},
+		StartedAt: completedAt, CompletedAt: &completedAt,
 	})
 
 	current := "作为23级学生要注意什么"

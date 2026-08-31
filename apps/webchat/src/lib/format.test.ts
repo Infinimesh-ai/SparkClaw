@@ -3,16 +3,16 @@ import { en } from "../i18n/en";
 import { formatDateTime, formatTime, profileLabel } from "./format";
 
 describe("model profile formatting", () => {
-  it("distinguishes physical context, admitted input, and output allowances", () => {
+  it("renders the physical model window and output-class budgets", () => {
     expect(profileLabel({
       name: "fast",
       model: "sparkclaw-fast",
       base_url: "",
+      capacity_physical_model: "hosted-fast",
       context_tokens: 262144,
-      max_input_tokens: 65536,
-      max_tokens: 1024,
+      output_budgets: { answer: 8192, compact_structured: 2048 },
       mtp: false,
-    }, en)).toBe("fast · sparkclaw-fast · 262,144 ctx · 65,536 input · 1,024 output");
+    }, en)).toBe("fast · sparkclaw-fast · hosted-fast · 262,144 ctx · output: answer=8,192, compact_structured=2,048");
   });
 });
 

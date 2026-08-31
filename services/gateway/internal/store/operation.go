@@ -36,6 +36,7 @@ const (
 	OperationSessionDelete               StoreOperation = "session.delete"
 	OperationConversationAddMessage      StoreOperation = "conversation.add_message"
 	OperationConversationListMessages    StoreOperation = "conversation.list_messages"
+	OperationConversationListRecent      StoreOperation = "conversation.list_recent_messages"
 	OperationConversationMessageHead     StoreOperation = "conversation.message_event_head"
 	OperationConversationMessagesAfter   StoreOperation = "conversation.message_events_after"
 	OperationRunFeedbackSave             StoreOperation = "run_feedback.save"
@@ -48,8 +49,10 @@ const (
 	OperationToolCallSave                StoreOperation = "tool_call.save"
 	OperationToolCallGet                 StoreOperation = "tool_call.get"
 	OperationToolCallList                StoreOperation = "tool_call.list"
+	OperationToolCallListRecent          StoreOperation = "tool_call.list_recent"
 	OperationEpisodeSummarySave          StoreOperation = "episode_summary.save"
 	OperationEpisodeSummaryList          StoreOperation = "episode_summary.list"
+	OperationEpisodeSummaryListRecent    StoreOperation = "episode_summary.list_recent"
 	OperationDocumentRecordSave          StoreOperation = "document_record.save"
 	OperationDocumentRecordGet           StoreOperation = "document_record.get"
 	OperationDocumentRecordList          StoreOperation = "document_record.list"
@@ -224,7 +227,7 @@ const (
 )
 
 type operationSpec struct {
-	ID               StoreOperation
+	ID         StoreOperation
 	Repository string
 	Method     string
 	Mode       operationMode
@@ -276,6 +279,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationConversationListMessages, Repository: "ConversationRepository",
 		Method: "ListMessages", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationConversationListRecent: {
+		ID: OperationConversationListRecent, Repository: "ConversationRepository",
+		Method: "ListRecentMessages", Mode: operationRead, Timeout: timeoutRead,
+	},
 	OperationConversationMessageHead: {
 		ID: OperationConversationMessageHead, Repository: "ConversationRepository",
 		Method: "MessageEventHead", Mode: operationRead, Timeout: timeoutRead,
@@ -324,6 +331,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationToolCallList, Repository: "RunRepository",
 		Method: "ListToolCalls", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationToolCallListRecent: {
+		ID: OperationToolCallListRecent, Repository: "RunRepository",
+		Method: "ListRecentToolCalls", Mode: operationRead, Timeout: timeoutRead,
+	},
 	OperationEpisodeSummarySave: {
 		ID: OperationEpisodeSummarySave, Repository: "RunRepository",
 		Method: "SaveEpisodeSummary", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -331,6 +342,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationEpisodeSummaryList: {
 		ID: OperationEpisodeSummaryList, Repository: "RunRepository",
 		Method: "ListEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEpisodeSummaryListRecent: {
+		ID: OperationEpisodeSummaryListRecent, Repository: "RunRepository",
+		Method: "ListRecentEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationDocumentRecordSave: {
 		ID: OperationDocumentRecordSave, Repository: "DocumentRepository",

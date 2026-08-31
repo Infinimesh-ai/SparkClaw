@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
+import functools
 import json
 import os
+import pathlib
 import statistics
 import sys
 import time
@@ -26,8 +28,39 @@ def estimate_tokens(text):
     return max(1, len(text) // 4)
 
 
+@functools.lru_cache(maxsize=1)
+def selected_capacity_profile():
+    profile_id = env("SPARKCLAW_MODEL_CAPACITY_PROFILE")
+    if not profile_id:
+        raise ValueError("SPARKCLAW_MODEL_CAPACITY_PROFILE is required")
+    catalog_path = pathlib.Path(env("SPARKCLAW_MODEL_CAPACITY_CATALOG", str(pathlib.Path(__file__).resolve().parents[1] / "configs" / "model.profiles.json")))
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    profile = catalog.get("profiles", {}).get(profile_id)
+    if not isinstance(profile, dict) or profile.get("executable") is not True:
+        raise ValueError(f"model capacity profile {profile_id!r} is unavailable or not executable")
+    return profile_id, profile
+
+
+def lane_capacity(lane):
+    _, profile = selected_capacity_profile()
+    lane_config = profile.get("lanes", {}).get(lane)
+    if not isinstance(lane_config, dict):
+        raise ValueError(f"model capacity lane {lane!r} is unavailable")
+    physical_id = lane_config.get("physical_model")
+    physical = profile.get("physical_models", {}).get(physical_id)
+    context_tokens = physical.get("context_tokens") if isinstance(physical, dict) else None
+    output_budgets = lane_config.get("output_budgets")
+    if isinstance(context_tokens, bool) or not isinstance(context_tokens, int) or context_tokens <= 0 or not isinstance(output_budgets, dict):
+        raise ValueError(f"model capacity lane {lane!r} is invalid")
+    return context_tokens, output_budgets
+
+
 def chat_max_tokens(lane):
-    return int(env(f"SPARKCLAW_{lane.upper()}_MAX_TOKENS", "512"))
+    _, budgets = lane_capacity(lane)
+    value = budgets.get("answer")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"model capacity lane {lane!r} has no positive answer budget")
+    return value
 
 
 def lane_setting(lane, suffix):
@@ -285,6 +318,7 @@ def main():
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "hardware": env("SPARKCLAW_HARDWARE_LABEL", "DGX Spark"),
         "profile": env("SPARKCLAW_BENCH_PROFILE", ""),
+        "capacity_profile": selected_capacity_profile()[0],
         "lanes": lanes,
         "scenarios": scenarios,
         "repeats": args.repeats,
@@ -293,11 +327,11 @@ def main():
                 "base_url": endpoints.get(lane, ("", ""))[0],
                 "model": endpoints.get(lane, ("", ""))[1],
                 "model_id": lane_setting(lane, "MODEL_ID"),
-                "max_model_len": lane_setting(lane, "MAX_MODEL_LEN"),
+                "max_model_len": lane_capacity(lane)[0],
                 "gpu_memory_utilization": lane_setting(lane, "GPU_MEMORY_UTILIZATION"),
                 "kv_cache_memory_bytes": lane_setting(lane, "KV_CACHE_MEMORY_BYTES"),
                 "max_num_seqs": lane_setting(lane, "MAX_NUM_SEQS"),
-                "max_tokens": lane_setting(lane, "MAX_TOKENS"),
+                "output_budgets": lane_capacity(lane)[1],
                 "speculative_tokens": lane_setting(lane, "SPECULATIVE_TOKENS"),
                 "speculative_config": lane_setting(lane, "SPECULATIVE_CONFIG"),
             }

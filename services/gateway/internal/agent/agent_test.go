@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -1820,31 +1821,62 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 	}
 }
 
-func TestEffectiveWorkflowStepPromptBudgetUsesSelectedLaneAndExplicitInputWindow(t *testing.T) {
+func TestEffectiveWorkflowStepPromptBudgetUsesSelectedLaneAndOutputClass(t *testing.T) {
 	cfg := agentTestConfig()
 	cfg.Model.Fast.ContextTokens = 32000
-	cfg.Model.Fast.MaxInputTokens = 24000
-	cfg.Model.Fast.MaxTokens = 768
+	cfg.Model.Fast.OutputBudgets[modelcapacity.OutputWorkflowStructured] = 768
 	cfg.Model.Deep.ContextTokens = 64000
-	cfg.Model.Deep.MaxInputTokens = 50000
-	cfg.Model.Deep.MaxTokens = 1536
+	cfg.Model.Deep.OutputBudgets[modelcapacity.OutputWorkflowStructured] = 1536
 	runtime := Runtime{models: modelrouter.New(cfg)}
+	fastTask := modelrouter.Task{Operation: modelcapacity.OperationWorkflowStep, LaneHint: "fast"}
+	deepTask := modelrouter.Task{Operation: modelcapacity.OperationWorkflowStep, LaneHint: "deep"}
 
-	if inputTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); inputTokens != 24000 || outputTokens != 768 {
-		t.Fatalf("fast prompt budget = (%d, %d), want (24000, 768)", inputTokens, outputTokens)
+	if inputTokens, outputTokens, err := runtime.effectiveWorkflowStepPromptBudget(fastTask); err != nil || inputTokens != 31232 || outputTokens != 768 {
+		t.Fatalf("fast prompt budget = (%d, %d, %v), want (31232, 768, nil)", inputTokens, outputTokens, err)
 	}
-	if inputTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"}); inputTokens != 50000 || outputTokens != 1536 {
-		t.Fatalf("deep prompt budget = (%d, %d), want (50000, 1536)", inputTokens, outputTokens)
+	if inputTokens, outputTokens, err := runtime.effectiveWorkflowStepPromptBudget(deepTask); err != nil || inputTokens != 62464 || outputTokens != 1536 {
+		t.Fatalf("deep prompt budget = (%d, %d, %v), want (62464, 1536, nil)", inputTokens, outputTokens, err)
 	}
-	if inputTokens, _ := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast", Risk: app.RiskDangerous}); inputTokens != 50000 {
+	if inputTokens, _, err := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{Operation: modelcapacity.OperationWorkflowStep, LaneHint: "fast", Risk: app.RiskDangerous}); err != nil || inputTokens != 62464 {
 		t.Fatalf("dangerous task should use the Deep profile budget, got %d", inputTokens)
 	}
 
 	cfg.Model.Fast.ContextTokens = 0
-	cfg.Model.Fast.MaxInputTokens = 0
-	fallbackRuntime := Runtime{models: modelrouter.New(cfg)}
-	if inputTokens, _ := fallbackRuntime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); inputTokens != defaultWorkflowStepContextTokens-768 {
-		t.Fatalf("missing profile context should leave the output reserve inside fallback %d, got %d", defaultWorkflowStepContextTokens, inputTokens)
+	invalidRuntime := Runtime{models: modelrouter.New(cfg)}
+	if _, _, err := invalidRuntime.effectiveWorkflowStepPromptBudget(fastTask); err == nil {
+		t.Fatal("missing profile context unexpectedly used a fallback")
+	}
+}
+
+func TestOversizedOwnerQuestionStopsBeforeModelsHistoryAndTools(t *testing.T) {
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	session := storetest.MustCreateSession(t, st, "oversized owner question")
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	counting := &historyQueryCountingRepository{Repository: runtime.store}
+	runtime.store = counting
+
+	small := cfg
+	small.Model.Embedding.ContextTokens = 32
+	small.Model.Guard.ContextTokens = 64
+	small.Model.Guard.OutputBudgets = map[modelcapacity.OutputBudgetClass]int{modelcapacity.OutputGuard: 16}
+	runtime.models = modelrouter.New(small)
+
+	result, err := runtime.HandleMessage(t.Context(), session.ID, strings.Repeat("超长问题", 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.State != "blocked" || result.Message.Content != ownerQuestionTooLongMessage {
+		t.Fatalf("oversized owner question result = %#v", result)
+	}
+	if len(testListModelCalls(st, session.ID, result.Run.ID)) != 0 {
+		t.Fatalf("oversized owner question dispatched a model: %#v", testListModelCalls(st, session.ID, result.Run.ID))
+	}
+	if len(testListToolCalls(st, session.ID)) != 0 {
+		t.Fatalf("oversized owner question dispatched a tool: %#v", testListToolCalls(st, session.ID))
+	}
+	if messages, tools, episodes := counting.recentCounts(); messages != 0 || tools != 0 || episodes != 0 {
+		t.Fatalf("oversized owner question queried history: messages=%d tools=%d episodes=%d", messages, tools, episodes)
 	}
 }
 
@@ -1859,7 +1891,7 @@ func TestEstimatePromptTokensUsesCalibratedByteCoefficient(t *testing.T) {
 func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.T) {
 	cfg := agentTestConfig()
 	cfg.Model.Deep.ContextTokens = 4096
-	cfg.Model.Deep.MaxTokens = 512
+	cfg.Model.Deep.OutputBudgets[modelcapacity.OutputWorkflowStructured] = 512
 	st := store.NewMemoryStore()
 	session := storetest.MustCreateSession(t, st, "admit workflow prompt")
 	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
@@ -1871,7 +1903,7 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	minimalEvidence := "MINIMAL_EVIDENCE selected candidate content"
 
 	system, user, err := runtime.admitWorkflowStepPrompt(t.Context(),
-		session.ID, "run_admission", 2, modelrouter.Task{LaneHint: "deep"}, "edit the selected paragraph", nil,
+		session.ID, "run_admission", 2, modelrouter.Task{Operation: modelcapacity.OperationWorkflowStep, LaneHint: "deep"}, "edit the selected paragraph", nil,
 		stageContext, nil,
 		provisionedWorkflowEvidence{Text: fullEvidence, CompactText: compactEvidence, MinimalText: minimalEvidence},
 		agentContextSnapshot{},
@@ -1882,7 +1914,10 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	if strings.TrimSpace(system) == "" || !strings.Contains(user, minimalEvidence) || strings.Contains(user, "FULL_EVIDENCE") || strings.Contains(user, "COMPACT_EVIDENCE") {
 		t.Fatalf("prompt admission did not select the minimal consumer projection:\nsystem=%s\nuser=%s", system, user)
 	}
-	maxInputTokens, _ := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"})
+	maxInputTokens, _, err := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{Operation: modelcapacity.OperationWorkflowStep, LaneHint: "deep"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if estimatePromptTokens(system, user) > maxInputTokens || !strings.HasSuffix(user, workflowStepOutputContract()) {
 		t.Fatalf("admitted prompt violates terminal contract: estimate=%d max_input=%d", estimatePromptTokens(system, user), maxInputTokens)
 	}
@@ -2080,17 +2115,19 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 		Call:   previous,
 		Output: previous.Result,
 	})
+	previousCompletedAt := previous.StartedAt
+	previous.CompletedAt = &previousCompletedAt
 	testSaveToolCall(st, previous)
 
 	route, err := runtime.routeCapability(context.Background(), session.ID, "run_current", "把张三的学号改为6")
 	if err != nil || route.Status == app.RouteMatched {
 		t.Fatalf("missing follow-up file must not bypass deterministic preflight: route=%#v err=%v", route, err)
 	}
-	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, "run_current", "把张三的学号改为6")
+	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, "run_current")
 	if err != nil {
 		t.Fatal(err)
 	}
-	contextText, contextErr := snapshot.ForIntentRouting(intentRoutingContextTokenBudget)
+	contextText, contextErr := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget)
 	if contextErr != nil {
 		t.Fatal(contextErr)
 	}
@@ -2129,6 +2166,8 @@ func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 		Call:   previous,
 		Output: previous.Result,
 	})
+	previousCompletedAt := previous.StartedAt
+	previous.CompletedAt = &previousCompletedAt
 	testSaveToolCall(st, previous)
 
 	route, err := runtime.routeCapability(context.Background(), session.ID, "run_current", "完善结果分析内容")
@@ -3258,7 +3297,7 @@ func TestAgentContextSnapshotKeepsPriorConversationButSkipsCurrentRun(t *testing
 	}
 }
 
-func TestAgentContextSnapshotIncludesEpisodeSummariesAndMemories(t *testing.T) {
+func TestAgentContextSnapshotIncludesEpisodeSummaries(t *testing.T) {
 	snapshot := agentContextSnapshot{
 		Episodes: []app.EpisodeSummary{{
 			Goal:      "查一下今年的高考人数",
@@ -3268,20 +3307,17 @@ func TestAgentContextSnapshotIncludesEpisodeSummariesAndMemories(t *testing.T) {
 			Summary:   "2026年全国高考报名人数为1290万人。",
 			CreatedAt: time.Now().UTC(),
 		}},
-		Memories: []app.Memory{{
-			Kind:    "preference",
-			Content: "用户希望追问时沿用上一轮主题。",
-		}},
 	}
-	context, contextErr := snapshot.ForIntentRouting(intentRoutingContextTokenBudget)
+	context, contextErr := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget)
 	if contextErr != nil {
 		t.Fatal(contextErr)
 	}
 	if !strings.Contains(context, "Recent episode summaries") ||
-		!strings.Contains(context, "Relevant accepted memories") ||
-		!strings.Contains(context, "2026年全国高考报名人数") ||
-		!strings.Contains(context, "沿用上一轮主题") {
-		t.Fatalf("agent context should include original context/memory structures:\n%s", context)
+		!strings.Contains(context, "2026年全国高考报名人数") {
+		t.Fatalf("agent context should include episode summaries:\n%s", context)
+	}
+	if strings.Contains(context, "Relevant accepted memories") {
+		t.Fatalf("agent context must not include memory projections:\n%s", context)
 	}
 }
 

@@ -87,6 +87,27 @@ calibration evidence and focused routing tests. Scores rank candidates but are
 not probabilities. The persisted decision confidence is produced separately
 from score, margin, negative conflict, and channel state.
 
+Fast/Tree retains one candidate-scoring JSON envelope:
+
+```json
+{
+  "graph_revision": "...",
+  "candidates": [
+    {"candidate_id": "...", "tree_score": 0.0}
+  ]
+}
+```
+
+The initial scoring call and its optional single repair both force thinking off
+and request the same strict dynamic JSON Schema. The schema constrains the graph
+revision, candidate count and eligible IDs, score range, required fields, and
+unknown fields. Runtime remains authoritative for the exact candidate set and
+uniqueness, then admits scores to fusion only after validation. If an invalid
+initial response and its one repair are both malformed, the Tree channel fails
+after exactly two calls. This hardening targets JSON structure only:
+`temperature=0.2`, score variance, calibration, seed behavior, and the Fast
+profile output-token allowance are unchanged.
+
 ## Semantic Registration
 
 Workflow-owned semantic registration follows this shape:

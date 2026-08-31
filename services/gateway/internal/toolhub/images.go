@@ -17,6 +17,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -112,7 +113,7 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any, session
 			results <- imageOCRResult{result: invocation.Result, err: invocation.Err}
 		}()
 	}
-	chat, err := h.models.ChatWithImage(modelCtx, "fast", system, user, modelrouter.ImageInput{
+	chat, err := h.models.ChatWithImage(modelCtx, modelcapacity.OperationImageInspect, "fast", system, user, modelrouter.ImageInput{
 		Path:        path,
 		Content:     imageForModel.Content,
 		ContentType: imageForModel.ContentType,

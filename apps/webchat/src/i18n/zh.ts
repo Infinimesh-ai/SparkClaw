@@ -432,6 +432,7 @@ export const zh = {
       approval: "审批",
       deny: "拒绝",
       modelProfiles: "模型配置",
+      capacityProfile: "容量配置",
       mode: "模式",
       fast: "Fast",
       deep: "Deep",
@@ -513,7 +514,6 @@ export const zh = {
       tools: "个工具",
       tokens: "tokens",
       ctx: "上下文",
-      input: "输入",
       output: "输出",
       avg: "平均",
       retentionDays: "天保留"

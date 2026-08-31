@@ -11,7 +11,6 @@ services:
       SPARKCLAW_OCR_TIMEOUT_SECONDS: ${SPARKCLAW_OCR_TIMEOUT_SECONDS:-120}
       SPARKCLAW_OCR_MAX_UPLOAD_BYTES: ${SPARKCLAW_OCR_MAX_UPLOAD_BYTES:-12582912}
       SPARKCLAW_OCR_MAX_OUTPUT_BYTES: ${SPARKCLAW_OCR_MAX_OUTPUT_BYTES:-1048576}
-      SPARKCLAW_OCR_MAX_TOKENS: ${SPARKCLAW_OCR_MAX_TOKENS:-16384}
       SPARKCLAW_OCR_MAX_CONCURRENCY: ${SPARKCLAW_OCR_MAX_CONCURRENCY:-2}
       SPARKCLAW_OCR_MAX_PENDING: ${SPARKCLAW_OCR_MAX_PENDING:-2}
     depends_on:
@@ -20,15 +19,24 @@ services:
 
   sparkclaw-ocr:
     profiles: ["models-local"]
-    image: ${SPARKCLAW_OCR_IMAGE:-vllm/vllm-openai:v0.22.1}
+    image: sparkclaw-ocr-vllm-readiness:local
+    build:
+      context: ..
+      dockerfile: docker/images/vllm.Dockerfile
+      args:
+        SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_OCR_IMAGE:-vllm/vllm-openai:v0.22.1}
     ipc: host
     shm_size: ${SPARKCLAW_OCR_SHM_SIZE:-4gb}
     gpus: all
+    entrypoint: ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
     environment:
       HF_HOME: /models/huggingface
       HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
       VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+      SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
+      SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
+      SPARKCLAW_MODEL_CAPACITY_LANE: ocr
     volumes:
       - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
     command:
@@ -43,8 +51,6 @@ services:
       - ${SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION:-0.12}
       - --kv-cache-memory-bytes
       - ${SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES:-2G}
-      - --max-model-len
-      - ${SPARKCLAW_OCR_MAX_MODEL_LEN:-32768}
       - --max-num-seqs
       - ${SPARKCLAW_OCR_MAX_NUM_SEQS:-2}
       - --gdn-prefill-backend

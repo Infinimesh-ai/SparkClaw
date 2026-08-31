@@ -16,6 +16,8 @@
     "max_message_bytes": 65536
   },
   "model": {
+    "capacity_profile": "mock",
+    "capacity_catalog": "model.profiles.json",
     "mock": true,
     "http_timeout_seconds": 300,
     "disable_thinking": true,
@@ -23,32 +25,25 @@
       "name": "sparkclaw-fast",
       "base_url": "",
       "model": "sparkclaw-fast",
-      "context_tokens": 32768,
-      "mtp": false,
-      "max_tokens": 1024
+      "mtp": false
     },
     "deep": {
       "name": "sparkclaw-deep",
       "base_url": "",
       "model": "sparkclaw-deep",
-      "context_tokens": 65536,
-      "mtp": false,
-      "max_tokens": 2048
+      "mtp": false
     },
     "embedding": {
       "name": "sparkclaw-embedding",
       "base_url": "",
       "model": "sparkclaw-embedding",
-      "context_tokens": 32768,
       "mtp": false
     },
     "guard": {
       "name": "sparkclaw-guard",
       "base_url": "http://127.0.0.1:8005/v1",
       "model": "Qwen/Qwen3Guard-Gen-0.6B",
-      "context_tokens": 32768,
-      "mtp": false,
-      "max_tokens": 128
+      "mtp": false
     }
   },
   "speech": {
@@ -202,7 +197,6 @@
       "timeoutSeconds": 120,
       "maxUploadBytes": 12582912,
       "maxOutputBytes": 1048576,
-      "maxTokens": 16384,
       "maxConcurrency": 2,
       "maxPending": 2
     }

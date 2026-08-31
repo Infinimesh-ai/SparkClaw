@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -214,7 +215,7 @@ func TestRealFastDOCXSectionImprovementSelection(t *testing.T) {
 	cfg.Model.Mock = false
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
-	chat, err := modelrouter.New(cfg).ChatWithProfile(ctx, documentWorkflowModelLane, system, user)
+	chat, err := modelrouter.New(cfg).ChatWithProfile(ctx, modelcapacity.OperationWorkflowStep, documentWorkflowModelLane, system, user)
 	if err != nil {
 		t.Fatal(err)
 	}

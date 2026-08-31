@@ -13,6 +13,12 @@ MTP。SparkClaw 只选择 NVIDIA checkpoint 并设置运行容量；项目不覆
 quantization metadata、activation scale、linear/MoE kernel、attention backend 或 KV-cache
 dtype。vLLM 读取 checkpoint 的 ModelOpt 配置，并完整负责权重与激活的 dispatch。
 
+`configs/model.profiles.json` 同时也是可执行容量事实源。每条所选 lane 解析一个物理模型的正数
+`context_tokens`；SparkClaw vLLM entrypoint 把该值注入为 `--max-model-len`，并拒绝手工传入
+同名参数。同一 profile 为逻辑 lane 分配少量 output capability class，供 Gateway 准入使用。
+因此 context/output capacity 不会重复存在于加载环境文件中，非法所选 profile 会同时阻止
+Gateway 与模型启动。
+
 checkpoint 声明 130 个 FP8 层和 161 个 `W4A16_NVFP4` 层；这些标签会原样交给 vLLM。
 此前标准加载中，vLLM 对 W4A16 linear 使用其支持的 weight-only FP4 回退。该行为是可接受的：
 模型 ID 包含 NVFP4，并不代表 SparkClaw 有权重新解释 activation precision。
@@ -104,8 +110,9 @@ ASR 在 92 秒后 healthy，1 秒 WAV 转写冒烟请求也成功完成。
 OvisOCR2 同样是 document adapter，而不是 Model Router lane。`single-fast` 产品 profile
 会通过 `docker/compose.ocr.yaml` 在端口 `8007` 将 `ATH-MaaS/OvisOCR2` 与 Fast、embedding、
 guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一五服务启动的兼容别名。该 overlay 固定使用
-模型文档要求的 vLLM `0.22.1`，关闭 thinking、使用确定性生成，并由 Gateway 限制响应、并发
-和队列，同时给 OCR 分配固定 2 GiB KV cache。在 GB10 上，只有先停止已常驻的模型服务，
+模型文档要求的 vLLM `0.22.1`，关闭 thinking、使用确定性生成，并由 Gateway 限制响应 byte、
+并发和队列；生成 token budget 来自 profile 的 `ocr_document` output class，同时给 OCR 分配
+固定 2 GiB KV cache。在 GB10 上，只有先停止已常驻的模型服务，
 再一起加载 Fast、embedding、guard 和 OCR，组合启动才验证成功；当前产品启动在该原子组中
 继续加入 ASR。直接向已常驻栈增加 OCR
 会在 CUDA 初始化阶段失败。OvisOCR2 随后成功加载 1.72 GiB 权重，但仅设置
@@ -127,7 +134,7 @@ checkpoint。应从 reduced residency settings 开始，而不是沿用原 full 
 | Context | 32768 | 65536 | 8192 | 16384 | 优先保 deep context；辅助模型保留适合有界输入的 context。 |
 | MTP | off | off | off | off | 先节省内存和复杂度，验证常驻可行性。 |
 | KV cache budget | 8 GiB | 12 GiB | 2 GiB | 2 GiB | 直接限制真正的压力点，而不是让每个 server 按 full lane 预留。 |
-| Max response tokens | 768 | 1536 | n/a | 128 | 保持 agent loop 和审核响应速度。 |
+| Output class budget | compact 1024；workflow/answer 4096；vision 2048 | workflow/answer 8192 | n/a | guard 256 | 使用经评测的粗粒度等级，不逐请求规划输出。 |
 | Max concurrent sequences | 4 | 2 | 1 | 1 | 产品是单用户使用，优先 fit 和 latency，不追求并发。 |
 | GPU memory utilization | 0.42 | 0.36 | 0.06 | 0.04 | 显式 KV budget 约束容量；utilization 保持保守的启动检查余量。 |
 

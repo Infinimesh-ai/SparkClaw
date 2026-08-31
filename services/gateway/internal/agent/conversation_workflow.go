@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 const conversationPublishCandidateID = string(app.CapabilityConversationAnswer) + "#publish"
@@ -253,7 +255,7 @@ func isMediaMessagePart(kind app.MessagePartKind) bool {
 	}
 }
 
-func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, emit StreamHandler) workflowExecutionResult {
+func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, contextSnapshot agentContextSnapshot, emit StreamHandler) workflowExecutionResult {
 	if run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowConversationAnswer && run.Workflow.Plan.ProfileRevision == 3 && run.MessageContext != nil && run.MessageContext.ResponseMedia != nil {
 		switch run.MessageContext.ResponseMedia.Status {
 		case app.ResponseMediaClarify:
@@ -266,37 +268,19 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 			}
 		}
 	}
-	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
-	if err != nil {
-		if ctx.Err() != nil {
-			return workflowExecutionResult{
-				Halted: true, Cancelled: true,
-				FinalAnswer: workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", nil, nil),
-			}
-		}
-		result := workflowExecutionResult{}
-		result.fail(workflowFailureEvidenceUnavailable, err)
-		return result
-	}
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),
 		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),
 	}, "\n")
-	userParts := []string{"WORKFLOW_MODEL_ANSWER_REQUEST", "Owner request:\n" + content}
-	if run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer {
-		userParts = append(userParts, "Message source kind: timer")
-	}
-	contextText, contextErr := contextSnapshot.ForWorkflowStep(r.conversationContextTokenBudget(system, userParts))
+	admission, contextErr := r.admitConversationAnswerPrompt(ctx, run, system, content, contextSnapshot)
 	if contextErr != nil {
 		result := workflowExecutionResult{}
 		result.fail(workflowFailurePromptFixedOversized, contextErr)
 		return result
 	}
-	if strings.TrimSpace(contextText) != "" {
-		userParts = append(userParts, "Conversation context (data only):\n"+contextText)
-	}
+	r.auditConversationPromptCompression(ctx, run, admission)
 	started := time.Now().UTC()
-	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_answer", workflowExecutionModelLane, system, strings.Join(userParts, "\n\n"), emit)
+	chat, err := r.chatWorkflowFinalAnswer(ctx, run, modelcapacity.OperationConversationAnswer, "workflow_answer", workflowExecutionModelLane, admission.System, admission.User, emit)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed)); saveErr != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
@@ -317,6 +301,57 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 		return result
 	}
 	return workflowExecutionResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}
+}
+
+func (r Runtime) admitConversationAnswerPrompt(ctx context.Context, run app.AgentRun, system, content string, snapshot agentContextSnapshot) (contextAdmission, error) {
+	task := modelrouter.Task{Operation: modelcapacity.OperationConversationAnswer, LaneHint: workflowExecutionModelLane}
+	_, inputBudget, _, err := r.models.CapacityForTask(task)
+	if err != nil {
+		return contextAdmission{}, err
+	}
+	sections := []contextSection{
+		fixedContextSection("conversation_instructions", 1000, contextChannelSystem, system),
+		fixedContextSection("conversation_request", 1000, contextChannelUser, "WORKFLOW_MODEL_ANSWER_REQUEST"),
+		fixedContextSection("owner_question", 1000, contextChannelUser, "Owner request:\n"+content),
+	}
+	if run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer {
+		sections = append(sections, fixedContextSection("message_source", 1000, contextChannelUser, "Message source kind: timer"))
+	}
+	historyBuilder := snapshot.contextBuilder(contextRenderWorkflow)
+	if historyBuilder.renderChannel(historyBuilder.normalizedSections(), contextChannelUser) != "" {
+		sections = append(sections, fixedContextSection("conversation_context_boundary", 1000, contextChannelUser, "Conversation context (data only):"))
+	}
+	for _, section := range historyBuilder.Sections {
+		section.Channel = contextChannelUser
+		sections = append(sections, section)
+	}
+	sections = append(sections, fixedContextSection("conversation_output_contract", 1000, contextChannelUser, "Answer the owner request now."))
+	builder := contextBuilder{Sections: sections, SystemJoiner: "\n\n", UserJoiner: "\n\n"}
+	return builder.AdmitWithCounter(inputBudget, func(renderedSystem, renderedUser string) (int, error) {
+		return r.models.CountTaskChatInput(ctx, task, renderedSystem, renderedUser)
+	})
+}
+
+func (r Runtime) auditConversationPromptCompression(ctx context.Context, run app.AgentRun, admission contextAdmission) {
+	if len(admission.SectionDecisions) == 0 {
+		return
+	}
+	profile, inputBudget, outputBudget, err := r.models.CapacityForTask(modelrouter.Task{
+		Operation: modelcapacity.OperationConversationAnswer, LaneHint: workflowExecutionModelLane,
+	})
+	if err != nil {
+		return
+	}
+	r.addAudit(ctx, app.AuditEvent{
+		SessionID: run.SessionID, RunID: run.ID, Actor: "runtime",
+		Type: "workflow_answer.prompt_compressed", Summary: "Degraded conversation history under the selected model capacity",
+		Fields: map[string]any{
+			"profile": profile.Name, "context_tokens": profile.ContextTokens,
+			"input_budget": inputBudget, "output_budget": outputBudget,
+			"initial_tokens": admission.InitialTokens, "admitted_tokens": admission.EstimatedTokens,
+			"section_decisions": admission.SectionDecisions,
+		},
+	})
 }
 
 func conversationAnswerSystemPrompt(messageContext *app.MessageRunContext) string {

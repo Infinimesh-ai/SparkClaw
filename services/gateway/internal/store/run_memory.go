@@ -219,12 +219,28 @@ func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.
 		return app.ToolCall{}, err
 	}
 	s.toolCalls[call.ID] = call
+	s.indexToolCallLocked(call)
 	s.appendAuditLocked("tool_call."+string(call.Status), call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
 	})
 	s.appendEventLocked("tool_call."+string(call.Status), call.SessionID, call.RunID, call)
 	return cloneToolCall(call)
+}
+
+func (s *MemoryStore) indexToolCallLocked(call app.ToolCall) {
+	ids := s.toolCallIDsBySession[call.SessionID]
+	if !slices.Contains(ids, call.ID) {
+		ids = append(ids, call.ID)
+	}
+	slices.SortFunc(ids, func(leftID, rightID string) int {
+		left, right := s.toolCalls[leftID], s.toolCalls[rightID]
+		if order := left.StartedAt.Compare(right.StartedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	s.toolCallIDsBySession[call.SessionID] = ids
 }
 
 func (s *MemoryStore) GetToolCall(ctx context.Context, id string) (app.ToolCall, bool, error) {
@@ -279,6 +295,36 @@ func (s *MemoryStore) ListToolCalls(ctx context.Context, sessionID string) ([]ap
 	return out, nil
 }
 
+func (s *MemoryStore) ListRecentToolCalls(ctx context.Context, sessionID string, cutoff time.Time, excludeRunID string, scanLimit int) ([]app.ToolCall, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallListRecent, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallListRecent, ctx); err != nil {
+		return nil, err
+	}
+	if err := validateRecentHistoryQuery(sessionID, cutoff, scanLimit); err != nil {
+		return nil, storeError(ctx, OperationToolCallListRecent, StoreErrorInvalid, err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationToolCallListRecent, ctx); err != nil {
+		return nil, err
+	}
+	ids := s.toolCallIDsBySession[sessionID]
+	out := make([]app.ToolCall, 0, min(scanLimit, len(ids)))
+	for index := len(ids) - 1; index >= 0 && len(out) < scanLimit; index-- {
+		call := s.toolCalls[ids[index]]
+		if call.RunID == excludeRunID || call.StartedAt.After(cutoff) || call.CompletedAt == nil || call.CompletedAt.After(cutoff) {
+			continue
+		}
+		cloned, err := cloneToolCall(call)
+		if err != nil {
+			return nil, storeError(ctx, OperationToolCallListRecent, StoreErrorCorrupt, err)
+		}
+		out = append(out, cloned)
+	}
+	return out, nil
+}
+
 func (s *MemoryStore) SaveEpisodeSummary(ctx context.Context, summary app.EpisodeSummary) (app.EpisodeSummary, error) {
 	ctx, cancel := operationContext(ctx, OperationEpisodeSummarySave, s.operationTimeouts)
 	defer cancel()
@@ -295,12 +341,28 @@ func (s *MemoryStore) SaveEpisodeSummary(ctx context.Context, summary app.Episod
 		return app.EpisodeSummary{}, err
 	}
 	s.episodeSummaries[summary.ID] = summary
+	s.indexEpisodeSummaryLocked(summary)
 	s.appendAuditLocked("episode_summary.saved", summary.SessionID, summary.RunID, "runtime", summary.Outcome, map[string]any{
 		"tools":            summary.Tools,
 		"repair_performed": summary.RepairPerformed,
 	})
 	s.appendEventLocked("episode_summary.saved", summary.SessionID, summary.RunID, summary)
 	return cloneEpisodeSummary(summary), nil
+}
+
+func (s *MemoryStore) indexEpisodeSummaryLocked(summary app.EpisodeSummary) {
+	ids := s.episodeIDsBySession[summary.SessionID]
+	if !slices.Contains(ids, summary.ID) {
+		ids = append(ids, summary.ID)
+	}
+	slices.SortFunc(ids, func(leftID, rightID string) int {
+		left, right := s.episodeSummaries[leftID], s.episodeSummaries[rightID]
+		if order := right.CreatedAt.Compare(left.CreatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	s.episodeIDsBySession[summary.SessionID] = ids
 }
 
 func (s *MemoryStore) ListEpisodeSummaries(ctx context.Context, sessionID string) ([]app.EpisodeSummary, error) {
@@ -326,5 +388,34 @@ func (s *MemoryStore) ListEpisodeSummaries(ctx context.Context, sessionID string
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
+	return out, nil
+}
+
+func (s *MemoryStore) ListRecentEpisodeSummaries(ctx context.Context, sessionID string, cutoff time.Time, scanLimit int) ([]app.EpisodeSummary, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummaryListRecent, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummaryListRecent, ctx); err != nil {
+		return nil, err
+	}
+	if err := validateRecentHistoryQuery(sessionID, cutoff, scanLimit); err != nil {
+		return nil, storeError(ctx, OperationEpisodeSummaryListRecent, StoreErrorInvalid, err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationEpisodeSummaryListRecent, ctx); err != nil {
+		return nil, err
+	}
+	ids := s.episodeIDsBySession[sessionID]
+	out := make([]app.EpisodeSummary, 0, min(scanLimit, len(ids)))
+	for _, id := range ids {
+		if len(out) >= scanLimit {
+			break
+		}
+		summary := s.episodeSummaries[id]
+		if summary.CreatedAt.After(cutoff) {
+			continue
+		}
+		out = append(out, cloneEpisodeSummary(summary))
+	}
 	return out, nil
 }

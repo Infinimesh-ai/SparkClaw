@@ -213,13 +213,13 @@ class RuntimeComposeTest(unittest.TestCase):
             environment["SPARKCLAW_FAST_BASE_URL"],
             "https://sparkclaw.infinimesh.cloud/fast/v1",
         )
-        self.assertEqual(environment["SPARKCLAW_FAST_CONTEXT_TOKENS"], "262144")
-        self.assertEqual(environment["SPARKCLAW_FAST_MAX_INPUT_TOKENS"], "98304")
-        self.assertEqual(environment["SPARKCLAW_FAST_MAX_TOKENS"], "2048")
+        self.assertEqual(environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"], "infinimesh-online-fast-v1")
         self.assertEqual(environment["SPARKCLAW_DEEP_MODEL"], "sparkclaw-fast")
-        self.assertEqual(environment["SPARKCLAW_DEEP_CONTEXT_TOKENS"], "262144")
-        self.assertEqual(environment["SPARKCLAW_DEEP_MAX_INPUT_TOKENS"], "98304")
-        self.assertEqual(environment["SPARKCLAW_DEEP_MAX_TOKENS"], "4096")
+        for legacy in (
+            "SPARKCLAW_FAST_CONTEXT_TOKENS", "SPARKCLAW_FAST_MAX_INPUT_TOKENS", "SPARKCLAW_FAST_MAX_TOKENS",
+            "SPARKCLAW_DEEP_CONTEXT_TOKENS", "SPARKCLAW_DEEP_MAX_INPUT_TOKENS", "SPARKCLAW_DEEP_MAX_TOKENS",
+        ):
+            self.assertNotIn(legacy, environment)
         self.assertEqual(
             environment["SPARKCLAW_EMBEDDING_BASE_URL"],
             "http://sparkclaw-embedding:8003/v1",

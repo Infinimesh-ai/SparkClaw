@@ -156,8 +156,6 @@ func TestLoadAppliesObservationSummaryLimitEnvironment(t *testing.T) {
 func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_GUARD_BASE_URL", "http://guard.example.test/v1")
 	t.Setenv("SPARKCLAW_GUARD_MODEL", "Qwen/TestGuard")
-	t.Setenv("SPARKCLAW_GUARD_MAX_TOKENS", "96")
-	t.Setenv("SPARKCLAW_GUARD_CONTEXT_TOKENS", "16384")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -165,8 +163,8 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	}
 	if cfg.Model.Guard.BaseURL != "http://guard.example.test/v1" ||
 		cfg.Model.Guard.Model != "Qwen/TestGuard" ||
-		cfg.Model.Guard.MaxTokens != 96 ||
-		cfg.Model.Guard.ContextTokens != 16384 {
+		cfg.Model.Guard.ContextTokens != 16384 ||
+		cfg.Model.Guard.OutputBudgets["guard"] != 256 {
 		t.Fatalf("guard model env did not apply: %#v", cfg.Model.Guard)
 	}
 }
@@ -502,7 +500,7 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 		t.Fatal("repository default config should use mock models")
 	}
 	if cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP ||
-		cfg.Model.Deep.ContextTokens != 65536 || cfg.Model.Deep.MTP {
+		cfg.Model.Deep.ContextTokens != 32768 || cfg.Model.Deep.MTP {
 		t.Fatalf("repository chat profiles do not match the vLLM-managed NVFP4 checkpoint: %#v", cfg.Model)
 	}
 	for name, profile := range map[string]ModelProfile{
@@ -531,7 +529,6 @@ func TestLoadAppliesDocumentOCREnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_OCR_TIMEOUT_SECONDS", "90")
 	t.Setenv("SPARKCLAW_OCR_MAX_UPLOAD_BYTES", "8388608")
 	t.Setenv("SPARKCLAW_OCR_MAX_OUTPUT_BYTES", "524288")
-	t.Setenv("SPARKCLAW_OCR_MAX_TOKENS", "12000")
 	t.Setenv("SPARKCLAW_OCR_MAX_CONCURRENCY", "3")
 	t.Setenv("SPARKCLAW_OCR_MAX_PENDING", "4")
 
@@ -540,7 +537,7 @@ func TestLoadAppliesDocumentOCREnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	ocr := cfg.Adapters.DocumentOCR
-	if !ocr.Enabled || ocr.Provider != "openai-http" || ocr.BaseURL != "https://ocr.example.test/v1" || ocr.Model != "ATH-MaaS/OvisOCR2" || ocr.TimeoutSeconds != 90 || ocr.MaxUploadBytes != 8388608 || ocr.MaxOutputBytes != 524288 || ocr.MaxTokens != 12000 || ocr.MaxConcurrency != 3 || ocr.MaxPending != 4 {
+	if !ocr.Enabled || ocr.Provider != "openai-http" || ocr.BaseURL != "https://ocr.example.test/v1" || ocr.Model != "ATH-MaaS/OvisOCR2" || ocr.TimeoutSeconds != 90 || ocr.MaxUploadBytes != 8388608 || ocr.MaxOutputBytes != 524288 || ocr.MaxTokens != 16384 || ocr.MaxConcurrency != 3 || ocr.MaxPending != 4 {
 		t.Fatalf("document OCR environment did not apply: %#v", ocr)
 	}
 }
@@ -973,18 +970,13 @@ func TestLoadKeepsWebSearchDisabledWhenExplicitlyDisabled(t *testing.T) {
 
 func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_MODEL_MODE", "external-model")
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_PROFILE", "dgx-spark-dual-light-v1")
 	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://fast.example.test/v1")
 	t.Setenv("SPARKCLAW_FAST_MODEL", "sparkclaw-fast")
 	t.Setenv("SPARKCLAW_FAST_SERVED_NAME", "fast-lane")
-	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "333")
-	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "12000")
-	t.Setenv("SPARKCLAW_FAST_MAX_INPUT_TOKENS", "8000")
 	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://deep.example.test/v1")
 	t.Setenv("SPARKCLAW_DEEP_MODEL", "sparkclaw-deep")
 	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
-	t.Setenv("SPARKCLAW_DEEP_MAX_TOKENS", "444")
-	t.Setenv("SPARKCLAW_DEEP_CONTEXT_TOKENS", "12288")
-	t.Setenv("SPARKCLAW_DEEP_MAX_INPUT_TOKENS", "9000")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1600000")
@@ -999,20 +991,14 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	if cfg.Model.Fast.BaseURL != "http://fast.example.test/v1" || cfg.Model.Fast.Model != "sparkclaw-fast" || cfg.Model.Fast.Name != "fast-lane" {
 		t.Fatalf("fast model env did not apply: %#v", cfg.Model.Fast)
 	}
-	if cfg.Model.Fast.MaxTokens != 333 {
-		t.Fatalf("fast max tokens env did not apply: %#v", cfg.Model.Fast)
-	}
-	if cfg.Model.Fast.ContextTokens != 12000 || cfg.Model.Fast.MaxInputTokens != 8000 {
-		t.Fatalf("fast context tokens env did not apply: %#v", cfg.Model.Fast)
+	if cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.OutputBudgets["answer"] != 4096 {
+		t.Fatalf("fast catalog capacity did not apply: %#v", cfg.Model.Fast)
 	}
 	if cfg.Model.Deep.BaseURL != "http://deep.example.test/v1" || cfg.Model.Deep.Model != "sparkclaw-deep" || cfg.Model.Deep.Name != "deep-lane" {
 		t.Fatalf("deep model env did not apply: %#v", cfg.Model.Deep)
 	}
-	if cfg.Model.Deep.MaxTokens != 444 {
-		t.Fatalf("deep max tokens env did not apply: %#v", cfg.Model.Deep)
-	}
-	if cfg.Model.Deep.ContextTokens != 12288 || cfg.Model.Deep.MaxInputTokens != 9000 {
-		t.Fatalf("deep context tokens env did not apply: %#v", cfg.Model.Deep)
+	if cfg.Model.Deep.ContextTokens != 65536 || cfg.Model.Deep.OutputBudgets["answer"] != 8192 {
+		t.Fatalf("deep catalog capacity did not apply: %#v", cfg.Model.Deep)
 	}
 	if cfg.Model.HTTPTimeoutSeconds != 555 {
 		t.Fatalf("model HTTP timeout env did not apply: %#v", cfg.Model)
@@ -1022,14 +1008,12 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsModelInputAndOutputBeyondContext(t *testing.T) {
+func TestLoadRejectsLegacyModelCapacityEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "8192")
-	t.Setenv("SPARKCLAW_FAST_MAX_INPUT_TOKENS", "8000")
-	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "1024")
 
 	_, err := Load("")
-	if err == nil || !strings.Contains(err.Error(), "max_input_tokens plus max_tokens") {
-		t.Fatalf("oversized Fast input/output budget was accepted: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "model capacity comes from the selected capacity profile") {
+		t.Fatalf("legacy capacity environment was accepted: %v", err)
 	}
 }
 

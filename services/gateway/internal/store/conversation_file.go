@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -15,6 +16,15 @@ func (s *FileStore) AddMessage(ctx context.Context, message app.Message) (app.Me
 	return runFileCommand(s, ctx, OperationConversationAddMessage, func(ctx context.Context) (app.Message, error) {
 		return s.inner.AddMessage(ctx, message)
 	})
+}
+
+func (s *FileStore) ListRecentMessages(ctx context.Context, sessionID string, cutoff time.Time, excludeMessageID string, scanLimit int) ([]app.Message, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationConversationListRecent, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListRecentMessages(ctx, sessionID, cutoff, excludeMessageID, scanLimit)
 }
 
 func (s *FileStore) ListMessages(ctx context.Context, sessionID string) ([]app.Message, error) {

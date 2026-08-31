@@ -16,7 +16,6 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
   reading, bounded verified clicks, and approval-gated reversible form drafts;
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
-- personal memory candidates and approval-gated sensitive memory;
 - optional WebChat speech transcription, Telegram/Weixin messaging, and
   Infinimesh Info evidence;
 - optional fixed-session JingSi text presentation on an explicitly bound
@@ -82,6 +81,10 @@ notifications, memories, traces, artifacts, evals, and runtime settings. It
 sends typed actions but does not decide routes, Policy, or delivery. See
 [WebChat](webchat.md).
 
+Memory records remain a management scaffold while their product, retrieval,
+and safety contract is under design. Agent Runtime does not query them or place
+them in Tree, Workflow, or final-answer model context.
+
 ### Gateway And Message Plane
 
 Gateway owns HTTP/event APIs, auth, pairing, rate limiting, sessions, public
@@ -108,6 +111,12 @@ recent conversation and document-record metadata such as name, format, source,
 and recent activity. This contract applies to every natural-language intent,
 not only document requests. Fast reasons about ambiguity and scores candidates;
 it cannot rewrite the request, bind a resource, or emit a `RouteDecision`.
+Its initial score call and optional single repair force thinking off and use the
+same strict dynamic JSON Schema. Runtime still verifies graph revision, the
+exact candidate set and uniqueness, unknown fields, and score bounds before
+fusion; malformed output after the one repair fails the Tree channel. This is
+structural hardening only, with Tree temperature, score calibration, and output
+token allowance unchanged.
 Their calibrated scores are combined as:
 
 ```text
@@ -191,13 +200,15 @@ materialize declared, consumer-sized slices of persisted evidence into a
 may expose `observation.read` for bounded, session-scoped read-back when the
 declared slice is insufficient. Support entries use ordinary exposure,
 selection, Policy, and persisted-scope validation; old plans are not widened
-on resume. Prompt admission uses the model profile selected by the same Router
-task policy as execution, reserves its declared output allowance, and admits no
-more than the profile's explicit `max_input_tokens` when one is configured.
-That Gateway input window is distinct from the provider's physical
-`context_tokens`; the offline-calibrated conservative token estimate enforces
-it without treating all available provider capacity as useful application
-context. It degrades session/tool context first, then
+on resume. Each initial or resumed invocation reads at most 256 recent message
+candidates, 128 terminal tool-call candidates, and 64 episode candidates, then
+selects one immutable 8-message/6-tool/4-episode/3-image snapshot shared by
+Tree, Workflow steps, final answers, and recent-document resolution. External
+MCP receives an empty snapshot before any history query. Prompt admission uses
+the model profile selected by the same Router task policy as execution and
+reserves the operation's output-class budget from the physical
+`context_tokens`; there is no independent input ceiling or profile-wide output
+limit. ContextBuilder degrades session/tool context first, then
 provisioned slices, then older observations while preserving the newest two;
 the output contract remains the user-prompt tail, and an oversized fixed tail
 fails before model invocation. Run-level observations begin compaction at
@@ -236,8 +247,12 @@ The current model lanes are:
 Gateway selects logical lanes. Model output never chooses its own lane. In the
 current `single-fast-v1` deployment, both logical chat profiles resolve to the
 Fast endpoint, so no Deep model process is loaded; the lane labels remain in
-traces for Workflow compatibility. Loading and capacity policy is documented
-in [Model loading](model-loading.md).
+traces for Workflow compatibility. `configs/model.profiles.json` is the only
+capacity source: it maps each lane to a physical model window and positive
+output-class budgets. Gateway fails selected-profile loading on missing, zero,
+unknown, or illegal capacity, while each local vLLM entrypoint derives
+`--max-model-len` from that same profile. Loading and capacity policy is
+documented in [Model loading](model-loading.md).
 
 ### Message Control And Delivery
 

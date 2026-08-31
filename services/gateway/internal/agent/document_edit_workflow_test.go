@@ -107,6 +107,8 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if err != nil || executed.Status != app.ToolCallStatusCompletedAfterApproval {
 		t.Fatalf("approved text edit did not execute: call=%#v err=%v", executed, err)
 	}
+	counting := &historyQueryCountingRepository{Repository: runtime.store}
+	runtime.store = counting
 	result, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, storedRun.ID)
 	if err != nil || !resumed {
 		t.Fatalf("approved document workflow did not resume: resumed=%t result=%#v err=%v", resumed, result, err)
@@ -120,6 +122,9 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if result.WorkflowResult.Data == nil || result.WorkflowResult.Data["change_summary"] == nil || len(result.WorkflowResult.Content.Parts) != 1 ||
 		result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartFile || result.WorkflowResult.Content.Parts[0].Disposition != app.MessageDispositionAttachment {
 		t.Fatalf("unified document result omitted change summary or file: %#v", result.WorkflowResult)
+	}
+	if messages, tools, episodes := counting.recentCounts(); messages != 1 || tools != 1 || episodes != 1 {
+		t.Fatalf("resume history query counts = (%d,%d,%d), want one bounded rebuild", messages, tools, episodes)
 	}
 	documentRecords := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
 	if len(documentRecords) < 2 || documentRecords[0].GovernedPath != "notes-2.md" ||

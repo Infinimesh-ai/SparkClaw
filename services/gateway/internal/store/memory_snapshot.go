@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -261,8 +262,23 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		s.indexArtifactObjectLocked(object)
 	}
 	s.episodeSummaries = ensureMap(snapshot.EpisodeSummaries)
+	s.rebuildHistoryIndexesLocked()
 	s.normalizeLinkedMCPSessionsLocked()
 	s.hideLinkedExternalChatSessionsLocked()
+}
+
+func (s *MemoryStore) rebuildHistoryIndexesLocked() {
+	for sessionID := range s.messages {
+		slices.SortFunc(s.messages[sessionID], compareMessagesAscending)
+	}
+	s.toolCallIDsBySession = map[string][]string{}
+	for _, call := range s.toolCalls {
+		s.indexToolCallLocked(call)
+	}
+	s.episodeIDsBySession = map[string][]string{}
+	for _, summary := range s.episodeSummaries {
+		s.indexEpisodeSummaryLocked(summary)
+	}
 }
 
 func cloneMap[T any](in map[string]T) map[string]T {

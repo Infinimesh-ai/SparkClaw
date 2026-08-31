@@ -24,6 +24,9 @@ documentation tree.
 | [Workflow execution](workflow-execution.md) | Workflow-native execution pipeline, the step loop and its protocol, budgets, resume semantics, and extension points |
 | [Workflow evidence ownership and reuse](workflow-evidence-ownership.md) | Active Runtime/model ownership migration, single-acquisition multi-consumer reuse, typed locator binding, and profile migration gates |
 | [Intent routing](intent-routing.md) | Semantic graph, embedding and Fast/Tree fusion, Top-2 grounding, and one-leaf dispatch |
+| [Bounded context history retrieval and invocation snapshot design](context-history-query-design.md) | Accepted one-shot bounded Store reads, fixed 8/6/4/3 selection, and one reusable in-process invocation snapshot without cursors or persisted anchors |
+| [Tree same-session context consistency design](tree-session-context-parity-design.md) | Accepted shared selected-history source and whole-prompt admission, plus implemented strict Tree scoring JSON structure hardening |
+| [Model input and output capacity contract](model-capacity-contract-design.md) | Accepted physical-window and output-capability-class contract, oversized-question rejection, final admission, completion handling, and fail-fast profile authority |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
 | [Browser runtime](browser-runtime.md) | agent-browser transport, managed Chromium profiles, browser Workflow boundaries, and security |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |

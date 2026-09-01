@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 func TestPPTXScopeGroundingAndDirectoryFiltering(t *testing.T) {
@@ -729,6 +731,13 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 		editCall.Arguments["output_path"] != "deck-2.pptx" || intLikeValue(editCall.Arguments["slide_index"]) != 3 {
 		t.Fatalf("real PPTX edit did not enter approval with frozen resources: call=%#v approval=%#v", editCall, editApproval)
 	}
+	sealedBinding, sealed, err := toolhub.PPTXSealedCandidateFromArguments(editCall.Arguments)
+	if err != nil || !sealed {
+		t.Fatalf("PPTX approval did not bind a sealed candidate: binding=%#v sealed=%t err=%v", sealedBinding, sealed, err)
+	}
+	if err := toolhub.ValidatePPTXSealedApprovalArguments(editCall.Arguments, editApproval.Arguments); err != nil {
+		t.Fatalf("PPTX approval and tool call do not bind the same candidate: %v", err)
+	}
 	readDocument, _ := anyMap(readCall.Result.(map[string]any)["document"])
 	readMetadata, _ := anyMap(readDocument["metadata"])
 	readRaw, _ := json.Marshal(readCall.Result)
@@ -775,6 +784,10 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil || !strings.Contains(reread.Output.(map[string]any)["content"].(string), "Improved third title") {
 		t.Fatalf("approved PPTX output could not be reread: output=%#v err=%v", reread.Output, err)
 	}
+	published, err := os.ReadFile(filepath.Join(root, "deck-2.pptx"))
+	if err != nil || fmt.Sprintf("%x", sha256.Sum256(published)) != sealedBinding.CandidateSHA256 {
+		t.Fatalf("approved PPTX output differs from the pre-approval sealed candidate: err=%v", err)
+	}
 	after, err := os.ReadFile(inputPath)
 	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
 		t.Fatalf("approved PPTX edit modified its source: %v", err)
@@ -782,6 +795,42 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	records := mustListAgentDocumentRecords(t, st, session.OwnerID, session.ID, 10)
 	if len(records) < 2 || records[0].GovernedPath != "deck-2.pptx" || records[0].ParentDocumentID == "" {
 		t.Fatalf("PPTX output lineage was not persisted: %#v", records)
+	}
+}
+
+func TestApprovedPPTXMutationRejectsPersistedSealedBindingMismatch(t *testing.T) {
+	runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
+	defer closeRuntime()
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+		Name:       "pptx.update_slide",
+		Args:       map[string]any{"slide_index": 3, "updates": []any{map[string]any{"shape_index": 1, "text": "Approved replacement"}}},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
+	})
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending {
+		t.Fatalf("PPTX edit did not wait for approval: call=%#v approval=%#v", call, approval)
+	}
+	binding, sealed, err := toolhub.PPTXSealedCandidateFromArguments(approval.Arguments)
+	if err != nil || !sealed {
+		t.Fatalf("PPTX approval has no sealed binding: %#v err=%v", approval, err)
+	}
+	expected := *approval
+	proposed := *approval
+	binding.CandidateSHA256 = strings.Repeat("0", 64)
+	proposed.Arguments = toolhub.AttachPPTXSealedCandidate(toolhub.PPTXPublicArguments(proposed.Arguments), binding)
+	updated, err := st.UpdatePendingApproval(t.Context(), store.NewApprovalUpdateWithNote(expected, proposed, "corrupt persisted binding"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := st.ResolveApproval(t.Context(), updated.ID, app.ApprovalStatusApproved, "approve corrupted binding")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executed, err := runtime.ExecuteApprovedToolCall(t.Context(), resolved)
+	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval || !strings.Contains(executed.Error, "does not match") {
+		t.Fatalf("mismatched sealed approval did not fail closed: call=%#v err=%v", executed, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
+		t.Fatalf("mismatched sealed approval published an output: %v", err)
 	}
 }
 
@@ -802,7 +851,7 @@ func TestApprovedPPTXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 		t.Fatal(err)
 	}
 	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
-	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval || !strings.Contains(strings.ToLower(executed.Error), "stale") {
+	if err != nil || executed.Status != app.ToolCallStatusFailedAfterApproval || executed.ErrorCode != string(app.ToolErrorPPTXRenderSourceStale) || !strings.Contains(strings.ToLower(executed.Error), "stale") {
 		t.Fatalf("stale approved PPTX mutation did not fail closed: call=%#v err=%v", executed, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {

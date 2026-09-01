@@ -1430,7 +1430,12 @@ type toolPlan struct {
 }
 
 func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan toolPlan) (app.ToolCall, *app.Approval, string, error) {
-	var err error
+	sealedBinding, hasSealedBinding, err := toolhub.PPTXSealedCandidateFromArguments(plan.Args)
+	if err != nil {
+		return app.ToolCall{}, nil, "", err
+	}
+	pptxVisualWarning := ""
+	plan.Args = toolhub.PPTXPublicArguments(plan.Args)
 	plan, err = r.materializeWorkflowBoundArguments(ctx, runID, plan)
 	if err != nil {
 		return app.ToolCall{}, nil, "", fmt.Errorf("materialize workflow arguments: %w", err)
@@ -1512,8 +1517,31 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		}
 		return call, nil, call.ObservationSummary, nil
 	}
+	if r.tools.IsPPTXMutationTool(plan.Name, plan.Args) {
+		if !hasSealedBinding {
+			sealedBinding, err = r.tools.PreparePPTXCandidate(ctx, plan.Name, plan.Args, sessionID, runID)
+			if err != nil {
+				call.Status = app.ToolCallStatusBlocked
+				call.Error = err.Error()
+				call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+				done := time.Now().UTC()
+				call.CompletedAt = &done
+				call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+				if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+					return call, nil, call.ObservationSummary, fmt.Errorf("persist failed PPTX candidate preparation: %w", saveErr)
+				}
+				return call, nil, call.ObservationSummary, nil
+			}
+		}
+		plan.Args = toolhub.AttachPPTXSealedCandidate(plan.Args, sealedBinding)
+		call.Arguments = plan.Args
+		pptxVisualWarning, err = r.tools.PPTXSealedCandidateWarningSummary(ctx, plan.Args)
+		if err != nil {
+			return app.ToolCall{}, nil, "", fmt.Errorf("load sealed PPTX visual warning: %w", err)
+		}
+	}
 	if decision.RequiresApproval {
-		if err := validateApprovalArgumentPersistence(def, plan.Args); err != nil {
+		if err := validateApprovalArgumentPersistence(def, toolhub.PPTXPublicArguments(plan.Args)); err != nil {
 			call.Status = app.ToolCallStatusBlocked
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
@@ -1544,6 +1572,10 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			})
 
 		}
+		approvalSummary := r.approvalSummaryForPlan(ctx, runID, plan.Name, toolhub.PPTXPublicArguments(plan.Args))
+		if pptxVisualWarning != "" {
+			approvalSummary += " " + pptxVisualWarning
+		}
 		approval := app.Approval{
 			ID:            app.NewID("ap"),
 			Source:        app.ApprovalSourceTool,
@@ -1553,7 +1585,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			Tool:          plan.Name,
 			Risk:          def.Risk,
 			Status:        app.ApprovalStatusPending,
-			Summary:       r.approvalSummaryForPlan(ctx, runID, plan.Name, plan.Args),
+			Summary:       approvalSummary,
 			Reason:        decision.Reason,
 			Resources:     decision.Resources,
 			Arguments:     plan.Args,
@@ -1583,7 +1615,12 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := r.tools.Execute(execCtx, plan.Name, plan.Args, sessionID, runID)
+	var result toolhub.Result
+	if r.tools.IsPPTXMutationTool(plan.Name, plan.Args) {
+		result, err = r.tools.PublishSealedPPTXCandidate(execCtx, plan.Name, plan.Args, sessionID, runID)
+	} else {
+		result, err = r.tools.Execute(execCtx, plan.Name, plan.Args, sessionID, runID)
+	}
 	done := time.Now().UTC()
 	call.CompletedAt = &done
 	if err != nil {

@@ -205,6 +205,13 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if cfg.Adapters.DocumentOCR.Model != "sparkclaw-ocr" || cfg.Adapters.DocumentOCR.MaxTokens != 16384 || cfg.Adapters.DocumentOCR.MaxUploadBytes != 12<<20 || cfg.Adapters.DocumentOCR.MaxOutputBytes != 1<<20 || cfg.Adapters.DocumentOCR.MaxConcurrency != 2 {
 		t.Fatalf("document OCR limits missing: %#v", cfg.Adapters.DocumentOCR)
 	}
+	visual := cfg.Adapters.PPTXVisualQA
+	if visual.Phase != "disabled" || visual.BaseURL != "" || len(visual.AllowedHosts) != 0 || len(visual.RepairQualifiedClasses) != 0 || len(visual.RepairQualifiedOperations) != 0 || len(visual.BlockingQualifiedClasses) != 0 || visual.MaxRepairAttempts != 2 {
+		t.Fatalf("PPTX visual QA should require explicit rollout configuration: %#v", visual)
+	}
+	if visual.TimeoutSeconds != 120 || visual.MaxInputBytes != 64<<20 || visual.MaxPDFBytes != 64<<20 || visual.MaxPages != 100 || visual.MaxChangedPages != 20 || visual.RasterScale != 1.5 || visual.MaxPagePixels != 20_000_000 || visual.MaxPNGBytes != 12<<20 || visual.DiagnosticToleranceMilli != 2 || visual.ReadinessTTLSeconds != 300 {
+		t.Fatalf("PPTX visual QA limits missing: %#v", visual)
+	}
 	if cfg.Tools.Web.Search.Enabled {
 		t.Fatalf("Infinimesh web search should be disabled by default: %#v", cfg.Tools.Web.Search)
 	}
@@ -542,6 +549,85 @@ func TestLoadAppliesDocumentOCREnvironment(t *testing.T) {
 	ocr := cfg.Adapters.DocumentOCR
 	if !ocr.Enabled || ocr.Provider != "openai-http" || ocr.BaseURL != "https://ocr.example.test/v1" || ocr.Model != "ATH-MaaS/OvisOCR2" || ocr.TimeoutSeconds != 90 || ocr.MaxUploadBytes != 8388608 || ocr.MaxOutputBytes != 524288 || ocr.MaxTokens != 16384 || ocr.MaxConcurrency != 3 || ocr.MaxPending != 4 {
 		t.Fatalf("document OCR environment did not apply: %#v", ocr)
+	}
+}
+
+func TestLoadAppliesPPTXVisualQAEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "shadow")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES", "text_clipped,missing_glyph")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS", "set_text_style,set_geometry")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES", "text_clipped")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS", "1")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "http://gotenberg:3000/")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "gotenberg")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_TIMEOUT_SECONDS", "90")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_INPUT_BYTES", "33554432")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PDF_BYTES", "50331648")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGES", "40")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_CHANGED_PAGES", "12")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_RASTER_SCALE", "2")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGE_PIXELS", "16000000")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES", "8388608")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI", "3")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS", "600")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visual := cfg.Adapters.PPTXVisualQA
+	if visual.Phase != "shadow" || !slices.Equal(visual.RepairQualifiedClasses, []string{"missing_glyph", "text_clipped"}) || !slices.Equal(visual.RepairQualifiedOperations, []string{"set_geometry", "set_text_style"}) || !slices.Equal(visual.BlockingQualifiedClasses, []string{"text_clipped"}) || visual.MaxRepairAttempts != 1 || visual.BaseURL != "http://gotenberg:3000" || len(visual.AllowedHosts) != 1 || visual.AllowedHosts[0] != "gotenberg" || visual.TimeoutSeconds != 90 || visual.MaxInputBytes != 33554432 || visual.MaxPDFBytes != 50331648 || visual.MaxPages != 40 || visual.MaxChangedPages != 12 || visual.RasterScale != 2 || visual.MaxPagePixels != 16000000 || visual.MaxPNGBytes != 8388608 || visual.DiagnosticToleranceMilli != 3 || visual.ReadinessTTLSeconds != 600 {
+		t.Fatalf("PPTX visual QA environment did not apply: %#v", visual)
+	}
+}
+
+func TestLoadRejectsUnsafePPTXVisualQAEndpointAndUnsupportedPhase(t *testing.T) {
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "shadow")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "http://render.example.test")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "render.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "http only") {
+		t.Fatalf("insecure public PPTX visual QA endpoint was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "https://render.example.test")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "other.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("PPTX visual QA endpoint outside the allowlist was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "repairing")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "render.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "unsupported PPTX visual QA phase") {
+		t.Fatalf("unimplemented PPTX visual QA phase was accepted: %v", err)
+	}
+}
+
+func TestLoadValidatesPPTXVisualQAQualificationPolicy(t *testing.T) {
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "warning")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "http://gotenberg:3000")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "gotenberg")
+	if cfg, err := Load(""); err != nil || cfg.Adapters.PPTXVisualQA.Phase != "warning" {
+		t.Fatalf("warning phase did not load: cfg=%#v err=%v", cfg.Adapters.PPTXVisualQA, err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES", "unknown")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "repairQualifiedClasses") {
+		t.Fatalf("unknown repair qualification was accepted: %v", err)
+	}
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES", "text_clipped")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS", "arbitrary_ooxml")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "repairQualifiedOperations") {
+		t.Fatalf("unknown repair operation qualification was accepted: %v", err)
+	}
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS", "set_geometry")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES", "missing_glyph")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "must also be repair-qualified") {
+		t.Fatalf("blocking qualification without repair qualification was accepted: %v", err)
+	}
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES", "text_clipped")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS", "3")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "maxRepairAttempts") {
+		t.Fatalf("excessive PPTX repair budget was accepted: %v", err)
 	}
 }
 

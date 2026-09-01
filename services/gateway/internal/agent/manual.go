@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 // ManualInvocation is the outcome of an owner-initiated tool call. Exactly one
@@ -92,6 +93,34 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		return ManualInvocation{Call: call}, ManualInvocationDenied{Reason: decision.Reason}
 	}
+	pptxMutation := r.tools.IsPPTXMutationTool(name, args)
+	pptxVisualWarning := ""
+	if pptxMutation {
+		binding, prepareErr := r.tools.PreparePPTXCandidate(ctx, name, args, sessionID, runID)
+		if prepareErr != nil {
+			done := time.Now().UTC()
+			call.Status = app.ToolCallStatusFailed
+			call.Error = prepareErr.Error()
+			call.ErrorCode = string(app.ToolErrorCodeFrom(prepareErr))
+			call.CompletedAt = &done
+			if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+				return ManualInvocation{}, fmt.Errorf("persist failed manual PPTX preparation: %w", saveErr)
+			}
+			if _, saveErr := r.saveRun(ctx, app.AgentRun{
+				ID: runID, SessionID: sessionID, State: "failed", Risk: def.Risk,
+				StartedAt: now, CompletedAt: &done, Summary: prepareErr.Error(),
+			}); saveErr != nil {
+				return ManualInvocation{}, fmt.Errorf("persist failed manual PPTX run: %w", saveErr)
+			}
+			return ManualInvocation{Call: call}, ManualExecutionError{Err: prepareErr}
+		}
+		args = toolhub.AttachPPTXSealedCandidate(args, binding)
+		call.Arguments = args
+		pptxVisualWarning, prepareErr = r.tools.PPTXSealedCandidateWarningSummary(ctx, args)
+		if prepareErr != nil {
+			return ManualInvocation{}, fmt.Errorf("load sealed PPTX visual warning: %w", prepareErr)
+		}
+	}
 	if name == "notify.ask_approval" {
 		summary, _ := args["summary"].(string)
 		reason, _ := args["reason"].(string)
@@ -144,7 +173,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}, nil
 	}
 	if decision.RequiresApproval {
-		if err := validateApprovalArgumentPersistence(def, args); err != nil {
+		if err := validateApprovalArgumentPersistence(def, toolhub.PPTXPublicArguments(args)); err != nil {
 			done := time.Now().UTC()
 			call.Status = app.ToolCallStatusBlocked
 			call.Error = err.Error()
@@ -192,6 +221,10 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			})
 
 		}
+		approvalSummaryText := "Manual tool invocation requires approval: " + name
+		if pptxVisualWarning != "" {
+			approvalSummaryText += " " + pptxVisualWarning
+		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
 			Source:     app.ApprovalSourceTool,
@@ -201,7 +234,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			Tool:       name,
 			Risk:       def.Risk,
 			Status:     app.ApprovalStatusPending,
-			Summary:    "Manual tool invocation requires approval: " + name,
+			Summary:    approvalSummaryText,
 			Reason:     decision.Reason,
 			Resources:  decision.Resources,
 			Arguments:  approvalArgs,
@@ -219,7 +252,15 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		approval = persistedApproval
 		return ManualInvocation{Call: call, Approval: &approval}, nil
 	}
-	output, err := r.tools.Execute(ctx, name, args, sessionID, runID)
+	var (
+		output toolhub.Result
+		err    error
+	)
+	if pptxMutation {
+		output, err = r.tools.PublishSealedPPTXCandidate(ctx, name, args, sessionID, runID)
+	} else {
+		output, err = r.tools.Execute(ctx, name, args, sessionID, runID)
+	}
 	done := time.Now().UTC()
 	call.CompletedAt = &done
 	if err != nil {

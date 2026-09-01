@@ -199,6 +199,25 @@
       "maxOutputBytes": 1048576,
       "maxConcurrency": 2,
       "maxPending": 2
+    },
+    "pptxVisualQA": {
+      "phase": "disabled",
+      "repairQualifiedClasses": [],
+      "repairQualifiedOperations": [],
+      "blockingQualifiedClasses": [],
+      "maxRepairAttempts": 2,
+      "baseUrl": "",
+      "allowedHosts": [],
+      "timeoutSeconds": 120,
+      "maxInputBytes": 67108864,
+      "maxPDFBytes": 67108864,
+      "maxPages": 100,
+      "maxChangedPages": 20,
+      "rasterScale": 1.5,
+      "maxPagePixels": 20000000,
+      "maxPNGBytes": 12582912,
+      "diagnosticToleranceMilli": 2,
+      "readinessTTLSeconds": 300
     }
   },
   "workspaces": {

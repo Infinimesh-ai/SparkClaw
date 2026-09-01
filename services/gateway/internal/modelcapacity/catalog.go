@@ -42,6 +42,8 @@ const (
 	OperationDirectChat             Operation = "gateway.direct_chat"
 	OperationImageInspect           Operation = "image.inspect"
 	OperationDocumentImageEnrich    Operation = "document.image_enrichment"
+	OperationPPTXVisualAssessment   Operation = "pptx.visual_assessment"
+	OperationPPTXVisualRepairPlan   Operation = "pptx.visual_repair_plan"
 	OperationDocumentOCR            Operation = "document.ocr"
 )
 
@@ -65,6 +67,8 @@ var operationSpecs = []OperationSpec{
 	{Operation: OperationDirectChat, OutputClass: OutputAnswer, AllowedLanes: []Lane{LaneFast, LaneDeep}, Generates: true},
 	{Operation: OperationImageInspect, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationDocumentImageEnrich, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationPPTXVisualAssessment, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationPPTXVisualRepairPlan, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationDocumentOCR, OutputClass: OutputOCRDocument, AllowedLanes: []Lane{LaneOCR}, Generates: true},
 }
 

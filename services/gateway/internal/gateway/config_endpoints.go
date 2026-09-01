@@ -205,6 +205,25 @@ func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.Runt
 			"max_concurrency":       cfg.DocumentOCR.MaxConcurrency,
 			"max_pending":           cfg.DocumentOCR.MaxPending,
 		},
+		"pptxVisualQA": map[string]any{
+			"phase":                       cfg.PPTXVisualQA.Phase,
+			"repair_qualified_classes":    cfg.PPTXVisualQA.RepairQualifiedClasses,
+			"repair_qualified_operations": cfg.PPTXVisualQA.RepairQualifiedOperations,
+			"blocking_qualified_classes":  cfg.PPTXVisualQA.BlockingQualifiedClasses,
+			"max_repair_attempts":         cfg.PPTXVisualQA.MaxRepairAttempts,
+			"renderer":                    "gotenberg-libreoffice",
+			"rasterizer":                  "pypdfium2",
+			"timeout_seconds":             cfg.PPTXVisualQA.TimeoutSeconds,
+			"max_input_bytes":             cfg.PPTXVisualQA.MaxInputBytes,
+			"max_pdf_bytes":               cfg.PPTXVisualQA.MaxPDFBytes,
+			"max_pages":                   cfg.PPTXVisualQA.MaxPages,
+			"max_changed_pages":           cfg.PPTXVisualQA.MaxChangedPages,
+			"raster_scale":                cfg.PPTXVisualQA.RasterScale,
+			"max_page_pixels":             cfg.PPTXVisualQA.MaxPagePixels,
+			"max_png_bytes":               cfg.PPTXVisualQA.MaxPNGBytes,
+			"diagnostic_tolerance_milli":  cfg.PPTXVisualQA.DiagnosticToleranceMilli,
+			"readiness_ttl_seconds":       cfg.PPTXVisualQA.ReadinessTTLSeconds,
+		},
 	}
 }
 

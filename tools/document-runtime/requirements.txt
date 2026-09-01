@@ -3,5 +3,5 @@
 python-docx>=1.1
 python-pptx>=1.0
 pypdf>=5.0
-pypdfium2>=4.30
+pypdfium2==5.12.1
 Pillow>=10.0

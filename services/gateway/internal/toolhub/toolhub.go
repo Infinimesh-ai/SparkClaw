@@ -53,6 +53,7 @@ type ToolHub struct {
 	managedBrowserWindows *managedBrowserWindowRegistry
 	ocr                   documentocr.Adapter
 	ocrRuntime            *documentOCRRuntime
+	pptxVisualQA          pptxVisualQARunner
 	documents             *document.Pipeline
 	lifecycle             *toolHubLifecycle
 	connectorGate         func(ownerID, channel string) bool
@@ -161,6 +162,7 @@ func New(cfg config.Config, st Repository) *ToolHub {
 		ocrRuntime:            newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
 		lifecycle:             &toolHubLifecycle{},
 	}
+	h.pptxVisualQA = newPPTXVisualQAService(cfg.Adapters.PPTXVisualQA, h.models)
 	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
 		reg, ok := toolRegistry[def.Name]

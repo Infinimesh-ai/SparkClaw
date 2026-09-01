@@ -1691,6 +1691,49 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	}
 }
 
+func TestSealedPPTXApprovalCannotBeModified(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := storetest.MustCreateSessionWithScope(t, st, "sealed PPTX approval", app.DefaultOwnerID, root, "web", false)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := NewWithTrace(cfg, st, tools, runtime, trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	run := app.AgentRun{ID: "run_pptx_sealed_modify", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
+	testSaveRun(st, run)
+	args := map[string]any{
+		"path": "deck.pptx", "output_path": "deck-2.pptx",
+		toolhub.PPTXSealedCandidateArgument: map[string]any{"manifest_sha256": strings.Repeat("a", 64)},
+	}
+	call := app.ToolCall{
+		ID: "tc_pptx_sealed_modify", SessionID: session.ID, RunID: run.ID, Tool: "pptx.update_slide",
+		Risk: app.RiskReversible, Status: app.ToolCallStatusApprovalPending, Arguments: args, StartedAt: time.Now().UTC(),
+	}
+	approval := app.Approval{
+		ID: "ap_pptx_sealed_modify", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
+		Risk: app.RiskReversible, Status: app.ApprovalStatusPending, Arguments: args, CreatedAt: time.Now().UTC(),
+	}
+	call.ApprovalID = approval.ID
+	testSaveToolCall(st, call)
+	storetest.MustSaveApproval(t, st, approval)
+
+	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"arguments":{"output_path":"other.pptx"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("sealed PPTX approval modify returned %d", resp.StatusCode)
+	}
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
+	if stored.Arguments["output_path"] != "deck-2.pptx" {
+		t.Fatalf("sealed PPTX approval was modified: %#v", stored)
+	}
+}
+
 func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)

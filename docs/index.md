@@ -59,7 +59,7 @@ documentation tree.
 | [ASR runtime CI](asr-runtime-ci-design.md) | Independent lightweight fake-model ASR dependency, protocol-test, cleanup, and CI contract |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
 | [Info aggregated result consumption](info-aggregate-result-consumption-design.md) | Implemented typed, non-reaggregating consumption of Info `answer_context`, including citation, limitation, and Info-final browser-order contracts |
-| [Resilient PPTX overlength adaptation](pptx-overlength-resilience-design.md) | Phase 0 No-Go report and bounded render-check design; production behavior remains unchanged |
+| [PPTX final-render visual quality gate](pptx-final-render-visual-qa-design.md) | Phase 1 shadow implementation of pinned LibreOffice/pypdfium2/configured-Fast changed-page review; automatic repair and sealed publication remain gated |
 | [DOCX editing](docx-editing-optimization.md) | Current DOCX style verification, evidence binding, run preservation, coverage, target-aware decision projection, and eval contracts |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |

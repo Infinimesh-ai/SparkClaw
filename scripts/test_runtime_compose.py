@@ -20,6 +20,8 @@ ASR_ENV = ROOT / "docker" / "env" / "sparkclaw.asr.env"
 OCR_ENV = ROOT / "docker" / "env" / "sparkclaw.ocr.env"
 ASR_COMPOSE = ROOT / "docker" / "compose.asr.yaml"
 OCR_COMPOSE = ROOT / "docker" / "compose.ocr.yaml"
+GATEWAY_DOCKERFILE = ROOT / "docker" / "images" / "gateway.Dockerfile"
+DOCUMENT_REQUIREMENTS = ROOT / "tools" / "document-runtime" / "requirements.txt"
 
 
 FAKE_DOCKER = r"""#!/usr/bin/env python3
@@ -132,6 +134,57 @@ class RuntimeComposeTest(unittest.TestCase):
             "restart_runtime_compose.sh local",
             (ROOT / "scripts" / "start_compose.sh").read_text(encoding="utf-8"),
         )
+
+    def test_gateway_image_declares_embedded_capacity_catalog(self) -> None:
+        dockerfile = GATEWAY_DOCKERFILE.read_text(encoding="utf-8")
+
+        self.assertIn("COPY configs /app/configs", dockerfile)
+        self.assertIn("RUN chmod -R a+rX /app/configs", dockerfile)
+        self.assertIn(
+            "ENV SPARKCLAW_MODEL_CAPACITY_CATALOG=/app/configs/model.profiles.json",
+            dockerfile,
+        )
+        self.assertIn("pypdfium2==5.12.1", DOCUMENT_REQUIREMENTS.read_text(encoding="utf-8"))
+
+    def test_pptx_visual_qa_gotenberg_is_pinned_and_wired(self) -> None:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                str(EXAMPLE_ENV),
+                "-f",
+                str(COMPOSE),
+                "--profile",
+                "models-local",
+                "config",
+                "--format",
+                "json",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(result.stdout)
+        gotenberg = config["services"]["gotenberg"]
+        self.assertEqual(
+            gotenberg["image"],
+            "gotenberg/gotenberg:8.36.0@sha256:87c16b9f364279d321bc9772d31fa58aa6abe036423c270698bd636c3a8e9466",
+        )
+        self.assertIn("/health", " ".join(gotenberg["healthcheck"]["test"]))
+        gateway = config["services"]["gateway"]
+        self.assertEqual(gateway["depends_on"]["gotenberg"]["condition"], "service_healthy")
+        environment = gateway["environment"]
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_PHASE"], "shadow")
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES"], "")
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS"], "")
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES"], "")
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS"], "2")
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_BASE_URL"], "http://gotenberg:3000")
+        self.assertEqual(environment["SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS"], "gotenberg")
 
     def test_invalid_webchat_port_fails_before_docker_access(self) -> None:
         result, docker_calls, curl_calls = self.run_script("0")

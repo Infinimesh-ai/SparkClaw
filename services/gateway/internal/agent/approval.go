@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 // ExecuteApprovedToolCall runs the tool call behind an approval that was just
@@ -37,6 +38,25 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	approval = persistedApproval
 	if call.Status != app.ToolCallStatusApprovalPending {
 		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
+	}
+	pptxMutation := r.tools != nil && r.tools.IsPPTXMutationTool(call.Tool, call.Arguments)
+	executionCall := call
+	executionApproval := approval
+	if pptxMutation {
+		if err := toolhub.ValidatePPTXSealedApprovalArguments(call.Arguments, approval.Arguments); err != nil {
+			now := time.Now().UTC()
+			call.Status = app.ToolCallStatusFailedAfterApproval
+			call.CompletedAt = &now
+			call.Error = err.Error()
+			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.observationSummaryLimit()})
+			if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+				return app.ToolCall{}, fmt.Errorf("persist invalid sealed PPTX approval: %w", saveErr)
+			}
+			return call, nil
+		}
+		executionCall.Arguments = toolhub.PPTXPublicArguments(call.Arguments)
+		executionApproval.Arguments = toolhub.PPTXPublicArguments(approval.Arguments)
 	}
 	ctx, endRun := r.bindIntegrationRun(ctx, call.RunID)
 	defer endRun()
@@ -78,7 +98,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	}
 	workspaceDataApproval := call.Tool == app.ToolWorkspaceDataAccess
 	if workspaceDataApproval {
-		if err := r.validateWorkspaceDataAccessApproval(ctx, call, approval); err != nil {
+		if err := r.validateWorkspaceDataAccessApproval(ctx, executionCall, executionApproval); err != nil {
 			now := time.Now().UTC()
 			call.Status = app.ToolCallStatusFailedAfterApproval
 			call.CompletedAt = &now
@@ -98,7 +118,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
 	}
 	if call.PolicyContext != nil && !workspaceDataApproval {
-		if err := r.validateContextBoundToolApproval(ctx, call, approval, def); err != nil {
+		if err := r.validateContextBoundToolApproval(ctx, executionCall, executionApproval, def); err != nil {
 			now := time.Now().UTC()
 			call.Status = app.ToolCallStatusFailedAfterApproval
 			call.CompletedAt = &now
@@ -116,7 +136,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if err := r.revalidateApprovedDocumentOperation(execCtx, call, def); err != nil {
+	if err := r.revalidateApprovedDocumentOperation(execCtx, executionCall, def); err != nil {
 		now := time.Now().UTC()
 		call.Status = app.ToolCallStatusFailedAfterApproval
 		call.CompletedAt = &now
@@ -131,7 +151,12 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if _, err := r.saveToolCall(ctx, call); err != nil {
 		return app.ToolCall{}, fmt.Errorf("persist running approved tool call: %w", err)
 	}
-	result, err := r.tools.Execute(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)
+	var result toolhub.Result
+	if pptxMutation {
+		result, err = r.tools.PublishSealedPPTXCandidate(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)
+	} else {
+		result, err = r.tools.Execute(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)
+	}
 	now := time.Now().UTC()
 	call.CompletedAt = &now
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 const workflowSemanticRepairSchema = "workflow_semantic_repair_request_v1"
@@ -91,7 +92,8 @@ func (r Runtime) prepareWorkflowSemanticPlan(ctx context.Context, runID string, 
 	if decision := r.policy.Decide(definition, prepared.Args, app.PolicyExecutionContext{}); !decision.Allowed {
 		return prepared, nil, fmt.Errorf("PPTX mutation preflight blocked by Policy: %s", decision.Reason)
 	}
-	if err := r.tools.PreflightPPTXLayout(ctx, prepared.Name, prepared.Args, run.SessionID); err != nil {
+	binding, err := r.tools.PreparePPTXCandidate(ctx, prepared.Name, prepared.Args, run.SessionID, run.ID)
+	if err != nil {
 		if app.ToolErrorCodeFrom(err) == app.ToolErrorPPTXLayoutFitConflict {
 			return prepared, &workflowSemanticValidationError{
 				Codes:  []string{string(app.ToolErrorPPTXLayoutFitConflict)},
@@ -100,6 +102,7 @@ func (r Runtime) prepareWorkflowSemanticPlan(ctx context.Context, runID string, 
 		}
 		return prepared, nil, fmt.Errorf("PPTX mutation preflight failed: %w", err)
 	}
+	prepared.Args = toolhub.AttachPPTXSealedCandidate(prepared.Args, binding)
 	return prepared, nil, nil
 }
 

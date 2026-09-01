@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
@@ -21,50 +19,85 @@ func runPptxSlideAdapter(ctx context.Context, request map[string]any) (map[strin
 	return result, err
 }
 
-// PreflightPPTXLayout runs the exact PPTX mutation and preservation pipeline
-// against an ephemeral output before Policy creates an approval. It detects
-// generated text that cannot fit safely without leaving a user-visible file.
-func (h *ToolHub) PreflightPPTXLayout(ctx context.Context, name string, args map[string]any, sessionID string) error {
-	// Resolve the operation through the provider registry instead of the
-	// tool-name prefix so a renamed or aliased tool cannot silently skip the
-	// layout preflight.
-	registry := toolhubDocumentProviderRegistry()
-	operation := ""
-	for _, candidate := range []string{app.DocumentOperationUpdateSlide, app.DocumentOperationUpdateDeck} {
-		if provider, ok := registry.operation(app.DocumentFormatPPTX, candidate); ok && provider.acceptsTool(strings.TrimSpace(name)) {
-			operation = candidate
-			break
+func pptxVisualQASelection(operation string, args, output map[string]any) ([]int, map[int][]int, []int, error) {
+	slideIndexes := []int{}
+	changedShapes := map[int][]int{}
+	changedAllSlides := []int{}
+	appendSlide := func(slideIndex int) {
+		if slideIndex <= 0 {
+			return
+		}
+		if !slices.Contains(slideIndexes, slideIndex) {
+			slideIndexes = append(slideIndexes, slideIndex)
 		}
 	}
-	if operation == "" {
-		return nil
+	appendShapeIndexes := func(slideIndex int, values []any, key string) {
+		appendSlide(slideIndex)
+		for _, raw := range values {
+			shapeIndex := documentIntValue(raw)
+			if update, ok := raw.(map[string]any); ok {
+				shapeIndex = intArg(update, key, 0)
+			}
+			if shapeIndex > 0 && !slices.Contains(changedShapes[slideIndex], shapeIndex) {
+				changedShapes[slideIndex] = append(changedShapes[slideIndex], shapeIndex)
+			}
+		}
+		slices.Sort(changedShapes[slideIndex])
 	}
-	if err := h.Validate(name, args); err != nil {
-		return err
+	switch operation {
+	case app.DocumentOperationReplaceText:
+		for _, raw := range documentAnySlice(output["slide_indexes"]) {
+			appendSlide(documentIntValue(raw))
+		}
+		for _, raw := range documentAnySlice(output["changed_shape_indexes"]) {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			appendShapeIndexes(intArg(entry, "slide_index", 0), documentAnySlice(entry["shape_indexes"]), "")
+		}
+	case app.DocumentOperationUpdateSlide:
+		slideIndex := intArg(args, "slide_index", 0)
+		appendShapeIndexes(slideIndex, pptxArray(args["updates"]), "shape_index")
+		appendShapeIndexes(slideIndex, documentAnySlice(output["layout_adjusted_shape_indexes"]), "")
+	case app.DocumentOperationUpdateDeck:
+		for _, raw := range pptxArray(args["slide_updates"]) {
+			slide, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			appendShapeIndexes(intArg(slide, "slide_index", 0), pptxArray(slide["updates"]), "shape_index")
+		}
+		for _, raw := range documentAnySlice(output["layout_adjusted_targets"]) {
+			target, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			appendShapeIndexes(intArg(target, "slide_index", 0), []any{target}, "shape_index")
+		}
+	case app.DocumentOperationAddSlide:
+		insertedSlide := intArg(output, "inserted_slide_index", 0)
+		appendSlide(insertedSlide)
+		if insertedSlide > 0 {
+			changedAllSlides = append(changedAllSlides, insertedSlide)
+		}
+	case app.DocumentOperationDuplicateSlide, app.DocumentOperationDeleteSlide:
+		// The complete candidate is still converted and checked, but no page has
+		// novel pixels that require a Fast visual review.
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported PPTX visual QA operation %q", operation)
 	}
-	h, err := h.forSession(ctx, sessionID)
-	if err != nil {
-		return err
+	slices.Sort(slideIndexes)
+	slices.Sort(changedAllSlides)
+	if operation != app.DocumentOperationDuplicateSlide && operation != app.DocumentOperationDeleteSlide && len(slideIndexes) == 0 {
+		return nil, nil, nil, fmt.Errorf("mutation result did not identify a changed slide for %s", operation)
 	}
-	root := h.cfg.Workspaces.DefaultRoot
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return err
+	for _, slideIndex := range slideIndexes {
+		if !slices.Contains(changedAllSlides, slideIndex) && len(changedShapes[slideIndex]) == 0 {
+			return nil, nil, nil, fmt.Errorf("mutation result did not identify changed shapes for slide %d", slideIndex)
+		}
 	}
-	tempDir, err := os.MkdirTemp(root, ".sparkclaw-pptx-preflight-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tempDir)
-
-	preflightArgs := make(map[string]any, len(args))
-	for key, value := range args {
-		preflightArgs[key] = value
-	}
-	preflightArgs["output_path"] = filepath.Join(tempDir, "candidate.pptx")
-	preflightCtx, cancel := context.WithTimeout(ctx, time.Duration(pptxEditTimeoutMS)*time.Millisecond)
-	defer cancel()
-	_, err = h.executeDocumentOperation(preflightCtx, name, operation, preflightArgs)
-	return err
+	return slideIndexes, changedShapes, changedAllSlides, nil
 }
 
 func pptxDocumentParser() document.Parser {

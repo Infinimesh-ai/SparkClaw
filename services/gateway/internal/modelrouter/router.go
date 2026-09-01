@@ -162,11 +162,18 @@ func (r Router) ChatWithProfileOptions(ctx context.Context, operation modelcapac
 }
 
 func (r Router) ChatWithImage(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string, image ImageInput) (ChatResult, error) {
+	return r.ChatWithImageOptions(ctx, operation, profileName, system, user, image, ChatOptions{})
+}
+
+func (r Router) ChatWithImageOptions(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string, image ImageInput, options ChatOptions) (ChatResult, error) {
+	if err := options.validate(); err != nil {
+		return ChatResult{}, err
+	}
 	profile, err := r.Profile(profileName)
 	if err != nil {
 		return ChatResult{}, err
 	}
-	return r.chatWithImageProfile(ctx, profile, operation, system, user, image)
+	return r.chatWithImageProfile(ctx, profile, operation, system, user, image, options)
 }
 
 func (r Router) ChatStreamWithProfile(ctx context.Context, operation modelcapacity.Operation, profileName, system, user string, emit StreamHandler) (ChatResult, error) {
@@ -227,7 +234,7 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 	}, nil
 }
 
-func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, image ImageInput) (ChatResult, error) {
+func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, image ImageInput, options ChatOptions) (ChatResult, error) {
 	lane := r.LaneFor(profile)
 	if len(image.Content) == 0 {
 		return ChatResult{}, errors.New("image content cannot be empty")
@@ -235,7 +242,7 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 	if strings.TrimSpace(image.ContentType) == "" {
 		image.ContentType = "application/octet-stream"
 	}
-	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, ChatOptions{}, estimateImageTokens(image))
+	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, options, estimateImageTokens(image))
 	if err != nil {
 		return ChatResult{}, err
 	}
@@ -255,7 +262,7 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 			TotalTokens:    promptTokens + responseTokens,
 		}, nil
 	}
-	content, finishReason, usage, err := r.chatCompletionsWithImage(ctx, profile, system, user, image, maxTokens)
+	content, finishReason, usage, err := r.chatCompletionsWithImage(ctx, profile, system, user, image, options, maxTokens)
 	if err != nil {
 		return ChatResult{}, err
 	}
@@ -502,7 +509,7 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 	return content, finishReason, usage, nil
 }
 
-func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput, maxTokens int) (string, string, tokenUsage, error) {
+func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput, options ChatOptions, maxTokens int) (string, string, tokenUsage, error) {
 	if profile.BaseURL == "" {
 		return "", "", tokenUsage{}, errors.New("model base_url is empty")
 	}
@@ -522,8 +529,8 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 		},
 		"temperature": 0.2,
 	}
-	if r.cfg.Model.DisableThinking {
-		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+	if err := options.applyToRequest(body, r.cfg.Model.DisableThinking); err != nil {
+		return "", "", tokenUsage{}, err
 	}
 	body["max_tokens"] = maxTokens
 	raw, err := json.Marshal(body)

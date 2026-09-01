@@ -288,6 +288,7 @@ type SandboxConfig struct {
 type AdapterConfig struct {
 	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
 	DocumentOCR       DocumentOCRAdapterConfig       `json:"documentOCR"`
+	PPTXVisualQA      PPTXVisualQAAdapterConfig      `json:"pptxVisualQA"`
 }
 
 type BrowserAutomationAdapterConfig struct {
@@ -316,6 +317,26 @@ type DocumentOCRAdapterConfig struct {
 	ContextTokens  int      `json:"-"`
 	MaxConcurrency int      `json:"maxConcurrency"`
 	MaxPending     int      `json:"maxPending"`
+}
+
+type PPTXVisualQAAdapterConfig struct {
+	Phase                     string   `json:"phase"`
+	RepairQualifiedClasses    []string `json:"repairQualifiedClasses"`
+	RepairQualifiedOperations []string `json:"repairQualifiedOperations"`
+	BlockingQualifiedClasses  []string `json:"blockingQualifiedClasses"`
+	MaxRepairAttempts         int      `json:"maxRepairAttempts"`
+	BaseURL                   string   `json:"baseUrl"`
+	AllowedHosts              []string `json:"allowedHosts"`
+	TimeoutSeconds            int      `json:"timeoutSeconds"`
+	MaxInputBytes             int64    `json:"maxInputBytes"`
+	MaxPDFBytes               int64    `json:"maxPDFBytes"`
+	MaxPages                  int      `json:"maxPages"`
+	MaxChangedPages           int      `json:"maxChangedPages"`
+	RasterScale               float64  `json:"rasterScale"`
+	MaxPagePixels             int64    `json:"maxPagePixels"`
+	MaxPNGBytes               int      `json:"maxPNGBytes"`
+	DiagnosticToleranceMilli  int      `json:"diagnosticToleranceMilli"`
+	ReadinessTTLSeconds       int      `json:"readinessTTLSeconds"`
 }
 
 type WorkspaceConfig struct {
@@ -584,6 +605,9 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	if err := normalizeDocumentOCRConfig(&cfg.Adapters.DocumentOCR); err != nil {
+		return Config{}, err
+	}
+	if err := normalizePPTXVisualQAConfig(&cfg.Adapters.PPTXVisualQA); err != nil {
 		return Config{}, err
 	}
 	if err := validateModelConfig(&cfg.Model); err != nil {
@@ -1202,6 +1226,127 @@ func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
 	return nil
 }
 
+func normalizePPTXVisualQAConfig(visual *PPTXVisualQAAdapterConfig) error {
+	defaults := Default().Adapters.PPTXVisualQA
+	visual.Phase = strings.ToLower(strings.TrimSpace(visual.Phase))
+	if visual.Phase == "" {
+		visual.Phase = defaults.Phase
+	}
+	if visual.TimeoutSeconds <= 0 {
+		visual.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if visual.MaxInputBytes <= 0 {
+		visual.MaxInputBytes = defaults.MaxInputBytes
+	}
+	if visual.MaxPDFBytes <= 0 {
+		visual.MaxPDFBytes = defaults.MaxPDFBytes
+	}
+	if visual.MaxPages <= 0 {
+		visual.MaxPages = defaults.MaxPages
+	}
+	if visual.MaxChangedPages <= 0 {
+		visual.MaxChangedPages = defaults.MaxChangedPages
+	}
+	if visual.RasterScale <= 0 {
+		visual.RasterScale = defaults.RasterScale
+	}
+	if visual.MaxPagePixels <= 0 {
+		visual.MaxPagePixels = defaults.MaxPagePixels
+	}
+	if visual.MaxPNGBytes <= 0 {
+		visual.MaxPNGBytes = defaults.MaxPNGBytes
+	}
+	if visual.DiagnosticToleranceMilli <= 0 {
+		visual.DiagnosticToleranceMilli = defaults.DiagnosticToleranceMilli
+	}
+	if visual.ReadinessTTLSeconds <= 0 {
+		visual.ReadinessTTLSeconds = defaults.ReadinessTTLSeconds
+	}
+	if !slices.Contains([]string{"disabled", "shadow", "warning", "qualified_blocking", "default_on"}, visual.Phase) {
+		return fmt.Errorf("unsupported PPTX visual QA phase %q", visual.Phase)
+	}
+	if visual.MaxRepairAttempts < 0 || visual.MaxRepairAttempts > 2 {
+		return errors.New("PPTX visual QA maxRepairAttempts must be between 0 and 2")
+	}
+	repairable := []string{
+		"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph", "broken_layout", "low_contrast",
+		"text_too_small", "overcrowded", "misaligned", "weak_hierarchy", "poor_whitespace", "unclear_focus", "inconsistent_style",
+	}
+	blocking := []string{"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph"}
+	repairOperations := []string{"rewrite_text", "set_geometry", "set_text_style", "set_shape_style", "place_above", "place_below", "delete_generated_shape"}
+	var qualificationErr error
+	visual.RepairQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedClasses, repairable, "repairQualifiedClasses")
+	if qualificationErr != nil {
+		return qualificationErr
+	}
+	visual.RepairQualifiedOperations, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedOperations, repairOperations, "repairQualifiedOperations")
+	if qualificationErr != nil {
+		return qualificationErr
+	}
+	visual.BlockingQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.BlockingQualifiedClasses, blocking, "blockingQualifiedClasses")
+	if qualificationErr != nil {
+		return qualificationErr
+	}
+	for _, class := range visual.BlockingQualifiedClasses {
+		if !slices.Contains(visual.RepairQualifiedClasses, class) {
+			return fmt.Errorf("PPTX visual QA blocking class %q must also be repair-qualified", class)
+		}
+	}
+	if visual.MaxChangedPages > visual.MaxPages {
+		return errors.New("PPTX visual QA maxChangedPages cannot exceed maxPages")
+	}
+	if visual.MaxPages > 200 || visual.MaxChangedPages > 64 {
+		return errors.New("PPTX visual QA page limits exceed the implementation bounds")
+	}
+	if visual.RasterScale < 0.5 || visual.RasterScale > 4 {
+		return errors.New("PPTX visual QA rasterScale must be between 0.5 and 4")
+	}
+	if visual.DiagnosticToleranceMilli > 25 {
+		return errors.New("PPTX visual QA diagnosticToleranceMilli must not exceed 25")
+	}
+	visual.AllowedHosts = normalizeHostList(visual.AllowedHosts)
+	if visual.Phase == "disabled" {
+		return nil
+	}
+	parsed, err := url.Parse(strings.TrimSpace(visual.BaseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return errors.New("PPTX visual QA base URL must be an absolute http or https URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("PPTX visual QA base URL must use http or https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("PPTX visual QA base URL must not contain credentials, query, or fragment")
+	}
+	if !containsFold(visual.AllowedHosts, parsed.Hostname()) {
+		return fmt.Errorf("PPTX visual QA base URL host %q is not allowlisted", parsed.Hostname())
+	}
+	if parsed.Scheme == "http" && !isLocalHTTPHost(parsed.Hostname()) {
+		return errors.New("PPTX visual QA base URL may use http only for loopback, private, or local container hosts")
+	}
+	visual.BaseURL = strings.TrimRight(parsed.String(), "/")
+	return nil
+}
+
+func normalizePPTXVisualQAClasses(values, allowed []string, field string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if !slices.Contains(allowed, value) {
+			return nil, fmt.Errorf("unsupported PPTX visual QA %s value %q", field, value)
+		}
+		if slices.Contains(out, value) {
+			return nil, fmt.Errorf("duplicate PPTX visual QA %s value %q", field, value)
+		}
+		out = append(out, value)
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
 func isLocalHTTPHost(host string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if host == "localhost" {
@@ -1410,6 +1555,23 @@ func Default() Config {
 				MaxOutputBytes: 1 << 20,
 				MaxConcurrency: 2,
 				MaxPending:     2,
+			},
+			PPTXVisualQA: PPTXVisualQAAdapterConfig{
+				Phase:                     "disabled",
+				RepairQualifiedClasses:    []string{},
+				RepairQualifiedOperations: []string{},
+				BlockingQualifiedClasses:  []string{},
+				MaxRepairAttempts:         2,
+				TimeoutSeconds:            120,
+				MaxInputBytes:             64 << 20,
+				MaxPDFBytes:               64 << 20,
+				MaxPages:                  100,
+				MaxChangedPages:           20,
+				RasterScale:               1.5,
+				MaxPagePixels:             20_000_000,
+				MaxPNGBytes:               12 << 20,
+				DiagnosticToleranceMilli:  2,
+				ReadinessTTLSeconds:       300,
 			},
 		},
 		Memory: MemoryConfig{
@@ -1823,6 +1985,79 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_OCR_MAX_PENDING"); v != "" {
 		if maxPending, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.DocumentOCR.MaxPending = maxPending
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE"); v != "" {
+		cfg.Adapters.PPTXVisualQA.Phase = v
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES"); v != "" {
+		cfg.Adapters.PPTXVisualQA.RepairQualifiedClasses = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS"); v != "" {
+		cfg.Adapters.PPTXVisualQA.RepairQualifiedOperations = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES"); v != "" {
+		cfg.Adapters.PPTXVisualQA.BlockingQualifiedClasses = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS"); v != "" {
+		if attempts, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxRepairAttempts = attempts
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL"); v != "" {
+		cfg.Adapters.PPTXVisualQA.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS"); v != "" {
+		cfg.Adapters.PPTXVisualQA.AllowedHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.TimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_INPUT_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxInputBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PDF_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPDFBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGES"); v != "" {
+		if maxPages, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPages = maxPages
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_CHANGED_PAGES"); v != "" {
+		if maxPages, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxChangedPages = maxPages
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_RASTER_SCALE"); v != "" {
+		if scale, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.RasterScale = scale
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGE_PIXELS"); v != "" {
+		if maxPixels, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPagePixels = maxPixels
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPNGBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI"); v != "" {
+		if tolerance, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.DiagnosticToleranceMilli = tolerance
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.ReadinessTTLSeconds = seconds
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {

@@ -492,6 +492,51 @@ func TestChatWithImageUsesOperationClassBudget(t *testing.T) {
 	}
 }
 
+func TestChatWithImageOptionsRequestsStrictJSONSchema(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": `{"schema_version":"image_test_v1"}`}}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.DisableThinking = false
+	cfg.Model.Fast.BaseURL = server.URL
+	schema := StrictJSONSchema{
+		Name: "image_test",
+		Schema: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"schema_version"},
+			"properties": map[string]any{
+				"schema_version": map[string]any{"type": "string", "const": "image_test_v1"},
+			},
+		},
+	}
+
+	_, err := New(cfg).ChatWithImageOptions(t.Context(), modelcapacity.OperationImageInspect, "fast", "system", "inspect", ImageInput{
+		Content: []byte("image"), ContentType: "image/png",
+	}, ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseFormat, _ := requestBody["response_format"].(map[string]any)
+	jsonSchema, _ := responseFormat["json_schema"].(map[string]any)
+	if responseFormat["type"] != "json_schema" || jsonSchema["name"] != "image_test" || jsonSchema["strict"] != true {
+		t.Fatalf("image request omitted strict JSON schema: %#v", requestBody)
+	}
+	template, _ := requestBody["chat_template_kwargs"].(map[string]any)
+	if template["enable_thinking"] != false {
+		t.Fatalf("image request did not disable thinking: %#v", requestBody)
+	}
+}
+
 func TestChooseModelUsesGatewayLaneHint(t *testing.T) {
 	cfg := configtest.MustLoadDefault()
 	cfg.Model.Fast.Name = "sparkclaw-fast"

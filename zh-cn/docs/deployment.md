@@ -20,7 +20,7 @@ Node.js 26/npm 11 与 Go 1.25 只用于宿主开发，容器化部署不依赖�
 从已准备好的 DGX Spark 宿主开始：
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 项目网站可以原样提供仓库根目录的 `install.sh`，并在上述命令中使用自己的 HTTPS URL；
@@ -29,7 +29,8 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
 流式 bootstrap 与部署入口会：
 
 1. 把指定 branch/tag 克隆到 `$HOME/SparkClaw`，或 fast-forward 已有的干净 checkout；
-   存在本地改动或历史分叉时不改动目录并明确报错。
+   存在本地改动或历史分叉时不改动目录并明确报错。由原官方仓库地址创建的干净 checkout
+   会在成功 fast-forward 后迁移到当前 origin；其他 origin 不匹配仍会被拒绝。
 2. 将 curl 管道的 stdin 重新连接到 `/dev/tty`，让 Hugging Face token 保持隐藏式交互输入。
 3. 硬性校验 Linux/ARM64、NVIDIA GB10、至少 100 GiB 内存、Docker Compose、
    `nvidia-smi` 与磁盘空间。
@@ -52,13 +53,13 @@ drifted 的模型组才使用新的 GPU runtime 状态与进程本地 cache 进�
 
 ```bash
 export HF_TOKEN=hf_example
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 安装/更新仓库后只运行部署预检：
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | \
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | \
   bash -s -- --check
 ```
 
@@ -85,6 +86,115 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 把选定路由代理到 `gateway:18789`。WebChat 必须只在本机可达时设置
 `SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。两个值都从 `.env` 读取，非法端口会在修改容器前失败。
 模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
+
+## 云模型服务器运行态
+
+当 Linux 服务器或虚拟机只负责 SparkClaw 应用与持久化状态、不负责模型进程时，使用云模型
+运行态。它只启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat，不会选择
+`models-local` profile 中的模型服务。
+
+在 Ubuntu VM 上，以具备 sudo 权限的普通用户运行流式安装入口：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
+```
+
+bootstrap 会在需要时安装 Git，把仓库安全 clone 或 fast-forward 到 `$HOME/SparkClaw`，把
+stdin 重新连接到终端，再执行 `scripts/deploy_cloud_vm.sh`。VM 部署脚本会在需要时安装
+Docker Engine 与 Compose plugin；已有 checkout 存在 tracked 或 untracked 本地修改时绝不
+覆盖。
+
+首次运行会交互输入私有的 Fast、embedding、guard endpoint。脚本自动填入 SparkClaw 标准模型名，
+同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，也可以单独配置 endpoint。模型 API Key
+是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
+Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。运营方专属 endpoint
+与凭据不会进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的 `.env`；作为文档化部署
+默认值的公共服务 URL 可以记录在版本化 profile 中。
+
+托管 Fast endpoint `https://sparkclaw.infinimesh.cloud/fast/v1` 在
+2026-08-28 报告 `max_model_len=262144`。`configs/model.profiles.json` 中可执行的
+`infinimesh-online-fast-v1` entry 记录该物理窗口，并把两条逻辑 chat lane 都映射到它。
+Gateway 不再有独立 input ceiling：每个 typed operation 从物理 `context_tokens` 中预留 profile
+所属的 output-class budget，再由 Model Router 对完整渲染请求执行准入。该 profile 当前为 Fast
+compact structured output 分配 2,048 tokens，为 Workflow structured 与 answer output 分配
+8,192 tokens，为 Fast vision output 分配 4,096 tokens。容量缺失、为零或关系非法会阻止 profile
+加载；旧的逐 lane 容量变量会被拒绝。
+
+Cloud workload limit 继续是语义 evidence 边界，不是另一套模型窗口。200,000 字节的文档抽取
+合同在该托管 endpoint 约为 49,700 tokens，96,000 字节的 run observation 窗口另占约 24,000
+tokens，1,461 份已保存 trace 中模型 prompt 最大为 13,278 tokens。因此 cloud profile 把
+`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 提高到 200,000，
+并把 run observation 边界提高到 72,000 字节开始压缩、96,000 字节硬停止；浏览器 evidence
+保持 8,000 字节，observation 信封保持 2,400 字节，`observation.read` 单次保持 32,768 字节且
+每阶段最多 2 次。
+
+当前 cloud overlay 是可信局域网 profile，明确关闭可选的 Gateway owner-token 认证边界，
+WebChat 因此不会要求输入 token。正常部署还会清空旧的 `SPARKCLAW_API_TOKEN`，readiness 会拒绝
+仍报告 `auth_required: true` 的 cloud 运行态。
+
+脚本构建并启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。Gateway 镜像内会安装
+Chromium、`agent-browser`、Xvfb、中日韩/Emoji 字体和 ffmpeg。只有 Gateway readiness 与
+容器内 Chromium 打开页面及 snapshot smoke test 都通过，部署才算成功。浏览器状态持久化在
+`data/browser-profiles`；VM 不需要 Ubuntu Desktop，也不需要宿主机 Chromium。
+
+无桌面的 VM 可以正常使用 hidden Chromium，但微信扫码登录不同：它会在 VM owner 的桌面上
+打开 visible Chromium 窗口供 owner 扫码。cloud 启动脚本解析到本地 X11/XWayland display
+时，会自动叠加 `docker/compose.visible-browser.yaml`，并输出 `Visible Chromium display:
+...`。没有可用 display 时，部署仍会以 hidden Chromium 正常启动并明确告警，但打开微信登录
+窗口会按设计失败。窗口显示在 VM 桌面上，不会显示在仅仅访问 WebChat 的另一台电脑上。
+
+请从 VM 的桌面会话运行部署，或先通过 PVE console 登录该桌面，然后 reconcile 运行态：
+
+```bash
+cd "$HOME/SparkClaw"
+bash scripts/resolve-browser-display.sh
+bash scripts/start_cloud_compose.sh
+```
+
+解析器会使用可用的 Xauthority 文件逐个探测 socket，忽略无法建立 X11 连接的初始化或
+残留 socket；存在多个可用 display 时，自动选择编号最小的一个。如需覆盖这个自动选择，
+可在执行第二条命令前显式指定 display 及其 authority 文件：
+
+```bash
+export SPARKCLAW_BROWSER_DISPLAY=:2
+export SPARKCLAW_BROWSER_XAUTHORITY=/path/to/that/display/Xauthority
+bash scripts/start_cloud_compose.sh
+```
+
+微信扫码登录不要使用虚拟 Xvfb display：它适合 hidden 自动化，但不是 owner 可见的扫码界面。
+
+不更新 checkout、只 reconcile 当前运行态时执行：
+
+```bash
+bash "$HOME/SparkClaw/scripts/deploy_cloud_vm.sh"
+```
+
+重新进入私有配置或只做只读检查：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
+  bash -s -- --configure
+
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
+  bash -s -- --check
+```
+
+SparkClaw 会在模型 base URL 后追加 `/chat/completions` 或 `/embeddings`。当前 Model Router
+对 Fast、Deep、embedding、guard 共用一个可选的 `OPENAI_API_KEY`；不同 provider 需要不同
+credential 或 header 时应使用可信 compatibility proxy。speech adapter 输入 service root，
+因为它会自行追加 `/v1/audio/*`；OCR 输入 OpenAI-compatible base URL。
+
+cloud overlay 为四个应用服务配置 `restart: unless-stopped`，安装器会启用 Docker，因此 VM
+重启后会自动恢复。Gateway 仍只在 Docker 内部可达；WebChat 默认发布 `18790`，使用
+`http://<VM-IP>:18790` 访问。当前测试拓扑不安装 TLS，也不修改防火墙规则，必须只放在可信
+局域网中：任何能访问 WebChat 端口的设备都可以操作 SparkClaw。此拓扑不要安装 DGX Spark
+autostart unit，因为该 unit 负责本地 NVIDIA 模型的 reconciliation。
 
 ## Product Runtime
 
@@ -161,7 +271,7 @@ ip -4 -o addr show scope global
 
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh
+bash scripts/restart_jingsi_lan_compose.sh online
 ```
 
 该操作只增加端口 `18793`（可用 `SPARKCLAW_JINGSI_LAN_PORT` 覆盖）上的精确 presentation
@@ -433,17 +543,27 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 模型端点 healthy 后，用 external mode 重建 Gateway 与 WebChat：
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh online
 ```
 
 durable 产品运行态应使用该脚本，而不是直接执行
-`docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
-`docker/env/sparkclaw.single-fast.env`、`docker/env/sparkclaw.asr.env` 与
-`docker/env/sparkclaw.ocr.env`，并叠加 ASR 与 OCR overlay。这会选择 PostgreSQL，保持两个
-逻辑 chat profile 都映射到 Fast，同时让语音转写和文档 OCR adapter 指向共同常驻的服务。
-请求启动 Gateway 时，脚本会先启动并等待 PostgreSQL；随后通过有界请求检查 `/readyz`，只有 Gateway 报告 `model_mode=external` 且
-`state_backend=postgres` 时才成功退出。需要其他 chat/runtime profile 时应显式设置
-`SPARKCLAW_RUNTIME_ENV`；ASR 与 OCR 环境仍属于该产品运行态。
+`docker compose up --force-recreate gateway webchat`。脚本要求第一个参数明确选择一套
+chat/runtime profile：`online` 只加载 `docker/env/sparkclaw.online-fast.env`，`local` 只加载
+`docker/env/sparkclaw.single-fast.env`。脚本不会根据正在运行的模型容器推断 profile，也不会从
+`.env` 读取 profile selector。选中 profile 后，脚本再加载 ASR 与 OCR 环境及 overlay。两套
+chat profile 都选择 PostgreSQL，并保留本地 embedding、guard、speech 与 OCR 服务；只有逻辑
+Fast 与 Deep endpoint 会切换。
+
+npm 命令提供同样的显式切换；本机的 `npm run dev:gateway` 是在线命令的别名：
+
+```bash
+npm run dev:gateway:online
+npm run dev:gateway:local
+```
+
+请求启动 Gateway 时，脚本会先启动并等待 PostgreSQL；随后通过有界请求检查 `/readyz`，只有
+Gateway 报告 `model_mode=external` 且 `state_backend=postgres` 时才成功退出。ASR 与 OCR
+环境仍属于两套产品运行态。
 
 当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
 `docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
@@ -518,21 +638,27 @@ ready 检查不包含该端口。
 
 重要环境变量：
 
-- `SPARKCLAW_VLLM_IMAGE`
+- `SPARKCLAW_MODEL_CAPACITY_PROFILE`（`configs/model.profiles.json` 中必需的可执行 entry；catalog 拥有物理窗口与 output-class budget）
+- `SPARKCLAW_MODEL_CAPACITY_CATALOG`（高级 host script/catalog 路径 override；产品容器使用已挂载的版本化 catalog）
+- `SPARKCLAW_VLLM_IMAGE`（embedding、guard 与 ASR 的基础 image）
+- `SPARKCLAW_CHAT_VLLM_IMAGE`（Fast/Deep chat image；NVFP4 默认使用 vLLM 0.24.0）
 - `SPARKCLAW_FORCE_MODEL_RECREATE`（默认 `false`；一次显式完整模型组刷新时设为 `true`）
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
-- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
-- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
+- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
-- `SPARKCLAW_OCR_ENABLED`、`SPARKCLAW_OCR_PROVIDER`（`openai-http` 为默认且目前唯一的适配器；`disabled` 显式关闭适配器）、`SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
-- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
+- `SPARKCLAW_OCR_ENABLED`、`SPARKCLAW_OCR_PROVIDER`（`openai-http` 为默认且目前唯一的适配器；`disabled` 显式关闭适配器）、`SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
+- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`
 
 `*_MODEL_ID` 是 serving container 加载的 Hugging Face checkpoint；`*_MODEL` 是 Gateway 发送的 OpenAI-compatible served name。
+Fast、Deep、Embedding、Guard 与 OCR 的 context/output capacity 没有环境变量 override。设置已退役的
+`*_CONTEXT_TOKENS`、`*_MAX_INPUT_TOKENS`、`*_MAX_TOKENS` 或 `*_MAX_MODEL_LEN` 容量变量时，
+配置会直接失败，不会修改或修复所选 profile。
 
 ### 专用 Qwen3Guard
 
@@ -572,7 +698,7 @@ curl -fsS http://127.0.0.1:8007/v1/models
 使用匹配的 OCR adapter 配置启动 Gateway 和 WebChat：
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 host 侧 doctor 保留 Gateway 使用的 Compose service URL，只覆盖检查目标：
@@ -670,13 +796,17 @@ SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 该命令应用单 Fast、ASR 与 OCR 环境，并复用 `docker/compose.dual-light.yaml`、
 `docker/compose.asr.yaml` 和 `docker/compose.ocr.yaml` 中有界的服务设置；Fast、embedding、
 guard、ASR 与 OCR 一起启动。Gateway 的两个逻辑 chat profiles 都发送到
-`sparkclaw-fast`，语音转写使用 `sparkclaw-asr`，文档 OCR 使用 `sparkclaw-ocr`。
+`sparkclaw-fast`，语音转写使用 `sparkclaw-asr`，文档 OCR 使用 `sparkclaw-ocr`。chat endpoint
+通过独立 vLLM 0.24.0 image 加载 `nvidia/Qwen3.6-35B-A3B-NVFP4`。SparkClaw 只提供
+checkpoint ID 与容量预算；vLLM 读取 ModelOpt metadata，并负责 activation precision、
+quantization dispatch 与 kernel/backend 选择。产品与定向 chat 加载默认值均不再保留
+FP8 chat checkpoint。
 
 历史轻量双常驻实验：
 
@@ -710,7 +840,7 @@ BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh
 ```
 
-历史已验证 real-model run 完成 58 个 golden cases。当前活动矩阵为 43 个 case，模型栈发生变化后应重新运行。benchmark rows 和运行说明见 [model_baseline.md](../benchmarks/model_baseline.md)。
+历史已验证 real-model run 完成 58 个 golden cases。2026-08-24，恢复后的 vLLM-managed 路径通过当前 47-case matrix，包含 15 次 tool call、2 次 approval 和 1 个 memory candidate；Fast、Deep、Embedding 与 Guard 调用均为真实模型调用（`mock=0`），且没有 model error。强制 W4A4 结果因实验已回滚而只保留为历史记录。benchmark rows 和运行说明见 [model_baseline.md](../benchmarks/model_baseline.md)。
 
 ## Backup And Restore
 

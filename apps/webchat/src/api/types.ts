@@ -279,6 +279,7 @@ export type ReadyStatus = {
   model_mode: string;
   gateway_binding: string;
   speech: SpeechStatus;
+  resident_services: ResidentServiceStatus[];
   store?: {
     backend: "memory" | "file" | "postgres" | string;
     state: "starting" | "ready" | "unready" | "closing" | "closed" | string;
@@ -291,6 +292,14 @@ export type ReadyStatus = {
     degraded_at?: string;
     last_recovered_at?: string;
   };
+};
+
+export type ResidentServiceStatus = {
+  lane: "fast" | "embedding" | "guard" | "asr" | "ocr" | string;
+  backend: string;
+  model: string;
+  readiness: string;
+  last_call_status?: string;
 };
 
 export type SpeechStatus = {
@@ -541,13 +550,41 @@ export type MCPAccessRecordDeletion = {
   deleted_bindings: number;
 };
 
+export type IntegrationID = "infinimesh-info" | "localmind";
+
+export type IntegrationCredential = {
+  id: string;
+  label: string;
+  validated_at: string;
+  last_checked_at?: string;
+  state: string;
+  error_code?: string;
+  active: boolean;
+};
+
+export type IntegrationStatus = {
+  id: IntegrationID;
+  category: "data_provider" | "outbound_mcp";
+  configured: boolean;
+  source: "household" | "operator" | "none";
+  state: string;
+  editable: boolean;
+  checkable: boolean;
+  operator_available: boolean;
+  active_credential_id?: string;
+  credentials: IntegrationCredential[];
+  last_checked_at?: string;
+  error_code?: string;
+};
+
 export type PublicModelProfile = {
   name: string;
   base_url: string;
   model: string;
+  capacity_physical_model: string;
   context_tokens: number;
+  output_budgets: Record<string, number>;
   mtp: boolean;
-  max_tokens?: number;
 };
 
 export type PublicConfig = {
@@ -564,6 +601,7 @@ export type PublicConfig = {
     };
   };
   model: {
+    capacity_profile: string;
     mock: boolean;
     http_timeout_seconds?: number;
     disable_thinking?: boolean;

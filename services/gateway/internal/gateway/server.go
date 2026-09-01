@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
@@ -75,6 +76,7 @@ type Server struct {
 	providers                *delivery.ProviderRegistry
 	connectors               ConnectorController
 	mcp                      MCPController
+	integrations             IntegrationController
 	mcpAccess                *mcpaccess.Service
 	iscpPairing              *iscppairing.Service
 	externalApprovalResolver ExternalApprovalResolver
@@ -124,6 +126,16 @@ type MCPController interface {
 	Refresh(context.Context, string) (mcpintegration.Status, error)
 }
 
+type IntegrationController interface {
+	List(context.Context) []integrationconfig.Status
+	Get(context.Context, string) (integrationconfig.Status, error)
+	AddInfoCredential(context.Context, integrationconfig.AddInfoCredentialInput) (integrationconfig.Status, error)
+	AddLocalMindCredential(context.Context, integrationconfig.AddLocalMindCredentialInput) (integrationconfig.Status, error)
+	Activate(context.Context, string, string, bool) (integrationconfig.Status, error)
+	Check(context.Context, string, string) (integrationconfig.Status, error)
+	Delete(context.Context, string, string) (integrationconfig.Status, error)
+}
+
 type ExternalApprovalResolver interface {
 	Resolve(context.Context, app.Approval, app.ApprovalStatus) (resolvedElsewhere bool, err error)
 }
@@ -145,6 +157,12 @@ func WithMCPController(controller MCPController) Option {
 	}
 }
 
+func WithIntegrationController(controller IntegrationController) Option {
+	return func(server *Server) {
+		server.integrations = controller
+	}
+}
+
 func WithISCPPairing(service *iscppairing.Service) Option {
 	return func(server *Server) {
 		server.iscpPairing = service
@@ -160,7 +178,7 @@ func WithExternalApprovalResolver(resolver ExternalApprovalResolver) Option {
 func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
 	return func(server *Server) {
 		if transcriber != nil {
-			server.speech = transcriber
+			server.speech = speech.WithModelCallRecording(transcriber, server.store, server.cfg.Speech)
 		}
 	}
 }
@@ -353,6 +371,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notifications/events/stream", s.streamPassiveNotifications)
 	s.mux.HandleFunc("GET /api/connectors", s.listConnectors)
 	s.mux.HandleFunc("PATCH /api/connectors/{channel}", s.updateConnector)
+	s.mux.HandleFunc("GET /api/integrations", s.listIntegrations)
+	s.mux.HandleFunc("GET /api/integrations/{id}", s.getIntegration)
+	s.mux.HandleFunc("POST /api/integrations/infinimesh-info/credentials", s.addInfoCredential)
+	s.mux.HandleFunc("POST /api/integrations/localmind/credentials", s.addLocalMindCredential)
+	s.mux.HandleFunc("PUT /api/integrations/{id}/active-credential", s.activateIntegrationCredential)
+	s.mux.HandleFunc("POST /api/integrations/{id}/credentials/{credential_id}/check", s.checkIntegrationCredential)
+	s.mux.HandleFunc("DELETE /api/integrations/{id}/credentials/{credential_id}", s.deleteIntegrationCredential)
 	s.mux.HandleFunc("GET /api/mcp-servers", s.listMCPServers)
 	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
@@ -465,21 +490,27 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	speechStatus := s.speech.Status(r.Context())
+	residentServices, err := s.residentServiceStatuses(r.Context(), speechStatus)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
 	payload := map[string]any{
-		"ok":               true,
-		"workspace_root":   s.cfg.Workspaces.DefaultRoot,
-		"trace_dir":        s.cfg.Storage.TraceDir,
-		"artifact_backend": s.cfg.Storage.ArtifactBackend,
-		"artifact_dir":     s.cfg.Storage.ArtifactDir,
-		"artifact_bucket":  s.cfg.Storage.ArtifactBucket,
-		"state_backend":    s.cfg.State.Backend,
-		"state_path":       s.cfg.State.Path,
-		"state_dsn":        stateDSNStatus(s.cfg),
-		"auth_required":    s.authRequired(),
-		"rate_limit":       publicRateLimitConfig(s.cfg.Gateway.RateLimit),
-		"model_mode":       modelMode(s.cfg),
-		"gateway_binding":  s.Addr(),
-		"speech":           speechStatus,
+		"ok":                true,
+		"workspace_root":    s.cfg.Workspaces.DefaultRoot,
+		"trace_dir":         s.cfg.Storage.TraceDir,
+		"artifact_backend":  s.cfg.Storage.ArtifactBackend,
+		"artifact_dir":      s.cfg.Storage.ArtifactDir,
+		"artifact_bucket":   s.cfg.Storage.ArtifactBucket,
+		"state_backend":     s.cfg.State.Backend,
+		"state_path":        s.cfg.State.Path,
+		"state_dsn":         stateDSNStatus(s.cfg),
+		"auth_required":     s.authRequired(),
+		"rate_limit":        publicRateLimitConfig(s.cfg.Gateway.RateLimit),
+		"model_mode":        modelMode(s.cfg),
+		"gateway_binding":   s.Addr(),
+		"speech":            speechStatus,
+		"resident_services": residentServices,
 	}
 	if storeStatus != nil {
 		payload["store"] = storeStatus

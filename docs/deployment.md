@@ -23,7 +23,7 @@ for the containerized deployment path.
 Starting from a prepared DGX Spark host:
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 The project website can serve the repository's top-level `install.sh` unchanged
@@ -34,7 +34,9 @@ The streamed bootstrap and deployment entrypoints:
 
 1. Clone the configured branch/tag into `$HOME/SparkClaw`, or fast-forward an
    existing clean checkout. A checkout with local changes or a divergent history
-   is left untouched and reported as an error.
+   is left untouched and reported as an error. A clean checkout created with the
+   former official repository URL is migrated to the current origin after a
+   successful fast-forward; every other origin mismatch is rejected.
 2. Reattach stdin from the curl pipe to `/dev/tty`, allowing the Hugging Face
    token prompt to remain hidden and interactive.
 3. Require Linux/ARM64, NVIDIA GB10, at least 100 GiB of memory, Docker
@@ -62,13 +64,13 @@ file:
 
 ```bash
 export HF_TOKEN=hf_example
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 Install/update the repository and run only deployment preflight with:
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | \
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | \
   bash -s -- --check
 ```
 
@@ -99,6 +101,142 @@ over the private `sparkclaw_internal` network. Set
 are read from `.env`, and an invalid port fails before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
+
+## Cloud-Model Server Runtime
+
+Use the cloud runtime on a Linux server or VM that owns the SparkClaw
+application and durable state but not the model processes. It starts exactly
+PostgreSQL, Sandbox Runner, Gateway, and WebChat; the model services in the
+`models-local` profile are not selected.
+
+On an Ubuntu VM, run the streamed installer as a normal sudo-capable user:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
+```
+
+The bootstrap installs Git when necessary, safely clones or fast-forwards the
+repository under `$HOME/SparkClaw`, reconnects stdin to the terminal, and runs
+`scripts/deploy_cloud_vm.sh`. The VM deployment installs Docker Engine and the
+Compose plugin when necessary. Existing checkouts with tracked or untracked
+local changes are never overwritten.
+
+On the first run, the deployment prompts for the private Fast, embedding, and
+guard endpoints. Standard SparkClaw model names are filled automatically, while
+existing configured names are preserved. The logical Deep lane can reuse Fast
+or use a separate endpoint. The shared model API key is optional: submit an
+empty value when the endpoints do not require Bearer auth.
+Speech/ASR and OCR are optional and remain disabled unless their endpoints are
+provided. Operator-specific endpoint and credential values are never included
+in the repository; they are written only to the VM's ignored, mode-0600 `.env`
+file. Public service URLs used as documented deployment defaults may be
+recorded in versioned profiles.
+
+The hosted Fast endpoint at
+`https://sparkclaw.infinimesh.cloud/fast/v1` reported
+`max_model_len=262144` on 2026-08-28. The executable
+`infinimesh-online-fast-v1` entry in `configs/model.profiles.json` records that
+physical window and maps both logical chat lanes to it. Gateway has no separate
+input ceiling: each typed operation reserves its profile-owned output-class
+budget from the physical `context_tokens`, and Model Router admits the complete
+rendered request. The profile currently assigns 2,048 tokens to compact
+structured Fast output, 8,192 to Workflow structured and answer output, and
+4,096 to Fast vision output. Missing, zero, or illegal capacity prevents profile
+loading; legacy per-lane capacity variables are rejected.
+
+The cloud workload limits remain semantic evidence boundaries rather than
+competing model windows. The 200,000-byte document extraction contract
+tokenized to about 49,700 tokens at the hosted endpoint, the 96,000-byte run
+observation window adds about 24,000 tokens, and 1,461 saved traces had a
+13,278-token maximum model prompt. The cloud profile therefore raises
+`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` to 200,000 and the run
+observation boundaries to compaction at 72,000 bytes with a 96,000-byte hard
+stop; browser evidence remains 8,000 bytes, observation envelopes remain 2,400
+bytes, and `observation.read` remains 32,768 bytes per call with two calls per
+stage.
+
+The current cloud overlay is a trusted-LAN profile and explicitly disables the
+optional Gateway owner-token authentication boundary. WebChat therefore opens
+without a token prompt. A normal deployment also clears a legacy
+`SPARKCLAW_API_TOKEN` value, and readiness rejects a cloud runtime that still
+reports `auth_required: true`.
+
+The command builds and starts PostgreSQL, Sandbox Runner, Gateway, and WebChat.
+The Gateway image installs Chromium, `agent-browser`, Xvfb, Chinese/emoji fonts,
+and ffmpeg. Deployment succeeds only after both Gateway readiness and a
+container-local Chromium open/snapshot smoke test pass. Browser state persists
+under `data/browser-profiles`. No Ubuntu desktop or host Chromium package is
+required.
+
+Hidden Chromium works on a headless VM. Weixin QR login is different: it opens
+a visible Chromium window on the VM owner's desktop so the owner can scan it.
+When the cloud start script resolves a local X11/XWayland display, it
+automatically stacks `docker/compose.visible-browser.yaml` and prints `Visible
+Chromium display: ...`. If no display is available, deployment remains healthy
+with hidden Chromium only and prints an explicit warning; opening the Weixin
+login window will then fail by design. The window appears on the VM desktop,
+not on a different computer that merely opened WebChat.
+
+Run the deployment from the VM desktop session, or use the PVE console to log
+in to that desktop, then reconcile the stack:
+
+```bash
+cd "$HOME/SparkClaw"
+bash scripts/resolve-browser-display.sh
+bash scripts/start_cloud_compose.sh
+```
+
+The resolver tests each socket with the available Xauthority files, ignores
+initialization or stale sockets that cannot open an X11 connection, and chooses
+the lowest-numbered usable display when several are available. To override that
+automatic choice, set the display and its authority file before the second
+command:
+
+```bash
+export SPARKCLAW_BROWSER_DISPLAY=:2
+export SPARKCLAW_BROWSER_XAUTHORITY=/path/to/that/display/Xauthority
+bash scripts/start_cloud_compose.sh
+```
+
+Do not use a synthetic Xvfb display for QR login: it is suitable for hidden
+automation but is not an owner-visible scan surface.
+
+Re-run the repository deployment entrypoint to reconcile the runtime without
+updating the checkout:
+
+```bash
+bash "$HOME/SparkClaw/scripts/deploy_cloud_vm.sh"
+```
+
+Re-enter the private configuration or perform a read-only deployment check:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
+  bash -s -- --configure
+
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
+  bash -s -- --check
+```
+
+SparkClaw appends `/chat/completions` or `/embeddings` to the model base URLs.
+The current model router uses one optional `OPENAI_API_KEY` for Fast, Deep,
+embedding, and guard; use a trusted compatibility proxy when providers require
+different credentials or headers. The speech adapter expects its service root
+because it appends `/v1/audio/*`; OCR expects an OpenAI-compatible base URL.
+
+The cloud overlay gives the four application services `restart: unless-stopped`,
+and the installer enables Docker so they recover after a host
+reboot. Gateway remains Docker-internal; WebChat publishes `18790` by default
+and is reachable at `http://<vm-ip>:18790`. This test topology does not install
+TLS or firewall rules and must remain on a trusted LAN: every device that can
+reach the WebChat port can operate SparkClaw. Do not install the DGX Spark
+autostart unit because that unit owns local NVIDIA model reconciliation.
 
 ## Product Runtime
 
@@ -187,7 +325,7 @@ ip -4 -o addr show scope global
 
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh
+bash scripts/restart_jingsi_lan_compose.sh online
 ```
 
 This adds only the exact presentation allowlist on port `18793` (override
@@ -496,10 +634,19 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 For model-backed operation, recreate Gateway in external mode after the selected endpoints are healthy:
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh online
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. It loads `docker/env/sparkclaw.single-fast.env`, `docker/env/sparkclaw.asr.env`, and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks the ASR and OCR overlays. This selects PostgreSQL, keeps both logical chat profiles mapped to Fast, and enables speech transcription and document OCR against the co-resident services. The script starts and waits for PostgreSQL when Gateway is requested, then checks `/readyz` with a bounded request and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the ASR and OCR environments remain part of this product runtime.
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. Its required first argument selects exactly one chat/runtime profile: `online` loads `docker/env/sparkclaw.online-fast.env`, while `local` loads `docker/env/sparkclaw.single-fast.env`. The script does not infer the profile from running model containers and does not read a profile selector from `.env`. After the selected profile, it loads the ASR and OCR environments and overlays. Both chat profiles select PostgreSQL and preserve local embedding, guard, speech, and OCR services; only the logical Fast and Deep endpoint changes.
+
+The named npm commands expose the same explicit switch. `npm run dev:gateway` is an alias for the online command on this machine:
+
+```bash
+npm run dev:gateway:online
+npm run dev:gateway:local
+```
+
+When Gateway is requested, the script starts and waits for PostgreSQL, then checks `/readyz` with a bounded request and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. The ASR and OCR environments remain part of both product runtimes.
 
 When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
 
@@ -579,21 +726,28 @@ startup and is not part of the current single-Fast readiness check.
 
 Important environment variables:
 
-- `SPARKCLAW_VLLM_IMAGE`
+- `SPARKCLAW_MODEL_CAPACITY_PROFILE` (required executable entry in `configs/model.profiles.json`; the catalog owns physical windows and output-class budgets)
+- `SPARKCLAW_MODEL_CAPACITY_CATALOG` (advanced host-script/catalog path override; product containers use the mounted versioned catalog)
+- `SPARKCLAW_VLLM_IMAGE` (embedding, guard, and ASR base image)
+- `SPARKCLAW_CHAT_VLLM_IMAGE` (Fast/Deep chat image; defaults to vLLM 0.24.0 for NVFP4)
 - `SPARKCLAW_FORCE_MODEL_RECREATE` (`false` by default; set `true` for one explicit full model-group refresh)
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
-- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
-- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
+- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
-- `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_PROVIDER` (`openai-http`, the default and only adapter today; `disabled` turns the adapter off explicitly), `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
-- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
+- `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_PROVIDER` (`openai-http`, the default and only adapter today; `disabled` turns the adapter off explicitly), `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
+- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`
 
 Use `*_MODEL_ID` for the Hugging Face checkpoint loaded by the serving container and `*_MODEL` for the OpenAI-compatible served name sent by Gateway.
+Fast, Deep, Embedding, Guard, and OCR context/output capacity does not have an
+environment override. Supplying a retired `*_CONTEXT_TOKENS`,
+`*_MAX_INPUT_TOKENS`, `*_MAX_TOKENS`, or `*_MAX_MODEL_LEN` capacity variable
+fails configuration instead of changing or repairing the selected profile.
 
 ### Dedicated Qwen3Guard
 
@@ -638,7 +792,7 @@ curl -fsS http://127.0.0.1:8007/v1/models
 Run Gateway and WebChat with the matching OCR adapter configuration:
 
 ```bash
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 For host-side doctor checks, keep the Compose service URL for Gateway and
@@ -744,7 +898,7 @@ Current single-Fast product startup:
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
 This applies the single-Fast, ASR, and OCR environments plus the bounded service
@@ -752,7 +906,11 @@ settings from `docker/compose.dual-light.yaml`, `docker/compose.asr.yaml`, and
 `docker/compose.ocr.yaml`. Fast, embedding, guard, ASR, and OCR start together.
 Gateway sends both logical chat profiles to `sparkclaw-fast`, uses
 `sparkclaw-asr` for speech transcription, and uses `sparkclaw-ocr` for document
-OCR.
+OCR. The chat endpoint loads `nvidia/Qwen3.6-35B-A3B-NVFP4` through the
+dedicated vLLM 0.24.0 image. SparkClaw supplies the checkpoint ID and capacity
+budgets only; vLLM reads the ModelOpt metadata and owns activation precision,
+quantization dispatch, and kernel/backend selection. No product or targeted
+chat-loading default retains an FP8 chat checkpoint.
 
 Historical light dual-residency experiment:
 
@@ -786,7 +944,7 @@ BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh
 ```
 
-The historical validated real-model run completed 58 golden cases. The active matrix now contains 43 cases and should be rerun after model-stack changes. See [model_baseline.md](../benchmarks/model_baseline.md) for benchmark rows and operating notes.
+The historical validated real-model run completed 58 golden cases. On 2026-08-24, the restored vLLM-managed path passed the current 47-case matrix with 15 tool calls, 2 approvals and 1 memory candidate; all Fast, Deep, Embedding and Guard calls were real (`mock=0`) with no model errors. The forced-W4A4 result remains historical because that experiment was rolled back. See [model_baseline.md](../benchmarks/model_baseline.md) for benchmark rows and operating notes.
 
 ## Backup And Restore
 

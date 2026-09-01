@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -122,7 +123,7 @@ func TestDirectoryRelevanceUsesOwnerQueryAndDefinitionMetadata(t *testing.T) {
 
 func TestDynamicToolDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testing.T) {
 	const directoryLimit = 16
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	st := store.NewMemoryStore()
 	hub := toolhub.New(cfg, st)
 	defer hub.Close()
@@ -289,7 +290,7 @@ func TestToolExposureRejectsViewAfterRuntimeRestart(t *testing.T) {
 }
 
 func TestToolExposureAppliesStaticPolicyBeforeRanking(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Security.DeniedTools = []string{"web.search"}
 	_, engine, request := newWebExposureFixture(t, &cfg)
 	view, err := engine.Search(context.Background(), request)
@@ -322,7 +323,7 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 		{name: "exact target absent", pages: []any{map[string]any{"page_id": "page_8", "url": "https://other.example/"}}, wantTool: "browser.open", wantStage: "open_new"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := config.Default()
+			cfg := configtest.MustLoadDefault()
 			cfg.Tools.BrowserAutomation.Enabled = true
 			st := store.NewMemoryStore()
 			hub := toolhub.New(cfg, st)
@@ -427,7 +428,7 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 
 func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.MemoryStore, *toolExposureEngine, app.ExposureRequest) {
 	t.Helper()
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	if cfgOverride != nil {
 		cfg = *cfgOverride
 	}

@@ -22,10 +22,14 @@
 | [Workflow 执行](workflow-execution.md) | Workflow 原生执行流水线、步骤循环及其协议、预算、恢复语义和扩展点 |
 | [Workflow 证据所有权与复用](workflow-evidence-ownership.md) | 正在迁移的 Runtime/模型职责、单次采集多消费者复用、类型化 locator 绑定和 Profile 迁移门槛 |
 | [意图路由](intent-routing.md) | 语义图、embedding 与 Fast/Tree 融合、Top-2 grounding 和单叶子分发 |
+| [有界上下文历史读取与 Invocation 快照设计](context-history-query-design.md) | 已接受的一次性有界 Store 读取、固定 8/6/4/3 选择，以及不使用 cursor 或持久化 anchor 的单份进程内 invocation snapshot |
+| [Tree 同 Session 上下文一致性设计](tree-session-context-parity-design.md) | 已接受的共享选中历史源与整体 prompt admission，以及已实施的 strict Tree 评分 JSON 结构加固 |
+| [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
+| [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |
 | [WebChat 语音输入闭环设计](webchat-voice-input-design.md) | Phase 1 稳定采集闭环，以及 Phase 2 native record-time ASR、partial/final reconciliation、silence stop 与 batch fallback 设计；LLM 润色推迟到 Phase 3 |
 | [WebChat 语音 Phase 2 设计](webchat-voice-phase2-design.md) | 规范性的 native record-time Qwen ASR transport、revisioned partial/final output、silence auto-stop、完整 WAV fallback 与 acceptance gate |
 | [JingSi 局域网 Web 客户端互联](jingsi-lan-connection-design.md) | SparkClaw 侧已实现：专用 allowlisted LAN port 上一个服务端绑定 WebChat session、文本发送和过滤后的实时/补拉消息投影；JingSi client 改造与实体验证仍待完成 |
@@ -34,6 +38,7 @@
 | [通用外部 MCP 安全防护](generic-mcp-safeguards-design.md) | 通用 catalog 过滤/分类，以及与固定 LocalMind task adapter 共享的有界脱敏结果和 approval 持久化防护 |
 | [按 Owner 的 Connector 启用](connector-owner-runtime-design.md) | Issue #13 已接受设计：owner 隔离 setting、共享 channel worker、缓存一致性、排空语义与重启协调 |
 | [WebChat](webchat.md) | owner 工作台职责、API 权威、刷新模型和前端验证 |
+| [设置与集成配置](settings-integration-configuration-design.md) | 已实现的设置目录，以及 Info 和出站 LocalMind MCP 的家庭级加密多凭据配置 |
 
 ## 运维与治理
 
@@ -45,13 +50,14 @@
 | [Issue #18 文档操作契约](issue-18-document-operation-contract-design.md) | 已实现的 canonical format-operation catalog、统一 source-hash contract 与 runtime-only provenance 边界 |
 | [Issue #20 巨型文件拆分](issue-20-god-file-split-design.md) | 已实现的行为不变 panel、CSS、i18n、ToolHub 测试与内嵌 PPTX package 拆分 |
 | [模型基线](../benchmarks/model_baseline.md) | 模型端点实测证据和运行边界 |
+| [聊天模型对比（2026-08-25）](../benchmarks/model_comparison_2026-08-25.md) | 四个本地聊天模型的生产形状 Fast/Deep 质量、延迟、常驻与 promotion 证据 |
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
 | [Store](store.md) | 类型化 repository、风险分级可靠性、三 backend、内嵌 PostgreSQL migration、Runtime 监管、source layout 与验证；已完成的 S0-S5 迁移的长期规则并入本文，阶段计划保留在 Git 历史中 |
 | [ASR runtime CI](asr-runtime-ci-design.md) | 独立轻量 fake-model ASR 依赖、协议测试、cleanup 和 CI 契约 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
 | [Info 上游聚合结果消费](info-aggregate-result-consumption-design.md) | 已实现的 Info `answer_context` 类型化、无二次聚合消费方案，覆盖 citation、limitation 与 Info 最终浏览器顺序契约 |
-| [PPTX 超长文本韧性适配](pptx-overlength-resilience-design.md) | Phase 0 No-Go 报告与受限渲染检查设计；生产行为保持不变 |
+| [PPTX 最终渲染视觉质量门禁](pptx-final-render-visual-qa-design.md) | 已实施 Phase 1 shadow：固定 LibreOffice/pypdfium2/配置 Fast 审查变更页；自动修复与密封发布仍受门禁控制 |
 | [DOCX 编辑](docx-editing-optimization.md) | 当前 DOCX 样式验证、证据绑定、run 保真、coverage、目标感知 decision 投影与评测契约 |
 | [观测压缩重构](observation-compression-redesign.md) | 已实施的统一工具结果信封、运行时证据供给与无损压缩 |
 | [暂缓能力](deferred-email-calendar-knowledge.md) | 已移除的邮件、日历、workspace knowledge 原型及重新引入门槛 |

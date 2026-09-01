@@ -13,4 +13,4 @@ fi
 # Fast, embedding, guard, and OCR. Do not start product models independently.
 bash scripts/serve_models_compose.sh single-fast
 
-exec bash scripts/restart_runtime_compose.sh
+exec bash scripts/restart_runtime_compose.sh local

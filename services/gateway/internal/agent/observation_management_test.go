@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -375,7 +374,7 @@ func TestObservationReadStageQuotaExcludesBusinessRunAccounting(t *testing.T) {
 	result := runtime.runWorkflowStepLoop(context.Background(), session.ID, run, content, workflowStageContext{
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: nodeID, ScopeRevision: 1, Capability: primary.Capabilities[0].Name,
 		RequiresToolEvidence: true, ModelLaneHint: workflowExecutionModelLane,
-	}, []app.ToolDefinition{primary, support}, nil, nil, runBudget)
+	}, []app.ToolDefinition{primary, support}, nil, nil, runBudget, agentContextSnapshot{})
 	if len(result.ToolCalls) != 2 || result.FailureCode != workflowFailureObservationReadLimit {
 		t.Fatalf("stage quota did not allow exactly two reads before blocking a repeated violation: calls=%d failure=%q", len(result.ToolCalls), result.FailureCode)
 	}
@@ -424,21 +423,19 @@ func TestContextBuilderDegradesLowerPrioritySectionFirst(t *testing.T) {
 	}
 }
 
-func TestContextBuilderHardTruncatesUTF8AndPreservesFixedTail(t *testing.T) {
+func TestContextBuilderRejectsInsteadOfTruncatingFixedOwnerGoal(t *testing.T) {
 	tail := "fixed output contract"
+	goal := strings.Repeat("目标内容", 400)
 	builder := contextBuilder{Sections: []contextSection{
-		truncatableContextSection("owner_goal", 10, contextChannelUser, strings.Repeat("目标内容", 400), contextTruncateHeadTail),
+		fixedContextSection("owner_goal", 1000, contextChannelUser, goal),
 		fixedContextSection("output_contract", 1000, contextChannelUser, tail),
 	}}
 	admission, err := builder.Admit(120)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, errPromptFixedSectionsOversized) {
+		t.Fatalf("oversized fixed owner goal was admitted: %v", err)
 	}
-	if !utf8.ValidString(admission.User) || estimatePromptTokens(admission.System, admission.User) > 120 {
-		t.Fatalf("hard-truncated prompt is invalid or oversized: tokens=%d", estimatePromptTokens(admission.System, admission.User))
-	}
-	if !strings.Contains(admission.User, "[prompt_truncated=true kind=owner_goal omitted_bytes=") || !strings.HasSuffix(admission.User, tail) {
-		t.Fatalf("hard truncation marker or fixed tail is missing: %s", admission.User)
+	if !strings.Contains(admission.User, goal) || !strings.HasSuffix(admission.User, tail) || strings.Contains(admission.User, "prompt_truncated") {
+		t.Fatalf("fixed owner goal changed during failed admission: %s", admission.User)
 	}
 }
 
@@ -459,7 +456,6 @@ func TestContextSnapshotCompactVariantsAreMeaningfullySmaller(t *testing.T) {
 	}
 	for index := 0; index < 4; index++ {
 		snapshot.Episodes = append(snapshot.Episodes, app.EpisodeSummary{Goal: strings.Repeat("goal ", 40), Outcome: "completed", Summary: strings.Repeat("summary ", 50), Failures: []string{"none"}})
-		snapshot.Memories = append(snapshot.Memories, app.Memory{Kind: "preference", Content: strings.Repeat("memory ", 50)})
 	}
 	for index := 0; index < 6; index++ {
 		snapshot.ToolResults = append(snapshot.ToolResults, app.ToolCall{ID: app.NewID("tc"), Tool: "files.read", Status: app.ToolCallStatusCompleted, ObservationSummary: strings.Repeat("tool evidence ", 100)})

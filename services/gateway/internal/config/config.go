@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
@@ -94,6 +95,8 @@ type RateLimitConfig struct {
 }
 
 type ModelConfig struct {
+	CapacityProfile    string       `json:"capacity_profile"`
+	CapacityCatalog    string       `json:"capacity_catalog"`
 	Fast               ModelProfile `json:"fast"`
 	Deep               ModelProfile `json:"deep"`
 	Embedding          ModelProfile `json:"embedding"`
@@ -104,12 +107,13 @@ type ModelConfig struct {
 }
 
 type ModelProfile struct {
-	Name          string `json:"name"`
-	BaseURL       string `json:"base_url"`
-	Model         string `json:"model"`
-	ContextTokens int    `json:"context_tokens"`
-	MTP           bool   `json:"mtp"`
-	MaxTokens     int    `json:"max_tokens"`
+	Name                  string                                  `json:"name"`
+	BaseURL               string                                  `json:"base_url"`
+	Model                 string                                  `json:"model"`
+	MTP                   bool                                    `json:"mtp"`
+	CapacityPhysicalModel string                                  `json:"-"`
+	ContextTokens         int                                     `json:"-"`
+	OutputBudgets         map[modelcapacity.OutputBudgetClass]int `json:"-"`
 }
 
 type SpeechConfig struct {
@@ -296,6 +300,7 @@ type SandboxConfig struct {
 type AdapterConfig struct {
 	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
 	DocumentOCR       DocumentOCRAdapterConfig       `json:"documentOCR"`
+	PPTXVisualQA      PPTXVisualQAAdapterConfig      `json:"pptxVisualQA"`
 }
 
 type BrowserAutomationAdapterConfig struct {
@@ -320,9 +325,30 @@ type DocumentOCRAdapterConfig struct {
 	TimeoutSeconds int      `json:"timeoutSeconds"`
 	MaxUploadBytes int64    `json:"maxUploadBytes"`
 	MaxOutputBytes int      `json:"maxOutputBytes"`
-	MaxTokens      int      `json:"maxTokens"`
+	MaxTokens      int      `json:"-"`
+	ContextTokens  int      `json:"-"`
 	MaxConcurrency int      `json:"maxConcurrency"`
 	MaxPending     int      `json:"maxPending"`
+}
+
+type PPTXVisualQAAdapterConfig struct {
+	Phase                     string   `json:"phase"`
+	RepairQualifiedClasses    []string `json:"repairQualifiedClasses"`
+	RepairQualifiedOperations []string `json:"repairQualifiedOperations"`
+	BlockingQualifiedClasses  []string `json:"blockingQualifiedClasses"`
+	MaxRepairAttempts         int      `json:"maxRepairAttempts"`
+	BaseURL                   string   `json:"baseUrl"`
+	AllowedHosts              []string `json:"allowedHosts"`
+	TimeoutSeconds            int      `json:"timeoutSeconds"`
+	MaxInputBytes             int64    `json:"maxInputBytes"`
+	MaxPDFBytes               int64    `json:"maxPDFBytes"`
+	MaxPages                  int      `json:"maxPages"`
+	MaxChangedPages           int      `json:"maxChangedPages"`
+	RasterScale               float64  `json:"rasterScale"`
+	MaxPagePixels             int64    `json:"maxPagePixels"`
+	MaxPNGBytes               int      `json:"maxPNGBytes"`
+	DiagnosticToleranceMilli  int      `json:"diagnosticToleranceMilli"`
+	ReadinessTTLSeconds       int      `json:"readinessTTLSeconds"`
 }
 
 type WorkspaceConfig struct {
@@ -452,9 +478,13 @@ type toolPolicyFile struct {
 
 func Load(path string) (Config, error) {
 	cfg := Default()
+	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 	if path != "" {
 		raw, err := os.ReadFile(path)
 		if err != nil {
+			return Config{}, err
+		}
+		if err := rejectLegacyModelCapacity(raw); err != nil {
 			return Config{}, err
 		}
 		if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -462,6 +492,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 	if err := applyEnv(&cfg); err != nil {
+		return Config{}, err
+	}
+	if err := applySelectedModelCapacity(&cfg, path); err != nil {
 		return Config{}, err
 	}
 	if err := applyInfinimeshInfoCredentials(&cfg); err != nil {
@@ -589,6 +622,9 @@ func Load(path string) (Config, error) {
 	if err := normalizeDocumentOCRConfig(&cfg.Adapters.DocumentOCR); err != nil {
 		return Config{}, err
 	}
+	if err := normalizePPTXVisualQAConfig(&cfg.Adapters.PPTXVisualQA); err != nil {
+		return Config{}, err
+	}
 	if err := validateModelConfig(&cfg.Model); err != nil {
 		return Config{}, err
 	}
@@ -658,6 +694,17 @@ func normalizeJingSiRuntimeConfig(cfg *Config) error {
 		return errors.New("JingSi Runtime bearer token must contain at least 16 characters")
 	}
 	return nil
+}
+
+// LoadDefault resolves the default model-capacity profile without applying
+// file or environment overrides. Runtime entrypoints should use Load.
+func LoadDefault() (Config, error) {
+	cfg := Default()
+	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
+	if err := applySelectedModelCapacity(&cfg, ""); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 func normalizeISCPPairingConfig(pairing *ISCPPairingConfig) error {
@@ -980,8 +1027,8 @@ func normalizeRemindersConfig(reminders *RemindersToolConfig) error {
 }
 
 // validateModelConfig rejects a non-mock model configuration whose core chat
-// profiles have no endpoint, so a missing base_url fails at load time instead
-// of at the first model call.
+// profiles have no endpoint. Capacity itself has already been loaded and
+// validated from the selected catalog profile.
 func validateModelConfig(model *ModelConfig) error {
 	if model.Mock {
 		return nil
@@ -1193,8 +1240,8 @@ func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
 	if ocr.MaxOutputBytes <= 0 {
 		ocr.MaxOutputBytes = defaults.MaxOutputBytes
 	}
-	if ocr.MaxTokens <= 0 {
-		ocr.MaxTokens = defaults.MaxTokens
+	if ocr.MaxTokens <= 0 || ocr.ContextTokens <= 0 || ocr.MaxTokens >= ocr.ContextTokens {
+		return errors.New("document OCR capacity must come from a valid selected model capacity profile")
 	}
 	if ocr.MaxConcurrency <= 0 {
 		ocr.MaxConcurrency = defaults.MaxConcurrency
@@ -1241,9 +1288,6 @@ func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
 	if ocr.MaxOutputBytes < 1024 || ocr.MaxOutputBytes > 2<<20 {
 		return errors.New("document OCR output limit must be between 1024 and 2097152 bytes")
 	}
-	if ocr.MaxTokens > 32768 {
-		return errors.New("document OCR maxTokens must not exceed 32768")
-	}
 	if ocr.MaxConcurrency > 8 {
 		return errors.New("document OCR maxConcurrency must not exceed 8")
 	}
@@ -1251,6 +1295,127 @@ func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
 		return errors.New("document OCR maxPending must not exceed 32")
 	}
 	return nil
+}
+
+func normalizePPTXVisualQAConfig(visual *PPTXVisualQAAdapterConfig) error {
+	defaults := Default().Adapters.PPTXVisualQA
+	visual.Phase = strings.ToLower(strings.TrimSpace(visual.Phase))
+	if visual.Phase == "" {
+		visual.Phase = defaults.Phase
+	}
+	if visual.TimeoutSeconds <= 0 {
+		visual.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if visual.MaxInputBytes <= 0 {
+		visual.MaxInputBytes = defaults.MaxInputBytes
+	}
+	if visual.MaxPDFBytes <= 0 {
+		visual.MaxPDFBytes = defaults.MaxPDFBytes
+	}
+	if visual.MaxPages <= 0 {
+		visual.MaxPages = defaults.MaxPages
+	}
+	if visual.MaxChangedPages <= 0 {
+		visual.MaxChangedPages = defaults.MaxChangedPages
+	}
+	if visual.RasterScale <= 0 {
+		visual.RasterScale = defaults.RasterScale
+	}
+	if visual.MaxPagePixels <= 0 {
+		visual.MaxPagePixels = defaults.MaxPagePixels
+	}
+	if visual.MaxPNGBytes <= 0 {
+		visual.MaxPNGBytes = defaults.MaxPNGBytes
+	}
+	if visual.DiagnosticToleranceMilli <= 0 {
+		visual.DiagnosticToleranceMilli = defaults.DiagnosticToleranceMilli
+	}
+	if visual.ReadinessTTLSeconds <= 0 {
+		visual.ReadinessTTLSeconds = defaults.ReadinessTTLSeconds
+	}
+	if !slices.Contains([]string{"disabled", "shadow", "warning", "qualified_blocking", "default_on"}, visual.Phase) {
+		return fmt.Errorf("unsupported PPTX visual QA phase %q", visual.Phase)
+	}
+	if visual.MaxRepairAttempts < 0 || visual.MaxRepairAttempts > 2 {
+		return errors.New("PPTX visual QA maxRepairAttempts must be between 0 and 2")
+	}
+	repairable := []string{
+		"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph", "broken_layout", "low_contrast",
+		"text_too_small", "overcrowded", "misaligned", "weak_hierarchy", "poor_whitespace", "unclear_focus", "inconsistent_style",
+	}
+	blocking := []string{"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph"}
+	repairOperations := []string{"rewrite_text", "set_geometry", "set_text_style", "set_shape_style", "place_above", "place_below", "delete_generated_shape"}
+	var qualificationErr error
+	visual.RepairQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedClasses, repairable, "repairQualifiedClasses")
+	if qualificationErr != nil {
+		return qualificationErr
+	}
+	visual.RepairQualifiedOperations, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedOperations, repairOperations, "repairQualifiedOperations")
+	if qualificationErr != nil {
+		return qualificationErr
+	}
+	visual.BlockingQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.BlockingQualifiedClasses, blocking, "blockingQualifiedClasses")
+	if qualificationErr != nil {
+		return qualificationErr
+	}
+	for _, class := range visual.BlockingQualifiedClasses {
+		if !slices.Contains(visual.RepairQualifiedClasses, class) {
+			return fmt.Errorf("PPTX visual QA blocking class %q must also be repair-qualified", class)
+		}
+	}
+	if visual.MaxChangedPages > visual.MaxPages {
+		return errors.New("PPTX visual QA maxChangedPages cannot exceed maxPages")
+	}
+	if visual.MaxPages > 200 || visual.MaxChangedPages > 64 {
+		return errors.New("PPTX visual QA page limits exceed the implementation bounds")
+	}
+	if visual.RasterScale < 0.5 || visual.RasterScale > 4 {
+		return errors.New("PPTX visual QA rasterScale must be between 0.5 and 4")
+	}
+	if visual.DiagnosticToleranceMilli > 25 {
+		return errors.New("PPTX visual QA diagnosticToleranceMilli must not exceed 25")
+	}
+	visual.AllowedHosts = normalizeHostList(visual.AllowedHosts)
+	if visual.Phase == "disabled" {
+		return nil
+	}
+	parsed, err := url.Parse(strings.TrimSpace(visual.BaseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return errors.New("PPTX visual QA base URL must be an absolute http or https URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("PPTX visual QA base URL must use http or https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("PPTX visual QA base URL must not contain credentials, query, or fragment")
+	}
+	if !containsFold(visual.AllowedHosts, parsed.Hostname()) {
+		return fmt.Errorf("PPTX visual QA base URL host %q is not allowlisted", parsed.Hostname())
+	}
+	if parsed.Scheme == "http" && !isLocalHTTPHost(parsed.Hostname()) {
+		return errors.New("PPTX visual QA base URL may use http only for loopback, private, or local container hosts")
+	}
+	visual.BaseURL = strings.TrimRight(parsed.String(), "/")
+	return nil
+}
+
+func normalizePPTXVisualQAClasses(values, allowed []string, field string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if !slices.Contains(allowed, value) {
+			return nil, fmt.Errorf("unsupported PPTX visual QA %s value %q", field, value)
+		}
+		if slices.Contains(out, value) {
+			return nil, fmt.Errorf("duplicate PPTX visual QA %s value %q", field, value)
+		}
+		out = append(out, value)
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 func isLocalHTTPHost(host string) bool {
@@ -1286,7 +1451,7 @@ func containsFold(values []string, target string) bool {
 }
 
 func Default() Config {
-	return Config{
+	cfg := Config{
 		Gateway: GatewayConfig{
 			Bind:            "127.0.0.1",
 			Port:            18789,
@@ -1306,6 +1471,8 @@ func Default() Config {
 			Enabled: false, StateDir: "./data/jingsi-runtime-v1", MaxConcurrent: 4,
 		},
 		Model: ModelConfig{
+			CapacityProfile:    "dgx-spark-dual-light-v1",
+			CapacityCatalog:    defaultModelCapacityCatalog,
 			Mock:               false,
 			HTTPTimeoutSeconds: 300,
 			// Matches configs/sparkclaw.default.json: the local model
@@ -1313,33 +1480,26 @@ func Default() Config {
 			// guard lane's 128) are spent on the answer, not reasoning.
 			DisableThinking: true,
 			Fast: ModelProfile{
-				Name:          "sparkclaw-fast",
-				BaseURL:       "http://127.0.0.1:8001/v1",
-				Model:         "Qwen/Qwen3.6-35B-A3B-FP8",
-				ContextTokens: 131072,
-				MTP:           true,
-				MaxTokens:     1024,
+				Name:    "sparkclaw-fast",
+				BaseURL: "http://127.0.0.1:8001/v1",
+				Model:   "nvidia/Qwen3.6-35B-A3B-NVFP4",
+				MTP:     false,
 			},
 			Deep: ModelProfile{
-				Name:          "sparkclaw-deep",
-				BaseURL:       "http://127.0.0.1:8002/v1",
-				Model:         "Qwen/Qwen3.6-27B-FP8",
-				ContextTokens: 131072,
-				MTP:           true,
-				MaxTokens:     2048,
+				Name:    "sparkclaw-deep",
+				BaseURL: "http://127.0.0.1:8002/v1",
+				Model:   "nvidia/Qwen3.6-35B-A3B-NVFP4",
+				MTP:     false,
 			},
 			Embedding: ModelProfile{
-				Name:          "sparkclaw-embedding",
-				BaseURL:       "http://127.0.0.1:8003/v1",
-				Model:         "Qwen/Qwen3-Embedding-0.6B",
-				ContextTokens: 32768,
+				Name:    "sparkclaw-embedding",
+				BaseURL: "http://127.0.0.1:8003/v1",
+				Model:   "Qwen/Qwen3-Embedding-0.6B",
 			},
 			Guard: ModelProfile{
-				Name:          "sparkclaw-guard",
-				BaseURL:       "http://127.0.0.1:8005/v1",
-				Model:         "Qwen/Qwen3Guard-Gen-0.6B",
-				ContextTokens: 32768,
-				MaxTokens:     128,
+				Name:    "sparkclaw-guard",
+				BaseURL: "http://127.0.0.1:8005/v1",
+				Model:   "Qwen/Qwen3Guard-Gen-0.6B",
 			},
 		},
 		Speech: SpeechConfig{
@@ -1467,9 +1627,25 @@ func Default() Config {
 				TimeoutSeconds: 120,
 				MaxUploadBytes: 12 << 20,
 				MaxOutputBytes: 1 << 20,
-				MaxTokens:      16384,
 				MaxConcurrency: 2,
 				MaxPending:     2,
+			},
+			PPTXVisualQA: PPTXVisualQAAdapterConfig{
+				Phase:                     "disabled",
+				RepairQualifiedClasses:    []string{},
+				RepairQualifiedOperations: []string{},
+				BlockingQualifiedClasses:  []string{},
+				MaxRepairAttempts:         2,
+				TimeoutSeconds:            120,
+				MaxInputBytes:             64 << 20,
+				MaxPDFBytes:               64 << 20,
+				MaxPages:                  100,
+				MaxChangedPages:           20,
+				RasterScale:               1.5,
+				MaxPagePixels:             20_000_000,
+				MaxPNGBytes:               12 << 20,
+				DiagnosticToleranceMilli:  2,
+				ReadinessTTLSeconds:       300,
 			},
 		},
 		Memory: MemoryConfig{
@@ -1527,9 +1703,13 @@ func Default() Config {
 			RedactPatterns: []string{"api_key", "password", "token", "ssh_key"},
 		},
 	}
+	return cfg
 }
 
 func applyEnv(cfg *Config) error {
+	if err := rejectLegacyModelCapacityEnv(); err != nil {
+		return err
+	}
 	if v := os.Getenv("SPARKCLAW_BIND"); v != "" {
 		cfg.Gateway.Bind = v
 	}
@@ -1769,16 +1949,6 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_FAST_SERVED_NAME"); v != "" {
 		cfg.Model.Fast.Name = v
 	}
-	if v := os.Getenv("SPARKCLAW_FAST_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Fast.MaxTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_FAST_CONTEXT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Fast.ContextTokens = tokens
-		}
-	}
 	if v := os.Getenv("SPARKCLAW_DEEP_BASE_URL"); v != "" {
 		cfg.Model.Deep.BaseURL = v
 	}
@@ -1787,16 +1957,6 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("SPARKCLAW_DEEP_SERVED_NAME"); v != "" {
 		cfg.Model.Deep.Name = v
-	}
-	if v := os.Getenv("SPARKCLAW_DEEP_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Deep.MaxTokens = tokens
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_DEEP_CONTEXT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Deep.ContextTokens = tokens
-		}
 	}
 	if v := os.Getenv("SPARKCLAW_EMBEDDING_BASE_URL"); v != "" {
 		cfg.Model.Embedding.BaseURL = v
@@ -1810,15 +1970,11 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_GUARD_MODEL"); v != "" {
 		cfg.Model.Guard.Model = v
 	}
-	if v := os.Getenv("SPARKCLAW_GUARD_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Guard.MaxTokens = tokens
-		}
+	if v := os.Getenv("SPARKCLAW_MODEL_CAPACITY_PROFILE"); v != "" {
+		cfg.Model.CapacityProfile = v
 	}
-	if v := os.Getenv("SPARKCLAW_GUARD_CONTEXT_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Model.Guard.ContextTokens = tokens
-		}
+	if v := os.Getenv("SPARKCLAW_MODEL_CAPACITY_CATALOG"); v != "" {
+		cfg.Model.CapacityCatalog = v
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_READ_ALLOW_HOSTS"); v != "" {
 		cfg.Security.BrowserReadAllowHosts = splitCSV(v)
@@ -1912,11 +2068,6 @@ func applyEnv(cfg *Config) error {
 			cfg.Adapters.DocumentOCR.MaxOutputBytes = maxBytes
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_OCR_MAX_TOKENS"); v != "" {
-		if tokens, err := strconv.Atoi(v); err == nil {
-			cfg.Adapters.DocumentOCR.MaxTokens = tokens
-		}
-	}
 	if v := os.Getenv("SPARKCLAW_OCR_MAX_CONCURRENCY"); v != "" {
 		if maxConcurrency, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.DocumentOCR.MaxConcurrency = maxConcurrency
@@ -1925,6 +2076,79 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_OCR_MAX_PENDING"); v != "" {
 		if maxPending, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.DocumentOCR.MaxPending = maxPending
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE"); v != "" {
+		cfg.Adapters.PPTXVisualQA.Phase = v
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES"); v != "" {
+		cfg.Adapters.PPTXVisualQA.RepairQualifiedClasses = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS"); v != "" {
+		cfg.Adapters.PPTXVisualQA.RepairQualifiedOperations = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES"); v != "" {
+		cfg.Adapters.PPTXVisualQA.BlockingQualifiedClasses = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS"); v != "" {
+		if attempts, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxRepairAttempts = attempts
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL"); v != "" {
+		cfg.Adapters.PPTXVisualQA.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS"); v != "" {
+		cfg.Adapters.PPTXVisualQA.AllowedHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.TimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_INPUT_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxInputBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PDF_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPDFBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGES"); v != "" {
+		if maxPages, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPages = maxPages
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_CHANGED_PAGES"); v != "" {
+		if maxPages, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxChangedPages = maxPages
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_RASTER_SCALE"); v != "" {
+		if scale, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.RasterScale = scale
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGE_PIXELS"); v != "" {
+		if maxPixels, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPagePixels = maxPixels
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.MaxPNGBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI"); v != "" {
+		if tolerance, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.DiagnosticToleranceMilli = tolerance
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.PPTXVisualQA.ReadinessTTLSeconds = seconds
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {

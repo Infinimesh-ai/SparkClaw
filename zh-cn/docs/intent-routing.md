@@ -73,6 +73,23 @@ fusion_score = alpha * embedding_score
 证据和针对性路由测试。排序分数不是概率，持久化 confidence 由分数、margin、
 negative conflict 和通道状态单独计算。
 
+Fast/Tree 保留统一的候选评分 JSON 信封：
+
+```json
+{
+  "graph_revision": "...",
+  "candidates": [
+    {"candidate_id": "...", "tree_score": 0.0}
+  ]
+}
+```
+
+初次评分调用与可选的单次 repair 都强制关闭 thinking，并请求同一份动态 strict JSON Schema。
+Schema 约束 graph revision、候选数量与 eligible ID、分数范围、必填字段和未知字段；Runtime
+继续作为精确候选集合与唯一性的最终权威，只有通过校验的分数才能进入 fusion。初次响应无效且
+唯一一次 repair 仍 malformed 时，Tree channel 在正好两次调用后失败。本加固只针对 JSON 结构：
+`temperature=0.2`、分数方差、calibration、seed 行为和 Fast profile 输出 token allowance 均不变。
+
 ## 语义注册
 
 Workflow 拥有的语义注册结构如下：

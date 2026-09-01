@@ -15,7 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -27,9 +29,15 @@ const (
 	getTaskRemoteName  = "get_localmind_task"
 	controlRemoteName  = "control_localmind_task"
 
-	delegateLocalName = "localmind.task.delegate"
-	getTaskLocalName  = "localmind.task.get"
-	cancelLocalName   = "localmind.task.cancel"
+	delegateReadLocalName  = "localmind.task.delegate_read"
+	delegateWriteLocalName = "localmind.task.delegate"
+	getTaskLocalName       = "localmind.task.get"
+	cancelLocalName        = "localmind.task.cancel"
+)
+
+var (
+	ErrInvalidCredentials = errors.New("LocalMind credentials are invalid")
+	ErrContractInvalid    = errors.New("LocalMind MCP contract is invalid")
 )
 
 type Snapshot struct {
@@ -42,16 +50,29 @@ type Snapshot struct {
 	RefreshedAt         time.Time            `json:"refreshed_at"`
 }
 
+type Credentials struct {
+	Endpoint    string
+	BearerToken string
+}
+
 type Manager struct {
 	cfg  config.MCPServerConfig
 	hub  *toolhub.ToolHub
 	http *http.Client
 	env  func(string) string
 
-	refreshMu sync.Mutex
-	mu        sync.RWMutex
-	snapshot  Snapshot
-	hasState  bool
+	refreshMu  sync.Mutex
+	configMu   sync.RWMutex
+	managed    *Credentials
+	runtimeMu  sync.Mutex
+	runs       *integrationrun.Registry
+	generation uint64
+	updating   bool
+	nextCallID uint64
+	calls      map[uint64]context.CancelCauseFunc
+	mu         sync.RWMutex
+	snapshot   Snapshot
+	hasState   bool
 }
 
 func New(cfg config.MCPServerConfig, hub *toolhub.ToolHub, httpClient *http.Client) (*Manager, error) {
@@ -71,16 +92,30 @@ func New(cfg config.MCPServerConfig, hub *toolhub.ToolHub, httpClient *http.Clie
 	clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	manager := &Manager{cfg: cfg, hub: hub, http: &clientCopy, env: os.Getenv}
+	manager := &Manager{cfg: cfg, hub: hub, http: &clientCopy, env: os.Getenv, generation: 1, calls: map[uint64]context.CancelCauseFunc{}}
 	if err := hub.ReplaceDynamicTools(DynamicSource, nil); err != nil {
 		return nil, err
 	}
 	return manager, nil
 }
 
+func (m *Manager) WithIntegrationRuns(registry *integrationrun.Registry) *Manager {
+	if m == nil {
+		return nil
+	}
+	m.runtimeMu.Lock()
+	m.runs = registry
+	m.runtimeMu.Unlock()
+	return m
+}
+
 func (m *Manager) Refresh(ctx context.Context) (snapshot Snapshot, err error) {
 	m.refreshMu.Lock()
 	defer m.refreshMu.Unlock()
+	return m.refreshLocked(ctx)
+}
+
+func (m *Manager) refreshLocked(ctx context.Context) (snapshot Snapshot, err error) {
 	defer func() {
 		if err == nil {
 			return
@@ -94,6 +129,99 @@ func (m *Manager) Refresh(ctx context.Context) (snapshot Snapshot, err error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	snapshot, registrations, err := m.prepare(ctx, runtime)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := m.hub.ReplaceDynamicTools(DynamicSource, registrations); err != nil {
+		return Snapshot{}, err
+	}
+	m.mu.Lock()
+	m.snapshot = cloneSnapshot(snapshot)
+	m.hasState = true
+	m.mu.Unlock()
+	return cloneSnapshot(snapshot), nil
+}
+
+// CheckCredentials validates the fixed LocalMind MCP identity and task
+// contract without changing the selected source or published ToolHub tools.
+func (m *Manager) CheckCredentials(ctx context.Context, credentials Credentials) (Snapshot, error) {
+	runtime, err := m.resolveRuntime(credentials.Endpoint, credentials.BearerToken)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	snapshot, _, err := m.prepare(ctx, runtime)
+	return snapshot, err
+}
+
+// ActivateCredentials commits a managed credential as the selected source
+// before refreshing. Failure intentionally leaves that selection in place.
+func (m *Manager) ActivateCredentials(ctx context.Context, credentials Credentials) (Snapshot, error) {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	m.beginCredentialSwitch()
+	defer m.finishCredentialSwitch()
+	copy := credentials
+	m.configMu.Lock()
+	m.managed = &copy
+	m.configMu.Unlock()
+	return m.refreshLocked(ctx)
+}
+
+// ActivateOperator selects the operator environment source. It never falls
+// back to a previously selected managed credential.
+func (m *Manager) ActivateOperator(ctx context.Context) (Snapshot, error) {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	m.beginCredentialSwitch()
+	defer m.finishCredentialSwitch()
+	m.configMu.Lock()
+	m.managed = nil
+	m.configMu.Unlock()
+	return m.refreshLocked(ctx)
+}
+
+func (m *Manager) beginCredentialSwitch() {
+	cause := &app.CodedToolError{Code: app.ToolErrorLocalMindCredentialsChanged, Err: errors.New("LocalMind credentials changed; the task was stopped")}
+	m.runtimeMu.Lock()
+	m.updating = true
+	oldGeneration := m.generation
+	calls := make([]context.CancelCauseFunc, 0, len(m.calls))
+	for _, cancel := range m.calls {
+		calls = append(calls, cancel)
+	}
+	runs := m.runs
+	m.runtimeMu.Unlock()
+	if runs != nil {
+		runs.CancelGeneration(LocalMindIntegrationID, oldGeneration, cause)
+	}
+	for _, cancel := range calls {
+		cancel(cause)
+	}
+	m.runtimeMu.Lock()
+	m.generation++
+	m.runtimeMu.Unlock()
+}
+
+func (m *Manager) finishCredentialSwitch() {
+	m.runtimeMu.Lock()
+	m.updating = false
+	m.runtimeMu.Unlock()
+}
+
+func (m *Manager) ClearRuntime() error {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	return m.clearState()
+}
+
+func (m *Manager) OperatorConfigured() bool {
+	return strings.TrimSpace(m.env(m.cfg.URLEnv)) != "" && strings.TrimSpace(m.env(m.cfg.BearerTokenEnv)) != ""
+}
+
+func (m *Manager) prepare(ctx context.Context, runtime resolvedRuntime) (Snapshot, []toolhub.DynamicToolRegistration, error) {
 	client, err := mcpclient.New(mcpclient.Config{
 		Endpoint:           runtime.endpoint,
 		BearerToken:        runtime.token,
@@ -105,33 +233,37 @@ func (m *Manager) Refresh(ctx context.Context) (snapshot Snapshot, err error) {
 		ClientInfo:         mcpclient.ClientInfo{Name: "sparkclaw-localmind", Version: "0.1.0"},
 	}, m.http)
 	if err != nil {
-		return Snapshot{}, safeError(err, runtime)
+		return Snapshot{}, nil, safeError(err, runtime)
 	}
 	initialized, err := client.Initialize(ctx)
 	if err != nil {
-		return Snapshot{}, safeError(err, runtime)
+		var unexpectedServer *mcpclient.UnexpectedServerError
+		if errors.As(err, &unexpectedServer) {
+			return Snapshot{}, nil, contractError(err)
+		}
+		return Snapshot{}, nil, safeError(err, runtime)
 	}
 	if initialized.ProtocolVersion != m.cfg.ProtocolVersion {
-		return Snapshot{}, fmt.Errorf("LocalMind negotiated unsupported MCP protocol version %q", initialized.ProtocolVersion)
+		return Snapshot{}, nil, contractError(fmt.Errorf("LocalMind negotiated unsupported MCP protocol version %q", initialized.ProtocolVersion))
 	}
 	if _, advertised := initialized.Capabilities["resources"]; advertised {
-		return Snapshot{}, errors.New("LocalMind task MCP must not advertise Resources")
+		return Snapshot{}, nil, contractError(errors.New("LocalMind task MCP must not advertise Resources"))
 	}
 	if _, advertised := initialized.Capabilities["tools"]; !advertised {
-		return Snapshot{}, errors.New("LocalMind task MCP did not advertise tools")
+		return Snapshot{}, nil, contractError(errors.New("LocalMind task MCP did not advertise tools"))
 	}
 	listed, err := client.ListTools(ctx, "")
 	if err != nil {
-		return Snapshot{}, safeError(err, runtime)
+		return Snapshot{}, nil, safeError(err, runtime)
 	}
 	if strings.TrimSpace(listed.NextCursor) != "" {
-		return Snapshot{}, errors.New("LocalMind task MCP returned a paginated tool contract")
+		return Snapshot{}, nil, contractError(errors.New("LocalMind task MCP returned a paginated tool contract"))
 	}
 	if err := validateTaskToolContract(listed.Tools); err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, nil, contractError(err)
 	}
 
-	snapshot = Snapshot{
+	snapshot := Snapshot{
 		ServerInfo: initialized.ServerInfo, ProtocolVersion: initialized.ProtocolVersion,
 		EndpointID: runtime.endpointID, Revision: taskContractRevision(runtime.endpointID, initialized, listed.Tools),
 		RemoteToolNames: []string{delegateRemoteName, getTaskRemoteName, controlRemoteName},
@@ -141,14 +273,7 @@ func (m *Manager) Refresh(ctx context.Context) (snapshot Snapshot, err error) {
 	for _, registration := range registrations {
 		snapshot.RegisteredToolNames = append(snapshot.RegisteredToolNames, registration.Definition.Name)
 	}
-	if err := m.hub.ReplaceDynamicTools(DynamicSource, registrations); err != nil {
-		return Snapshot{}, err
-	}
-	m.mu.Lock()
-	m.snapshot = cloneSnapshot(snapshot)
-	m.hasState = true
-	m.mu.Unlock()
-	return cloneSnapshot(snapshot), nil
+	return snapshot, registrations, nil
 }
 
 func (m *Manager) Run(ctx context.Context) {
@@ -163,11 +288,21 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !m.Configured() {
+				continue
+			}
 			if _, err := m.Refresh(ctx); err != nil && ctx.Err() == nil {
 				slog.Warn("LocalMind MCP refresh failed", "error", err)
 			}
 		}
 	}
+}
+
+func (m *Manager) Configured() bool {
+	m.configMu.RLock()
+	managed := m.managed != nil
+	m.configMu.RUnlock()
+	return managed || m.OperatorConfigured()
 }
 
 func (m *Manager) Snapshot() (Snapshot, bool) {
@@ -186,26 +321,40 @@ type resolvedRuntime struct {
 }
 
 func (m *Manager) runtimeConfig() (resolvedRuntime, error) {
-	endpoint := strings.TrimSpace(m.env(m.cfg.URLEnv))
-	token := strings.TrimSpace(m.env(m.cfg.BearerTokenEnv))
+	m.configMu.RLock()
+	managed := m.managed
+	if managed != nil {
+		copy := *managed
+		managed = &copy
+	}
+	m.configMu.RUnlock()
+	if managed != nil {
+		return m.resolveRuntime(managed.Endpoint, managed.BearerToken)
+	}
+	return m.resolveRuntime(m.env(m.cfg.URLEnv), m.env(m.cfg.BearerTokenEnv))
+}
+
+func (m *Manager) resolveRuntime(endpoint, token string) (resolvedRuntime, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	token = strings.TrimSpace(token)
 	if endpoint == "" {
-		return resolvedRuntime{}, fmt.Errorf("LocalMind endpoint environment variable %s is empty", m.cfg.URLEnv)
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint is not configured")
 	}
 	if token == "" {
-		return resolvedRuntime{}, fmt.Errorf("LocalMind bearer token environment variable %s is empty", m.cfg.BearerTokenEnv)
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind bearer token is not configured")
 	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint must be an absolute HTTP(S) URL")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint must be an absolute HTTP(S) URL")
 	}
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint cannot contain credentials, query parameters, or a fragment")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint cannot contain credentials, query parameters, or a fragment")
 	}
 	if !validWorkspaceEndpointPath(parsed.EscapedPath()) {
-		return resolvedRuntime{}, errors.New("LocalMind endpoint must end with /api/workspaces/<workspace-id>/mcp")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind endpoint must end with /api/workspaces/<workspace-id>/mcp")
 	}
 	if parsed.Scheme == "http" && (!m.cfg.AllowPrivateHTTP || !privateHTTPHost(parsed.Hostname())) {
-		return resolvedRuntime{}, errors.New("LocalMind plain HTTP requires allow_private_http and a loopback, private, or container host")
+		return resolvedRuntime{}, invalidCredentialsError("LocalMind plain HTTP requires allow_private_http and a loopback, private, or container host")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawPath = ""
@@ -241,6 +390,14 @@ func (m *Manager) clearState() error {
 	m.hasState = false
 	m.mu.Unlock()
 	return clearErr
+}
+
+func invalidCredentialsError(message string) error {
+	return fmt.Errorf("%w: %s", ErrInvalidCredentials, message)
+}
+
+func contractError(err error) error {
+	return fmt.Errorf("%w: %v", ErrContractInvalid, err)
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {

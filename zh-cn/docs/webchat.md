@@ -35,6 +35,10 @@ polling 兜底。原生 `EventSource` 不能附带 bearer header，因此 authen
 mutation 后立即刷新相关状态：chat send、schedule change、delivery、approval resolution、
 memory action、feedback、owner/client/policy change、connector activation/binding 和 eval run。
 
+Status 视图消费 Gateway 按固定顺序提供的 `resident_services` readiness projection，覆盖 Fast、
+embedding、guard、ASR 与 OCR。每行展示 backend、model、readiness 和最近一次持久化调用状态，
+browser 不重建 service identity 或 health rule。
+
 ## Typed 控制面
 
 结构化 owner action 不会重新转换为歧义文本：

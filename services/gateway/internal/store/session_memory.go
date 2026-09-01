@@ -229,6 +229,8 @@ func (s *MemoryStore) DeleteSession(ctx context.Context, id string) (app.Session
 	}
 	delete(s.sessions, id)
 	delete(s.messages, id)
+	delete(s.toolCallIDsBySession, id)
+	delete(s.episodeIDsBySession, id)
 	for runID := range runIDs {
 		delete(s.runFeedback, runID)
 		delete(s.runs, runID)

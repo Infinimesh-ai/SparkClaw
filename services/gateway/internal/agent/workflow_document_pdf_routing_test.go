@@ -178,7 +178,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
 	if editApproval == nil || editCall.Status != app.ToolCallStatusApprovalPending || editCall.Arguments["operation"] != "extract_pages" ||
-		editCall.Arguments["path"] != "report.pdf" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.pdf" {
+		editCall.Arguments["path"] != "report.pdf" || editCall.Arguments["output_path"] != "report-2.pdf" {
 		t.Fatalf("PDF transform did not enter approval with frozen paths: call=%#v approval=%#v", editCall, editApproval)
 	}
 	storedRun, _ = testGetRun(st, storedRun.ID)
@@ -201,7 +201,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 		t.Fatalf("PDF workflow did not complete after approval: resumed=%t result=%#v err=%v", resumed, result, err)
 	}
 
-	outputPath := filepath.Join(root, "report-sparkclaw-edit.pdf")
+	outputPath := filepath.Join(root, "report-2.pdf")
 	readResult, err := runtime.tools.Execute(context.Background(), "pdf.extract_text", map[string]any{"path": outputPath}, session.ID, "reread_pdf_output")
 	if err != nil {
 		t.Fatal(err)

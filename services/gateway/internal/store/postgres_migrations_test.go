@@ -22,10 +22,10 @@ func TestPostgresMigrationManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 6 {
-		t.Fatalf("migration count = %d, want 6", len(migrations))
+	if len(migrations) != 7 {
+		t.Fatalf("migration count = %d, want 7", len(migrations))
 	}
-	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql", "0005_approval_repository.sql", "0006_browser_state_read_defaults.sql"}
+	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql", "0005_approval_repository.sql", "0006_browser_state_read_defaults.sql", "0007_bounded_agent_history.sql"}
 	for index, migration := range migrations {
 		if migration.Version != index+1 || migration.Filename != wantNames[index] {
 			t.Fatalf("migration %d = %#v", index, migration)

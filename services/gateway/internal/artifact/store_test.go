@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,12 @@ func TestFileStorePutCleansKey(t *testing.T) {
 	loaded, err := store.Get(context.Background(), object.Key)
 	if err != nil || string(loaded) != `{"ok":true}` {
 		t.Fatalf("artifact did not read back: raw=%s err=%v", loaded, err)
+	}
+	if err := store.Delete(context.Background(), object.Key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(context.Background(), object.Key); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted artifact remained readable: %v", err)
 	}
 }
 
@@ -99,5 +106,27 @@ func TestS3StoreGetObject(t *testing.T) {
 	}
 	if gotMethod != http.MethodGet || gotPath != "/spark%20bucket/observations/run%201/call.json" || string(raw) != `{"stored":true}` {
 		t.Fatalf("unexpected S3 read: method=%s path=%s raw=%s", gotMethod, gotPath, raw)
+	}
+}
+
+func TestS3StoreDeleteObject(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	store := S3Store{
+		Endpoint: server.URL, Region: "us-test-1", Bucket: "spark bucket",
+		AccessKey: "access", SecretKey: "secret", Client: server.Client(),
+	}
+	if err := store.Delete(context.Background(), "observations/run 1/call.json"); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/spark%20bucket/observations/run%201/call.json" {
+		t.Fatalf("unexpected S3 delete: method=%s path=%s", gotMethod, gotPath)
 	}
 }

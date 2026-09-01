@@ -116,6 +116,7 @@ func publicMCPServersConfig(servers map[string]config.MCPServerConfig) map[strin
 
 func publicModelConfig(cfg config.ModelConfig) map[string]any {
 	return map[string]any{
+		"capacity_profile":     cfg.CapacityProfile,
 		"mock":                 cfg.Mock,
 		"http_timeout_seconds": cfg.HTTPTimeoutSeconds,
 		"disable_thinking":     cfg.DisableThinking,
@@ -128,12 +129,13 @@ func publicModelConfig(cfg config.ModelConfig) map[string]any {
 
 func publicModelProfile(profile config.ModelProfile) map[string]any {
 	return map[string]any{
-		"name":           profile.Name,
-		"base_url":       profile.BaseURL,
-		"model":          profile.Model,
-		"context_tokens": profile.ContextTokens,
-		"mtp":            profile.MTP,
-		"max_tokens":     profile.MaxTokens,
+		"name":                    profile.Name,
+		"base_url":                profile.BaseURL,
+		"model":                   profile.Model,
+		"capacity_physical_model": profile.CapacityPhysicalModel,
+		"context_tokens":          profile.ContextTokens,
+		"output_budgets":          profile.OutputBudgets,
+		"mtp":                     profile.MTP,
 	}
 }
 
@@ -202,6 +204,25 @@ func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.Runt
 			"max_tokens":            cfg.DocumentOCR.MaxTokens,
 			"max_concurrency":       cfg.DocumentOCR.MaxConcurrency,
 			"max_pending":           cfg.DocumentOCR.MaxPending,
+		},
+		"pptxVisualQA": map[string]any{
+			"phase":                       cfg.PPTXVisualQA.Phase,
+			"repair_qualified_classes":    cfg.PPTXVisualQA.RepairQualifiedClasses,
+			"repair_qualified_operations": cfg.PPTXVisualQA.RepairQualifiedOperations,
+			"blocking_qualified_classes":  cfg.PPTXVisualQA.BlockingQualifiedClasses,
+			"max_repair_attempts":         cfg.PPTXVisualQA.MaxRepairAttempts,
+			"renderer":                    "gotenberg-libreoffice",
+			"rasterizer":                  "pypdfium2",
+			"timeout_seconds":             cfg.PPTXVisualQA.TimeoutSeconds,
+			"max_input_bytes":             cfg.PPTXVisualQA.MaxInputBytes,
+			"max_pdf_bytes":               cfg.PPTXVisualQA.MaxPDFBytes,
+			"max_pages":                   cfg.PPTXVisualQA.MaxPages,
+			"max_changed_pages":           cfg.PPTXVisualQA.MaxChangedPages,
+			"raster_scale":                cfg.PPTXVisualQA.RasterScale,
+			"max_page_pixels":             cfg.PPTXVisualQA.MaxPagePixels,
+			"max_png_bytes":               cfg.PPTXVisualQA.MaxPNGBytes,
+			"diagnostic_tolerance_milli":  cfg.PPTXVisualQA.DiagnosticToleranceMilli,
+			"readiness_ttl_seconds":       cfg.PPTXVisualQA.ReadinessTTLSeconds,
 		},
 	}
 }

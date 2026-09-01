@@ -4,11 +4,40 @@
 
 This document records the current model-loading strategy for SparkClaw on DGX Spark-class hardware. It complements the measured endpoint evidence in [Model baseline](../benchmarks/model_baseline.md) and the operational steps in [Deployment](deployment.md).
 
-The short version: the current single-machine product runtime loads the responsive `fast` MoE chat model together with embedding, guard, Qwen3-ASR speech, and the OvisOCR2 document adapter. The logical Deep Workflow profile is temporarily aliased to the Fast endpoint, so no Deep model process starts. Historical Deep and dual-residency measurements remain below for future evaluation; they are not the current startup policy.
+The short version: the current single-machine product runtime loads `nvidia/Qwen3.6-35B-A3B-NVFP4` as the `fast` MoE chat model together with embedding, guard, Qwen3-ASR speech, and the OvisOCR2 document adapter. The logical Deep Workflow profile is aliased to that Fast endpoint, so no Deep model process starts. All executable chat-loading defaults now use the same NVFP4 checkpoint; the former FP8 measurements remain below only as historical evidence.
 
-## Current Baseline
+## Current NVFP4 Baseline
 
-The validated GB10 run used one chat lane at a time with 128K context, vLLM, FP8 Qwen models and MTP set to 2 speculative tokens.
+The current GB10 configuration uses vLLM 0.24.0, 32K context, an 8 GiB KV
+cache, four sequences, and no MTP. SparkClaw selects the NVIDIA checkpoint and
+sets operational capacity only. It does not override checkpoint quantization
+metadata, activation scales, linear kernels, MoE kernels, attention backends,
+or KV-cache dtype. vLLM reads the checkpoint's ModelOpt configuration and owns
+all weight and activation dispatch.
+
+`configs/model.profiles.json` is also the executable capacity source. Each
+selected lane resolves one physical model's positive `context_tokens`; the
+SparkClaw vLLM entrypoint injects that value as `--max-model-len` and rejects a
+hand-supplied flag. The same profile assigns a small set of output capability
+classes to logical lanes for Gateway admission. Context and output capacity are
+therefore not duplicated in loading environment files, and an invalid selected
+profile stops both Gateway and model startup.
+
+The checkpoint declares a mixed layout with 130 FP8 layers and 161
+`W4A16_NVFP4` layers. Those labels are passed to vLLM unchanged. In the earlier
+standard bring-up, vLLM used its supported weight-only FP4 fallback for the
+W4A16 linear layers. That behavior is accepted: a model ID containing NVFP4
+does not give SparkClaw authority to reinterpret activation precision.
+
+The chat service has a dedicated `SPARKCLAW_CHAT_VLLM_IMAGE` default because
+the former shared vLLM 0.19.2 image cannot load the official NVFP4 checkpoint.
+Embedding, guard, ASR, and OCR keep their independently validated runtimes.
+The derivative image adds only SparkClaw's readiness helper; it carries no
+quantization compatibility hook or activation-handling code.
+
+## Historical FP8 Baseline
+
+The earlier GB10 run used one chat lane at a time with 128K context, vLLM, FP8 Qwen models and MTP set to 2 speculative tokens. These rows are retained for comparison and are no longer loading defaults.
 
 | Lane | Model | Context | Model memory | KV cache | Model + KV | Observed behavior |
 |---|---|---:|---:|---:|---:|---|
@@ -36,7 +65,9 @@ Default single-machine operation uses the `single-fast-v1` profile:
 
 Single-machine performance features are intentionally conservative:
 
-- Keep MTP off for light dual-residency experiments.
+- Do not patch quantization metadata or activation scales. vLLM owns the
+  checkpoint's mixed-precision interpretation and kernel selection.
+- Keep MTP off for NVFP4 chat endpoints.
 - Do not rely on DFlash or similar attention/runtime acceleration for the single-machine plan.
 - Treat acceleration features as second-order tuning after the residency plan is stable.
 - Re-run endpoint benchmarks and the golden eval after any change to context, KV budget, MTP, serving image or model checkpoint.
@@ -52,8 +83,9 @@ The current profile is implemented as `dgx-spark-single-fast-v1`:
 
 The shortcut first stops a previously running Deep container, then starts Fast,
 embedding, guard, ASR, and OCR in one Compose operation. Run
-`scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast, ASR,
-and OCR environments by default. Before changing the selected group, startup verifies
+`scripts/restart_runtime_compose.sh local` afterward to select the matching local
+chat profile plus the ASR and OCR environments. The independent `online` profile
+does not consume the resident Fast endpoint. Before changing the selected group, startup verifies
 that every container exists, is running and healthy, and carries the current
 Compose configuration hash. A healthy/current group is retained. If any member
 is absent, stopped, unhealthy, or drifted, the complete selected group is
@@ -65,8 +97,8 @@ Model checkpoints and Hugging Face metadata remain durable under `data/models`.
 vLLM/TorchInductor AOT artifacts, Triton kernels, FlashInfer caches, and NVIDIA
 runtime injection stay in the disposable container instance. Recreating the
 group discards those process-local caches and refreshes GPU device injection
-without redownloading the checkpoint. The current Fast capacity
-remains at the previously exercised 32K context and 8 GiB KV cache rather than
+without redownloading the checkpoint. The current NVFP4 Fast capacity
+remains at the exercised 32K context and 8 GiB KV cache rather than
 claiming an unmeasured capacity increase from the memory freed by Deep. Model
 startup waits for Docker health. Fast health includes one production-shaped
 chat completion per model process: the current synthetic input is about 3.4K
@@ -101,7 +133,8 @@ product profile loads `ATH-MaaS/OvisOCR2` with Fast, embedding, guard, and ASR t
 command remains an alias for the same five-service startup. That
 overlay pins the model's documented vLLM `0.22.1` runtime, disables thinking,
 uses deterministic generation, assigns a fixed 2 GiB KV cache, and keeps
-response, concurrency, and queue limits in Gateway. On the GB10, combined
+response-byte, concurrency, and queue limits in Gateway. Its generative token
+budget comes from the profile's `ocr_document` output class. On the GB10, combined
 startup was validated only after stopping the already-resident model services
 and reloading Fast, embedding, guard, and OCR together. The current product
 startup extends that atomic group with ASR. Adding OCR to the
@@ -371,9 +404,11 @@ requires an externally reviewed real manifest pin. State remains
 `deployment_manifest_unaccepted`, with no accepted smoke or authority,
 calibration budget `0/5`, held-out untouched, and E3/GB10 unverified.
 
-## Historical Light Dual-Residency Experiment
+## Optional Dual NVFP4 Residency Control
 
-If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.
+If a single DGX Spark needs separate Fast and Deep endpoints, both now load the
+same NVFP4 checkpoint. Start from reduced residency settings rather than the
+former full 128K/MTP profiles.
 
 Recommended first target:
 
@@ -382,7 +417,7 @@ Recommended first target:
 | Context | 32768 | 65536 | 8192 | 16384 | Preserve deep context; keep auxiliary contexts sufficient for their bounded inputs. |
 | MTP | off | off | off | off | Save memory and reduce moving parts while validating residency. |
 | KV cache budget | 8 GiB | 12 GiB | 2 GiB | 2 GiB | Cap the real pressure point instead of letting each server reserve a full lane. |
-| Max response tokens | 768 | 1536 | n/a | 128 | Keep agent loops and moderation responsive. |
+| Output class budgets | compact 1024; workflow/answer 4096; vision 2048 | workflow/answer 8192 | n/a | guard 256 | Coarse evaluated classes, not per-request output planning. |
 | Max concurrent sequences | 4 | 2 | 1 | 1 | The product is single-user; optimize for fit and latency, not concurrency. |
 | GPU memory utilization | 0.42 | 0.36 | 0.06 | 0.04 | Explicit KV budgets bind capacity; utilization stays conservative for startup checks. |
 
@@ -393,14 +428,16 @@ This profile is implemented as `dgx-spark-dual-light-v1`:
 - Profile metadata: `configs/model.profiles.json`
 - Startup shortcut: `scripts/serve_models_compose.sh dual-light`
 
-The preferred compromise is `deep` priority:
+The preferred two-endpoint compromise is `deep` context priority:
 
 - Keep `deep` at the largest context that fits reliably.
 - Reduce `fast` to 32K or 64K.
 - Keep both MTP and DFlash-style optimizations off.
-- Measure startup, idle residency, a warmed request, a long-context request and the active 43-case golden eval before promoting the profile.
+- Measure startup, idle residency, a warmed request, a long-context request and the active 47-case golden eval before promoting the profile.
 
-This gives SparkClaw a responsive local `fast` lane while preserving the main value of `deep`: harder reasoning over larger evidence windows.
+This keeps a responsive local `fast` endpoint while giving the logical `deep`
+surface a larger evidence window. Model weights are identical; only endpoint
+budgets and business prompts differ.
 
 The historical `dual-light-v1` experiment showed that both chat lanes plus small
 auxiliary endpoints fit on one machine. Warmed `fast` ran around 48-50 tok/s and
@@ -413,10 +450,12 @@ because it needed 3.5 GiB KV.
 
 The acceptance standard for this single-user profile is integrated task
 performance, not concurrency. On 2026-05-25, the historical stack passed the
-then-current 58-case real-model golden eval. Removing the reranking lane changes
-the routing model stack, so the current Fast + Embedding + Guard profile
-requires a fresh active 43-case real-model run before its quality can be
-compared with that historical result.
+then-current 58-case real-model golden eval. A later forced-W4A4 experiment
+passed the current 47-case matrix but was rolled back because application code
+must not reinterpret activation precision. On 2026-08-24, the clean restored
+vLLM-managed path passed all 47 current cases with 15 tool calls, 2 approvals
+and 1 memory candidate. All Fast, Deep, Embedding and Guard calls were real
+(`mock=0`), and no model call reported an error.
 
 ### Dual-Light Test Loop
 

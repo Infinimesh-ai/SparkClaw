@@ -23,7 +23,7 @@ import (
 
 type connectorAssembly struct {
 	registry    *connector.Registry
-	credentials credential.CredentialVault
+	credentials *credential.Vault
 	endpoints   *messagecontrol.EndpointRegistry
 	delivery    *delivery.Gateway
 }

@@ -54,8 +54,9 @@ npm run setup:host
 npm run dev
 ```
 
-只重建一个应用容器时，使用 `npm run dev:gateway` 或 `npm run dev:webchat`；
-这两个命令仍保留 external/OCR/PostgreSQL 环境，并验证 Gateway readiness。
+使用托管 chat 只重建一个应用容器时，运行 `npm run dev:gateway` 或
+`npm run dev:webchat`。通过明确的 `:online` 与 `:local` 变体切换 profile；两套命令都保留
+OCR/PostgreSQL 环境，并验证 Gateway readiness。
 
 仅在隔离的 mock/file 与 Vite 调试中直接运行宿主进程，对应命令为
 `npm run dev:gateway:host` 和 `npm run dev:webchat:host`。Compose、auth、

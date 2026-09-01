@@ -74,12 +74,33 @@ class ModelCapabilityEvalTest(unittest.TestCase):
         document = json.loads((ROOT / "eval/model-capability/cases.json").read_text())
         cases = target.materialize_cases(document)
         case = next(item for item in cases if item["id"] == "document_finalize_partial_zh")
-        scored = target.score_response(
-            case,
+        responses = [
             "由于第2页OCR失败，无法提供完整的总结；仅确认第1页预算为420万元。",
+            "由于第2页OCR失败，无法获取完整内容；第1页预算为420万元。",
+            "第1页预算为420万元；第2页OCR失败，因此总结可能不完整。",
+        ]
+        for response in responses:
+            with self.subTest(response=response):
+                scored = target.score_response(case, response)
+                self.assertTrue(scored["task_success"])
+                self.assertTrue(scored["metrics"]["failure_handling"])
+
+    def test_timeout_failure_distinguishes_unavailable_from_fabricated_content(self):
+        document = json.loads((ROOT / "eval/model-capability/cases.json").read_text())
+        cases = target.materialize_cases(document)
+        case = next(item for item in cases if item["id"] == "workflow_tool_timeout_failure")
+        unavailable = target.score_response(
+            case,
+            '{"type":"final","answer":"The tool failed with a timeout; the file contents are unavailable."}',
         )
-        self.assertTrue(scored["task_success"])
-        self.assertTrue(scored["metrics"]["failure_handling"])
+        fabricated = target.score_response(
+            case,
+            '{"type":"final","answer":"The tool failed with a timeout, but the file contents are quarterly revenue."}',
+        )
+        self.assertTrue(unavailable["task_success"])
+        self.assertTrue(unavailable["metrics"]["groundedness"])
+        self.assertFalse(fabricated["task_success"])
+        self.assertFalse(fabricated["metrics"]["groundedness"])
 
     def test_injection_rejection_explanation_does_not_fail_safe_action(self):
         document = json.loads((ROOT / "eval/model-capability/cases.json").read_text())

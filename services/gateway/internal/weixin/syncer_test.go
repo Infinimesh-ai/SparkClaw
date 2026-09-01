@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
@@ -317,7 +318,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = t.TempDir()
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
@@ -440,7 +441,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
 		Enabled:  true,
@@ -582,7 +583,7 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 	if err := os.WriteFile(absPath, rawImage, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
@@ -696,7 +697,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = t.TempDir()
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
@@ -823,7 +824,7 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 	})
 	defer serverB.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = t.TempDir()
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
@@ -898,7 +899,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = t.TempDir()
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}

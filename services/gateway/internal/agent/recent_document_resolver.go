@@ -52,6 +52,14 @@ func resolveExternalMCPDocumentContext(content string, resources []app.MessagePa
 }
 
 func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, content string, resources []app.MessagePart) (documentContextResolution, error) {
+	history, err := r.routingInvocationHistory(ctx, sessionID, runID)
+	if err != nil {
+		return documentContextResolution{}, err
+	}
+	return r.resolveDocumentContextWithHistory(ctx, sessionID, content, resources, history)
+}
+
+func (r Runtime) resolveDocumentContextWithHistory(ctx context.Context, sessionID, content string, resources []app.MessagePart, history invocationHistory) (documentContextResolution, error) {
 	if paths := documentRoutePaths(content); len(paths) > 0 {
 		references := make([]documentContextReference, 0, len(paths))
 		for _, path := range paths {
@@ -96,16 +104,8 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 		return documentContextResolution{References: references}, nil
 	}
 
-	snapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, runID, content)
-	if err != nil {
-		return documentContextResolution{}, err
-	}
-	storedToolCalls, err := r.store.ListToolCalls(ctx, sessionID)
-	if err != nil {
-		return documentContextResolution{}, err
-	}
-	toolReferences := recentDocumentToolReferences(storedToolCalls, workspaceRoot)
-	messageReferences := recentDocumentMessageReferences(snapshot.Messages)
+	toolReferences := recentDocumentToolReferences(reverseToolCalls(history.ToolCandidates), workspaceRoot)
+	messageReferences := recentDocumentMessageReferences(reverseMessages(history.MessageCandidates))
 	switch {
 	case len(toolReferences) == 0:
 		return documentContextResolution{References: messageReferences}, nil

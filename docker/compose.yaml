@@ -11,17 +11,29 @@ x-vllm-common: &vllm-common
   ipc: host
   shm_size: ${SPARKCLAW_VLLM_SHM_SIZE:-16gb}
   gpus: all
-  environment:
+  entrypoint: ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
+  environment: &vllm-environment
     HF_HOME: /models/huggingface
     HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
     HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
     VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+    SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
+    SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
   volumes:
     - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
   tmpfs:
     - /run/sparkclaw-readiness:rw,noexec,nosuid,nodev,size=1m,mode=1777
   networks:
     - sparkclaw_internal
+
+x-chat-vllm-common: &chat-vllm-common
+  <<: *vllm-common
+  image: sparkclaw-chat-vllm-readiness:local
+  build:
+    context: ..
+    dockerfile: docker/images/vllm.Dockerfile
+    args:
+      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_CHAT_VLLM_IMAGE:-vllm/vllm-openai:v0.24.0}
 
 services:
   gateway:
@@ -31,6 +43,9 @@ services:
       dockerfile: docker/images/gateway.Dockerfile
     user: "${SPARKCLAW_CONTAINER_UID:-1000}:${SPARKCLAW_CONTAINER_GID:-1000}"
     init: true
+    depends_on:
+      gotenberg:
+        condition: service_healthy
     env_file:
       - env/sparkclaw.example.env
     environment:
@@ -101,17 +116,14 @@ services:
       SPARKCLAW_FAST_BASE_URL: ${SPARKCLAW_FAST_BASE_URL:-http://sparkclaw-fast:8001/v1}
       SPARKCLAW_FAST_MODEL: ${SPARKCLAW_FAST_MODEL:-sparkclaw-fast}
       SPARKCLAW_FAST_SERVED_NAME: ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
-      SPARKCLAW_FAST_MAX_TOKENS: ${SPARKCLAW_FAST_MAX_TOKENS:-1024}
       SPARKCLAW_DEEP_BASE_URL: ${SPARKCLAW_DEEP_BASE_URL:-http://sparkclaw-fast:8001/v1}
       SPARKCLAW_DEEP_MODEL: ${SPARKCLAW_DEEP_MODEL:-sparkclaw-fast}
       SPARKCLAW_DEEP_SERVED_NAME: ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
-      SPARKCLAW_DEEP_MAX_TOKENS: ${SPARKCLAW_DEEP_MAX_TOKENS:-2048}
       SPARKCLAW_EMBEDDING_BASE_URL: ${SPARKCLAW_EMBEDDING_BASE_URL:-http://sparkclaw-embedding:8003/v1}
       SPARKCLAW_EMBEDDING_MODEL: ${SPARKCLAW_EMBEDDING_MODEL:-sparkclaw-embedding}
       SPARKCLAW_GUARD_BASE_URL: ${SPARKCLAW_GUARD_BASE_URL:-http://sparkclaw-guard:8005/v1}
       SPARKCLAW_GUARD_MODEL: ${SPARKCLAW_GUARD_MODEL:-Qwen/Qwen3Guard-Gen-0.6B}
-      SPARKCLAW_GUARD_MAX_TOKENS: ${SPARKCLAW_GUARD_MAX_TOKENS:-128}
-      SPARKCLAW_GUARD_CONTEXT_TOKENS: ${SPARKCLAW_GUARD_CONTEXT_TOKENS:-32768}
+      SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
       SPARKCLAW_OCR_ENABLED: ${SPARKCLAW_OCR_ENABLED:-false}
       SPARKCLAW_OCR_PROVIDER: ${SPARKCLAW_OCR_PROVIDER:-openai-http}
       SPARKCLAW_OCR_BASE_URL: ${SPARKCLAW_OCR_BASE_URL:-}
@@ -120,9 +132,28 @@ services:
       SPARKCLAW_OCR_TIMEOUT_SECONDS: ${SPARKCLAW_OCR_TIMEOUT_SECONDS:-120}
       SPARKCLAW_OCR_MAX_UPLOAD_BYTES: ${SPARKCLAW_OCR_MAX_UPLOAD_BYTES:-12582912}
       SPARKCLAW_OCR_MAX_OUTPUT_BYTES: ${SPARKCLAW_OCR_MAX_OUTPUT_BYTES:-1048576}
-      SPARKCLAW_OCR_MAX_TOKENS: ${SPARKCLAW_OCR_MAX_TOKENS:-16384}
       SPARKCLAW_OCR_MAX_CONCURRENCY: ${SPARKCLAW_OCR_MAX_CONCURRENCY:-2}
       SPARKCLAW_OCR_MAX_PENDING: ${SPARKCLAW_OCR_MAX_PENDING:-2}
+      SPARKCLAW_PPTX_VISUAL_QA_PHASE: ${SPARKCLAW_PPTX_VISUAL_QA_PHASE:-shadow}
+      SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES: ${SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES:-}
+      SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS: ${SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS:-}
+      SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES: ${SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES:-}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS:-2}
+      SPARKCLAW_PPTX_VISUAL_QA_BASE_URL: ${SPARKCLAW_PPTX_VISUAL_QA_BASE_URL:-http://gotenberg:3000}
+      SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS: ${SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS:-gotenberg}
+      SPARKCLAW_PPTX_VISUAL_QA_TIMEOUT_SECONDS: ${SPARKCLAW_PPTX_VISUAL_QA_TIMEOUT_SECONDS:-120}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_INPUT_BYTES: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_INPUT_BYTES:-67108864}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_PDF_BYTES: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_PDF_BYTES:-67108864}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGES: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGES:-100}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_CHANGED_PAGES: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_CHANGED_PAGES:-20}
+      SPARKCLAW_PPTX_VISUAL_QA_RASTER_SCALE: ${SPARKCLAW_PPTX_VISUAL_QA_RASTER_SCALE:-1.5}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGE_PIXELS: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGE_PIXELS:-20000000}
+      SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES: ${SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES:-12582912}
+      SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI: ${SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI:-2}
+      SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS: ${SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS:-300}
+      SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES: ${SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES:-8000}
+      SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES: ${SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES:-}
+      SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES: ${SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES:-}
       SPARKCLAW_WEB_SEARCH_ENABLED: ${SPARKCLAW_WEB_SEARCH_ENABLED:-false}
       SPARKCLAW_WEB_SEARCH_PROVIDER: ${SPARKCLAW_WEB_SEARCH_PROVIDER:-infinimesh-info}
       SPARKCLAW_INFINIMESH_INFO_BASE_URL: ${SPARKCLAW_INFINIMESH_INFO_BASE_URL:-https://info.infinimesh.cloud}
@@ -151,6 +182,24 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    networks:
+      - sparkclaw_internal
+
+  gotenberg:
+    profiles: ["dev", "eval", "compat", "models-local"]
+    image: gotenberg/gotenberg:8.36.0@sha256:87c16b9f364279d321bc9772d31fa58aa6abe036423c270698bd636c3a8e9466
+    command:
+      - gotenberg
+      - --api-timeout=120s
+      - --api-disable-health-check-route-telemetry=true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     networks:
       - sparkclaw_internal
 
@@ -190,9 +239,12 @@ services:
       - sparkclaw_internal
 
   sparkclaw-fast:
-    <<: *vllm-common
+    <<: *chat-vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: fast
     command:
-      - ${SPARKCLAW_FAST_MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}
+      - ${SPARKCLAW_FAST_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -201,17 +253,19 @@ services:
       - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
       - --tensor-parallel-size
       - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
-      - --max-model-len
-      - ${SPARKCLAW_FAST_MAX_MODEL_LEN:-131072}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.82}
+      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
+      - --max-num-seqs
+      - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      - --speculative-config
-      - ${SPARKCLAW_FAST_SPECULATIVE_CONFIG:-{"method":"qwen3_next_mtp","num_speculative_tokens":2}}
       - --language-model-only
     ports:
       - "127.0.0.1:8001:8001"
@@ -242,9 +296,12 @@ services:
       start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
 
   sparkclaw-deep:
-    <<: *vllm-common
+    <<: *chat-vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: deep
     command:
-      - ${SPARKCLAW_DEEP_MODEL_ID:-Qwen/Qwen3.6-27B-FP8}
+      - ${SPARKCLAW_DEEP_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -253,17 +310,19 @@ services:
       - ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
       - --tensor-parallel-size
       - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
-      - --max-model-len
-      - ${SPARKCLAW_DEEP_MAX_MODEL_LEN:-131072}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.82}
+      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
+      - --max-num-seqs
+      - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      - --speculative-config
-      - ${SPARKCLAW_DEEP_SPECULATIVE_CONFIG:-{"method":"qwen3_next_mtp","num_speculative_tokens":2}}
       - --language-model-only
     ports:
       - "127.0.0.1:8002:8002"
@@ -276,6 +335,9 @@ services:
 
   sparkclaw-embedding:
     <<: *vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: embedding
     command:
       - ${SPARKCLAW_EMBEDDING_MODEL_ID:-Qwen/Qwen3-Embedding-0.6B}
       - --host
@@ -284,8 +346,6 @@ services:
       - "8003"
       - --served-model-name
       - ${SPARKCLAW_EMBEDDING_SERVED_NAME:-sparkclaw-embedding}
-      - --max-model-len
-      - ${SPARKCLAW_EMBEDDING_MAX_MODEL_LEN:-32768}
       - --gpu-memory-utilization
       - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.12}
     ports:
@@ -299,6 +359,9 @@ services:
 
   sparkclaw-guard:
     <<: *vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: guard
     command:
       - ${SPARKCLAW_GUARD_MODEL_ID:-Qwen/Qwen3Guard-Gen-0.6B}
       - --host
@@ -307,8 +370,6 @@ services:
       - "8005"
       - --served-model-name
       - ${SPARKCLAW_GUARD_SERVED_NAME:-Qwen/Qwen3Guard-Gen-0.6B}
-      - --max-model-len
-      - ${SPARKCLAW_GUARD_MAX_MODEL_LEN:-32768}
       - --gpu-memory-utilization
       - ${SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION:-0.06}
       - --kv-cache-memory-bytes

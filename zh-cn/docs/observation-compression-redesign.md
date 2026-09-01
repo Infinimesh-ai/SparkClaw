@@ -135,9 +135,10 @@ byte，但不计入 business tool-call 或重复调用预算。
 ### 3.5 ContextBuilder 整合
 
 供给证据注册为独立可降级小节和独立预算，排在当前 run 观测与固定输出契约之间。
-一个 builder 强制执行合计准入预算（lane 上下文 × 0.85），依次降级命名 variant，
-并只对明确声明的 section 做 UTF-8 安全截断。每个获准 prompt 都低于阈值；固定 section
-超限会在模型调用前失败。
+一个 builder 强制执行物理 `context_tokens` 减去 typed operation 所属的 profile
+output-class budget。它只切换结构完整的命名 variant；owner question 与最新两条 observation
+永不截断。明显可容纳的请求使用 Router 保守计数，边界请求使用所选模型 tokenizer，并在
+provider dispatch 前重复最终准入。固定 section 超限会在模型调用前失败。
 
 ### 3.6 跨 run 上下文有意保持索引定位
 

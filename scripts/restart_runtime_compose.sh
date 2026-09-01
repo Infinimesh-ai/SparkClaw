@@ -5,9 +5,22 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 
+runtime_profile="${1:-}"
+case "$runtime_profile" in
+  online)
+    RUNTIME_ENV="docker/env/sparkclaw.online-fast.env"
+    ;;
+  local)
+    RUNTIME_ENV="docker/env/sparkclaw.single-fast.env"
+    ;;
+  *)
+    echo "usage: $0 online|local [sandbox-runner] [gateway] [webchat]" >&2
+    exit 1
+    ;;
+esac
+shift
+
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
-RUNTIME_OVERRIDE_ENV="${SPARKCLAW_RUNTIME_OVERRIDE_ENV:-}"
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 EXTRA_COMPOSE_FILE="${SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE:-}"
 ASR_ENV="docker/env/sparkclaw.asr.env"
@@ -63,11 +76,6 @@ if [[ -n "$EXTRA_COMPOSE_FILE" && ! -f "$EXTRA_COMPOSE_FILE" ]]; then
   echo "runtime extra compose file not found: $EXTRA_COMPOSE_FILE" >&2
   exit 1
 fi
-if [[ -n "$RUNTIME_OVERRIDE_ENV" && ! -f "$RUNTIME_OVERRIDE_ENV" ]]; then
-  echo "runtime override env file not found: $RUNTIME_OVERRIDE_ENV" >&2
-  exit 1
-fi
-
 docker_cmd=("$DOCKER_BIN")
 if ! "$DOCKER_BIN" ps >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then
   docker_cmd=(sudo -n "$DOCKER_BIN")
@@ -106,9 +114,6 @@ if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
 compose_args+=(--env-file "$RUNTIME_ENV" --env-file "$ASR_ENV" --env-file "$OCR_ENV")
-if [[ -n "$RUNTIME_OVERRIDE_ENV" ]]; then
-  compose_args+=(--env-file "$RUNTIME_OVERRIDE_ENV")
-fi
 compose_args+=(-f "$COMPOSE_FILE" -f "$ASR_COMPOSE_FILE" -f "$OCR_COMPOSE_FILE")
 if [[ -n "$EXTRA_COMPOSE_FILE" ]]; then
   compose_args+=(-f "$EXTRA_COMPOSE_FILE")

@@ -118,9 +118,9 @@ profile 的 visible Chromium，但 hidden 与 visible 进程绝不能同时持�
 在 Linux ARM64 Compose runtime 中，visible session 使用 owner 的真实 X11/XWayland
 桌面。desktop bridge 是一个 opt-in Compose overlay：
 `docker/compose.visible-browser.yaml`；基础 `docker/compose.yaml` 不挂载 X socket，
-也不向 Gateway 传递任何 display 环境变量。`npm run dev` 自动发现唯一的本地 display
-及其 Xauthority 文件，并应用该 overlay，把 X socket 和 authority 挂载进 Gateway；
-headless 主机上则以不带 overlay 的相同 stack 启动，只提供 hidden 自动化。
+也不向 Gateway 传递任何 display 环境变量。`npm run dev` 使用可用的 Xauthority 文件
+探测本地 display socket，跳过无法建立 X11 连接的 socket，并使用编号最小的可用 display
+应用该 overlay；headless 主机上则以不带 overlay 的相同 stack 启动，只提供 hidden 自动化。
 adapter 对 visible session 禁用 agent-browser 的 Xvfb
 fallback：desktop 缺失或不可访问时会明确失败，不再把只能在虚拟显示中看到的浏览器
 报告为成功。headless 自动化不依赖该 desktop bridge。Gateway 镜像同时提供 UTF-8
@@ -246,9 +246,10 @@ Linux setup 检查还要求 fontconfig 和已安装的中文字体。Debian 和 
 `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`、`SPARKCLAW_BROWSER_PROFILE_DIR` 和
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`。常规 host 与 Compose 命令见[部署](deployment.md)。
 
-`npm run dev` 会自动解析这两个 desktop 值并应用
-`docker/compose.visible-browser.yaml` overlay。直接调用 Compose 时先导出，并显式
-叠加 overlay：
+`npm run dev` 与 `scripts/start_cloud_compose.sh` 都会自动解析这两个 desktop 值并应用
+`docker/compose.visible-browser.yaml` overlay；多个可用 display 无需 operator 选择，除非
+`SPARKCLAW_BROWSER_DISPLAY` 显式覆盖，否则解析器会选择编号最小的一个。没有本地 display 时，
+cloud 脚本保留 hidden-only 运行。直接调用 Compose 时先导出，并显式叠加 overlay：
 
 ```bash
 mapfile -t browser_display < <(scripts/resolve-browser-display.sh)

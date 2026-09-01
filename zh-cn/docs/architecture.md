@@ -15,7 +15,6 @@ agent runtime。当前产品表面包括：
   可逆表单草稿；
 - 基于稳定请求/上下文证据的普通聊天回答；
 - 到期 payload 重新进入正常路由的定时消息；
-- personal memory candidate 和 approval-gated sensitive memory；
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
 - 可选 fixed-session JingSi 文本呈现，只在显式绑定的 private-LAN port 发布；
 - 可选 Happy Team 任务与个人 bridge MCP 接入，并把 supervised plan 决议同步到持久化人工
@@ -73,6 +72,9 @@ WebChat 是 owner 工作台，展示 chat、schedule、direct delivery、connect
 tool、approval、被动协作通知、memory、trace、artifact、eval 和 runtime setting。它发送
 typed action，但不决定 route、Policy 或 delivery。见 [WebChat](webchat.md)。
 
+Memory 记录目前仍是管理空壳，其产品、检索与安全契约仍在设计中。Agent Runtime 不查询这些
+记录，也不把它们放入 Tree、Workflow 或 final-answer 模型上下文。
+
 ### Gateway 与 Message Plane
 
 Gateway 负责 HTTP/event API、auth、pairing、rate limit、session、public projection 和 service
@@ -92,6 +94,10 @@ reference 的结构权威。Workflow Profile 负责自己叶子的 semantic exam
 Fast/Tree 接收同一问题以及有界 typed context，其中可以包含近期对话，以及文档记录中的
 名称、格式、来源和最近活动等元数据。该契约适用于全部自然语言意图，不只适用于文档。
 Fast 负责消解歧义并给候选评分，不能改写请求、绑定资源或输出 `RouteDecision`：
+初次评分调用与可选的单次 repair 都强制关闭 thinking，并使用同一份动态 strict JSON Schema。
+进入 fusion 前，Runtime 仍校验 graph revision、精确候选集合与唯一性、未知字段和分数范围；
+单次 repair 后仍 malformed 时，Tree channel 失败。本次只加固结构，Tree temperature、分数
+calibration 和输出 token allowance 均不改变。
 
 ```text
 fusion_score = alpha * embedding_score
@@ -153,11 +159,15 @@ observations 使用统一的小信封，按因果顺序只出现一次并保留 
 声明的、按消费者定尺的持久化证据切片物化到 `PROVISIONED_EVIDENCE` 小节；声明切片
 不足时，冻结的通用 `SupportRequirements` entry 可暴露 `observation.read`，提供当前
 session 内的有界回读。support entry 走普通 exposure、selection、Policy 和持久化 scope
-校验；旧 plan 恢复时不会被扩大。Prompt 准入复用与实际
-执行相同的 Router task policy 选择 model profile，采用 85% context window 安全系数
-和离线标定的保守 token 估算；依次降级 session/tool 上下文、供给切片、较旧
-observations，并始终保留最新两条，output contract 仍是 user prompt 尾部；固定尾部超限
-会在模型调用前失败。run 级 observation 在 36,000 byte 开始压缩，但达到 48,000 byte 时
+校验；旧 plan 恢复时不会被扩大。每次初始或恢复 invocation 最多读取 256 条近期 message
+候选、128 条 terminal tool-call 候选与 64 条 episode 候选，然后只选择一份不可变的
+8-message/6-tool/4-episode/3-image snapshot，供 Tree、Workflow step、final answer 与
+recent-document resolution 共同使用。External MCP 会在任何历史查询前得到空 snapshot。
+Prompt 准入复用与实际执行相同的 Router task policy 选择 model profile，并从物理
+`context_tokens` 中预留当前 operation 的 output-class budget；不存在独立 input ceiling 或
+profile-wide output limit。之后依次降级 session/tool 上下文、供给切片、较旧 observations，
+并始终保留最新两条，output contract 仍是 user prompt 尾部；固定尾部超限会在模型调用前
+失败。run 级 observation 在 36,000 byte 开始压缩，但达到 48,000 byte 时
 会先硬停止，不再尝试压缩。support read 有独立的每阶段两次执行配额，不消耗 business
 tool-call 或重复调用预算。
 执行失败把类型化原因与内部诊断分开；run summary、assistant message 和
@@ -184,7 +194,10 @@ projection store 或各自独立的 audit 格式。
 
 Gateway 选择逻辑 lane，模型输出不能自选。当前 `single-fast-v1` 部署把两个逻辑 chat
 profiles 都解析到 Fast endpoint，因此不会加载 Deep 模型进程；为保持 Workflow 兼容，
-trace 中仍保留 lane 标签。加载和容量策略见[模型加载](model-loading.md)。
+trace 中仍保留 lane 标签。`configs/model.profiles.json` 是唯一容量事实源：它把每条 lane
+映射到一个物理模型窗口与正数 output-class budget。容量缺失、为零、未知或关系非法时，
+Gateway 会拒绝加载所选 profile；本地 vLLM entrypoint 也从同一 profile 派生
+`--max-model-len`。加载和容量策略见[模型加载](model-loading.md)。
 
 ### Message Control 与 Delivery
 
@@ -251,11 +264,14 @@ Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅
 
 LocalMind 在 workspace-scoped manager 后复用 MCP 2025-06-18 Streamable HTTP client。
 manager 每次刷新都重新解析环境 credential，校验固定 server identity 和 workspace endpoint，
-拒绝 Resources 和任何不符合 delegate/get/cancel 精确 task contract 的 schema，并原子注册恰好
-三个 SparkClaw 工具；刷新失败会移除全部 stale LocalMind 工具。task result 进入有界、不可信
-observation/artifact 路径；delegate/cancel 保留 dangerous remote-effect approval，但不声称在
-本地 sandbox 执行。当前没有 Catalog leaf 或自然语言 Workflow 消费这些工具，业务编排留待
-后续规划。
+拒绝 Resources 和任何不符合 delegate/get/cancel 精确 task contract 的 schema，并把三个远端
+工具原子投影为 read delegation、write delegation、get、cancel 四个本地注册；刷新失败会移除
+全部 stale LocalMind 工具。四个仅显式调用的 r1 Catalog leaf/Workflow 可以委派本次消息文字、
+查询一个已引用 task 或取消一个已引用 task。read delegation/query 不审批，write
+delegation/cancel 审批。delegation 使用冻结 endpoint/contract snapshot 和有界状态轮询等待终态，
+总体最多 10 分钟，并且只有 `completed` 算成功。task result 进入有界、不可信
+observation/artifact 路径，不声称在本地 sandbox 执行。external-AI principal 不能选择这些 route。
+详见 [LocalMind Workflow](localmind-task-workflow-design.md)。
 
 当前旧反向链路使用 ISCP：通过认证的 LocalMind peer 可通过
 `agent.notification.deliver.v1` 提交结构化提及。Gateway 校验不可信 deep link，并在确认前

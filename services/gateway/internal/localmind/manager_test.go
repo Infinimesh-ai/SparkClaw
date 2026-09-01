@@ -1,16 +1,20 @@
 package localmind
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpsafety"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -18,7 +22,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
-func TestRefreshRegistersExactlyThreeLocalMindTaskTools(t *testing.T) {
+func TestRefreshRegistersFourLocalCapabilitiesFromThreeRemoteTaskTools(t *testing.T) {
 	fake := newFakeLocalMind(t)
 	manager, hub := newTestManager(t, fake.server.URL)
 
@@ -30,7 +34,7 @@ func TestRefreshRegistersExactlyThreeLocalMindTaskTools(t *testing.T) {
 		t.Fatalf("unexpected snapshot identity: %#v", snapshot)
 	}
 	if !slices.Equal(snapshot.RemoteToolNames, []string{delegateRemoteName, getTaskRemoteName, controlRemoteName}) ||
-		!slices.Equal(snapshot.RegisteredToolNames, []string{delegateLocalName, getTaskLocalName, cancelLocalName}) {
+		!slices.Equal(snapshot.RegisteredToolNames, []string{delegateReadLocalName, delegateWriteLocalName, getTaskLocalName, cancelLocalName}) {
 		t.Fatalf("unexpected LocalMind task snapshot: %#v", snapshot)
 	}
 	for _, name := range snapshot.RegisteredToolNames {
@@ -51,8 +55,8 @@ func TestRefreshRegistersExactlyThreeLocalMindTaskTools(t *testing.T) {
 			dynamic = append(dynamic, definition.Name)
 		}
 	}
-	if !slices.Equal(dynamic, []string{cancelLocalName, delegateLocalName, getTaskLocalName}) {
-		t.Fatalf("LocalMind registered %d tools instead of exactly three: %v", len(dynamic), dynamic)
+	if !slices.Equal(dynamic, []string{cancelLocalName, delegateWriteLocalName, delegateReadLocalName, getTaskLocalName}) {
+		t.Fatalf("LocalMind registered %d local capabilities instead of exactly four: %v", len(dynamic), dynamic)
 	}
 	for _, request := range fake.requestsSnapshot() {
 		if request.accept != "application/json, text/event-stream" || request.protocol != config.LocalMindMCPProtocolVersion || request.authorization != "Bearer token-1" {
@@ -61,14 +65,14 @@ func TestRefreshRegistersExactlyThreeLocalMindTaskTools(t *testing.T) {
 	}
 }
 
-func TestLocalMindTaskToolPolicyIsConservativeWithoutWorkflowPlanning(t *testing.T) {
+func TestLocalMindTaskToolPolicySeparatesReadAndWriteDelegation(t *testing.T) {
 	fake := newFakeLocalMind(t)
 	manager, hub := newTestManager(t, fake.server.URL)
 	if _, err := manager.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	engine := policy.New(config.Default())
-	for _, name := range []string{delegateLocalName, cancelLocalName} {
+	for _, name := range []string{delegateWriteLocalName, cancelLocalName} {
 		definition, ok := hub.Definition(name)
 		if !ok || definition.Risk != app.RiskDangerous || !definition.RequiresApproval || definition.Sandbox != "remote" || !definition.Idempotent {
 			t.Fatalf("dangerous LocalMind definition mismatch for %s: %#v", name, definition)
@@ -78,10 +82,31 @@ func TestLocalMindTaskToolPolicyIsConservativeWithoutWorkflowPlanning(t *testing
 			t.Fatalf("dangerous LocalMind policy mismatch for %s: %#v", name, decision)
 		}
 	}
+	readDelegate, ok := hub.Definition(delegateReadLocalName)
+	if !ok || readDelegate.Risk != app.RiskRead || readDelegate.RequiresApproval || !readDelegate.Idempotent || readDelegate.OutcomeAdapter != app.OutcomeAdapterLocalMindTask {
+		t.Fatalf("read-only LocalMind delegation definition mismatch: %#v", readDelegate)
+	}
+	snapshot, _ := manager.Snapshot()
+	if !definitionHasLocalMindIdentity(readDelegate, app.ToolCapabilityLocalMindDelegateRead, snapshot.EndpointID, snapshot.Revision) {
+		t.Fatalf("read-only LocalMind delegation omitted endpoint identity: %#v", readDelegate.Capabilities)
+	}
+	if decision := engine.Decide(readDelegate, map[string]any{"request": "summarize"}, app.PolicyExecutionContext{}); decision.RequiresApproval || decision.RequiresSandbox || decision.RequiresDeep {
+		t.Fatalf("read-only LocalMind delegation unexpectedly requires approval: %#v", decision)
+	}
 	getDefinition, ok := hub.Definition(getTaskLocalName)
 	if !ok || getDefinition.Risk != app.RiskRead || getDefinition.RequiresApproval || !getDefinition.Idempotent {
 		t.Fatalf("LocalMind get definition mismatch: %#v", getDefinition)
 	}
+}
+
+func definitionHasLocalMindIdentity(definition app.ToolDefinition, name string, endpointID, revision string) bool {
+	for _, capability := range definition.Capabilities {
+		if capability.Name == name && capability.Qualifiers[app.CapabilityQualifierEndpointID] == endpointID &&
+			capability.Qualifiers[app.CapabilityQualifierSnapshotRevision] == revision {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLocalMindTaskWrappersTranslateArgumentsAndGenerateStableKeys(t *testing.T) {
@@ -94,9 +119,9 @@ func TestLocalMindTaskWrappersTranslateArgumentsAndGenerateStableKeys(t *testing
 		t.Fatal(err)
 	}
 
-	delegateArgs := map[string]any{"request": "Prepare a class age table", "document_ids": []any{"doc-1"}}
+	delegateArgs := map[string]any{"request": "Prepare a class age table"}
 	for range 2 {
-		result, err := hub.Execute(t.Context(), delegateLocalName, delegateArgs, "session-1", "run-1")
+		result, err := hub.Execute(t.Context(), delegateWriteLocalName, delegateArgs, "session-1", "run-1")
 		if err != nil || result.Output.(map[string]any)["taskId"] != "task-1" {
 			t.Fatalf("delegate result=%#v err=%v", result.Output, err)
 		}
@@ -109,8 +134,11 @@ func TestLocalMindTaskWrappersTranslateArgumentsAndGenerateStableKeys(t *testing
 	if firstKey == "" || firstKey != stringValue(delegateCalls[1].arguments["idempotencyKey"]) || strings.Contains(firstKey, "session-1") {
 		t.Fatalf("delegate idempotency key is not stable and opaque: %q %q", firstKey, delegateCalls[1].arguments["idempotencyKey"])
 	}
-	if delegateCalls[0].arguments["request"] != delegateArgs["request"] || !slices.Equal(delegateCalls[0].arguments["documentIds"].([]any), []any{"doc-1"}) {
+	if delegateCalls[0].arguments["request"] != delegateArgs["request"] {
 		t.Fatalf("delegate arguments were not translated exactly: %#v", delegateCalls[0].arguments)
+	}
+	if _, sent := delegateCalls[0].arguments["documentIds"]; sent {
+		t.Fatalf("text-only delegation sent documentIds: %#v", delegateCalls[0].arguments)
 	}
 
 	getResult, err := hub.Execute(t.Context(), getTaskLocalName, map[string]any{
@@ -141,12 +169,73 @@ func TestLocalMindAuthorizationFailureNeverReplaysDelegate(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake.setAuthorized(false)
-	_, err := hub.Execute(t.Context(), delegateLocalName, map[string]any{"request": "read only task"}, "session", "run")
+	_, err := hub.Execute(t.Context(), delegateReadLocalName, map[string]any{"request": "read only task"}, "session", "run")
 	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPAuthorization {
 		t.Fatalf("delegate authorization failure was not typed: %v", err)
 	}
 	if calls := len(fake.toolRequests(delegateRemoteName)); calls != 1 {
 		t.Fatalf("delegate was replayed after authorization failure: %d calls", calls)
+	}
+}
+
+func TestCredentialSwitchCancelsActiveLocalMindCall(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, hub := newTestManager(t, fake.server.URL)
+	runs := integrationrun.New()
+	manager.WithIntegrationRuns(runs)
+	if _, err := manager.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fake.blockToolCalls()
+	runCtx, finishRun := runs.Begin(t.Context(), "run-active")
+	defer finishRun(false)
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := hub.Execute(runCtx, delegateReadLocalName, map[string]any{"request": "read task"}, "session", "run-active")
+		callDone <- err
+	}()
+	fake.waitForBlockedToolCall(t)
+	if _, err := manager.ActivateCredentials(t.Context(), Credentials{
+		Endpoint: fake.server.URL + "/api/workspaces/ws-1/mcp", BearerToken: "token-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-callDone; app.ToolErrorCodeFrom(err) != app.ToolErrorLocalMindCredentialsChanged {
+		t.Fatalf("active call error=%v", err)
+	}
+	if cause := context.Cause(runCtx); app.ToolErrorCodeFrom(cause) != app.ToolErrorLocalMindCredentialsChanged {
+		t.Fatalf("active run cause=%v", cause)
+	}
+}
+
+func TestCredentialSwitchPreventsSuspendedLocalMindRunFromUsingNewGeneration(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, hub := newTestManager(t, fake.server.URL)
+	runs := integrationrun.New()
+	manager.WithIntegrationRuns(runs)
+	if _, err := manager.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	runCtx, suspendRun := runs.Begin(t.Context(), "run-suspended")
+	if _, err := hub.Execute(runCtx, delegateReadLocalName, map[string]any{"request": "first task"}, "session", "run-suspended"); err != nil {
+		t.Fatal(err)
+	}
+	suspendRun(true)
+	if _, err := manager.ActivateCredentials(t.Context(), Credentials{
+		Endpoint: fake.server.URL + "/api/workspaces/ws-1/mcp", BearerToken: "token-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resumedCtx, finishRun := runs.Begin(t.Context(), "run-suspended")
+	defer finishRun(false)
+	_, err := hub.Execute(resumedCtx, delegateReadLocalName, map[string]any{"request": "second task"}, "session", "run-suspended")
+	if app.ToolErrorCodeFrom(err) != app.ToolErrorLocalMindCredentialsChanged {
+		t.Fatalf("resumed call error=%v", err)
+	}
+	if calls := len(fake.toolRequests(delegateRemoteName)); calls != 1 {
+		t.Fatalf("resumed run reached new LocalMind generation: calls=%d", calls)
 	}
 }
 
@@ -163,7 +252,7 @@ func TestRefreshFailureRemovesAllStaleLocalMindTools(t *testing.T) {
 	if _, ok := manager.Snapshot(); ok {
 		t.Fatal("failed refresh retained a stale snapshot")
 	}
-	for _, name := range []string{delegateLocalName, getTaskLocalName, cancelLocalName} {
+	for _, name := range []string{delegateReadLocalName, delegateWriteLocalName, getTaskLocalName, cancelLocalName} {
 		if _, ok := hub.Definition(name); ok {
 			t.Fatalf("failed refresh retained stale tool %q", name)
 		}
@@ -189,15 +278,30 @@ func TestRefreshRejectsAnythingOutsideExactTaskContract(t *testing.T) {
 			fake := newFakeLocalMind(t)
 			test.mutate(fake)
 			manager, hub := newTestManager(t, fake.server.URL)
-			if _, err := manager.Refresh(t.Context()); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := manager.Refresh(t.Context()); err == nil || !errors.Is(err, ErrContractInvalid) || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("invalid LocalMind contract was accepted: %v", err)
 			}
-			for _, name := range []string{delegateLocalName, getTaskLocalName, cancelLocalName} {
+			for _, name := range []string{delegateReadLocalName, delegateWriteLocalName, getTaskLocalName, cancelLocalName} {
 				if _, ok := hub.Definition(name); ok {
 					t.Fatalf("failed contract validation registered %q", name)
 				}
 			}
 		})
+	}
+}
+
+func TestCheckCredentialsTypesInvalidEndpointBeforeNetworkValidation(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, _ := newTestManager(t, fake.server.URL)
+	_, err := manager.CheckCredentials(t.Context(), Credentials{
+		Endpoint:    "https://localmind.example/not-a-workspace-endpoint",
+		BearerToken: "token",
+	})
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("invalid endpoint error=%v", err)
+	}
+	if requests := fake.requestsSnapshot(); len(requests) != 0 {
+		t.Fatalf("invalid endpoint reached LocalMind: %#v", requests)
 	}
 }
 
@@ -210,7 +314,7 @@ func TestLocalMindToolErrorPreservesSanitizedObservation(t *testing.T) {
 	if _, err := manager.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	result, err := hub.Execute(t.Context(), delegateLocalName, map[string]any{"request": "test"}, "session", "run")
+	result, err := hub.Execute(t.Context(), delegateWriteLocalName, map[string]any{"request": "test"}, "session", "run")
 	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPToolResult {
 		t.Fatalf("isError did not become a typed failure: %v", err)
 	}
@@ -297,6 +401,8 @@ type fakeLocalMind struct {
 	tools        []mcpclient.Tool
 	toolResults  map[string]mcpclient.ToolResult
 	requests     []fakeRequest
+	blockCalls   bool
+	callStarted  chan struct{}
 }
 
 func newFakeLocalMind(t *testing.T) *fakeLocalMind {
@@ -361,6 +467,18 @@ func (f *fakeLocalMind) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 	case "tools/call":
 		f.mu.Lock()
+		blockCalls := f.blockCalls
+		callStarted := f.callStarted
+		f.mu.Unlock()
+		if blockCalls {
+			select {
+			case callStarted <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return
+		}
+		f.mu.Lock()
 		result = f.toolResults[toolName]
 		f.mu.Unlock()
 	default:
@@ -418,6 +536,25 @@ func (f *fakeLocalMind) setToolResult(name string, result mcpclient.ToolResult) 
 	f.mu.Lock()
 	f.toolResults[name] = result
 	f.mu.Unlock()
+}
+
+func (f *fakeLocalMind) blockToolCalls() {
+	f.mu.Lock()
+	f.blockCalls = true
+	f.callStarted = make(chan struct{}, 1)
+	f.mu.Unlock()
+}
+
+func (f *fakeLocalMind) waitForBlockedToolCall(t *testing.T) {
+	t.Helper()
+	f.mu.Lock()
+	started := f.callStarted
+	f.mu.Unlock()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for LocalMind tool call")
+	}
 }
 
 func (f *fakeLocalMind) requestsSnapshot() []fakeRequest {

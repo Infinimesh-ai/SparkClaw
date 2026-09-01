@@ -6,11 +6,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 )
 
 type documentPreflight struct {
@@ -161,31 +161,13 @@ func nextDocumentOutputRef(root, inputRef string) (string, error) {
 		usedNames[entry.Name()] = struct{}{}
 	}
 
-	extension := filepath.Ext(inputRef)
-	stem, firstSequence := documentOutputFamily(strings.TrimSuffix(filepath.Base(inputRef), extension))
+	baseFilename, firstSequence := workspacefiles.VersionFamily(filepath.Base(inputRef))
 	for offset := 0; offset <= len(entries); offset++ {
 		sequence := firstSequence + offset
-		name := stem + extension
-		if sequence > 1 {
-			name = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
-		}
+		name := workspacefiles.VersionedName(baseFilename, sequence)
 		if _, exists := usedNames[name]; !exists {
 			return filepath.ToSlash(filepath.Join(directory, name)), nil
 		}
 	}
 	return "", errors.New("no output copy name is available")
-}
-
-func documentOutputFamily(inputStem string) (string, int) {
-	const marker = "-sparkclaw-edit"
-	if strings.HasSuffix(inputStem, marker) {
-		return inputStem, 2
-	}
-	if markerIndex := strings.LastIndex(inputStem, marker+"-"); markerIndex >= 0 {
-		suffix := inputStem[markerIndex+len(marker)+1:]
-		if sequence, err := strconv.Atoi(suffix); err == nil && sequence >= 2 && strconv.Itoa(sequence) == suffix {
-			return inputStem[:markerIndex] + marker, sequence + 1
-		}
-	}
-	return inputStem + marker, 1
 }

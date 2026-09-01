@@ -3,91 +3,127 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 const (
 	defaultContextMessageLimit     = 8
 	defaultContextEpisodeLimit     = 4
-	defaultContextMemoryLimit      = 4
 	defaultContextToolLimit        = 6
+	contextMessageCandidateLimit   = 256
+	contextToolCandidateLimit      = 128
+	contextEpisodeCandidateLimit   = 64
 	contextToolSummaryLimit        = 4000
 	compactContextToolLimit        = 3
 	compactContextToolSummaryLimit = 1200
-	compactContextMemoryLimit      = 2
-	compactContextMemoryBytes      = 120
 )
 
 type agentContextSnapshot struct {
 	Messages     []app.Message
 	Episodes     []app.EpisodeSummary
-	Memories     []app.Memory
 	ToolResults  []app.ToolCall
 	RecentImages []app.MessageAttachment
 }
 
-func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, currentRunID, currentContent string) (agentContextSnapshot, error) {
-	if run, ok, err := r.store.GetRun(ctx, currentRunID); err != nil {
-		return agentContextSnapshot{}, fmt.Errorf("load current run context: %w", err)
-	} else if ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
-		// An inbound MCP request must not inherit cached workspace derivatives
-		// through conversation, tool, memory, image, or episode context. Exact
-		// workspace access is admitted through the current run's bound approval
-		// and its current-run observations instead.
-		return agentContextSnapshot{}, nil
+type invocationHistory struct {
+	MessageCandidates []app.Message
+	ToolCandidates    []app.ToolCall
+	EpisodeCandidates []app.EpisodeSummary
+	Selected          agentContextSnapshot
+}
+
+func (r Runtime) buildInvocationHistory(ctx context.Context, run app.AgentRun, excludeMessageID string) (invocationHistory, error) {
+	if run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
+		// External MCP workspace access is admitted only through current-run
+		// approvals and observations. Return before issuing a history query.
+		return invocationHistory{}, nil
 	}
-	messages, err := r.store.ListMessages(ctx, sessionID)
+	if strings.TrimSpace(run.SessionID) == "" || strings.TrimSpace(run.ID) == "" || run.StartedAt.IsZero() {
+		return invocationHistory{}, errors.New("invocation history boundary is incomplete")
+	}
+	messages, err := r.store.ListRecentMessages(ctx, run.SessionID, run.StartedAt, excludeMessageID, contextMessageCandidateLimit)
 	if err != nil {
-		return agentContextSnapshot{}, fmt.Errorf("load conversation context: %w", err)
+		return invocationHistory{}, fmt.Errorf("load recent conversation context: %w", err)
 	}
-	episodes, err := r.store.ListEpisodeSummaries(ctx, sessionID)
+	toolCalls, err := r.store.ListRecentToolCalls(ctx, run.SessionID, run.StartedAt, run.ID, contextToolCandidateLimit)
 	if err != nil {
-		return agentContextSnapshot{}, fmt.Errorf("load episode context: %w", err)
+		return invocationHistory{}, fmt.Errorf("load recent tool context: %w", err)
 	}
-	toolCalls, err := r.store.ListToolCalls(ctx, sessionID)
+	episodes, err := r.store.ListRecentEpisodeSummaries(ctx, run.SessionID, run.StartedAt, contextEpisodeCandidateLimit)
 	if err != nil {
-		return agentContextSnapshot{}, fmt.Errorf("load tool context: %w", err)
+		return invocationHistory{}, fmt.Errorf("load recent episode context: %w", err)
 	}
-	memories, err := r.store.SearchMemories(ctx, currentContent)
-	if err != nil {
-		return agentContextSnapshot{}, fmt.Errorf("load memory context: %w", err)
-	}
-	return agentContextSnapshot{
-		Messages:     recentContextMessages(messages, currentRunID, defaultContextMessageLimit),
+	chronologicalMessages := reverseMessages(messages)
+	chronologicalToolCalls := reverseToolCalls(toolCalls)
+	selected := agentContextSnapshot{
+		Messages:     recentContextMessages(chronologicalMessages, run.ID, defaultContextMessageLimit),
 		Episodes:     recentContextEpisodes(episodes, defaultContextEpisodeLimit),
-		Memories:     relevantContextMemories(memories, defaultContextMemoryLimit),
-		ToolResults:  recentContextToolResults(toolCalls, currentRunID, defaultContextToolLimit),
-		RecentImages: recentContextImages(messages, currentRunID, 3),
+		ToolResults:  recentContextToolResults(chronologicalToolCalls, run.ID, defaultContextToolLimit),
+		RecentImages: recentContextImages(chronologicalMessages, run.ID, 3),
+	}
+	return invocationHistory{
+		MessageCandidates: messages,
+		ToolCandidates:    toolCalls,
+		EpisodeCandidates: episodes,
+		Selected:          selected,
 	}, nil
 }
 
-// intentRoutingContextTokenBudget matches the pre-existing 12000-character
-// hard trim in semanticRoutingContext (~4 bytes per token), so admission
-// degrades whole sections instead of the trim cutting mid-sentence.
-const intentRoutingContextTokenBudget = 3000
-
-// conversationContextTokenFloor keeps a minimal conversation-context window
-// even when the fixed prompt parts already crowd the lane budget.
-const conversationContextTokenFloor = 1024
-
-// conversationContextTokenBudget bounds the snapshot section of the
-// conversation final-answer prompt to the execution lane's input budget net
-// of the fixed prompt parts, mirroring the workflow step loop's admission.
-func (r Runtime) conversationContextTokenBudget(system string, fixedUserParts []string) int {
-	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: workflowExecutionModelLane})
-	available := int(math.Floor(float64(contextLimit-maxOutputTokens) * workflowStepPromptCompressionThreshold))
-	budget := available - estimatePromptTokens(append([]string{system}, fixedUserParts...)...)
-	if budget < conversationContextTokenFloor {
-		return conversationContextTokenFloor
+func (r Runtime) buildResumedInvocationHistory(ctx context.Context, run app.AgentRun) (invocationHistory, error) {
+	if run.Workflow == nil || strings.TrimSpace(run.Workflow.Intent.SourceTurnID) == "" {
+		return invocationHistory{}, errors.New("resumed invocation history source turn is unavailable")
 	}
-	return budget
+	return r.buildInvocationHistory(ctx, run, run.Workflow.Intent.SourceTurnID)
 }
+
+// buildAgentContextSnapshot is retained for focused context tests. Production
+// invocations acquire invocationHistory once and pass Selected explicitly.
+func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, currentRunID string) (agentContextSnapshot, error) {
+	run, ok, err := r.store.GetRun(ctx, currentRunID)
+	if err != nil {
+		return agentContextSnapshot{}, fmt.Errorf("load current run context: %w", err)
+	}
+	if !ok {
+		run = app.AgentRun{ID: currentRunID, SessionID: sessionID, StartedAt: time.Now().UTC()}
+	} else if run.SessionID != sessionID {
+		return agentContextSnapshot{}, errors.New("current run context belongs to another session")
+	}
+	excludeMessageID := ""
+	if run.Workflow != nil {
+		excludeMessageID = run.Workflow.Intent.SourceTurnID
+	}
+	history, err := r.buildInvocationHistory(ctx, run, excludeMessageID)
+	if err != nil {
+		return agentContextSnapshot{}, err
+	}
+	return history.Selected, nil
+}
+
+func reverseMessages(values []app.Message) []app.Message {
+	out := append([]app.Message(nil), values...)
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out
+}
+
+func reverseToolCalls(values []app.ToolCall) []app.ToolCall {
+	out := append([]app.ToolCall(nil), values...)
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out
+}
+
+// contextSnapshotRenderTestBudget exercises standalone snapshot rendering.
+// Production consumers admit the snapshot as part of their complete request.
+const contextSnapshotRenderTestBudget = 3000
 
 func (snapshot agentContextSnapshot) ForIntentRouting(maxTokens int) (string, error) {
 	return snapshot.contextBuilder(contextRenderIntent).Render(maxTokens)
@@ -111,8 +147,6 @@ func (snapshot agentContextSnapshot) contextBuilder(mode contextRenderMode) cont
 	toolCompact := titledContextSection("Recent tool results / prior working context (old session context compacted; current workflow step observations are preserved separately):", formatContextToolResultsWithLimit(tailToolCalls(snapshot.ToolResults, compactContextToolLimit), compactContextToolSummaryLimit))
 	imageFull := titledContextSection("Recent session images available for image understanding or final Markdown media replies:", formatContextImages(snapshot.RecentImages))
 	imageCompact := titledContextSection("Latest session image available for image understanding or final Markdown media replies:", formatCompactContextImages(snapshot.RecentImages))
-	memoryFull := titledContextSection("Relevant accepted memories:", formatContextMemories(snapshot.Memories))
-	memoryCompact := titledContextSection("Most relevant accepted memories (compact):", formatContextMemoriesWithLimit(snapshot.Memories, compactContextMemoryLimit, compactContextMemoryBytes))
 	sections := []contextSection{
 		degradingContextSection("recent_conversation", 40, messageFull, messageCompact, true),
 	}
@@ -124,7 +158,6 @@ func (snapshot agentContextSnapshot) contextBuilder(mode contextRenderMode) cont
 	sections = append(sections,
 		degradingContextSection("session_tool_results", 50, toolFull, toolCompact, true),
 		degradingContextSection("recent_images", 20, imageFull, imageCompact, true),
-		degradingContextSection("memories", 20, memoryFull, memoryCompact, true),
 	)
 	return contextBuilder{Sections: sections, SystemJoiner: "\n\n", UserJoiner: "\n\n"}
 }
@@ -234,16 +267,6 @@ func recentContextEpisodes(episodes []app.EpisodeSummary, limit int) []app.Episo
 	return append([]app.EpisodeSummary(nil), episodes...)
 }
 
-func relevantContextMemories(memories []app.Memory, limit int) []app.Memory {
-	if limit <= 0 || len(memories) == 0 {
-		return nil
-	}
-	if len(memories) > limit {
-		memories = memories[:limit]
-	}
-	return append([]app.Memory(nil), memories...)
-}
-
 func recentContextToolResults(calls []app.ToolCall, currentRunID string, limit int) []app.ToolCall {
 	if limit <= 0 || len(calls) == 0 {
 		return nil
@@ -346,25 +369,6 @@ func formatCompactContextEpisodes(episodes []app.EpisodeSummary) string {
 			fields = append(fields, "summary="+quoteEpisodeField(episode.Summary, 160))
 		}
 		lines = append(lines, "- "+strings.Join(fields, " "))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func formatContextMemories(memories []app.Memory) string {
-	return formatContextMemoriesWithLimit(memories, len(memories), 260)
-}
-
-func formatContextMemoriesWithLimit(memories []app.Memory, limit, contentBytes int) string {
-	if limit > 0 && len(memories) > limit {
-		memories = memories[:limit]
-	}
-	lines := make([]string, 0, len(memories))
-	for _, memory := range memories {
-		content := strings.Join(strings.Fields(memory.Content), " ")
-		if content == "" {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("- kind=%s content=%s", quoteEpisodeField(memory.Kind, 60), quoteEpisodeField(content, contentBytes)))
 	}
 	return strings.Join(lines, "\n")
 }

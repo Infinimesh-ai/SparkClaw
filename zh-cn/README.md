@@ -32,8 +32,8 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 本地 file-backed state，PostgreSQL 18/pgvector 持久化 runtime records，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
-- JingSi→SparkClaw Runtime JSON/HTTP v1 机器契约已由 InfiniCenter 决策 0007 accepted；仓内测试直接读取中央 7-case manifest、Schema 与 HTTP binding，不复制协议类型。
-- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding endpoints。当前 Fast + Embedding 校准在 15 条标注意图上达到 15/15。43-case runner 仍包含已退役 code/shell 原型 Workflow 的断言，在与当前能力矩阵对齐前不能作为完整的当前验收结果。
+- JingSi→SparkClaw Runtime JSON/HTTP v1 provider 已在显式 loopback-only、独立 bearer 配置后实现。它在执行前持久化 request-key binding 与不可逆 negative fence，提供 submit/lookup/status/cancel/event-page actions，恢复未完成记录，并在 request-scoped tool/budget 收窄后进入既有 Agent Runtime。`return_nowhere` 不查询 endpoint；有界 IMMS Memory Context 只在 intent/capability admission 后作为 data 持久化并进入 workflow。仓库继续直接读取中央决策 0007 的 Schema/binding/fixtures。
+- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding endpoints。当前 Fast + Embedding 校准在 15 条标注意图上达到 15/15。2026-08-24，恢复后的 vLLM-managed NVFP4 路径通过全部 47 个 real-model golden cases，没有 mock call 或 model error。
 
 已知运行边界：
 
@@ -41,15 +41,28 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 当前单机产品 profile 是 `single-fast-v1`：fast 使用 32K context + 8G KV cache 并关闭 MTP；embedding、guard 与 OvisOCR2 保持有界的辅助配置。历史 `dual-light-v1` 实测仍作为证据保留，但不再是默认启动项。
 - Gateway 仍记录逻辑 fast/deep Workflow 选择，但当前部署配置把两个 chat profiles 都解析到 `sparkclaw-fast`，不会启动 `sparkclaw-deep` 模型进程。
 - Workflow capability 是唯一执行路径；当前能力面以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
-- accepted 的 JingSi 契约不等于 provider 已实现：submit/request-key lookup/status/cancel/event endpoints、durable negative fence、service credential 与真实 JingSi 进程联调仍未完成。
+- 开发机门禁现以彼此独立的 PostgreSQL 18、真实 IMMS/SparkClaw/JingSi 服务与真实 JingSi-Node 进程贯通 Task Intake、Memory Context、Runtime 成功结果、IMMS Observation 及 origin notification/ACK。生产 service credential、断电/备份恢复、真实网络与 GB10 物理验收仍待完成。
 
 ## 快速开始
+
+Ubuntu 测试 VM 使用外部模型 endpoint 时，以具备 sudo 权限的普通用户运行 cloud 安装入口。
+它会在需要时安装 Docker，把 endpoint 和可选 API Key 只保存在本机 `0600` 配置文件中，并
+验证容器内 Chromium 自动化运行态：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
+```
+
+模型 endpoint 不需要认证时，交互配置中的 API Key 直接回车留空。当前可信局域网 cloud
+profile 不启用 Gateway owner-token 认证，部署完成后直接访问 `http://<VM-IP>:18790`。
 
 在已安装 Docker、Compose 与 NVIDIA Container Toolkit 的 NVIDIA GB10 DGX Spark 上，
 运行流式安装入口：
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 网站可以原样镜像仓库根目录的 `install.sh`，并替换上述 URL。bootstrap 会在
@@ -91,8 +104,9 @@ Chromium 位于非标准路径时，设置
 npm run dev
 ```
 
-只重建一个应用容器时，使用 `npm run dev:gateway` 或 `npm run dev:webchat`。
-直接运行宿主 mock/file Gateway 或 Vite 仅用于隔离调试，对应
+重建 Gateway 时，用 `npm run dev:gateway:online` 或 `npm run dev:gateway:local` 明确选择
+chat profile；`npm run dev:gateway` 选择在线。只重建 WebChat 时使用对应的
+`dev:webchat:online` 或 `dev:webchat:local`。直接运行宿主 mock/file Gateway 或 Vite 仅用于隔离调试，对应
 `npm run dev:gateway:host` 和 `npm run dev:webchat:host`。
 
 direct model-router smoke test：
@@ -118,7 +132,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-当前 golden eval 覆盖 43 个 case，验证 direct chat、config/tool visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
+当前 golden eval 覆盖 47 个 case，验证 direct chat、config/tool visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
 
 ## 开源
 
@@ -134,10 +148,10 @@ npm workspace root 保持 `private`，用于避免误发布 package。仓库本�
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
-`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，并同时启动 Fast、embedding、guard 与 OCR。`scripts/restart_runtime_compose.sh` 随后使用单 Fast 与 OCR 环境重启 Gateway/WebChat，把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，启用文档 OCR adapter，并在 Gateway 未 ready 时失败退出。
+`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，并同时启动 Fast、embedding、guard 与 OCR。明确选择 `local` 后，脚本使用单 Fast 与 OCR 环境重启 Gateway/WebChat，把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，启用文档 OCR adapter，并在 Gateway 未 ready 时失败退出。
 
 其他服务入口用于定向测试和对照实验：
 
@@ -155,11 +169,11 @@ scripts/serve_models_compose.sh embedding
 
 | Lane | Served name | Port | Default checkpoint |
 |---|---|---:|---|
-| fast | `sparkclaw-fast` | 8001 | `Qwen/Qwen3.6-35B-A3B-FP8` |
-| deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
+| fast | `sparkclaw-fast` | 8001 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| deep | `sparkclaw-deep` | 8002 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 
-当前单机产品 profile 保持保守：chat 只由 `fast` 提供，MTP 关闭，embedding 与 guard 使用较小的显式 KV budget。Deep 和 dual-light 命令只保留给定向测试与历史对照。
+当前单机产品 profile 保持保守：chat 只由 `fast` 提供，两个逻辑 chat profile 都使用该 NVFP4 endpoint，MTP 关闭，embedding 与 guard 使用较小的显式 KV budget。独立 vLLM 0.24.0 chat image 负责解释 checkpoint quantization metadata，并自主选择 activation 与 kernel；SparkClaw 不提供 quantization override。Deep 和 dual-light 命令仍可用于定向对照，但不再加载 FP8 chat checkpoint。
 
 加载策略见 [docs/model-loading.md](docs/model-loading.md)。Benchmark 证据、endpoint 快照和运行说明见 [benchmarks/model_baseline.md](benchmarks/model_baseline.md)。
 

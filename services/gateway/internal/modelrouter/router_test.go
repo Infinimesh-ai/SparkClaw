@@ -2,14 +2,17 @@ package modelrouter
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 )
 
 func TestChatUsesConfiguredModelID(t *testing.T) {
@@ -35,23 +38,22 @@ func TestChatUsesConfiguredModelID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.Name = "sparkclaw-fast"
 	cfg.Model.Fast.Model = "Qwen/Fast"
-	cfg.Model.Fast.MaxTokens = 777
 	cfg.Model.DisableThinking = true
 	router := New(cfg)
 
-	result, err := router.Chat(t.Context(), Task{Risk: app.RiskRead}, "system", "hello")
+	result, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if requestedModel != "Qwen/Fast" {
 		t.Fatalf("requested model = %q", requestedModel)
 	}
-	if requestedMaxTokens != 777 {
+	if requestedMaxTokens != cfg.Model.Fast.OutputBudgets[modelcapacity.OutputAnswer] {
 		t.Fatalf("requested max_tokens = %d", requestedMaxTokens)
 	}
 	if requestedEnableThinking != false {
@@ -110,18 +112,213 @@ func TestChatRejectsReasoningOnlyResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Deep.BaseURL = ""
 	router := New(cfg)
 
-	if _, err := router.Chat(t.Context(), Task{Risk: app.RiskRead}, "system", "hello"); err == nil || !strings.Contains(err.Error(), "reasoning but no assistant content") {
+	if _, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", "hello"); err == nil || !strings.Contains(err.Error(), "reasoning but no assistant content") {
 		t.Fatalf("expected reasoning-only response error, got %v", err)
 	}
 }
 
-func TestChatFallsBackFromFastToDeep(t *testing.T) {
+func TestChatRejectsLengthFinishReasonWithContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{"content": "partial answer"}, "finish_reason": "length",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	router := New(cfg)
+
+	if _, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", "hello"); err == nil || !strings.Contains(err.Error(), "model output is incomplete") {
+		t.Fatalf("finish_reason=length was accepted: %v", err)
+	}
+}
+
+func TestChatAdmissionRejectsBeforeProviderDispatch(t *testing.T) {
+	chatCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tokenize":
+			_ = json.NewEncoder(w).Encode(map[string]any{"count": 90})
+		case "/chat/completions":
+			chatCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "unexpected"}}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.Fast.ContextTokens = 100
+	cfg.Model.Fast.OutputBudgets[modelcapacity.OutputAnswer] = 20
+	router := New(cfg)
+
+	_, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", strings.Repeat("x", 200))
+	var tooLong *InputTooLongError
+	if !errors.As(err, &tooLong) || !tooLong.Exact || tooLong.InputBudget != 80 {
+		t.Fatalf("admission error = %#v, want exact 80-token budget rejection", err)
+	}
+	if chatCalls != 0 {
+		t.Fatalf("provider chat was dispatched %d times after failed admission", chatCalls)
+	}
+}
+
+func TestChatAdmissionDoesNotMisclassifyTokenizerFailureAsInputTooLong(t *testing.T) {
+	chatCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tokenize":
+			http.Error(w, "tokenizer unavailable", http.StatusServiceUnavailable)
+		case "/chat/completions":
+			chatCalls++
+			http.Error(w, "unexpected generation", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.Fast.ContextTokens = 100
+	cfg.Model.Fast.OutputBudgets[modelcapacity.OutputAnswer] = 20
+	router := New(cfg)
+
+	_, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", strings.Repeat("x", 200))
+	var tooLong *InputTooLongError
+	if err == nil || errors.As(err, &tooLong) || !strings.Contains(err.Error(), "tokenizer endpoint returned HTTP 503") {
+		t.Fatalf("admission error = %#v, want distinct tokenizer failure", err)
+	}
+	if chatCalls != 0 {
+		t.Fatalf("provider chat was dispatched %d times after tokenizer failure", chatCalls)
+	}
+}
+
+func TestOwnerQuestionAdmissionDoesNotMisclassifyTokenizerFailureAsTooLong(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tokenize" {
+			http.Error(w, "tokenizer unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Embedding.BaseURL = server.URL
+	cfg.Model.Embedding.ContextTokens = 8
+	router := New(cfg)
+
+	err := router.AdmitOwnerQuestion(t.Context(), strings.Repeat("问题", 20))
+	var tooLong *InputTooLongError
+	if err == nil || errors.As(err, &tooLong) || !strings.Contains(err.Error(), "tokenizer endpoint returned HTTP 503") {
+		t.Fatalf("owner admission error = %#v, want distinct tokenizer failure", err)
+	}
+}
+
+func TestCountProfileChatInputUsesTokenizerWithoutGeneration(t *testing.T) {
+	tokenizeCalls := 0
+	chatCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tokenize":
+			tokenizeCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"count": 70})
+		case "/chat/completions":
+			chatCalls++
+			http.Error(w, "unexpected generation", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.Fast.ContextTokens = 100
+	cfg.Model.Fast.OutputBudgets[modelcapacity.OutputAnswer] = 20
+	router := New(cfg)
+
+	count, err := router.CountProfileChatInput(t.Context(), modelcapacity.OperationConversationAnswer, "fast", "system", strings.Repeat("x", 200), ChatOptions{})
+	if err != nil || count != 70 {
+		t.Fatalf("count = %d err=%v, want exact tokenizer count", count, err)
+	}
+	if tokenizeCalls != 1 || chatCalls != 0 {
+		t.Fatalf("count path dispatched unexpected requests: tokenize=%d chat=%d", tokenizeCalls, chatCalls)
+	}
+}
+
+func TestStructuredChatExactAdmissionRetainsSchemaEnvelope(t *testing.T) {
+	chatCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tokenize":
+			_ = json.NewEncoder(w).Encode(map[string]any{"count": 20})
+		case "/chat/completions":
+			chatCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "unexpected"}}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.Fast.ContextTokens = 160
+	cfg.Model.Fast.OutputBudgets[modelcapacity.OutputCompactStructured] = 40
+	router := New(cfg)
+	schema := StrictJSONSchema{
+		Name: "admission_response",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"value": map[string]any{"type": "string"},
+			},
+			"required":             []string{"value"},
+			"additionalProperties": false,
+		},
+	}
+
+	_, err := router.ChatWithProfileOptions(t.Context(), modelcapacity.OperationIntentTreeScore, "fast", "system", "user", ChatOptions{StrictJSONSchema: &schema})
+	var tooLong *InputTooLongError
+	if !errors.As(err, &tooLong) || !tooLong.Exact || tooLong.InputTokens <= 20 || tooLong.InputBudget != 120 {
+		t.Fatalf("structured admission error = %#v, want exact rejection including schema envelope", err)
+	}
+	if chatCalls != 0 {
+		t.Fatalf("provider chat was dispatched %d times after schema overflow", chatCalls)
+	}
+}
+
+func TestOperationCannotBorrowAnotherLaneOrClass(t *testing.T) {
+	router := New(configtest.MustLoadDefault())
+	if _, err := router.ChatWithProfile(t.Context(), modelcapacity.OperationIntentTreeScore, "deep", "system", "user"); err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("Tree operation borrowed Deep capacity: %v", err)
+	}
+	cfg := configtest.MustLoadDefault()
+	delete(cfg.Model.Fast.OutputBudgets, modelcapacity.OutputCompactStructured)
+	if _, err := New(cfg).ChatWithProfile(t.Context(), modelcapacity.OperationIntentTreeScore, "fast", "system", "user"); err == nil || !strings.Contains(err.Error(), "no positive") {
+		t.Fatalf("missing class borrowed another budget: %v", err)
+	}
+}
+
+func TestChatDoesNotFallBackFromFastToDeep(t *testing.T) {
 	fast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "fast unavailable", http.StatusBadGateway)
 	}))
@@ -133,7 +330,7 @@ func TestChatFallsBackFromFastToDeep(t *testing.T) {
 	}))
 	defer deep.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = fast.URL
 	cfg.Model.Deep.BaseURL = deep.URL
@@ -141,12 +338,8 @@ func TestChatFallsBackFromFastToDeep(t *testing.T) {
 	cfg.Model.Deep.Model = "Qwen/Deep"
 	router := New(cfg)
 
-	result, err := router.Chat(t.Context(), Task{Risk: app.RiskRead}, "system", "hello")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Lane != "deep" || !result.Fallback || result.Content != "deep ok" {
-		t.Fatalf("unexpected fallback result: %#v", result)
+	if _, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", "hello"); err == nil || !strings.Contains(err.Error(), "HTTP 502") {
+		t.Fatalf("fast failure unexpectedly fell back: %v", err)
 	}
 }
 
@@ -166,7 +359,7 @@ func TestChatWithProfileUsesRequestedLaneWithoutFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = "http://127.0.0.1:1"
 	cfg.Model.Fast.Model = "Qwen/Fast"
@@ -175,7 +368,7 @@ func TestChatWithProfileUsesRequestedLaneWithoutFallback(t *testing.T) {
 	cfg.Model.Deep.Model = "Qwen/Deep"
 	router := New(cfg)
 
-	result, err := router.ChatWithProfile(t.Context(), "deep", "system", "hello")
+	result, err := router.ChatWithProfile(t.Context(), modelcapacity.OperationConversationAnswer, "deep", "system", "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +377,86 @@ func TestChatWithProfileUsesRequestedLaneWithoutFallback(t *testing.T) {
 	}
 }
 
-func TestChatWithImageMaxTokensBoundsFastResponse(t *testing.T) {
+func TestChatWithProfileOptionsRequestsStrictJSONSchemaAndDisablesThinking(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Error(err)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": `{"value":"ok"}`}}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.DisableThinking = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.Fast.Model = "Qwen/Fast"
+	router := New(cfg)
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{"value": map[string]any{"type": "string"}},
+		"required":             []string{"value"},
+		"additionalProperties": false,
+	}
+
+	result, err := router.ChatWithProfileOptions(t.Context(), modelcapacity.OperationIntentTreeScore, "fast", "system", "user", ChatOptions{
+		ForceDisableThinking: true,
+		StrictJSONSchema: &StrictJSONSchema{
+			Name: "test_response", Description: "One test response.", Schema: schema,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Content != `{"value":"ok"}` {
+		t.Fatalf("unexpected structured result: %#v", result)
+	}
+	if requestBody["temperature"] != 0.2 {
+		t.Fatalf("structured request changed score-generation temperature: %#v", requestBody["temperature"])
+	}
+	kwargs, _ := requestBody["chat_template_kwargs"].(map[string]any)
+	if kwargs["enable_thinking"] != false {
+		t.Fatalf("structured request did not disable thinking: %#v", kwargs)
+	}
+	responseFormat, _ := requestBody["response_format"].(map[string]any)
+	if responseFormat["type"] != "json_schema" {
+		t.Fatalf("unexpected response format: %#v", responseFormat)
+	}
+	jsonSchema, _ := responseFormat["json_schema"].(map[string]any)
+	if jsonSchema["name"] != "test_response" || jsonSchema["strict"] != true || jsonSchema["description"] != "One test response." {
+		t.Fatalf("strict JSON schema metadata is incomplete: %#v", jsonSchema)
+	}
+	gotSchema, err := json.Marshal(jsonSchema["schema"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSchema, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotSchema) != string(wantSchema) {
+		t.Fatalf("strict JSON schema changed in transport: got=%s want=%s", gotSchema, wantSchema)
+	}
+}
+
+func TestChatWithProfileOptionsRejectsInvalidStrictJSONSchemaBeforeMock(t *testing.T) {
+	router := New(configtest.MustLoadDefault())
+	for _, schema := range []StrictJSONSchema{
+		{Schema: map[string]any{"type": "object"}},
+		{Name: "invalid schema", Schema: map[string]any{"type": "object"}},
+		{Name: "missing_body"},
+	} {
+		if _, err := router.ChatWithProfileOptions(t.Context(), modelcapacity.OperationIntentTreeScore, "fast", "system", "user", ChatOptions{StrictJSONSchema: &schema}); err == nil {
+			t.Fatalf("invalid strict JSON schema was accepted: %#v", schema)
+		}
+	}
+}
+
+func TestChatWithImageUsesOperationClassBudget(t *testing.T) {
 	var requestedModel string
 	var requestedMaxTokens int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -203,26 +475,70 @@ func TestChatWithImageMaxTokensBoundsFastResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.Model = "Qwen/Fast"
-	cfg.Model.Fast.MaxTokens = 1024
 	router := New(cfg)
 
-	result, err := router.ChatWithImageMaxTokens(t.Context(), "fast", "system", "inspect", ImageInput{
+	result, err := router.ChatWithImage(t.Context(), modelcapacity.OperationDocumentImageEnrich, "fast", "system", "inspect", ImageInput{
 		Content: []byte("image"), ContentType: "image/png",
-	}, 512)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requestedModel != "Qwen/Fast" || requestedMaxTokens != 512 || result.Lane != "fast" {
+	if requestedModel != "Qwen/Fast" || requestedMaxTokens != cfg.Model.Fast.OutputBudgets[modelcapacity.OutputVisionStructured] || result.Lane != "fast" {
 		t.Fatalf("unexpected bounded image request: model=%q max=%d result=%#v", requestedModel, requestedMaxTokens, result)
 	}
 }
 
+func TestChatWithImageOptionsRequestsStrictJSONSchema(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": `{"schema_version":"image_test_v1"}`}}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.DisableThinking = false
+	cfg.Model.Fast.BaseURL = server.URL
+	schema := StrictJSONSchema{
+		Name: "image_test",
+		Schema: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"schema_version"},
+			"properties": map[string]any{
+				"schema_version": map[string]any{"type": "string", "const": "image_test_v1"},
+			},
+		},
+	}
+
+	_, err := New(cfg).ChatWithImageOptions(t.Context(), modelcapacity.OperationImageInspect, "fast", "system", "inspect", ImageInput{
+		Content: []byte("image"), ContentType: "image/png",
+	}, ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseFormat, _ := requestBody["response_format"].(map[string]any)
+	jsonSchema, _ := responseFormat["json_schema"].(map[string]any)
+	if responseFormat["type"] != "json_schema" || jsonSchema["name"] != "image_test" || jsonSchema["strict"] != true {
+		t.Fatalf("image request omitted strict JSON schema: %#v", requestBody)
+	}
+	template, _ := requestBody["chat_template_kwargs"].(map[string]any)
+	if template["enable_thinking"] != false {
+		t.Fatalf("image request did not disable thinking: %#v", requestBody)
+	}
+}
+
 func TestChooseModelUsesGatewayLaneHint(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Fast.Name = "sparkclaw-fast"
 	cfg.Model.Deep.Name = "sparkclaw-deep"
 	router := New(cfg)
@@ -239,9 +555,9 @@ func TestChooseModelUsesGatewayLaneHint(t *testing.T) {
 }
 
 func TestChatWithProfileRejectsUnknownProfile(t *testing.T) {
-	router := New(config.Default())
+	router := New(configtest.MustLoadDefault())
 
-	if _, err := router.ChatWithProfile(t.Context(), "embedding", "system", "hello"); err == nil {
+	if _, err := router.ChatWithProfile(t.Context(), modelcapacity.OperationConversationAnswer, "embedding", "system", "hello"); err == nil {
 		t.Fatal("expected unknown chat profile error")
 	}
 }
@@ -272,14 +588,14 @@ func TestEmbedUsesOpenAICompatibleEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Embedding.BaseURL = server.URL
 	cfg.Model.Embedding.Name = "sparkclaw-embedding"
 	cfg.Model.Embedding.Model = "Qwen/Embed"
 	router := New(cfg)
 
-	result, err := router.Embed(t.Context(), []string{"alpha", "bravo"})
+	result, err := router.Embed(t.Context(), modelcapacity.OperationIntentQueryEmbedding, []string{"alpha", "bravo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,16 +610,73 @@ func TestEmbedUsesOpenAICompatibleEndpoint(t *testing.T) {
 	}
 }
 
-func TestMockEmbeddingsAreDeterministic(t *testing.T) {
-	cfg := config.Default()
-	cfg.Model.Mock = true
-	router := New(cfg)
+func TestEmbedBatchesLargeCatalogRequestsAndPreservesOrder(t *testing.T) {
+	batchSizes := []int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		batchSizes = append(batchSizes, len(body.Input))
+		data := make([]map[string]any, 0, len(body.Input))
+		for index, input := range body.Input {
+			value, err := strconv.Atoi(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = append(data, map[string]any{
+				"index": index, "embedding": []float64{float64(value)},
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": data,
+			"usage": map[string]any{
+				"prompt_tokens": len(body.Input), "total_tokens": len(body.Input),
+			},
+		})
+	}))
+	defer server.Close()
 
-	first, err := router.Embed(t.Context(), []string{"approval workflow"})
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Embedding.BaseURL = server.URL
+	inputs := make([]string, 244)
+	for index := range inputs {
+		inputs[index] = strconv.Itoa(index)
+	}
+
+	result, err := New(cfg).Embed(t.Context(), modelcapacity.OperationIntentCatalogEmbedding, inputs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := router.Embed(t.Context(), []string{"approval workflow"})
+	if !slices.Equal(batchSizes, []int{64, 64, 64, 52}) {
+		t.Fatalf("embedding batch sizes = %#v", batchSizes)
+	}
+	if len(result.Vectors) != len(inputs) {
+		t.Fatalf("embedding vector count = %d", len(result.Vectors))
+	}
+	for index, vector := range result.Vectors {
+		if len(vector) != 1 || vector[0] != float32(index) {
+			t.Fatalf("embedding vector %d = %#v", index, vector)
+		}
+	}
+	if result.PromptTokens != len(inputs) || result.TotalTokens != len(inputs) {
+		t.Fatalf("embedding usage = %#v", result)
+	}
+}
+
+func TestMockEmbeddingsAreDeterministic(t *testing.T) {
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = true
+	router := New(cfg)
+
+	first, err := router.Embed(t.Context(), modelcapacity.OperationIntentQueryEmbedding, []string{"approval workflow"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := router.Embed(t.Context(), modelcapacity.OperationIntentQueryEmbedding, []string{"approval workflow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +717,7 @@ func TestGuardUsesOpenAICompatibleEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Guard.BaseURL = server.URL
 	cfg.Model.Guard.Name = "sparkclaw-guard"
@@ -372,7 +745,7 @@ func TestGuardFallsBackToLocalHeuristicWhenExternalUnavailable(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Guard.BaseURL = server.URL
 	cfg.Model.Guard.Name = "sparkclaw-guard"
@@ -451,7 +824,7 @@ func TestParseGuardContentSupportsQwen3GuardNativeOutput(t *testing.T) {
 }
 
 func TestMockGuardClassifiesInjectionAndSecrets(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	router := New(cfg)
 
@@ -468,7 +841,7 @@ func TestMockGuardClassifiesInjectionAndSecrets(t *testing.T) {
 }
 
 func TestDangerousTaskChoosesDeepWithoutFallbackFlag(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	router := New(cfg)
 
 	profile := router.ChooseModel(Task{Risk: app.RiskDangerous})

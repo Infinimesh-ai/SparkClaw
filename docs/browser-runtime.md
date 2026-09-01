@@ -141,11 +141,11 @@ process or attach to the owner's daily browser profile.
 On the Linux ARM64 Compose runtime, a visible session uses the owner's real
 X11/XWayland desktop. The desktop bridge is an opt-in Compose overlay,
 `docker/compose.visible-browser.yaml`; the base `docker/compose.yaml` mounts no
-X socket and passes no display environment into Gateway. `npm run dev` discovers
-one unambiguous local display and its Xauthority file, then applies the overlay
-so the X socket and authority are mounted into Gateway. On a headless host it
-starts the same stack without the overlay and only hidden automation is
-available. The
+X socket and passes no display environment into Gateway. `npm run dev` probes
+local display sockets with the available Xauthority files, skips sockets that
+cannot open an X11 connection, and applies the overlay with the lowest-numbered
+usable display. On a headless host it starts the same stack without the overlay
+and only hidden automation is available. The
 adapter disables agent-browser's Xvfb fallback for visible sessions: a missing
 or inaccessible desktop now fails explicitly instead of reporting success for
 a browser that can only be seen inside a virtual display. Headless automation
@@ -304,9 +304,13 @@ Environment overrides use `SPARKCLAW_BROWSER_AUTOMATION_*`,
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`. See [Deployment](deployment.md) for the
 normal host and Compose commands.
 
-`npm run dev` resolves the two desktop values and applies the
-`docker/compose.visible-browser.yaml` overlay automatically. For a direct
-Compose invocation, export them and stack the overlay explicitly:
+`npm run dev` and `scripts/start_cloud_compose.sh` resolve the two desktop
+values and apply the `docker/compose.visible-browser.yaml` overlay
+automatically. Multiple usable displays do not require operator selection; the
+resolver chooses the lowest display number unless `SPARKCLAW_BROWSER_DISPLAY`
+overrides it. The cloud script retains hidden-only operation when no local
+display is available. For a direct Compose invocation, export the values and
+stack the overlay explicitly:
 
 ```bash
 mapfile -t browser_display < <(scripts/resolve-browser-display.sh)

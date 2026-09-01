@@ -10,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -45,7 +46,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		system = "You are SparkClaw chat, a local-first model router endpoint. Answer directly and do not claim that tools were executed."
 	}
 	started := time.Now().UTC()
-	result, err := s.models.ChatWithProfile(r.Context(), profile, system, content)
+	result, err := s.models.ChatWithProfile(r.Context(), modelcapacity.OperationDirectChat, profile, system, content)
 	completed := time.Now().UTC()
 	if _, saveErr := s.store.SaveModelCall(r.Context(), modelCallFromChat("", "", "direct_chat", result, err, started, completed)); saveErr != nil {
 		slog.Warn("direct chat model call persistence unavailable", "code", store.StoreErrorCodeOf(saveErr))

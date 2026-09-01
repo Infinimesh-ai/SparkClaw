@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -16,7 +16,7 @@ import (
 // to the fallback while their docx siblings had full sentences) into a test
 // failure for future tools.
 func TestEveryApprovalRequiringToolHasAReadableSummary(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	hub := toolhub.New(cfg, store.NewMemoryStore())
 	defer hub.Close()
 	args := map[string]any{

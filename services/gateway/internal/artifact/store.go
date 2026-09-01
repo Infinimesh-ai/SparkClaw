@@ -33,6 +33,7 @@ type Object struct {
 type Store interface {
 	Put(ctx context.Context, key string, contentType string, raw []byte) (Object, error)
 	Get(ctx context.Context, key string) ([]byte, error)
+	Delete(ctx context.Context, key string) error
 }
 
 const maxArtifactReadBytes = 64 << 20
@@ -111,6 +112,25 @@ func (s FileStore) Get(ctx context.Context, key string) ([]byte, error) {
 	return readBounded(file)
 }
 
+func (s FileStore) Delete(ctx context.Context, key string) error {
+	if strings.TrimSpace(s.Root) == "" {
+		return errors.New("artifact filesystem root is empty")
+	}
+	if strings.TrimSpace(s.Bucket) == "" {
+		s.Bucket = "sparkclaw"
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	err := os.Remove(filepath.Join(s.Root, s.Bucket, cleanKey(key)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 type NotImplementedStore struct {
 	Backend string
 }
@@ -127,6 +147,13 @@ func (s NotImplementedStore) Get(context.Context, string) ([]byte, error) {
 		s.Backend = "unknown"
 	}
 	return nil, errors.New("artifact backend is not implemented: " + s.Backend)
+}
+
+func (s NotImplementedStore) Delete(context.Context, string) error {
+	if s.Backend == "" {
+		s.Backend = "unknown"
+	}
+	return errors.New("artifact backend is not implemented: " + s.Backend)
 }
 
 func cleanKey(key string) string {
@@ -246,6 +273,49 @@ func (s S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 		return nil, fmt.Errorf("s3 get object returned HTTP %d", resp.StatusCode)
 	}
 	return readBounded(resp.Body)
+}
+
+func (s S3Store) Delete(ctx context.Context, key string) error {
+	if strings.TrimSpace(s.Endpoint) == "" {
+		return errors.New("s3 artifact endpoint is empty")
+	}
+	if strings.TrimSpace(s.Bucket) == "" {
+		return errors.New("s3 artifact bucket is empty")
+	}
+	if strings.TrimSpace(s.AccessKey) == "" || strings.TrimSpace(s.SecretKey) == "" {
+		return errors.New("s3 artifact credentials are empty")
+	}
+	if s.Region == "" {
+		s.Region = "us-east-1"
+	}
+	if s.Client == nil {
+		s.Client = &http.Client{Timeout: 30 * time.Second}
+	}
+	key = cleanKey(key)
+	endpoint := strings.TrimRight(s.Endpoint, "/")
+	objectURL := endpoint + "/" + pathEscape(s.Bucket) + "/" + pathEscapeKey(key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, objectURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	payloadHash := sha256Hex(nil)
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
+	signV4(req, s.Region, s.AccessKey, s.SecretKey, payloadHash, now)
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("s3 delete object returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func readBounded(reader io.Reader) ([]byte, error) {

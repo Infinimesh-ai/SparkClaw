@@ -9,6 +9,10 @@ const (
 	CapabilityBrowserFormDraft      CapabilityID = "browser.form_draft"
 	CapabilityDocumentRead          CapabilityID = "document.read"
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
+	CapabilityLocalMindRead         CapabilityID = "localmind.read"
+	CapabilityLocalMindWrite        CapabilityID = "localmind.write"
+	CapabilityLocalMindQuery        CapabilityID = "localmind.query"
+	CapabilityLocalMindCancel       CapabilityID = "localmind.cancel"
 	CapabilityScheduleManage        CapabilityID = "schedule.manage"
 	CapabilityCodingAgentManage     CapabilityID = "coding.agent_manage"
 )
@@ -48,6 +52,7 @@ const (
 	TargetKindPublicNamedTarget TargetKind = "public_named_target"
 	TargetKindWorkspacePath     TargetKind = "workspace_path"
 	TargetKindLocation          TargetKind = "location"
+	TargetKindLocalMindTask     TargetKind = "localmind_task"
 )
 
 type OutputKind string
@@ -138,6 +143,10 @@ const (
 	WorkflowBrowserFormDraft      WorkflowID = "browser.form_draft"
 	WorkflowDocumentRead          WorkflowID = "document.read"
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
+	WorkflowLocalMindRead         WorkflowID = "localmind.read"
+	WorkflowLocalMindWrite        WorkflowID = "localmind.write"
+	WorkflowLocalMindQuery        WorkflowID = "localmind.query"
+	WorkflowLocalMindCancel       WorkflowID = "localmind.cancel"
 	WorkflowScheduleManage        WorkflowID = "schedule.manage"
 	WorkflowCodingAgentManage     WorkflowID = "coding.agent_manage"
 
@@ -190,6 +199,10 @@ const (
 	ToolCapabilityObservationRead           = "observation.read"
 	ToolWorkspaceDataAccess                 = "workspace.data.access"
 	ToolCapabilityExternalMCPWorkspace      = "external.mcp.workspace"
+	ToolCapabilityLocalMindDelegateRead     = "localmind.task.delegate.read"
+	ToolCapabilityLocalMindDelegateWrite    = "localmind.task.delegate.write"
+	ToolCapabilityLocalMindTaskStatus       = "localmind.task.status"
+	ToolCapabilityLocalMindTaskCancel       = "localmind.task.cancel"
 
 	CapabilityQualifierFormat           = "format"
 	CapabilityQualifierProvider         = "provider"
@@ -230,6 +243,7 @@ const (
 	OutcomeAdapterDocumentEdit        ToolOutcomeAdapter = "document.edit"
 	OutcomeAdapterScheduleList        ToolOutcomeAdapter = "schedule.list"
 	OutcomeAdapterScheduleChange      ToolOutcomeAdapter = "schedule.change"
+	OutcomeAdapterLocalMindTask       ToolOutcomeAdapter = "localmind.task"
 
 	OutcomeSignalResultsAvailable                OutcomeSignal = "results_available"
 	OutcomeSignalWeatherPayloadAvailable         OutcomeSignal = "weather_payload_available"
@@ -282,6 +296,10 @@ const (
 	OutcomeSignalSchedulesListed                 OutcomeSignal = "schedules_listed"
 	OutcomeSignalScheduleTargetResolved          OutcomeSignal = "schedule_target_resolved"
 	OutcomeSignalScheduleChanged                 OutcomeSignal = "schedule_changed"
+	OutcomeSignalLocalMindTaskPending            OutcomeSignal = "localmind_task_pending"
+	OutcomeSignalLocalMindTaskCompleted          OutcomeSignal = "localmind_task_completed"
+	OutcomeSignalLocalMindTaskFailed             OutcomeSignal = "localmind_task_failed"
+	OutcomeSignalLocalMindTaskCancelled          OutcomeSignal = "localmind_task_cancelled"
 
 	AssessmentComplete          AssessmentStatus = "complete"
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"

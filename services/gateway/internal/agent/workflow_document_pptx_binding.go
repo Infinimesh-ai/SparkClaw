@@ -468,7 +468,7 @@ func (r Runtime) revalidateApprovedPPTXMutation(ctx context.Context, call app.To
 		return errors.New("approved PPTX mutation lost its workflow localization evidence")
 	}
 	if source := strings.TrimSpace(stringValue(call.Arguments[app.DocumentSourceSHA256Argument])); source == "" || !strings.EqualFold(source, initial.SourceSHA256) {
-		return errors.New("approved PPTX mutation source evidence conflicts with its localization read")
+		return &app.CodedToolError{Code: app.ToolErrorPPTXRenderSourceStale, Err: errors.New("approved PPTX mutation source evidence conflicts with its localization read")}
 	}
 	if err := validatePPTXEditAgainstEvidence(run, operation, call.Arguments, initial); err != nil {
 		return err
@@ -486,7 +486,7 @@ func (r Runtime) revalidateApprovedPPTXMutation(ctx context.Context, call app.To
 		return fmt.Errorf("approved PPTX mutation source reread lacks structured evidence: %w", err)
 	}
 	if err := validatePPTXEditAgainstEvidence(run, operation, call.Arguments, fresh); err != nil {
-		return fmt.Errorf("approved PPTX mutation is stale: %w", err)
+		return &app.CodedToolError{Code: app.ToolErrorPPTXRenderSourceStale, Err: fmt.Errorf("approved PPTX mutation is stale: %w", err)}
 	}
 	return nil
 }

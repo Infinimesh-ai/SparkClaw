@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
@@ -179,7 +180,7 @@ func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument stri
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
 	case "query", "location", "path", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot",
-		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "public_target_url", "browser_click", "browser_draft", "schedule", "schedule_patch":
+		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "public_target_url", "browser_click", "browser_draft", "schedule", "schedule_patch", "localmind_task":
 		return true
 	default:
 		return false
@@ -487,15 +488,15 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
 }
 
-func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
-	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, stageContext, visibleTools, nil, nil, emit)
+func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, history agentContextSnapshot, emit StreamHandler) workflowExecutionResult {
+	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, stageContext, visibleTools, nil, nil, history, emit)
 }
 
-func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
-	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, stageContext, visibleTools, seedCalls, seedObservations, nil)
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, history agentContextSnapshot) workflowExecutionResult {
+	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, stageContext, visibleTools, seedCalls, seedObservations, history, nil)
 }
 
-func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
+func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, history agentContextSnapshot, emit StreamHandler) workflowExecutionResult {
 	actorRef := r.workflowActorRef(run)
 	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
@@ -529,13 +530,13 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		if activeWorkflowNodeUsesMessageContent(run.Workflow) {
 			stageResult = r.runWorkflowMessageContentStep(ctx, run)
 		} else if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
-			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
+			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, history, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
 			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, stageContext, visibleTools, allObservations, runBudget)
 		} else if directProfile, ok := profile.(workflowDirectStageProfile); ok && directProfile.DirectStage(run.Workflow) {
 			stageResult = r.runWorkflowDirectStage(ctx, sessionID, run, stageContext, visibleTools, allObservations, directProfile.DirectStageArguments(run.Workflow), runBudget)
 		} else {
-			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, stageContext, visibleTools, allCalls, allObservations, runBudget)
+			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, stageContext, visibleTools, allCalls, allObservations, runBudget, history)
 		}
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
@@ -966,7 +967,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	})
 
 	started := time.Now().UTC()
-	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_final_answer", laneForFinalStream(lane), system, strings.Join(userLines, "\n"), emit)
+	chat, err := r.chatWorkflowFinalAnswer(ctx, run, modelcapacity.OperationWorkflowFinalAnswer, "workflow_final_answer", laneForFinalStream(lane), system, strings.Join(userLines, "\n"), emit)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(run.SessionID, run.ID, "workflow_final_answer", chat, err, started, completed)); saveErr != nil {
 		return chat, "", saveErr
@@ -981,7 +982,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	return chat, answer, nil
 }
 
-const workflowFinalEvidenceMaxRunes = 8000
+const defaultWorkflowFinalEvidenceMaxBytes = 8000
 
 func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, calls []app.ToolCall, observations []string) (workflowFinalEvidenceProjection, error) {
 	materialized := append([]app.ToolCall(nil), calls...)
@@ -1009,7 +1010,7 @@ func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, ca
 		materialized[index].Result = output
 		archivedBytesByCall[call.ID] = artifactBytes
 	}
-	return buildWorkflowFinalEvidenceProjection(run, materialized, observations, archivedBytesByCall), nil
+	return buildWorkflowFinalEvidenceProjection(run, materialized, observations, archivedBytesByCall, r.workflowStageEvidenceLimit()), nil
 }
 
 func workflowFinalEvidence(calls []app.ToolCall, observations []string) []string {

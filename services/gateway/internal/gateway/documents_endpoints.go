@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 )
 
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
@@ -65,31 +66,32 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	isImage := isImageContentType(contentType)
 	rootName := "uploads"
-	idPrefix := "upload"
 	artifactKind := "document_upload"
 	if isImage {
 		rootName = "media"
-		idPrefix = "media"
 		artifactKind = "media_image_upload"
 	}
-	relPath := filepath.Join(rootName, now.Format("20060102"), app.NewID(idPrefix)+"-"+name)
-	path := filepath.Join(workspaceRoot, relPath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	uploadRoot := filepath.Join(workspaceRoot, rootName)
+	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	out, storedName, err := workspacefiles.OpenVersionedFile(uploadRoot, name, 0o644)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	relPath := filepath.Join(rootName, storedName)
+	path := out.Name()
 	bytesWritten, copyErr := io.Copy(out, io.MultiReader(bytes.NewReader(sniff.Bytes()), file))
 	closeErr := out.Close()
 	if copyErr != nil {
+		_ = os.Remove(path)
 		writeError(w, http.StatusInternalServerError, copyErr)
 		return
 	}
 	if closeErr != nil {
+		_ = os.Remove(path)
 		writeError(w, http.StatusInternalServerError, closeErr)
 		return
 	}
@@ -107,6 +109,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	stored, err := s.store.SaveArtifactObject(r.Context(), object)
 	if err != nil {
+		_ = os.Remove(path)
 		writeArtifactMetadataStoreError(w, err)
 		return
 	}

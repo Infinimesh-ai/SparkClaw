@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
@@ -322,9 +323,9 @@ func (e *fastDocumentImageEnricher) inspectDocumentImage(ctx context.Context, ta
 		"Nearby document text: " + trimDocumentContext(task.nearby, 600),
 		"Question: " + trimDocumentContext(question, 600),
 	}, "\n")
-	chat, err := e.hub.models.ChatWithImageMaxTokens(ctx, "fast", system, user, modelrouter.ImageInput{
+	chat, err := e.hub.models.ChatWithImage(ctx, modelcapacity.OperationDocumentImageEnrich, "fast", system, user, modelrouter.ImageInput{
 		Path: stringArg(documentMapValue(task.record["location"]), "path", ""), Content: prepared.Content, ContentType: prepared.ContentType,
-	}, 512)
+	})
 	if err != nil {
 		return nil, err
 	}

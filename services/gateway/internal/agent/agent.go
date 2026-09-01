@@ -12,7 +12,9 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -29,22 +31,22 @@ type Repository interface {
 	store.AuditRepository
 	store.ArtifactMetadataRepository
 	store.BrowserStateRepository
-	store.MemoryRepository
 }
 
 type Runtime struct {
-	instanceID     string
-	store          Repository
-	tools          *toolhub.ToolHub
-	policy         policy.Engine
-	models         modelrouter.Router
-	traces         *trace.Writer
-	artifacts      artifact.Store
-	exposure       *toolExposureEngine
-	profiles       workflowProfileRegistry
-	capabilities   capability.Catalog
-	semanticRouter *semanticIntentRouter
-	messageControl MessageControlRouter
+	instanceID      string
+	store           Repository
+	tools           *toolhub.ToolHub
+	policy          policy.Engine
+	models          modelrouter.Router
+	traces          *trace.Writer
+	artifacts       artifact.Store
+	exposure        *toolExposureEngine
+	profiles        workflowProfileRegistry
+	capabilities    capability.Catalog
+	semanticRouter  *semanticIntentRouter
+	messageControl  MessageControlRouter
+	integrationRuns *integrationrun.Registry
 }
 
 type Result struct {
@@ -117,6 +119,44 @@ func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 	r.policy = policyEngine
 	r.exposure = newToolExposureEngine(r.store, r.tools, policyEngine)
 	return r
+}
+
+func (r Runtime) WithIntegrationRuns(registry *integrationrun.Registry) Runtime {
+	r.integrationRuns = registry
+	return r
+}
+
+func (r Runtime) bindIntegrationRun(ctx context.Context, runID string) (context.Context, func()) {
+	if r.integrationRuns == nil {
+		return ctx, func() {}
+	}
+	boundCtx, finish := r.integrationRuns.Begin(ctx, runID)
+	return boundCtx, func() {
+		persisted, ok, err := r.store.GetRun(context.WithoutCancel(boundCtx), runID)
+		suspend := err != nil || (ok && integrationRunCanResume(persisted.State))
+		finish(suspend)
+	}
+}
+
+func integrationRunCanResume(state string) bool {
+	return state == "approval_pending" || state == "browser_login_blocked"
+}
+
+func integrationCredentialChangeCause(ctx context.Context) error {
+	cause := context.Cause(ctx)
+	switch app.ToolErrorCodeFrom(cause) {
+	case app.ToolErrorInfoCredentialsChanged, app.ToolErrorLocalMindCredentialsChanged:
+		return cause
+	default:
+		return nil
+	}
+}
+
+func integrationCredentialPersistenceContext(ctx context.Context) context.Context {
+	if integrationCredentialChangeCause(ctx) != nil {
+		return context.WithoutCancel(ctx)
+	}
+	return ctx
 }
 
 func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (Result, error) {
@@ -224,6 +264,13 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if err != nil {
 		return Result{}, fmt.Errorf("persist owner message: %w", err)
 	}
+	if admissionErr := r.models.AdmitOwnerQuestion(ctx, agentContent); admissionErr != nil {
+		var tooLong *modelrouter.InputTooLongError
+		if !errors.As(admissionErr, &tooLong) {
+			return Result{}, fmt.Errorf("admit owner question: %w", admissionErr)
+		}
+		return r.rejectOwnerQuestionTooLong(ctx, sessionID, requestedRunID, envelope, invocation, clientTimezone, admissionErr)
+	}
 	if err := r.recordMessageDocuments(ctx, session, userMessage); err != nil {
 		return Result{}, fmt.Errorf("persist message documents: %w", err)
 	}
@@ -250,6 +297,8 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist received run: %w", err)
 	}
+	ctx, endRun := r.bindIntegrationRun(ctx, run.ID)
+	defer endRun()
 	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     run.ID,
@@ -325,13 +374,17 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			WorkflowResult: workflowResult,
 		}, nil
 	}
+	history, err := r.buildInvocationHistory(ctx, run, userMessage.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("build invocation history: %w", err)
+	}
 
 	var routing IntentRoutingOutput
 	var routingErr error
 	if scheduleAction != nil {
 		routing.Route, routingErr = r.scheduleActionRoute(*scheduleAction, agentContent)
 	} else {
-		routing, routingErr = r.routeIntentWithRequest(ctx, sessionID, run.ID, agentContent, projection.Resources, envelope.MediaLocators, envelope.Source.Kind)
+		routing, routingErr = r.routeIntentWithHistory(ctx, sessionID, run.ID, agentContent, projection.Resources, envelope.MediaLocators, envelope.Source.Kind, history)
 	}
 	if routing.Fusion != nil {
 		run.MessageContext.IntentFusion = routing.Fusion
@@ -422,8 +475,20 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		return Result{}, fmt.Errorf("persist executing run: %w", err)
 	}
 
-	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Context, dispatch.Tools, emit)
+	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Context, dispatch.Tools, history.Selected, emit)
 	r.exposure.releaseRun(run.ID)
+	credentialChange := integrationCredentialChangeCause(ctx)
+	if credentialChange != nil {
+		ctx = context.WithoutCancel(ctx)
+		if err := r.stopPendingApprovalsForIntegrationChange(ctx, run.ID, credentialChange); err != nil {
+			return Result{}, err
+		}
+		execution.Cancelled = true
+		execution.FailureCode = ""
+		execution.FinalAnswer = credentialChange.Error()
+		execution.FinalAnswerStreamed = false
+		execution.Approvals = nil
+	}
 	if refreshed, ok, err := r.store.GetRun(ctx, run.ID); err != nil {
 		return Result{}, fmt.Errorf("refresh executed run: %w", err)
 	} else if ok {
@@ -437,21 +502,35 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		return Result{}, fmt.Errorf("load executed tool calls: %w", err)
 	}
 	currentToolCalls := toolCallsForRun(storedToolCalls, run.ID)
+	if credentialChange != nil {
+		toolCalls = currentToolCalls
+	}
 
 	now := time.Now().UTC()
-	finalizeWorkflowRunState(&run, execution, now)
+	if credentialChange != nil {
+		run.State = "cancelled"
+		run.CompletedAt = &now
+	} else {
+		finalizeWorkflowRunState(&run, execution, now)
+	}
 	if execution.Cancelled {
+		summary := "The Gateway lifecycle ended before the active workflow completed"
+		if credentialChange != nil {
+			summary = credentialChange.Error()
+		}
 		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
 			Type:      "workflow.execution_cancelled",
-			Summary:   "The Gateway lifecycle ended before the active workflow completed",
+			Summary:   summary,
 		})
 
 	}
 	run.ModelLane = execution.Chat.Lane
-	if execution.FailureCode != "" {
+	if credentialChange != nil {
+		run.Summary = credentialChange.Error()
+	} else if execution.FailureCode != "" {
 		run.Summary = publicWorkflowFailureMessage(execution.FailureCode)
 	} else {
 		run.Summary = summarizeRun(execution.Chat, observations, approvals)
@@ -501,6 +580,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if err != nil {
 		return Result{}, err
 	}
+	setIntegrationCredentialChangeResultError(workflowResult, credentialChange)
 	assistant, err := r.persistWorkflowAssistantMessage(ctx, run, workflowResult, now)
 	if err != nil {
 		return Result{}, fmt.Errorf("persist workflow response: %w", err)
@@ -508,6 +588,53 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
 	return result, nil
+}
+
+const ownerQuestionTooLongMessage = "问题过长，当前无法解析。请缩短问题后重试。"
+
+func (r Runtime) rejectOwnerQuestionTooLong(ctx context.Context, sessionID, requestedRunID string, envelope app.MessageEnvelope, invocation *app.MCPInvocationRef, clientTimezone string, admissionErr error) (Result, error) {
+	now := time.Now().UTC()
+	route := app.RouteDecision{
+		SchemaVersion:   app.RouteDecisionSchemaVersion,
+		Status:          app.RouteBlocked,
+		CatalogRevision: r.capabilities.Revision(),
+	}
+	run := app.AgentRun{
+		ID: requestedRunID, SessionID: sessionID, State: "blocked", Risk: app.RiskRead,
+		StartedAt: now, CompletedAt: &now, Summary: ownerQuestionTooLongMessage,
+		MessageContext: &app.MessageRunContext{
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source,
+			RequestContent: envelope.Content, MediaLocators: append([]app.MessageMediaLocator(nil), envelope.MediaLocators...),
+			ReturnRoute: envelope.ReturnRoute, Route: route, MCP: invocation, ClientTimezone: clientTimezone,
+		},
+	}
+	if run.ID == "" {
+		run.ID = app.NewID("run")
+	}
+	var err error
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return Result{}, fmt.Errorf("persist oversized owner question run: %w", err)
+	}
+	r.addAudit(ctx, app.AuditEvent{
+		SessionID: sessionID, RunID: run.ID, Actor: "model_router", Type: "owner_question.rejected",
+		Summary: "Owner question exceeded a mandatory pre-routing model capacity",
+		Fields:  map[string]any{"reason_code": "owner_question_too_long", "admission": admissionErr.Error()},
+	})
+	assistant, err := r.store.AddMessage(ctx, app.Message{
+		SessionID: sessionID, RunID: run.ID, Role: "assistant", Content: ownerQuestionTooLongMessage, CreatedAt: now,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("persist oversized owner question response: %w", err)
+	}
+	workflowResult, err := r.workflowResultForTerminalRoute(ctx, run, route, envelope.ReturnRoute, ownerQuestionTooLongMessage)
+	if err != nil {
+		return Result{}, err
+	}
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, nil)
+	return Result{
+		Run: run, Message: assistant, RouteDecision: &route, WorkflowResult: workflowResult,
+		ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{},
+	}, nil
 }
 
 func finalizeWorkflowRunState(run *app.AgentRun, execution workflowExecutionResult, now time.Time) {
@@ -606,6 +733,12 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if !ok || run.SessionID != sessionID || run.State != "approval_pending" {
 		return Result{}, false, nil
 	}
+	ctx, endRun := r.bindIntegrationRun(ctx, run.ID)
+	defer endRun()
+	if cause := integrationCredentialChangeCause(ctx); cause != nil {
+		result, err := r.completeIntegrationCredentialChangedRun(context.WithoutCancel(ctx), run, cause)
+		return result, true, err
+	}
 	storedApprovals, err := r.store.ListApprovals(ctx, "")
 	if err != nil {
 		return Result{}, false, fmt.Errorf("load approval resume state: %w", err)
@@ -650,6 +783,100 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	result, err := r.completeRetiredLegacyRun(ctx, run, content, "workflow.legacy_resume_retired",
 		"Rejected an approval resume for a run without a persisted workflow plan")
 	return result, true, err
+}
+
+func (r Runtime) completeIntegrationCredentialChangedRun(ctx context.Context, run app.AgentRun, cause error) (Result, error) {
+	now := time.Now().UTC()
+	if err := r.stopPendingApprovalsForIntegrationChange(ctx, run.ID, cause); err != nil {
+		return Result{}, err
+	}
+	run.State = "cancelled"
+	run.CompletedAt = &now
+	run.Summary = cause.Error()
+	var err error
+	if run, err = r.saveRun(ctx, run); err != nil {
+		return Result{}, fmt.Errorf("persist credential-changed run: %w", err)
+	}
+	storedToolCalls, err := r.store.ListToolCalls(ctx, run.SessionID)
+	if err != nil {
+		return Result{}, fmt.Errorf("load credential-changed tool calls: %w", err)
+	}
+	toolCalls := toolCallsForRun(storedToolCalls, run.ID)
+	storedApprovals, err := r.store.ListApprovals(ctx, "")
+	if err != nil {
+		return Result{}, fmt.Errorf("load credential-changed approvals: %w", err)
+	}
+	approvals := approvalsForRun(storedApprovals, run.ID)
+
+	var route *app.RouteDecision
+	var workflowResult *app.WorkflowResult
+	if run.Workflow != nil {
+		value := run.Workflow.Route
+		route = &value
+		workflowResult, err = r.workflowResultForRun(ctx, run, value, run.Workflow.ReturnRoute, run.Summary)
+	} else if run.MessageContext != nil {
+		value := run.MessageContext.Route
+		route = &value
+		workflowResult, err = r.workflowResultForDispatchFailure(ctx, run, value, run.MessageContext.ReturnRoute, run.Summary)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	setIntegrationCredentialChangeResultError(workflowResult, cause)
+	assistant, err := r.persistWorkflowAssistantMessage(ctx, run, workflowResult, now)
+	if err != nil {
+		return Result{}, fmt.Errorf("persist credential-changed response: %w", err)
+	}
+	episode := summarizeEpisode("", run, toolCalls, approvals, run.Summary, now)
+	if _, err := r.store.SaveEpisodeSummary(ctx, episode); err != nil {
+		return Result{}, fmt.Errorf("persist credential-changed episode: %w", err)
+	}
+	feedback, err := r.store.ListRunFeedback(ctx, run.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("load credential-changed feedback: %w", err)
+	}
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, feedback, &episode)
+	return Result{
+		Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals,
+		RouteDecision: route, WorkflowResult: workflowResult,
+	}, nil
+}
+
+func (r Runtime) stopPendingApprovalsForIntegrationChange(ctx context.Context, runID string, cause error) error {
+	approvals, err := r.store.ListApprovals(ctx, app.ApprovalStatusPending)
+	if err != nil {
+		return fmt.Errorf("load pending approvals after credential change: %w", err)
+	}
+	for _, approval := range approvalsForRun(approvals, runID) {
+		candidate, resolveErr := r.store.ResolveApproval(ctx, approval.ID, app.ApprovalStatusResolvedElsewhere, cause.Error())
+		if _, resolveErr = store.ReconcileApprovalWrite(ctx, r.store, candidate, resolveErr); resolveErr != nil {
+			return fmt.Errorf("stop approval after credential change: %w", resolveErr)
+		}
+		call, ok, loadErr := r.store.GetToolCall(ctx, approval.ToolCallID)
+		if loadErr != nil {
+			return fmt.Errorf("load approval tool call after credential change: %w", loadErr)
+		}
+		if !ok || call.Status != app.ToolCallStatusApprovalPending {
+			continue
+		}
+		now := time.Now().UTC()
+		call.Status = app.ToolCallStatusFailed
+		call.CompletedAt = &now
+		call.Error = cause.Error()
+		call.ErrorCode = string(app.ToolErrorCodeFrom(cause))
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: cause, MaxBytes: r.observationSummaryLimit()})
+		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+			return fmt.Errorf("stop approval tool call after credential change: %w", saveErr)
+		}
+	}
+	return nil
+}
+
+func setIntegrationCredentialChangeResultError(result *app.WorkflowResult, cause error) {
+	if result == nil || cause == nil {
+		return
+	}
+	result.Error = &app.WorkflowResultError{Code: string(app.ToolErrorCodeFrom(cause)), Message: cause.Error()}
 }
 
 // completeRetiredLegacyRun terminally closes a persisted run that predates the
@@ -809,12 +1036,12 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	return result, true, nil
 }
 
-func (r Runtime) chatWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, operation, lane, system, user string, emit StreamHandler) (modelrouter.ChatResult, error) {
+func (r Runtime) chatWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, modelOperation modelcapacity.Operation, spanID, lane, system, user string, emit StreamHandler) (modelrouter.ChatResult, error) {
 	if emit == nil {
-		return r.models.ChatWithProfile(ctx, lane, system, user)
+		return r.models.ChatWithProfile(ctx, modelOperation, lane, system, user)
 	}
-	stream := workflowFinalAnswerStream{forward: workflowStreamHandler(run, operation, emit)}
-	return r.models.ChatStreamWithProfile(ctx, lane, system, user, stream.emit)
+	stream := workflowFinalAnswerStream{forward: workflowStreamHandler(run, spanID, emit)}
+	return r.models.ChatStreamWithProfile(ctx, modelOperation, lane, system, user, stream.emit)
 }
 
 func workflowStreamHandler(run app.AgentRun, spanID string, emit StreamHandler) modelrouter.StreamHandler {
@@ -1218,7 +1445,12 @@ type toolPlan struct {
 }
 
 func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan toolPlan) (app.ToolCall, *app.Approval, string, error) {
-	var err error
+	sealedBinding, hasSealedBinding, err := toolhub.PPTXSealedCandidateFromArguments(plan.Args)
+	if err != nil {
+		return app.ToolCall{}, nil, "", err
+	}
+	pptxVisualWarning := ""
+	plan.Args = toolhub.PPTXPublicArguments(plan.Args)
 	plan, err = r.materializeWorkflowBoundArguments(ctx, runID, plan)
 	if err != nil {
 		return app.ToolCall{}, nil, "", fmt.Errorf("materialize workflow arguments: %w", err)
@@ -1300,8 +1532,31 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		}
 		return call, nil, call.ObservationSummary, nil
 	}
+	if r.tools.IsPPTXMutationTool(plan.Name, plan.Args) {
+		if !hasSealedBinding {
+			sealedBinding, err = r.tools.PreparePPTXCandidate(ctx, plan.Name, plan.Args, sessionID, runID)
+			if err != nil {
+				call.Status = app.ToolCallStatusBlocked
+				call.Error = err.Error()
+				call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+				done := time.Now().UTC()
+				call.CompletedAt = &done
+				call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+				if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+					return call, nil, call.ObservationSummary, fmt.Errorf("persist failed PPTX candidate preparation: %w", saveErr)
+				}
+				return call, nil, call.ObservationSummary, nil
+			}
+		}
+		plan.Args = toolhub.AttachPPTXSealedCandidate(plan.Args, sealedBinding)
+		call.Arguments = plan.Args
+		pptxVisualWarning, err = r.tools.PPTXSealedCandidateWarningSummary(ctx, plan.Args)
+		if err != nil {
+			return app.ToolCall{}, nil, "", fmt.Errorf("load sealed PPTX visual warning: %w", err)
+		}
+	}
 	if decision.RequiresApproval {
-		if err := validateApprovalArgumentPersistence(def, plan.Args); err != nil {
+		if err := validateApprovalArgumentPersistence(def, toolhub.PPTXPublicArguments(plan.Args)); err != nil {
 			call.Status = app.ToolCallStatusBlocked
 			call.Error = err.Error()
 			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
@@ -1332,6 +1587,10 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			})
 
 		}
+		approvalSummary := r.approvalSummaryForPlan(ctx, runID, plan.Name, toolhub.PPTXPublicArguments(plan.Args))
+		if pptxVisualWarning != "" {
+			approvalSummary += " " + pptxVisualWarning
+		}
 		approval := app.Approval{
 			ID:            app.NewID("ap"),
 			Source:        app.ApprovalSourceTool,
@@ -1341,7 +1600,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			Tool:          plan.Name,
 			Risk:          def.Risk,
 			Status:        app.ApprovalStatusPending,
-			Summary:       r.approvalSummaryForPlan(ctx, runID, plan.Name, plan.Args),
+			Summary:       approvalSummary,
 			Reason:        decision.Reason,
 			Resources:     decision.Resources,
 			Arguments:     plan.Args,
@@ -1371,10 +1630,16 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := r.tools.Execute(execCtx, plan.Name, plan.Args, sessionID, runID)
+	var result toolhub.Result
+	if r.tools.IsPPTXMutationTool(plan.Name, plan.Args) {
+		result, err = r.tools.PublishSealedPPTXCandidate(execCtx, plan.Name, plan.Args, sessionID, runID)
+	} else {
+		result, err = r.tools.Execute(execCtx, plan.Name, plan.Args, sessionID, runID)
+	}
 	done := time.Now().UTC()
 	call.CompletedAt = &done
 	if err != nil {
+		persistCtx := integrationCredentialPersistenceContext(ctx)
 		call.Status = app.ToolCallStatusFailed
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
@@ -1385,10 +1650,10 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			}, call.Error)
 		}
 		if call.Result != nil {
-			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
+			call.ObservationRef = store.ArchiveToolObservation(persistCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 		}
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
-		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+		if _, saveErr := r.saveToolCall(persistCtx, call); saveErr != nil {
 			return call, nil, call.ObservationSummary, fmt.Errorf("persist failed tool call: %w", saveErr)
 		}
 		return call, nil, call.ObservationSummary, nil

@@ -43,6 +43,27 @@ func TestPublicAdapterConfigDoesNotExposeDocumentOCRDestination(t *testing.T) {
 	}
 }
 
+func TestPublicAdapterConfigDoesNotExposePPTXVisualQADestination(t *testing.T) {
+	cfg := config.Default().Adapters
+	cfg.PPTXVisualQA.Phase = "shadow"
+	cfg.PPTXVisualQA.RepairQualifiedClasses = []string{"text_clipped"}
+	cfg.PPTXVisualQA.RepairQualifiedOperations = []string{"set_geometry"}
+	cfg.PPTXVisualQA.BlockingQualifiedClasses = []string{"text_clipped"}
+	cfg.PPTXVisualQA.BaseURL = "http://private-renderer.internal:3000"
+	cfg.PPTXVisualQA.AllowedHosts = []string{"private-renderer.internal"}
+	raw, err := json.Marshal(publicAdapterConfig(cfg, documentocr.RuntimeReadiness{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, cfg.PPTXVisualQA.BaseURL) || strings.Contains(text, cfg.PPTXVisualQA.AllowedHosts[0]) || strings.Contains(text, "base_url") || strings.Contains(text, "allowed_hosts") {
+		t.Fatalf("public config exposed the PPTX visual QA destination: %s", text)
+	}
+	if !strings.Contains(text, `"phase":"shadow"`) || !strings.Contains(text, `"renderer":"gotenberg-libreoffice"`) || !strings.Contains(text, `"rasterizer":"pypdfium2"`) || !strings.Contains(text, `"repair_qualified_operations":["set_geometry"]`) || !strings.Contains(text, `"blocking_qualified_classes":["text_clipped"]`) {
+		t.Fatalf("public config omitted safe PPTX visual QA status: %s", text)
+	}
+}
+
 func TestPublicMCPConfigOmitsCredentialEnvironmentReferences(t *testing.T) {
 	servers := map[string]config.MCPServerConfig{
 		"localmind": {

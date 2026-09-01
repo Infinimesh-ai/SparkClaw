@@ -25,6 +25,23 @@ const (
 	// ToolErrorPPTXLayoutFitConflict: a PPTX replacement is valid but cannot
 	// fit the current slide geometry without overlap or unreadable overflow.
 	ToolErrorPPTXLayoutFitConflict           ToolErrorCode = "pptx_layout_fit_conflict"
+	ToolErrorPPTXRenderInvalidInput          ToolErrorCode = "pptx_render_invalid_input"
+	ToolErrorPPTXRenderBackendUnavailable    ToolErrorCode = "pptx_render_backend_unavailable"
+	ToolErrorPPTXRenderTimeout               ToolErrorCode = "pptx_render_timeout"
+	ToolErrorPPTXRenderInvalidPDF            ToolErrorCode = "pptx_render_invalid_pdf"
+	ToolErrorPPTXRenderPageMismatch          ToolErrorCode = "pptx_render_page_mismatch"
+	ToolErrorPPTXRenderInvalidImage          ToolErrorCode = "pptx_render_invalid_image"
+	ToolErrorPPTXRenderDiagnosticInvalid     ToolErrorCode = "pptx_render_diagnostic_invalid"
+	ToolErrorPPTXRenderDiagnosticUnavailable ToolErrorCode = "pptx_render_diagnostic_unavailable"
+	ToolErrorPPTXRenderProfileNotReady       ToolErrorCode = "pptx_render_profile_not_ready"
+	ToolErrorPPTXRenderModelUnavailable      ToolErrorCode = "pptx_render_model_unavailable"
+	ToolErrorPPTXRenderModelInvalid          ToolErrorCode = "pptx_render_model_invalid"
+	ToolErrorPPTXRenderRepairInvalid         ToolErrorCode = "pptx_render_repair_invalid"
+	ToolErrorPPTXRenderRepairExhausted       ToolErrorCode = "pptx_render_repair_exhausted"
+	ToolErrorPPTXRenderVisualBlocked         ToolErrorCode = "pptx_render_visual_blocked"
+	ToolErrorPPTXRenderPreservationViolation ToolErrorCode = "pptx_render_preservation_violation"
+	ToolErrorPPTXRenderSourceStale           ToolErrorCode = "pptx_render_source_stale"
+	ToolErrorPPTXRenderCancelled             ToolErrorCode = "pptx_render_cancelled"
 	ToolErrorPublicTargetNotFound            ToolErrorCode = "public_target_not_found"
 	ToolErrorPublicTargetUnsafe              ToolErrorCode = "public_target_unsafe"
 	ToolErrorPublicTargetProviderUnavailable ToolErrorCode = "public_target_provider_unavailable"
@@ -40,6 +57,13 @@ const (
 	ToolErrorMCPAuthorization                ToolErrorCode = "mcp_authorization"
 	ToolErrorMCPPersistenceUnsafe            ToolErrorCode = "mcp_persistence_unsafe"
 	ToolErrorPolicyBlocked                   ToolErrorCode = "policy_blocked"
+	ToolErrorInfoNotConfigured               ToolErrorCode = "info_not_configured"
+	ToolErrorInfoUpdating                    ToolErrorCode = "info_updating"
+	ToolErrorInfoAuthFailed                  ToolErrorCode = "info_auth_failed"
+	ToolErrorInfoTemporarilyUnavailable      ToolErrorCode = "info_temporarily_unavailable"
+	ToolErrorInfoCredentialsChanged          ToolErrorCode = "info_credentials_changed"
+	ToolErrorLocalMindUpdating               ToolErrorCode = "localmind_updating"
+	ToolErrorLocalMindCredentialsChanged     ToolErrorCode = "localmind_credentials_changed"
 	// ToolErrorObservationBinaryContent: an observation.read window contains
 	// bytes that are not valid UTF-8. The error message carries the offset to
 	// retry with so the caller can skip past the binary region.

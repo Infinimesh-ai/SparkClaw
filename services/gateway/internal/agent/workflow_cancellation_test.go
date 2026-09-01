@@ -32,7 +32,7 @@ func TestDocumentEditCancellationStopsBeforeRepeatingActiveStage(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result := runtime.runWorkflowWithSeed(ctx, session.ID, dispatch.Run, "Replace a paragraph in note.docx", dispatch.Profile, stageContext, dispatch.Tools, nil, nil)
+	result := runtime.runWorkflowWithSeed(ctx, session.ID, dispatch.Run, "Replace a paragraph in note.docx", dispatch.Profile, stageContext, dispatch.Tools, nil, nil, agentContextSnapshot{})
 
 	if !result.Halted || !result.Cancelled || result.Completed || len(result.ToolCalls) != 0 {
 		t.Fatalf("cancelled editor stage did not stop cleanly: %#v", result)

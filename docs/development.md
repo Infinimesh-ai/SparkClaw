@@ -58,9 +58,10 @@ Rebuild and restart the current external-model/OCR/PostgreSQL development runtim
 npm run dev
 ```
 
-To rebuild only one application container, use `npm run dev:gateway` or
-`npm run dev:webchat`. These commands preserve the external/OCR/PostgreSQL
-environment and verify Gateway readiness.
+To rebuild only one application container with hosted chat, use `npm run
+dev:gateway` or `npm run dev:webchat`. Use the explicit `:online` and `:local`
+variants to switch profiles; both preserve the OCR/PostgreSQL environment and
+verify Gateway readiness.
 
 Direct host processes are retained only for isolated mock/file and Vite
 debugging as `npm run dev:gateway:host` and `npm run dev:webchat:host`.

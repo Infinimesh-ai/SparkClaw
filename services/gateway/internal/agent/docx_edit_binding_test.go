@@ -18,8 +18,8 @@ import (
 
 func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.T) {
 	root := t.TempDir()
-	inputRef := "report-sparkclaw-edit-2.docx"
-	outputRef := "report-sparkclaw-edit-3.docx"
+	inputRef := "report-3.docx"
+	outputRef := "report-4.docx"
 	paragraphs := make([]string, 25)
 	for index := range paragraphs {
 		paragraphs[index] = "Supporting paragraph"
@@ -29,13 +29,14 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	goal := "重新扩写 report-sparkclaw-edit-2.docx 第25段心得与体会到400字"
-	route, err := runtime.routeIntentForTest(session.ID, "turn", goal, agentContextSnapshot{})
+	goal := "重新扩写 report-3.docx 第25段心得与体会到400字"
+	routing, err := runtime.routeIntentOutputForTest(session.ID, "turn", goal)
 	if err != nil {
 		t.Fatal(err)
 	}
+	route := routing.Route
 	if route.Slots.TargetRef != inputRef || route.Slots.OutputRef != outputRef || route.Facts["output_path"] != outputRef {
-		t.Fatalf("follow-up DOCX edit did not freeze the numbered input/output family: %#v", route)
+		t.Fatalf("follow-up DOCX edit did not freeze the numbered input/output family: route=%#v fusion=%#v", route, routing.Fusion)
 	}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
 		ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC(),
@@ -242,13 +243,13 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 		!strings.Contains(call.Error, `requires "source_sha256"`) {
 		t.Fatalf("DOCX edit without dependency evidence was not blocked before approval: call=%#v approval=%#v", call, approval)
 	}
-	if call.Arguments["path"] != "report.docx" || call.Arguments["output_path"] != "report-sparkclaw-edit.docx" {
+	if call.Arguments["path"] != "report.docx" || call.Arguments["output_path"] != "report-2.docx" {
 		t.Fatalf("failed evidence binding changed frozen paths: %#v", call.Arguments)
 	}
 	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
 		t.Fatalf("invalid DOCX evidence created an owner approval: %#v", approvals)
 	}
-	if _, err := os.Stat(filepath.Join(runtime.tools.Config().Workspaces.DefaultRoot, "report-sparkclaw-edit.docx")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(runtime.tools.Config().Workspaces.DefaultRoot, "report-2.docx")); !os.IsNotExist(err) {
 		t.Fatalf("invalid DOCX evidence wrote an output before approval: %v", err)
 	}
 }
@@ -353,7 +354,7 @@ func TestDocumentEditRejectsCrossRunDOCXEvidenceBeforeApproval(t *testing.T) {
 	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
 		Name: "office.replace_text",
 		Args: map[string]any{
-			"path": "report.docx", "output_path": "report-sparkclaw-edit.docx", "expected_replacements": 1,
+			"path": "report.docx", "output_path": "report-2.docx", "expected_replacements": 1,
 			"replacements":    []any{map[string]any{"find": "First paragraph", "replace": "Updated"}},
 			"source_evidence": map[string]any{"run_id": "run_other"},
 		},
@@ -370,7 +371,7 @@ func TestDocumentEditRejectsCrossRunDOCXEvidenceBeforeApproval(t *testing.T) {
 func TestApprovedDOCXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
 	root := t.TempDir()
 	inputPath := filepath.Join(root, "report.docx")
-	outputPath := filepath.Join(root, "report-sparkclaw-edit.docx")
+	outputPath := filepath.Join(root, "report-2.docx")
 	writeDOCXParagraphFixture(t, inputPath, []string{"First paragraph"})
 	runtime, st, session, run, _, closeRuntime := prepareDOCXMutationRun(t, root, "docx.replace_paragraph", "replace_paragraph")
 	defer closeRuntime()

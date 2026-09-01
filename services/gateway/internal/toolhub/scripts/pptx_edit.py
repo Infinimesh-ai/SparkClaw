@@ -86,20 +86,40 @@ def replace_in_text_frame(tf):
 try:
     prs = Presentation(req["path"])
     total = 0
-    for slide in prs.slides:
-        for shape in slide.shapes:
+    changed_slides = set()
+    changed_shapes = {}
+    for slide_index, slide in enumerate(prs.slides, start=1):
+        for shape_index, shape in enumerate(slide.shapes, start=1):
             if hasattr(shape, "text_frame") and shape.has_text_frame:
-                total += replace_in_text_frame(shape.text_frame)
+                changed = replace_in_text_frame(shape.text_frame)
+                total += changed
+                if changed:
+                    changed_slides.add(slide_index)
+                    changed_shapes.setdefault(slide_index, set()).add(shape_index)
             if getattr(shape, "has_table", False):
                 for row in shape.table.rows:
                     for cell in row.cells:
-                        total += replace_in_text_frame(cell.text_frame)
+                        changed = replace_in_text_frame(cell.text_frame)
+                        total += changed
+                        if changed:
+                            changed_slides.add(slide_index)
+                            changed_shapes.setdefault(slide_index, set()).add(shape_index)
     missing = [find for find, count in counts.items() if count == 0]
     if missing:
         print(json.dumps({"error":"find text was not matched: " + ", ".join(repr(x) for x in missing)}))
         sys.exit(0)
     os.makedirs(os.path.dirname(req["output_path"]), exist_ok=True)
     prs.save(req["output_path"])
-    print(json.dumps({"replacements":total,"slides":len(prs.slides),"bytes":os.path.getsize(req["output_path"]),"details":[{"find":k,"count":v} for k,v in counts.items()]}))
+    print(json.dumps({
+        "replacements": total,
+        "slides": len(prs.slides),
+        "slide_indexes": sorted(changed_slides),
+        "changed_shape_indexes": [
+            {"slide_index": slide_index, "shape_indexes": sorted(changed_shapes[slide_index])}
+            for slide_index in sorted(changed_shapes)
+        ],
+        "bytes": os.path.getsize(req["output_path"]),
+        "details": [{"find": k, "count": v} for k, v in counts.items()],
+    }))
 except Exception as e:
     print(json.dumps({"error":str(e)}))

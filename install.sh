@@ -4,7 +4,9 @@ set -Eeuo pipefail
 
 umask 077
 
-REPOSITORY_URL="${SPARKCLAW_REPOSITORY_URL:-https://github.com/Chiiz0/SparkClaw.git}"
+DEFAULT_REPOSITORY_URL="https://github.com/Infinimesh-ai/SparkClaw.git"
+LEGACY_DEFAULT_REPOSITORY_URL="https://github.com/Chiiz0/SparkClaw.git"
+REPOSITORY_URL="${SPARKCLAW_REPOSITORY_URL:-$DEFAULT_REPOSITORY_URL}"
 GIT_REF="${SPARKCLAW_GIT_REF:-main}"
 BOOTSTRAP_TIMEOUT_SECONDS="${SPARKCLAW_BOOTSTRAP_TIMEOUT_SECONDS:-900}"
 INSTALL_DIR="${SPARKCLAW_INSTALL_DIR:-${HOME:-}/SparkClaw}"
@@ -108,17 +110,26 @@ if [[ ! -e "$INSTALL_DIR" ]]; then
     "$REPOSITORY_URL" "$INSTALL_DIR"
 elif [[ -d "$INSTALL_DIR/.git" ]]; then
   configured_remote="$(git -C "$INSTALL_DIR" remote get-url origin)"
-  [[ "$configured_remote" == "$REPOSITORY_URL" ]] ||
+  fetch_remote="origin"
+  if [[ "$configured_remote" == "$LEGACY_DEFAULT_REPOSITORY_URL" &&
+        "$REPOSITORY_URL" == "$DEFAULT_REPOSITORY_URL" ]]; then
+    fetch_remote="$REPOSITORY_URL"
+  elif [[ "$configured_remote" != "$REPOSITORY_URL" ]]; then
     fail "existing origin does not match SPARKCLAW_REPOSITORY_URL"
+  fi
   if [[ -n "$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=normal)" ]]; then
     fail "existing installation has local changes; preserve or remove them before updating $INSTALL_DIR"
   fi
 
   log "checking $INSTALL_DIR for a fast-forward update to $GIT_REF"
-  "${git_with_timeout[@]}" -C "$INSTALL_DIR" fetch --tags origin "$GIT_REF"
+  "${git_with_timeout[@]}" -C "$INSTALL_DIR" fetch --tags "$fetch_remote" "$GIT_REF"
   git -C "$INSTALL_DIR" merge-base --is-ancestor HEAD FETCH_HEAD ||
     fail "existing installation cannot fast-forward to $GIT_REF"
   git -C "$INSTALL_DIR" merge --ff-only FETCH_HEAD
+  if [[ "$fetch_remote" != "origin" ]]; then
+    git -C "$INSTALL_DIR" remote set-url origin "$DEFAULT_REPOSITORY_URL"
+    log "migrated the legacy origin to $DEFAULT_REPOSITORY_URL"
+  fi
 else
   fail "installation path exists and is not a SparkClaw Git checkout: $INSTALL_DIR"
 fi

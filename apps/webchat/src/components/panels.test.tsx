@@ -1,8 +1,57 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig } from "../api/types";
+import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig, ReadyStatus } from "../api/types";
 import { dictionaries } from "../i18n";
 import { ApprovalPanel, SettingsPanel } from "./panels";
+import { StatusPanel } from "./panels/status";
+import { ConnectorBindingSettings } from "./panels/settingsBindings";
+
+const settingsConfig = {
+  tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
+  iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
+  model: {
+    capacity_profile: "mock",
+    mock: true,
+    fast: { name: "fast", model: "fast", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {}, mtp: false },
+    deep: { name: "deep", model: "deep", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {}, mtp: false },
+    embedding: { name: "embedding", model: "embedding", base_url: "", capacity_physical_model: "mock-embedding", context_tokens: 8192, output_budgets: {}, mtp: false },
+    guard: { name: "guard", model: "guard", base_url: "", capacity_physical_model: "mock-guard", context_tokens: 8192, output_budgets: {}, mtp: false }
+  },
+  gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
+  workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
+  storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
+} as unknown as PublicConfig;
+
+describe("StatusPanel resident services", () => {
+  it("renders all Gateway-projected lanes with readiness and latest call state", () => {
+    const ready = {
+      ok: true,
+      gateway_binding: "127.0.0.1:18789",
+      model_mode: "external",
+      workspace_root: "/workspace",
+      trace_dir: "/traces",
+      state_backend: "file",
+      state_path: "/state.json",
+      speech: { enabled: true, ready: true, state: "ready", backend: "openai-http", model: "asr" },
+      resident_services: [
+        { lane: "fast", backend: "openai-http", model: "fast-model", readiness: "configured", last_call_status: "completed" },
+        { lane: "embedding", backend: "openai-http", model: "embedding-model", readiness: "configured" },
+        { lane: "guard", backend: "openai-http", model: "guard-model", readiness: "configured", last_call_status: "failed" },
+        { lane: "asr", backend: "openai-http", model: "asr-model", readiness: "ready", last_call_status: "completed" },
+        { lane: "ocr", backend: "openai-http", model: "ocr-model", readiness: "disabled" }
+      ]
+    } as ReadyStatus;
+    const markup = renderToStaticMarkup(
+      <StatusPanel ready={ready} modelCalls={[]} auditEvents={[]} text={dictionaries.en} />
+    );
+    expect(markup).toContain(dictionaries.en.status.residentServices);
+    for (const value of ["fast-model", "embedding-model", "guard-model", "asr-model", "ocr-model"]) {
+      expect(markup).toContain(value);
+    }
+    expect(markup).toContain(`${dictionaries.en.status.lastCall}: completed`);
+    expect(markup).toContain(dictionaries.en.status.noServiceCalls);
+  });
+});
 
 function happyApproval(planAvailability: string, plan = "# Plan\n\nInspect, implement, verify."): Approval {
   return {
@@ -113,23 +162,9 @@ describe("SettingsPanel External MCP", () => {
       running: false, state: "disabled", binding_status: "", binding_startable: false,
       supports_multiple_bindings: false, version: 0
     };
-    const config = {
-      tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
-      iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
-      model: {
-        mock: true,
-        fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
-        deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
-        embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
-        guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
-      },
-      gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
-      workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
-      storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
-    } as unknown as PublicConfig;
     const markup = renderToStaticMarkup(
       <SettingsPanel
-        runtimeConfig={config} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
+        runtimeConfig={settingsConfig} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
         text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
         onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
         onOpenNotificationBindingBrowser={async () => {}}
@@ -137,9 +172,8 @@ describe("SettingsPanel External MCP", () => {
       />
     );
     expect(markup).toContain(dictionaries.en.settings.externalMCP);
-    expect(markup).toContain(dictionaries.en.settings.useISCP);
-    expect(markup).toContain(dictionaries.en.settings.allowLANAccess);
-    expect(markup).toContain(dictionaries.en.settings.iscpPairing);
+    expect(markup).toContain(dictionaries.en.settings.connections);
+    expect(markup).toContain(dictionaries.en.settings.messaging);
     expect(markup).not.toContain(dictionaries.en.settings.addWeixinBinding);
   });
 });
@@ -156,27 +190,17 @@ describe("SettingsPanel Weixin login", () => {
       status: "waiting_scan", qr_code_url: "https://liteapp.weixin.qq.com/q/provider-ticket",
       default_for_channel: false, scopes: [], created_at: "2026-08-13T00:00:00Z", updated_at: "2026-08-13T00:00:00Z"
     };
-    const config = {
-      tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
-      iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
-      model: {
-        mock: true,
-        fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
-        deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
-        embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
-        guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
-      },
-      gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
-      workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
-      storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
-    } as unknown as PublicConfig;
     const markup = renderToStaticMarkup(
-      <SettingsPanel
-        runtimeConfig={config} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[binding]}
-        text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-        onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => binding}
-        onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
-        onUpdateConnector={async () => connector} onUpdatePolicy={async () => {}}
+      <ConnectorBindingSettings
+        connectors={[connector]}
+        notificationBindings={[binding]}
+        text={dictionaries.en}
+        language="en"
+        onStartNotificationBinding={async () => {}}
+        onRefreshNotificationBinding={async () => binding}
+        onOpenNotificationBindingBrowser={async () => {}}
+        onRevokeNotificationBinding={async () => {}}
+        onUpdateConnector={async () => connector}
       />
     );
     expect(markup).toContain(dictionaries.en.settings.openWeixinLogin);

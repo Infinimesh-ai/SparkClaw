@@ -172,14 +172,18 @@ jobs:
       - run: python3 -m unittest scripts/test_install.py
       - run: python3 -m unittest scripts/test_dotenv.py
       - run: python3 -m unittest scripts/test_model_readiness.py
+      - run: python3 -m unittest scripts/test_model_capacity_entrypoint.py
       - run: python3 -m unittest scripts/test_serve_models_compose.py
       - run: python3 -m unittest scripts/test_runtime_compose.py
+      - run: python3 -m unittest scripts/test_resolve_browser_display.py
+      - run: python3 -m unittest scripts/test_cloud_compose.py
       - run: python3 -m unittest scripts/test_autostart_compose.py
       - run: python3 -m unittest scripts/test_jingsi_lan.py
-      - run: bash -n install.sh scripts/lib/dotenv.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/restart_jingsi_lan_compose.sh scripts/start_compose.sh scripts/doctor.sh
+      - run: bash -n install.sh scripts/lib/dotenv.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/start_cloud_compose.sh scripts/resolve-browser-display.sh scripts/restart_jingsi_lan_compose.sh scripts/start_compose.sh scripts/doctor.sh
       - run: bash -s -- --help < install.sh | grep -F 'curl -fsSL'
       - run: cp docker/env/sparkclaw.example.env .env
       - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
+      - run: docker compose --env-file docker/env/sparkclaw.cloud.example.env -f docker/compose.yaml -f docker/compose.cloud.yaml --profile models-local config --quiet
       - run: SPARKCLAW_JINGSI_LAN_BIND=192.168.1.8 SPARKCLAW_JINGSI_SESSION_ID=session-ci docker compose --env-file .env -f docker/compose.yaml -f docker/compose.jingsi-lan.yaml config --quiet
       - name: Verify product runtime defaults
         run: |
@@ -206,6 +210,11 @@ jobs:
           assert environment["SPARKCLAW_OCR_ENABLED"] == "true"
           assert environment["SPARKCLAW_DEEP_BASE_URL"] == environment["SPARKCLAW_FAST_BASE_URL"]
           assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
+          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-single-fast-v1"
+          assert all(key not in environment for key in (
+              "SPARKCLAW_FAST_CONTEXT_TOKENS", "SPARKCLAW_FAST_MAX_INPUT_TOKENS", "SPARKCLAW_FAST_MAX_TOKENS",
+              "SPARKCLAW_DEEP_CONTEXT_TOKENS", "SPARKCLAW_DEEP_MAX_INPUT_TOKENS", "SPARKCLAW_DEEP_MAX_TOKENS",
+          ))
           assert "postgres" in config["services"]
           assert "sparkclaw-asr" in config["services"]
           assert "sparkclaw-ocr" in config["services"]
@@ -214,8 +223,34 @@ jobs:
           assert asr_command[asr_command.index("--kv-cache-memory-bytes") + 1] == "2G"
           assert not config["services"]["gateway"].get("ports")
           fast = config["services"]["sparkclaw-fast"]
-          assert fast["image"] == "sparkclaw-vllm-readiness:local"
+          assert fast["image"] == "sparkclaw-chat-vllm-readiness:local"
           assert fast["build"]["dockerfile"] == "docker/images/vllm.Dockerfile"
+          assert fast["build"]["args"]["SPARKCLAW_VLLM_IMAGE"] == "vllm/vllm-openai:v0.24.0"
+          assert "SPARKCLAW_VLLM_NATIVE_NVFP4_W4A4" not in fast["build"]["args"]
+          assert fast["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
+          assert "--max-model-len" not in fast["command"]
+          assert fast["entrypoint"] == ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
+          assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "fast"
+          assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-single-fast-v1"
+          assert fast["command"][fast["command"].index("--kv-cache-memory-bytes") + 1] == "8G"
+          assert fast["command"][fast["command"].index("--max-num-seqs") + 1] == "4"
+          assert all(flag not in fast["command"] for flag in (
+              "--quantization", "--moe-backend", "--attention-backend", "--kv-cache-dtype",
+          ))
+          assert "--speculative-config" not in fast["command"]
+          assert fast["healthcheck"]["test"][1] == "python3"
+          deep = config["services"]["sparkclaw-deep"]
+          assert deep["image"] == "sparkclaw-chat-vllm-readiness:local"
+          assert deep["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
+          assert "--max-model-len" not in deep["command"]
+          assert deep["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "deep"
+          assert deep["command"][deep["command"].index("--kv-cache-memory-bytes") + 1] == "12G"
+          assert deep["command"][deep["command"].index("--max-num-seqs") + 1] == "2"
+          assert all(flag not in deep["command"] for flag in (
+              "--quantization", "--moe-backend", "--attention-backend", "--kv-cache-dtype",
+          ))
+          assert "--speculative-config" not in deep["command"]
+          assert deep["healthcheck"]["test"][1] == "python3"
           assert all(
               volume["target"] != "/opt/sparkclaw/model_readiness.py"
               for volume in fast.get("volumes", [])
@@ -231,6 +266,23 @@ jobs:
               "published": "18790",
               "protocol": "tcp",
           }]
+          PY
+          docker compose \
+            --env-file .env \
+            --env-file docker/env/sparkclaw.dual-light.env \
+            -f docker/compose.yaml \
+            -f docker/compose.dual-light.yaml \
+            --profile models-local \
+            config --format json > /tmp/sparkclaw-dual-light-compose.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/sparkclaw-dual-light-compose.json", encoding="utf-8") as source:
+              config = json.load(source)
+          environment = config["services"]["gateway"]["environment"]
+          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-dual-light-v1"
+          assert environment["SPARKCLAW_DEEP_BASE_URL"] == "http://sparkclaw-deep:8002/v1"
+          assert config["services"]["sparkclaw-deep"]["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-dual-light-v1"
           PY
       - name: Verify custom WebChat host port
         run: |

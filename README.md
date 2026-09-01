@@ -34,7 +34,7 @@ Implemented and validated:
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
 - The JingSi→SparkClaw Runtime JSON/HTTP v1 provider is implemented behind an explicit loopback-only, dedicated bearer configuration. It persists request-key bindings and irreversible negative fences before execution, exposes submit/lookup/status/cancel/event-page actions, recovers unfinished records, and dispatches accepted work into the existing Agent Runtime with request-scoped tool and budget narrowing. `return_nowhere` performs no endpoint lookup, while bounded IMMS Memory Context is persisted and supplied as data only after intent and capability admission. The repository still reads the central decision 0007 Schema/binding/fixtures directly.
-- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. The 43-case runner still contains assertions for retired prototype code/shell workflows and must be aligned with the current capability matrix before it can serve as a full current acceptance result.
+- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. On 2026-08-24, the restored vLLM-managed NVFP4 path passed all 47 real-model golden cases with no mock calls or model errors.
 
 Known operating boundary:
 
@@ -46,11 +46,27 @@ Known operating boundary:
 
 ## Quick Start
 
+For an Ubuntu test VM that uses externally managed model endpoints, run the
+cloud installer as a normal sudo-capable user. It installs Docker when needed,
+keeps all endpoint and optional API-key values in a local mode-0600 file, and
+verifies the containerized Chromium automation runtime:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --connect-timeout 15 --max-time 300 \
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
+```
+
+The interactive setup accepts an empty model API key when the endpoints do not
+require authentication. The current trusted-LAN cloud profile does not enable
+Gateway owner-token authentication, so open `http://<vm-ip>:18790` directly
+after deployment.
+
 On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
 toolkit already installed, run the streamed installer:
 
 ```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
 The website may mirror the repository's top-level `install.sh` and replace the
@@ -95,8 +111,10 @@ this machine:
 npm run dev
 ```
 
-Use `npm run dev:gateway` or `npm run dev:webchat` to rebuild only one
-application container. Direct host mock/file and Vite debugging remain
+Use `npm run dev:gateway:online` or `npm run dev:gateway:local` to choose the
+chat profile while rebuilding Gateway; `npm run dev:gateway` selects online.
+Equivalent `dev:webchat:online` and `dev:webchat:local` commands rebuild only
+WebChat. Direct host mock/file and Vite debugging remain
 available as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
 
 For a direct model-router smoke test without starting an Agent session or executing tools:
@@ -123,7 +141,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-Current golden eval coverage is 43 cases. It verifies direct chat, config/tool visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
+Current golden eval coverage is 47 cases. It verifies direct chat, config/tool visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
 
 ## Open Source
 
@@ -139,10 +157,10 @@ For the current local-model path, start the single-Fast product profile first:
 
 ```bash
 scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh
+scripts/restart_runtime_compose.sh local
 ```
 
-`single-fast` stops any old `sparkclaw-deep` container and starts Fast, embedding, guard, and OCR together. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat with the single-Fast and OCR environments, maps both logical chat profiles to `sparkclaw-fast`, enables the document OCR adapter, and fails if Gateway is not ready.
+`single-fast` stops any old `sparkclaw-deep` container and starts Fast, embedding, guard, and OCR together. The explicit `local` selection then reloads Gateway/WebChat with the single-Fast and OCR environments, maps both logical chat profiles to `sparkclaw-fast`, enables the document OCR adapter, and fails if Gateway is not ready.
 
 Other serving entrypoints are available for targeted tests and controls:
 
@@ -160,11 +178,11 @@ Default served lanes:
 
 | Lane | Served name | Port | Default checkpoint |
 |---|---|---:|---|
-| fast | `sparkclaw-fast` | 8001 | `Qwen/Qwen3.6-35B-A3B-FP8` |
-| deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
+| fast | `sparkclaw-fast` | 8001 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| deep | `sparkclaw-deep` | 8002 | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 
-The current single-machine product profile is intentionally conservative: only `fast` serves chat, MTP is off, and embedding and guard use small explicit KV budgets. Deep and dual-light commands remain available only for targeted tests and historical comparisons.
+The current single-machine product profile is intentionally conservative: only `fast` serves chat, both logical chat profiles use that NVFP4 endpoint, MTP is off, and embedding and guard use small explicit KV budgets. The dedicated vLLM 0.24.0 chat image interprets the checkpoint's quantization metadata and owns activation and kernel selection; SparkClaw supplies no quantization override. Deep and dual-light commands remain available for targeted controls but no longer load an FP8 chat checkpoint.
 
 Loading strategy lives in [docs/model-loading.md](docs/model-loading.md). Benchmark evidence, endpoint snapshots and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
 

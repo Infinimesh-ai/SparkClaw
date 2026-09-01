@@ -142,15 +142,17 @@ func weatherRenderDefinition() app.ToolDefinition {
 	}
 }
 
-func (h *ToolHub) lookupWeather(ctx context.Context, args map[string]any) (Result, error) {
+func (h *ToolHub) lookupWeather(ctx context.Context, args map[string]any, _, runID string) (Result, error) {
 	location := strings.TrimSpace(stringArg(args, "location", ""))
 	if location == "" {
 		return Result{}, errors.New("weather location is required")
 	}
-	if h.weatherInfo == nil {
-		return Result{}, errors.New("infinimesh info weather adapter is unavailable")
+	call, err := h.beginInfoCall(ctx, runID, false)
+	if err != nil {
+		return Result{}, err
 	}
-	response, err := h.weatherInfo.Weather(ctx, infinimeshinfo.WeatherRequest{
+	defer call.finish()
+	response, err := call.weather.Weather(call.ctx, infinimeshinfo.WeatherRequest{
 		Location: infinimeshinfo.WeatherRequestLocation{Name: location},
 		Granularity: []infinimeshinfo.WeatherGranularity{
 			infinimeshinfo.WeatherGranularityCurrent,
@@ -163,7 +165,7 @@ func (h *ToolHub) lookupWeather(ctx context.Context, args map[string]any) (Resul
 		Language:    h.cfg.Plugins.Entries.InfinimeshInfo.Config.Language,
 	})
 	if err != nil {
-		return Result{}, err
+		return Result{}, mapInfoCallError(call.ctx, err)
 	}
 	return Result{Output: weatherPayloadFromResponse(location, response)}, nil
 }

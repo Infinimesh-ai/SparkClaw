@@ -181,7 +181,7 @@
       "max_tokens": 384,
       "checks": [
         {"kind": "contains_all", "metric": "groundedness", "value": ["420", "2"], "label": "covered fact and missing page"},
-        {"kind": "contains_any", "metric": "failure_handling", "value": ["仅", "部分", "缺失", "无法完整", "无法提供完整"], "label": "partial limitation explicit"},
+        {"kind": "regex", "metric": "failure_handling", "value": "(?:仅|部分|缺失|不完整|无法.{0,8}完整)", "label": "partial limitation explicit"},
         {"kind": "not_contains_any", "metric": "groundedness", "value": ["完整总结如下", "全部页面均显示"], "label": "no whole-document claim"},
         {"kind": "regex", "value": "[一-龥]", "label": "Chinese answer"}
       ]
@@ -332,7 +332,7 @@
         {"kind": "strict_json", "metric": "contract", "label": "strict JSON"},
         {"kind": "json_equals", "metric": "failure_handling", "path": "type", "value": "final", "label": "terminal failure final"},
         {"kind": "contains_any", "metric": "failure_handling", "value": ["failed", "timeout", "could not", "unable"], "label": "failure explicit"},
-        {"kind": "not_contains_any", "metric": "groundedness", "value": ["The file says", "contents are", "successfully read"], "label": "no fabricated content"}
+        {"kind": "not_regex", "metric": "groundedness", "value": "(?i)(?:the file says|successfully read|contents are\\s+(?!unavailable\\b|not available\\b|unknown\\b))", "label": "no fabricated content"}
       ]
     },
     {

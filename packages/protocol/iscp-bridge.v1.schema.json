@@ -33,7 +33,9 @@
             "agent.event.resume.v1",
             "agent.approval.list.v1",
             "agent.approval.resolve.v1",
-            "agent.operation.status.v1"
+            "agent.operation.status.v1",
+            "agent.activity.list.v1",
+            "agent.snapshot.get.v1"
           ]
         },
         "request_id": { "type": "string", "minLength": 1, "maxLength": 200 },

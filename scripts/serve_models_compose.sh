@@ -35,6 +35,13 @@ elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
   LANES="fast,deep"
   MODEL_PROFILE="dual-light"
 fi
+case "$MODEL_PROFILE" in
+  single-fast|dual-light) ;;
+  *)
+    echo "SPARKCLAW_MODEL_LOADING_PROFILE must select single-fast or dual-light" >&2
+    exit 1
+    ;;
+esac
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 force_model_recreate="$(sparkclaw_resolve_env_value "$ROOT/.env" SPARKCLAW_FORCE_MODEL_RECREATE false)"

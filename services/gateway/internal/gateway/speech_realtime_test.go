@@ -154,6 +154,11 @@ func TestSpeechRealtimeTicketRelaysPartialAndFinalOnce(t *testing.T) {
 	if err := client.ReadJSON(&event); err != nil || event.Event != "final" || event.Text != "live final" {
 		t.Fatalf("final event: %#v err=%v", event, err)
 	}
+	modelCalls := testListModelCalls(st, sessionRecord.ID, "")
+	if len(modelCalls) != 1 || modelCalls[0].Lane != "asr" || modelCalls[0].Operation != "speech_realtime" ||
+		modelCalls[0].Status != "completed" || modelCalls[0].Model != "test-asr" {
+		t.Fatalf("realtime speech model call was not recorded once: %#v", modelCalls)
+	}
 	if len(realtime.audio) != len(pcm) {
 		t.Fatalf("relayed PCM bytes = %d", len(realtime.audio))
 	}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "sparkclaw.pptx_visual_policy_qualification.v1",
+  "cases": [
+    {"id":"objective-text-clipped","evidence_source":"objective","diagnostic_kind":"text_clipping","semantic_effect":"required_content_lost","expected_class":"text_clipped","blocking_ceiling":true,"qualified_operations":["set_geometry","set_text_style"]},
+    {"id":"objective-content-obscured","evidence_source":"objective","diagnostic_kind":"geometry_overlap","semantic_effect":"harmful_obstruction","expected_class":"content_obscured","blocking_ceiling":true,"qualified_operations":["set_geometry","place_above","place_below"]},
+    {"id":"objective-element-off-canvas","evidence_source":"objective","diagnostic_kind":"off_canvas","semantic_effect":"harmful_overflow","expected_class":"element_off_canvas","blocking_ceiling":true,"qualified_operations":["set_geometry"]},
+    {"id":"subjective-missing-glyph","evidence_source":"subjective","subjective_type":"missing_glyph","expected_class":"missing_glyph","blocking_ceiling":true,"qualified_operations":["set_text_style"]},
+    {"id":"subjective-broken-layout","evidence_source":"subjective","subjective_type":"broken_layout","expected_class":"broken_layout","blocking_ceiling":false,"qualified_operations":["set_geometry","place_above","place_below"]},
+    {"id":"subjective-low-contrast","evidence_source":"subjective","subjective_type":"low_contrast","expected_class":"low_contrast","blocking_ceiling":false,"qualified_operations":["set_text_style","set_shape_style"]},
+    {"id":"subjective-text-too-small","evidence_source":"subjective","subjective_type":"text_too_small","expected_class":"text_too_small","blocking_ceiling":false,"qualified_operations":["set_text_style"]},
+    {"id":"subjective-overcrowded","evidence_source":"subjective","subjective_type":"overcrowded","expected_class":"overcrowded","blocking_ceiling":false,"qualified_operations":["set_geometry","place_above","place_below"]},
+    {"id":"subjective-misaligned","evidence_source":"subjective","subjective_type":"misaligned","expected_class":"misaligned","blocking_ceiling":false,"qualified_operations":["set_geometry"]},
+    {"id":"subjective-weak-hierarchy","evidence_source":"subjective","subjective_type":"weak_hierarchy","expected_class":"weak_hierarchy","blocking_ceiling":false,"qualified_operations":["set_geometry","set_text_style"]},
+    {"id":"subjective-poor-whitespace","evidence_source":"subjective","subjective_type":"poor_whitespace","expected_class":"poor_whitespace","blocking_ceiling":false,"qualified_operations":["set_geometry"]},
+    {"id":"subjective-unclear-focus","evidence_source":"subjective","subjective_type":"unclear_focus","expected_class":"unclear_focus","blocking_ceiling":false,"qualified_operations":["set_geometry","set_shape_style"]},
+    {"id":"subjective-inconsistent-style","evidence_source":"subjective","subjective_type":"inconsistent_style","expected_class":"inconsistent_style","blocking_ceiling":false,"qualified_operations":["set_text_style","set_shape_style"]}
+  ]
+}

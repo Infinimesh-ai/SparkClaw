@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 )
 
 type workflowDecisionSelectionOutput struct {
@@ -241,7 +242,7 @@ func (r Runtime) selectWorkflowDecisionEntry(
 	)
 
 	started := time.Now().UTC()
-	chat, chatErr := r.models.ChatWithProfile(ctx, lane, system, user)
+	chat, chatErr := r.models.ChatWithProfile(ctx, modelcapacity.OperationWorkflowDecision, lane, system, user)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(run.SessionID, run.ID, "workflow_operation_selection", chat, chatErr, started, completed)); saveErr != nil {
 		return workflowDecisionSelectionOutput{}, projectionRecord.ProjectionID, fmt.Errorf("persist workflow operation selection: %w", saveErr)

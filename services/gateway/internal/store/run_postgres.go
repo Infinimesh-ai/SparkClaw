@@ -327,6 +327,43 @@ func (s *PostgresStore) ListToolCalls(ctx context.Context, sessionID string) ([]
 	return out, nil
 }
 
+func (s *PostgresStore) ListRecentToolCalls(ctx context.Context, sessionID string, cutoff time.Time, excludeRunID string, scanLimit int) ([]app.ToolCall, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallListRecent, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallListRecent, ctx); err != nil {
+		return nil, err
+	}
+	if err := validateRecentHistoryQuery(sessionID, cutoff, scanLimit); err != nil {
+		return nil, storeError(ctx, OperationToolCallListRecent, StoreErrorInvalid, err)
+	}
+	rows, err := s.runPostgres.Query(ctx, `
+		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
+			tool, risk_level, status, arguments, result, coalesce(error, ''), coalesce(error_code, ''),
+			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, ''), policy_context
+		FROM tool_calls
+		WHERE session_id = $1 AND run_id <> $2 AND started_at <= $3
+			AND completed_at IS NOT NULL AND completed_at <= $3
+		ORDER BY started_at DESC, id DESC
+		LIMIT $4
+	`, sessionID, excludeRunID, cutoff, scanLimit)
+	if err != nil {
+		return nil, classifyRunPostgresReadError(OperationToolCallListRecent, ctx, err)
+	}
+	defer rows.Close()
+	out := make([]app.ToolCall, 0, scanLimit)
+	for rows.Next() {
+		call, err := scanToolCall(rows)
+		if err != nil {
+			return nil, classifyRunPostgresReadError(OperationToolCallListRecent, ctx, err)
+		}
+		out = append(out, call)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyRunPostgresReadError(OperationToolCallListRecent, ctx, err)
+	}
+	return out, nil
+}
+
 func runPostgresWrite[T any](s *PostgresStore, parent context.Context, operation StoreOperation, kind, id string, candidate T, command func(onboardingPostgresTx, context.Context) error) (T, error) {
 	var zero T
 	ctx, cancel := operationContext(parent, operation, s.operationTimeouts)
@@ -469,6 +506,41 @@ func (s *PostgresStore) ListEpisodeSummaries(ctx context.Context, sessionID stri
 	}
 	if err := rows.Err(); err != nil {
 		return nil, classifyRunPostgresReadError(OperationEpisodeSummaryList, ctx, err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) ListRecentEpisodeSummaries(ctx context.Context, sessionID string, cutoff time.Time, scanLimit int) ([]app.EpisodeSummary, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummaryListRecent, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummaryListRecent, ctx); err != nil {
+		return nil, err
+	}
+	if err := validateRecentHistoryQuery(sessionID, cutoff, scanLimit); err != nil {
+		return nil, storeError(ctx, OperationEpisodeSummaryListRecent, StoreErrorInvalid, err)
+	}
+	rows, err := s.runPostgres.Query(ctx, `
+		SELECT id, session_id, run_id, goal, outcome, risk_level, model_lane, tools, approvals,
+			failures, repair_performed, summary, created_at
+		FROM episode_summaries
+		WHERE session_id = $1 AND created_at <= $2
+		ORDER BY created_at DESC, id ASC
+		LIMIT $3
+	`, sessionID, cutoff, scanLimit)
+	if err != nil {
+		return nil, classifyRunPostgresReadError(OperationEpisodeSummaryListRecent, ctx, err)
+	}
+	defer rows.Close()
+	out := make([]app.EpisodeSummary, 0, scanLimit)
+	for rows.Next() {
+		summary, err := scanEpisodeSummary(rows)
+		if err != nil {
+			return nil, classifyRunPostgresReadError(OperationEpisodeSummaryListRecent, ctx, err)
+		}
+		out = append(out, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyRunPostgresReadError(OperationEpisodeSummaryListRecent, ctx, err)
 	}
 	return out, nil
 }

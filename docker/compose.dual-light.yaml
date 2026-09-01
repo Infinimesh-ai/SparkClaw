@@ -3,7 +3,7 @@ name: sparkclaw
 services:
   sparkclaw-fast:
     command:
-      - ${SPARKCLAW_FAST_MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}
+      - ${SPARKCLAW_FAST_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -12,14 +12,14 @@ services:
       - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
       - --tensor-parallel-size
       - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
-      - --max-model-len
-      - ${SPARKCLAW_FAST_MAX_MODEL_LEN:-32768}
       - --gpu-memory-utilization
       - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}
       - --kv-cache-memory-bytes
       - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
       - --max-num-seqs
       - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -29,7 +29,7 @@ services:
 
   sparkclaw-deep:
     command:
-      - ${SPARKCLAW_DEEP_MODEL_ID:-Qwen/Qwen3.6-27B-FP8}
+      - ${SPARKCLAW_DEEP_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
       - --host
       - 0.0.0.0
       - --port
@@ -38,15 +38,14 @@ services:
       - ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
       - --tensor-parallel-size
       - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
-      - --max-model-len
-      - ${SPARKCLAW_DEEP_MAX_MODEL_LEN:-65536}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.44}
+      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
       - --kv-cache-memory-bytes
       - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
       - --max-num-seqs
       - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
-      - --enforce-eager
+      - --trust-remote-code
+      - --enable-prefix-caching
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -63,8 +62,6 @@ services:
       - "8003"
       - --served-model-name
       - ${SPARKCLAW_EMBEDDING_SERVED_NAME:-sparkclaw-embedding}
-      - --max-model-len
-      - ${SPARKCLAW_EMBEDDING_MAX_MODEL_LEN:-8192}
       - --gpu-memory-utilization
       - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.06}
       - --kv-cache-memory-bytes
@@ -81,8 +78,6 @@ services:
       - "8005"
       - --served-model-name
       - ${SPARKCLAW_GUARD_SERVED_NAME:-Qwen/Qwen3Guard-Gen-0.6B}
-      - --max-model-len
-      - ${SPARKCLAW_GUARD_MAX_MODEL_LEN:-16384}
       - --gpu-memory-utilization
       - ${SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION:-0.04}
       - --kv-cache-memory-bytes

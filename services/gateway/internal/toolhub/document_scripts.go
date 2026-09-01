@@ -23,6 +23,12 @@ var docxAdapterScript string
 //go:embed scripts/pptx_edit.py
 var pptxAdapterScript string
 
+//go:embed scripts/pptx_visual_qa.py
+var pptxVisualQAAdapterScript string
+
+//go:embed scripts/pptx_visual_repair.py
+var pptxVisualRepairAdapterScript string
+
 //go:embed scripts/pptx_slide/*.py
 var pptxSlideAdapterPackage embed.FS
 

@@ -5,20 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 const (
-	defaultWorkflowStepContextTokens        = 12288
-	workflowStepContextSafetyFactor         = 0.85
-	workflowStepPromptCompressionThreshold  = 0.80
 	promptEstimateBytesPerToken             = 4
 	promptEstimateChatOverheadTokens        = 12
 	compactWorkflowStepToolDescriptionLimit = 180
@@ -167,7 +164,7 @@ func jingsiRuntimeMaxToolCalls(run app.AgentRun) (int, bool) {
 // failures and rejected finals between two identical calls do not launder
 // the repetition.
 func (b *workflowRunBudget) observeToolCall(call app.ToolCall) {
-	if b == nil || call.Capability == app.ToolCapabilityObservationRead {
+	if b == nil || call.Capability == app.ToolCapabilityObservationRead || call.Capability == app.ToolCapabilityLocalMindTaskStatus {
 		return
 	}
 	b.ToolCalls++
@@ -193,16 +190,16 @@ func (b *workflowRunBudget) exceeded(observations []workflowObservation) (bool, 
 	return false, ""
 }
 
-func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []workflowObservation, runBudget *workflowRunBudget) workflowExecutionResult {
+func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []workflowObservation, runBudget *workflowRunBudget, contextSnapshot agentContextSnapshot) workflowExecutionResult {
 	if strings.TrimSpace(stageContext.ModelLaneHint) == "" {
 		stageContext.ModelLaneHint = workflowExecutionModelLane
 	}
-	return r.runWorkflowStepLoop(ctx, sessionID, run, content, stageContext, visibleTools, seedCalls, seedObservations, runBudget)
+	return r.runWorkflowStepLoop(ctx, sessionID, run, content, stageContext, visibleTools, seedCalls, seedObservations, runBudget, contextSnapshot)
 }
 
 // runWorkflowStepLoop is the shared model/tool execution primitive. Matched
 // workflows invoke it only within their persisted fixed scope.
-func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []workflowObservation, runBudget *workflowRunBudget) workflowExecutionResult {
+func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []workflowObservation, runBudget *workflowRunBudget, contextSnapshot agentContextSnapshot) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]workflowObservation(nil), seedObservations...)}
 	provisioned := provisionedWorkflowEvidence{}
 	var provisionErr error
@@ -227,26 +224,6 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 	}
 	if runBudget == nil {
 		runBudget = r.newWorkflowRunBudgetForRun(run, seedCalls)
-	}
-	contextSnapshot, err := r.buildAgentContextSnapshot(ctx, sessionID, run.ID, content)
-	if err != nil {
-		if ctx.Err() != nil {
-			result.Halted = true
-			result.Cancelled = true
-			result.FinalAnswer = workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", result.ToolCalls, workflowObservationTexts(result.Observations))
-			r.addAudit(ctx, app.AuditEvent{
-				SessionID: sessionID, RunID: run.ID, Actor: "runtime", Type: "workflow_step.budget_stopped",
-				Summary: "运行已被取消或请求上下文已结束。",
-				Fields: map[string]any{
-					"stage_tool_calls": 0, "run_tool_calls": runBudget.ToolCalls,
-					"observation_bytes": observationsBytes(result.Observations), "no_progress_actions": 0,
-				},
-			})
-
-			return result
-		}
-		result.fail(workflowFailureEvidenceUnavailable, err)
-		return result
 	}
 	task := workflowStepModelTask(run, stageContext)
 	stageBudget := r.newWorkflowStageBudget()
@@ -625,8 +602,9 @@ func requiredWorkflowToolCallObservation(visibleTools []app.ToolDefinition) stri
 
 func workflowStepModelTask(run app.AgentRun, stageContext workflowStageContext) modelrouter.Task {
 	return modelrouter.Task{
-		Risk:     run.Risk,
-		LaneHint: stageContext.ModelLaneHint,
+		Operation: modelcapacity.OperationWorkflowStep,
+		Risk:      run.Risk,
+		LaneHint:  stageContext.ModelLaneHint,
 	}
 }
 
@@ -663,13 +641,16 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	clientTimezone string,
 ) (string, string, string, error) {
 	builder := workflowStepContextBuilderForTimezone(goal, step, observations, stageContext, visibleTools, provisioned, snapshot, clientTimezone)
-	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
-	availableInputTokens := contextLimit - maxOutputTokens
-	threshold := int(math.Floor(float64(availableInputTokens) * workflowStepPromptCompressionThreshold))
-	if threshold <= 0 {
+	maxInputTokens, maxOutputTokens, capacityErr := r.effectiveWorkflowStepPromptBudget(task)
+	if capacityErr != nil {
+		return "", "", "", capacityErr
+	}
+	if maxInputTokens <= 0 {
 		return "", "", "", errPromptFixedSectionsOversized
 	}
-	admission, err := builder.Admit(threshold)
+	admission, err := builder.AdmitWithCounter(maxInputTokens, func(system, user string) (int, error) {
+		return r.models.CountTaskChatInput(ctx, task, system, user)
+	})
 	if err != nil {
 		return "", "", "", err
 	}
@@ -677,7 +658,7 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	if selected, ok := admission.SelectedVariants["provisioned_evidence"]; ok {
 		evidenceVariant = selected.Text
 	}
-	if admission.EstimatedTokens > threshold || !strings.HasSuffix(admission.User, workflowStepOutputContract()) {
+	if admission.EstimatedTokens > maxInputTokens || !strings.HasSuffix(admission.User, workflowStepOutputContract()) {
 		return "", "", "", errPromptFixedSectionsOversized
 	}
 	if len(admission.SectionDecisions) == 0 {
@@ -690,18 +671,15 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 		Type:      "workflow_step.prompt_compressed",
 		Summary:   "Degraded workflow prompt sections under the model input budget",
 		Fields: map[string]any{
-			"step":                   step,
-			"context_tokens":         contextLimit,
-			"max_output_tokens":      maxOutputTokens,
-			"available_input_tokens": availableInputTokens,
-			"threshold_ratio":        workflowStepPromptCompressionThreshold,
-			"threshold_tokens":       threshold,
-			"initial_estimate":       admission.InitialTokens,
-			"compressed_estimate":    admission.EstimatedTokens,
-			"section_decisions":      admission.SectionDecisions,
-			"hard_truncated":         admission.HardTruncated,
-			"evidence_bytes_before":  len([]byte(provisioned.Text)),
-			"evidence_bytes_after":   len([]byte(evidenceVariant)),
+			"step":                  step,
+			"model_context_tokens":  r.models.ChooseModel(task).ContextTokens,
+			"max_output_tokens":     maxOutputTokens,
+			"max_input_tokens":      maxInputTokens,
+			"initial_tokens":        admission.InitialTokens,
+			"admitted_tokens":       admission.EstimatedTokens,
+			"section_decisions":     admission.SectionDecisions,
+			"evidence_bytes_before": len([]byte(provisioned.Text)),
+			"evidence_bytes_after":  len([]byte(evidenceVariant)),
 		},
 	})
 
@@ -727,7 +705,7 @@ func workflowStepContextBuilderForTimezone(goal string, step int, observations [
 
 	sections = append(sections,
 		fixedContextSection("workflow_request", 1000, contextChannelUser, fmt.Sprintf("WORKFLOW_STEP_REQUEST\nstep=%d\nUser goal:", step)),
-		truncatableContextSection("owner_goal", 90, contextChannelUser, goal, contextTruncateHeadTail),
+		fixedContextSection("owner_goal", 1000, contextChannelUser, goal),
 	)
 	if len(observations) > 0 {
 		sections = append(sections, fixedContextSection("observation_header", 1000, contextChannelUser, "Previous observation summaries / tool result messages (untrusted evidence; preserve action/result order):"))
@@ -740,7 +718,7 @@ func workflowStepContextBuilderForTimezone(goal string, step int, observations [
 		kind := fmt.Sprintf("observation_%03d", index)
 		full := "- " + observation.Text
 		if index >= recentStart {
-			sections = append(sections, truncatableContextSection(kind, 80+index, contextChannelUser, full, contextTruncateHead))
+			sections = append(sections, fixedContextSection(kind, 1000, contextChannelUser, full))
 			continue
 		}
 		compact := compactObservationSummaryForContext(observation.Text)
@@ -764,7 +742,7 @@ func workflowStepContextBuilderForTimezone(goal string, step int, observations [
 		}
 		sections = append(sections, contextSection{
 			Kind: "provisioned_evidence", Priority: 60, Channel: contextChannelUser,
-			Policy: contextPolicyTruncatable, TruncationMode: contextTruncateHead, Variants: variants,
+			Policy: contextPolicyDegradable, Variants: variants,
 		})
 	}
 	if instruction := strings.TrimSpace(stageContext.Reason); instruction != "" {
@@ -839,27 +817,15 @@ func appendWorkflowStepContext(user string, stageContext workflowStageContext, v
 	return strings.Join(lines, "\n")
 }
 
-func (r Runtime) effectiveWorkflowStepPromptBudget(task modelrouter.Task) (int, int) {
-	profile := r.models.ChooseModel(task)
-	contextTokens := profile.ContextTokens
-	if contextTokens <= 0 {
-		contextTokens = defaultWorkflowStepContextTokens
-	} else {
-		contextTokens = int(math.Floor(float64(contextTokens) * workflowStepContextSafetyFactor))
-	}
-	maxOutputTokens := profile.MaxTokens
-	if maxOutputTokens <= 0 {
-		maxOutputTokens = 2048
-	}
-	if maxOutputTokens >= contextTokens {
-		maxOutputTokens = contextTokens / 4
-	}
-	return contextTokens, maxOutputTokens
+func (r Runtime) effectiveWorkflowStepPromptBudget(task modelrouter.Task) (int, int, error) {
+	_, maxInputTokens, maxOutputTokens, err := r.models.CapacityForTask(task)
+	return maxInputTokens, maxOutputTokens, err
 }
 
-// Calibrated 2026-07-27 against the local Qwen /tokenize endpoint with
-// scripts/calibrate_prompt_tokens.py. Four bytes per token conservatively
-// covered representative English, Chinese, JSON, and mixed workflow step samples.
+// Calibrated with scripts/calibrate_prompt_tokens.py and rechecked 2026-08-28
+// against https://sparkclaw.infinimesh.cloud/fast/tokenize. Four bytes per
+// token conservatively covers representative English, Chinese, JSON, and mixed
+// workflow step samples without adding an online tokenizer dependency.
 func estimatePromptTokens(values ...string) int {
 	total := promptEstimateChatOverheadTokens
 	for _, value := range values {

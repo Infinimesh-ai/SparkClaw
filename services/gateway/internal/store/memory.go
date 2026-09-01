@@ -27,6 +27,8 @@ type MemoryStore struct {
 	mcpBindings                       map[string]app.MCPBinding
 	mcpOperations                     map[string]app.MCPOperation
 	messages                          map[string][]app.Message
+	toolCallIDsBySession              map[string][]string
+	episodeIDsBySession               map[string][]string
 	runFeedback                       map[string][]app.RunFeedback
 	runs                              map[string]app.AgentRun
 	modelCalls                        map[string]app.ModelCall
@@ -95,6 +97,8 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 		mcpBindings:                       map[string]app.MCPBinding{},
 		mcpOperations:                     map[string]app.MCPOperation{},
 		messages:                          map[string][]app.Message{},
+		toolCallIDsBySession:              map[string][]string{},
+		episodeIDsBySession:               map[string][]string{},
 		runFeedback:                       map[string][]app.RunFeedback{},
 		runs:                              map[string]app.AgentRun{},
 		modelCalls:                        map[string]app.ModelCall{},

@@ -44,6 +44,11 @@ Mutations refresh their affected state immediately: chat send, schedule change,
 delivery, approval resolution, memory action, feedback, owner/client/policy
 change, connector activation or binding, and eval run.
 
+The Status view consumes Gateway's ordered `resident_services` readiness
+projection for Fast, embedding, guard, ASR, and OCR. Each row shows backend,
+model, readiness, and the latest persisted call status without reconstructing
+service identity or health rules in the browser.
+
 ## Typed Control Surfaces
 
 Structured owner actions are not converted back into ambiguous prose:

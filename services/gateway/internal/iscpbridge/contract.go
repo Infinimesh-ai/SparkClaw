@@ -32,6 +32,8 @@ const (
 	TypeApprovalResolve      = "agent.approval.resolve.v1"
 	TypeOperationStatus      = "agent.operation.status.v1"
 	TypeResponse             = "agent.response.v1"
+	// Read-only phone projections (WS-5 Phase C): activities feed and the
+	// home-screen snapshot. See internal/iscpbridge/projection.go.
 )
 
 const (
@@ -49,6 +51,8 @@ const (
 )
 
 var supportedRequestTypes = map[string]struct{}{
+	TypeActivityList:         {},
+	TypeSnapshotGet:          {},
 	TypeCapabilitiesDescribe: {},
 	TypeSessionList:          {},
 	TypeSessionCreate:        {},
@@ -153,6 +157,7 @@ func DefaultManifest() Manifest {
 			{ID: "agent.conversation", Version: 1},
 			{ID: "agent.streaming", Version: 1},
 			{ID: "agent.activities", Version: 1},
+			{ID: "agent.snapshot", Version: 1},
 			{ID: "agent.approvals", Version: 1},
 			{ID: "agent.notifications", Version: 1},
 		},

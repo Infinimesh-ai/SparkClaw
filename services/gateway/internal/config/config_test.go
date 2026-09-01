@@ -156,8 +156,6 @@ func TestLoadAppliesObservationSummaryLimitEnvironment(t *testing.T) {
 func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_GUARD_BASE_URL", "http://guard.example.test/v1")
 	t.Setenv("SPARKCLAW_GUARD_MODEL", "Qwen/TestGuard")
-	t.Setenv("SPARKCLAW_GUARD_MAX_TOKENS", "96")
-	t.Setenv("SPARKCLAW_GUARD_CONTEXT_TOKENS", "16384")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -165,9 +163,25 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	}
 	if cfg.Model.Guard.BaseURL != "http://guard.example.test/v1" ||
 		cfg.Model.Guard.Model != "Qwen/TestGuard" ||
-		cfg.Model.Guard.MaxTokens != 96 ||
-		cfg.Model.Guard.ContextTokens != 16384 {
+		cfg.Model.Guard.ContextTokens != 16384 ||
+		cfg.Model.Guard.OutputBudgets["guard"] != 256 {
 		t.Fatalf("guard model env did not apply: %#v", cfg.Model.Guard)
+	}
+}
+
+func TestDefaultChatProfilesMatchVLLMManagedNVFP4Checkpoint(t *testing.T) {
+	cfg, err := LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Model.Fast.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
+		cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP {
+		t.Fatalf("fast profile does not match the vLLM-managed NVFP4 checkpoint default: %#v", cfg.Model.Fast)
+	}
+	if cfg.Model.Deep.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
+		cfg.Model.Deep.ContextTokens != 65536 || cfg.Model.Deep.MTP {
+		t.Fatalf("deep profile does not match the vLLM-managed NVFP4 checkpoint default: %#v", cfg.Model.Deep)
 	}
 }
 
@@ -190,6 +204,13 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	}
 	if cfg.Adapters.DocumentOCR.Model != "sparkclaw-ocr" || cfg.Adapters.DocumentOCR.MaxTokens != 16384 || cfg.Adapters.DocumentOCR.MaxUploadBytes != 12<<20 || cfg.Adapters.DocumentOCR.MaxOutputBytes != 1<<20 || cfg.Adapters.DocumentOCR.MaxConcurrency != 2 {
 		t.Fatalf("document OCR limits missing: %#v", cfg.Adapters.DocumentOCR)
+	}
+	visual := cfg.Adapters.PPTXVisualQA
+	if visual.Phase != "disabled" || visual.BaseURL != "" || len(visual.AllowedHosts) != 0 || len(visual.RepairQualifiedClasses) != 0 || len(visual.RepairQualifiedOperations) != 0 || len(visual.BlockingQualifiedClasses) != 0 || visual.MaxRepairAttempts != 2 {
+		t.Fatalf("PPTX visual QA should require explicit rollout configuration: %#v", visual)
+	}
+	if visual.TimeoutSeconds != 120 || visual.MaxInputBytes != 64<<20 || visual.MaxPDFBytes != 64<<20 || visual.MaxPages != 100 || visual.MaxChangedPages != 20 || visual.RasterScale != 1.5 || visual.MaxPagePixels != 20_000_000 || visual.MaxPNGBytes != 12<<20 || visual.DiagnosticToleranceMilli != 2 || visual.ReadinessTTLSeconds != 300 {
+		t.Fatalf("PPTX visual QA limits missing: %#v", visual)
 	}
 	if cfg.Tools.Web.Search.Enabled {
 		t.Fatalf("Infinimesh web search should be disabled by default: %#v", cfg.Tools.Web.Search)
@@ -488,6 +509,10 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 	if !cfg.Model.Mock {
 		t.Fatal("repository default config should use mock models")
 	}
+	if cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP ||
+		cfg.Model.Deep.ContextTokens != 32768 || cfg.Model.Deep.MTP {
+		t.Fatalf("repository chat profiles do not match the vLLM-managed NVFP4 checkpoint: %#v", cfg.Model)
+	}
 	for name, profile := range map[string]ModelProfile{
 		"fast":      cfg.Model.Fast,
 		"deep":      cfg.Model.Deep,
@@ -514,7 +539,6 @@ func TestLoadAppliesDocumentOCREnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_OCR_TIMEOUT_SECONDS", "90")
 	t.Setenv("SPARKCLAW_OCR_MAX_UPLOAD_BYTES", "8388608")
 	t.Setenv("SPARKCLAW_OCR_MAX_OUTPUT_BYTES", "524288")
-	t.Setenv("SPARKCLAW_OCR_MAX_TOKENS", "12000")
 	t.Setenv("SPARKCLAW_OCR_MAX_CONCURRENCY", "3")
 	t.Setenv("SPARKCLAW_OCR_MAX_PENDING", "4")
 
@@ -523,8 +547,87 @@ func TestLoadAppliesDocumentOCREnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	ocr := cfg.Adapters.DocumentOCR
-	if !ocr.Enabled || ocr.Provider != "openai-http" || ocr.BaseURL != "https://ocr.example.test/v1" || ocr.Model != "ATH-MaaS/OvisOCR2" || ocr.TimeoutSeconds != 90 || ocr.MaxUploadBytes != 8388608 || ocr.MaxOutputBytes != 524288 || ocr.MaxTokens != 12000 || ocr.MaxConcurrency != 3 || ocr.MaxPending != 4 {
+	if !ocr.Enabled || ocr.Provider != "openai-http" || ocr.BaseURL != "https://ocr.example.test/v1" || ocr.Model != "ATH-MaaS/OvisOCR2" || ocr.TimeoutSeconds != 90 || ocr.MaxUploadBytes != 8388608 || ocr.MaxOutputBytes != 524288 || ocr.MaxTokens != 16384 || ocr.MaxConcurrency != 3 || ocr.MaxPending != 4 {
 		t.Fatalf("document OCR environment did not apply: %#v", ocr)
+	}
+}
+
+func TestLoadAppliesPPTXVisualQAEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "shadow")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES", "text_clipped,missing_glyph")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS", "set_text_style,set_geometry")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES", "text_clipped")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS", "1")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "http://gotenberg:3000/")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "gotenberg")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_TIMEOUT_SECONDS", "90")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_INPUT_BYTES", "33554432")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PDF_BYTES", "50331648")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGES", "40")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_CHANGED_PAGES", "12")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_RASTER_SCALE", "2")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PAGE_PIXELS", "16000000")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES", "8388608")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI", "3")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS", "600")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visual := cfg.Adapters.PPTXVisualQA
+	if visual.Phase != "shadow" || !slices.Equal(visual.RepairQualifiedClasses, []string{"missing_glyph", "text_clipped"}) || !slices.Equal(visual.RepairQualifiedOperations, []string{"set_geometry", "set_text_style"}) || !slices.Equal(visual.BlockingQualifiedClasses, []string{"text_clipped"}) || visual.MaxRepairAttempts != 1 || visual.BaseURL != "http://gotenberg:3000" || len(visual.AllowedHosts) != 1 || visual.AllowedHosts[0] != "gotenberg" || visual.TimeoutSeconds != 90 || visual.MaxInputBytes != 33554432 || visual.MaxPDFBytes != 50331648 || visual.MaxPages != 40 || visual.MaxChangedPages != 12 || visual.RasterScale != 2 || visual.MaxPagePixels != 16000000 || visual.MaxPNGBytes != 8388608 || visual.DiagnosticToleranceMilli != 3 || visual.ReadinessTTLSeconds != 600 {
+		t.Fatalf("PPTX visual QA environment did not apply: %#v", visual)
+	}
+}
+
+func TestLoadRejectsUnsafePPTXVisualQAEndpointAndUnsupportedPhase(t *testing.T) {
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "shadow")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "http://render.example.test")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "render.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "http only") {
+		t.Fatalf("insecure public PPTX visual QA endpoint was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "https://render.example.test")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "other.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("PPTX visual QA endpoint outside the allowlist was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "repairing")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "render.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "unsupported PPTX visual QA phase") {
+		t.Fatalf("unimplemented PPTX visual QA phase was accepted: %v", err)
+	}
+}
+
+func TestLoadValidatesPPTXVisualQAQualificationPolicy(t *testing.T) {
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "warning")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BASE_URL", "http://gotenberg:3000")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "gotenberg")
+	if cfg, err := Load(""); err != nil || cfg.Adapters.PPTXVisualQA.Phase != "warning" {
+		t.Fatalf("warning phase did not load: cfg=%#v err=%v", cfg.Adapters.PPTXVisualQA, err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES", "unknown")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "repairQualifiedClasses") {
+		t.Fatalf("unknown repair qualification was accepted: %v", err)
+	}
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_CLASSES", "text_clipped")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS", "arbitrary_ooxml")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "repairQualifiedOperations") {
+		t.Fatalf("unknown repair operation qualification was accepted: %v", err)
+	}
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS", "set_geometry")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES", "missing_glyph")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "must also be repair-qualified") {
+		t.Fatalf("blocking qualification without repair qualification was accepted: %v", err)
+	}
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES", "text_clipped")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS", "3")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "maxRepairAttempts") {
+		t.Fatalf("excessive PPTX repair budget was accepted: %v", err)
 	}
 }
 
@@ -956,16 +1059,13 @@ func TestLoadKeepsWebSearchDisabledWhenExplicitlyDisabled(t *testing.T) {
 
 func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_MODEL_MODE", "external-model")
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_PROFILE", "dgx-spark-dual-light-v1")
 	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://fast.example.test/v1")
 	t.Setenv("SPARKCLAW_FAST_MODEL", "sparkclaw-fast")
 	t.Setenv("SPARKCLAW_FAST_SERVED_NAME", "fast-lane")
-	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "333")
-	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "12000")
 	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://deep.example.test/v1")
 	t.Setenv("SPARKCLAW_DEEP_MODEL", "sparkclaw-deep")
 	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
-	t.Setenv("SPARKCLAW_DEEP_MAX_TOKENS", "444")
-	t.Setenv("SPARKCLAW_DEEP_CONTEXT_TOKENS", "12288")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1600000")
@@ -980,26 +1080,29 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	if cfg.Model.Fast.BaseURL != "http://fast.example.test/v1" || cfg.Model.Fast.Model != "sparkclaw-fast" || cfg.Model.Fast.Name != "fast-lane" {
 		t.Fatalf("fast model env did not apply: %#v", cfg.Model.Fast)
 	}
-	if cfg.Model.Fast.MaxTokens != 333 {
-		t.Fatalf("fast max tokens env did not apply: %#v", cfg.Model.Fast)
-	}
-	if cfg.Model.Fast.ContextTokens != 12000 {
-		t.Fatalf("fast context tokens env did not apply: %#v", cfg.Model.Fast)
+	if cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.OutputBudgets["answer"] != 4096 {
+		t.Fatalf("fast catalog capacity did not apply: %#v", cfg.Model.Fast)
 	}
 	if cfg.Model.Deep.BaseURL != "http://deep.example.test/v1" || cfg.Model.Deep.Model != "sparkclaw-deep" || cfg.Model.Deep.Name != "deep-lane" {
 		t.Fatalf("deep model env did not apply: %#v", cfg.Model.Deep)
 	}
-	if cfg.Model.Deep.MaxTokens != 444 {
-		t.Fatalf("deep max tokens env did not apply: %#v", cfg.Model.Deep)
-	}
-	if cfg.Model.Deep.ContextTokens != 12288 {
-		t.Fatalf("deep context tokens env did not apply: %#v", cfg.Model.Deep)
+	if cfg.Model.Deep.ContextTokens != 65536 || cfg.Model.Deep.OutputBudgets["answer"] != 8192 {
+		t.Fatalf("deep catalog capacity did not apply: %#v", cfg.Model.Deep)
 	}
 	if cfg.Model.HTTPTimeoutSeconds != 555 {
 		t.Fatalf("model HTTP timeout env did not apply: %#v", cfg.Model)
 	}
 	if !cfg.Model.DisableThinking {
 		t.Fatalf("model disable thinking env did not apply: %#v", cfg.Model)
+	}
+}
+
+func TestLoadRejectsLegacyModelCapacityEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "8192")
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), "model capacity comes from the selected capacity profile") {
+		t.Fatalf("legacy capacity environment was accepted: %v", err)
 	}
 }
 
@@ -1320,6 +1423,7 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Default()
+			cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 			test.mutate(&cfg)
 			path := filepath.Join(t.TempDir(), "config.json")
 			raw, err := json.Marshal(cfg)
@@ -1339,6 +1443,7 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 func TestLoadNormalizesMCPServersWithoutResolvingSecrets(t *testing.T) {
 	t.Setenv("HAPPY_TEAM_MCP_TOKEN", "not-read-by-config")
 	cfg := Default()
+	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 	cfg.MCPServers = map[string]MCPServerConfig{
 		"happy-tasks": {
 			URL: "https://happy.example.com/v1/team/mcp", TokenEnv: "HAPPY_TEAM_MCP_TOKEN", ExpectedServerName: "happy-team-tasks",
@@ -1381,6 +1486,7 @@ func TestLoadRejectsInvalidMCPServerConfiguration(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Default()
+			cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 			cfg.MCPServers = map[string]MCPServerConfig{"fixture": test.server}
 			path := filepath.Join(t.TempDir(), "config.json")
 			raw, err := json.Marshal(cfg)

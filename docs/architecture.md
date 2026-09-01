@@ -16,7 +16,6 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
   reading, bounded verified clicks, and approval-gated reversible form drafts;
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
-- personal memory candidates and approval-gated sensitive memory;
 - optional WebChat speech transcription, Telegram/Weixin messaging, and
   Infinimesh Info evidence;
 - optional fixed-session JingSi text presentation on an explicitly bound
@@ -82,6 +81,10 @@ notifications, memories, traces, artifacts, evals, and runtime settings. It
 sends typed actions but does not decide routes, Policy, or delivery. See
 [WebChat](webchat.md).
 
+Memory records remain a management scaffold while their product, retrieval,
+and safety contract is under design. Agent Runtime does not query them or place
+them in Tree, Workflow, or final-answer model context.
+
 ### Gateway And Message Plane
 
 Gateway owns HTTP/event APIs, auth, pairing, rate limiting, sessions, public
@@ -108,6 +111,12 @@ recent conversation and document-record metadata such as name, format, source,
 and recent activity. This contract applies to every natural-language intent,
 not only document requests. Fast reasons about ambiguity and scores candidates;
 it cannot rewrite the request, bind a resource, or emit a `RouteDecision`.
+Its initial score call and optional single repair force thinking off and use the
+same strict dynamic JSON Schema. Runtime still verifies graph revision, the
+exact candidate set and uniqueness, unknown fields, and score bounds before
+fusion; malformed output after the one repair fails the Tree channel. This is
+structural hardening only, with Tree temperature, score calibration, and output
+token allowance unchanged.
 Their calibrated scores are combined as:
 
 ```text
@@ -191,10 +200,15 @@ materialize declared, consumer-sized slices of persisted evidence into a
 may expose `observation.read` for bounded, session-scoped read-back when the
 declared slice is insufficient. Support entries use ordinary exposure,
 selection, Policy, and persisted-scope validation; old plans are not widened
-on resume. Prompt
-admission uses the model profile selected by the same Router task policy as
-execution, an 85% context-window safety factor, and an offline-calibrated
-conservative token estimate. It degrades session/tool context first, then
+on resume. Each initial or resumed invocation reads at most 256 recent message
+candidates, 128 terminal tool-call candidates, and 64 episode candidates, then
+selects one immutable 8-message/6-tool/4-episode/3-image snapshot shared by
+Tree, Workflow steps, final answers, and recent-document resolution. External
+MCP receives an empty snapshot before any history query. Prompt admission uses
+the model profile selected by the same Router task policy as execution and
+reserves the operation's output-class budget from the physical
+`context_tokens`; there is no independent input ceiling or profile-wide output
+limit. ContextBuilder degrades session/tool context first, then
 provisioned slices, then older observations while preserving the newest two;
 the output contract remains the user-prompt tail, and an oversized fixed tail
 fails before model invocation. Run-level observations begin compaction at
@@ -233,8 +247,12 @@ The current model lanes are:
 Gateway selects logical lanes. Model output never chooses its own lane. In the
 current `single-fast-v1` deployment, both logical chat profiles resolve to the
 Fast endpoint, so no Deep model process is loaded; the lane labels remain in
-traces for Workflow compatibility. Loading and capacity policy is documented
-in [Model loading](model-loading.md).
+traces for Workflow compatibility. `configs/model.profiles.json` is the only
+capacity source: it maps each lane to a physical model window and positive
+output-class budgets. Gateway fails selected-profile loading on missing, zero,
+unknown, or illegal capacity, while each local vLLM entrypoint derives
+`--max-model-len` from that same profile. Loading and capacity policy is
+documented in [Model loading](model-loading.md).
 
 ### Message Control And Delivery
 
@@ -332,11 +350,16 @@ LocalMind uses the shared MCP 2025-06-18 Streamable HTTP client behind a
 workspace-scoped manager. The manager resolves environment credentials on every
 refresh, verifies the `localmind-ai` identity and workspace endpoint, rejects
 Resources and any schema outside the exact delegate/get/cancel task contract,
-and atomically registers exactly three SparkClaw tools. A refresh failure removes
-all stale LocalMind tools. Task results enter the bounded untrusted observation
-and artifact path; delegate and cancel retain dangerous remote-effect approval
-without claiming local sandbox execution. No Catalog leaf or natural-language
-Workflow currently consumes these tools; that orchestration is deferred.
+and atomically projects those three remote tools into four local registrations:
+read delegation, write delegation, get, and cancel. A refresh failure removes
+all stale LocalMind tools. The four explicit-only r1 Catalog leaves and
+Workflows delegate current-message text, query one referenced task, or cancel
+one referenced task. Read delegation and query need no approval; write
+delegation and cancel do. Delegation waits through a frozen endpoint/contract
+snapshot and bounded status polls for at most 10 minutes, and only `completed`
+is success. Task results enter the bounded untrusted observation and artifact
+path without claiming local sandbox execution. External-AI principals cannot
+select these routes. See [LocalMind Workflows](localmind-task-workflow-design.md).
 
 The current legacy reverse direction uses ISCP: an authenticated LocalMind peer
 can submit a structured mention through `agent.notification.deliver.v1`.

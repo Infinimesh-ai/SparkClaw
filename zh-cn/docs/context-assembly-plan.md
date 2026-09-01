@@ -1,209 +1,313 @@
-# 上下文组装优化方案（阶段 0–1）
+# 上下文组装优化方案
 
-> 语言： [English](../../docs/context-assembly-plan.md) | 简体中文
+> 语言：[English](../../docs/context-assembly-plan.md) | 简体中文
 
-状态：2026-08-03 部分实施。阶段 0.1、0.2 滚动压缩、0.3 的代码部分、阶段
-0.4、1.1 ContextBuilder 与 1.2 `observation.read` 已实施。
-[观测压缩重构](observation-compression-redesign.md) 将 0.2、1.1、1.2 与统一
-观测信封、运行时证据供给一并交付。0.3 在 dual-light 上的 prefix-cache 性能
-测量和 1.3 模型生成的情节摘要仍待完成。本文档继续作为这些待完成改动的设计
-依据；全部交付后其长期决策并入
-[架构文档](architecture.md)，本方案按文档规则移除。
+状态：2026-08-31 完成实施。Observation 去重、滚动 observation 压缩、稳定 prefix 排序、
+ContextBuilder、统一 observation envelope、`observation.read`、Profile 容量集成、有界历史
+获取、fixed owner text 拒绝与合法结构化数据 variant 均已生效。
 
-范围：`services/gateway/internal/agent` 内的 prompt 组装与工具结果拼装。不改
-外部 API、存储 schema 或 Workflow Profile 契约。`modelrouter.Chat(ctx, task,
-system, user)` 双字符串接口与 JSON-in-text 步骤协议**有意保留**：当前 Qwen
-双通道对该协议的遵循度可接受，且 parse-error 恢复路径已覆盖其失败模式。
+本文负责 `services/gateway/internal/agent` 内的语义 prompt section 与合法降级。
+[模型容量契约](model-capacity-contract-design.md)负责可执行模型容量与 Router 最终准入；
+[上下文历史设计](context-history-query-design.md)负责有界 Store 读取与 invocation snapshot 生命周期；
+[Tree 上下文设计](tree-session-context-parity-design.md)负责 Tree-specific section policy。
 
-## 1. 本方案实施前基线
+Owner 决策：Memory 是产品空壳，不是 Agent 上下文来源。上下文组装不能调用 `MemoryRepository`，
+也不预留 Memory section。
 
-- 模型接口：每次调用一段 system 字符串加一段 user 字符串
-  （`services/gateway/internal/modelrouter/router.go` 的 `Chat`）。没有
-  messages 数组，没有原生 function calling。受限工具循环从模型原始文本中解析
-  JSON action（`agent/workflow_step_output.go`）。
-- 会话上下文：`buildAgentContextSnapshot`（`agent/context_snapshot.go`）按固
-  定窗口选取——最近 8 条 user/assistant 消息（每条截断 360 字符）、最近 6 条
-  跨 run 工具结果（摘要上限 4000 字符）、4 条 episode 摘要、4 条记忆、3 张图
-  片——并按变体（`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForIntentRouting`）渲染成一整
-  块文本。
-- 工具结果：`adaptToolResult`（`agent/tool_result_adapter.go`）构建结构化
-  JSON envelope（summary / structured / evidence），按工具类别抽取证据，三级
-  降级压缩，单条 tool message 默认上限 1600 字节。完整输出以 artifact 落盘，
-  由 `artifact_uri` / `ObservationRef` 引用。
-- 循环预算（`agent/workflow_step_loop.go`）：自设 prompt 上限
-  `defaultWorkflowStepContextTokens = 12288`；可用输入预算 80% 处做一次性 compact 压
-  缩；run 级 observation 上限 48000 字节；token 估算是 chars/3 与 bytes/4 取
-  大的启发式。
+## 1. 设计结果
 
-## 2. 方案制定时识别的问题（P0）
+当前已实施流程有意保持简单：
 
-- **P0-1 —— observation 每步双份发送。** 非 compact 模式下，完整 observation
-  列表既嵌入 system prompt（`contextualSystemPromptForWorkflowStep`，
-  `agent/workflow_step_loop.go` 634 行附近），又出现在 user prompt
-  （`workflowStepUserPrompt`）。每个工具步骤把整个列表重复发两遍，消耗 12k 预
-  算，更早触发压缩，更早撞上硬终止。
-- **P0-2 —— observation 增长导致 run 终止而非压缩。** `shouldStopWorkflowStepLoop`
-  在累计 observation 达到 `MaxObservationBytes`（48000）后直接结束 run。单次
-  `files.read` 的文档 envelope 就可能贡献 5–6 KB 证据，多步文档/浏览器任务会
-  在中途以预算提示失败。**不存在 run 内压缩路径**——只有"停"。
-- **P0-3 —— prompt 前缀每步变化，vLLM prefix cache 失效。** system prompt 每
-  步重建且内含 observations，跨步不存在稳定前缀。在单 GB10 的
-  `dgx-spark-dual-light-v1` 配置下（串行生成、fast 通道仅 8 GB KV cache），每
-  步重算 8–10k token 的 prefill 是用户可感知的延迟。
-- **P0-4 —— token 预算与部署 profile 脱节。** `effectiveWorkflowStepPromptBudget`
-  把所有通道钳制在 12288 token，而 profile 实际提供 32k（fast）和 64k
-  （deep）；chars/3 估算对中文为主的 prompt 未校准。
+```text
+selected profile + typed operation
+        |
+        v
+context_tokens - output_class_budget
+        |
+        v
+Agent ContextBuilder
+  fixed semantic sections
+  legal full/compact/minimal/drop variants
+        |
+        v
+complete rendered request
+        |
+        v
+Model Router final token check
+        |
+        v
+provider physical window
+```
 
-**有意不列为 P0**（推迟到阶段 1）：固定条数窗口、机械拼接的 episode 摘要、散
-落的分段字节上限。它们降低长会话质量，但不会让任务失败。
+它分开三种职责：
 
-## 3. 阶段 0 —— 投入使用前的修复
+- Agent 知道哪些语义内容必须保留、可以压缩或可以丢弃；
+- Model Router 依据一份已解析物理容量契约，检查完整 system/user/schema/image 请求；
+- Provider 是最后一道物理防线，而不是第一次发现超限的位置。
 
-每项为独立的按主题提交。
+模型窗口扩大时，本文不选择更多历史。历史选择仍固定为 8 条 message、6 条 tool call、4 条
+episode 和 3 张 image。更大窗口只允许同一批选中信息保留更丰富的合法 variant。
 
-### 0.1 observation 单份化（2026-07-27 已实施）
+## 2. 当前基线
 
-从非 compact system prompt 中移除 observation 块；user prompt
-（`workflowStepUserPrompt`）成为唯一载体，与 compact 模式现有行为一致。保留的那
-份格式不变，不引入模型行为再适应风险。
+### 保留的已实施行为
 
-验收：每步 prompt 体积减少整个 observation 载荷；`agent` 包现有测试保持通过。
+- `buildAgentContextSnapshot` 选择固定 8/6/4/3 session context，并提供 Workflow 与 routing render
+  路径；
+- 每个 step 的 observation 只在一个模型可见位置出现，不再同时出现在 system 与 user prompt；
+- `adaptToolResult` 产生统一 summary/structured/evidence envelope；完整输出作为 artifact 存储，
+  并由 `artifact_uri` 或 `ObservationRef` 引用；
+- 较旧 current-run observation 原地压缩，最新两条受保护；只有不可继续压缩的 observation 超限才
+  结束 run；
+- loop 内稳定内容位于逐 step observation 之前，允许模型 prefix cache 复用；
+- ContextBuilder 支持显式 section variant，不再只有单一 prompt string；
+- `observation.read` 在既有 read limit 与 Policy 检查下，提供 support-scope-governed 的持久化证据恢复。
 
-### 0.2 滚动压缩替代硬终止
+### 已实施变更
 
-`observationsBytes` 达到预算时，就地压缩最老的一半 observation，而不是停止：
+- Workflow admission 从所选 profile 解析 typed operation 容量，旧常量与兼容算术已移除；
+- Workflow、Tree 与 conversation-answer builder 在早期超长问题 gate 后，把原样 owner question
+  注册为 fixed section；
+- Owner text、当前 resource、已解析 document、history、observation、schema 与 output contract
+  保持为独立语义 section；
+- JSON、resource、document、evidence 与 tool-schema section 只在完整注册 variant 之间切换；
+  ContextBuilder 不再提供任意 hard truncation policy；
+- Agent 每个 invocation 只执行一次有界 Store 获取，recent-document resolution 复用这些候选；
+- 所选 catalog、typed operation registry、ContextBuilder、Router 与本地模型 entrypoint 共享同一
+  容量契约，不存在 fallback 来源。
 
-- 每条被压缩的条目经现有 `compactObservationSummaryForContext` 逻辑降为单
-  行，保留 `tool`、`status`、关键 structured 字段与 `artifact_uri`，并标记
-  `compacted=true`。
-- 最近 2 条 observation 永不压缩（当前执行状态必须保持原文）。
-- 顺序保持不变。发出审计事件 `workflow_step.observations_compacted`，携带压缩前后字
-  节数。
-- 仅当所有可压缩条目压缩后仍超预算，才按现有提示终止 run。
+## 3. ContextBuilder 的容量输入
 
-仅将完整信息作为 artifact 落盘还不够，模型必须能够恢复被压缩的证据。因此本
-项不得早于阶段 1.2 的统一回读工具交付。
+每个生成 operation 在代码中映射到一个输出能力等级和允许的 lane 集合。所选 profile 提供一个物理
+窗口与各等级正数预算：
 
-验收：脚本化长 run（16+ 步文档/浏览器读取）能够完成而非停在
-`workflow_step.budget_stopped`；审计中可见压缩事件。
+```text
+output_budget = selected_lane.output_budgets[operation.output_class]
+input_budget = selected_physical.context_tokens - output_budget
+```
 
-### 0.3 稳定 prompt 前缀排序（代码于 2026-07-27 实施）
+ContextBuilder 从不可变的所选容量 catalog 接收已解析 `input_budget`。调用方不传数值输出额度。目标态
+没有独立 `max_input_tokens`、profile-wide 输出上限，也没有每个 Workflow/step/repair invocation
+一个字段。
 
-固定 prompt 布局：单次受限循环内不变的内容全部靠前，每步变化的内容只追加在
-尾部：
+容量 catalog 在加载时一次性解析与校验。Runtime 不为每个请求重新评测或规划一个独有上限，只做
+不可变的 operation-to-class 查找与减法，也可以预计算。每个不同请求必须重复的是对实际渲染 system
+content、user content、response schema、template option 与 image 的 token 计数。
 
-- system prompt：静态规则 → 工具定义 JSON → 会话上下文快照（run 开
-  始时冻结）→ Workflow stage context。同一循环各步之间 system prompt 不得有任何变化。
-- user prompt：step 头 → observation 列表（增长尾部）→ 输出契约。
+Profile 值缺失、为零、为负、未知或关系非法时，在 Agent 或 Router 构造前加载失败。语义降级不能
+修复非法容量。当前执行路径不得采用旧常量、其他 class、其他 lane、环境默认或省略后的 provider 行为。
 
-仅调整顺序，内容不变。vLLM 的 automatic prefix caching 随后可在每步复用静态
-前缀的 KV。压缩兜底路径（切换 compact 变体）仍会使前缀失效——这是可接受的
-取舍，因为压缩是例外路径。
+## 4. Section 契约
 
-验收：dual-light 配置下，模型日志中第 1 步之后的每步 prefill token 数下降；
-将前后测量记录到[模型基线](../benchmarks/model_baseline.md)。
+Section 是语义单元，不是任意字符串切片：
 
-### 0.4 通道对齐的 token 预算与校准估算（2026-07-27 已实施）
+```go
+type ContextSection struct {
+    Kind      SectionKind
+    Policy    SectionPolicy
+    Variants  []RenderedVariant
+}
+```
 
-- `effectiveWorkflowStepPromptBudget` 改为读取当前通道 profile 的
-  `context_tokens` 乘以 0.85 安全系数，替代 12288 钳制。12288 仅作为 profile
-  未声明上限时的兜底。
-- 用 vLLM `/tokenize` 端点对代表性中文、英文、JSON 样本做一次离线校准，得出
-  `estimatePromptTokens` 的系数；运行时仍用系数估算（不引入在线 tokenizer 依
-  赖），在常量旁注明校准日期与脚本。
-- 0.80 压缩阈值不变。
+每个消费者注册自己的 section 顺序与优先级。ContextBuilder 提供选择合法 variant 的通用机制，
+不为 Tree、Workflow、conversation answer 和 direct chat 强制一套全局降级顺序。
 
-风险说明：放宽后的 prompt 增大 prefill 成本；0.3 的前缀缓存抵消静态部分，
-adapter 的单条上限仍约束尾部。
+当前已实施的 Workflow 契约为：
 
-## 4. 阶段 1 —— 可扩展的组装结构
+| Section | 必须行为 |
+|---|---|
+| System safety 与 execution rule | fixed；不做内容截断 |
+| Output schema/contract | fixed 且结构完整 |
+| 原样 owner question | fixed；不截断、不摘要、不与 resource 合并 |
+| 当前受治理 resource | protected `full -> minimal`；当前显式 resource 不静默消失 |
+| Tool definition | 合法 `full -> compact`；每个选中定义保持有效 JSON/schema |
+| Current-run observation | `full -> compact`；保护最新执行证据并保留 artifact reference |
+| 选中 session tool result | `full -> compact -> drop` |
+| 选中 recent conversation | `full -> compact -> drop` |
+| 选中 image 与 episode | consumer-specific compact/drop variant |
 
-### 1.1 ContextBuilder
+Tree 使用 Tree 文档中的独立 policy。Final-answer assembly 可以采用不同优先级，因为它需要 evidence
+与用户连续性，而不是 route ambiguity。所有消费者从同一批选中历史记录开始，但不必渲染相同 section。
 
-目前预算决策散落在多个常量（360 / 4000 / 1600 / 1400 / 48000……）和三个手写
-渲染变体里。阶段 1 将其收敛为 `agent` 包内一个显式 builder：
+### Fixed Content
 
-- **section** 是注册单元，包含：类型、优先级、渲染函数、降级链
-  `full → compact → drop`。
-- 默认注册表（优先级从高到低）：
+Fixed 表示精确保留语义，不表示 provider 必须接纳它。当 optional section 已处于最小合法 variant，
+而 fixed instruction、原样 owner question、完整 schema 与必要结构化 metadata 仍无法容纳时，assembly
+以类型化 input-too-long error 失败，绝不截断 fixed content 强行 dispatch。
 
-| Section | 降级链 | 现状对应 |
-|---|---|---|
-| 输出契约与安全规则 | 永不降级 | 步骤输出契约规则块 |
-| 工具定义 JSON | full → compact（名称+必填参数） | compact 工具定义 |
-| 当前 run 的 observations | full → 滚动压缩（0.2） | observation 列表 |
-| 会话工具结果 | full → compact → drop | `formatContextToolResults` |
-| 最近对话 | full → 尾部 4 条 → drop | `formatContextMessages` |
-| 记忆 / 图片 / episodes | compact → drop | 其余 section |
+早期 `owner_question_too_long` gate 继续独立存在，因为 Guard 与 Embedding 必须在历史或路由前解析
+原文。后续 whole-request check 仍然必需，因为 system rule、schema、resource、history、observation
+与 image token 同样占用容量。
 
-- builder 接收该通道的真实输入预算（来自 0.4），按优先级自上而下分配，超预
-  算时从最低优先级 section 起沿降级链降级，直到估算通过。
-- `ForWorkflowStep`、`ForWorkflowStepCompact`、`ForIntentRouting` 变为同一 builder 的三种预算配
-  置；`full` 级渲染文本与今天的输出逐字节一致，引入时不改变模型可见行为。
-- 未来新增上下文来源（日历、邮件摘要——见
-  [暂缓能力](deferred-email-calendar-knowledge.md)）只需注册一个 section，
-  而非修改三个渲染函数。
+### 结构化 Variant
 
-### 1.2 `observation.read` 工具
+JSON、schema、resource、tool definition 与 evidence section 在每一级都必须保持语法和语义有效。
+允许的转换包括：
 
-tool message 已携带 `artifact_uri`，但只有 `files.read` 有重读语义；被截断的
-web/浏览器证据对模型不可恢复。新增一个只读工具：
+- 通过类型化 compact projector 删除 optional field；
+- 用有界 summary 加 `artifact_uri` 替换 evidence body；
+- compact schema 只保留必填 tool argument；
+- 选择完整的 routing-minimal resource record；
+- 显式丢弃标记为 optional 的 section。
 
-- 名称 `observation.read`；参数 `artifact_uri`（必填）、`offset`、
-  `max_bytes`；风险 `read`，无需审批。
-- 通过同一 `adaptToolResult` envelope 返回落盘的完整工具输出，受同样的单条
-  上限约束。
-- 仅限访问当前会话的 artifact；URI 是不透明存储键，不存在路径语义。
-- 在 `internal/toolhub/registry.go` 注册（注册表一致性测试随即覆盖），并作
-  为受限循环始终可见的读取工具暴露。
+禁止 byte/character prefix、suffix、中间截断、非法 JSON fragment 和静默 owner-text trim。Per-section
+byte ceiling 可以继续约束已经合法的 variant，但不能授权 malformed output。
 
-这补上"截断可恢复"闭环的最后一块，也让 0.2 的压缩从有损变为无损。
+## 5. 组装与 Admission 算法
 
-### 1.3 模型生成的 episode 摘要
+每次模型请求由 Agent 执行：
 
-`summarizeEpisode` 目前是 tool:status 列表加截断的最终回答的机械拼接。将
-`Summary` 字段内容升级为 fast 通道生成的摘要：
+1. 从所选不可变容量 catalog 解析 typed operation、allowed lane、output class 与 `input_budget`；
+2. 创建 fixed section 以及 optional/protected section 的所有合法 variant；
+3. 按消费者定义顺序渲染完整 full request；
+4. 用共享 model-aware counter 计数；
+5. 如果超限，把最低优先级 eligible section 切到下一个合法 variant，并重新计数；
+6. 请求可容纳或没有合法降级时停止；
+7. 把完整渲染请求与 typed operation 传给 Model Router；
+8. Router 在全部 transport option 与 schema 确定后重复权威计数。
 
-- run 结束后异步入队一次摘要请求（串行生成队列吸收，不阻塞交互路径）：输入
-  为目标、工具列表与最终回答；输出为不超过 200 字、使用 owner 语言的摘要，
-  说明做了什么、涉及哪些文件/URL、还有什么未完成。
-- 模型出错或超时时保留现有机械摘要作为兜底——字段格式与消费方不变。
+Router 不做语义选择。它拒绝超限，但不删除 message、不截断 string、不选择更大 output class，也不
+切换 lane。Provider 接收显式 class budget，只负责最后的物理窗口 enforcement。
 
-成本：每 run 一次小型 fast 请求。收益："继续改那个文件"这类跨 run 引用不再
-受 8 条消息窗口限制，因为 episode 摘要变得真正有信息量。
+Model-aware counter 先用经测试的保守上界，在请求接近边界时使用所选模型 tokenizer。旧 chars/3 与
+bytes/4 estimator 只保留在隔离的 snapshot 测试中，不决定生产 admission。
 
-## 5. 明确的非目标
+## 6. 稳定 Prefix 与 Current-Run Observation
 
-- **原生 messages 数组 + function calling。** 应在 ContextBuilder 稳定后再
-  做——届时 builder 输出从两段字符串换成 messages 数组是局部改动。不在本方
-  案内。
-- **embedding 检索式历史选择。** embedding 通道已存在，但单 owner 会话通常不
-  长；仅在出现长会话引用丢失的证据后再评估。
-- **全量历史 RAG / 层级记忆图谱。** 27B/35B-A3B 通道无法可靠驾驭复杂的检索
-  拼装协议，单用户本地部署也不值得这份复杂度。
+同一个有界 Workflow loop 内，prompt 顺序保持：
 
-## 6. 验证
+```text
+system: static rules -> selected tool definitions -> frozen session context
+        -> frozen Workflow stage context
 
-遵循[开发指南](development.md)与重构手册的基线纪律：任何改动前先记录测试基
-线（按既有护栏先运行 `npm run setup:document-tools`），随后按阶段：
+user:   step header -> current-run observation tail -> fixed output contract
+```
 
-- 单元：0.2 的压缩触发/顺序/字节记账；0.4 的预算计算；1.1 的降级顺序与
-  full 级逐字节一致性；1.2 由注册表一致性测试自动覆盖。
-- 场景：在**默认 `file` 状态后端**上运行长文档与浏览器任务；确认不再出现
-  `workflow_step.budget_stopped`，且 `observation.read` 能正确恢复被截断的证据。
-- 性能：dual-light 配置下每步 prefill 的前后测量，记录到
-  [模型基线](../benchmarks/model_baseline.md)。
-- 审计：`workflow_step.prompt_compressed` 继续触发；新增
-  `workflow_step.observations_compacted` 事件携带字节数。
+Loop 内不变内容在初始 variant 选中后保持 byte-stable；增长的 observation 位于尾部。如果后续 prompt
+必须使用更小的 frozen-context variant，则显式转换并记录 prefix change。Prefix-cache 性能不能覆盖
+正确 admission。
 
-## 7. 交付顺序
+Observation compaction 保留 tool identity、status、关键 structured field 与 artifact reference。
+最新两条 observation 不压缩，较旧条目可以压缩。合法压缩后仍超过独立 run observation-byte ceiling
+时，保留现有确定性 budget stop。
 
-按主题提交，机械移动与行为变更绝不混在同一提交：
+本容量项目不改变 `observation.read` 暴露。其已实施的 support-scope authorization、read count、byte
+window、artifact ownership 与 audit 行为继续作为权威。未来可以把条件化暴露作为独立 tool-surface
+优化评测；容量正确性不依赖它。
 
-1. 0.1 observation 去重（行为变更，小）。
-2. 0.3 前缀重排（机械重排 + 测试）。
-3. 0.4 预算对齐 + 校准常量。
-4. 1.2 `observation.read`（独立；为无损压缩提供恢复能力）。
-5. 0.2 滚动压缩（行为变更，依赖 0.1 和 1.2）。
-6. 1.1 ContextBuilder（先机械收敛，再接预算）。
-7. 1.3 episode 摘要（独立）。
+## 7. 历史 Snapshot 集成
+
+Owner-question gate 通过后，Runtime 构建一份有界 `InvocationHistory`。Agent 只选择一次 8 条
+message、6 条 tool call、4 条 episode 和 3 张 image，并把不可变选中值传给 Tree、Workflow 与
+final-answer 消费者。Recent-document fallback 复用已经加载的有界候选。
+
+ContextBuilder 负责该选中值的渲染和合法降级。它不查询 Store、不继续分页，也不根据物理模型窗口
+改变选择数量。Tree 与 Workflow 共享选中 record identity，而不是逐字节一致的最终 prompt。
+
+Resume 时，Runtime 从原始 `AgentRun.StartedAt`、`Intent.SourceTurnID` 与 `RunID` 最多重建一次
+snapshot。不增加持久化 history anchor、选中记录副本或 prompt cache。
+
+Memory repository 结果不出现在 acquisition 或 section registry 中。现有 MemoryStore backend 只是
+Store backend，不能与未使用的 Memory 产品功能混淆。
+
+## 8. Episode Summary 决策
+
+撤回先前“每个 run 结束后调用一次 Fast 模型生成 episode summary”的提案。它会增加 queue load、
+latency、failure state、capacity classification 与评测工作，但没有证据表明当前机械 summary 已导致
+实质性跨 run 失败。
+
+保留当前有界机械 episode summary。后续改进必须先有独立的可测问题，并与更简单的确定性 projection
+调整比较。本文不新增 async summary queue、model operation、output class、retry 或 model-error
+fallback。
+
+## 9. 明确的非目标
+
+- 转换为 native messages array 或 provider-native function calling；
+- Embedding-based history retrieval 或 full-history RAG；
+- 按 task、step、candidate count 或 prompt size 动态规划输出；
+- 自动处理超长 owner 问题；
+- 激活 Memory 或把 Memory 投影进上下文；
+- 第二个 ContextBuilder、Router、capacity registry 或 global prompt cache；
+- 修改 Workflow time、step、action、duplicate、observation、support-read 或 concurrency limit。
+
+## 10. 失败与可观测性
+
+失败原因保持类型化且相互独立：
+
+- `owner_question_too_long`：原样 owner text 无法通过必经的早期 Guard 或 Embedding admission；
+- `model_input_too_long`：全部合法语义降级后，完整请求仍无法容纳；
+- `invalid_model_capacity`：所选 profile 缺失或非法，启动失败；
+- `model_output_incomplete`：provider 报告 `finish_reason=length`；
+- 现有 observation-byte stop：合法压缩后 current-run evidence 仍无法容纳。
+
+Audit 记录 operation、lane、output class、物理 context、input budget、count source、初始/最终 token
+count、选中 variant 与前后 byte。不得记录丢弃内容或 owner text。现有
+`workflow_step.prompt_compressed` 与 `workflow_step.observations_compacted` 继续作为行为信号。
+
+## 11. 交付顺序
+
+### 已实施并保留
+
+- observation 单份化；
+- 滚动 observation 压缩与 artifact 恢复；
+- 稳定 prompt-prefix 排序；
+- ContextBuilder 机制与统一 observation envelope；
+- support-scope-governed `observation.read`。
+
+### 已实施：容量迁移
+
+1. Typed operation、output class 与 selected-profile validation 已生效；
+2. 已解析 class input budget 已替换 Agent 常量与 caller budget；
+3. Owner text 是独立 fixed section；
+4. 合法 projector 已替换任意 structured-data trim；
+5. Model Router 在全部入口应用最终 admission 与 finish-reason handling。
+
+### 已实施：有界历史集成
+
+1. 三个有界 recent-query repository method 负责 Agent 获取；
+2. 构建一份 invocation-owned candidate 与 selected snapshot；
+3. Tree、Workflow、final-answer 与 document resolution 显式接收该值；
+4. Agent 热路径已无完整列表与重复历史读取。
+
+### 只做测量
+
+- 在当前本地 profile 记录 prefix-cache prefill 行为；
+- 只有 routing 与 workflow 评测证明质量或 latency regression 时，才调整 section policy。
+
+模型生成 episode summary 不在交付路径中。
+
+## 12. 验证与验收
+
+实施只在以下条件全部满足时验收：
+
+- 每个生产模型调用映射到一个 allowed lane 和 output capability class，一个 class 可以服务多个
+  operation；
+- 所选 profile 容量非法时加载失败，测试中不存在默认或借用值；
+- 改变物理 `context_tokens` 会改变可用输入预算，但不改变固定历史数量；
+- 原样 owner text 是 fixed section，超长文本在历史或执行前被拒绝；
+- 每个 JSON/schema/resource/evidence variant 降级后仍然有效；
+- Router 在 provider dispatch 前拒绝超限的完整请求；
+- Observation 只出现一次，在当前授权下可恢复，并按确定性顺序压缩；
+- Tree、Workflow 与 final answer 复用同一选中历史值，同时保留 consumer-specific prompt policy；
+- recent-document fallback 不重复读取 tool history；
+- external-MCP 与 Memory context 保持为空；
+- `finish_reason=length` 不能产生成功持久化或投递；
+- 现有 Policy、Approval、artifact scope、claim coverage、Workflow budget 与 external-MCP isolation
+  测试保持通过。
+
+运行聚焦的 config、Agent、Model Router 与 Store contract test，以及完整 Gateway build/test/vet、
+默认 File 与可用 PostgreSQL coverage、routing/model golden evaluation、适用时的 prefix-cache
+measurement 和双语文档检查。
+
+## 13. 所有权边界
+
+- `internal/agent/context_builder.go`：通用合法 variant 选择机制；
+- 各 Agent consumer：自己的 section membership、order、priority 与 fixed content；
+- `internal/agent/context_snapshot.go`：选中有界历史值，不拥有 Store acquisition policy；
+- `internal/modelrouter`：不可变容量查找、model-aware 最终计数、finish reason 与 transport bound；
+- Store repository：有界历史 candidate access；
+- `configs/model.profiles.json`：物理 context 与 output-class budget；
+- Policy/ToolHub：`observation.read` authorization 与 limit。
+
+长期当前行为已同步到 Architecture、Workflow execution、Intent routing、Store、Model loading 与
+Deployment。本文作为 owner 要求的设计记录继续保留。

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -34,7 +34,7 @@ func TestFilesReadRegistersEmbeddedImagesAndUsesFastSemantics(t *testing.T) {
 	root := t.TempDir()
 	imagePath := filepath.Join(root, "evidence.png")
 	writeEmbeddedImageDocumentFixtures(t, root, imagePath)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
 	cfg.Workspaces.DefaultRoot = root
@@ -87,7 +87,7 @@ func TestFilesReadTargetedImageModeSkipsUnrelatedImageButStoresArtifact(t *testi
 	root := t.TempDir()
 	imagePath := filepath.Join(root, "evidence.png")
 	writeEmbeddedImageDocumentFixtures(t, root, imagePath)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
 	cfg.Workspaces.DefaultRoot = root
@@ -115,7 +115,7 @@ func TestFilesReadBlocksWhenRequiredImageEvidenceIsUnavailable(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("text only"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
@@ -157,7 +157,7 @@ prs.save(root / "layout.pptx")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create PPTX layout fixture: %v\n%s", err, output)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
@@ -196,7 +196,7 @@ prs.save(root / "layout.pptx")
 func TestPDFExtractTextReportsScannedContentAsUnsupported(t *testing.T) {
 	root := t.TempDir()
 	writePDFBlankFixture(t, root, "blank.pdf", 1)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
@@ -214,7 +214,7 @@ func TestPDFExtractTextReportsScannedContentAsUnsupported(t *testing.T) {
 func TestPDFExtractTextUsesOvisOCR2ForScannedPage(t *testing.T) {
 	root := t.TempDir()
 	writePDFBlankFixture(t, root, "scanned.pdf", 1)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
 	cfg.Workspaces.DefaultRoot = root
@@ -241,7 +241,7 @@ func TestPDFExtractTextUsesOvisOCR2ForScannedPage(t *testing.T) {
 func TestPDFExtractTextKeepsOCRContentWithinRequestedLimit(t *testing.T) {
 	root := t.TempDir()
 	writePDFBlankFixture(t, root, "scanned.pdf", 1)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore()).WithDocumentOCRAdapter(fakeDocumentOCR{markdown: strings.Repeat("recognized text ", 20)})

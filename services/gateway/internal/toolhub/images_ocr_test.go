@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -39,7 +40,7 @@ func TestImageInspectCombinesOvisOCR2MarkdownWithFastSummary(t *testing.T) {
 	root := t.TempDir()
 	imagePath := filepath.Join(root, "evidence.png")
 	writeEmbeddedImageDocumentFixtures(t, root, imagePath)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
@@ -63,7 +64,7 @@ func TestNewDegradesInvalidDocumentOCRConfiguration(t *testing.T) {
 	root := t.TempDir()
 	imagePath := filepath.Join(root, "evidence.png")
 	writeEmbeddedImageDocumentFixtures(t, root, imagePath)
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
@@ -131,7 +132,7 @@ func TestImageInspectClassifiesOCRHTTPResults(t *testing.T) {
 			root := t.TempDir()
 			imagePath := filepath.Join(root, "evidence.png")
 			writeEmbeddedImageDocumentFixtures(t, root, imagePath)
-			cfg := config.Default()
+			cfg := configtest.MustLoadDefault()
 			cfg.Model.Mock = true
 			cfg.Workspaces.DefaultRoot = root
 			cfg.Workspaces.Allowlist = []string{root}

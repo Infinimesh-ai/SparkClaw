@@ -13,6 +13,8 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -241,7 +243,7 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 		for attempt := 0; attempt < 2; attempt++ {
 			run, node := xlsxOperationSelectionPromptFixture(testCase.Prompt, attempt)
 			system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, candidateProjection, evidence, 8000)
-			chat, callErr := models.ChatWithProfile(ctx, "fast", system, user)
+			chat, callErr := models.ChatWithProfile(ctx, modelcapacity.OperationWorkflowDecision, "fast", system, user)
 			if callErr != nil {
 				reason = "model_error: " + callErr.Error()
 				if attempt == 0 {
@@ -356,7 +358,7 @@ func loadXLSXOperationSelectionCorpus(t *testing.T) xlsxOperationSelectionCorpus
 
 func loadXLSXOperationDirectory(t *testing.T) xlsxOperationDirectory {
 	t.Helper()
-	hub := toolhub.New(config.Default(), store.NewMemoryStore())
+	hub := toolhub.New(configtest.MustLoadDefault(), store.NewMemoryStore())
 	t.Cleanup(func() { _ = hub.Close() })
 	wantedOperations := stringSet(xlsxEvaluatedOperations)
 	directory := xlsxOperationDirectory{

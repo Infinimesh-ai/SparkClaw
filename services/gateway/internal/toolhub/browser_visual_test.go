@@ -8,7 +8,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -68,7 +68,7 @@ func newBrowserVisualHub(t *testing.T, postPageGeneration uint64) (*store.Memory
 	if err := writeTestJPEG(screenshotPath, 32, 24); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Tools.BrowserAutomation.Enabled = true
 	cfg.Workspaces.DefaultRoot = root

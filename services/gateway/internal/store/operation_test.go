@@ -53,6 +53,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationConversationListMessages, Repository: "ConversationRepository",
 			Method: "ListMessages", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationConversationListRecent: {
+			ID: OperationConversationListRecent, Repository: "ConversationRepository",
+			Method: "ListRecentMessages", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationConversationMessageHead: {
 			ID: OperationConversationMessageHead, Repository: "ConversationRepository",
 			Method: "MessageEventHead", Mode: operationRead, Timeout: timeoutRead,
@@ -101,6 +105,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationToolCallList, Repository: "RunRepository",
 			Method: "ListToolCalls", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationToolCallListRecent: {
+			ID: OperationToolCallListRecent, Repository: "RunRepository",
+			Method: "ListRecentToolCalls", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationEpisodeSummarySave: {
 			ID: OperationEpisodeSummarySave, Repository: "RunRepository",
 			Method: "SaveEpisodeSummary", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -108,6 +116,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationEpisodeSummaryList: {
 			ID: OperationEpisodeSummaryList, Repository: "RunRepository",
 			Method: "ListEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationEpisodeSummaryListRecent: {
+			ID: OperationEpisodeSummaryListRecent, Repository: "RunRepository",
+			Method: "ListRecentEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
 		},
 		OperationDocumentRecordSave: {
 			ID: OperationDocumentRecordSave, Repository: "DocumentRepository",

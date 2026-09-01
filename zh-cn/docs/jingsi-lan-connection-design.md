@@ -335,7 +335,7 @@ curl -fsS http://127.0.0.1:18790/api/sessions | jq -r \
 ip -4 -o addr show scope global
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh
+bash scripts/restart_jingsi_lan_compose.sh online
 ```
 
 script 会拒绝 wildcard、public、hostname 和 malformed bind；使用

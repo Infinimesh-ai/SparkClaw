@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -180,7 +181,7 @@ func (d recordingMainResultDeliverer) DeliverWorkflowResult(ctx context.Context,
 
 func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Speech.Enabled = true
 	cfg.Tools.Web.Search.Enabled = true
@@ -331,7 +332,7 @@ func TestNewStorePropagatesOperationTimeouts(t *testing.T) {
 
 func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = filepath.Join(root, "workspaces")
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
@@ -493,7 +494,7 @@ func newFailingInfoServer(t *testing.T, failure string) *httptest.Server {
 func integrationTestConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Speech.Enabled = false
 	cfg.Tools.Web.Search.Enabled = false

@@ -1033,8 +1033,8 @@ def build_artifact_catalog(
     snapshot_root: Path,
     classifications: dict[str, str],
 ) -> dict[str, Any]:
-    snapshot_root = snapshot_root.resolve()
     files = _enumerate_regular_files(snapshot_root)
+    snapshot_root = snapshot_root.resolve()
     paths = [relative for relative, _path in files]
     if set(classifications) != set(paths):
         fail("catalog", "catalog_classification_incomplete", "classification must cover snapshot")

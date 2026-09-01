@@ -334,6 +334,23 @@ class E2NativeRerankerEvidenceV2Test(unittest.TestCase):
         self.assertTrue(catalog["inventory_attestation"]["open_nofollow"])
         self.assertTrue(catalog["inventory_attestation"]["pre_post_inventory_equal"])
 
+    def test_catalog_builder_rejects_snapshot_root_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "real"
+            root.mkdir()
+            (root / "model.bin").write_bytes(b"model")
+            (root / "tokenizer.json").write_bytes(b"tokenizer")
+            link = parent / "snapshot"
+            link.symlink_to(root, target_is_directory=True)
+            with self.assertRaises(evidence.EvidenceFailure) as raised:
+                evidence.build_artifact_catalog(
+                    self.bundle,
+                    link,
+                    {"model.bin": "model", "tokenizer.json": "tokenizer"},
+                )
+        self.assertEqual(raised.exception.code, "snapshot_root_invalid")
+
     def test_native_loopback_uses_exact_nine_steps_and_one_post(self) -> None:
         manifest, manifest_raw = self.manifest_bytes()
         manifest_sha = evidence.sha256_bytes(manifest_raw)

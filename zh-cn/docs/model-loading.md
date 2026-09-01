@@ -228,7 +228,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_e2_reranker_evidence
 `deployment_manifest_unaccepted`；IMMS authority 仍未签发，calibration budget 仍为 `0/5`，held-out
 未触碰，E3/GB10 仍未验收。
 
-### 决策 0028 原生 rerank v2 评审（无 runtime 改动）
+### 决策 0028 原生 rerank v2 provider（无 runtime 改动）
 
 SparkClaw 已独立评审 InfiniCenter 提案 0028 的精确 commit
 `5d82a6aae9d6ca4c1020c3fd8c64f7cf09be4f74`；被评审 decision 的精确 bytes 为
@@ -237,7 +237,11 @@ SparkClaw 无阻断异议地接受其 no-runtime provider 方向。本次评审�
 上游源码 GET；没有部署或 POST，没有创建真实 profile、pin、manifest 或 receipt，也没有消耗
 model、calibration 或 held-out request。
 
-提案中的原生 transport 在以下精确边界内可实现：
+InfiniCenter 随后在 commit `e9c4182cd02c52a6a6ab7f63480248103bdb6a9e` accepted 并冻结了
+决策 0028 与 machine closure。accepted conformance root manifest 的 external pin 为
+`44e157b4af232f46aa52a6487922ca2894c31a64e769a0c795183f7d4ca53bb1/12110`。
+
+原生 transport 已在以下精确边界内实现：
 
 - 当前观察到的 vLLM `0.23.0` OpenAPI 暴露 `POST /v1/rerank`；其 raw observation 为
   `7ac74a96ff007c018e0faee58b190e46bd477abb40f1eb40a6636efb0acc5f57/68719`，选定的
@@ -277,12 +281,27 @@ pooling/Qwen overrides、template、truncation behavior、score transform、cach
 Source、Memory 及 embedding route 隔离，同时保持 retry、fallback、redirect、automatic batching
 与 private route adaptation 全部为零。
 
-决策 0027 与 commit `736f442bedc75d5aa18cfaa11433b469115f86ac` 的 v1 provider
-继续作为未改写的历史证据；任何 v1 fixture 或 digest 都不得重标为 v2。决策 0028 仍是 proposed，
-v2 provider 尚未实现。只有中央 accepted 并另行冻结 v2 machine contract/conformance closure 后才能
-开始实现；真实 synthetic POST 还必须继续等待 externally reviewed real manifest pin。当前状态仍为
-`deployment_manifest_unaccepted`，没有 accepted smoke 或 authority，calibration budget 仍为
-`0/5`，held-out 未触碰，E3/GB10 仍未验收。
+SparkClaw 已在 `scripts/e2_reranker_evidence_v2.py` 独立实现 accepted closure，并在
+`scripts/e2_reranker_fake_smoke_v2.py` 实现仅允许 synthetic numeric loopback 的原生 client。
+provider 在 decode 前先验证 external root SHA-256/size，闭合全部 pinned regular files 与动态列出的
+case，验证 ordered vLLM startup argv 和包含 `document.multi_modal=null` 的原生 raw response，并在
+decode 任一 external artifact 前先核完 manifest/receipt 的四个 SHA-256/size pins。pin 全部正确也不能
+把 synthetic material 提升为 live evidence。
+
+fake client 精确执行四个 GET、一次 `/v1/rerank` POST 与四个 postflight GET，并禁用 proxy、DNS、
+redirect、retry、fallback 和 automatic batching；因此 preflight identity 或 cache drift 时 POST 为零。
+cache-enabled positive 会记录实际 synthetic counters，但 cache hit 本身不是 acceptance 必要条件。运行：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/e2_reranker_evidence_v2.py check-contract
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_e2_reranker_evidence_v2
+```
+
+决策 0027 与 commit `736f442bedc75d5aa18cfaa11433b469115f86ac` 继续作为未改写的 v1 历史
+证据；任何 v1 fixture 或 digest 都未重标为 v2。本实现没有创建真实 profile、manifest、receipt 或
+external pin，也没有连接 live endpoint。真实 synthetic POST 仍须等待 externally reviewed real
+manifest pin。当前状态仍为 `deployment_manifest_unaccepted`，没有 accepted smoke 或 authority，
+calibration budget 为 `0/5`，held-out 未触碰，E3/GB10 仍未验收。
 
 ## 历史轻量双常驻实验
 

@@ -279,7 +279,7 @@ implementation stage. State remains `deployment_manifest_unaccepted`; IMMS
 authority is unissued, the calibration budget remains `0/5`, held-out is
 untouched, and E3/GB10 remains unverified.
 
-### Decision 0028 native rerank v2 review (no runtime change)
+### Decision 0028 native rerank v2 provider (no runtime change)
 
 SparkClaw independently reviewed proposed InfiniCenter decision 0028 at exact
 commit `5d82a6aae9d6ca4c1020c3fd8c64f7cf09be4f74`; the reviewed decision bytes are
@@ -289,7 +289,12 @@ objection. This review used only read-only OpenAPI and upstream-source GETs. It
 made no deployment or POST, created no real profile, pin, manifest, or receipt,
 and consumed no model, calibration, or held-out request.
 
-The proposed native transport is implementable under these exact limits:
+InfiniCenter subsequently accepted and froze decision 0028 plus its machine
+closure at commit `e9c4182cd02c52a6a6ab7f63480248103bdb6a9e`. The accepted conformance root
+manifest is externally pinned as
+`44e157b4af232f46aa52a6487922ca2894c31a64e769a0c795183f7d4ca53bb1/12110`.
+
+The native transport is implemented under these exact limits:
 
 - The observed vLLM `0.23.0` OpenAPI exposes `POST /v1/rerank`; its raw
   observation is
@@ -338,14 +343,33 @@ must remain synthetic-only and isolated from `single-fast-v1`, Gateway,
 JingSi Runtime, Source, Memory, and the embedding route, with zero retry,
 fallback, redirect, automatic batching, or private route adaptation.
 
-Decision 0027 and the commit `736f442bedc75d5aa18cfaa11433b469115f86ac`
-v1 provider remain untouched historical evidence; no v1 fixture or digest may
-be relabeled as v2. Decision 0028 is still proposed and the v2 provider is not
-implemented. Implementation must wait for central acceptance and a separately
-frozen v2 machine contract/conformance closure. A live synthetic POST must wait
-further for an externally reviewed real manifest pin. Current state remains
-`deployment_manifest_unaccepted`, with no accepted smoke or authority, the
-calibration budget at `0/5`, held-out untouched, and E3/GB10 unverified.
+SparkClaw implements the accepted closure independently in
+`scripts/e2_reranker_evidence_v2.py`, with the synthetic numeric-loopback-only
+native client in `scripts/e2_reranker_fake_smoke_v2.py`. The provider verifies
+the external root SHA-256/size before decoding it, closes over every pinned
+regular file and dynamically listed case, enforces the ordered vLLM startup
+argv and native raw response including `document.multi_modal=null`, and checks
+both manifest and receipt SHA-256/size pins before either external artifact is
+decoded. Correct pins still cannot promote synthetic material to live evidence.
+
+The fake client performs the exact four GETs, one `/v1/rerank` POST, and four
+postflight GETs without proxy, DNS, redirect, retry, fallback, or automatic
+batching. Preflight identity or cache drift therefore produces zero POSTs. Its
+cache-enabled positive path records the actual synthetic counters, but a cache
+hit is not itself required for acceptance. Run the isolated gates with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/e2_reranker_evidence_v2.py check-contract
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_e2_reranker_evidence_v2
+```
+
+Decision 0027 and commit `736f442bedc75d5aa18cfaa11433b469115f86ac`
+remain untouched historical v1 evidence; no v1 fixture or digest is relabeled
+as v2. This implementation creates no real profile, manifest, receipt, or
+external pin and does not contact a live endpoint. A live synthetic POST still
+requires an externally reviewed real manifest pin. State remains
+`deployment_manifest_unaccepted`, with no accepted smoke or authority,
+calibration budget `0/5`, held-out untouched, and E3/GB10 unverified.
 
 ## Historical Light Dual-Residency Experiment
 

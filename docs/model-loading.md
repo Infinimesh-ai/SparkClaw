@@ -196,6 +196,9 @@ immutable deployment manifest/profile or its acceptance. IMMS calibration
 authority remains unissued and no calibration request may be sent until the
 operator supplies the missing immutable pins, the profile matches ADR 0019,
 and the reviewed content-free smoke contract is satisfied.
+IMMS `d16eb56` independently accepted this deployment-admission STOP without
+changing the calibration counter, and InfiniCenter `7eab880` recorded the
+cross-repository result.
 
 ## Historical Light Dual-Residency Experiment
 

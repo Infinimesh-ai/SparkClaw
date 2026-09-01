@@ -162,6 +162,8 @@ Memory request。
 manifest/profile 或其接受。IMMS calibration authority 仍未签发；operator 补齐 immutable
 pins、profile 与 ADR 0019 一致且 reviewed content-free smoke contract 通过前，不得发送
 任何 calibration request。
+IMMS `d16eb56` 已独立接受该 deployment-admission STOP 且没有改变 calibration counter；
+InfiniCenter `7eab880` 已记录跨仓结果。
 
 ## 历史轻量双常驻实验
 

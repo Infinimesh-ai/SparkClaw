@@ -228,6 +228,62 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_e2_reranker_evidence
 `deployment_manifest_unaccepted`；IMMS authority 仍未签发，calibration budget 仍为 `0/5`，held-out
 未触碰，E3/GB10 仍未验收。
 
+### 决策 0028 原生 rerank v2 评审（无 runtime 改动）
+
+SparkClaw 已独立评审 InfiniCenter 提案 0028 的精确 commit
+`5d82a6aae9d6ca4c1020c3fd8c64f7cf09be4f74`；被评审 decision 的精确 bytes 为
+`433d77c0829d50ae2b66cfaf3aa1c2160a54676a85ec10d514767f7d3325fb8e/11943`。
+SparkClaw 无阻断异议地接受其 no-runtime provider 方向。本次评审只进行了只读 OpenAPI 与
+上游源码 GET；没有部署或 POST，没有创建真实 profile、pin、manifest 或 receipt，也没有消耗
+model、calibration 或 held-out request。
+
+提案中的原生 transport 在以下精确边界内可实现：
+
+- 当前观察到的 vLLM `0.23.0` OpenAPI 暴露 `POST /v1/rerank`；其 raw observation 为
+  `7ac74a96ff007c018e0faee58b190e46bd477abb40f1eb40a6636efb0acc5f57/68719`，选定的
+  rerank projection 为
+  `620b1d18f6a8f105a30d5bd984bc13cccacda8b6e4468cb4464533220754c98e/4176`。
+  两者都不是 accepted deployment pin。提案的单 query、单
+  document body 类型兼容，其中包括精确 served name `sparkclaw-reranker`、ADR 0010
+  instruction bytes、`use_activation=true`、`top_n=1`、两个逐字段 token limit 为零，以及
+  combined-prompt truncation 字段为 null。body 继续省略 `request_id`、`cache_salt`、
+  `chat_template_kwargs`、`mm_processor_kwargs` 与 `user`；公网 request schema 允许
+  additional properties，因此 v2 client 必须在本地拒绝 unknown 或默认注入字段。
+- vLLM `0.23.0` tag 源码会从 HTTP `X-Request-Id` 读取 pooling request identity 并添加
+  `score-` 前缀；该 response ID 不使用 body `request_id`。源码也会返回配置的 served
+  name、精确 string document echo、相等的 prompt/total token usage，以及 rerank result
+  index 与 score。因此提案的 constrained projection 可表示。公网 `200` OpenAPI schema
+  仍是 empty object，所以源码兼容性不是在线 response evidence；未来 synthetic smoke 仍须逐字段
+  验证，并分别 commitment raw bytes 与 projection。
+- 使用 `runner=pooling`、`Qwen3ForSequenceClassification`、
+  `classifier_from_token=["no","yes"]` 与
+  `is_original_qwen3_reranker=true` 时，vLLM `0.23.0` 会选择
+  `from_2_way_softmax`，以 `W_yes-W_no` 构造唯一 score weight，并在
+  `use_activation=true` 时应用 sigmoid。它与 v1 `p_yes` 具有相同的二项概率代数，但不能据此
+  证明数值 parity；真实 manifest 仍须证明 exact tokenizer token IDs、template 与 instruction bytes、
+  `num_labels=1`、不存在 affine
+  calibration 或二次 activation，以及实际 image/version 的有效行为。仅看到 finite `[0,1]`
+  字段并不能证明这些事实。
+- Prefix caching 是被记录的配置与观测，不再是单项 rejection。未来 manifest 和 pre/post receipt
+  必须绑定实际设置与 counter commitments。cold、warm 或 repeat observation 都必须是分别计划的
+  synthetic request，绝不能作为 retry；在 calibration 或 held-out 使用前由 IMMS 预注册 tolerance
+  之前，该项继续关闭。
+
+operator 仍须提供真实的闭包 model/tokenizer catalog、model 与 tokenizer revision、immutable image
+digest、vLLM/CUDA/driver 与 service build、deployment revision、exact launch arguments、
+pooling/Qwen overrides、template、truncation behavior、score transform、cache state、content logging
+关闭、update mechanism、served name 与两个 live identity headers。SparkClaw tooling 只能验证这些
+事实，不能编造。v2 lane 必须保持 synthetic-only，并与 `single-fast-v1`、Gateway、JingSi Runtime、
+Source、Memory 及 embedding route 隔离，同时保持 retry、fallback、redirect、automatic batching
+与 private route adaptation 全部为零。
+
+决策 0027 与 commit `736f442bedc75d5aa18cfaa11433b469115f86ac` 的 v1 provider
+继续作为未改写的历史证据；任何 v1 fixture 或 digest 都不得重标为 v2。决策 0028 仍是 proposed，
+v2 provider 尚未实现。只有中央 accepted 并另行冻结 v2 machine contract/conformance closure 后才能
+开始实现；真实 synthetic POST 还必须继续等待 externally reviewed real manifest pin。当前状态仍为
+`deployment_manifest_unaccepted`，没有 accepted smoke 或 authority，calibration budget 仍为
+`0/5`，held-out 未触碰，E3/GB10 仍未验收。
+
 ## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。

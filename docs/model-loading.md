@@ -279,6 +279,74 @@ implementation stage. State remains `deployment_manifest_unaccepted`; IMMS
 authority is unissued, the calibration budget remains `0/5`, held-out is
 untouched, and E3/GB10 remains unverified.
 
+### Decision 0028 native rerank v2 review (no runtime change)
+
+SparkClaw independently reviewed proposed InfiniCenter decision 0028 at exact
+commit `5d82a6aae9d6ca4c1020c3fd8c64f7cf09be4f74`; the reviewed decision bytes are
+`433d77c0829d50ae2b66cfaf3aa1c2160a54676a85ec10d514767f7d3325fb8e/11943`.
+SparkClaw accepts the no-runtime provider direction without a blocking
+objection. This review used only read-only OpenAPI and upstream-source GETs. It
+made no deployment or POST, created no real profile, pin, manifest, or receipt,
+and consumed no model, calibration, or held-out request.
+
+The proposed native transport is implementable under these exact limits:
+
+- The observed vLLM `0.23.0` OpenAPI exposes `POST /v1/rerank`; its raw
+  observation is
+  `7ac74a96ff007c018e0faee58b190e46bd477abb40f1eb40a6636efb0acc5f57/68719`
+  and the selected rerank projection is
+  `620b1d18f6a8f105a30d5bd984bc13cccacda8b6e4468cb4464533220754c98e/4176`.
+  Neither observation is an accepted deployment pin. The proposal's
+  one-query, one-document body is type-compatible, including the exact
+  `sparkclaw-reranker` served name, ADR 0010 instruction bytes,
+  `use_activation=true`, `top_n=1`, zero per-field token limits, and null
+  combined-prompt truncation fields. Body `request_id`, `cache_salt`,
+  `chat_template_kwargs`, `mm_processor_kwargs`, and `user` remain omitted;
+  the v2 client must reject unknown or default-injected fields locally because
+  the public request schema allows additional properties.
+- The vLLM `0.23.0` tagged source reads HTTP `X-Request-Id` for pooling
+  request identity and prefixes it with `score-`; it does not use the body `request_id` for this
+  response ID. It also returns the configured served name, exact string
+  document echo, equal prompt/total token usage, and rerank result index and
+  score. The proposed constrained projection is therefore representable. The
+  public `200` OpenAPI schema is still an empty object, so source compatibility
+  is not live response evidence and the eventual synthetic smoke must verify
+  every field and both raw/projection commitments.
+- With `runner=pooling`, `Qwen3ForSequenceClassification`,
+  `classifier_from_token=["no","yes"]`, and
+  `is_original_qwen3_reranker=true`, vLLM `0.23.0` selects
+  `from_2_way_softmax`, constructs the single score weight as
+  `W_yes-W_no`, and applies sigmoid when `use_activation=true`. This has the
+  same binary-probability algebra as the v1 `p_yes`, but does not establish
+  value parity. The real manifest must still prove the
+  exact tokenizer token IDs, template and instruction bytes, `num_labels=1`,
+  absence of affine calibration or a second activation, and the effective
+  image/version behavior. A finite `[0,1]` field name alone is not that proof.
+- Prefix caching is a recorded configuration and observation, not a standalone
+  rejection. The future manifest and pre/post receipt must bind the actual
+  setting and counter commitments. Any cold, warm, or repeat observations must
+  be separately planned synthetic requests, never retries, and tolerance
+  remains closed until IMMS preregisters it before calibration or held-out use.
+
+The operator must still supply the real closed model/tokenizer catalog, model
+and tokenizer revisions, immutable image digest, vLLM/CUDA/driver and service
+build, deployment revision, exact launch arguments, pooling/Qwen overrides,
+template, truncation behavior, score transform, cache state, content-logging
+shutdown, update mechanism, served name, and both live identity headers.
+SparkClaw tooling may verify those facts but must not invent them. The v2 lane
+must remain synthetic-only and isolated from `single-fast-v1`, Gateway,
+JingSi Runtime, Source, Memory, and the embedding route, with zero retry,
+fallback, redirect, automatic batching, or private route adaptation.
+
+Decision 0027 and the commit `736f442bedc75d5aa18cfaa11433b469115f86ac`
+v1 provider remain untouched historical evidence; no v1 fixture or digest may
+be relabeled as v2. Decision 0028 is still proposed and the v2 provider is not
+implemented. Implementation must wait for central acceptance and a separately
+frozen v2 machine contract/conformance closure. A live synthetic POST must wait
+further for an externally reviewed real manifest pin. Current state remains
+`deployment_manifest_unaccepted`, with no accepted smoke or authority, the
+calibration budget at `0/5`, held-out untouched, and E3/GB10 unverified.
+
 ## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.

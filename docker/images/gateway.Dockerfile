@@ -31,6 +31,8 @@ RUN npm ci --omit=dev \
 COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
 COPY --from=build /out/iscp-bridge /usr/local/bin/iscp-bridge
 COPY configs /app/configs
+RUN chmod -R a+rX /app/configs
+ENV SPARKCLAW_MODEL_CAPACITY_CATALOG=/app/configs/model.profiles.json
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE=/usr/bin/chromium

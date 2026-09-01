@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 )
 
@@ -37,7 +37,7 @@ func TestChatUsesConfiguredModelID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.Name = "sparkclaw-fast"
@@ -111,7 +111,7 @@ func TestChatRejectsReasoningOnlyResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Deep.BaseURL = ""
@@ -132,7 +132,7 @@ func TestChatRejectsLengthFinishReasonWithContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	router := New(cfg)
@@ -157,7 +157,7 @@ func TestChatAdmissionRejectsBeforeProviderDispatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.ContextTokens = 100
@@ -189,7 +189,7 @@ func TestChatAdmissionDoesNotMisclassifyTokenizerFailureAsInputTooLong(t *testin
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.ContextTokens = 100
@@ -216,7 +216,7 @@ func TestOwnerQuestionAdmissionDoesNotMisclassifyTokenizerFailureAsTooLong(t *te
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Embedding.BaseURL = server.URL
 	cfg.Model.Embedding.ContextTokens = 8
@@ -246,7 +246,7 @@ func TestCountProfileChatInputUsesTokenizerWithoutGeneration(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.ContextTokens = 100
@@ -277,7 +277,7 @@ func TestStructuredChatExactAdmissionRetainsSchemaEnvelope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.ContextTokens = 160
@@ -306,11 +306,11 @@ func TestStructuredChatExactAdmissionRetainsSchemaEnvelope(t *testing.T) {
 }
 
 func TestOperationCannotBorrowAnotherLaneOrClass(t *testing.T) {
-	router := New(config.Default())
+	router := New(configtest.MustLoadDefault())
 	if _, err := router.ChatWithProfile(t.Context(), modelcapacity.OperationIntentTreeScore, "deep", "system", "user"); err == nil || !strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("Tree operation borrowed Deep capacity: %v", err)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	delete(cfg.Model.Fast.OutputBudgets, modelcapacity.OutputCompactStructured)
 	if _, err := New(cfg).ChatWithProfile(t.Context(), modelcapacity.OperationIntentTreeScore, "fast", "system", "user"); err == nil || !strings.Contains(err.Error(), "no positive") {
 		t.Fatalf("missing class borrowed another budget: %v", err)
@@ -329,7 +329,7 @@ func TestChatDoesNotFallBackFromFastToDeep(t *testing.T) {
 	}))
 	defer deep.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = fast.URL
 	cfg.Model.Deep.BaseURL = deep.URL
@@ -358,7 +358,7 @@ func TestChatWithProfileUsesRequestedLaneWithoutFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = "http://127.0.0.1:1"
 	cfg.Model.Fast.Model = "Qwen/Fast"
@@ -389,7 +389,7 @@ func TestChatWithProfileOptionsRequestsStrictJSONSchemaAndDisablesThinking(t *te
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.DisableThinking = false
 	cfg.Model.Fast.BaseURL = server.URL
@@ -443,7 +443,7 @@ func TestChatWithProfileOptionsRequestsStrictJSONSchemaAndDisablesThinking(t *te
 }
 
 func TestChatWithProfileOptionsRejectsInvalidStrictJSONSchemaBeforeMock(t *testing.T) {
-	router := New(config.Default())
+	router := New(configtest.MustLoadDefault())
 	for _, schema := range []StrictJSONSchema{
 		{Schema: map[string]any{"type": "object"}},
 		{Name: "invalid schema", Schema: map[string]any{"type": "object"}},
@@ -474,7 +474,7 @@ func TestChatWithImageUsesOperationClassBudget(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Fast.BaseURL = server.URL
 	cfg.Model.Fast.Model = "Qwen/Fast"
@@ -492,7 +492,7 @@ func TestChatWithImageUsesOperationClassBudget(t *testing.T) {
 }
 
 func TestChooseModelUsesGatewayLaneHint(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Fast.Name = "sparkclaw-fast"
 	cfg.Model.Deep.Name = "sparkclaw-deep"
 	router := New(cfg)
@@ -509,7 +509,7 @@ func TestChooseModelUsesGatewayLaneHint(t *testing.T) {
 }
 
 func TestChatWithProfileRejectsUnknownProfile(t *testing.T) {
-	router := New(config.Default())
+	router := New(configtest.MustLoadDefault())
 
 	if _, err := router.ChatWithProfile(t.Context(), modelcapacity.OperationConversationAnswer, "embedding", "system", "hello"); err == nil {
 		t.Fatal("expected unknown chat profile error")
@@ -542,7 +542,7 @@ func TestEmbedUsesOpenAICompatibleEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Embedding.BaseURL = server.URL
 	cfg.Model.Embedding.Name = "sparkclaw-embedding"
@@ -565,7 +565,7 @@ func TestEmbedUsesOpenAICompatibleEndpoint(t *testing.T) {
 }
 
 func TestMockEmbeddingsAreDeterministic(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	router := New(cfg)
 
@@ -614,7 +614,7 @@ func TestGuardUsesOpenAICompatibleEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Guard.BaseURL = server.URL
 	cfg.Model.Guard.Name = "sparkclaw-guard"
@@ -642,7 +642,7 @@ func TestGuardFallsBackToLocalHeuristicWhenExternalUnavailable(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = false
 	cfg.Model.Guard.BaseURL = server.URL
 	cfg.Model.Guard.Name = "sparkclaw-guard"
@@ -721,7 +721,7 @@ func TestParseGuardContentSupportsQwen3GuardNativeOutput(t *testing.T) {
 }
 
 func TestMockGuardClassifiesInjectionAndSecrets(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	router := New(cfg)
 
@@ -738,7 +738,7 @@ func TestMockGuardClassifiesInjectionAndSecrets(t *testing.T) {
 }
 
 func TestDangerousTaskChoosesDeepWithoutFallbackFlag(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	router := New(cfg)
 
 	profile := router.ChooseModel(Task{Risk: app.RiskDangerous})

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -21,7 +21,7 @@ func TestImagesInspectUsesMockMultimodalModel(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "sample.png"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
@@ -59,7 +59,7 @@ func TestImagesInspectResizesLargeImagesBeforeModelCall(t *testing.T) {
 	if err := writeTestJPEG(path, 1200, 3600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}

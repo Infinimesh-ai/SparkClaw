@@ -170,7 +170,10 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 }
 
 func TestDefaultChatProfilesMatchVLLMManagedNVFP4Checkpoint(t *testing.T) {
-	cfg := Default()
+	cfg, err := LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if cfg.Model.Fast.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
 		cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP {
@@ -1334,6 +1337,7 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Default()
+			cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 			test.mutate(&cfg)
 			path := filepath.Join(t.TempDir(), "config.json")
 			raw, err := json.Marshal(cfg)
@@ -1353,6 +1357,7 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 func TestLoadNormalizesMCPServersWithoutResolvingSecrets(t *testing.T) {
 	t.Setenv("HAPPY_TEAM_MCP_TOKEN", "not-read-by-config")
 	cfg := Default()
+	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 	cfg.MCPServers = map[string]MCPServerConfig{
 		"happy-tasks": {
 			URL: "https://happy.example.com/v1/team/mcp", TokenEnv: "HAPPY_TEAM_MCP_TOKEN", ExpectedServerName: "happy-team-tasks",
@@ -1395,6 +1400,7 @@ func TestLoadRejectsInvalidMCPServerConfiguration(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Default()
+			cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 			cfg.MCPServers = map[string]MCPServerConfig{"fixture": test.server}
 			path := filepath.Join(t.TempDir(), "config.json")
 			raw, err := json.Marshal(cfg)

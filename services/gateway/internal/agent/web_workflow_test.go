@@ -20,6 +20,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -561,7 +562,7 @@ MOCK_WEATHER_RENDER_RESPONSE:{"type":"action","tool":"media.render_weather_card"
 
 func TestWorkflowOutputResourceRefUsesDefaultWorkspaceForUnscopedWebSession(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()

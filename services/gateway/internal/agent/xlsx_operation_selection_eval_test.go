@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -357,7 +358,7 @@ func loadXLSXOperationSelectionCorpus(t *testing.T) xlsxOperationSelectionCorpus
 
 func loadXLSXOperationDirectory(t *testing.T) xlsxOperationDirectory {
 	t.Helper()
-	hub := toolhub.New(config.Default(), store.NewMemoryStore())
+	hub := toolhub.New(configtest.MustLoadDefault(), store.NewMemoryStore())
 	t.Cleanup(func() { _ = hub.Close() })
 	wantedOperations := stringSet(xlsxEvaluatedOperations)
 	directory := xlsxOperationDirectory{

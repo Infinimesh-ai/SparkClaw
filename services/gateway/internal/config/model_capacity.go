@@ -27,6 +27,8 @@ var legacyModelCapacityEnvironment = []string{
 	"SPARKCLAW_OCR_MAX_TOKENS",
 }
 
+const defaultModelCapacityCatalog = "configs/model.profiles.json"
+
 type modelCapacityCatalog struct {
 	Profiles map[string]modelCapacityProfile `json:"profiles"`
 }
@@ -49,13 +51,10 @@ type capacityLaneSpec struct {
 }
 
 func defaultModelCapacityCatalogPath() string {
-	if path := strings.TrimSpace(os.Getenv("SPARKCLAW_MODEL_CAPACITY_CATALOG")); path != "" {
-		return path
-	}
 	if _, source, _, ok := runtime.Caller(0); ok {
 		return filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "..", "..", "configs", "model.profiles.json"))
 	}
-	return filepath.Join("configs", "model.profiles.json")
+	return defaultModelCapacityCatalog
 }
 
 func rejectLegacyModelCapacity(raw []byte) error {

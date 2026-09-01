@@ -10,7 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -109,7 +109,7 @@ func TestTreeChannelUsesStrictOutputAndRepairsAtMostOnce(t *testing.T) {
 			}))
 			defer server.Close()
 
-			cfg := config.Default()
+			cfg := configtest.MustLoadDefault()
 			cfg.Model.Mock = false
 			cfg.Model.DisableThinking = false
 			cfg.Model.Fast.BaseURL = server.URL

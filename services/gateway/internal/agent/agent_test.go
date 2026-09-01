@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -28,7 +29,7 @@ import (
 )
 
 func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T) {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = t.TempDir()
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
@@ -3977,7 +3978,7 @@ func slicesContainsString(values []string, want string) bool {
 }
 
 func agentTestConfig() config.Config {
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	return cfg
 }

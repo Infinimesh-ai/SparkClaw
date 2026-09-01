@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -374,7 +375,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	approval := app.Approval{ID: approvalID, SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: app.ApprovalStatusPending, Summary: "Approve notify", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
 	storetest.MustSaveApproval(t, st, approval)
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	hub := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
@@ -438,7 +439,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	approval := app.Approval{ID: app.NewID("ap"), SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: app.ApprovalStatusPending, Summary: "Approve docx", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
 	storetest.MustSaveApproval(t, st, approval)
 
-	cfg := config.Default()
+	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	hub := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)

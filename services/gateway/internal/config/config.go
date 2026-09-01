@@ -445,6 +445,7 @@ type toolPolicyFile struct {
 
 func Load(path string) (Config, error) {
 	cfg := Default()
+	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 	if path != "" {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -595,6 +596,17 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	if err := normalizeMCPServers(&cfg.MCPServers); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// LoadDefault resolves the default model-capacity profile without applying
+// file or environment overrides. Runtime entrypoints should use Load.
+func LoadDefault() (Config, error) {
+	cfg := Default()
+	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
+	if err := applySelectedModelCapacity(&cfg, ""); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
@@ -1241,7 +1253,7 @@ func Default() Config {
 		},
 		Model: ModelConfig{
 			CapacityProfile:    "dgx-spark-dual-light-v1",
-			CapacityCatalog:    defaultModelCapacityCatalogPath(),
+			CapacityCatalog:    defaultModelCapacityCatalog,
 			Mock:               false,
 			HTTPTimeoutSeconds: 300,
 			// Matches configs/sparkclaw.default.json: the local model
@@ -1454,9 +1466,6 @@ func Default() Config {
 			Level:          "info",
 			RedactPatterns: []string{"api_key", "password", "token", "ssh_key"},
 		},
-	}
-	if err := applySelectedModelCapacity(&cfg, ""); err != nil {
-		panic(fmt.Sprintf("load default model capacity: %v", err))
 	}
 	return cfg
 }
@@ -1710,6 +1719,9 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("SPARKCLAW_MODEL_CAPACITY_PROFILE"); v != "" {
 		cfg.Model.CapacityProfile = v
+	}
+	if v := os.Getenv("SPARKCLAW_MODEL_CAPACITY_CATALOG"); v != "" {
+		cfg.Model.CapacityCatalog = v
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_READ_ALLOW_HOSTS"); v != "" {
 		cfg.Security.BrowserReadAllowHosts = splitCSV(v)

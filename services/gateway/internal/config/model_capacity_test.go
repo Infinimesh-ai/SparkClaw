@@ -34,6 +34,68 @@ func TestRepositoryModelCapacityCatalogIsValid(t *testing.T) {
 	}
 }
 
+func TestDefaultDoesNotLoadModelCapacity(t *testing.T) {
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_CATALOG", filepath.Join(t.TempDir(), "missing.json"))
+
+	cfg := Default()
+	if cfg.Model.CapacityCatalog != defaultModelCapacityCatalog {
+		t.Fatalf("default capacity catalog = %q", cfg.Model.CapacityCatalog)
+	}
+	for name, profile := range map[string]ModelProfile{
+		"fast": cfg.Model.Fast, "deep": cfg.Model.Deep, "embedding": cfg.Model.Embedding, "guard": cfg.Model.Guard,
+	} {
+		if profile.ContextTokens != 0 || profile.CapacityPhysicalModel != "" || profile.OutputBudgets != nil {
+			t.Fatalf("Default resolved %s capacity: %#v", name, profile)
+		}
+	}
+}
+
+func TestLoadReturnsMissingModelCapacityCatalogError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.json")
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_CATALOG", missing)
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("missing capacity catalog error = %v", err)
+	}
+}
+
+func TestLoadDefaultResolvesCapacityWithoutEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_CATALOG", filepath.Join(t.TempDir(), "missing.json"))
+
+	cfg, err := LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model.Fast.ContextTokens <= 0 || cfg.Model.Embedding.ContextTokens <= 0 {
+		t.Fatalf("default capacity was not resolved: %#v", cfg.Model)
+	}
+}
+
+func TestLoadResolvesCapacityCatalogRelativeToMainConfig(t *testing.T) {
+	directory := t.TempDir()
+	catalogPath := filepath.Join(directory, defaultModelCapacityCatalog)
+	if err := os.MkdirAll(filepath.Dir(catalogPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(catalogPath, []byte(validCapacityCatalog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(directory, "sparkclaw.json")
+	raw := `{"model":{"capacity_profile":"test","capacity_catalog":"configs/model.profiles.json"}}`
+	if err := os.WriteFile(configPath, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model.CapacityCatalog != catalogPath || cfg.Model.Fast.ContextTokens != 4096 || cfg.Model.Embedding.ContextTokens != 2048 {
+		t.Fatalf("relative capacity catalog was not applied after main config: %#v", cfg.Model)
+	}
+}
+
 func TestModelCapacityCatalogRejectsInvalidFacts(t *testing.T) {
 	tests := []struct {
 		name    string

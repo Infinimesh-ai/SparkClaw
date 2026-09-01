@@ -165,6 +165,35 @@ pins、profile 与 ADR 0019 一致且 reviewed content-free smoke contract 通�
 IMMS `d16eb56` 已独立接受该 deployment-admission STOP 且没有改变 calibration counter；
 InfiniCenter `7eab880` 已记录跨仓结果。
 
+### 决策 0027 provider 评审（无 runtime 改动）
+
+SparkClaw 已独立评审 InfiniCenter 提案 0027 的精确 commit
+`1c94387f63437a490c48895d3f40fa0d59322e7e`，并无异议地接受其 provider 边界。
+这只是仓库内评审：没有部署或联网请求，没有生成 manifest 或 smoke receipt，也没有消耗
+model、calibration 或 held-out request。
+
+本次接受的评审边界是严格的：
+
+- 未来 provider 必须是独立 evidence-only profile，不得并入 `single-fast-v1`、复用其
+  chat-string readiness probe，也不得成为产品 Runtime/Gateway 依赖。
+- operator 必须从真实服务导出每一个真实部署值：闭包完整且逐 path 记录 SHA-256/size 的
+  model/tokenizer file catalog、exact model revision、immutable OCI image digest、vLLM
+  version、CUDA/driver、service build revision、唯一 deployment revision、启动参数及 ADR 0019
+  的全部 serving flags。fixture、IMMS、InfiniCenter 与 SparkClaw tooling 都不得伪造或补填缺失 pin。
+- identity、health、metrics 与 completion response 必须返回精确的
+  `X-SparkClaw-Evidence-Manifest-SHA256` 和 `X-SparkClaw-Deployment-Revision` header，
+  使在线服务与 reviewed manifest 机器闭合。profile 必须关闭 prompt、request、response、token
+  与 logprob content logging，并声明真实的 operator-controlled update 和变更通知机制。
+- 只有 0027 经中枢 accepted，且中央 machine contract、schema、canonical validator 与 synthetic
+  conformance artifacts 已冻结后，provider/consumer 才能开始实现。真实 content-free POST 仍被禁止，
+  直到 operator 的真实 manifest 通过离线门，并且其 exact commit/path/SHA-256/size pin 已完成评审。
+
+当前公网 endpoint 继续 fail closed：提案中的 GET-only 证据显示没有 `/v1/completions` route，
+且 prefix caching 仍开启。`/score`、`/rerank`、pooling 或 chat-string warmup 都不能替代已冻结的
+direct-token protocol。本评审不声称 endpoint 已修复，不授权 POST，也不接受任何 deployment pin。
+Qwen3-Embedding-8B-FP8 route 仍在本交换范围外；E3/GB10 事实继续保持
+`unknown_pending_e3_measurement`，直到在真实硬件上测量。
+
 ## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。

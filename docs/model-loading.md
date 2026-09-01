@@ -200,6 +200,45 @@ IMMS `d16eb56` independently accepted this deployment-admission STOP without
 changing the calibration counter, and InfiniCenter `7eab880` recorded the
 cross-repository result.
 
+### Decision 0027 provider review (no runtime change)
+
+SparkClaw independently reviewed InfiniCenter proposal 0027 at exact commit
+`1c94387f63437a490c48895d3f40fa0d59322e7e` and accepts its provider boundary
+without objection. This was a repository-only review: it made no deployment or
+network request, produced no manifest or smoke receipt, and did not consume a
+model, calibration, or held-out request.
+
+The accepted review boundary is strict:
+
+- The future provider must be a standalone evidence-only profile. It must not
+  join `single-fast-v1`, reuse its chat-string readiness probe, or become a
+  product Runtime/Gateway dependency.
+- An operator must derive every real deployment value from the actual service:
+  the closed model/tokenizer file catalog with per-path SHA-256 and size, exact
+  model revision, immutable OCI image digest, vLLM version, CUDA/driver,
+  service build revision, unique deployment revision, launch arguments, and
+  every ADR 0019 serving flag. Fixtures, IMMS, InfiniCenter, and SparkClaw
+  tooling must never invent or backfill a missing pin.
+- Identity, health, metrics, and completion responses must expose exact
+  `X-SparkClaw-Evidence-Manifest-SHA256` and
+  `X-SparkClaw-Deployment-Revision` headers that close the live service to the
+  reviewed manifest. The profile must disable prompt, request, response,
+  token, and logprob content logging and declare the real operator-controlled
+  update and change-notification mechanism.
+- Provider/consumer implementation may start only after 0027 is centrally
+  accepted and its machine contract, schema, canonical validator, and
+  synthetic conformance artifacts are frozen. A real content-free POST remains
+  forbidden until a real operator manifest passes the offline gate and its
+  exact commit/path/SHA-256/size pin is reviewed.
+
+The current public endpoint remains fail closed: the proposal's GET-only
+evidence shows no `/v1/completions` route and reports prefix caching enabled.
+`/score`, `/rerank`, pooling, or chat-string warmup cannot substitute for the
+frozen direct-token protocol. This review does not claim the endpoint is fixed,
+does not authorize a POST, and does not accept any deployment pin. The
+Qwen3-Embedding-8B-FP8 route remains outside this exchange, while E3/GB10 facts
+remain `unknown_pending_e3_measurement` until measured on the real hardware.
+
 ## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.

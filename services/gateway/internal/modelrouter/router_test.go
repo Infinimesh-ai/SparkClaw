@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -561,6 +562,63 @@ func TestEmbedUsesOpenAICompatibleEndpoint(t *testing.T) {
 	}
 	if result.PromptTokens != 8 || result.TotalTokens != 8 {
 		t.Fatalf("embedding usage did not round trip: %#v", result)
+	}
+}
+
+func TestEmbedBatchesLargeCatalogRequestsAndPreservesOrder(t *testing.T) {
+	batchSizes := []int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		batchSizes = append(batchSizes, len(body.Input))
+		data := make([]map[string]any, 0, len(body.Input))
+		for index, input := range body.Input {
+			value, err := strconv.Atoi(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = append(data, map[string]any{
+				"index": index, "embedding": []float64{float64(value)},
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": data,
+			"usage": map[string]any{
+				"prompt_tokens": len(body.Input), "total_tokens": len(body.Input),
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Embedding.BaseURL = server.URL
+	inputs := make([]string, 244)
+	for index := range inputs {
+		inputs[index] = strconv.Itoa(index)
+	}
+
+	result, err := New(cfg).Embed(t.Context(), modelcapacity.OperationIntentCatalogEmbedding, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(batchSizes, []int{64, 64, 64, 52}) {
+		t.Fatalf("embedding batch sizes = %#v", batchSizes)
+	}
+	if len(result.Vectors) != len(inputs) {
+		t.Fatalf("embedding vector count = %d", len(result.Vectors))
+	}
+	for index, vector := range result.Vectors {
+		if len(vector) != 1 || vector[0] != float32(index) {
+			t.Fatalf("embedding vector %d = %#v", index, vector)
+		}
+	}
+	if result.PromptTokens != len(inputs) || result.TotalTokens != len(inputs) {
+		t.Fatalf("embedding usage = %#v", result)
 	}
 }
 

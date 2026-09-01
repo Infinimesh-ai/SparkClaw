@@ -775,6 +775,23 @@ func streamChunks(value string, size int) []string {
 }
 
 func (r Router) embeddings(ctx context.Context, profile config.ModelProfile, inputs []string) ([][]float32, tokenUsage, error) {
+	vectors := make([][]float32, 0, len(inputs))
+	usage := tokenUsage{}
+	batchCount := (len(inputs) + maxEmbeddingBatchInputs - 1) / maxEmbeddingBatchInputs
+	for start := 0; start < len(inputs); start += maxEmbeddingBatchInputs {
+		end := min(start+maxEmbeddingBatchInputs, len(inputs))
+		batchVectors, batchUsage, err := r.embeddingBatch(ctx, profile, inputs[start:end])
+		if err != nil {
+			return nil, tokenUsage{}, fmt.Errorf("embedding batch %d of %d: %w", start/maxEmbeddingBatchInputs+1, batchCount, err)
+		}
+		vectors = append(vectors, batchVectors...)
+		usage.PromptTokens += batchUsage.PromptTokens
+		usage.TotalTokens += batchUsage.TotalTokens
+	}
+	return vectors, usage, nil
+}
+
+func (r Router) embeddingBatch(ctx context.Context, profile config.ModelProfile, inputs []string) ([][]float32, tokenUsage, error) {
 	if profile.BaseURL == "" {
 		return nil, tokenUsage{}, errors.New("embedding base_url is empty")
 	}

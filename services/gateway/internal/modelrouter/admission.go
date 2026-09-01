@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	maxModelResponseBytes  = 8 << 20
-	maxTokenizerReplyBytes = 1 << 20
+	maxModelResponseBytes   = 8 << 20
+	maxTokenizerReplyBytes  = 1 << 20
+	maxEmbeddingBatchInputs = 64
 )
 
 type InputTooLongError struct {

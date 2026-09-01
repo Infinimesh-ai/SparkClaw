@@ -161,6 +161,42 @@ This review creates no deployment by itself and no SLA, availability,
 dedicated-capacity, Gateway wire, or runtime integration obligation. Outages
 only delay new evidence runs and do not invalidate already sealed evidence.
 
+### 2026-09-01 live deployment discovery (not an E2 pin)
+
+The operator subsequently deployed public `reranker` and `embedding` routes. A
+content-free discovery at `2026-09-01T05:09:24Z` used only `GET /v1/models`,
+`GET /version`, `GET /health`, and `GET /metrics`; it sent no completion,
+embedding, calibration, held-out, Source, or Memory request.
+
+- The reranker route reported `id=sparkclaw-reranker`,
+  `root=Qwen/Qwen3-Reranker-4B`, `max_model_len=8192`, and vLLM `0.23.0`.
+  The normalized selected `/models` projection is
+  `90a38557bf407359a8f6c32d24828ed379b4536c74daa2fa7cd63c76705d5e8b/114`;
+  the normalized version response is
+  `075e267960c71451371b4267a2b98efd65f045237544f950a51ceef72ad63700/20`.
+- The embedding route reported `id=sparkclaw-embedding`,
+  `root=Qwen/Qwen3-Embedding-8B`, `max_model_len=8192`, and the same vLLM
+  version. Its normalized selected `/models` projection is
+  `545cb9fb49dc73b784d2bfbbb0a5303c24c312f3108bfed23956cf16bd9902cb/116`.
+  This identity response does not prove the operator-described FP8 weight
+  representation, and the 8B embedding route is not the ADR 0019 scorer
+  critical path.
+- The reranker route is not E2-admissible in this state. Its served name differs
+  from the accepted `imms-qwen3-reranker-4b-e2`; the public identity surface
+  does not resolve the exact Hugging Face revision, complete artifact catalog,
+  container image digest, deployment revision, CUDA/driver identity, dtype,
+  quantization, tensor parallelism, maximum sequences, seed, eager mode, or
+  disabled feature flags. At the same observation point, public metrics
+  reported `prefix_cache_queries_total=41961` and
+  `prefix_cache_hits_total=576`, while ADR 0019 requires prefix caching to be
+  disabled.
+
+This discovery is a fail-closed external-boundary result, not the canonical
+immutable deployment manifest/profile or its acceptance. IMMS calibration
+authority remains unissued and no calibration request may be sent until the
+operator supplies the missing immutable pins, the profile matches ADR 0019,
+and the reviewed content-free smoke contract is satisfied.
+
 ## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.

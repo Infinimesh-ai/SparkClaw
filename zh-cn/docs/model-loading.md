@@ -131,6 +131,38 @@ IMMS ADR 0019 proposal `ac9a33d3c55f3c9d55af21e91586902f530aa39f`，exact docume
 本评审本身不产生部署，也不产生 SLA、可用性、专用配额、Gateway wire 或 runtime integration
 义务。中断只会推迟新 evidence run，不会使已封存证据失效。
 
+### 2026-09-01 在线部署发现（不是 E2 pin）
+
+operator 随后部署了公网 `reranker` 与 `embedding` 路由。`2026-09-01T05:09:24Z`
+的 content-free discovery 只调用 `GET /v1/models`、`GET /version`、`GET /health`
+和 `GET /metrics`；没有发送 completion、embedding、calibration、held-out、Source 或
+Memory request。
+
+- reranker 路由报告 `id=sparkclaw-reranker`、
+  `root=Qwen/Qwen3-Reranker-4B`、`max_model_len=8192` 和 vLLM `0.23.0`。
+  选定字段规范化后的 `/models` projection 为
+  `90a38557bf407359a8f6c32d24828ed379b4536c74daa2fa7cd63c76705d5e8b/114`；
+  规范化 version response 为
+  `075e267960c71451371b4267a2b98efd65f045237544f950a51ceef72ad63700/20`。
+- embedding 路由报告 `id=sparkclaw-embedding`、
+  `root=Qwen/Qwen3-Embedding-8B`、`max_model_len=8192` 和同一 vLLM version；
+  选定字段规范化后的 `/models` projection 为
+  `545cb9fb49dc73b784d2bfbbb0a5303c24c312f3108bfed23956cf16bd9902cb/116`。
+  该 identity response 不能证明 operator 所称的 FP8 weight representation，且 8B
+  embedding 路由不在 ADR 0019 scorer critical path 上。
+- reranker 当前不具备 E2 admission 资格。served name 与 accepted
+  `imms-qwen3-reranker-4b-e2` 不同；公网 identity surface 无法解析 exact Hugging Face
+  revision、完整 artifact catalog、container image digest、deployment revision、CUDA/driver
+  identity、dtype、quantization、tensor parallelism、maximum sequences、seed、eager mode
+  或 disabled feature flags。同一观察点的公开 metrics 还报告
+  `prefix_cache_queries_total=41961`、`prefix_cache_hits_total=576`，而 ADR 0019 要求
+  prefix caching disabled。
+
+本发现是 fail-closed external-boundary 结果，不是 canonical immutable deployment
+manifest/profile 或其接受。IMMS calibration authority 仍未签发；operator 补齐 immutable
+pins、profile 与 ADR 0019 一致且 reviewed content-free smoke contract 通过前，不得发送
+任何 calibration request。
+
 ## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。

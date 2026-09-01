@@ -1,0 +1,2 @@
+# Accepted central E2 evidence schemas use JSON Schema draft 2020-12.
+jsonschema==4.19.2

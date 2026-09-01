@@ -239,6 +239,46 @@ does not authorize a POST, and does not accept any deployment pin. The
 Qwen3-Embedding-8B-FP8 route remains outside this exchange, while E3/GB10 facts
 remain `unknown_pending_e3_measurement` until measured on the real hardware.
 
+### Offline evidence provider implementation
+
+Decision 0027's accepted machine contract is pinned by InfiniCenter commit
+`717970a95997be18a073060cba6422d906a7dece`. SparkClaw now provides the isolated
+offline tooling in `scripts/e2_reranker_evidence.py` and the synthetic
+loopback-only sequence client in `scripts/e2_reranker_fake_smoke.py`.
+
+The provider first verifies the accepted conformance root
+`ea245a63c8ba343ee73899df5f8006bdf407108daaa0317f17310bb007dc2f0a/7840`
+before decoding it. It then checks every manifest-pinned contract, schema,
+README, validator, and fixture path/SHA-256/size, verifies the derived counts
+and disk inventory, and dynamically executes every listed case with the
+SparkClaw adapter. It does not copy a case list or artifact field registry.
+External verification requires all four reviewed manifest/receipt SHA-256 and
+size pins and compares both byte streams before artifact JSON decode or schema
+evaluation. Correct pins still cannot promote a `synthetic_fixture`.
+
+The manifest producer enumerates the complete supplied snapshot root, rejects
+symlinks and unclassified files, hashes each regular file, and requires the
+caller classification to cover the exact inventory before closing the catalog.
+The stage-3 smoke client accepts only a synthetic manifest and a numeric
+loopback address; it disables proxies, DNS names, redirects, retries, and
+fallback. Its fake-server tests enforce the nine observations, exact canonical
+48-token completion request, single POST, duplicate-header rejection, distinct
+raw/projection commitments, and finite dual-label logprob bits. It is not a
+live endpoint client and cannot accept a deployment candidate.
+
+Install the isolated test dependency and run the offline gate with:
+
+```bash
+python3 -m pip install -r scripts/requirements-e2-evidence.txt
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/e2_reranker_evidence.py check-contract
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_e2_reranker_evidence
+```
+
+No real profile, manifest, receipt, external pin, or POST was created by this
+implementation stage. State remains `deployment_manifest_unaccepted`; IMMS
+authority is unissued, the calibration budget remains `0/5`, held-out is
+untouched, and E3/GB10 remains unverified.
+
 ## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.

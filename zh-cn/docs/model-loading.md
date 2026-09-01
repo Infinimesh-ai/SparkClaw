@@ -194,6 +194,40 @@ direct-token protocol。本评审不声称 endpoint 已修复，不授权 POST�
 Qwen3-Embedding-8B-FP8 route 仍在本交换范围外；E3/GB10 事实继续保持
 `unknown_pending_e3_measurement`，直到在真实硬件上测量。
 
+### 离线 evidence provider 实现
+
+决策 0027 的 accepted machine contract 由 InfiniCenter commit
+`717970a95997be18a073060cba6422d906a7dece` 固定。SparkClaw 现已提供独立的离线工具
+`scripts/e2_reranker_evidence.py`，以及仅允许 synthetic loopback 的时序 client
+`scripts/e2_reranker_fake_smoke.py`。
+
+provider 在解析中央 manifest 前先核对 accepted conformance root
+`ea245a63c8ba343ee73899df5f8006bdf407108daaa0317f17310bb007dc2f0a/7840`；随后核对
+manifest 所 pin 的全部 contract、schema、README、validator 与 fixture path/SHA-256/size，验证
+派生 count 和磁盘 inventory，并由 SparkClaw adapter 动态执行每个列出的 case，不复制 case list
+或 artifact field registry。external verifier 要求 manifest/receipt 的四个 reviewed SHA-256/size pin，
+并在 artifact JSON decode/schema 前先比较两份完整 bytes；即使 pin 正确，也不能提升
+`synthetic_fixture`。
+
+manifest producer 会枚举传入 snapshot root 的完整 inventory，拒绝 symlink 与未分类文件，逐个
+regular file 计算 hash，并要求 caller classification 精确覆盖全部文件后才闭合 catalog。阶段 3 smoke
+client 只接受 synthetic manifest 与 numeric loopback 地址；它关闭 proxy，禁止 DNS name、redirect、
+retry 与 fallback。fake-server tests 验证九步观察、exact canonical 48-token completion request、单次
+POST、重复 header 拒绝、raw/projection commitment 分离，以及两个有限 label logprob 的 bits。它不是
+live endpoint client，也不能接受 deployment candidate。
+
+安装独立测试依赖并运行离线门：
+
+```bash
+python3 -m pip install -r scripts/requirements-e2-evidence.txt
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/e2_reranker_evidence.py check-contract
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_e2_reranker_evidence
+```
+
+本实现阶段没有创建真实 profile、manifest、receipt、external pin 或 POST。状态继续是
+`deployment_manifest_unaccepted`；IMMS authority 仍未签发，calibration budget 仍为 `0/5`，held-out
+未触碰，E3/GB10 仍未验收。
+
 ## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。

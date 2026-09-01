@@ -165,6 +165,7 @@ class SyntheticNativeRerankClient:
             urllib.request.ProxyHandler({}),
             _NoRedirect(),
         )
+        self.opener.addheaders = []
         self.actual_order: list[str] = []
 
     def _request(
@@ -177,7 +178,7 @@ class SyntheticNativeRerankClient:
         headers: dict[str, str] | None = None,
     ) -> tuple[bytes, Any, str]:
         self.actual_order.append(step)
-        request_headers = {"Accept": "application/json"}
+        request_headers: dict[str, str] = {}
         if body is not None:
             request_headers["Content-Type"] = "application/json"
         request_headers.update(headers or {})

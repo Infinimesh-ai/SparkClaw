@@ -22,6 +22,7 @@ class FakeNativeRerankHandler(BaseHTTPRequestHandler):
     calls: list[tuple[str, str]] = []
     request_raw = b""
     request_id: str | None = None
+    request_headers: list[tuple[str, str]] = []
     manifest: dict[str, object] = {}
     manifest_sha = ""
     duplicate_header = False
@@ -92,6 +93,7 @@ class FakeNativeRerankHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         type(self).request_raw = self.rfile.read(length)
         type(self).request_id = self.headers.get(evidence.REQUEST_ID_HEADER)
+        type(self).request_headers = list(self.headers.items())
         manifest = type(self).manifest
         if self.path != manifest["routes"]["rerank_path"]:
             self.send_error(404)
@@ -144,6 +146,7 @@ def fake_server(manifest: dict[str, object], manifest_sha: str):
     handler.calls = []
     handler.request_raw = b""
     handler.request_id = None
+    handler.request_headers = []
     handler.manifest = manifest
     handler.manifest_sha = manifest_sha
     handler.duplicate_header = False
@@ -373,6 +376,24 @@ class E2NativeRerankerEvidenceV2Test(unittest.TestCase):
             evidence.canonical_bytes(receipt["rerank"]["request"]["body"], stage="test"),
         )
         self.assertEqual(FakeNativeRerankHandler.request_id, evidence.REQUEST_ID)
+        observed_headers = {
+            name.casefold(): value for name, value in FakeNativeRerankHandler.request_headers
+        }
+        self.assertEqual(
+            set(observed_headers),
+            {
+                "accept-encoding",
+                "connection",
+                "content-length",
+                "content-type",
+                "host",
+                "x-request-id",
+            },
+        )
+        self.assertEqual(observed_headers["accept-encoding"], "identity")
+        self.assertEqual(observed_headers["connection"], "close")
+        self.assertEqual(observed_headers["content-type"], "application/json")
+        self.assertEqual(observed_headers["x-request-id"], evidence.REQUEST_ID)
         document = receipt["rerank"]["response"]["projection"]["results"][0]["document"]
         self.assertEqual(document, {"multi_modal": None, "text": evidence.DOCUMENT})
         self.assertTrue(receipt["preflight"]["metrics"]["projection"]["prefix_cache_enabled"])

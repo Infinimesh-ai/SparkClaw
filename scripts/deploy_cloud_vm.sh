@@ -10,6 +10,7 @@ source "$ROOT/scripts/lib/dotenv.sh"
 
 ENV_FILE="${SPARKCLAW_CLOUD_ENV_FILE:-$ROOT/.env}"
 ENV_TEMPLATE="$ROOT/docker/env/sparkclaw.cloud.example.env"
+EFFECTIVE_ENV_FILE=""
 MODE="deploy"
 FORCE_CONFIG=false
 TEMP_ENV=""
@@ -93,10 +94,12 @@ source /etc/os-release
 [[ "$EUID" -ne 0 ]] || fail "run this script as a normal sudo-capable user, not as root"
 
 ENV_FILE="$(realpath -m "$ENV_FILE")"
+EFFECTIVE_ENV_FILE="$ENV_FILE"
 [[ "$ENV_FILE" != "$ENV_TEMPLATE" ]] || fail "the example environment file cannot be used as the private env file"
+[[ -f "$ENV_TEMPLATE" ]] || fail "environment template not found: $ENV_TEMPLATE"
 
 dotenv_value() {
-  sparkclaw_dotenv_value "$ENV_FILE" "$1"
+  sparkclaw_dotenv_value "$EFFECTIVE_ENV_FILE" "$1"
 }
 
 set_dotenv_value() {
@@ -384,6 +387,12 @@ docker_installed() {
 
 if [[ "$MODE" == "check" ]]; then
   [[ -f "$ENV_FILE" ]] || fail "cloud environment file not found: $ENV_FILE"
+  TEMP_ENV="$(mktemp "${TMPDIR:-/tmp}/sparkclaw-cloud-env.XXXXXX")"
+  merged_defaults="$(sparkclaw_dotenv_merge_missing "$ENV_TEMPLATE" "$ENV_FILE" "$TEMP_ENV")"
+  EFFECTIVE_ENV_FILE="$TEMP_ENV"
+  if (( merged_defaults > 0 )); then
+    log "validated $merged_defaults template defaults missing from $ENV_FILE without changing the file"
+  fi
 else
   if [[ ! -f "$ENV_FILE" ]]; then
     [[ -f "$ENV_TEMPLATE" ]] || fail "environment template not found: $ENV_TEMPLATE"
@@ -394,6 +403,18 @@ else
   else
     chmod go-rwx "$ENV_FILE"
     log "preserving private environment file: $ENV_FILE"
+  fi
+
+  TEMP_ENV="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
+  merged_defaults="$(sparkclaw_dotenv_merge_missing "$ENV_TEMPLATE" "$ENV_FILE" "$TEMP_ENV")"
+  if (( merged_defaults > 0 )); then
+    chmod 600 "$TEMP_ENV"
+    mv -f -- "$TEMP_ENV" "$ENV_FILE"
+    TEMP_ENV=""
+    log "added $merged_defaults missing defaults from $ENV_TEMPLATE without replacing existing values"
+  else
+    rm -f -- "$TEMP_ENV"
+    TEMP_ENV=""
   fi
 
   # Keep existing installations aligned with the trusted-LAN cloud profile.
@@ -455,7 +476,7 @@ if ! "${DOCKER_BIN:-docker}" ps >/dev/null 2>&1; then
   fi
 fi
 
-export SPARKCLAW_CLOUD_ENV_FILE="$ENV_FILE"
+export SPARKCLAW_CLOUD_ENV_FILE="$EFFECTIVE_ENV_FILE"
 if [[ "$MODE" == "check" ]]; then
   bash "$ROOT/scripts/start_cloud_compose.sh" --check
   log "Ubuntu VM deployment check passed"

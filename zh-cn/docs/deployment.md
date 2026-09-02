@@ -113,6 +113,15 @@ Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 
 与凭据不会进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的 `.env`；作为文档化部署
 默认值的公共服务 URL 可以记录在版本化 profile 中。
 
+正常部署前，VM 脚本会把 `docker/env/sparkclaw.cloud.example.env` 新增的 assignment 合并到
+私有 `.env`。它只补充不存在的 key，保留所有已有值（包括显式空值），随后只 reconcile
+container UID/GID、external model mode 与 PostgreSQL state 等少量由 cloud 部署方式拥有的
+固定配置。写回过程是原子的，配置合并步骤本身不会下载应用或模型依赖。`--check` 和直接执行
+`start_cloud_compose.sh` 时，会通过权限为 `0600` 的临时文件应用同一组模板默认值，因此配置
+校验与 Compose expansion 能看到升级后的配置，但不会修改私有文件。这样，旧模板创建的安装会
+自动获得 `SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1` 等新默认值，同时保留
+operator 已配置的 endpoint 与 credential。
+
 托管 Fast endpoint `https://sparkclaw.infinimesh.cloud/fast/v1` 在
 2026-08-28 报告 `max_model_len=262144`。`configs/model.profiles.json` 中可执行的
 `infinimesh-online-fast-v1` entry 记录该物理窗口，并把两条逻辑 chat lane 都映射到它。

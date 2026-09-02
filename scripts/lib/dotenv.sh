@@ -61,6 +61,35 @@ sparkclaw_resolve_env_value() {
   fi
 }
 
+sparkclaw_dotenv_merge_missing() {
+  local template_file="$1"
+  local env_file="$2"
+  local output_file="$3"
+  local line=""
+  local key=""
+  local added=0
+
+  [[ -f "$template_file" && -f "$env_file" ]] || return 1
+  [[ "$output_file" != "$template_file" && "$output_file" != "$env_file" ]] || return 2
+
+  : >"$output_file"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    printf '%s\n' "$line" >>"$output_file"
+  done <"$env_file"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -n "$line" && "$line" != \#* && "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    sparkclaw_dotenv_key_valid "$key" || return 2
+    if ! sparkclaw_dotenv_has_key "$output_file" "$key"; then
+      printf '%s\n' "$line" >>"$output_file"
+      added=$((added + 1))
+    fi
+  done <"$template_file"
+  printf '%s' "$added"
+}
+
 sparkclaw_tcp_port_valid() {
   local value="${1:-}"
 

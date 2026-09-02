@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -7,14 +8,24 @@ source "$ROOT/scripts/lib/dotenv.sh"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 ENV_FILE="${SPARKCLAW_CLOUD_ENV_FILE:-$ROOT/.env}"
+ENV_TEMPLATE="$ROOT/docker/env/sparkclaw.cloud.example.env"
 COMPOSE_FILE="$ROOT/docker/compose.yaml"
 CLOUD_COMPOSE_FILE="$ROOT/docker/compose.cloud.yaml"
 VISIBLE_BROWSER_COMPOSE_FILE="$ROOT/docker/compose.visible-browser.yaml"
 BROWSER_DISPLAY_RESOLVER="${SPARKCLAW_BROWSER_DISPLAY_RESOLVER:-$ROOT/scripts/resolve-browser-display.sh}"
 MODE="start"
+EFFECTIVE_ENV_FILE=""
 browser_display=""
 browser_xauthority=""
 visible_browser=false
+
+cleanup() {
+  if [[ -n "$EFFECTIVE_ENV_FILE" && -f "$EFFECTIVE_ENV_FILE" ]]; then
+    rm -f -- "$EFFECTIVE_ENV_FILE"
+  fi
+}
+
+trap cleanup EXIT
 
 usage() {
   cat <<'EOF'
@@ -52,36 +63,30 @@ done
   echo "copy docker/env/sparkclaw.cloud.example.env to .env first" >&2
   exit 1
 }
+[[ -f "$ENV_TEMPLATE" ]] || {
+  echo "cloud environment template not found: $ENV_TEMPLATE" >&2
+  exit 1
+}
 
-webchat_port="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
+EFFECTIVE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/sparkclaw-cloud-env.XXXXXX")"
+merged_defaults="$(sparkclaw_dotenv_merge_missing "$ENV_TEMPLATE" "$ENV_FILE" "$EFFECTIVE_ENV_FILE")"
+if (( merged_defaults > 0 )); then
+  echo "Applied $merged_defaults missing cloud environment defaults in memory; $ENV_FILE was not changed"
+fi
+
+webchat_port="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
 sparkclaw_tcp_port_valid "$webchat_port" || {
   echo "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535" >&2
   exit 1
 }
 
-model_mode="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_MODEL_MODE external)"
+model_mode="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" SPARKCLAW_MODEL_MODE external)"
 case "${model_mode,,}" in
   mock)
     expected_model_mode="mock"
     ;;
   external)
     expected_model_mode="external"
-    for key in \
-      SPARKCLAW_FAST_BASE_URL SPARKCLAW_FAST_MODEL \
-      SPARKCLAW_DEEP_BASE_URL SPARKCLAW_DEEP_MODEL \
-      SPARKCLAW_EMBEDDING_BASE_URL SPARKCLAW_EMBEDDING_MODEL \
-      SPARKCLAW_GUARD_BASE_URL SPARKCLAW_GUARD_MODEL; do
-      value="$(sparkclaw_resolve_env_value "$ENV_FILE" "$key" '')"
-      if [[ -z "$value" || "$value" == *example.invalid* || "$value" == replace-with-* ]]; then
-        echo "$key must be set to a non-placeholder value in external mode" >&2
-        exit 1
-      fi
-    done
-    openai_key="$(sparkclaw_resolve_env_value "$ENV_FILE" OPENAI_API_KEY '')"
-    if [[ "$openai_key" == replace-with-* ]]; then
-      echo "OPENAI_API_KEY must be empty or set to a non-placeholder value in external mode" >&2
-      exit 1
-    fi
     ;;
   *)
     echo "SPARKCLAW_MODEL_MODE must be mock or external for the cloud runtime" >&2
@@ -89,7 +94,26 @@ case "${model_mode,,}" in
     ;;
 esac
 
-state_backend="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_STATE_BACKEND postgres)"
+if [[ "$expected_model_mode" == "external" ]]; then
+  for key in \
+    SPARKCLAW_FAST_BASE_URL SPARKCLAW_FAST_MODEL \
+    SPARKCLAW_DEEP_BASE_URL SPARKCLAW_DEEP_MODEL \
+    SPARKCLAW_EMBEDDING_BASE_URL SPARKCLAW_EMBEDDING_MODEL \
+    SPARKCLAW_GUARD_BASE_URL SPARKCLAW_GUARD_MODEL; do
+    value="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" "$key" '')"
+    if [[ -z "$value" || "$value" == *example.invalid* || "$value" == replace-with-* ]]; then
+      echo "$key must be set to a non-placeholder value in external mode" >&2
+      exit 1
+    fi
+  done
+  openai_key="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" OPENAI_API_KEY '')"
+  if [[ "$openai_key" == replace-with-* ]]; then
+    echo "OPENAI_API_KEY must be empty or set to a non-placeholder value in external mode" >&2
+    exit 1
+  fi
+fi
+
+state_backend="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" SPARKCLAW_STATE_BACKEND postgres)"
 [[ "${state_backend,,}" == "postgres" ]] || {
   echo "SPARKCLAW_STATE_BACKEND must be postgres for the cloud server runtime" >&2
   exit 1
@@ -129,7 +153,7 @@ fi
 
 compose_args=(
   compose
-  --env-file "$ENV_FILE"
+  --env-file "$EFFECTIVE_ENV_FILE"
   -f "$COMPOSE_FILE"
   -f "$CLOUD_COMPOSE_FILE"
 )

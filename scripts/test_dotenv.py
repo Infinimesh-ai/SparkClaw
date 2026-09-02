@@ -99,6 +99,81 @@ class DotenvTest(unittest.TestCase):
             self.assertEqual(empty.stdout, "")
             self.assertEqual(missing.stdout, "default")
 
+    def test_merge_missing_adds_template_defaults_without_replacing_existing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp_path = Path(directory)
+            template = temp_path / "template.env"
+            env_file = temp_path / ".env"
+            output = temp_path / "merged.env"
+            template.write_text(
+                "KEEP=template\n"
+                "EMPTY=template\n"
+                "NEW=added\n"
+                "SECOND=new\n",
+                encoding="utf-8",
+            )
+            env_file.write_text(
+                "# local values\n"
+                "KEEP=custom\n"
+                "EMPTY=\n"
+                "EXTRA=local\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'source "$1"\nsparkclaw_dotenv_merge_missing "$2" "$3" "$4"',
+                    "bash",
+                    str(LIBRARY),
+                    str(template),
+                    str(env_file),
+                    str(output),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "2")
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "# local values\n"
+                "KEEP=custom\n"
+                "EMPTY=\n"
+                "EXTRA=local\n"
+                "NEW=added\n"
+                "SECOND=new\n",
+            )
+
+            second_output = temp_path / "merged-again.env"
+            second = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'source "$1"\nsparkclaw_dotenv_merge_missing "$2" "$3" "$4"',
+                    "bash",
+                    str(LIBRARY),
+                    str(template),
+                    str(output),
+                    str(second_output),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertEqual(second.stdout, "0")
+            self.assertEqual(
+                second_output.read_text(encoding="utf-8"),
+                output.read_text(encoding="utf-8"),
+            )
+
     def test_tcp_port_validation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             env_file = Path(directory) / ".env"

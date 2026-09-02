@@ -46,6 +46,12 @@ def set_env_value(text: str, key: str, value: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def remove_env_value(text: str, key: str) -> str:
+    return "\n".join(
+        line for line in text.splitlines() if not line.startswith(f"{key}=")
+    ) + "\n"
+
+
 def configured_env() -> str:
     text = TEMPLATE.read_text(encoding="utf-8")
     values = {
@@ -128,6 +134,38 @@ class DeployCloudVMTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("deployment check passed", result.stdout)
+        self.assertFalse(any("up" in call for call in calls))
+        self.assertFalse(any("exec" in call for call in calls))
+
+    def test_deploy_adds_missing_template_defaults_without_replacing_values(self) -> None:
+        env_text = remove_env_value(
+            configured_env(), "SPARKCLAW_MODEL_CAPACITY_PROFILE"
+        )
+        env_text = remove_env_value(env_text, "SPARKCLAW_MODEL_DISABLE_THINKING")
+        env_text = set_env_value(
+            env_text, "SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "777"
+        )
+        result, calls, final_env = self.run_script(env_text)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("added 2 missing defaults", result.stdout)
+        self.assertIn(
+            "SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1\n",
+            final_env,
+        )
+        self.assertIn("SPARKCLAW_MODEL_DISABLE_THINKING=true\n", final_env)
+        self.assertIn("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=777\n", final_env)
+        self.assertTrue(any("up" in call for call in calls))
+
+    def test_check_uses_missing_defaults_without_changing_env(self) -> None:
+        env_text = remove_env_value(
+            configured_env(), "SPARKCLAW_MODEL_CAPACITY_PROFILE"
+        )
+        result, calls, final_env = self.run_script(env_text, "--check")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("without changing the file", result.stdout)
+        self.assertNotIn("SPARKCLAW_MODEL_CAPACITY_PROFILE=", final_env)
         self.assertFalse(any("up" in call for call in calls))
         self.assertFalse(any("exec" in call for call in calls))
 

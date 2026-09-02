@@ -25,8 +25,14 @@ import os
 from pathlib import Path
 import sys
 
+args = sys.argv[1:]
 with Path(os.environ["CLOUD_TEST_DOCKER_LOG"]).open("a", encoding="utf-8") as stream:
-    stream.write(json.dumps(sys.argv[1:]) + "\n")
+    stream.write(json.dumps(args) + "\n")
+if "--env-file" in args:
+    env_file = Path(args[args.index("--env-file") + 1])
+    Path(os.environ["CLOUD_TEST_EFFECTIVE_ENV_LOG"]).write_text(
+        env_file.read_text(encoding="utf-8"), encoding="utf-8"
+    )
 if os.environ.get("CLOUD_TEST_REQUIRE_SUDO") == "true":
     if os.environ.get("CLOUD_TEST_UNDER_SUDO") != "true":
         raise SystemExit(1)
@@ -80,7 +86,7 @@ class CloudComposeTest(unittest.TestCase):
         visible_browser: bool = False,
         require_sudo: bool = False,
     ) -> tuple[
-        subprocess.CompletedProcess[str], list[list[str]], list[list[str]]
+        subprocess.CompletedProcess[str], list[list[str]], list[list[str]], str, str
     ]:
         with tempfile.TemporaryDirectory() as directory:
             temp_path = Path(directory)
@@ -102,6 +108,7 @@ class CloudComposeTest(unittest.TestCase):
             display_resolver.chmod(0o755)
             docker_log = temp_path / "docker.jsonl"
             curl_log = temp_path / "curl.jsonl"
+            effective_env_log = temp_path / "effective.env"
             environment = os.environ.copy()
             environment.update(
                 {
@@ -110,6 +117,7 @@ class CloudComposeTest(unittest.TestCase):
                     "SPARKCLAW_CLOUD_ENV_FILE": str(env_file),
                     "CLOUD_TEST_DOCKER_LOG": str(docker_log),
                     "CLOUD_TEST_CURL_LOG": str(curl_log),
+                    "CLOUD_TEST_EFFECTIVE_ENV_LOG": str(effective_env_log),
                     "CLOUD_TEST_MODEL_MODE": expected_mode,
                     "CLOUD_TEST_BROWSER_MODE": "visible" if visible_browser else "hidden",
                     "CLOUD_TEST_REQUIRE_SUDO": "true" if require_sudo else "false",
@@ -130,13 +138,23 @@ class CloudComposeTest(unittest.TestCase):
             curl_calls = []
             if curl_log.exists():
                 curl_calls = [json.loads(line) for line in curl_log.read_text().splitlines()]
-            return result, docker_calls, curl_calls
+            effective_env = ""
+            if effective_env_log.exists():
+                effective_env = effective_env_log.read_text(encoding="utf-8")
+            return (
+                result,
+                docker_calls,
+                curl_calls,
+                effective_env,
+                env_file.read_text(encoding="utf-8"),
+            )
 
     def test_mock_runtime_starts_only_server_services(self) -> None:
-        result, docker_calls, curl_calls = self.run_script(
+        result, docker_calls, curl_calls, _, _ = self.run_script(
             """
             SPARKCLAW_API_TOKEN=legacy-owner-token
             SPARKCLAW_MODEL_MODE=mock
+            SPARKCLAW_MODEL_CAPACITY_PROFILE=mock
             SPARKCLAW_STATE_BACKEND=postgres
             SPARKCLAW_WEBCHAT_PORT=19876
             """,
@@ -158,9 +176,10 @@ class CloudComposeTest(unittest.TestCase):
         self.assertNotIn(str(VISIBLE_BROWSER_COMPOSE), up_call)
 
     def test_desktop_runtime_stacks_visible_browser_overlay(self) -> None:
-        result, docker_calls, _ = self.run_script(
+        result, docker_calls, _, _, _ = self.run_script(
             """
             SPARKCLAW_MODEL_MODE=mock
+            SPARKCLAW_MODEL_CAPACITY_PROFILE=mock
             SPARKCLAW_STATE_BACKEND=postgres
             """,
             "mock",
@@ -177,9 +196,10 @@ class CloudComposeTest(unittest.TestCase):
         self.assertIn("AGENT_BROWSER_HEADED=true", " ".join(browser_call))
 
     def test_desktop_runtime_preserves_display_when_docker_requires_sudo(self) -> None:
-        result, docker_calls, _ = self.run_script(
+        result, docker_calls, _, _, _ = self.run_script(
             """
             SPARKCLAW_MODEL_MODE=mock
+            SPARKCLAW_MODEL_CAPACITY_PROFILE=mock
             SPARKCLAW_STATE_BACKEND=postgres
             """,
             "mock",
@@ -192,7 +212,7 @@ class CloudComposeTest(unittest.TestCase):
         self.assertIn(str(VISIBLE_BROWSER_COMPOSE), up_call)
 
     def test_external_runtime_rejects_placeholder_endpoints(self) -> None:
-        result, docker_calls, curl_calls = self.run_script(
+        result, docker_calls, curl_calls, _, _ = self.run_script(
             """
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
@@ -207,10 +227,11 @@ class CloudComposeTest(unittest.TestCase):
         self.assertEqual(curl_calls, [])
 
     def test_external_runtime_accepts_complete_openai_compatible_config(self) -> None:
-        result, docker_calls, _ = self.run_script(
+        result, docker_calls, _, effective_env, stored_env = self.run_script(
             """
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
+            SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=777
             SPARKCLAW_FAST_BASE_URL=https://models.test/v1
             SPARKCLAW_FAST_MODEL=fast-model
             SPARKCLAW_DEEP_BASE_URL=https://models.test/v1
@@ -225,9 +246,16 @@ class CloudComposeTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any("up" in call for call in docker_calls))
+        self.assertIn("Applied", result.stdout)
+        self.assertIn(
+            "SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1\n",
+            effective_env,
+        )
+        self.assertIn("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=777\n", effective_env)
+        self.assertNotIn("SPARKCLAW_MODEL_CAPACITY_PROFILE=", stored_env)
 
     def test_check_validates_compose_without_starting_services(self) -> None:
-        result, docker_calls, curl_calls = self.run_script(
+        result, docker_calls, curl_calls, effective_env, stored_env = self.run_script(
             """
             SPARKCLAW_MODEL_MODE=external
             SPARKCLAW_STATE_BACKEND=postgres
@@ -249,6 +277,11 @@ class CloudComposeTest(unittest.TestCase):
         self.assertFalse(any("up" in call for call in docker_calls))
         self.assertFalse(any("exec" in call for call in docker_calls))
         self.assertEqual(curl_calls, [])
+        self.assertIn(
+            "SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1\n",
+            effective_env,
+        )
+        self.assertNotIn("SPARKCLAW_MODEL_CAPACITY_PROFILE=", stored_env)
 
     def test_example_contains_standard_model_names_but_no_endpoints_or_api_key(self) -> None:
         values = {}

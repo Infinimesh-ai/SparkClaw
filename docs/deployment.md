@@ -134,6 +134,20 @@ in the repository; they are written only to the VM's ignored, mode-0600 `.env`
 file. Public service URLs used as documented deployment defaults may be
 recorded in versioned profiles.
 
+Before normal deployment, the VM script merges assignments newly introduced in
+`docker/env/sparkclaw.cloud.example.env` into the private `.env`. It adds only
+missing keys, preserves every existing value including an explicit empty value,
+and then reconciles the small set of cloud-owned invariants such as container
+UID/GID, external model mode, and PostgreSQL state. The update is atomic, and
+the merge step itself does not download application or model dependencies.
+`--check` and direct `start_cloud_compose.sh` runs apply the same template
+defaults through a mode-0600 temporary file, so validation and Compose
+expansion see the upgraded configuration without changing the private file.
+This automatically supplies new defaults such as
+`SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1` to installations
+created from an older template while retaining operator endpoint and credential
+choices.
+
 The hosted Fast endpoint at
 `https://sparkclaw.infinimesh.cloud/fast/v1` reported
 `max_model_len=262144` on 2026-08-28. The executable

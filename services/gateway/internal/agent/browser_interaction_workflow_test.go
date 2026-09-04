@@ -13,6 +13,15 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
+func useRegisteredBrowserDestination(t *testing.T, destination browserDestination) {
+	t.Helper()
+	previous := registeredBrowserDestinations
+	registeredBrowserDestinations = []browserDestination{destination}
+	t.Cleanup(func() {
+		registeredBrowserDestinations = previous
+	})
+}
+
 func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -59,12 +68,12 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 	})
 	defer closeRuntime()
 
-	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开 https://example.com/mail 并点击草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityBrowserInteraction {
-		t.Fatalf("QQ Mail interaction did not select browser.interaction: %#v", route)
+		t.Fatalf("explicit URL interaction did not select browser.interaction: %#v", route)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
@@ -162,9 +171,12 @@ func TestBrowserGoalAssessmentInstructionDistinguishesActionFromCompletion(t *te
 }
 
 func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
+	useRegisteredBrowserDestination(t, browserDestination{
+		ID: "example_app", Name: "Example App", URL: "https://example.com/", Aliases: []string{"example app"},
+	})
 	registeredRoute := app.RouteDecision{
-		Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
-		Facts: map[string]string{"browser_destination": "qq_mail"},
+		Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://example.com/"},
+		Facts: map[string]string{"browser_destination": "example_app"},
 	}
 	for _, test := range []struct {
 		name       string
@@ -177,7 +189,7 @@ func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
 			name:  "selected registered subdomain page",
 			route: registeredRoute,
 			refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{
-				"url": "https://wx.mail.qq.com/home/index?sid=redacted#/list/4", "selected": "true",
+				"url": "https://workspace.example.com/home", "selected": "true",
 			}}},
 			wantRef: "page_1", wantSignal: app.OutcomeSignalTargetTabExists,
 		},
@@ -185,8 +197,8 @@ func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
 			name:  "matching page instead of selected unrelated page",
 			route: registeredRoute,
 			refs: []app.ResourceRef{
-				{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{"url": "https://example.com/", "selected": "true"}},
-				{Kind: "browser_tab", Ref: "page_2", Attributes: map[string]string{"url": "https://wx.mail.qq.com/home/index#/list/4"}},
+				{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{"url": "https://other.example/", "selected": "true"}},
+				{Kind: "browser_tab", Ref: "page_2", Attributes: map[string]string{"url": "https://workspace.example.com/home"}},
 			},
 			wantRef: "page_2", wantSignal: app.OutcomeSignalTargetTabExists,
 		},
@@ -194,7 +206,7 @@ func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
 			name:  "lookalike host is rejected",
 			route: registeredRoute,
 			refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{
-				"url": "https://mail.qq.com.example.org/home", "selected": "true",
+				"url": "https://example.com.evil.invalid/home", "selected": "true",
 			}}},
 			wantSignal: app.OutcomeSignalTargetTabMissing,
 		},
@@ -226,10 +238,13 @@ func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
 }
 
 func TestBrowserAutomationReusesRegisteredDestinationPage(t *testing.T) {
+	useRegisteredBrowserDestination(t, browserDestination{
+		ID: "example_app", Name: "Example App", URL: "https://example.com/", Aliases: []string{"example app"},
+	})
 	state := &app.WorkflowState{
 		Route: app.RouteDecision{
-			Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
-			Facts: map[string]string{"browser_destination": "qq_mail"},
+			Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://example.com/"},
+			Facts: map[string]string{"browser_destination": "example_app"},
 		},
 		Browser: &app.BrowserWorkflowState{SchemaVersion: app.BrowserWorkflowStateSchemaVersion},
 		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
@@ -240,7 +255,7 @@ func TestBrowserAutomationReusesRegisteredDestinationPage(t *testing.T) {
 		NodeID:  "browser_result",
 		Signals: []app.OutcomeSignal{app.OutcomeSignalTabsScanned},
 		Refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_7", Attributes: map[string]string{
-			"url": "https://wx.mail.qq.com/home/index#/list/4", "selected": "true",
+			"url": "https://workspace.example.com/home", "selected": "true",
 		}}},
 	}
 	assessment := (browserAutomationProfile{}).Assess(state, outcome)
@@ -258,7 +273,7 @@ func TestBrowserInteractionMaterializesFrozenBlankTabNavigationArguments(t *test
 	})
 	defer closeRuntime()
 
-	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开 https://example.com/mail 并点击草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +301,7 @@ func TestBrowserInteractionMaterializesFrozenBlankTabNavigationArguments(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Args["url"] != "https://mail.qq.com/" || plan.Args["page_id"] != "page_1" {
+	if plan.Args["url"] != "https://example.com/mail" || plan.Args["page_id"] != "page_1" {
 		t.Fatalf("blank-tab navigation did not use the frozen URL and tab ref: %#v", plan.Args)
 	}
 }
@@ -298,7 +313,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	})
 	defer closeRuntime()
 
-	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开 https://example.com/mail 并点击草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +328,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	}
 	snapshotCall := app.ToolCall{ID: "tc_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted, Result: map[string]any{"output": map[string]any{
 		"snapshot": map[string]any{
-			"snapshot_id": "snapshot_1", "page_id": "page_1", "url": "https://mail.qq.com/",
+			"snapshot_id": "snapshot_1", "page_id": "page_1", "url": "https://example.com/mail",
 			"controls": []any{map[string]any{"ref": "snapshot_1:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱", "fingerprint": "fingerprint"}},
 		},
 	}}}
@@ -346,7 +361,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 
 	visibleSnapshotCall := app.ToolCall{ID: "tc_visible_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted, Result: map[string]any{"output": map[string]any{
 		"snapshot": map[string]any{
-			"snapshot_id": "snapshot_2", "page_id": "page_1", "url": "https://mail.qq.com/#/drafts",
+			"snapshot_id": "snapshot_2", "page_id": "page_1", "url": "https://example.com/mail#drafts",
 			"controls": []any{map[string]any{"ref": "snapshot_2:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱", "fingerprint": "fingerprint"}},
 		},
 	}}}
@@ -448,9 +463,9 @@ func TestBrowserAfterActionProjectionCarriesValidatedTransitionAndActionSemantic
 	}
 }
 
-func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
+func TestStructuredLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := storetest.MustCreateSession(t, st, "QQ Mail login handoff")
+	session := storetest.MustCreateSession(t, st, "browser login handoff")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	testSaveRun(st, run)
 	runtime := Runtime{store: st}
@@ -458,19 +473,19 @@ func TestQQMailLoginSnapshotCreatesVisibleLoginHandoff(t *testing.T) {
 		ID: "tc_snapshot", SessionID: session.ID, RunID: run.ID, Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 		Arguments: map[string]any{"browser_mode": "collaborative", "presentation": "visible", "surface_visible": true},
 		Result: map[string]any{"output": map[string]any{"snapshot": map[string]any{
-			"title": "登录QQ邮箱", "url": "https://wx.mail.qq.com/?cancel_login=true", "snapshot_id": "snapshot_1", "page_id": "page_1",
+			"title": "Sign in", "url": "https://auth.example.com/login", "snapshot_id": "snapshot_1", "page_id": "page_1",
 		}}},
 	}
-	block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "打开QQ邮箱的草稿箱", toolPlan{Name: "browser.snapshot", Args: call.Arguments}, call)
+	block, ok, err := runtime.recordBrowserLoginBlockFromToolCall(t.Context(), session.ID, run.ID, "打开受保护页面", toolPlan{Name: "browser.snapshot", Args: call.Arguments}, call)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !ok || block.Status != app.BrowserLoginBlockStatusWaiting || block.BrowserAuthStatus != "handoff_waiting" {
-		t.Fatalf("QQ Mail login page did not create a visible login handoff: %#v ok=%v", block, ok)
+		t.Fatalf("structured login page did not create a visible login handoff: %#v ok=%v", block, ok)
 	}
 }
 
-func TestQQMailAuthenticatedSnapshotUsesStructuredPageEvidence(t *testing.T) {
+func TestAuthenticatedSnapshotUsesStructuredPageEvidence(t *testing.T) {
 	call := app.ToolCall{
 		Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted,
 		Result: map[string]any{"output": map[string]any{
@@ -479,12 +494,12 @@ func TestQQMailAuthenticatedSnapshotUsesStructuredPageEvidence(t *testing.T) {
 				"browser_page_auth_confidence": "application_continuity",
 				"browser_page_auth_signals":    []string{"visible_identity_control", "usable_application_shell"},
 			},
-			"text": "QQ邮箱 收件箱 草稿箱 邮件正文中的登录与退出说明",
+			"text": "Workspace content containing unrelated sign-in and sign-out documentation",
 		}},
 	}
 	assessment := assessBrowserAuthentication(call, browserLoginToolFields(call))
 	if assessment.State != browserAuthAuthenticated || assessment.Confidence != "application_continuity" {
-		t.Fatalf("authenticated QQ Mail shell was not recognized from structured snapshot evidence: %#v", assessment)
+		t.Fatalf("authenticated application shell was not recognized from structured snapshot evidence: %#v", assessment)
 	}
 }
 
@@ -610,8 +625,8 @@ func TestBrowserSettleArgumentsCarryFrozenRegisteredDestinationKind(t *testing.T
 		Browser: &app.BrowserWorkflowState{
 			Target: app.BrowserTargetDescriptor{
 				TargetKind:    app.BrowserTargetRegisteredDestination,
-				CanonicalURL:  "https://mail.qq.com/",
-				DestinationID: "qq_mail",
+				CanonicalURL:  "https://example.com/",
+				DestinationID: "example_app",
 			},
 		},
 		ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
@@ -621,7 +636,7 @@ func TestBrowserSettleArgumentsCarryFrozenRegisteredDestinationKind(t *testing.T
 	}
 
 	args := (browserInteractionProfile{}).DirectStageArguments(state)
-	if args["expected_url"] != "https://mail.qq.com/" ||
+	if args["expected_url"] != "https://example.com/" ||
 		args["target_kind"] != string(app.BrowserTargetRegisteredDestination) {
 		t.Fatalf("registered destination settle args = %#v", args)
 	}
@@ -655,14 +670,14 @@ func TestBrowserVisibleSettleArgumentsUseVerifiedHiddenResultURL(t *testing.T) {
 		Browser: &app.BrowserWorkflowState{
 			Target: app.BrowserTargetDescriptor{
 				TargetKind:    app.BrowserTargetRegisteredDestination,
-				CanonicalURL:  "https://mail.qq.com/",
-				DestinationID: "qq_mail",
+				CanonicalURL:  "https://example.com/",
+				DestinationID: "example_app",
 			},
 			Result: &app.BrowserResultEvidence{
 				Target: app.BrowserTargetDescriptor{
 					TargetKind:    app.BrowserTargetRegisteredDestination,
-					CanonicalURL:  "https://wx.mail.qq.com/home/index#/list/4",
-					DestinationID: "qq_mail",
+					CanonicalURL:  "https://workspace.example.com/home",
+					DestinationID: "example_app",
 				},
 			},
 		},
@@ -673,7 +688,7 @@ func TestBrowserVisibleSettleArgumentsUseVerifiedHiddenResultURL(t *testing.T) {
 	}
 
 	args := (browserInteractionProfile{}).DirectStageArguments(state)
-	if args["expected_url"] != "https://wx.mail.qq.com/home/index#/list/4" ||
+	if args["expected_url"] != "https://workspace.example.com/home" ||
 		args["target_kind"] != string(app.BrowserTargetRegisteredDestination) {
 		t.Fatalf("visible settle args = %#v", args)
 	}
@@ -708,14 +723,14 @@ func TestBrowserInteractionRetriesSnapshotThatChangedAfterSettleOrHasNoEvidence(
 	}{
 		{
 			name:           "route changed after settle",
-			settledURL:     "https://wx.mail.qq.com/list/readtemplate",
-			snapshotURL:    "https://wx.mail.qq.com/home/index#/list/1/1",
+			settledURL:     "https://example.com/before",
+			snapshotURL:    "https://example.com/after",
 			includeElement: true,
 		},
 		{
 			name:        "interaction evidence not rendered",
-			settledURL:  "https://wx.mail.qq.com/home/index#/list/1/1",
-			snapshotURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+			settledURL:  "https://example.com/inbox",
+			snapshotURL: "https://example.com/inbox",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -727,12 +742,10 @@ func TestBrowserInteractionRetriesSnapshotThatChangedAfterSettleOrHasNoEvidence(
 			state := &app.WorkflowState{
 				Plan: plan, PlanDigest: workflowPlanDigest(plan), Status: app.WorkflowStatusRunning,
 				Route: app.RouteDecision{
-					Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
-					Facts: map[string]string{"browser_destination": "qq_mail"},
+					Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://example.com/"},
 				},
 				Browser: &app.BrowserWorkflowState{Target: app.BrowserTargetDescriptor{
-					TargetKind: app.BrowserTargetRegisteredDestination, CanonicalURL: "https://mail.qq.com/",
-					DestinationID: "qq_mail",
+					TargetKind: app.BrowserTargetExplicitURL, CanonicalURL: "https://example.com/",
 				}},
 				ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
 				Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{

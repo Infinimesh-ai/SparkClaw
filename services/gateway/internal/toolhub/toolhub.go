@@ -57,6 +57,11 @@ type ToolHub struct {
 	documents             *document.Pipeline
 	lifecycle             *toolHubLifecycle
 	connectorGate         func(ownerID, channel string) bool
+	emailSender           EmailSender
+}
+
+type EmailSender interface {
+	SendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error)
 }
 
 // WithConnectorGate wires the owner connector opt-in check (usually
@@ -64,6 +69,11 @@ type ToolHub struct {
 // enforces it. Without the gate, third-party return routes fail closed.
 func (h *ToolHub) WithConnectorGate(gate func(ownerID, channel string) bool) *ToolHub {
 	h.connectorGate = gate
+	return h
+}
+
+func (h *ToolHub) WithEmailSender(sender EmailSender) *ToolHub {
+	h.emailSender = sender
 	return h
 }
 

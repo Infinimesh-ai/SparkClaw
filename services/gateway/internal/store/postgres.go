@@ -39,6 +39,7 @@ type PostgresStore struct {
 	connectorPostgres                 ownerPostgresOps
 	connectorCommandGate              *semaphore.Weighted
 	connectorSettingWriteHighWater    map[string]time.Time
+	emailProviderWriteHighWater       map[string]time.Time
 	notificationBindingWriteHighWater map[string]time.Time
 	connectorNow                      func() time.Time
 	conversationPostgres              ownerPostgresOps
@@ -125,6 +126,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		connectorPostgres:                 pgxOwnerPostgresOps{pool: pool},
 		connectorCommandGate:              semaphore.NewWeighted(1),
 		connectorSettingWriteHighWater:    map[string]time.Time{},
+		emailProviderWriteHighWater:       map[string]time.Time{},
 		notificationBindingWriteHighWater: map[string]time.Time{},
 		connectorNow:                      time.Now,
 		conversationPostgres:              pgxOwnerPostgresOps{pool: pool},
@@ -161,6 +163,10 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		return nil, err
 	}
 	if err := st.validateConnectorState(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.validateEmailProviderState(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}

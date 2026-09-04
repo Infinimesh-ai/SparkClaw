@@ -17,6 +17,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
+const webChatProxyTokenHeader = "X-SparkClaw-WebChat-Proxy"
+
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mcp" {
@@ -75,6 +77,10 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 				writeError(w, http.StatusServiceUnavailable, errors.New("bridge API requires Gateway authentication or a configured gateway.bridge_token"))
 				return
 			}
+		}
+		if isBrowserControlRoute(r.URL.Path) && !s.authRequired() {
+			writeError(w, http.StatusServiceUnavailable, errors.New("browser control API requires Gateway authentication"))
+			return
 		}
 		if s.isPublicRoute(r) {
 			next.ServeHTTP(w, r)
@@ -161,6 +167,16 @@ func (s *Server) isPairingBootstrapRequest(r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+func (s *Server) isTrustedPairingBootstrap(r *http.Request) bool {
+	if isLocalRequest(r) {
+		return true
+	}
+	expected := s.cfg.Gateway.WebChatProxyToken
+	presented := r.Header.Get(webChatProxyTokenHeader)
+	return expected != "" && presented != "" &&
+		subtle.ConstantTimeCompare([]byte(presented), []byte(expected)) == 1
 }
 
 func (s *Server) authenticateBearer(ctx context.Context, token string) (requestPrincipal, bool, error) {

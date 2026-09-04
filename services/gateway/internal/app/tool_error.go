@@ -64,6 +64,19 @@ const (
 	ToolErrorInfoCredentialsChanged          ToolErrorCode = "info_credentials_changed"
 	ToolErrorLocalMindUpdating               ToolErrorCode = "localmind_updating"
 	ToolErrorLocalMindCredentialsChanged     ToolErrorCode = "localmind_credentials_changed"
+	ToolErrorEmailNotConfigured              ToolErrorCode = "email_not_configured"
+	ToolErrorEmailLoginRequired              ToolErrorCode = "email_login_required"
+	ToolErrorEmailAccountAmbiguous           ToolErrorCode = "email_account_ambiguous"
+	ToolErrorEmailProviderUnavailable        ToolErrorCode = "email_provider_unavailable"
+	ToolErrorEmailPageContractChanged        ToolErrorCode = "email_page_contract_changed"
+	ToolErrorEmailInvalidInput               ToolErrorCode = "email_invalid_input"
+	ToolErrorEmailDraftConflict              ToolErrorCode = "email_draft_conflict"
+	ToolErrorEmailDraftVerificationFailed    ToolErrorCode = "email_draft_verification_failed"
+	ToolErrorEmailSendControlUnverified      ToolErrorCode = "email_send_control_unverified"
+	ToolErrorEmailSendOutcomeUnknown         ToolErrorCode = "email_send_outcome_unknown"
+	ToolErrorEmailScriptTimeout              ToolErrorCode = "email_script_timeout"
+	ToolErrorEmailScriptInvalidOutput        ToolErrorCode = "email_script_invalid_output"
+	ToolErrorEmailAdmissionStale             ToolErrorCode = "email_admission_stale"
 	// ToolErrorObservationBinaryContent: an observation.read window contains
 	// bytes that are not valid UTF-8. The error message carries the offset to
 	// retry with so the caller can skip past the binary region.

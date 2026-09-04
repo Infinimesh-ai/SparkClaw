@@ -38,7 +38,6 @@ func TestRealChromiumReadUsesAgentBrowserRenderedDOM(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Default()
-	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	adapter := NewAdapter(cfg)
 	t.Cleanup(func() { _ = adapter.Close() })

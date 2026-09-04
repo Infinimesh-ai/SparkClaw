@@ -65,6 +65,7 @@ func main() {
 		slog.Error("failed to initialize gateway services", "error", err)
 		os.Exit(1)
 	}
+	defer services.Close()
 	server := services.server
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())

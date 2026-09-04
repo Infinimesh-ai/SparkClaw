@@ -9,9 +9,10 @@ append_browser_xauthority() {
     return
   fi
   for existing in "${browser_xauthorities[@]:-}"; do
-    [[ "$existing" != "$candidate" ]] || return
+    [[ "$existing" != "$candidate" ]] || return 0
   done
   browser_xauthorities+=("$candidate")
+  return 0
 }
 
 discover_browser_xauthorities() {

@@ -472,9 +472,21 @@ func characterizeS0ConnectorRepository(t *testing.T, st testBackend, dimension s
 		if got, ok := mustGetNotificationBindingFixture(t, st, binding.ID); !ok || got.Channel != binding.Channel {
 			t.Fatalf("notification binding save/get = %#v ok=%v", got, ok)
 		}
+		checkedAt := time.Now().UTC()
+		email, err := st.UpdateEmailProviderSetting(t.Context(), app.EmailProviderSetting{
+			OwnerID: "owner-s0", Provider: app.EmailProviderGmail, Enabled: true, Default: true,
+			Account: app.EmailAccountDefault, AccountHint: "us***@gmail.com", State: app.EmailStateReady,
+			LastCheckedAt: &checkedAt,
+		}, 0)
+		if err != nil || email.Version != 1 {
+			t.Fatalf("email provider setting create = %#v err=%v", email, err)
+		}
 	case s0DimensionAbsence:
 		if _, ok, err := st.GetConnectorSetting(t.Context(), "owner-s0", "telegram"); err != nil || ok {
 			t.Fatal("missing connector setting was found")
+		}
+		if _, ok, err := st.GetEmailProviderSetting(t.Context(), "owner-s0", app.EmailProviderGmail); err != nil || ok {
+			t.Fatal("missing email provider setting was found")
 		}
 	case s0DimensionDuplicate:
 		binding := mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
@@ -483,6 +495,17 @@ func characterizeS0ConnectorRepository(t *testing.T, st testBackend, dimension s
 		mustUpdateNotificationBindingFixture(t, st, binding, replacement)
 		if got := mustListNotificationBindingsFixture(t, st, "telegram", ""); len(got) != 1 || got[0].Status != "revoked" {
 			t.Fatalf("notification binding overwrite created duplicates: %#v", got)
+		}
+		email, err := st.UpdateEmailProviderSetting(t.Context(), app.EmailProviderSetting{OwnerID: "owner-s0", Provider: app.EmailProviderGmail, Enabled: true}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		email.State = app.EmailStateLoginRequired
+		if _, err := st.UpdateEmailProviderSetting(t.Context(), email, email.Version); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := st.ListEmailProviderSettings(t.Context(), "owner-s0"); err != nil || len(got) != 1 || got[0].State != app.EmailStateLoginRequired {
+			t.Fatalf("email provider overwrite created duplicates: %#v err=%v", got, err)
 		}
 	default:
 		t.Fatalf("unexpected ConnectorRepository dimension %q", dimension)
@@ -721,12 +744,19 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 			t.Fatal(err)
 		}
 		binding := mustCreateNotificationBindingFixture(t, st, app.NotificationBinding{ID: "binding-restart", OwnerID: "owner-s0", Channel: "telegram", Status: "active", Scopes: []string{"send"}})
+		email, err := st.UpdateEmailProviderSetting(t.Context(), app.EmailProviderSetting{OwnerID: "owner-s0", Provider: app.EmailProviderGmail, Enabled: true, Default: true}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
 		reloaded, err := NewFileStore(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got, ok := mustGetNotificationBindingFixture(t, reloaded, binding.ID); !ok || len(got.Scopes) != 1 || got.Scopes[0] != "send" {
 			t.Fatalf("notification binding did not survive restart: %#v ok=%v", got, ok)
+		}
+		if got, ok, err := reloaded.GetEmailProviderSetting(t.Context(), "owner-s0", app.EmailProviderGmail); err != nil || !ok || got.Version != email.Version || !got.Default {
+			t.Fatalf("email provider setting did not survive restart: %#v ok=%v err=%v", got, ok, err)
 		}
 	})
 }

@@ -36,10 +36,36 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterBrowserForm:         adaptBrowserFormOutcome,
 	app.OutcomeAdapterBrowserTransition:   adaptBrowserTransitionOutcome,
 	app.OutcomeAdapterBrowserGoal:         adaptBrowserGoalOutcome,
+	app.OutcomeAdapterBrowserEmailSend:    adaptBrowserEmailSendOutcome,
 	app.OutcomeAdapterDocumentEdit:        adaptDocumentEditOutcome,
 	app.OutcomeAdapterScheduleList:        adaptScheduleListOutcome,
 	app.OutcomeAdapterScheduleChange:      adaptScheduleChangeOutcome,
 	app.OutcomeAdapterLocalMindTask:       adaptLocalMindTaskOutcome,
+}
+
+func adaptBrowserEmailSendOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	outcome.Retryable = false
+	if !toolCallCompleted(call) {
+		return outcome
+	}
+	output, ok := anyMap(call.Result)
+	if !ok || firstNonEmptyString(output["status"]) != "sent" || firstNonEmptyString(output["provider"]) == "" ||
+		firstNonEmptyString(output["recipient_digest"]) == "" || intLikeValue(output["browser_generation"]) <= 0 || intLikeValue(output["script_revision"]) <= 0 {
+		return outcome
+	}
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalEmailSent}
+	outcome.Refs = []app.ResourceRef{{
+		Kind: "email_send_receipt", Ref: call.ID, Provenance: call.ID,
+		Attributes: map[string]string{
+			"provider":             firstNonEmptyString(output["provider"]),
+			"recipient_digest":     firstNonEmptyString(output["recipient_digest"]),
+			"provider_message_id":  firstNonEmptyString(output["provider_message_id"]),
+			"browser_generation":   strings.TrimSpace(stringValue(output["browser_generation"])),
+			"send_script_revision": strings.TrimSpace(stringValue(output["script_revision"])),
+		},
+	}}
+	return outcome
 }
 
 func adaptBrowserPublicTargetOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {

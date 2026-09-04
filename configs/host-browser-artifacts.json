@@ -1,0 +1,16 @@
+{
+  "version": "148.0.7778.0",
+  "artifacts": {
+    "arm64": {
+      "url": "https://cdn.playwright.dev/builds/chromium/1223/chromium-linux-arm64.zip",
+      "sha256": "3f7fd102f646dad864a987de04782e238e98a3d38543a1c8be0129b96706a283",
+      "archiveRoot": "chrome-linux",
+      "playwrightBuild": "1223"
+    },
+    "x86_64": {
+      "url": "https://storage.googleapis.com/chrome-for-testing-public/148.0.7778.0/linux64/chrome-linux64.zip",
+      "sha256": "c9058012550254b5b658f3f111369c8df60c48406946da25673ba27e0220e8ac",
+      "archiveRoot": "chrome-linux64"
+    }
+  }
+}

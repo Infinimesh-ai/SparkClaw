@@ -164,6 +164,9 @@ const (
 	OperationConnectorSettingList        StoreOperation = "connector_setting.list"
 	OperationConnectorSettingListAll     StoreOperation = "connector_setting.list_all"
 	OperationConnectorSettingUpdate      StoreOperation = "connector_setting.update"
+	OperationEmailProviderSettingGet     StoreOperation = "email_provider_setting.get"
+	OperationEmailProviderSettingList    StoreOperation = "email_provider_setting.list"
+	OperationEmailProviderSettingUpdate  StoreOperation = "email_provider_setting.update"
 	OperationNotificationBindingCreate   StoreOperation = "notification_binding.create"
 	OperationNotificationBindingGet      StoreOperation = "notification_binding.get"
 	OperationNotificationBindingList     StoreOperation = "notification_binding.list"
@@ -678,6 +681,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationConnectorSettingUpdate: {
 		ID: OperationConnectorSettingUpdate, Repository: "ConnectorRepository",
 		Method: "UpdateConnectorSetting", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationEmailProviderSettingGet: {
+		ID: OperationEmailProviderSettingGet, Repository: "ConnectorRepository",
+		Method: "GetEmailProviderSetting", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEmailProviderSettingList: {
+		ID: OperationEmailProviderSettingList, Repository: "ConnectorRepository",
+		Method: "ListEmailProviderSettings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEmailProviderSettingUpdate: {
+		ID: OperationEmailProviderSettingUpdate, Repository: "ConnectorRepository",
+		Method: "UpdateEmailProviderSetting", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationNotificationBindingCreate: {
 		ID: OperationNotificationBindingCreate, Repository: "ConnectorRepository",

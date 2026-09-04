@@ -307,6 +307,7 @@ const (
 	RouteOperationEdit      RouteOperation = "edit"
 	RouteOperationTransform RouteOperation = "transform"
 	RouteOperationDelete    RouteOperation = "delete"
+	RouteOperationSend      RouteOperation = "send"
 )
 
 type RouteFactScope string

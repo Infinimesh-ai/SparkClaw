@@ -7,6 +7,7 @@ const (
 	CapabilityBrowserPageRead       CapabilityID = "browser.page_read"
 	CapabilityBrowserInteraction    CapabilityID = "browser.interaction"
 	CapabilityBrowserFormDraft      CapabilityID = "browser.form_draft"
+	CapabilityBrowserEmail          CapabilityID = "browser.email"
 	CapabilityDocumentRead          CapabilityID = "document.read"
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
 	CapabilityLocalMindRead         CapabilityID = "localmind.read"
@@ -41,6 +42,7 @@ const (
 	IntentOperationCreate   IntentOperation = "create"
 	IntentOperationEdit     IntentOperation = "edit"
 	IntentOperationDelete   IntentOperation = "delete"
+	IntentOperationSend     IntentOperation = "send"
 )
 
 type TargetKind string
@@ -141,6 +143,7 @@ const (
 	WorkflowBrowserPageRead       WorkflowID = "browser.page_read"
 	WorkflowBrowserInteraction    WorkflowID = "browser.interaction"
 	WorkflowBrowserFormDraft      WorkflowID = "browser.form_draft"
+	WorkflowBrowserEmail          WorkflowID = "browser.email"
 	WorkflowDocumentRead          WorkflowID = "document.read"
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
 	WorkflowLocalMindRead         WorkflowID = "localmind.read"
@@ -193,6 +196,7 @@ const (
 	ToolCapabilityBrowserFormSelect         = "browser.form.select"
 	ToolCapabilityBrowserTransitionValidate = "browser.interaction.transition_validate"
 	ToolCapabilityBrowserGoalAssess         = "browser.interaction.goal_assess"
+	ToolCapabilityBrowserEmailSend          = "browser.email.send"
 	ToolCapabilityDocumentRead              = "document.read"
 	ToolCapabilityDocumentEdit              = "document.edit"
 	ToolCapabilityScheduleManage            = "schedule.manage"
@@ -240,6 +244,7 @@ const (
 	OutcomeAdapterBrowserForm         ToolOutcomeAdapter = "browser.form"
 	OutcomeAdapterBrowserTransition   ToolOutcomeAdapter = "browser.transition"
 	OutcomeAdapterBrowserGoal         ToolOutcomeAdapter = "browser.goal"
+	OutcomeAdapterBrowserEmailSend    ToolOutcomeAdapter = "browser.email.send"
 	OutcomeAdapterDocumentEdit        ToolOutcomeAdapter = "document.edit"
 	OutcomeAdapterScheduleList        ToolOutcomeAdapter = "schedule.list"
 	OutcomeAdapterScheduleChange      ToolOutcomeAdapter = "schedule.change"
@@ -300,6 +305,7 @@ const (
 	OutcomeSignalLocalMindTaskCompleted          OutcomeSignal = "localmind_task_completed"
 	OutcomeSignalLocalMindTaskFailed             OutcomeSignal = "localmind_task_failed"
 	OutcomeSignalLocalMindTaskCancelled          OutcomeSignal = "localmind_task_cancelled"
+	OutcomeSignalEmailSent                       OutcomeSignal = "email_sent"
 
 	AssessmentComplete          AssessmentStatus = "complete"
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"

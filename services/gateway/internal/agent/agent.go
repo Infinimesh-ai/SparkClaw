@@ -47,6 +47,11 @@ type Runtime struct {
 	semanticRouter  *semanticIntentRouter
 	messageControl  MessageControlRouter
 	integrationRuns *integrationrun.Registry
+	emailAdmission  EmailAdmission
+}
+
+type EmailAdmission interface {
+	Admit(context.Context, string, string) (app.EmailAdmissionBinding, error)
 }
 
 type Result struct {
@@ -123,6 +128,11 @@ func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 
 func (r Runtime) WithIntegrationRuns(registry *integrationrun.Registry) Runtime {
 	r.integrationRuns = registry
+	return r
+}
+
+func (r Runtime) WithEmailAdmission(admission EmailAdmission) Runtime {
+	r.emailAdmission = admission
 	return r
 }
 
@@ -438,6 +448,16 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, controlRoute)
 	}
 	run.MessageContext.Route = route
+	if route.Status == app.RouteMatched && routeTargetsCapability(route, app.CapabilityBrowserEmail) {
+		admitted, admissionErr := r.admitEmailRoute(ctx, run.SessionID, run.ID, envelope.OwnerID, visibleContent, route)
+		if admissionErr != nil {
+			route.Status = app.RouteBlocked
+			route.Reason = admissionErr.Error()
+		} else {
+			route = admitted
+		}
+		run.MessageContext.Route = route
+	}
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist matched route: %w", err)
 	}
@@ -1942,6 +1962,20 @@ func approvalSummary(name string, args map[string]any) string {
 		return "Move file to SparkClaw trash: " + stringValue(args["path"])
 	case "memory.write_sensitive":
 		return "Write sensitive memory after owner approval"
+	case "email.send":
+		provider := strings.TrimSpace(stringValue(args["provider"]))
+		switch provider {
+		case app.EmailProviderQQMail:
+			provider = "QQ Mail"
+		case app.EmailProviderOutlook:
+			provider = "Outlook"
+		case app.EmailProviderGmail:
+			provider = "Gmail"
+		}
+		return fmt.Sprintf(
+			"Send one email via %s account %q. Recipient: %q. Subject: %q. Full body: %q",
+			provider, stringValue(args["account_hint"]), stringValue(args["recipient"]), stringValue(args["subject"]), stringValue(args["body"]),
+		)
 	case "docx.replace_paragraph":
 		return "修改 Word 文档段落：" + stringValue(args["path"])
 	case "docx.insert_paragraph":

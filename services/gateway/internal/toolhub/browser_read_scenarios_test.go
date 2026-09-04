@@ -232,7 +232,6 @@ func TestBrowserReadScenarioRealHiddenProviderSmoke(t *testing.T) {
 	cfg.Tools.BrowserAutomation.Enabled = true
 	cfg.Security.BrowserReadAllowHosts = []string{"127.0.0.1"}
 	cfg.Storage.ArtifactDir = t.TempDir()
-	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	hub := New(cfg, store.NewMemoryStore())
 	t.Cleanup(func() {

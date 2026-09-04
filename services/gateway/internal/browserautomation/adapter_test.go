@@ -5,17 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
@@ -47,104 +43,6 @@ func TestNormalizeAgentBrowserTabsPreservesActiveTab(t *testing.T) {
 	active := mapValue(pages[1])
 	if firstStringValue(active, "page_id") != "page_2" || !boolValue(active["selected"]) {
 		t.Fatalf("active agent-browser tab was not normalized: %#v", active)
-	}
-}
-
-func TestAgentBrowserOpenReusesOnlySoleBlankPage(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		pages []any
-		want  bool
-	}{
-		{name: "sole blank page", pages: []any{map[string]any{"url": "about:blank"}}, want: true},
-		{name: "existing target page", pages: []any{map[string]any{"url": "https://wx.mail.qq.com/home/index#/list/4"}}},
-		{name: "blank plus existing page", pages: []any{map[string]any{"url": "about:blank"}, map[string]any{"url": "https://example.com/"}}},
-		{name: "no pages", pages: nil},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := canReuseAgentBrowserBlankPage(test.pages); got != test.want {
-				t.Fatalf("unexpected blank-page reuse decision: got=%t want=%t pages=%#v", got, test.want, test.pages)
-			}
-		})
-	}
-}
-
-func TestAgentBrowserObservedTabsAreClonedAndConsumedOnce(t *testing.T) {
-	entry := &agentBrowserSessionEntry{}
-	pages := []any{map[string]any{"page_id": "page_1", "url": "about:blank", "selected": true}}
-	entry.rememberObservedTabsLocked(pages)
-	mapValue(pages[0])["url"] = "https://unrelated.example/"
-
-	observed, ok := entry.takeObservedTabsLocked()
-	if !ok || !canReuseAgentBrowserBlankPage(observed) {
-		t.Fatalf("verified blank-tab observation was not isolated from caller mutation: %#v", observed)
-	}
-	if second, ok := entry.takeObservedTabsLocked(); ok || second != nil {
-		t.Fatalf("tab observation was reusable more than once: %#v ok=%t", second, ok)
-	}
-}
-
-func TestFreshVisibleSessionOpensTargetBeforeTabDiscovery(t *testing.T) {
-	entry := &agentBrowserSessionEntry{freshSession: true, presentation: "visible"}
-	if !entry.shouldOpenFreshVisibleSessionDirect(true) {
-		t.Fatal("fresh visible browser.open should navigate directly to its target")
-	}
-	entry.presentation = "hidden"
-	if entry.shouldOpenFreshVisibleSessionDirect(true) {
-		t.Fatal("hidden sessions must keep the existing automation path")
-	}
-	entry.presentation = "visible"
-	entry.freshSession = false
-	if entry.shouldOpenFreshVisibleSessionDirect(true) {
-		t.Fatal("an established visible session must inspect existing tabs before opening another")
-	}
-}
-
-func TestRebaseFreshVisibleURLRouteUsesRedirectedSessionURL(t *testing.T) {
-	target := "https://wx.mail.qq.com/home/index?sid=stale#/list/4"
-	current := "https://wx.mail.qq.com/home/index?sid=fresh#/list/1/1"
-	parsedTarget, err := url.Parse(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := browserURLOrigin(parsedTarget); got != "https://wx.mail.qq.com/" {
-		t.Fatalf("visible startup origin = %q", got)
-	}
-	got, ok := rebaseFreshVisibleURLRoute(target, current)
-	if !ok || got != "https://wx.mail.qq.com/home/index?sid=fresh#/list/4" {
-		t.Fatalf("unexpected rebased URL: got=%q ok=%t", got, ok)
-	}
-	got, ok = rebaseFreshVisibleURLRoute(target, "https://wx.mail.qq.com/list/readtemplate?sid=fresh#/login")
-	if !ok || got != "https://wx.mail.qq.com/home/index?sid=fresh#/list/4" {
-		t.Fatalf("unexpected bootstrap-path rebase: got=%q ok=%t", got, ok)
-	}
-
-	for _, test := range []struct {
-		name    string
-		target  string
-		current string
-	}{
-		{
-			name:    "already at target fragment",
-			target:  "https://example.com/app#/drafts",
-			current: "https://example.com/app?session=fresh#/drafts",
-		},
-		{
-			name:    "cross origin redirect",
-			target:  "https://example.com/app#/drafts",
-			current: "https://login.example.net/app#/inbox",
-		},
-		{
-			name:    "target without fragment",
-			target:  "https://example.com/drafts",
-			current: "https://example.com/inbox",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if rebound, ok := rebaseFreshVisibleURLRoute(test.target, test.current); ok || rebound != "" {
-				t.Fatalf("unexpected rebase: got=%q ok=%t", rebound, ok)
-			}
-		})
 	}
 }
 
@@ -373,43 +271,6 @@ func TestFirstStringSliceValue(t *testing.T) {
 	}
 }
 
-func TestResolveChromiumExecutableUsesSystemChromium(t *testing.T) {
-	temp := t.TempDir()
-	chromium := filepath.Join(temp, "chromium")
-	if err := os.WriteFile(chromium, []byte("stub"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	executable, err := resolveChromiumExecutableFromCandidates([]string{filepath.Join(temp, "missing"), chromium})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if executable != chromium {
-		t.Fatalf("expected system Chromium %q, got %q", chromium, executable)
-	}
-}
-
-func TestRealBrowserExecutableIsChromium(t *testing.T) {
-	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
-		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to validate the real Chromium executable")
-	}
-	executable, err := resolveChromiumExecutable("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(ctx, executable, "--version").CombinedOutput()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		t.Fatalf("read Chromium version timed out for %q", executable)
-	}
-	if err != nil {
-		t.Fatalf("read Chromium version: %v: %s", err, output)
-	}
-	if version := strings.TrimSpace(string(output)); !strings.HasPrefix(version, "Chromium ") {
-		t.Fatalf("browser tests require Chromium, got %q from %q", version, executable)
-	}
-}
-
 func TestHiddenTabLifecycleDoesNotProbeOrReopenAfterClose(t *testing.T) {
 	for _, tool := range []string{"browser.close", "browser.list_tabs"} {
 		if shouldAttachHiddenPageState(tool, true) {
@@ -441,7 +302,6 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Default()
-	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	adapter := NewAdapter(cfg)
 	t.Cleanup(func() { _ = adapter.Close() })
@@ -529,7 +389,6 @@ func TestRealChromiumSnapshotRecognizesGenericLoginGate(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Default()
-	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	adapter := NewAdapter(cfg)
 	t.Cleanup(func() { _ = adapter.Close() })
@@ -574,7 +433,6 @@ func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Default()
-	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	adapter := NewAdapter(cfg)
 	t.Cleanup(func() { _ = adapter.Close() })
@@ -833,39 +691,12 @@ func snapshotRefNamed(snapshot, name string) string {
 	return ""
 }
 
-func TestResolveSharedProfileDirSeparatesLogicalProfiles(t *testing.T) {
-	root := t.TempDir()
-	work, err := resolveSharedProfileDir(root, "owner-a\x00work")
-	if err != nil {
-		t.Fatal(err)
-	}
-	personal, err := resolveSharedProfileDir(root, "owner-a\x00personal")
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherOwner, err := resolveSharedProfileDir(root, "owner-b\x00work")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if work == personal || work == otherOwner || personal == otherOwner {
-		t.Fatalf("owners and logical browser profiles must use separate directories: work=%q personal=%q other=%q", work, personal, otherOwner)
-	}
-	for _, path := range []string{work, personal, otherOwner} {
-		if !strings.HasPrefix(path, root+string(os.PathSeparator)) {
-			t.Fatalf("profile escaped configured root: root=%q path=%q", root, path)
-		}
-		if info, err := os.Stat(path); err != nil || !info.IsDir() {
-			t.Fatalf("profile directory was not created: path=%q info=%#v err=%v", path, info, err)
-		}
-	}
-}
-
 func TestAgentBrowserIdentifiersFitPinnedUnixSocketPath(t *testing.T) {
 	socketPath := filepath.Join(
 		"/opt/agent-browser/.agent-browser/namespaces",
 		newAgentBrowserNamespace(),
 		"run",
-		agentBrowserSessionName("owner\x00default", "visible")+".sock",
+		agentBrowserSessionName("default")+".sock",
 	)
 	if got, limit := len([]byte(socketPath)), 103; got > limit {
 		t.Fatalf("agent-browser socket path is %d bytes (max %d): %s", got, limit, socketPath)

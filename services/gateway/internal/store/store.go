@@ -12,6 +12,7 @@ import (
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
 var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no longer available")
 var ErrConnectorSettingConflict = errors.New("connector setting changed")
+var ErrEmailProviderSettingConflict = errors.New("email provider setting changed")
 
 func connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, currentLANAccessEnabled bool, setting app.ConnectorSetting) string {
 	if !exists || currentEnabled != setting.Enabled {
@@ -85,6 +86,9 @@ type ConnectorRepository interface {
 	ListConnectorSettings(context.Context, string) ([]app.ConnectorSetting, error)
 	ListAllConnectorSettings(context.Context) ([]app.ConnectorSetting, error)
 	UpdateConnectorSetting(context.Context, app.ConnectorSetting, int64) (app.ConnectorSetting, error)
+	GetEmailProviderSetting(context.Context, string, string) (app.EmailProviderSetting, bool, error)
+	ListEmailProviderSettings(context.Context, string) ([]app.EmailProviderSetting, error)
+	UpdateEmailProviderSetting(context.Context, app.EmailProviderSetting, int64) (app.EmailProviderSetting, error)
 	CreateNotificationBinding(context.Context, app.NotificationBinding) (app.NotificationBinding, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	ListNotificationBindings(context.Context, string, string) ([]app.NotificationBinding, error)

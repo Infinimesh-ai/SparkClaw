@@ -14,8 +14,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
@@ -77,6 +79,8 @@ type Server struct {
 	connectors               ConnectorController
 	mcp                      MCPController
 	integrations             IntegrationController
+	email                    EmailController
+	browserControl           BrowserControlController
 	mcpAccess                *mcpaccess.Service
 	iscpPairing              *iscppairing.Service
 	externalApprovalResolver ExternalApprovalResolver
@@ -136,6 +140,20 @@ type IntegrationController interface {
 	Delete(context.Context, string, string) (integrationconfig.Status, error)
 }
 
+type EmailController interface {
+	List(context.Context, string) ([]emailautomation.ProviderStatus, error)
+	Update(context.Context, string, string, string, emailautomation.UpdateProviderInput) (emailautomation.ProviderStatus, error)
+	OpenLoginBrowser(context.Context, string, string, string) (emailautomation.ProviderStatus, error)
+	Check(context.Context, string, string, string) (emailautomation.ProviderStatus, error)
+}
+
+type BrowserControlController interface {
+	Status(context.Context) browsercontrol.Status
+	SaveToken(context.Context, []byte) (browsercontrol.Status, error)
+	Check(context.Context) (browsercontrol.Status, error)
+	Remove(context.Context) (browsercontrol.Status, error)
+}
+
 type ExternalApprovalResolver interface {
 	Resolve(context.Context, app.Approval, app.ApprovalStatus) (resolvedElsewhere bool, err error)
 }
@@ -160,6 +178,18 @@ func WithMCPController(controller MCPController) Option {
 func WithIntegrationController(controller IntegrationController) Option {
 	return func(server *Server) {
 		server.integrations = controller
+	}
+}
+
+func WithEmailController(controller EmailController) Option {
+	return func(server *Server) {
+		server.email = controller
+	}
+}
+
+func WithBrowserControlController(controller BrowserControlController) Option {
+	return func(server *Server) {
+		server.browserControl = controller
 	}
 }
 
@@ -371,6 +401,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notifications/events/stream", s.streamPassiveNotifications)
 	s.mux.HandleFunc("GET /api/connectors", s.listConnectors)
 	s.mux.HandleFunc("PATCH /api/connectors/{channel}", s.updateConnector)
+	s.mux.HandleFunc("GET /api/email/providers", s.listEmailProviders)
+	s.mux.HandleFunc("PATCH /api/email/providers/{provider}", s.updateEmailProvider)
+	s.mux.HandleFunc("POST /api/email/providers/{provider}/login-browser", s.openEmailLoginBrowser)
+	s.mux.HandleFunc("POST /api/email/providers/{provider}/check", s.checkEmailProvider)
+	s.mux.HandleFunc("GET /api/browser/extension", s.getBrowserExtension)
+	s.mux.HandleFunc("PUT /api/browser/extension/token", s.putBrowserExtensionToken)
+	s.mux.HandleFunc("POST /api/browser/extension/check", s.checkBrowserExtension)
+	s.mux.HandleFunc("DELETE /api/browser/extension/token", s.deleteBrowserExtensionToken)
 	s.mux.HandleFunc("GET /api/integrations", s.listIntegrations)
 	s.mux.HandleFunc("GET /api/integrations/{id}", s.getIntegration)
 	s.mux.HandleFunc("POST /api/integrations/infinimesh-info/credentials", s.addInfoCredential)

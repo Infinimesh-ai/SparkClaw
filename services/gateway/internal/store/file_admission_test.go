@@ -73,6 +73,7 @@ var migratedFileAdmissions = map[string]string{
 	"RevokeMCPBinding": "admitMigrated", "DeleteMCPBinding": "admitMigrated", "DeleteMCPAccessRecords": "admitMigrated",
 	"TouchMCPBinding": "admitMigrated", "CreateMCPOperation": "admitMigrated", "GetMCPOperation": "admitMigrated",
 	"FindMCPOperationByIdempotency": "admitMigrated", "ListMCPOperations": "admitMigrated", "UpdateMCPOperation": "admitMigrated",
+	"GetEmailProviderSetting": "admitMigrated", "ListEmailProviderSettings": "admitMigrated", "UpdateEmailProviderSetting": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
@@ -85,8 +86,8 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			accepted[method] = struct{}{}
 		}
 	}
-	if len(accepted) != 143 {
-		t.Fatalf("accepted FileStore method count = %d, want 143", len(accepted))
+	if len(accepted) != 146 {
+		t.Fatalf("accepted FileStore method count = %d, want 146", len(accepted))
 	}
 	for method := range migratedFileAdmissions {
 		if _, exists := accepted[method]; !exists {

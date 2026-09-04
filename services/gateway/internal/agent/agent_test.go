@@ -3215,21 +3215,23 @@ func TestIntentRoutingClassifiesURLClickAsBrowserInteraction(t *testing.T) {
 	}
 }
 
-func TestIntentRoutingResolvesRegisteredQQMailDestination(t *testing.T) {
+func TestIntentRoutingDoesNotRegisterQQMailAsBrowserDestination(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "请在 Chromium 中打开 QQ 邮箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation ||
-		route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
-		t.Fatalf("registered QQ Mail destination did not enter browser.automation: %#v", route)
+		route.Slots.TargetKind != string(app.TargetKindPublicNamedTarget) || route.Slots.TargetRef != "请在 Chromium 中打开 QQ 邮箱" ||
+		route.Facts["browser_destination"] != "" {
+		t.Fatalf("QQ Mail was still frozen as a registered browser destination: %#v", route)
 	}
 }
 
-func TestIntentRoutingRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
+func TestIntentRoutingKeepsQQMailSubgoalAsUnresolvedNamedTarget(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开 QQ 邮箱的草稿箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
-		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
-		t.Fatalf("registered QQ Mail subgoal did not enter browser.interaction: %#v", route)
+		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetKind != string(app.TargetKindPublicNamedTarget) ||
+		route.Slots.TargetRef != "打开 QQ 邮箱的草稿箱" || route.Facts["browser_destination"] != "" {
+		t.Fatalf("QQ Mail interaction was still frozen as a registered browser destination: %#v", route)
 	}
 }
 

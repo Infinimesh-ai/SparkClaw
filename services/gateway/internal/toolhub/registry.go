@@ -105,6 +105,19 @@ func browserInteractionClickRegistration() toolRegistration {
 	)
 }
 
+func emailSendRegistration() toolRegistration {
+	return workflowRegistration(
+		toolRegistration{run: argsSessionContext((*ToolHub).emailSend)},
+		app.ToolCapabilityBrowserEmailSend,
+		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationSend)},
+		app.OutcomeAdapterBrowserEmailSend,
+		"Send one approved plain-text email through the Runtime-selected logged-in browser provider.",
+		"Use only in browser.email after fresh login admission and exact-content owner approval.",
+		"Do not choose a provider or account, send attachments, retry an unknown outcome, or use for reading email.",
+		app.ToolEffectExternalInteract,
+	)
+}
+
 func legacyDocumentMutationRegistration(run toolExecutor, summary string) toolRegistration {
 	registration := workflowRegistration(
 		toolRegistration{run: run}, "document.legacy_mutation", nil, app.OutcomeAdapterGeneric,
@@ -246,6 +259,7 @@ var toolRegistry = func() map[string]toolRegistration {
 		"memory.write_candidate":         {run: ctxArgsSessionRun((*ToolHub).memoryWriteCandidate)},
 		"memory.propose":                 {run: ctxArgsSessionRun((*ToolHub).memoryWriteCandidate)},
 		"memory.write_sensitive":         {run: ctxArgsSessionRun((*ToolHub).memoryWriteSensitive)},
+		"email.send":                     emailSendRegistration(),
 		"browser.read":                   browserReadRegistration(),
 		"browser.identify_public_target": browserPublicTargetRegistration(),
 		"browser.visual_inspect":         browserVisualRegistration(),

@@ -18,8 +18,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
-const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
-
 const (
 	LocalMindMCPServerKey          = "localmind"
 	LocalMindMCPServerName         = "localmind-ai"
@@ -29,8 +27,9 @@ const (
 )
 
 var (
-	mcpServerNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
-	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	mcpServerNamePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	environmentNamePattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	webChatProxyTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43,128}$`)
 )
 
 type Config struct {
@@ -80,6 +79,9 @@ type GatewayConfig struct {
 	PairingRequired bool   `json:"pairing_required"`
 	RemoteAccess    string `json:"remote_access"`
 	APIToken        string `json:"api_token,omitempty"`
+	// WebChatProxyToken authenticates the private WebChat reverse proxy only
+	// for the local pairing bootstrap. It is never a client or owner token.
+	WebChatProxyToken string `json:"-"`
 	// BridgeToken is the dedicated credential for the loopback ISCP bridge
 	// dispatch routes. When set, bridge dispatch requires exactly this bearer
 	// token; when empty, bridge dispatch requires gateway authentication and
@@ -299,21 +301,37 @@ type SandboxConfig struct {
 
 type AdapterConfig struct {
 	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
+	EmailAutomation   EmailAutomationAdapterConfig   `json:"emailAutomation"`
 	DocumentOCR       DocumentOCRAdapterConfig       `json:"documentOCR"`
 	PPTXVisualQA      PPTXVisualQAAdapterConfig      `json:"pptxVisualQA"`
 }
 
+type EmailAutomationAdapterConfig struct {
+	ScriptDir string `json:"scriptDir"`
+}
+
 type BrowserAutomationAdapterConfig struct {
-	Command              string `json:"command"`
-	TimeoutMS            int    `json:"timeoutMs"`
-	StartupTimeoutMS     int    `json:"startupTimeoutMs"`
-	DaemonIdleTimeoutMS  int    `json:"daemonIdleTimeoutMs"`
-	SettleTimeoutMS      int    `json:"settleTimeoutMs"`
-	SettleQuietPeriodMS  int    `json:"settleQuietPeriodMs"`
-	SettlePollIntervalMS int    `json:"settlePollIntervalMs"`
-	RouteRebindLimit     int    `json:"routeRebindLimit"`
-	ChromiumExecutable   string `json:"chromiumExecutable"`
-	ProfileDir           string `json:"profileDir"`
+	Command              string                    `json:"command"`
+	TimeoutMS            int                       `json:"timeoutMs"`
+	StartupTimeoutMS     int                       `json:"startupTimeoutMs"`
+	SettleTimeoutMS      int                       `json:"settleTimeoutMs"`
+	SettleQuietPeriodMS  int                       `json:"settleQuietPeriodMs"`
+	SettlePollIntervalMS int                       `json:"settlePollIntervalMs"`
+	RouteRebindLimit     int                       `json:"routeRebindLimit"`
+	HostCDP              HostCDPConfig             `json:"hostCDP"`
+	PlaywrightExtension  PlaywrightExtensionConfig `json:"playwrightExtension"`
+}
+
+type HostCDPConfig struct {
+	EndpointFile     string `json:"endpointFile"`
+	ProfileID        string `json:"profileID"`
+	ConnectTimeoutMS int    `json:"connectTimeoutMs"`
+}
+
+type PlaywrightExtensionConfig struct {
+	ControllerSocket string `json:"controllerSocket"`
+	ProfileID        string `json:"profileID"`
+	ConnectTimeoutMS int    `json:"connectTimeoutMs"`
 }
 
 type DocumentOCRAdapterConfig struct {
@@ -487,6 +505,9 @@ func Load(path string) (Config, error) {
 		if err := rejectLegacyModelCapacity(raw); err != nil {
 			return Config{}, err
 		}
+		if err := rejectLegacyBrowserAutomation(raw); err != nil {
+			return Config{}, err
+		}
 		if err := json.Unmarshal(raw, &cfg); err != nil {
 			return Config{}, err
 		}
@@ -508,6 +529,9 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Gateway.Port <= 0 {
 		return Config{}, errors.New("gateway.port must be positive")
+	}
+	if token := cfg.Gateway.WebChatProxyToken; token != "" && !webChatProxyTokenPattern.MatchString(token) {
+		return Config{}, errors.New("Gateway WebChat proxy token must be 43-128 base64url characters")
 	}
 	if err := normalizeStateConfig(&cfg.State); err != nil {
 		return Config{}, err
@@ -542,9 +566,6 @@ func Load(path string) (Config, error) {
 			cfg.Workspaces.Allowlist[i] = abs
 		}
 	}
-	if strings.TrimSpace(cfg.Adapters.BrowserAutomation.ProfileDir) == "" {
-		cfg.Adapters.BrowserAutomation.ProfileDir = "./data/browser-profiles"
-	}
 	if strings.TrimSpace(cfg.Adapters.BrowserAutomation.Command) == "" {
 		cfg.Adapters.BrowserAutomation.Command = "agent-browser"
 	}
@@ -553,9 +574,6 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Adapters.BrowserAutomation.StartupTimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.StartupTimeoutMS = 10000
-	}
-	if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS <= 0 {
-		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = DefaultBrowserDaemonIdleTimeoutMS
 	}
 	if cfg.Adapters.BrowserAutomation.SettleTimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.SettleTimeoutMS = 15000
@@ -581,28 +599,62 @@ func Load(path string) (Config, error) {
 	if cfg.Adapters.BrowserAutomation.RouteRebindLimit < 1 || cfg.Adapters.BrowserAutomation.RouteRebindLimit > 5 {
 		return Config{}, errors.New("adapters.browserAutomation.routeRebindLimit must be between 1 and 5")
 	}
-	profileDir, err := filepath.Abs(cfg.Adapters.BrowserAutomation.ProfileDir)
-	if err != nil {
-		return Config{}, fmt.Errorf("resolve browser profile directory: %w", err)
+	hostCDP := &cfg.Adapters.BrowserAutomation.HostCDP
+	hostCDP.EndpointFile = strings.TrimSpace(hostCDP.EndpointFile)
+	if hostCDP.EndpointFile == "" {
+		hostCDP.EndpointFile = "/run/sparkclaw/browserd/cdp-endpoint"
 	}
-	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
+	endpointFile, err := filepath.Abs(hostCDP.EndpointFile)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve Host-CDP endpoint file: %w", err)
+	}
+	hostCDP.EndpointFile = endpointFile
+	hostCDP.ProfileID = strings.TrimSpace(hostCDP.ProfileID)
+	if hostCDP.ProfileID == "" {
+		hostCDP.ProfileID = "default"
+	}
+	if hostCDP.ProfileID != "default" {
+		return Config{}, errors.New("adapters.browserAutomation.hostCDP.profileID must be default")
+	}
+	if hostCDP.ConnectTimeoutMS <= 0 {
+		hostCDP.ConnectTimeoutMS = 10000
+	}
+	if hostCDP.ConnectTimeoutMS < 1000 || hostCDP.ConnectTimeoutMS > 120000 {
+		return Config{}, errors.New("adapters.browserAutomation.hostCDP.connectTimeoutMs must be between 1000 and 120000")
+	}
+	extension := &cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	extension.ControllerSocket = strings.TrimSpace(extension.ControllerSocket)
+	if extension.ControllerSocket == "" {
+		extension.ControllerSocket = "/run/sparkclaw/browser-controller/controller.sock"
+	}
+	if !filepath.IsAbs(extension.ControllerSocket) {
+		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.controllerSocket must be absolute")
+	}
+	extension.ControllerSocket = filepath.Clean(extension.ControllerSocket)
+	extension.ProfileID = strings.TrimSpace(extension.ProfileID)
+	if extension.ProfileID == "" {
+		extension.ProfileID = "default"
+	}
+	if extension.ProfileID != "default" {
+		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.profileID must be default")
+	}
+	if extension.ConnectTimeoutMS <= 0 {
+		extension.ConnectTimeoutMS = 20000
+	}
+	if extension.ConnectTimeoutMS < 1000 || extension.ConnectTimeoutMS > 120000 {
+		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.connectTimeoutMs must be between 1000 and 120000")
+	}
+	emailScripts := strings.TrimSpace(cfg.Adapters.EmailAutomation.ScriptDir)
+	if emailScripts == "" {
+		emailScripts = "./scripts/email"
+	}
+	emailScripts, err = filepath.Abs(emailScripts)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve email automation script directory: %w", err)
+	}
+	cfg.Adapters.EmailAutomation.ScriptDir = emailScripts
 	if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
 		return Config{}, err
-	}
-	// The idle-timeout floor couples the browser daemon to the model and
-	// workflow windows; a deployment with browser automation disabled must
-	// not be refused boot over knobs its daemon will never use.
-	if cfg.Tools.BrowserAutomation.Enabled {
-		minimumBrowserIdleTimeoutMS, err := minimumBrowserDaemonIdleTimeoutMS(cfg)
-		if err != nil {
-			return Config{}, err
-		}
-		if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS < minimumBrowserIdleTimeoutMS {
-			return Config{}, fmt.Errorf(
-				"adapters.browserAutomation.daemonIdleTimeoutMs must be at least %d for the configured model and workflow timeouts",
-				minimumBrowserIdleTimeoutMS,
-			)
-		}
 	}
 	if err := normalizeInfinimeshInfoConfig(&cfg.Plugins.Entries.InfinimeshInfo.Config); err != nil {
 		return Config{}, err
@@ -638,6 +690,38 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func rejectLegacyBrowserAutomation(raw []byte) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return err
+	}
+	var adapters map[string]json.RawMessage
+	if value := root["adapters"]; len(value) > 0 {
+		if err := json.Unmarshal(value, &adapters); err != nil {
+			return err
+		}
+	}
+	var browser map[string]json.RawMessage
+	if value := adapters["browserAutomation"]; len(value) > 0 {
+		if err := json.Unmarshal(value, &browser); err != nil {
+			return err
+		}
+	}
+	legacy := []string{
+		"mode", "chromiumExecutable", "profileDir", "headed", "chromiumArgs",
+		"executablePath", "display", "xauthority", "daemonIdleTimeoutMs",
+	}
+	for _, key := range legacy {
+		if _, exists := browser[key]; exists {
+			return fmt.Errorf(
+				"adapters.browserAutomation.%s is retired; migrate to the sole hostCDP endpoint-file configuration",
+				key,
+			)
+		}
+	}
+	return nil
 }
 
 func normalizeJingSiRuntimeConfig(cfg *Config) error {
@@ -1080,31 +1164,6 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) error {
 		rt.RunMaxRepeatedToolCalls = defaults.RunMaxRepeatedToolCalls
 	}
 	return nil
-}
-
-func minimumBrowserDaemonIdleTimeoutMS(cfg Config) (int, error) {
-	modelWindowSeconds := cfg.Model.HTTPTimeoutSeconds
-	if modelWindowSeconds <= 0 {
-		modelWindowSeconds = Default().Model.HTTPTimeoutSeconds
-	}
-	workflowWindowSeconds := cfg.Runtime.StageMaxDurationSeconds
-	if workflowWindowSeconds <= 0 {
-		workflowWindowSeconds = Default().Runtime.StageMaxDurationSeconds
-	}
-	toolHeadroomMS := cfg.Adapters.BrowserAutomation.TimeoutMS
-	if toolHeadroomMS <= 0 {
-		toolHeadroomMS = Default().Adapters.BrowserAutomation.TimeoutMS
-	}
-	// Interaction can run goal assessment and action selection between two
-	// Chromium commands. Each model stage may consume its workflow window and
-	// finish one in-flight request before the next browser command resets idle.
-	maxInt := int(^uint(0) >> 1)
-	maxReasoningWindowSeconds := (maxInt - toolHeadroomMS) / 2000
-	if modelWindowSeconds > maxReasoningWindowSeconds ||
-		workflowWindowSeconds > maxReasoningWindowSeconds-modelWindowSeconds {
-		return 0, errors.New("configured model and workflow timeouts exceed the supported browser daemon idle timeout range")
-	}
-	return 2*(modelWindowSeconds+workflowWindowSeconds)*1000 + toolHeadroomMS, nil
 }
 
 func normalizeInfinimeshInfoConfig(cfg *InfinimeshInfoConfig) error {
@@ -1613,13 +1672,22 @@ func Default() Config {
 				Command:              "agent-browser",
 				TimeoutMS:            30000,
 				StartupTimeoutMS:     10000,
-				DaemonIdleTimeoutMS:  DefaultBrowserDaemonIdleTimeoutMS,
 				SettleTimeoutMS:      15000,
 				SettleQuietPeriodMS:  500,
 				SettlePollIntervalMS: 100,
 				RouteRebindLimit:     2,
-				ProfileDir:           "./data/browser-profiles",
+				HostCDP: HostCDPConfig{
+					EndpointFile:     "/run/sparkclaw/browserd/cdp-endpoint",
+					ProfileID:        "default",
+					ConnectTimeoutMS: 10000,
+				},
+				PlaywrightExtension: PlaywrightExtensionConfig{
+					ControllerSocket: "/run/sparkclaw/browser-controller/controller.sock",
+					ProfileID:        "default",
+					ConnectTimeoutMS: 20000,
+				},
 			},
+			EmailAutomation: EmailAutomationAdapterConfig{ScriptDir: "./scripts/email"},
 			DocumentOCR: DocumentOCRAdapterConfig{
 				Enabled:        false,
 				Provider:       "openai-http",
@@ -1707,6 +1775,17 @@ func Default() Config {
 }
 
 func applyEnv(cfg *Config) error {
+	for _, name := range []string{
+		"SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE",
+		"SPARKCLAW_BROWSER_PROFILE_DIR",
+		"SPARKCLAW_BROWSER_DISPLAY",
+		"SPARKCLAW_BROWSER_XAUTHORITY",
+		"SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS",
+	} {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return fmt.Errorf("%s is retired; migrate to SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE", name)
+		}
+	}
 	if err := rejectLegacyModelCapacityEnv(); err != nil {
 		return err
 	}
@@ -1720,6 +1799,9 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("SPARKCLAW_API_TOKEN"); v != "" {
 		cfg.Gateway.APIToken = v
+	}
+	if v := os.Getenv("SPARKCLAW_WEBCHAT_PROXY_TOKEN"); v != "" {
+		cfg.Gateway.WebChatProxyToken = v
 	}
 	if v := os.Getenv("SPARKCLAW_BRIDGE_TOKEN"); v != "" {
 		cfg.Gateway.BridgeToken = v
@@ -2007,11 +2089,6 @@ func applyEnv(cfg *Config) error {
 			cfg.Adapters.BrowserAutomation.StartupTimeoutMS = timeoutMS
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS"); v != "" {
-		if timeoutMS, err := strconv.Atoi(v); err == nil {
-			cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = timeoutMS
-		}
-	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_SETTLE_TIMEOUT_MS"); v != "" {
 		if timeoutMS, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.BrowserAutomation.SettleTimeoutMS = timeoutMS
@@ -2032,11 +2109,32 @@ func applyEnv(cfg *Config) error {
 			cfg.Adapters.BrowserAutomation.RouteRebindLimit = limit
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE"); v != "" {
-		cfg.Adapters.BrowserAutomation.ChromiumExecutable = v
+	if v := os.Getenv("SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE"); v != "" {
+		cfg.Adapters.BrowserAutomation.HostCDP.EndpointFile = v
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_PROFILE_DIR"); v != "" {
-		cfg.Adapters.BrowserAutomation.ProfileDir = v
+	if v := os.Getenv("SPARKCLAW_BROWSER_CDP_PROFILE_ID"); v != "" {
+		cfg.Adapters.BrowserAutomation.HostCDP.ProfileID = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.HostCDP.ConnectTimeoutMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET"); v != "" {
+		cfg.Adapters.BrowserAutomation.PlaywrightExtension.ControllerSocket = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID"); v != "" {
+		cfg.Adapters.BrowserAutomation.PlaywrightExtension.ProfileID = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS"); v != "" {
+		timeoutMS, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS must be an integer: %w", err)
+		}
+		cfg.Adapters.BrowserAutomation.PlaywrightExtension.ConnectTimeoutMS = timeoutMS
+	}
+	if v := os.Getenv("SPARKCLAW_EMAIL_SCRIPT_DIR"); v != "" {
+		cfg.Adapters.EmailAutomation.ScriptDir = v
 	}
 	if v := os.Getenv("SPARKCLAW_OCR_ENABLED"); v != "" {
 		cfg.Adapters.DocumentOCR.Enabled = parseBool(v)

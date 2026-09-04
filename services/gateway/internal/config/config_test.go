@@ -61,6 +61,24 @@ func TestLoadAppliesRateLimitEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesAndValidatesWebChatProxyTokenEnvironment(t *testing.T) {
+	const token = "test_webchat_proxy_token_0123456789abcdefghijkl"
+	t.Setenv("SPARKCLAW_WEBCHAT_PROXY_TOKEN", token)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Gateway.WebChatProxyToken != token {
+		t.Fatalf("WebChat proxy token environment did not apply")
+	}
+
+	t.Setenv("SPARKCLAW_WEBCHAT_PROXY_TOKEN", "too-short")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "WebChat proxy token") {
+		t.Fatalf("invalid WebChat proxy token was accepted: %v", err)
+	}
+}
+
 func TestLoadAppliesJingSiLANEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_JINGSI_LAN_ENABLED", "true")
 	t.Setenv("SPARKCLAW_JINGSI_SESSION_ID", " session-lan ")
@@ -801,60 +819,107 @@ func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
-	profileDir := filepath.Join(t.TempDir(), "browser-profile")
+func TestLoadAppliesHostCDPEnvironment(t *testing.T) {
+	endpointFile := filepath.Join(t.TempDir(), "cdp-endpoint")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND", "/opt/test/agent-browser")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS", "31000")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", "11000")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1210000")
-	t.Setenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE", "/opt/test/chromium")
-	t.Setenv("SPARKCLAW_BROWSER_PROFILE_DIR", profileDir)
+	t.Setenv("SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE", endpointFile)
+	t.Setenv("SPARKCLAW_BROWSER_CDP_PROFILE_ID", "default")
+	t.Setenv("SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS", "12000")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Adapters.BrowserAutomation.ChromiumExecutable != "/opt/test/chromium" {
-		t.Fatalf("shared Chromium env did not apply: %#v", cfg.Adapters.BrowserAutomation)
-	}
 	if cfg.Adapters.BrowserAutomation.Command != "/opt/test/agent-browser" ||
 		cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
-		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 ||
-		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS != 1210000 {
+		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 {
 		t.Fatalf("agent-browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
 	}
-	if cfg.Adapters.BrowserAutomation.ProfileDir != profileDir || !filepath.IsAbs(cfg.Adapters.BrowserAutomation.ProfileDir) {
-		t.Fatalf("browser profile directory was not normalized: %#v", cfg.Adapters.BrowserAutomation)
+	hostCDP := cfg.Adapters.BrowserAutomation.HostCDP
+	if hostCDP.EndpointFile != endpointFile || !filepath.IsAbs(hostCDP.EndpointFile) ||
+		hostCDP.ProfileID != "default" || hostCDP.ConnectTimeoutMS != 12000 {
+		t.Fatalf("Host-CDP env did not apply: %#v", hostCDP)
 	}
 }
 
-func TestLoadRejectsBrowserDaemonIdleTimeoutShorterThanWorkflowGap(t *testing.T) {
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED", "true")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
+func TestLoadPlaywrightExtensionDefaultsAndEnvironment(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	extension := cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	if extension.ControllerSocket != "/run/sparkclaw/browser-controller/controller.sock" ||
+		extension.ProfileID != "default" || extension.ConnectTimeoutMS != 20000 {
+		t.Fatalf("Playwright Extension defaults = %#v", extension)
+	}
 
-	_, err := Load("")
-	if err == nil || !strings.Contains(err.Error(), "daemonIdleTimeoutMs must be at least") {
-		t.Fatalf("short browser daemon idle timeout error = %v", err)
+	socketPath := filepath.Join(t.TempDir(), "controller.sock")
+	t.Setenv("SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET", socketPath)
+	t.Setenv("SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID", "default")
+	t.Setenv("SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", "27000")
+	cfg, err = Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	extension = cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	if extension.ControllerSocket != socketPath || extension.ProfileID != "default" || extension.ConnectTimeoutMS != 27000 {
+		t.Fatalf("Playwright Extension env did not apply: %#v", extension)
 	}
 }
 
-func TestLoadAllowsShortBrowserDaemonIdleTimeoutWhenDisabled(t *testing.T) {
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
-
-	if _, err := Load(""); err != nil {
-		t.Fatalf("disabled browser automation must not gate boot on the idle-timeout floor: %v", err)
+func TestLoadRejectsInvalidPlaywrightExtensionConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		env   string
+		value string
+		want  string
+	}{
+		{name: "relative socket", env: "SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET", value: "controller.sock", want: "controllerSocket must be absolute"},
+		{name: "unexpected profile", env: "SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID", value: "personal", want: "profileID must be default"},
+		{name: "short timeout", env: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", value: "999", want: "connectTimeoutMs must be between"},
+		{name: "long timeout", env: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", value: "120001", want: "connectTimeoutMs must be between"},
+		{name: "non-numeric timeout", env: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", value: "slow", want: "must be an integer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.env, test.value)
+			_, err := Load("")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid Playwright Extension config error = %v", err)
+			}
+		})
 	}
 }
 
-func TestLoadRejectsBrowserDaemonIdleTimeoutCalculationOverflow(t *testing.T) {
-	maxInt := int(^uint(0) >> 1)
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED", "true")
-	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", strconv.Itoa(maxInt))
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", strconv.Itoa(maxInt))
+func TestLoadRejectsRetiredBrowserEnvironment(t *testing.T) {
+	for _, name := range []string{
+		"SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE",
+		"SPARKCLAW_BROWSER_PROFILE_DIR",
+		"SPARKCLAW_BROWSER_DISPLAY",
+		"SPARKCLAW_BROWSER_XAUTHORITY",
+		"SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "retired")
+			_, err := Load("")
+			if err == nil || !strings.Contains(err.Error(), "is retired") {
+				t.Fatalf("retired browser env %s error = %v", name, err)
+			}
+		})
+	}
+}
 
-	_, err := Load("")
-	if err == nil || !strings.Contains(err.Error(), "timeouts exceed the supported browser daemon idle timeout range") {
-		t.Fatalf("browser daemon idle timeout overflow error = %v", err)
+func TestLoadRejectsRetiredBrowserJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sparkclaw.json")
+	if err := os.WriteFile(path, []byte(`{
+  "adapters": {"browserAutomation": {"chromiumExecutable": "/usr/bin/chromium"}}
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "chromiumExecutable is retired") {
+		t.Fatalf("retired browser JSON error = %v", err)
 	}
 }
 
@@ -1068,7 +1133,6 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1600000")
 
 	cfg, err := Load("")
 	if err != nil {

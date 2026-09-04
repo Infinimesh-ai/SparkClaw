@@ -317,6 +317,18 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationConnectorSettingUpdate, Repository: "ConnectorRepository",
 			Method: "UpdateConnectorSetting", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationEmailProviderSettingGet: {
+			ID: OperationEmailProviderSettingGet, Repository: "ConnectorRepository",
+			Method: "GetEmailProviderSetting", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationEmailProviderSettingList: {
+			ID: OperationEmailProviderSettingList, Repository: "ConnectorRepository",
+			Method: "ListEmailProviderSettings", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationEmailProviderSettingUpdate: {
+			ID: OperationEmailProviderSettingUpdate, Repository: "ConnectorRepository",
+			Method: "UpdateEmailProviderSetting", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 		OperationNotificationBindingCreate: {
 			ID: OperationNotificationBindingCreate, Repository: "ConnectorRepository",
 			Method: "CreateNotificationBinding", Mode: operationWrite, Timeout: timeoutTransaction,

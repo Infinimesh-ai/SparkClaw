@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +25,8 @@ const (
 	agentBrowserProtocolVersion     = "2025-11-25"
 	agentBrowserMCPToolsProfile     = "core,tabs"
 	agentBrowserMaxMessageBytes     = 16 << 20
-	hiddenBrowserViewport           = "1365x768"
-	agentBrowserFallbackClose       = 10 * time.Second
 	agentBrowserTransportHeadroomMS = 5000
+	agentBrowserShutdownTimeout     = 3 * time.Second
 )
 
 var requiredAgentBrowserTools = map[string][]string{
@@ -57,21 +55,19 @@ var requiredAgentBrowserTools = map[string][]string{
 type agentBrowserAdapterConfig = config.BrowserAutomationAdapterConfig
 
 type agentBrowserSession struct {
-	cancel       context.CancelFunc
-	cmd          *exec.Cmd
-	stdin        io.WriteCloser
-	out          *bufio.Scanner
-	errs         *boundedBuffer
-	nextID       int
-	done         chan struct{}
-	closeOnce    sync.Once
-	sessionName  string
-	namespace    string
-	timeoutMS    int
-	version      string
-	commandPath  string
-	environment  []string
-	profileLease *browserProfileLease
+	cancel      context.CancelFunc
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	out         *bufio.Scanner
+	errs        *boundedBuffer
+	nextID      int
+	done        chan struct{}
+	closeOnce   sync.Once
+	sessionName string
+	namespace   string
+	timeoutMS   int
+	version     string
+	environment []string
 }
 
 type agentBrowserToolResult struct {
@@ -110,64 +106,24 @@ func newAgentBrowserNamespace() string {
 	return "sc-" + hex.EncodeToString(raw)
 }
 
-func agentBrowserSessionName(profileKey, presentation string) string {
-	digest := sha256.Sum256([]byte(profileKey + "\x00" + presentation))
+func agentBrowserSessionName(profileID string) string {
+	digest := sha256.Sum256([]byte("host-cdp\x00" + profileID))
 	return "sc-" + hex.EncodeToString(digest[:10])
 }
 
-func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, commandPath, namespace string, hidden bool, profileKey string) (*agentBrowserSession, error) {
+func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, commandPath, namespace string) (*agentBrowserSession, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
-	profileDir, err := resolveSharedProfileDir(cfg.ProfileDir, profileKey)
+	endpoint, err := readHostCDPEndpoint(cfg.HostCDP)
 	if err != nil {
 		return nil, err
 	}
-	profileLease, err := acquireBrowserProfileLease(profileDir)
-	if err != nil {
-		if errors.Is(err, errBrowserProfileBusy) {
-			return nil, errBrowserProfileBusy
-		}
-		return nil, err
-	}
-	releaseLease := true
-	defer func() {
-		if releaseLease {
-			profileLease.release()
-		}
-	}()
-	presentation := "visible"
-	if hidden {
-		presentation = "hidden"
-	}
-	sessionName := agentBrowserSessionName(profileKey, presentation)
-	if _, err := profileLease.recoverStaleChromiumSingletons(profileDir); err != nil {
-		if errors.Is(err, errBrowserProfileBusy) {
-			err = reclaimLeakedBrowserProfile(ctx, profileLease, commandPath, profileDir, namespace, sessionName)
-		}
-		if err != nil {
-			if errors.Is(err, errBrowserProfileBusy) {
-				return nil, errBrowserProfileBusy
-			}
-			return nil, fmt.Errorf("prepare browser shared profile: %w", err)
-		}
-	}
-	executable, err := resolveChromiumExecutable(cfg.ChromiumExecutable)
-	if err != nil {
-		return nil, err
-	}
-	var visibleEnvironment *visibleBrowserEnvironment
-	if !hidden {
-		resolved, resolveErr := resolveVisibleBrowserEnvironment()
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		visibleEnvironment = &resolved
-	}
+	sessionName := agentBrowserSessionName(endpoint.ProfileID)
 	procCtx, cancel := context.WithCancel(context.Background())
-	environment := agentBrowserEnvironmentResolved(cfg, namespace, sessionName, profileDir, executable, hidden, visibleEnvironment)
+	environment := agentBrowserEnvironment(namespace, sessionName, hostCDPWebSocketURL(endpoint))
 	cmd := exec.CommandContext(procCtx, commandPath, "mcp", "--tools", agentBrowserMCPToolsProfile)
 	configureAdapterCommand(cmd)
 	cmd.Env = environment
@@ -190,27 +146,23 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 		cancel()
 		return nil, fmt.Errorf("start agent-browser MCP server: %w", err)
 	}
-	recordBrowserDaemonOwner(profileDir, namespace, sessionName)
 	errs := &boundedBuffer{limit: 8192}
 	go func() { _, _ = io.Copy(errs, stderr) }()
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), agentBrowserMaxMessageBytes)
 	session := &agentBrowserSession{
-		cancel:       cancel,
-		cmd:          cmd,
-		stdin:        stdin,
-		out:          scanner,
-		errs:         errs,
-		nextID:       1,
-		done:         make(chan struct{}),
-		sessionName:  sessionName,
-		namespace:    namespace,
-		timeoutMS:    adapterTimeoutMS(cfg.TimeoutMS),
-		commandPath:  commandPath,
-		environment:  environment,
-		profileLease: profileLease,
+		cancel:      cancel,
+		cmd:         cmd,
+		stdin:       stdin,
+		out:         scanner,
+		errs:        errs,
+		nextID:      1,
+		done:        make(chan struct{}),
+		sessionName: sessionName,
+		namespace:   namespace,
+		timeoutMS:   adapterTimeoutMS(cfg.TimeoutMS),
+		environment: environment,
 	}
-	releaseLease = false
 	go func() {
 		_ = cmd.Wait()
 		close(session.done)
@@ -218,44 +170,19 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 	return session, nil
 }
 
-func agentBrowserEnvironmentResolved(cfg agentBrowserAdapterConfig, namespace, sessionName, profileDir, executable string, hidden bool, visibleEnvironment *visibleBrowserEnvironment) []string {
-	env := make([]string, 0, len(os.Environ())+10)
+func agentBrowserEnvironment(namespace, sessionName, cdpURL string) []string {
+	env := make([]string, 0, len(os.Environ())+3)
 	for _, entry := range os.Environ() {
 		if strings.HasPrefix(entry, "AGENT_BROWSER_") {
 			continue
 		}
-		if !hidden && visibleEnvironment != nil &&
-			(strings.HasPrefix(entry, "DISPLAY=") || strings.HasPrefix(entry, "XAUTHORITY=")) {
-			continue
-		}
 		env = append(env, entry)
 	}
-	values := map[string]string{
-		"AGENT_BROWSER_NAMESPACE":       namespace,
-		"AGENT_BROWSER_SESSION":         sessionName,
-		"AGENT_BROWSER_PROFILE":         profileDir,
-		"AGENT_BROWSER_HEADED":          strconv.FormatBool(!hidden),
-		"AGENT_BROWSER_HIDE_SCROLLBARS": "true",
-		"AGENT_BROWSER_MAX_OUTPUT":      strconv.Itoa(agentBrowserMaxMessageBytes / 2),
-		"AGENT_BROWSER_ARGS":            "--window-size=" + hiddenBrowserViewport,
-	}
-	if hidden {
-		values["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = strconv.Itoa(adapterDaemonIdleTimeoutMS(cfg.DaemonIdleTimeoutMS))
-	} else {
-		values["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = strconv.Itoa(visibleBrowserIdleTimeoutMS(cfg.DaemonIdleTimeoutMS))
-		// A virtual X server is not a user-visible handoff surface.
-		values["AGENT_BROWSER_NO_XVFB"] = "true"
-		if visibleEnvironment != nil {
-			values["DISPLAY"] = visibleEnvironment.display
-			values["XAUTHORITY"] = visibleEnvironment.xauthority
-		}
-	}
-	if executable != "" {
-		values["AGENT_BROWSER_EXECUTABLE_PATH"] = executable
-	}
-	for key, value := range values {
-		env = append(env, key+"="+value)
-	}
+	env = append(env,
+		"AGENT_BROWSER_CDP="+cdpURL,
+		"AGENT_BROWSER_NAMESPACE="+namespace,
+		"AGENT_BROWSER_SESSION="+sessionName,
+	)
 	return env
 }
 
@@ -449,28 +376,22 @@ func (s *agentBrowserSession) alive() bool {
 
 func (s *agentBrowserSession) close() {
 	s.closeOnce.Do(func() {
-		defer s.profileLease.release()
-		var closeErr error
-		if s.alive() {
-			ctx, cancel := context.WithTimeout(context.Background(), adapterTimeout(s.timeoutMS))
-			_, closeErr = s.callTool(ctx, "agent_browser_close", nil)
-			cancel()
-		} else {
-			closeErr = errors.New("agent-browser MCP session already stopped")
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), agentBrowserShutdownTimeout)
+		_ = s.closeDaemon(ctx)
+		cancel()
 		s.stopMCP()
-		if closeErr != nil {
-			s.closeOwnedBrowser()
-		}
 	})
+}
+
+func (s *agentBrowserSession) closeDaemon(ctx context.Context) error {
+	_, err := s.callTool(ctx, "agent_browser_close", map[string]any{})
+	return err
 }
 
 func (s *agentBrowserSession) abort() {
 	s.closeOnce.Do(func() {
-		defer s.profileLease.release()
 		terminateAdapterProcess(s.cmd)
 		s.stopMCP()
-		s.closeOwnedBrowser()
 	})
 }
 
@@ -484,18 +405,6 @@ func (s *agentBrowserSession) stopMCP() {
 		<-s.done
 	}
 	s.cancel()
-}
-
-func (s *agentBrowserSession) closeOwnedBrowser() {
-	if strings.TrimSpace(s.commandPath) == "" || strings.TrimSpace(s.sessionName) == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), agentBrowserFallbackClose)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, s.commandPath, "close", "--session", s.sessionName, "--json")
-	configureAdapterCommand(cmd)
-	cmd.Env = append([]string(nil), s.environment...)
-	_ = cmd.Run()
 }
 
 func resolveAgentBrowserCommand(configured string) (string, error) {
@@ -569,71 +478,6 @@ func validateAgentBrowserVersion(ctx context.Context, command string, startupTim
 	return nil
 }
 
-func resolveChromiumExecutable(configured string) (string, error) {
-	configured = strings.TrimSpace(configured)
-	if configured != "" {
-		return validateChromiumExecutable(configured)
-	}
-
-	candidates := []string{"/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium"}
-	for _, name := range []string{"chromium", "chromium-browser"} {
-		if path, err := exec.LookPath(name); err == nil {
-			candidates = append(candidates, path)
-		}
-	}
-	return resolveChromiumExecutableFromCandidates(candidates)
-}
-
-func resolveChromiumExecutableFromCandidates(candidates []string) (string, error) {
-	for _, candidate := range candidates {
-		executable, err := validateChromiumExecutable(candidate)
-		if err == nil {
-			return executable, nil
-		}
-	}
-	return "", errors.New("system Chromium was not found; install Chromium or configure adapters.browserAutomation.chromiumExecutable")
-}
-
-func validateChromiumExecutable(path string) (string, error) {
-	abs, err := filepath.Abs(strings.TrimSpace(path))
-	if err != nil {
-		return "", fmt.Errorf("resolve Chromium executable: %w", err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return "", fmt.Errorf("browser shared profile Chromium executable %q: %w", abs, err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("browser shared profile Chromium executable %q is a directory", abs)
-	}
-	return abs, nil
-}
-
-func resolveSharedProfileDir(configured, profileKey string) (string, error) {
-	configured = strings.TrimSpace(configured)
-	if configured == "" {
-		configured = "./data/browser-profiles"
-	}
-	root, err := filepath.Abs(configured)
-	if err != nil {
-		return "", fmt.Errorf("resolve browser shared profile directory: %w", err)
-	}
-	ownerID, profileID, _ := strings.Cut(strings.TrimSpace(profileKey), "\x00")
-	if ownerID == "" {
-		ownerID = "owner"
-	}
-	if profileID == "" {
-		profileID = "default"
-	}
-	ownerDigest := sha256.Sum256([]byte(ownerID))
-	profileDigest := sha256.Sum256([]byte(profileID))
-	abs := filepath.Join(root, fmt.Sprintf("%x", ownerDigest[:12]), fmt.Sprintf("%x", profileDigest[:12]), "user-data")
-	if err := os.MkdirAll(abs, 0o700); err != nil {
-		return "", fmt.Errorf("create browser shared profile directory: %w", err)
-	}
-	return abs, nil
-}
-
 func requestTimeoutMS(ctx context.Context, fallback int) int {
 	limit := adapterTimeoutMS(fallback)
 	if deadline, ok := ctx.Deadline(); ok {
@@ -667,23 +511,6 @@ func adapterStartupTimeoutMS(timeoutMS int) int {
 		return 10000
 	}
 	return timeoutMS
-}
-
-func adapterDaemonIdleTimeoutMS(timeoutMS int) int {
-	if timeoutMS <= 0 {
-		return config.DefaultBrowserDaemonIdleTimeoutMS
-	}
-	return timeoutMS
-}
-
-// visibleBrowserIdleTimeoutMultiplier scales the hidden-session idle timeout
-// for visible sessions. They are user-facing handoff surfaces, so the bound is
-// generous (two hours with the default configuration) — but it must stay
-// finite, or an abandoned visible Chromium lives until gateway exit.
-const visibleBrowserIdleTimeoutMultiplier = 6
-
-func visibleBrowserIdleTimeoutMS(timeoutMS int) int {
-	return adapterDaemonIdleTimeoutMS(timeoutMS) * visibleBrowserIdleTimeoutMultiplier
 }
 
 type boundedBuffer struct {

@@ -38,7 +38,8 @@ var s0RepositoryMethods = map[string][]string{
 	},
 	"ConnectorRepository": {
 		"CreateNotificationBinding", "GetConnectorSetting", "GetNotificationBinding", "ListAllConnectorSettings", "ListConnectorSettings",
-		"ListNotificationBindings", "UpdateConnectorSetting", "UpdateNotificationBinding",
+		"ListNotificationBindings", "UpdateConnectorSetting", "UpdateNotificationBinding", "GetEmailProviderSetting", "ListEmailProviderSettings",
+		"UpdateEmailProviderSetting",
 	},
 	"ConversationRepository": {
 		"AddMessage", "ListMessages", "ListRecentMessages", "MessageEventHead", "MessageEventsAfter",
@@ -94,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 143 {
-		t.Fatalf("repository method count = %d, want migrated baseline 143", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 146 {
+		t.Fatalf("repository method count = %d, want migrated baseline 146", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())
@@ -199,6 +200,7 @@ func TestS0SnapshotShapeCharacterization(t *testing.T) {
 		"MCPBindings:mcp_bindings,omitempty", "MCPOperations:mcp_operations,omitempty", "Messages:messages", "RunFeedback:run_feedback",
 		"Runs:runs", "ModelCalls:model_calls", "ToolCalls:tool_calls", "DocumentRecords:document_records,omitempty", "Approvals:approvals",
 		"Reminders:reminders", "ReminderDelivery:reminder_delivery", "ConnectorSettings:connector_settings,omitempty",
+		"EmailProviderSettings:email_provider_settings,omitempty",
 		"NotificationBindings:notification_bindings", "PassiveNotifications:passive_notifications,omitempty",
 		"ExternalChatSessions:external_chat_sessions,omitempty", "ExternalChatMessages:external_chat_messages,omitempty",
 		"MessageReceives:message_receives,omitempty", "MessageDeliveries:message_deliveries,omitempty",

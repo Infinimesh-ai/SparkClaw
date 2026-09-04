@@ -63,6 +63,7 @@ class BrowserDisplayResolverTest(unittest.TestCase):
         xauthority: Path | None = None,
         runtime_dir: Path | None = None,
         expected_xauthority: Path | None = None,
+        session_xauthority: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.update(
@@ -73,7 +74,10 @@ class BrowserDisplayResolverTest(unittest.TestCase):
             }
         )
         environment.pop("DISPLAY", None)
-        environment.pop("XAUTHORITY", None)
+        if session_xauthority is None:
+            environment.pop("XAUTHORITY", None)
+        else:
+            environment["XAUTHORITY"] = str(session_xauthority)
         if xauthority is None:
             environment.pop("SPARKCLAW_BROWSER_XAUTHORITY", None)
         else:
@@ -144,6 +148,23 @@ class BrowserDisplayResolverTest(unittest.TestCase):
             ":0",
             runtime_dir=runtime_dir,
             expected_xauthority=mutter_authority,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [":0", str(mutter_authority)])
+
+    def test_duplicate_session_and_mutter_authority_does_not_abort(self) -> None:
+        self.add_socket(0)
+        runtime_dir = self.root / "runtime"
+        runtime_dir.mkdir()
+        mutter_authority = runtime_dir / ".mutter-Xwaylandauth.TEST"
+        mutter_authority.write_text("right-cookie\n", encoding="utf-8")
+
+        result = self.run_resolver(
+            ":0",
+            runtime_dir=runtime_dir,
+            expected_xauthority=mutter_authority,
+            session_xauthority=mutter_authority,
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)

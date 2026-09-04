@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-26.v24"
+	DefaultCatalogRevision = "2026-09-03.v25"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -155,6 +155,9 @@ func DefaultCatalog() (Catalog, error) {
 		}),
 		leafRevision(string(app.CapabilityBrowserFormDraft), "browser", "Fill or select reversible form draft values without clicking, submitting, sending, uploading, or entering credentials.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationDraft}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
+		}),
+		leaf(string(app.CapabilityBrowserEmail), "browser", "Send one new plain-text email through a freshly validated configured QQ Mail, Outlook, or Gmail browser account. Email reading is not enabled.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationSend}, RequireQuery: true,
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
 		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{

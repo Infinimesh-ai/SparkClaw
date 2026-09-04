@@ -21,7 +21,7 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 	started := time.Now()
 	metadata := browserModeMetadata(args, "autonomous")
 	hidden := shouldUseHiddenBrowserSession(metadata, args)
-	profileKey := a.browserProfileKey(args)
+	scope := a.browserProfileKey(args)
 	timeoutMS := intArg(args, "timeout_ms", a.cfg.Adapters.BrowserAutomation.TimeoutMS)
 	readCtx := ctx
 	cancel := func() {}
@@ -30,13 +30,16 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 	}
 	defer cancel()
 
-	entry, err := a.acquireSessionEntry(readCtx, hidden, profileKey)
+	entry, err := a.acquireSessionEntry(readCtx)
 	if err != nil {
 		return PageReadResult{}, err
 	}
 	defer entry.mu.Unlock()
 	actions := []string{}
 	if boolArg(args, "reuse_active_page") {
+		if err := entry.selectRequestedTabLocked(readCtx, args, false, scope); err != nil {
+			return PageReadResult{}, err
+		}
 		activeURL, currentErr := entry.currentURLLocked(readCtx)
 		if currentErr != nil {
 			return PageReadResult{}, fmt.Errorf("read active managed page URL: %w", currentErr)
@@ -46,7 +49,7 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 		}
 		actions = append(actions, "agent_browser_reuse_active_page")
 	} else {
-		openTool, _, _, openErr := entry.openURLLocked(readCtx, targetURL, true)
+		openTool, _, _, openErr := entry.openURLLocked(readCtx, targetURL, scope)
 		if openErr != nil {
 			return PageReadResult{}, openErr
 		}

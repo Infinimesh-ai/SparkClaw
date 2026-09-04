@@ -12,42 +12,43 @@ func (s *MemoryStore) snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return Snapshot{
-		Sessions:             cloneMap(s.sessions),
-		Clients:              cloneClientMap(s.clients),
-		OwnerProfile:         cloneOwnerProfile(s.ownerProfile),
-		OwnerProfiles:        cloneOwnerProfileMap(s.ownerProfiles),
-		PairingCodes:         clonePairingCodeMap(s.pairingCodes),
-		ISCPOnboardings:      cloneMap(s.iscpOnboardings),
-		MCPAccessTickets:     cloneMCPAccessTicketMap(s.mcpAccessTickets),
-		MCPBindings:          cloneMCPBindingMap(s.mcpBindings),
-		MCPOperations:        cloneMCPOperationMap(s.mcpOperations),
-		Messages:             cloneMessageMap(s.messages),
-		RunFeedback:          cloneSliceMap(s.runFeedback),
-		Runs:                 cloneMap(s.runs),
-		ModelCalls:           cloneMap(s.modelCalls),
-		ToolCalls:            cloneMap(s.toolCalls),
-		DocumentRecords:      cloneMap(s.documentRecords),
-		Approvals:            cloneMap(s.approvals),
-		Reminders:            cloneReminderMap(s.reminders),
-		ReminderDelivery:     cloneMap(s.reminderDelivery),
-		ConnectorSettings:    cloneMap(s.connectorSettings),
-		NotificationBindings: cloneNotificationBindingMap(s.notificationBindings),
-		PassiveNotifications: clonePassiveNotificationMap(s.passiveNotifications),
-		ExternalChatSessions: cloneMap(s.externalChatSessions),
-		ExternalChatMessages: cloneMap(s.externalChatMessages),
-		MessageReceives:      cloneMessageReceiveMap(s.messageReceives),
-		MessageDeliveries:    cloneMessageDeliveryMap(s.messageDeliveries),
-		ChannelInboxUpdates:  cloneChannelInboxUpdateMap(s.channelInboxUpdates),
-		CredentialSecrets:    cloneMap(s.credentialSecrets),
-		BrowserAuthRecords:   cloneBrowserAuthRecordMap(s.browserAuthRecords),
-		BrowserLoginBlocks:   cloneBrowserLoginBlockMap(s.browserLoginBlocks),
-		Memories:             cloneMap(s.memories),
-		MemoryCandidates:     cloneMemoryCandidateMap(s.memoryCandidates),
-		AuditEvents:          cloneAuditEventsBestEffort(s.auditEvents),
-		Events:               cloneClientLifecycleEvents(s.events),
-		EvalRuns:             cloneMap(s.evalRuns),
-		ArtifactObjects:      cloneMap(s.artifactObjects),
-		EpisodeSummaries:     cloneMap(s.episodeSummaries),
+		Sessions:              cloneMap(s.sessions),
+		Clients:               cloneClientMap(s.clients),
+		OwnerProfile:          cloneOwnerProfile(s.ownerProfile),
+		OwnerProfiles:         cloneOwnerProfileMap(s.ownerProfiles),
+		PairingCodes:          clonePairingCodeMap(s.pairingCodes),
+		ISCPOnboardings:       cloneMap(s.iscpOnboardings),
+		MCPAccessTickets:      cloneMCPAccessTicketMap(s.mcpAccessTickets),
+		MCPBindings:           cloneMCPBindingMap(s.mcpBindings),
+		MCPOperations:         cloneMCPOperationMap(s.mcpOperations),
+		Messages:              cloneMessageMap(s.messages),
+		RunFeedback:           cloneSliceMap(s.runFeedback),
+		Runs:                  cloneMap(s.runs),
+		ModelCalls:            cloneMap(s.modelCalls),
+		ToolCalls:             cloneMap(s.toolCalls),
+		DocumentRecords:       cloneMap(s.documentRecords),
+		Approvals:             cloneMap(s.approvals),
+		Reminders:             cloneReminderMap(s.reminders),
+		ReminderDelivery:      cloneMap(s.reminderDelivery),
+		ConnectorSettings:     cloneMap(s.connectorSettings),
+		EmailProviderSettings: cloneEmailProviderSettingMap(s.emailProviderSettings),
+		NotificationBindings:  cloneNotificationBindingMap(s.notificationBindings),
+		PassiveNotifications:  clonePassiveNotificationMap(s.passiveNotifications),
+		ExternalChatSessions:  cloneMap(s.externalChatSessions),
+		ExternalChatMessages:  cloneMap(s.externalChatMessages),
+		MessageReceives:       cloneMessageReceiveMap(s.messageReceives),
+		MessageDeliveries:     cloneMessageDeliveryMap(s.messageDeliveries),
+		ChannelInboxUpdates:   cloneChannelInboxUpdateMap(s.channelInboxUpdates),
+		CredentialSecrets:     cloneMap(s.credentialSecrets),
+		BrowserAuthRecords:    cloneBrowserAuthRecordMap(s.browserAuthRecords),
+		BrowserLoginBlocks:    cloneBrowserLoginBlockMap(s.browserLoginBlocks),
+		Memories:              cloneMap(s.memories),
+		MemoryCandidates:      cloneMemoryCandidateMap(s.memoryCandidates),
+		AuditEvents:           cloneAuditEventsBestEffort(s.auditEvents),
+		Events:                cloneClientLifecycleEvents(s.events),
+		EvalRuns:              cloneMap(s.evalRuns),
+		ArtifactObjects:       cloneMap(s.artifactObjects),
+		EpisodeSummaries:      cloneMap(s.episodeSummaries),
 	}
 }
 
@@ -148,6 +149,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		s.reminderDelivery[id] = normalizeReminderDelivery(delivery)
 	}
 	s.connectorSettings = ensureMap(snapshot.ConnectorSettings)
+	s.emailProviderSettings = cloneEmailProviderSettingMap(ensureMap(snapshot.EmailProviderSettings))
 	s.notificationBindings = cloneNotificationBindingMap(ensureMap(snapshot.NotificationBindings))
 	if s.connectorSettingWriteHighWater == nil {
 		s.connectorSettingWriteHighWater = map[string]time.Time{}
@@ -155,6 +157,14 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	for key, setting := range s.connectorSettings {
 		if setting.UpdatedAt.After(s.connectorSettingWriteHighWater[key]) {
 			s.connectorSettingWriteHighWater[key] = setting.UpdatedAt
+		}
+	}
+	if s.emailProviderWriteHighWater == nil {
+		s.emailProviderWriteHighWater = map[string]time.Time{}
+	}
+	for key, setting := range s.emailProviderSettings {
+		if setting.UpdatedAt.After(s.emailProviderWriteHighWater[key]) {
+			s.emailProviderWriteHighWater[key] = setting.UpdatedAt
 		}
 	}
 	if s.notificationBindingWriteHighWater == nil {

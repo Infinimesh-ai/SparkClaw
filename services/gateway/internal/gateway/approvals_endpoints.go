@@ -135,6 +135,10 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("context-bound workspace data approvals cannot be modified; reject and submit a new request"))
 		return
 	}
+	if call.Tool == "email.send" {
+		writeError(w, http.StatusConflict, errors.New("email send approvals cannot be modified; reject and submit a new request"))
+		return
+	}
 	if s.tools.HasPPTXSealedCandidateArguments(approval.Arguments) {
 		writeError(w, http.StatusConflict, errors.New("sealed PPTX candidate approvals cannot be modified; reject and submit a new request"))
 		return

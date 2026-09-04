@@ -552,6 +552,38 @@ export type MCPAccessRecordDeletion = {
 
 export type IntegrationID = "infinimesh-info" | "localmind";
 
+export type EmailProviderStatus = {
+  provider: "qq_mail" | "outlook" | "gmail";
+  display_name: string;
+  enabled: boolean;
+  default: boolean;
+  account: "default";
+  account_hint?: string;
+  state: string;
+  last_checked_at?: string;
+  error_code?: string;
+  version: number;
+  updated_at?: string;
+};
+
+export type BrowserExtensionStatus = {
+  configured: boolean;
+  state: "not_configured" | "checking" | "ready" | "needs_attention" | "temporarily_unavailable" | "vault_unavailable" | string;
+  profile_id: "default" | string;
+  credential_generation: number;
+  controller_generation?: number;
+  session_generation?: number;
+  page_generation?: number;
+  last_validated_at?: string;
+  error_code?: string;
+  versions: {
+    client?: string;
+    client_version?: string;
+    playwright_version?: string;
+    browser_channel?: string;
+  };
+};
+
 export type IntegrationCredential = {
   id: string;
   label: string;

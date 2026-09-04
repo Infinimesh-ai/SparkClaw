@@ -214,6 +214,112 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.emailProviderList {
+  display: grid;
+  min-width: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.emailProviderRow {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.emailProviderRow:last-child {
+  border-bottom: 0;
+}
+
+.emailProviderRow.selected {
+  box-shadow: inset 2px 0 0 var(--cyber-blue);
+}
+
+.emailProviderActions {
+  display: grid;
+  grid-template-columns: repeat(3, 28px) 34px;
+  align-items: center;
+  gap: 4px;
+}
+
+.emailProviderActions .miniIconButton {
+  width: 28px;
+  height: 28px;
+}
+
+.emailProviderActions .miniIconButton.selected {
+  color: var(--amber-warning);
+}
+
+.emailProviderLoading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--text-secondary);
+}
+
+.browserControlNotice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-left: 3px solid var(--amber-warning);
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.browserControlNotice svg {
+  color: var(--amber-warning);
+}
+
+.browserControlNotice span,
+.browserControlStatus dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.browserControlForm {
+  padding-top: 0;
+}
+
+.browserControlActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.browserControlExtensionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.browserControlExtensionLink:hover {
+  color: var(--text-primary);
+}
+
+.browserControlExtensionLink span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .credentialRow {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
@@ -267,6 +373,7 @@
 
 .credentialSubmit .spin,
 .credentialActions .spin,
+.browserControlActions .spin,
 .credentialValidationFeedback .spin {
   animation: integration-spin 850ms linear infinite;
 }
@@ -339,6 +446,7 @@
 @media (prefers-reduced-motion: reduce) {
   .credentialSubmit .spin,
   .credentialActions .spin,
+  .browserControlActions .spin,
   .credentialValidationFeedback .spin {
     animation: none;
   }
@@ -351,6 +459,15 @@
 
   .credentialActions,
   .credentialRow > .miniIconButton {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .emailProviderRow {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .emailProviderActions {
     grid-column: 2;
     justify-self: start;
   }

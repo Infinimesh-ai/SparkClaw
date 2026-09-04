@@ -195,7 +195,8 @@ describe("Settings directory navigation", () => {
         />
       );
     });
-    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(4);
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(6);
+    expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
     expect(container.textContent).not.toContain(dictionaries.en.settings.licenseId);
 
     const info = findButton(container, dictionaries.en.settings.info);

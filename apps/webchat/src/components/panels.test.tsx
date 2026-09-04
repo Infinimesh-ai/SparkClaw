@@ -155,6 +155,32 @@ describe("ApprovalPanel context-bound approvals", () => {
   });
 });
 
+describe("ApprovalPanel email approvals", () => {
+  it("shows the complete message but does not offer argument editing", () => {
+    const approval: Approval = {
+      ...happyApproval("available"),
+      id: "ap-email",
+      source: "tool",
+      external_context: undefined,
+      tool: "email.send",
+      summary: "Approve email.send",
+      arguments: {
+        provider: "gmail",
+        recipient: "alice@example.com",
+        subject: "Status",
+        body: "The deployment is ready."
+      }
+    };
+    const markup = renderToStaticMarkup(
+      <ApprovalPanel approvals={[approval]} text={dictionaries.en} onResolve={() => {}} onModify={() => {}} onModifyPlan={() => {}} />
+    );
+    expect(markup).toContain("alice@example.com");
+    expect(markup).toContain("Status");
+    expect(markup).toContain("The deployment is ready.");
+    expect(markup).not.toContain(dictionaries.en.approval.editArguments);
+  });
+});
+
 describe("SettingsPanel External MCP", () => {
   it("renders MCP through its dedicated management surface instead of a message binding card", () => {
     const connector: ConnectorStatus = {

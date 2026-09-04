@@ -9,6 +9,7 @@ import {
   CircleUserRound,
   Cpu,
   DatabaseZap,
+  Mail,
   MessageSquare,
   Network,
   Pencil,
@@ -34,6 +35,8 @@ import { ExternalMCPSettings } from "../externalMCPSettings";
 import { SectionHeader } from "./primitives";
 import { ConnectorBindingSettings } from "./settingsBindings";
 import { PairedClientsSettings } from "./settingsClients";
+import { BrowserEmailSettings } from "./settingsEmail";
+import { BrowserControlSettings } from "./settingsBrowserControl";
 import { IntegrationCredentialSettings } from "./settingsIntegrations";
 import { integrationStateLabel } from "./settingsIntegrationState";
 import { OwnerProfileSettings } from "./settingsOwner";
@@ -43,6 +46,8 @@ type SettingsDetail =
   | "owner"
   | "clients"
   | "messaging"
+  | "browser-control"
+  | "browser-email"
   | "info"
   | "localmind"
   | "external-mcp"
@@ -182,6 +187,8 @@ export function SettingsPanel({
               onUpdateConnector={onUpdateConnector}
             />
           )}
+          {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
+          {detail === "browser-email" && <BrowserEmailSettings text={text} />}
           {detail === "info" && (
             <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} />
           )}
@@ -305,6 +312,8 @@ export function SettingsPanel({
           {category === "connections" && (
             <>
               <DirectoryRow icon={<MessageSquare size={17} />} title={text.settings.messaging} status={connectionCountLabel(connectors, text)} onClick={() => setDetail("messaging")} />
+              <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.playwrightExtensionPreview} onClick={() => setDetail("browser-control")} />
+              <DirectoryRow icon={<Mail size={17} />} title={text.settings.browserEmail} status={text.settings.browserEmailProviders} onClick={() => setDetail("browser-email")} />
               <DirectoryRow icon={<DatabaseZap size={17} />} title={text.settings.info} status={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} onClick={() => setDetail("info")} />
               <DirectoryRow icon={<Network size={17} />} title={text.settings.localMind} status={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} onClick={() => setDetail("localmind")} />
               <DirectoryRow icon={<Cable size={17} />} title={text.settings.externalMCP} status={connectors.find((item) => item.channel === "mcp")?.enabled ? text.settings.active : text.common.disabled} onClick={() => setDetail("external-mcp")} />
@@ -342,6 +351,8 @@ function settingsDetailTitle(detail: SettingsDetail, text: CopyText) {
     owner: text.settings.ownerProfile,
     clients: text.settings.pairedClients,
     messaging: text.settings.messaging,
+    "browser-control": text.settings.browserControl,
+    "browser-email": text.settings.browserEmail,
     info: text.settings.info,
     localmind: text.settings.localMind,
     "external-mcp": text.settings.externalMCP,

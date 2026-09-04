@@ -57,6 +57,7 @@ export function ApprovalPanel({
           const happyPlan = approval.source === "happy_team_plan" ? approval.external_context : undefined;
           const planAvailable = happyPlan?.plan_availability === "available";
           const contextBound = Boolean(approval.policy_context);
+          const argumentsLocked = contextBound || approval.tool === "email.send";
           const workspaceAccess = approval.presentation?.kind === "external_mcp_workspace_data_access" ? approval.presentation : undefined;
           const resolving = resolvingId === approval.id;
           return (
@@ -96,7 +97,7 @@ export function ApprovalPanel({
             )}
             {approval.status === "pending" ? (
               <>
-                {!contextBound && editing === approval.id && (
+                {!argumentsLocked && editing === approval.id && (
                   <div className="approvalEdit">
                     <textarea value={draft} onChange={(event) => setDraft(event.target.value)} />
                     {parseError && <span className="compactError">{parseError}</span>}
@@ -106,7 +107,7 @@ export function ApprovalPanel({
                   <button className="approve" onClick={() => onResolve(approval.id, true)} title={planAvailable || !happyPlan ? text.common.approve : text.approval.planUnavailable} disabled={resolving || Boolean(happyPlan && !planAvailable)}>
                     {resolving ? <RefreshCw className="spin" size={16} /> : <Check size={16} />}
                   </button>
-                  {!contextBound && (
+                  {!argumentsLocked && (
                     <button className="edit" onClick={() => (editing === approval.id ? saveEdit(approval) : startEdit(approval))} title={happyPlan ? text.approval.editPlan : text.approval.editArguments} disabled={resolving || Boolean(happyPlan && !planAvailable)}>
                       <Pencil size={15} />
                     </button>

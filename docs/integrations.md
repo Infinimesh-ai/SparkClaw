@@ -2,9 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/integrations.md)
 
-This document summarizes the active optional integration boundaries. Detailed
-environment defaults live in `docker/env/sparkclaw.example.env`, and startup
-commands live in [Deployment](deployment.md).
+This document summarizes the active optional integration boundaries. Product
+defaults live in `docker/env/sparkclaw.local.env` and
+`docker/env/sparkclaw.remote.env`; credentials and machine overrides live in
+the corresponding ignored private file. Startup commands are documented in
+[Deployment](deployment.md).
 
 ## Shared Rules
 
@@ -22,6 +24,32 @@ commands live in [Deployment](deployment.md).
 - Owner isolation is logical inside one household Gateway. It protects settings,
   bindings, endpoints, and delivery authorization from cross-owner use, but is
   not a hostile-tenant process or Store boundary.
+
+## Browser Email
+
+Browser email is an active send-only integration for QQ Mail, Outlook, and
+Gmail. It is not a messaging connector and does not use provider credentials,
+OAuth tokens, IMAP, SMTP, Gmail API, or Microsoft Graph. Authentication stays
+inside the dedicated host-owned SparkClaw Chromium profile.
+
+WebChat exposes the three providers under `Settings > Connections > Browser
+email`. Opening a login entry switches browserd to headed presentation for
+manual owner login. Login checks and sends switch to headless presentation and
+create a new task-owned provider tab; they never reuse the visible login tab or
+another idle tab.
+
+Every send request runs a deterministic login probe before Workflow creation.
+Runtime selects an explicitly named provider or the single configured default,
+then freezes the provider setting version, browser generation, script revisions,
+validation time, and invocation ID. The model supplies only one recipient, an
+optional single-line subject, and a plain-text body. One exact-content approval
+precedes the provider script, which attempts Send at most once. An unknown send
+outcome is terminal and is never retried automatically.
+
+Email reading, replies, drafts, attachments, multiple recipients/accounts, and
+generic browser fallback are unavailable. QQ Mail is not a generic registered
+browser destination. See [Browser email Workflow](browser-email-workflow-design.md)
+and [Browser runtime](browser-runtime.md).
 
 ## LocalMind Workspace MCP
 
@@ -121,8 +149,8 @@ starting QR setup. Its notification channel block and environment overrides are
 only bootstrap defaults when no persisted owner choice exists. Revoked or
 unavailable bindings remain visible but cannot be selected for delivery.
 
-For the QR provider, WebChat opens the persisted provider login URL through a
-dedicated visible Chromium profile instead of a link in the owner's default
+For the QR provider, WebChat opens the persisted provider login URL in the
+dedicated host-owned SparkClaw Browser profile instead of the owner's default
 browser. Gateway accepts that action only for the current owner's pending
 Weixin binding and only for the provider's HTTPS `liteapp.weixin.qq.com` URL;
 the client cannot supply a URL. A repeated action reuses the same binding-scoped
@@ -130,11 +158,10 @@ window and renews its fixed 10-minute lease, capped by any earlier binding
 expiry. A ToolHub-owned janitor sweeps expired leases every 30 seconds without
 polling browser tabs. Poll-observed activation, expiry, or failure and explicit
 owner revocation still release immediately. Graceful Gateway shutdown drains
-every tracked QR window before closing the browser adapter; after an ungraceful
-exit, the existing deterministic profile recovery reclaims a leaked process on
-the next acquisition. This surface requires the trusted desktop runtime's
-`docker/compose.visible-browser.yaml` overlay; it fails explicitly when no
-visible display is available and never falls back to the default browser.
+SparkClaw-owned QR tabs without stopping browserd or Chromium. The owner opens
+**SparkClaw Browser** on the host desktop for QR interaction; Gateway receives
+no display socket, cannot take over existing owner tabs, and never falls back
+to the default browser.
 
 ## Speech Transcription
 

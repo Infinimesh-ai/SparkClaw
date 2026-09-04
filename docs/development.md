@@ -52,16 +52,18 @@ runtime or platform-specific toolchain directory.
 npm run setup:host
 ```
 
-Rebuild and restart the current external-model/OCR/PostgreSQL development runtime:
+Use the explicit product runtime that matches the models being exercised:
 
 ```bash
-npm run dev
+npm run start:local
+npm run start:remote
 ```
 
-To rebuild only one application container with hosted chat, use `npm run
-dev:gateway` or `npm run dev:webchat`. Use the explicit `:online` and `:local`
-variants to switch profiles; both preserve the OCR/PostgreSQL environment and
-verify Gateway readiness.
+Both commands first load `docker/env/sparkclaw.product.env`, then the selected
+`docker/env/sparkclaw.local.env` plus `.env.local`, or
+`docker/env/sparkclaw.remote.env` plus `.env.remote`. There is no mixed
+hosted-chat/local-auxiliary mode and no partial product rebuild command that can
+bypass profile validation.
 
 Direct host processes are retained only for isolated mock/file and Vite
 debugging as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
@@ -84,8 +86,17 @@ Also run:
 
 - `bash scripts/run-eval.sh` for routing, Workflow, model, tool, policy,
   delivery, or user-flow changes;
-- `docker compose --env-file .env -f docker/compose.yaml config --quiet` for
-  Compose/config changes;
+- both versioned Compose expansions for Compose/config changes:
+
+  ```bash
+  docker compose --env-file docker/env/sparkclaw.product.env \
+    --env-file docker/env/sparkclaw.local.env \
+    -f docker/compose.yaml -f docker/compose.models.local.yaml \
+    --profile product --profile models-local config --quiet
+  docker compose --env-file docker/env/sparkclaw.product.env \
+    --env-file docker/env/sparkclaw.remote.env \
+    -f docker/compose.yaml --profile product config --quiet
+  ```
 - `npm run setup:browser` plus browser-focused tests/eval for browser transport
   or profile changes;
 - the CI `docs` job rules locally or in CI for Markdown changes: every English
@@ -158,11 +169,15 @@ provider name.
 
 ## Browser Changes
 
-The only execution backend is pinned agent-browser with system Chromium and a
-SparkClaw-owned profile. Keep ToolHub contracts provider-neutral, process/profile
-ownership bounded, page evidence untrusted, and click refs tied to fresh
-snapshots. Do not restore Playwright, personal Chrome attachment, cookie export,
-or a second DOM collector. See [Browser runtime](browser-runtime.md).
+The only execution backend is pinned agent-browser attached through Host-CDP to
+the host-owned SparkClaw Chromium process and dedicated profile. Keep ToolHub
+contracts provider-neutral, process/profile and tab ownership bounded, page
+evidence untrusted, and click refs tied to fresh snapshots. Do not restore
+container Chromium, personal Chrome attachment, cookie export, or a second DOM
+collector. The isolated host-only Playwright Extension controller is a
+qualification preview and must not be wired into browser execution until the
+gates in [Playwright Extension browser migration](playwright-extension-browser-design.md)
+pass. See [Browser runtime](browser-runtime.md).
 
 ## Document Changes
 

@@ -10,7 +10,7 @@ Describe the change.
 - [ ] `go test ./services/gateway/...`
 - [ ] `bash scripts/doctor.sh`
 - [ ] `bash scripts/run-eval.sh`
-- [ ] `docker compose --env-file .env -f docker/compose.yaml config --quiet`
+- [ ] Local and remote Compose profiles both expand successfully
 
 ## Risk
 
@@ -20,4 +20,4 @@ What can break, and how is it bounded?
 
 - [ ] README/docs updated, or not needed
 - [ ] `zh-cn/` mirror updated for project docs, or not needed
-- [ ] No secrets, traces, local state or model weights included
+- [ ] No `.env.local`/`.env.remote`, secrets, traces, local state or model weights included

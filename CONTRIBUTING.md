@@ -9,7 +9,8 @@ Thanks for helping improve SparkClaw. This project is a local-first agent runtim
 - Read [README.md](README.md), [docs/architecture.md](docs/architecture.md) and [docs/development.md](docs/development.md).
 - Open an issue for large changes before implementation.
 - Keep changes narrowly scoped. Avoid drive-by refactors in unrelated files.
-- Do not commit `.env`, model weights, traces, local state, keys or downloaded data.
+- Do not commit `.env.local`, `.env.remote`, model weights, traces, local state,
+  keys, or downloaded data.
 
 ## Development Setup
 
@@ -29,7 +30,13 @@ Run the smallest relevant tests while developing. Before opening a pull request,
 npm --workspace @sparkclaw/webchat run build
 go test ./services/gateway/...
 bash scripts/doctor.sh
-docker compose --env-file .env -f docker/compose.yaml config --quiet
+docker compose --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env \
+  -f docker/compose.yaml -f docker/compose.models.local.yaml \
+  --profile product --profile models-local config --quiet
+docker compose --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.remote.env \
+  -f docker/compose.yaml --profile product config --quiet
 ```
 
 For runtime, tool, policy, trace, model routing or approval changes, also run:

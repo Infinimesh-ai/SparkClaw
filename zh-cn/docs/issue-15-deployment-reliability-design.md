@@ -6,6 +6,11 @@
 > 的实现与本地验证已完成。Owner 于 2026-08-17 接受了全部剩余建议；实际 DGX 重启验收仍需
 > 在部署窗口执行。
 
+> 当前入口说明（2026-09-03）：下述可靠性决策现在只通过两种产品模式生效：
+> `deploy:local` / `start:local` 与 `deploy:remote` / `start:remote`。Local 和 Remote
+> 共用应用 Compose 与产品契约，只有 Local 额外加载模型 Compose。下方故障分析只描述已退役
+> 路径，不构成可运行的替代入口。
+
 ## 决策摘要
 
 SparkClaw 的产品 Compose runtime 使用 PostgreSQL。项目仍处于研发阶段，没有存量用户迁移
@@ -50,19 +55,18 @@ Docker/NVIDIA 等待与正常模型启动预算的有限超时。
 - 修改 PostgreSQL schema 或 Store contract；
 - 修改模型 checkpoint、warmup payload、residency budget 或逻辑 model lane；
 - 修改 WebChat 容器内部 listener port 或 Gateway 内部端口；
-- 用 Docker restart policy 替代 systemd。
+- 用 Docker restart policy 替代 Local 模型的开机恢复。
 
-## 当前故障模型
+## 历史故障模型
 
-当前各路径单独看都有依据，但组合后并不安全：
+本 issue 实施前，已退役路径单独看都有依据，但组合后并不安全：
 
-1. `docker/env/sparkclaw.example.env` 声明 `SPARKCLAW_STATE_BACKEND=file`，而
-   `scripts/restart_runtime_compose.sh` 随后加载
-   `docker/env/sparkclaw.single-fast.env`，实际选择 PostgreSQL。
+1. 已退役的示例环境声明 `SPARKCLAW_STATE_BACKEND=file`，后加载的 runtime profile
+   却静默把有效值改为 PostgreSQL。
 2. `scripts/serve_models_compose.sh` 每次都停止并 force-recreate 所有目标模型。因此即使全部
-   容器健康且配置一致，`npm start` 与开机启动也会承担完整模型加载。
+   容器健康且配置一致，产品启动与开机启动也会承担完整模型加载。
 3. Compose 允许配置 WebChat bind address，却把 host port 固定为 `18790`；
-   `scripts/deploy.sh` 与 runtime readiness 默认值又分别重复该端口。
+   已退役的 deployer 与 runtime readiness 路径又分别重复该端口。
 4. Fast 与 Guard healthcheck 执行从 checkout bind-mount 的 Python 文件。模型进程仍然有效时，
    移动或删除仓库也会让 healthcheck 无法启动。
 5. marker 写入抛出 `OSError` 时，已经成功的 warmup 会被改判为 healthcheck 失败。
@@ -79,7 +83,7 @@ Docker/NVIDIA 等待与正常模型启动预算的有限超时。
 | `SPARKCLAW_VLLM_IMAGE` | 当前 pin/default 的上游镜像 | 继续表示本地 readiness 派生镜像的上游 base，保留现有 operator override。 |
 
 Shell 入口不能 `source .env`。它们应共享一个不会执行内容的 dotenv reader，只读取少量由脚本
-拥有的值。把 `deploy.sh` 与 `autostart_compose.sh` 中已有的两个 reader 提取出来，应作为与
+拥有的值。把已退役 deployer 与 `autostart_compose.sh` 中重复的 reader 提取出来，应作为与
 行为变更分开的机械提交。
 
 ## State Backend 对齐
@@ -87,7 +91,7 @@ Shell 入口不能 `source .env`。它们应共享一个不会执行内容的 do
 把示例环境改为 PostgreSQL，同时让 single-Fast 产品 profile 继续显式选择 PostgreSQL。部署
 文档必须说明：
 
-- `npm start`、一键部署与 boot autostart 都使用 PostgreSQL；
+- `start:local`、`start:remote`、两个 deployer 与 Local boot autostart 都使用 PostgreSQL；
 - 旧 file snapshot 既不迁移也不删除；
 - 直接升级因此可能从空 PostgreSQL 数据库启动；
 - file backend 仍可用于显式选择的隔离 host/mock 运行，但不是产品默认值。
@@ -110,8 +114,8 @@ Shell 入口不能 `source .env`。它们应共享一个不会执行内容的 do
 主机重启后必须独立检查进程状态：Docker 可能在已停止的容器上保留旧 health 值。停止的容器
 不是健康的 resident service。
 
-对于 `single-fast`，Fast、embedding、Guard 与 OCR 仍是一个原子 residency group。任一
-成员需要恢复时，四者一起恢复。评估产品组之前仍停止遗留 Deep 容器。显式 standalone 与
+对于 `single-fast`，Fast、embedding、Guard、ASR 与 OCR 仍是一个原子 residency group。任一
+成员需要恢复时，五者一起恢复。评估产品组之前仍停止遗留 Deep 容器。显式 standalone 与
 benchmark 命令只对其选择的 service 使用相同判断。
 
 ### 动作
@@ -143,10 +147,10 @@ listener 与 service-to-service routing 仍使用内部端口 `18790`。
 
 共享 dotenv reader 只解析和校验一次 host port。该值随后统一拥有：
 
-- `deploy.sh` 中 WebChat 与 `/readyz` 的 probe URL；
-- deployer 输出的 local 与 LAN URL；
-- `restart_runtime_compose.sh` 的默认 readiness URL；
-- direct `npm start` 与 boot startup 使用的 Compose 插值。
+- Local 与 Remote 入口中的 WebChat 与 `/readyz` probe URL；
+- deployer 输出的 local、LAN 与 Remote URL；
+- 两个 start script 共用的默认 readiness URL；
+- `start:local`、`start:remote` 与 Local boot startup 使用的 Compose 插值。
 
 显式 `SPARKCLAW_GATEWAY_READY_URL` 继续作为特殊 proxy layout 的最高优先级逃生口。测试必须
 使用一个非默认端口，避免 operational path 中隐藏的 `18790` literal 蒙混过关。
@@ -199,7 +203,7 @@ TimeoutStartSec=4h
 
 - 非法脚本配置在停止容器前失败。
 - 模型检查错误 fail closed，并保留当前模型组。
-- 健康且配置一致的模型组不会因为 `npm start` 或 boot 被停止。
+- 健康且配置一致的模型组不会因为 `start:local` 或 boot 被停止。
 - 模型组恢复绝不只启动 single-Fast residency set 的一个成员。
 - 模型证据成功前 readiness 保持失败；只有该证据之后的 marker 持久化不致命。
 - 自定义 WebChat port 在发布与本地 probe 中保持一致。
@@ -227,10 +231,11 @@ TimeoutStartSec=4h
 python3 -m unittest scripts/test_model_readiness.py
 python3 -m unittest scripts/test_dotenv.py
 python3 -m unittest scripts/test_serve_models_compose.py
-python3 -m unittest scripts/test_runtime_compose.py
+python3 -m unittest scripts/test_local_compose.py scripts/test_remote_compose.py
 python3 -m unittest scripts/test_autostart_compose.py
-bash -n scripts/deploy.sh scripts/start_compose.sh \
-  scripts/restart_runtime_compose.sh scripts/serve_models_compose.sh \
+bash -n scripts/deploy_local.sh scripts/deploy_remote.sh \
+  scripts/start_local_compose.sh scripts/start_remote_compose.sh \
+  scripts/serve_models_compose.sh \
   scripts/autostart_compose.sh scripts/install_autostart_systemd.sh
 ```
 
@@ -250,7 +255,7 @@ bash scripts/doctor.sh
 
 DGX 验收证据必须覆盖：
 
-1. healthy/current 状态运行 `npm start` 时，四个模型 container ID 保持不变，且不会再次 heavy
+1. healthy/current 状态运行 `npm run start:local` 时，五个模型 container ID 保持不变，且不会再次 heavy
    warmup；
 2. 每种 degraded predicate 都触发最终确认的 whole-group recovery；
 3. 显式 force flag 替换全部目标 container ID；

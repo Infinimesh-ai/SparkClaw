@@ -2,7 +2,9 @@
 
 > 语言： [English](../../docs/deployment.md) | 简体中文
 
-本文档是当前的本地开发、Docker Compose 和 DGX Spark 模型服务部署指南，替代旧的 Docker implementation plan 和 DGX handoff notes。
+本文档定义 SparkClaw 唯一支持的两套产品部署。全本地部署在 NVIDIA GB10 上拥有五个
+模型服务；全远端部署使用五个版本化公网模型端点。两者都运行 PostgreSQL、Sandbox Runner、
+Gotenberg、Gateway 与 WebChat。
 
 ## 前置条件
 
@@ -11,7 +13,7 @@
 - Docker Engine、Docker Compose plugin、NVIDIA driver/container toolkit、`curl`、systemd，
   具备安装开机服务的 `sudo` 权限，并能访问 container registry 与 Hugging Face。
 - 冷启动的模型与镜像缓存至少预留 125 GiB；已有部分缓存时，部署脚本会计算剩余需求。
-- 用于模型下载的 Hugging Face token。不要提交生成的 `.env`。
+- 用于本地模型下载的 Hugging Face token。不要提交 `.env.local` 或 `.env.remote`。
 
 Node.js 26/npm 11 与 Go 1.25 只用于宿主开发，容器化部署不依赖它们。
 
@@ -34,7 +36,7 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
 2. 将 curl 管道的 stdin 重新连接到 `/dev/tty`，让 Hugging Face token 保持隐藏式交互输入。
 3. 硬性校验 Linux/ARM64、NVIDIA GB10、至少 100 GiB 内存、Docker Compose、
    `nvidia-smi` 与磁盘空间。
-4. 创建或保留权限为 `0600` 的 `.env`，接收不回显的 Hugging Face token，并把 bind mount
+4. 创建或保留权限为 `0600` 的 `.env.local`，接收不回显的 Hugging Face token，并把 bind mount
    数据目录对齐到当前用户。
 5. 使用 vLLM 的 Hugging Face 集成，将 Fast、embedding、guard、Qwen3-ASR 与 OvisOCR2
    下载到共享的 `data/models` 缓存。
@@ -68,166 +70,130 @@ bootstrap 默认使用 `main` 与 `$HOME/SparkClaw`。在 `bash` 进程上设置
 已有仓库可直接运行：
 
 ```bash
-bash scripts/deploy.sh
+npm run deploy:local
 ```
 
-## Compose Profiles
+## 产品入口
 
-| Profile | 用途 |
-|---|---|
-| `dev` | 开发运行形态。 |
-| `eval` | Gateway 加 evaluator 和 data services。 |
-| `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
-| `models-local` | PostgreSQL 18/pgvector、MinIO、sandbox-runner、Gateway、WebChat 和可选 vLLM lanes。 |
+| 部署 | 首次部署 | Reconcile/start | 配置 |
+|---|---|---|---|
+| 全本地 | `npm run deploy:local` | `npm run start:local` | product env、Local env，再加载 `.env.local` |
+| 全远端 | `npm run deploy:remote` | `npm run start:remote` | product env、Remote env，再加载 `.env.remote` |
+
+这四条命令是唯一产品入口。宿主机调试命令和定向模型 benchmark helper 不是部署模式。
+已退役的 `online` 名称与托管 chat 加本地辅助模型的混合运行态不再受支持。
 
 WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设置
 `SPARKCLAW_WEBCHAT_PORT` 可以发布另一个 host port；容器与 Nginx listener 仍使用内部
 端口 `18790`。Gateway 不发布 host port；WebChat 通过私有 `sparkclaw_internal` network，
 把选定路由代理到 `gateway:18789`。WebChat 必须只在本机可达时设置
-`SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。两个值都从 `.env` 读取，非法端口会在修改容器前失败。
+`SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。两个值都从所选私有覆盖文件读取，非法端口会在修改
+容器前失败。
 模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
 
-## 云模型服务器运行态
+两种产品模式都要求 Gateway 配对，同时保持 `SPARKCLAW_API_TOKEN` 为空。部署入口会在所选
+mode-`0600` 私有环境文件中生成随机 `SPARKCLAW_WEBCHAT_PROXY_TOKEN`，并且只注入 Gateway
+与 WebChat reverse proxy。Nginx 只在 `http://127.0.0.1:18795` 暴露的精确配对 bootstrap
+路由上使用该凭据；此 listener 不向局域网发布。首次进入产品 WebChat 时，应在 SparkClaw
+宿主浏览器打开 `http://127.0.0.1:18790` 并选择“配对”。WebChat 会把返回的逐客户端 Gateway
+token 保存在该浏览器中。局域网浏览器不能自行配对，必须在现有 token 表单中输入由 Owner
+预先提供的 Gateway client token。Gateway client token、MCP Access Ticket 与 Playwright
+Extension token 是三类彼此独立的凭据。
 
-当 Linux 服务器或虚拟机只负责 SparkClaw 应用与持久化状态、不负责模型进程时，使用云模型
-运行态。它只启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat，不会选择
-`models-local` profile 中的模型服务。
+## 远端部署
 
-在 Ubuntu VM 上，以具备 sudo 权限的普通用户运行流式安装入口：
-
-```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
-```
-
-bootstrap 会在需要时安装 Git，把仓库安全 clone 或 fast-forward 到 `$HOME/SparkClaw`，把
-stdin 重新连接到终端，再执行 `scripts/deploy_cloud_vm.sh`。VM 部署脚本会在需要时安装
-Docker Engine 与 Compose plugin；已有 checkout 存在 tracked 或 untracked 本地修改时绝不
-覆盖。
-
-首次运行会交互输入私有的 Fast、embedding、guard endpoint。脚本自动填入 SparkClaw 标准模型名，
-同时保留已有配置中的名称。逻辑 Deep lane 可以复用 Fast，也可以单独配置 endpoint。模型 API Key
-是可选项：endpoint 不需要 Bearer 认证时直接回车留空。
-Speech/ASR 与 OCR 默认关闭，只有明确启用后才要求输入各自的 endpoint。运营方专属 endpoint
-与凭据不会进入仓库，只写入 VM 本机被 Git 忽略且权限为 `0600` 的 `.env`；作为文档化部署
-默认值的公共服务 URL 可以记录在版本化 profile 中。
-
-正常部署前，VM 脚本会把 `docker/env/sparkclaw.cloud.example.env` 新增的 assignment 合并到
-私有 `.env`。它只补充不存在的 key，保留所有已有值（包括显式空值），随后只 reconcile
-container UID/GID、external model mode 与 PostgreSQL state 等少量由 cloud 部署方式拥有的
-固定配置。写回过程是原子的，配置合并步骤本身不会下载应用或模型依赖。`--check` 和直接执行
-`start_cloud_compose.sh` 时，会通过权限为 `0600` 的临时文件应用同一组模板默认值，因此配置
-校验与 Compose expansion 能看到升级后的配置，但不会修改私有文件。这样，旧模板创建的安装会
-自动获得 `SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1` 等新默认值，同时保留
-operator 已配置的 endpoint 与 credential。
-
-托管 Fast endpoint `https://sparkclaw.infinimesh.cloud/fast/v1` 在
-2026-08-28 报告 `max_model_len=262144`。`configs/model.profiles.json` 中可执行的
-`infinimesh-online-fast-v1` entry 记录该物理窗口，并把两条逻辑 chat lane 都映射到它。
-Gateway 不再有独立 input ceiling：每个 typed operation 从物理 `context_tokens` 中预留 profile
-所属的 output-class budget，再由 Model Router 对完整渲染请求执行准入。该 profile 当前为 Fast
-compact structured output 分配 2,048 tokens，为 Workflow structured 与 answer output 分配
-8,192 tokens，为 Fast vision output 分配 4,096 tokens。容量缺失、为零或关系非法会阻止 profile
-加载；旧的逐 lane 容量变量会被拒绝。
-
-Cloud workload limit 继续是语义 evidence 边界，不是另一套模型窗口。200,000 字节的文档抽取
-合同在该托管 endpoint 约为 49,700 tokens，96,000 字节的 run observation 窗口另占约 24,000
-tokens，1,461 份已保存 trace 中模型 prompt 最大为 13,278 tokens。因此 cloud profile 把
-`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 提高到 200,000，
-并把 run observation 边界提高到 72,000 字节开始压缩、96,000 字节硬停止；浏览器 evidence
-保持 8,000 字节，observation 信封保持 2,400 字节，`observation.read` 单次保持 32,768 字节且
-每阶段最多 2 次。
-
-当前 cloud overlay 是可信局域网 profile，明确关闭可选的 Gateway owner-token 认证边界，
-WebChat 因此不会要求输入 token。正常部署还会清空旧的 `SPARKCLAW_API_TOKEN`，readiness 会拒绝
-仍报告 `auth_required: true` 的 cloud 运行态。
-
-脚本构建并启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。Gateway 镜像内会安装
-Chromium、`agent-browser`、Xvfb、中日韩/Emoji 字体和 ffmpeg。只有 Gateway readiness 与
-容器内 Chromium 打开页面及 snapshot smoke test 都通过，部署才算成功。浏览器状态持久化在
-`data/browser-profiles`；VM 不需要 Ubuntu Desktop，也不需要宿主机 Chromium。
-
-无桌面的 VM 可以正常使用 hidden Chromium，但微信扫码登录不同：它会在 VM owner 的桌面上
-打开 visible Chromium 窗口供 owner 扫码。cloud 启动脚本解析到本地 X11/XWayland display
-时，会自动叠加 `docker/compose.visible-browser.yaml`，并输出 `Visible Chromium display:
-...`。没有可用 display 时，部署仍会以 hidden Chromium 正常启动并明确告警，但打开微信登录
-窗口会按设计失败。窗口显示在 VM 桌面上，不会显示在仅仅访问 WebChat 的另一台电脑上。
-
-请从 VM 的桌面会话运行部署，或先通过 PVE console 登录该桌面，然后 reconcile 运行态：
-
-```bash
-cd "$HOME/SparkClaw"
-bash scripts/resolve-browser-display.sh
-bash scripts/start_cloud_compose.sh
-```
-
-解析器会使用可用的 Xauthority 文件逐个探测 socket，忽略无法建立 X11 连接的初始化或
-残留 socket；存在多个可用 display 时，自动选择编号最小的一个。如需覆盖这个自动选择，
-可在执行第二条命令前显式指定 display 及其 authority 文件：
-
-```bash
-export SPARKCLAW_BROWSER_DISPLAY=:2
-export SPARKCLAW_BROWSER_XAUTHORITY=/path/to/that/display/Xauthority
-bash scripts/start_cloud_compose.sh
-```
-
-微信扫码登录不要使用虚拟 Xvfb display：它适合 hidden 自动化，但不是 owner 可见的扫码界面。
-
-不更新 checkout、只 reconcile 当前运行态时执行：
-
-```bash
-bash "$HOME/SparkClaw/scripts/deploy_cloud_vm.sh"
-```
-
-重新进入私有配置或只做只读检查：
+远端部署拥有 SparkClaw 应用与持久化状态，但不运行模型容器。在 Ubuntu 上，以具备 sudo
+权限的普通用户运行：
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
-  bash -s -- --configure
-
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
-  bash -s -- --check
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-remote.sh | bash
 ```
 
-SparkClaw 会在模型 base URL 后追加 `/chat/completions` 或 `/embeddings`。当前 Model Router
-对 Fast、Deep、embedding、guard 共用一个可选的 `OPENAI_API_KEY`；不同 provider 需要不同
-credential 或 header 时应使用可信 compatibility proxy。speech adapter 输入 service root，
-因为它会自行追加 `/v1/audio/*`；OCR 输入 OpenAI-compatible base URL。
+bootstrap 会在需要时安装 Git，安全 clone 或 fast-forward 仓库，将 stdin 重新连接到终端，
+并调用 `deploy:remote`。缺少 Docker Engine 与 Compose 时会自动安装；脏或分叉 checkout
+绝不会被覆盖。
 
-cloud overlay 为四个应用服务配置 `restart: unless-stopped`，安装器会启用 Docker，因此 VM
-重启后会自动恢复。Gateway 仍只在 Docker 内部可达；WebChat 默认发布 `18790`，使用
-`http://<VM-IP>:18790` 访问。当前测试拓扑不安装 TLS，也不修改防火墙规则，必须只放在可信
-局域网中：任何能访问 WebChat 端口的设备都可以操作 SparkClaw。此拓扑不要安装 DGX Spark
-autostart unit，因为该 unit 负责本地 NVIDIA 模型的 reconciliation。
+版本化 `docker/env/sparkclaw.product.env` 拥有共享业务行为、容量、凭据路径、ISCP 默认值与
+应用生命周期输入。`docker/env/sparkclaw.remote.env` 只拥有 Remote 部署标记和以下五个公网
+模型服务：
+
+| 服务 | Base URL |
+|---|---|
+| Fast 与逻辑 Deep | `https://sparkclaw.infinimesh.cloud/fast/v1` |
+| Embedding | `https://sparkclaw.infinimesh.cloud/embedding/v1` |
+| Guard | `https://sparkclaw.infinimesh.cloud/guard/v1` |
+| ASR | `https://sparkclaw.infinimesh.cloud/asr` |
+| OCR | `https://sparkclaw.infinimesh.cloud/ocr/v1` |
+
+`.env.remote` 只保存凭据和机器专属覆盖项。可用 `--configure` 输入可选共享
+`OPENAI_API_KEY`；endpoint 不需要 Bearer 认证时直接留空。ASR 必须填写 service root，
+因为 Gateway 会追加 `/v1/audio/transcriptions`；OCR 使用 OpenAI-compatible `/v1` base URL。
+
+修改容器前，remote 启动会校验每个模型 URL，拒绝 `sparkclaw-*` Compose service name、
+`localhost`、`*.localhost`、`127.0.0.1`、`::1`、Docker host/gateway alias、常见本地域名
+后缀、单标签本地主机名，以及所有非公网 IP literal，包括 RFC1918、unique-local、loopback、
+unspecified、link-local、reserved 与 multicast 地址。随后显式停止共享 Compose project 中的
+本地模型容器，再准确启动 PostgreSQL、Sandbox Runner、Gotenberg、Gateway 与 WebChat。
+五个应用服务都使用 `restart: unless-stopped`。
+
+部署会安装或校验固定宿主 Chromium 与 `sparkclaw-browserd`，验证 Gateway readiness，执行
+容器侧 Host-CDP MCP smoke，并证明 Chromium 随后仍存活。无 display 主机运行宿主拥有的
+headless Chromium；桌面 owner 可以打开 **SparkClaw Browser**，让同一专用 Profile 按序
+切换到 headed presentation。
+
+远端运行态的 reconcile、重新配置与只读检查：
+
+```bash
+npm run start:remote
+bash scripts/deploy_remote.sh --configure
+bash scripts/deploy_remote.sh --check
+bash scripts/install-host-browser.sh --check --env-file .env.remote
+```
+
+Playwright Extension Controller 是显式 Preview，不是生产浏览器 Backend。Remote 部署完成
+宿主浏览器安装后，具备宿主机 Node.js 26 与 npm 11 的 Owner 可以执行：
+
+```bash
+bash scripts/setup-browser-controller.sh --env-file .env.remote
+bash scripts/open-browser-extension-preview.sh
+```
+
+只在第二条命令打开的独立浏览器中安装官方扩展并配置资格验证账号。不要使用日常 Profile
+或生产账号状态：固定版本官方扩展可能连接该 Profile 中的全部标签页。
+验证扩展 Token 前应保持该资格浏览器处于打开状态。Controller 将固定浏览器制品声明为
+`chromium`，以便官方 MCP 使用 Linux user-service 连接页交接路径。`npm run start:remote`
+的全部浏览器与邮箱执行仍继续使用 Host-CDP。
+
+Gateway 仍只在 Docker 内部可达，WebChat 默认发布 `18790`，精确配对 bootstrap 则只在宿主
+回环地址 `18795` 可达。该拓扑不安装 TLS 或防火墙规则，主 WebChat 端口应只放在 Owner
+可信网络中。
 
 ## Product Runtime
 
-部署入口最终会调用仓库根目录暴露的同一个产品启动命令。已有 `.env` 的 operator
-可以直接运行该命令，装载常驻的 `single-fast-v1` 模型组与 PostgreSQL-backed
-control plane：
+产品模式只能通过明确的 local 或 remote 入口选择：
 
 ```bash
-npm start
+npm run start:local
+npm run start:remote
 ```
 
-该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard、
-ASR 与 OCR 视为一个常驻组。全部容器 running、healthy 且 Compose configuration hash 一致时，
-启动会保留完整模型组；任一成员 absent、stopped、unhealthy 或 drifted 时，五者一起停止并
-force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对原本健康的模型组执行相同
-刷新。命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion 预热，然后才
-启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后才会重建
-Gateway。Gateway 随后验证 PostgreSQL state backend 下的
-`model_mode=external`；默认拓扑中，逻辑 Deep profile 别名到 Fast endpoint。只有隔离的
-确定性调试或评测才应显式设置 `SPARKCLAW_MODEL_MODE=mock`。
+local 启动把 Fast、embedding、guard、ASR 与 OCR 作为一个常驻模型组。健康且配置一致的
+模型组会保留；任一成员缺失、停止、不健康或漂移时，完整模型组会 force-recreate。随后启动
+PostgreSQL、Sandbox Runner、Gotenberg、Gateway 与 WebChat，并要求 Gateway 在 PostgreSQL
+state 和 external model adapter 下 ready。
+
+remote 启动按全远端 profile 校验六个逻辑 adapter URL，停止共享 Compose project 中的全部
+本地模型容器，再启动同样的五个应用服务。它不会根据当前运行的容器推断 Fast 或 Deep。
+
+两种模式都选择 `sparkclaw-product-v1`：Fast 与逻辑 Deep 共享 262,144-token Remote context
+与 output budget；embedding、guard、OCR 分别使用 8K、8K、32K context 契约。本地模型 serving
+接收同一 profile，私有文件或环境变量不能让它选择更小的容量契约。
 
 ### 开机自启动
 
-部署默认启用宿主机开机自启动。开关保存在本地 `.env`：
+local 部署从版本化 Local profile 默认启用宿主机开机自启动；`.env.local` 只能覆盖该生命周期设置：
 
 ```dotenv
 SPARKCLAW_AUTOSTART_ENABLED=true
@@ -236,11 +202,12 @@ SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS=10
 ```
 
 开机时，`sparkclaw-autostart.service` 以部署用户身份运行，在配置的总时限内等待 Docker 与
-NVIDIA runtime 就绪，并用单次探针时限约束每条 readiness 命令；随后调用与 `npm start`
-相同的产品入口。它会保留健康模型组，或在模型
+NVIDIA runtime 就绪，并用单次探针时限约束每条 readiness 命令；随后调用
+`start:local`。它会保留健康模型组，或在模型
 组 degraded 时自动 force-recreate，随后才启动应用服务。该 unit 是带
 `RemainAfterExit=yes` 的 `Type=oneshot`；reconciliation 期间保持 activating，并在固定
-`TimeoutStartSec=4h` 后失败，而不会永久等待。它不使用 Docker container restart policy。
+`TimeoutStartSec=4h` 后失败，而不会永久等待。五个应用容器同时使用共享的
+`restart: unless-stopped` 策略；systemd 仍负责宿主启动后的完整模型组与产品 reconcile。
 
 设置 `SPARKCLAW_AUTOSTART_ENABLED=false` 后，下次开机会跳过启动。systemd 单元仍保持
 enabled，因此把配置改回 `true` 就足够，下一次开机会重新读取。仓库移动后可执行以下命令
@@ -253,7 +220,7 @@ journalctl -u sparkclaw-autostart.service -b
 ```
 
 安装单元不会重启当前实例。若不重启主机而直接应用配置，可运行 `sudo systemctl restart
-sparkclaw-autostart.service`。健康模型组会被保留。需要完整刷新时，先在 `.env` 设置
+sparkclaw-autostart.service`。健康模型组会被保留。需要完整刷新时，先在 `.env.local` 设置
 `SPARKCLAW_FORCE_MODEL_RECREATE=true`，重启 unit，再把该设置恢复为 `false`，供后续 boot
 使用。
 
@@ -266,7 +233,8 @@ bash scripts/doctor.sh
 ```
 
 本机打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的
-其他设备使用 `http://<主机局域网-IP>:18790`。
+其他设备使用 `http://<主机局域网-IP>:18790`。首次自配对必须在 SparkClaw 宿主浏览器完成；
+局域网浏览器需要输入已预先提供的 Gateway client token。
 
 ### JingSi LAN 呈现（实验性）
 
@@ -280,7 +248,7 @@ ip -4 -o addr show scope global
 
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh online
+bash scripts/restart_jingsi_lan_compose.sh remote
 ```
 
 该操作只增加端口 `18793`（可用 `SPARKCLAW_JINGSI_LAN_PORT` 覆盖）上的精确 presentation
@@ -304,15 +272,15 @@ bash scripts/run-eval.sh
 
 ## Host Development Runtime
 
-已验证 DGX Spark 主机的标准开发运行态是容器化
-external-model/OCR/PostgreSQL topology：
+开发时使用与产品相同的明确启动命令：
 
 ```bash
-npm run dev
+npm run start:local
+npm run start:remote
 ```
 
-使用 `npm run dev:gateway` 或 `npm run dev:webchat` 可以只重建一个应用容器，
-且不会切回 mock/file mode。
+两条命令都会重建发生变化的应用 image。不再提供局部 Gateway/WebChat 产品入口，因为它会
+绕过模式选择与 remote 停止本地模型的边界。
 
 仅在隔离的宿主进程调试中，才在两个 terminal 分别运行 mock/file Gateway
 和 Vite server：
@@ -430,7 +398,7 @@ bundle 前不要重启。
 
 ## State Backends
 
-产品 `.env` template、`npm start`、一键部署与 boot service 都选择 PostgreSQL。升级时不会
+两份版本化产品 profile、四条产品入口与 local boot service 都选择 PostgreSQL。升级时不会
 迁移、导入或删除旧的 `data/memory/gateway-state.json`；PostgreSQL 产品 runtime 从数据库中
 已有的 records 启动。项目仍为 pre-release，不提供 file 到 PostgreSQL 的迁移工具。
 
@@ -456,7 +424,10 @@ SPARKCLAW_STATE_ENCRYPTION_KEY_FILE=/path/to/key
 Postgres-backed state：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d postgres
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml --profile product up -d postgres
 
 SPARKCLAW_STATE_BACKEND=postgres \
 SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?sslmode=disable' \
@@ -512,7 +483,10 @@ SPARKCLAW_S3_SECRET_KEY=sparkclaw-local
 Compose 提供 MinIO：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d minio minio-init
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml --profile eval up -d minio minio-init
 ```
 
 Artifacts 包括 tool observations、browser snapshots、generated documents/media、
@@ -525,7 +499,10 @@ Host binary 运行时，Gateway 可使用 `SPARKCLAW_SANDBOX_BACKEND=local-docke
 Compose 使用独立 sandbox runner：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d sandbox-runner
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml --profile product up -d sandbox-runner
 ```
 
 Compose 外的 standalone runner：
@@ -540,44 +517,19 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 如果 runner 访问 host Docker socket，且 host 与 container 看到的 workspace path 不同，需要设置 `SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT` 和 `SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT`。
 
 
-## DGX Spark Data Services
+## 产品 Reconcile
 
-启动 durable state、artifacts、sandbox、Gateway 和 WebChat：
-
-```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d \
-  postgres minio minio-init sandbox-runner gateway webchat
-```
-
-模型端点 healthy 后，用 external mode 重建 Gateway 与 WebChat：
+不要通过单个 Compose service 拼装产品运行态。使用拥有完整模式边界的入口：
 
 ```bash
-scripts/restart_runtime_compose.sh online
+npm run start:local
+npm run start:remote
 ```
 
-durable 产品运行态应使用该脚本，而不是直接执行
-`docker compose up --force-recreate gateway webchat`。脚本要求第一个参数明确选择一套
-chat/runtime profile：`online` 只加载 `docker/env/sparkclaw.online-fast.env`，`local` 只加载
-`docker/env/sparkclaw.single-fast.env`。脚本不会根据正在运行的模型容器推断 profile，也不会从
-`.env` 读取 profile selector。选中 profile 后，脚本再加载 ASR 与 OCR 环境及 overlay。两套
-chat profile 都选择 PostgreSQL，并保留本地 embedding、guard、speech 与 OCR 服务；只有逻辑
-Fast 与 Deep endpoint 会切换。
-
-npm 命令提供同样的显式切换；本机的 `npm run dev:gateway` 是在线命令的别名：
-
-```bash
-npm run dev:gateway:online
-npm run dev:gateway:local
-```
-
-请求启动 Gateway 时，脚本会先启动并等待 PostgreSQL；随后通过有界请求检查 `/readyz`，只有
-Gateway 报告 `model_mode=external` 且 `state_backend=postgres` 时才成功退出。ASR 与 OCR
-环境仍属于两套产品运行态。
-
-当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
-`docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
-打开 visible Chromium。headless 主机上则以不带 overlay 的相同 stack 启动；hidden
-浏览器自动化仍然可用，基础 compose 文件不授予 Gateway 任何 host display 访问权限。
+两条路径都会在 Gateway startup 前验证 Host-CDP，等待 PostgreSQL 与 Gotenberg，要求
+Gateway 以 `model_mode=external` 和 `state_backend=postgres` ready，执行 MCP smoke，并证明
+Chromium 在 MCP shutdown 后仍存活。local 额外拥有五模型组；remote 拒绝本地模型 URL，
+并在应用启动前停止该模型组。
 
 ## DGX Spark Model Services
 
@@ -604,10 +556,10 @@ scripts/serve_models_compose.sh all
 scripts/serve_models_compose.sh all-with-asr
 ```
 
-不传参数时，`serve_models_compose.sh` 也会选择 `single-fast`。这是当前产品启动路径：
-它会停止此前运行的 Deep 容器，并使用单 Fast、ASR 与 OCR 环境同时启动 Fast、embedding、
-guard、ASR 和 OCR。旧的 `single-fast-with-ocr` 名称是相同启动方式的兼容别名。Deep 与
-dual-light 命令仅作为显式测试/benchmark 入口。命令会等待所有选中服务进入 healthy。
+不传参数时，`serve_models_compose.sh` 也会选择 `single-fast`。这是当前 Local 模型启动路径：
+它会停止此前运行的 Deep 容器，并从 `docker/compose.models.local.yaml` 同时启动 Fast、embedding、
+guard、ASR 和 OCR。Deep 与 dual-light 命令仅作为显式测试/benchmark 入口。命令会等待
+所有选中服务进入 healthy。
 Fast 必须先成功完成一次贴近生产负载的有界 `/chat/completions` 请求才会变为 healthy。
 当前合成输入在 Qwen3.6 tokenizer 上约为 3.4K token，并强制解码 480 token，让启动阶段承担
 Tree routing 会遇到的长 prompt 与生成冷路径。Guard 另行执行较小的有界 completion。
@@ -628,7 +580,7 @@ warmup。marker 成功保存后，周期健康检查改用轻量模型列表 end
 | fast | `sparkclaw-fast` | `http://127.0.0.1:8001/v1` |
 | deep | `sparkclaw-deep` | `http://127.0.0.1:8002/v1` |
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
-| guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
+| guard | `sparkclaw-guard` | `http://127.0.0.1:8005/v1` |
 | asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
 | OCR adapter | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
 
@@ -647,7 +599,7 @@ ready 检查不包含该端口。
 
 重要环境变量：
 
-- `SPARKCLAW_MODEL_CAPACITY_PROFILE`（`configs/model.profiles.json` 中必需的可执行 entry；catalog 拥有物理窗口与 output-class budget）
+- `SPARKCLAW_MODEL_CAPACITY_PROFILE`（两个产品模式固定为 `sparkclaw-product-v1`；定向 benchmark helper 可选择另一个已测 profile）
 - `SPARKCLAW_MODEL_CAPACITY_CATALOG`（高级 host script/catalog 路径 override；产品容器使用已挂载的版本化 catalog）
 - `SPARKCLAW_VLLM_IMAGE`（embedding、guard 与 ASR 的基础 image）
 - `SPARKCLAW_CHAT_VLLM_IMAGE`（Fast/Deep chat image；NVFP4 默认使用 vLLM 0.24.0）
@@ -679,7 +631,7 @@ SPARKCLAW_MODEL_LOADING_PROFILE=single-fast scripts/serve_models_compose.sh guar
 curl -fsS http://127.0.0.1:8005/v1/models
 ```
 
-单台 GB10 的 `single-fast` profile 把 guard 限制为 16K context、2 GiB KV cache、
+共享产品 profile 为 guard 提供 8K context；Local 基础设施使用 2 GiB KV cache、
 单序列和 eager execution。Qwen3Guard 返回原生
 `Safety: Safe|Unsafe|Controversial` 与 `Categories:` 格式；Gateway 分别映射为
 `allow`、`block` 和 `review`。SparkClaw 当前没有人工安全复核队列，因此 `review`
@@ -695,7 +647,7 @@ document OCR adapter 通过 OpenAI-compatible vLLM chat-completions endpoint 使
 顺序解析为 Markdown，并保留公式和表格。Fast 仍负责 visual semantic 和 Workflow 推理；
 OCR 输出是不可信文档证据，不能选择 model lane 或授权 edit。
 
-overlay 固定 vLLM `0.22.1`，只在 loopback 暴露 `8007`，使用显式 2 GiB KV cache budget，
+Local 模型服务固定 vLLM `0.22.1`，只在 loopback 暴露 `8007`，使用显式 2 GiB KV cache budget，
 并复用 Hugging Face cache。默认 `single-fast` 命令通过同一次 Compose 操作同时启动 OCR、
 Fast、embedding、guard 与 ASR：
 
@@ -704,19 +656,18 @@ scripts/serve_models_compose.sh single-fast
 curl -fsS http://127.0.0.1:8007/v1/models
 ```
 
-使用匹配的 OCR adapter 配置启动 Gateway 和 WebChat：
+使用匹配的 OCR adapter 配置启动完整 local 产品：
 
 ```bash
-scripts/restart_runtime_compose.sh local
+npm run start:local
 ```
 
 host 侧 doctor 保留 Gateway 使用的 Compose service URL，只覆盖检查目标：
 
 ```bash
-set -a
-. docker/env/sparkclaw.ocr.env
-set +a
-SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
+SPARKCLAW_DOCTOR_PROFILE=local \
+SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 \
+  bash scripts/doctor.sh
 ```
 
 当前单 Fast 产品运行态默认启用 OCR。选中的 Office/PDF 图片会得到有界 OCR Markdown；扫描 PDF
@@ -742,10 +693,10 @@ mkdir -p data/models/modelscope/Qwen3-ASR-0.6B
 modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir data/models/modelscope/Qwen3-ASR-0.6B
 ```
 
-ASR compose override 会基于本地 vLLM image 构建一个轻量派生镜像，只补音频依赖，不改文本模型主镜像：
+Local 模型 Compose 中的 ASR 服务会基于本地 vLLM image 构建一个轻量派生镜像，只补音频依赖，不改文本模型主镜像：
 
-- Compose：`docker/compose.asr.yaml`
-- 环境变量：`docker/env/sparkclaw.asr.env`
+- Compose：`docker/compose.models.local.yaml`
+- 环境变量：`docker/env/sparkclaw.local.env`
 - 镜像配方：`docker/images/asr-vllm.Dockerfile`
 - 默认 served model：`sparkclaw-asr`
 - 默认模型 ID：`Qwen/Qwen3-ASR-0.6B`
@@ -762,16 +713,10 @@ scripts/serve_models_compose.sh asr
 scripts/serve_models_compose.sh dual-light-asr
 ```
 
-启动启用 speech 的 Gateway 和 WebChat：
+启动启用 speech 的完整 local 产品：
 
 ```bash
-docker compose \
-  --env-file docker/env/sparkclaw.dual-light.env \
-  --env-file docker/env/sparkclaw.asr.env \
-  -f docker/compose.yaml \
-  -f docker/compose.dual-light.yaml \
-  -f docker/compose.asr.yaml \
-  --profile models-local up -d gateway webchat
+npm run start:local
 ```
 
 从 host 检查 ASR endpoint：
@@ -785,13 +730,12 @@ curl -fsS http://127.0.0.1:8006/v1/audio/transcriptions \
   -F file=@/path/to/sample.wav
 ```
 
-host 侧运行 doctor 时，`docker/env/sparkclaw.asr.env` 中的容器 URL 留给 Gateway 使用，检查命令里覆盖成 loopback：
+host 侧运行 doctor 时，只把检查目标覆盖成 loopback：
 
 ```bash
-set -a
-. docker/env/sparkclaw.asr.env
-set +a
-SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
+SPARKCLAW_DOCTOR_PROFILE=local \
+SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 \
+  bash scripts/doctor.sh
 ```
 
 2026-05-24 DGX Spark 验证说明：
@@ -804,13 +748,11 @@ SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
 当前单 Fast 产品启动：
 
 ```bash
-scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh local
+npm run start:local
 ```
 
-该命令应用单 Fast、ASR 与 OCR 环境，并复用 `docker/compose.dual-light.yaml`、
-`docker/compose.asr.yaml` 和 `docker/compose.ocr.yaml` 中有界的服务设置；Fast、embedding、
-guard、ASR 与 OCR 一起启动。Gateway 的两个逻辑 chat profiles 都发送到
+该命令把共享产品契约与 Local 模型连接应用到 `docker/compose.models.local.yaml` 中的
+有界服务；Fast、embedding、guard、ASR 与 OCR 一起启动。Gateway 的两个逻辑 chat profiles 都发送到
 `sparkclaw-fast`，语音转写使用 `sparkclaw-asr`，文档 OCR 使用 `sparkclaw-ocr`。chat endpoint
 通过独立 vLLM 0.24.0 image 加载 `nvidia/Qwen3.6-35B-A3B-NVFP4`。SparkClaw 只提供
 checkpoint ID 与容量预算；vLLM 读取 ModelOpt metadata，并负责 activation precision、
@@ -855,7 +797,7 @@ bash scripts/run-eval.sh
 
 需要备份的路径或 volumes：
 
-- `.env` secret template values，存储在 git 外
+- `.env.local` 与 `.env.remote` 中的凭据和覆盖项，存储在 git 外
 - `data/memory`
 - `data/traces`
 - `data/artifacts`
@@ -867,7 +809,10 @@ bash scripts/run-eval.sh
 Postgres：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml exec postgres \
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml exec postgres \
   pg_dump -U sparkclaw sparkclaw > sparkclaw.sql
 ```
 
@@ -877,22 +822,18 @@ filesystem state 最好在 Gateway 停止后复制。
 
 1. 保存或导出重要 state。
 2. 拉取或应用代码变更。
-3. rebuild images：
-
-```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local build
-```
-
-4. 启动目标 profile。
+3. 运行 `npm run start:local` 或 `npm run start:remote`；所选入口会重建发生变化的 image，
+   并 reconcile 完整模式。
+4. 确认目标 profile ready。
 5. 运行 `bash scripts/doctor.sh`。
 6. 运行 mock golden eval。
 7. DGX Spark 模型变更需要运行 endpoint checks，并追加新的 benchmark section。
 
 ### 2026-07-30 之后升级需要注意的行为变化
 
-- 可见浏览器登录接管现在必须叠加 `docker/compose.visible-browser.yaml`
-  overlay；base compose 不再暴露宿主 X11 socket。
-  `scripts/restart_runtime_compose.sh` 在解析到显示器时会自动叠加。
+- 自 2026-09-02 起，Host-CDP 是唯一浏览器 runtime。两条部署脚本都会安装或校验宿主
+  `sparkclaw-browserd`；Gateway 不包含 Chromium/Xvfb，不挂载浏览器 Profile 或 X11
+  资源，并拒绝旧容器浏览器配置。
 - Telegram 和微信现在在 typed config、Compose 与示例环境中都出厂默认关闭；账号设置前需从
   WebChat 显式开启渠道。`SPARKCLAW_TELEGRAM_ENABLED` 和
   `SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED` 只在 owner 尚无持久化选择时提供初始值；binding
@@ -918,17 +859,19 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 
 - 除非局域网 MCP client 确实需要直连，否则保持“允许局域网访问”关闭；出厂 Compose 中
   Gateway 仅在 Docker 私有网络可达。
-- 把 WebChat `18790` 限制在 owner 可信局域网。MCP Access Ticket 保护 `/mcp`，但不认证
-  WebChat 的其他 API 路由。
+- 把 WebChat `18790` 限制在 Owner 可信局域网。逐客户端 Gateway token 认证 Owner API，
+  MCP Access Ticket 独立保护 `/mcp`；精确配对 bootstrap 必须保持在宿主回环端口 `18795`。
 - 未实际测试时保持无鉴权的实验性 JingSi listener 不发布；启用时只把 `18793` 绑定到一个
   RFC1918 address，绝不能使用 wildcard 或 public interface。
 - dangerous 和 reversible tools 保持 approval-gated。
 - shell execution 保持 sandboxed 且 network-disabled。
 - browser/email/file observations 视为 untrusted。
-- 保持 host 桌面对容器关闭：基础 compose 文件不挂载 X11 socket；
-  `docker/compose.visible-browser.yaml` overlay 只应在需要 visible 登录 handoff
-  的受信任单 owner 桌面 runtime 上使用。
-- `.env`、model weights、state encryption keys 和下载数据不进入 git。
+- 保持 host 桌面和浏览器 Profile 对容器关闭。Gateway 只通过只读 runtime mount 获得
+  mode-`0600` browserd endpoint；capability 不得进入日志、trace、artifact 或公开配置输出。
+- 把 Preview Controller Socket 视为 Owner-only Capability。Gateway 只通过另一条只读
+  Runtime Mount 获得它；官方 Extension Token 保持在 Vault 中加密，绝不能进入 Compose
+  Environment。
+- `.env.local`、`.env.remote`、model weights、state encryption keys 和下载数据不进入 git。
 - 交付前扫描 diff 中的 token。
 
 ## Troubleshooting
@@ -936,6 +879,8 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 | Symptom | Check |
 |---|---|
 | Docker permission denied | 使用 `sudo -n docker ...` 或将用户加入 Docker group。 |
+| Host-CDP browser unavailable | 运行 `bash scripts/install-host-browser.sh --check --env-file .env.local` 或对应 `.env.remote` 命令，检查 `systemctl --user status sparkclaw-browserd.service`，并确认 endpoint 由 deployment UID 拥有且权限为 `0600`。 |
+| Playwright Extension Preview unavailable | 运行 `npm run check:browser-controller` 或 `bash scripts/setup-browser-controller.sh --check --env-file .env.remote`，检查 `systemctl --user status sparkclaw-browser-controller.service`，并确认资格验证浏览器使用独立的 `extension-qualification` Profile。 |
 | Golden eval browser step fails | Docker eval 启动 Gateway 时设置 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal`；host eval 使用 `127.0.0.1`。 |
 | 主机重启后 CUDA 或 Triton 报 `operation not permitted` | 运行 `scripts/serve_models_compose.sh single-fast`。任一成员停止或不健康时会自动整组重建，以新的 runtime cache 启动，同时保留 `data/models`；设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可手动强制相同恢复。 |
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |

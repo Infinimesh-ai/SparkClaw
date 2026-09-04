@@ -13,6 +13,7 @@ agent runtime。当前产品表面包括：
 - 本地文件、结构化文档和 approval-gated output-copy edit；
 - 公开搜索、直接天气卡片、托管浏览器 open/focus 与页面读取、受限验证 click 和经审批的
   可逆表单草稿；
+- 通过新鲜校验的已配置 QQ 邮箱、Outlook 或 Gmail 账户执行经审批的仅发送浏览器邮箱操作；
 - 基于稳定请求/上下文证据的普通聊天回答；
 - 到期 payload 重新进入正常路由的定时消息；
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
@@ -22,8 +23,9 @@ agent runtime。当前产品表面包括：
 - 可选、按 workspace 限定的 LocalMind MCP 接入和被动 ISCP 提及收件箱；
 - trace、artifact、eval、Policy、approval、auth 和 durable state。
 
-准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。邮件、日历和内置 workspace
-knowledge/RAG 不是 active capability，见[暂缓能力](deferred-email-calendar-knowledge.md)。
+准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。浏览器邮箱发送是当前活动的
+有界能力；邮件读取与扩展、日历和内置 workspace knowledge/RAG 仍保持暂缓，见
+[暂缓能力](deferred-email-calendar-knowledge.md)。
 
 SparkClaw 不是无限制 autonomous agent 或公开 multi-tenant SaaS。它不允许静默外部发送、
 创建、删除、任意浏览器交互、隐藏 tool execution 或未经 eval 的模型声明。
@@ -192,7 +194,7 @@ projection store 或各自独立的 audit 格式。
 | `guard` | routing 或 tool execution 前执行 prompt moderation 的专用 Qwen3Guard |
 | `mock` | 确定性本地开发/eval |
 
-Gateway 选择逻辑 lane，模型输出不能自选。当前 `single-fast-v1` 部署把两个逻辑 chat
+Gateway 选择逻辑 lane，模型输出不能自选。当前使用 `sparkclaw-product-v1` 的 Local 部署把两个逻辑 chat
 profiles 都解析到 Fast endpoint，因此不会加载 Deep 模型进程；为保持 Workflow 兼容，
 trace 中仍保留 lane 标签。`configs/model.profiles.json` 是唯一容量事实源：它把每条 lane
 映射到一个物理模型窗口与正数 output-class budget。容量缺失、为零、未知或关系非法时，
@@ -445,6 +447,7 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 |---|---|
 | Gateway | `gateway:18789`（Docker 内部，不发布 host port） |
 | WebChat | `0.0.0.0:18790` |
+| WebChat 配对 bootstrap | `127.0.0.1:18795`（仅精确路由） |
 | JingSi LAN presentation | `<指定 RFC1918 host>:18793`（仅可选 overlay） |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

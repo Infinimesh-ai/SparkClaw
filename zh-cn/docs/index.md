@@ -26,12 +26,16 @@
 | [Tree 同 Session 上下文一致性设计](tree-session-context-parity-design.md) | 已接受的共享选中历史源与整体 prompt admission，以及已实施的 strict Tree 评分 JSON 结构加固 |
 | [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
-| [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |
+| [浏览器 Runtime](browser-runtime.md) | 当前宿主 Chromium/browserd 拓扑、受保护 agent-browser attach、标签页所有权、登录 handoff、部署与安全约束 |
+| [Host-CDP 浏览器设计](host-cdp-browser-design.md) | 已实施的宿主 Chromium daemon、受保护 CDP attach、稳定标签页所有权、认证 handoff 和容器浏览器退役设计记录 |
+| [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | Proposed 日常浏览器架构：扩展支持的 MCP 通道承载受治理浏览器操作，CLI 通道承载确定性脚本；资格验证和原子切换前仍以 Host-CDP 为当前实现 |
+| [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 当前已实现的仅发送 Host-CDP 记录；未来 Browser Transport 由 Playwright Extension 迁移设计取代，但仅发送、确定性、Approval 和 Unknown Outcome 不变量继续保留 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |
 | [WebChat 语音输入闭环设计](webchat-voice-input-design.md) | Phase 1 稳定采集闭环，以及 Phase 2 native record-time ASR、partial/final reconciliation、silence stop 与 batch fallback 设计；LLM 润色推迟到 Phase 3 |
 | [WebChat 语音 Phase 2 设计](webchat-voice-phase2-design.md) | 规范性的 native record-time Qwen ASR transport、revisioned partial/final output、silence auto-stop、完整 WAV fallback 与 acceptance gate |
+| [JingSi Runtime v1 提供方](jingsi-runtime-v1.md) | 专用认证 submit/lookup/status/cancel/events 接口、持久化 request-key 对账、scope 投影、恢复和运维配置 |
 | [JingSi 局域网 Web 客户端互联](jingsi-lan-connection-design.md) | SparkClaw 侧已实现：专用 allowlisted LAN port 上一个服务端绑定 WebChat session、文本发送和过滤后的实时/补拉消息投影；JingSi client 改造与实体验证仍待完成 |
 | [ISCP Bridge](iscp-bridge.md) | 当前共享 Bridge；LocalMind 使用属于旧链路，JingSi 使用保留到 direct-LAN client 与实体验证完成 |
 | [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |
@@ -60,7 +64,7 @@
 | [PPTX 最终渲染视觉质量门禁](pptx-final-render-visual-qa-design.md) | 已实施 Phase 1 shadow：固定 LibreOffice/pypdfium2/配置 Fast 审查变更页；自动修复与密封发布仍受门禁控制 |
 | [DOCX 编辑](docx-editing-optimization.md) | 当前 DOCX 样式验证、证据绑定、run 保真、coverage、目标感知 decision 投影与评测契约 |
 | [观测压缩重构](observation-compression-redesign.md) | 已实施的统一工具结果信封、运行时证据供给与无损压缩 |
-| [暂缓能力](deferred-email-calendar-knowledge.md) | 已移除的邮件、日历、workspace knowledge 原型及重新引入门槛 |
+| [暂缓能力](deferred-email-calendar-knowledge.md) | 已退役的通用邮箱原型、暂缓的邮箱扩展、日历和 workspace knowledge，以及重新引入门槛 |
 
 仓库协作流程见[贡献指南](../CONTRIBUTING.md)、[安全策略](../SECURITY.md)、
 [支持说明](../SUPPORT.md)和[变更记录](../CHANGELOG.md)。

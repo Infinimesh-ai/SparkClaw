@@ -2,8 +2,9 @@
 
 > 语言： [English](../../docs/integrations.md) | 简体中文
 
-本文档总结当前有效的可选集成边界。环境默认值见
-`docker/env/sparkclaw.example.env`，启动命令见[部署](deployment.md)。
+本文档总结当前有效的可选集成边界。产品默认值位于
+`docker/env/sparkclaw.local.env` 与 `docker/env/sparkclaw.remote.env`；凭据和机器覆盖项
+位于对应的 Git 忽略私有文件。启动命令见[部署](deployment.md)。
 
 ## 共同规则
 
@@ -16,6 +17,25 @@
 - messaging provider 进入 Connector/Delivery Registry；data provider 进入 typed adapter contract。
 - Owner 隔离是一个家庭 Gateway 内的逻辑隔离：setting、binding、endpoint 和 delivery
   authorization 不得跨 owner 使用，但它不是 hostile-tenant 的进程或 Store 边界。
+
+## 浏览器邮箱
+
+浏览器邮箱是 QQ 邮箱、Outlook 和 Gmail 的活动仅发送集成。它不是消息 Connector，也不
+使用提供方 Credential、OAuth Token、IMAP、SMTP、Gmail API 或 Microsoft Graph。认证
+状态只保留在宿主机所有的 SparkClaw 专用 Chromium Profile 中。
+
+WebChat 在 `设置 > 连接 > 浏览器邮箱` 中提供三个提供方。打开登录入口时，browserd 切换
+到 Headed Presentation，由 Owner 手动登录。登录检查和发送切换到 Headless Presentation，
+并创建新的任务所有提供方标签页；不会复用可见登录标签页或其他停止操作的标签页。
+
+每次发送请求都在 Workflow 创建前执行确定性登录探针。Runtime 选择请求中明确命名的提供方
+或唯一配置的默认项，并冻结 Provider Setting Version、Browser Generation、Script Revision、
+校验时间和 Invocation ID。模型只提供一个收件人、可选单行主题和纯文本正文。一次精确内容
+审批后才执行提供方脚本；脚本最多尝试一次“发送”。发送结果未知是终态，绝不自动重试。
+
+邮件读取、回复、草稿、附件、多收件人/账户和通用浏览器回退均不可用。QQ 邮箱不再是通用
+浏览器注册站点。详见[浏览器邮箱 Workflow](browser-email-workflow-design.md)和
+[浏览器 Runtime](browser-runtime.md)。
 
 ## LocalMind Workspace MCP
 
@@ -97,17 +117,16 @@ address 和 acknowledgement 留在微信 package 内。Agent Runtime、Timer 和
 block 和对应环境变量只在尚无 owner 持久化选择时作为启动默认值。被撤销或不可用 binding
 仍可见，但不能选作 delivery target。
 
-对于 QR provider，WebChat 不再用 owner 的默认浏览器打开链接，而是通过绑定专属的 visible
-Chromium profile 打开持久化的 provider 登录 URL。Gateway 只允许当前 owner 仍处于待处理状态的
+对于 QR provider，WebChat 不再用 owner 的默认浏览器打开链接，而是在宿主机拥有的专用
+SparkClaw Browser Profile 中打开持久化的 provider 登录 URL。Gateway 只允许当前 owner 仍处于待处理状态的
 微信 binding 执行该动作，并且只接受 provider 的 HTTPS `liteapp.weixin.qq.com` URL；client
 不能提交 URL。重复点击会复用同一个 binding-scoped 窗口。polling 观察到绑定已激活、过期或失败，
 并续期固定 10 分钟 lease；若 binding 更早过期则由其截短。ToolHub-owned janitor 每 30 秒清理
 过期 lease，不轮询 browser tab。polling 观察到 binding 已激活、过期或失败，以及 owner 显式
-撤销 binding 时，仍会立即释放对应受管 browser session。Gateway graceful shutdown 会在关闭
-browser adapter 前排空全部 tracked QR window；ungraceful exit 后，现有 deterministic profile
-recovery 会在下次 acquisition 时回收遗留进程。该功能要求可信桌面 runtime 启用
-`docker/compose.visible-browser.yaml` overlay；没有 visible display 时会明确失败，绝不回退到
-默认浏览器。
+撤销 binding 时，仍会立即释放对应受管 browser session。Gateway graceful shutdown 会排空
+SparkClaw 拥有的 QR tab，但不会停止 browserd 或 Chromium。owner 在宿主桌面打开
+**SparkClaw Browser** 完成 QR 交互；Gateway 不获得 display socket，不能接管既有 owner tab，
+也绝不回退到默认浏览器。
 
 ## 语音转写
 

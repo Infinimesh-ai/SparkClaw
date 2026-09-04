@@ -2,7 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/deployment.md)
 
-This document is the current deployment guide for local development, Docker Compose and DGX Spark model serving. It replaces the older Docker implementation plan and DGX handoff notes.
+This document defines the two supported SparkClaw product deployments. The
+full-local deployment owns five model services on an NVIDIA GB10 host; the
+full-remote deployment uses five versioned public model endpoints. Both run
+PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat.
 
 ## Prerequisites
 
@@ -13,7 +16,8 @@ This document is the current deployment guide for local development, Docker Comp
   container registries and Hugging Face.
 - At least 125 GiB of free space for a cold model/image cache. The deployment
   script computes the remaining requirement when part of the cache exists.
-- A Hugging Face token for model downloads. Do not commit the generated `.env`.
+- A Hugging Face token for local model downloads. Do not commit `.env.local` or
+  `.env.remote`.
 
 Node.js 26/npm 11 and Go 1.25 are required for host-side development, but not
 for the containerized deployment path.
@@ -41,7 +45,7 @@ The streamed bootstrap and deployment entrypoints:
    token prompt to remain hidden and interactive.
 3. Require Linux/ARM64, NVIDIA GB10, at least 100 GiB of memory, Docker
    Compose, `nvidia-smi`, and sufficient free space.
-4. Create or preserve a mode-`0600` `.env`, accept a Hugging Face token
+4. Create or preserve a mode-`0600` `.env.local`, accept a Hugging Face token
    without echoing it, and align bind-mounted data with the current user.
 5. Use vLLM's Hugging Face integration to download Fast, embedding, guard,
    Qwen3-ASR, and OvisOCR2 into the shared `data/models` cache.
@@ -80,17 +84,19 @@ different installation directory by setting `SPARKCLAW_GIT_REF` or
 already-cloned repository, run:
 
 ```bash
-bash scripts/deploy.sh
+npm run deploy:local
 ```
 
-## Compose Profiles
+## Product Entrypoints
 
-| Profile | Purpose |
-|---|---|
-| `dev` | Development-oriented runtime. |
-| `eval` | Gateway plus evaluator and data services. |
-| `compat` | Gateway connected to externally managed OpenAI-compatible endpoints. |
-| `models-local` | PostgreSQL 18/pgvector, MinIO, sandbox-runner, Gateway, WebChat and optional vLLM lanes. |
+| Deployment | First deployment | Reconcile/start | Configuration |
+|---|---|---|---|
+| Full local | `npm run deploy:local` | `npm run start:local` | product env, Local env, then `.env.local` |
+| Full remote | `npm run deploy:remote` | `npm run start:remote` | product env, Remote env, then `.env.remote` |
+
+These are the only product entrypoints. Host-only debug commands and targeted
+model benchmark helpers are not deployment modes. The retired `online` name and
+the hosted-chat/local-auxiliary mixed runtime are not supported.
 
 WebChat is the only application ingress and binds host port `18790` to
 `0.0.0.0` by default. Set `SPARKCLAW_WEBCHAT_PORT` to publish another host port;
@@ -98,189 +104,135 @@ the container and Nginx listener remain on internal port `18790`. Gateway is not
 published on the host; WebChat proxies its selected routes to `gateway:18789`
 over the private `sparkclaw_internal` network. Set
 `SPARKCLAW_WEBCHAT_BIND=127.0.0.1` when WebChat must remain local. Both values
-are read from `.env`, and an invalid port fails before containers are changed.
+are read from the selected private override file, and an invalid port fails
+before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
-## Cloud-Model Server Runtime
+Both product modes require Gateway pairing while keeping
+`SPARKCLAW_API_TOKEN` empty. The deployment entrypoint creates a random
+`SPARKCLAW_WEBCHAT_PROXY_TOKEN` in the selected mode-`0600` private environment
+file and injects it only into Gateway and the WebChat reverse proxy. Nginx uses
+it only on the exact pairing bootstrap routes exposed at
+`http://127.0.0.1:18795`; that listener is never published to the LAN. On the
+first product WebChat visit, open `http://127.0.0.1:18790` on the SparkClaw host
+and choose **Pair**. WebChat stores the returned per-client Gateway token in
+that browser. A LAN browser cannot self-pair and must use an owner-provisioned
+Gateway client token in the existing token form. Gateway client tokens, MCP
+Access Tickets, and the Playwright Extension token are separate credentials.
 
-Use the cloud runtime on a Linux server or VM that owns the SparkClaw
-application and durable state but not the model processes. It starts exactly
-PostgreSQL, Sandbox Runner, Gateway, and WebChat; the model services in the
-`models-local` profile are not selected.
+## Remote Deployment
 
-On an Ubuntu VM, run the streamed installer as a normal sudo-capable user:
-
-```bash
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
-```
-
-The bootstrap installs Git when necessary, safely clones or fast-forwards the
-repository under `$HOME/SparkClaw`, reconnects stdin to the terminal, and runs
-`scripts/deploy_cloud_vm.sh`. The VM deployment installs Docker Engine and the
-Compose plugin when necessary. Existing checkouts with tracked or untracked
-local changes are never overwritten.
-
-On the first run, the deployment prompts for the private Fast, embedding, and
-guard endpoints. Standard SparkClaw model names are filled automatically, while
-existing configured names are preserved. The logical Deep lane can reuse Fast
-or use a separate endpoint. The shared model API key is optional: submit an
-empty value when the endpoints do not require Bearer auth.
-Speech/ASR and OCR are optional and remain disabled unless their endpoints are
-provided. Operator-specific endpoint and credential values are never included
-in the repository; they are written only to the VM's ignored, mode-0600 `.env`
-file. Public service URLs used as documented deployment defaults may be
-recorded in versioned profiles.
-
-Before normal deployment, the VM script merges assignments newly introduced in
-`docker/env/sparkclaw.cloud.example.env` into the private `.env`. It adds only
-missing keys, preserves every existing value including an explicit empty value,
-and then reconciles the small set of cloud-owned invariants such as container
-UID/GID, external model mode, and PostgreSQL state. The update is atomic, and
-the merge step itself does not download application or model dependencies.
-`--check` and direct `start_cloud_compose.sh` runs apply the same template
-defaults through a mode-0600 temporary file, so validation and Compose
-expansion see the upgraded configuration without changing the private file.
-This automatically supplies new defaults such as
-`SPARKCLAW_MODEL_CAPACITY_PROFILE=infinimesh-online-fast-v1` to installations
-created from an older template while retaining operator endpoint and credential
-choices.
-
-The hosted Fast endpoint at
-`https://sparkclaw.infinimesh.cloud/fast/v1` reported
-`max_model_len=262144` on 2026-08-28. The executable
-`infinimesh-online-fast-v1` entry in `configs/model.profiles.json` records that
-physical window and maps both logical chat lanes to it. Gateway has no separate
-input ceiling: each typed operation reserves its profile-owned output-class
-budget from the physical `context_tokens`, and Model Router admits the complete
-rendered request. The profile currently assigns 2,048 tokens to compact
-structured Fast output, 8,192 to Workflow structured and answer output, and
-4,096 to Fast vision output. Missing, zero, or illegal capacity prevents profile
-loading; legacy per-lane capacity variables are rejected.
-
-The cloud workload limits remain semantic evidence boundaries rather than
-competing model windows. The 200,000-byte document extraction contract
-tokenized to about 49,700 tokens at the hosted endpoint, the 96,000-byte run
-observation window adds about 24,000 tokens, and 1,461 saved traces had a
-13,278-token maximum model prompt. The cloud profile therefore raises
-`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` to 200,000 and the run
-observation boundaries to compaction at 72,000 bytes with a 96,000-byte hard
-stop; browser evidence remains 8,000 bytes, observation envelopes remain 2,400
-bytes, and `observation.read` remains 32,768 bytes per call with two calls per
-stage.
-
-The current cloud overlay is a trusted-LAN profile and explicitly disables the
-optional Gateway owner-token authentication boundary. WebChat therefore opens
-without a token prompt. A normal deployment also clears a legacy
-`SPARKCLAW_API_TOKEN` value, and readiness rejects a cloud runtime that still
-reports `auth_required: true`.
-
-The command builds and starts PostgreSQL, Sandbox Runner, Gateway, and WebChat.
-The Gateway image installs Chromium, `agent-browser`, Xvfb, Chinese/emoji fonts,
-and ffmpeg. Deployment succeeds only after both Gateway readiness and a
-container-local Chromium open/snapshot smoke test pass. Browser state persists
-under `data/browser-profiles`. No Ubuntu desktop or host Chromium package is
-required.
-
-Hidden Chromium works on a headless VM. Weixin QR login is different: it opens
-a visible Chromium window on the VM owner's desktop so the owner can scan it.
-When the cloud start script resolves a local X11/XWayland display, it
-automatically stacks `docker/compose.visible-browser.yaml` and prints `Visible
-Chromium display: ...`. If no display is available, deployment remains healthy
-with hidden Chromium only and prints an explicit warning; opening the Weixin
-login window will then fail by design. The window appears on the VM desktop,
-not on a different computer that merely opened WebChat.
-
-Run the deployment from the VM desktop session, or use the PVE console to log
-in to that desktop, then reconcile the stack:
-
-```bash
-cd "$HOME/SparkClaw"
-bash scripts/resolve-browser-display.sh
-bash scripts/start_cloud_compose.sh
-```
-
-The resolver tests each socket with the available Xauthority files, ignores
-initialization or stale sockets that cannot open an X11 connection, and chooses
-the lowest-numbered usable display when several are available. To override that
-automatic choice, set the display and its authority file before the second
-command:
-
-```bash
-export SPARKCLAW_BROWSER_DISPLAY=:2
-export SPARKCLAW_BROWSER_XAUTHORITY=/path/to/that/display/Xauthority
-bash scripts/start_cloud_compose.sh
-```
-
-Do not use a synthetic Xvfb display for QR login: it is suitable for hidden
-automation but is not an owner-visible scan surface.
-
-Re-run the repository deployment entrypoint to reconcile the runtime without
-updating the checkout:
-
-```bash
-bash "$HOME/SparkClaw/scripts/deploy_cloud_vm.sh"
-```
-
-Re-enter the private configuration or perform a read-only deployment check:
+The remote deployment owns the SparkClaw application and durable state but no
+model containers. On Ubuntu, run the streamed installer as a normal
+sudo-capable user:
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
-  bash -s -- --configure
-
-curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | \
-  bash -s -- --check
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-remote.sh | bash
 ```
 
-SparkClaw appends `/chat/completions` or `/embeddings` to the model base URLs.
-The current model router uses one optional `OPENAI_API_KEY` for Fast, Deep,
-embedding, and guard; use a trusted compatibility proxy when providers require
-different credentials or headers. The speech adapter expects its service root
-because it appends `/v1/audio/*`; OCR expects an OpenAI-compatible base URL.
+The bootstrap installs Git when needed, safely clones or fast-forwards the
+repository, reconnects stdin to the terminal, and invokes `deploy:remote`.
+Docker Engine and Compose are installed when absent. Existing dirty or
+divergent checkouts are never overwritten.
 
-The cloud overlay gives the four application services `restart: unless-stopped`,
-and the installer enables Docker so they recover after a host
-reboot. Gateway remains Docker-internal; WebChat publishes `18790` by default
-and is reachable at `http://<vm-ip>:18790`. This test topology does not install
-TLS or firewall rules and must remain on a trusted LAN: every device that can
-reach the WebChat port can operate SparkClaw. Do not install the DGX Spark
-autostart unit because that unit owns local NVIDIA model reconciliation.
+The versioned `docker/env/sparkclaw.product.env` owns shared business behavior,
+capacity, credential paths, ISCP defaults, and application lifecycle inputs.
+`docker/env/sparkclaw.remote.env` owns only the Remote deployment marker and
+these five public model services:
+
+| Service | Base URL |
+|---|---|
+| Fast and logical Deep | `https://sparkclaw.infinimesh.cloud/fast/v1` |
+| Embedding | `https://sparkclaw.infinimesh.cloud/embedding/v1` |
+| Guard | `https://sparkclaw.infinimesh.cloud/guard/v1` |
+| ASR | `https://sparkclaw.infinimesh.cloud/asr` |
+| OCR | `https://sparkclaw.infinimesh.cloud/ocr/v1` |
+
+Only credentials and machine-specific overrides belong in `.env.remote`. The
+optional shared `OPENAI_API_KEY` can be entered with `--configure`; submit an
+empty value when these endpoints do not require bearer authentication. The ASR
+value is the service root because Gateway appends
+`/v1/audio/transcriptions`; OCR is an OpenAI-compatible `/v1` base URL.
+
+Before changing containers, remote startup validates every model URL. It rejects
+Compose service names such as `sparkclaw-*`, `localhost`, `*.localhost`,
+`127.0.0.1`, `::1`, Docker host/gateway aliases, common local-domain suffixes,
+single-label local hostnames, and every non-public IP literal, including
+RFC1918, unique-local, loopback, unspecified, link-local, reserved, and
+multicast addresses. It then explicitly stops the shared-project local model
+containers and starts exactly PostgreSQL, Sandbox Runner, Gotenberg, Gateway,
+and WebChat. All five application services use `restart: unless-stopped`.
+
+The deployment installs or verifies the pinned host Chromium and
+`sparkclaw-browserd`, validates Gateway readiness, runs a container-side
+Host-CDP MCP smoke, and proves Chromium remains alive afterward. A displayless
+server runs host-owned headless Chromium; a desktop owner can open **SparkClaw
+Browser** to restart the same dedicated profile in headed presentation.
+
+Reconcile, reconfigure, or check the remote deployment with:
+
+```bash
+npm run start:remote
+bash scripts/deploy_remote.sh --configure
+bash scripts/deploy_remote.sh --check
+bash scripts/install-host-browser.sh --check --env-file .env.remote
+```
+
+The Playwright Extension controller is an explicit preview and is not a
+production browser backend. After the Remote deployment has installed the host
+browser, an owner with host Node.js 26 and npm 11 may install it with:
+
+```bash
+bash scripts/setup-browser-controller.sh --env-file .env.remote
+bash scripts/open-browser-extension-preview.sh
+```
+
+Install the official extension and any qualification-only accounts in the
+separate browser opened by the second command. Do not use an everyday profile
+or production account state: the pinned official extension may attach to every
+tab in that profile. Keep that qualification browser open before validating the
+extension token. The controller declares the pinned artifact as `chromium` so
+the official MCP uses its Linux user-service handoff path. `npm run start:remote`
+continues to use Host-CDP for all browser and email execution.
+
+Gateway remains Docker-internal; WebChat publishes `18790` by default, while
+the exact pairing bootstrap is host-loopback-only on `18795`. This topology
+installs neither TLS nor firewall rules, so restrict the main WebChat port to
+an owner-trusted network.
 
 ## Product Runtime
 
-The deployment entrypoint ultimately delegates to the same product startup
-command exposed at the repository root. Operators with an existing `.env` can
-invoke it directly to load the resident `single-fast-v1` model group and the
-PostgreSQL-backed control plane:
+Product mode is selected only by the explicit local or remote entrypoint:
 
 ```bash
-npm start
+npm run start:local
+npm run start:remote
 ```
 
-The entrypoint delegates model ownership to `serve_models_compose.sh
-single-fast`, which treats Fast, embedding, guard, ASR, and OCR as one resident
-group. Startup retains the complete group when every container is running,
-healthy, and on the current Compose configuration hash. If one member is
-absent, stopped, unhealthy, or drifted, all five are stopped and force-recreated
-together. Set `SPARKCLAW_FORCE_MODEL_RECREATE=true` to perform that same refresh
-on an otherwise healthy group. The command waits for every model health check,
-including the configured Fast and Guard completion warmups, before it starts
-PostgreSQL, Sandbox Runner, Gateway, and WebChat. PostgreSQL must become healthy
-before Gateway is recreated. Gateway then verifies
-`model_mode=external` with the PostgreSQL state backend; the logical Deep
-profile aliases the Fast endpoint. Set `SPARKCLAW_MODEL_MODE=mock` explicitly
-only for isolated deterministic debugging or evaluation.
+Local startup owns Fast, embedding, guard, ASR, and OCR as one resident model
+group. A healthy configuration-current group is retained; if one member is
+absent, stopped, unhealthy, or drifted, the complete group is force-recreated.
+It then starts PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat and
+requires Gateway readiness with PostgreSQL state and external model adapters.
+
+Remote startup validates all six logical adapter URLs against the full-remote
+profile, stops every local model container in the shared Compose project, and
+starts the same five application services. It never infers Fast or Deep from
+which containers happen to be running.
+
+Both modes select `sparkclaw-product-v1`: Fast and logical Deep share the
+262,144-token Remote context and output budgets, while embedding, guard, and
+OCR use 8K, 8K, and 32K context contracts. Local model serving receives the
+same profile and cannot select a smaller capacity contract through private or
+ambient environment variables.
 
 ### Boot Autostart
 
-Deployment enables host-boot startup by default. The setting lives in the local
-`.env` file:
+Local deployment enables host-boot startup by default from the versioned Local
+profile; `.env.local` may override only the lifecycle setting:
 
 ```dotenv
 SPARKCLAW_AUTOSTART_ENABLED=true
@@ -290,12 +242,14 @@ SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS=10
 
 At boot, `sparkclaw-autostart.service` runs as the deploying user, waits up to
 the configured total timeout for Docker and the NVIDIA runtime, and bounds each
-individual readiness command by the probe timeout. It then calls the same product
-entry used by `npm start`. It retains a healthy model group or automatically
+individual readiness command by the probe timeout. It then calls
+`start:local`. It retains a healthy model group or automatically
 force-recreates a degraded group before application services start. The unit is
 a `Type=oneshot` service with `RemainAfterExit=yes`; it stays activating while
 reconciliation runs and fails after the fixed `TimeoutStartSec=4h` bound rather
-than waiting forever. It does not use Docker's container restart policy.
+than waiting forever. The five application containers also use the shared
+`restart: unless-stopped` policy; systemd remains responsible for complete
+model-group and product reconciliation after host boot.
 
 Set `SPARKCLAW_AUTOSTART_ENABLED=false` to skip startup at the next boot. The
 unit remains enabled so changing the setting back to `true` is sufficient; it
@@ -311,7 +265,7 @@ journalctl -u sparkclaw-autostart.service -b
 Installing the unit does not restart the current deployment. To apply a changed
 setting without rebooting, run `sudo systemctl restart
 sparkclaw-autostart.service`. A healthy group is retained. To request a full
-refresh, set `SPARKCLAW_FORCE_MODEL_RECREATE=true` in `.env`, restart the unit,
+refresh, set `SPARKCLAW_FORCE_MODEL_RECREATE=true` in `.env.local`, restart the unit,
 then restore the setting to `false` for later boots.
 
 Check status:
@@ -323,7 +277,9 @@ bash scripts/doctor.sh
 ```
 
 Open WebChat locally at [http://127.0.0.1:18790](http://127.0.0.1:18790), or
-from another LAN device at `http://<host-lan-ip>:18790`.
+from another LAN device at `http://<host-lan-ip>:18790`. Complete first-time
+self-pairing in a browser on the SparkClaw host; LAN browsers must enter an
+already provisioned Gateway client token.
 
 ### JingSi LAN Presentation (Experimental)
 
@@ -339,7 +295,7 @@ ip -4 -o addr show scope global
 
 export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
 export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
-bash scripts/restart_jingsi_lan_compose.sh online
+bash scripts/restart_jingsi_lan_compose.sh remote
 ```
 
 This adds only the exact presentation allowlist on port `18793` (override
@@ -367,15 +323,16 @@ The `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS` setting is intentionally explicit. It l
 
 ## Host Development Runtime
 
-The standard development runtime on the validated DGX Spark host is the
-containerized external-model/OCR/PostgreSQL topology:
+Use one of the same explicit product start commands during development:
 
 ```bash
-npm run dev
+npm run start:local
+npm run start:remote
 ```
 
-Use `npm run dev:gateway` or `npm run dev:webchat` to rebuild a single
-application container without switching the runtime back to mock/file mode.
+Both commands rebuild changed application images. There is no partial
+Gateway/WebChat product entrypoint because it would bypass mode selection and
+the remote local-model shutdown boundary.
 
 For isolated host-process debugging only, run the mock/file Gateway and Vite
 server in separate terminals:
@@ -513,8 +470,8 @@ mock mode, and the exact security boundary.
 
 ## State Backends
 
-The product `.env` template, `npm start`, one-command deployment, and boot
-service select PostgreSQL. An older `data/memory/gateway-state.json` file is not
+Both versioned product profiles, all four product entrypoints, and the local
+boot service select PostgreSQL. An older `data/memory/gateway-state.json` file is not
 migrated, imported, or deleted during an upgrade; the PostgreSQL product runtime
 starts from the records already in PostgreSQL. The project is pre-release and
 does not provide a file-to-PostgreSQL migration tool.
@@ -541,7 +498,10 @@ SPARKCLAW_STATE_ENCRYPTION_KEY_FILE=/path/to/key
 Postgres-backed state:
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d postgres
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml --profile product up -d postgres
 
 SPARKCLAW_STATE_BACKEND=postgres \
 SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?sslmode=disable' \
@@ -608,7 +568,10 @@ SPARKCLAW_S3_SECRET_KEY=sparkclaw-local
 Compose provides MinIO:
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d minio minio-init
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml --profile eval up -d minio minio-init
 ```
 
 Artifacts include tool observations, browser snapshots, generated documents and
@@ -621,7 +584,10 @@ For host binary runs, Gateway can use `SPARKCLAW_SANDBOX_BACKEND=local-docker`.
 Compose uses a standalone sandbox runner:
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d sandbox-runner
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml --profile product up -d sandbox-runner
 ```
 
 Standalone runner boundary outside Compose:
@@ -636,33 +602,21 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 When the runner talks to a host Docker socket, set `SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT` and `SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT` if paths differ between host and container.
 
 
-## DGX Spark Data Services
+## Product Reconciliation
 
-Start durable state, artifacts, sandbox, Gateway and WebChat:
-
-```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d \
-  postgres minio minio-init sandbox-runner gateway webchat
-```
-
-For model-backed operation, recreate Gateway in external mode after the selected endpoints are healthy:
+Do not assemble a product runtime from individual Compose services. Use the
+entrypoint that owns the complete mode boundary:
 
 ```bash
-scripts/restart_runtime_compose.sh online
+npm run start:local
+npm run start:remote
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. Its required first argument selects exactly one chat/runtime profile: `online` loads `docker/env/sparkclaw.online-fast.env`, while `local` loads `docker/env/sparkclaw.single-fast.env`. The script does not infer the profile from running model containers and does not read a profile selector from `.env`. After the selected profile, it loads the ASR and OCR environments and overlays. Both chat profiles select PostgreSQL and preserve local embedding, guard, speech, and OCR services; only the logical Fast and Deep endpoint changes.
-
-The named npm commands expose the same explicit switch. `npm run dev:gateway` is an alias for the online command on this machine:
-
-```bash
-npm run dev:gateway:online
-npm run dev:gateway:local
-```
-
-When Gateway is requested, the script starts and waits for PostgreSQL, then checks `/readyz` with a bounded request and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. The ASR and OCR environments remain part of both product runtimes.
-
-When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
+Both paths verify Host-CDP before Gateway startup, wait for PostgreSQL and
+Gotenberg, require Gateway readiness with `model_mode=external` and
+`state_backend=postgres`, run the MCP smoke, and prove Chromium survives MCP
+shutdown. Local additionally owns the five-model group; remote rejects local
+model URLs and stops that group before application startup.
 
 ## DGX Spark Model Services
 
@@ -690,11 +644,11 @@ scripts/serve_models_compose.sh all-with-asr
 ```
 
 With no argument, `serve_models_compose.sh` also selects `single-fast`. This is
-the current product startup path: it stops a previously running Deep container
-and starts Fast, embedding, guard, ASR, and OCR together with the single-Fast,
-ASR, and OCR environments. The older `single-fast-with-ocr` name is an alias for this
-same startup. Deep and dual-light commands are explicit test/benchmark
-entrypoints. The command waits for every selected service to become healthy.
+the current Local model startup path: it stops a previously running Deep container
+and starts Fast, embedding, guard, ASR, and OCR together from
+`docker/compose.models.local.yaml`. Deep and dual-light commands are explicit
+test/benchmark entrypoints. The command waits for every selected service to
+become healthy.
 Fast is not healthy until a bounded production-shaped `/chat/completions`
 request succeeds. On the current Qwen3.6 tokenizer it carries about 3.4K input
 tokens and forces a 480-token decode, so startup absorbs the long-prompt and
@@ -721,7 +675,7 @@ Default endpoints:
 | fast | `sparkclaw-fast` | `http://127.0.0.1:8001/v1` |
 | deep | `sparkclaw-deep` | `http://127.0.0.1:8002/v1` |
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
-| guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
+| guard | `sparkclaw-guard` | `http://127.0.0.1:8005/v1` |
 | asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
 | OCR adapter | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
 
@@ -740,7 +694,7 @@ startup and is not part of the current single-Fast readiness check.
 
 Important environment variables:
 
-- `SPARKCLAW_MODEL_CAPACITY_PROFILE` (required executable entry in `configs/model.profiles.json`; the catalog owns physical windows and output-class budgets)
+- `SPARKCLAW_MODEL_CAPACITY_PROFILE` (fixed to `sparkclaw-product-v1` by both product modes; targeted benchmark helpers may select a separate measured profile)
 - `SPARKCLAW_MODEL_CAPACITY_CATALOG` (advanced host-script/catalog path override; product containers use the mounted versioned catalog)
 - `SPARKCLAW_VLLM_IMAGE` (embedding, guard, and ASR base image)
 - `SPARKCLAW_CHAT_VLLM_IMAGE` (Fast/Deep chat image; defaults to vLLM 0.24.0 for NVFP4)
@@ -774,8 +728,8 @@ SPARKCLAW_MODEL_LOADING_PROFILE=single-fast scripts/serve_models_compose.sh guar
 curl -fsS http://127.0.0.1:8005/v1/models
 ```
 
-The single-GB10 `single-fast` profile limits guard to 16K context, 2 GiB KV
-cache, one sequence and eager execution. Qwen3Guard returns its native
+The shared product profile gives guard an 8K context; Local infrastructure uses
+a 2 GiB KV cache, one sequence, and eager execution. Qwen3Guard returns its native
 `Safety: Safe|Unsafe|Controversial` and `Categories:` format; Gateway maps
 those severities to `allow`, `block` and `review`. Because SparkClaw has no
 human safety-review queue, both `review` and `block` stop the run before routing
@@ -793,7 +747,7 @@ Markdown while preserving readable order, formulas, and tables. Fast remains
 the visual-semantics and Workflow-reasoning model; OCR output is untrusted
 document evidence and never selects a model lane or authorizes an edit.
 
-The overlay pins vLLM `0.22.1`, exposes port `8007` only on loopback, uses an
+The Local model service pins vLLM `0.22.1`, exposes port `8007` only on loopback, uses an
 explicit 2 GiB KV cache budget, and shares the Hugging Face cache. The default
 `single-fast` command starts OCR in the same Compose operation as Fast,
 embedding, guard, and ASR:
@@ -803,20 +757,19 @@ scripts/serve_models_compose.sh single-fast
 curl -fsS http://127.0.0.1:8007/v1/models
 ```
 
-Run Gateway and WebChat with the matching OCR adapter configuration:
+Run the full local product with the matching OCR adapter configuration:
 
 ```bash
-scripts/restart_runtime_compose.sh local
+npm run start:local
 ```
 
 For host-side doctor checks, keep the Compose service URL for Gateway and
 override only the check destination:
 
 ```bash
-set -a
-. docker/env/sparkclaw.ocr.env
-set +a
-SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
+SPARKCLAW_DOCTOR_PROFILE=local \
+SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 \
+  bash scripts/doctor.sh
 ```
 
 OCR is enabled in the current single-Fast product runtime. Selected Office/PDF
@@ -848,10 +801,10 @@ mkdir -p data/models/modelscope/Qwen3-ASR-0.6B
 modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir data/models/modelscope/Qwen3-ASR-0.6B
 ```
 
-The ASR compose override builds a small derivative of the local vLLM image that adds audio dependencies without changing the main text-model image:
+The ASR service in the Local model Compose builds a small derivative of the local vLLM image that adds audio dependencies without changing the main text-model image:
 
-- Compose: `docker/compose.asr.yaml`
-- Environment: `docker/env/sparkclaw.asr.env`
+- Compose: `docker/compose.models.local.yaml`
+- Environment: `docker/env/sparkclaw.local.env`
 - Image recipe: `docker/images/asr-vllm.Dockerfile`
 - Default served model: `sparkclaw-asr`
 - Default model ID: `Qwen/Qwen3-ASR-0.6B`
@@ -869,16 +822,10 @@ experiment can also be started with ASR explicitly:
 scripts/serve_models_compose.sh dual-light-asr
 ```
 
-Run Gateway and WebChat with speech enabled:
+Run the full local product with speech enabled:
 
 ```bash
-docker compose \
-  --env-file docker/env/sparkclaw.dual-light.env \
-  --env-file docker/env/sparkclaw.asr.env \
-  -f docker/compose.yaml \
-  -f docker/compose.dual-light.yaml \
-  -f docker/compose.asr.yaml \
-  --profile models-local up -d gateway webchat
+npm run start:local
 ```
 
 Check the ASR endpoint from the host:
@@ -892,13 +839,12 @@ curl -fsS http://127.0.0.1:8006/v1/audio/transcriptions \
   -F file=@/path/to/sample.wav
 ```
 
-For host-side doctor checks, keep the container URL in `docker/env/sparkclaw.asr.env` for Gateway but override the base URL to loopback:
+For host-side doctor checks, override only the check destination to loopback:
 
 ```bash
-set -a
-. docker/env/sparkclaw.asr.env
-set +a
-SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
+SPARKCLAW_DOCTOR_PROFILE=local \
+SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 \
+  bash scripts/doctor.sh
 ```
 
 Validated DGX Spark notes from 2026-05-24:
@@ -911,13 +857,12 @@ Validated DGX Spark notes from 2026-05-24:
 Current single-Fast product startup:
 
 ```bash
-scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh local
+npm run start:local
 ```
 
-This applies the single-Fast, ASR, and OCR environments plus the bounded service
-settings from `docker/compose.dual-light.yaml`, `docker/compose.asr.yaml`, and
-`docker/compose.ocr.yaml`. Fast, embedding, guard, ASR, and OCR start together.
+This applies the shared product contract and Local model wiring to the bounded
+services in `docker/compose.models.local.yaml`. Fast, embedding, guard, ASR,
+and OCR start together.
 Gateway sends both logical chat profiles to `sparkclaw-fast`, uses
 `sparkclaw-asr` for speech transcription, and uses `sparkclaw-ocr` for document
 OCR. The chat endpoint loads `nvidia/Qwen3.6-35B-A3B-NVFP4` through the
@@ -964,7 +909,7 @@ The historical validated real-model run completed 58 golden cases. On 2026-08-24
 
 Back up these paths or volumes:
 
-- `.env` secret template values, stored outside git
+- `.env.local` and `.env.remote` credentials and overrides, stored outside git
 - `data/memory`
 - `data/traces`
 - `data/artifacts`
@@ -976,7 +921,10 @@ Back up these paths or volumes:
 For Postgres:
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml exec postgres \
+sudo -n docker compose \
+  --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env --env-file .env.local \
+  -f docker/compose.yaml exec postgres \
   pg_dump -U sparkclaw sparkclaw > sparkclaw.sql
 ```
 
@@ -986,23 +934,19 @@ For filesystem state, stop Gateway before copying state files if possible.
 
 1. Save or export important state.
 2. Pull or apply code changes.
-3. Rebuild images:
-
-```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local build
-```
-
-4. Start the target profile.
+3. Run `npm run start:local` or `npm run start:remote`; the selected entrypoint
+   rebuilds changed images and reconciles the complete mode.
+4. Confirm the target profile is ready.
 5. Run `bash scripts/doctor.sh`.
 6. Run mock golden eval.
 7. For DGX Spark model changes, run endpoint checks and append a new benchmark section.
 
 ### Behavior changes to check when upgrading past 2026-07-30
 
-- Visible-browser login handoffs now require stacking the
-  `docker/compose.visible-browser.yaml` overlay; the base compose file no
-  longer exposes the host X11 socket. `scripts/restart_runtime_compose.sh`
-  applies the overlay automatically when a display resolves.
+- As of 2026-09-02, Host-CDP is the sole browser runtime. Both deployment
+  scripts install or verify host `sparkclaw-browserd`; Gateway contains no
+  Chromium/Xvfb, mounts no browser profile or X11 resources, and rejects legacy
+  container-browser configuration.
 - Telegram and Weixin now both ship disabled in typed config, Compose, and the
   example environment. Enable a channel from WebChat before account setup.
   `SPARKCLAW_TELEGRAM_ENABLED` and
@@ -1033,19 +977,22 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 
 - Keep **Allow LAN access** off unless a direct MCP client needs it. Gateway is
   private to the Docker network in the shipped Compose topology.
-- Restrict WebChat `18790` to an owner-trusted LAN. MCP Access Tickets protect
-  `/mcp`; they do not authenticate the other WebChat API routes.
+- Restrict WebChat `18790` to an owner-trusted LAN. Per-client Gateway tokens
+  authenticate the owner API, and MCP Access Tickets separately protect
+  `/mcp`. Keep the exact pairing bootstrap bound to host loopback `18795`.
 - Keep the unauthenticated experimental JingSi listener unpublished unless it
   is actively being tested; when enabled, bind `18793` to one RFC1918 address,
   never a wildcard or public interface.
 - Keep dangerous and reversible tools approval-gated.
 - Keep shell execution sandboxed and network-disabled.
 - Treat browser/email/file observations as untrusted.
-- Keep the host desktop closed to containers: the base compose file mounts no
-  X11 socket, and the `docker/compose.visible-browser.yaml` overlay belongs
-  only on the trusted single-owner desktop runtime that needs visible login
-  handoffs.
-- Keep `.env`, model weights, state encryption keys and downloaded data out of git.
+- Keep the host desktop and browser profile closed to containers. Gateway gets
+  only the mode-`0600` browserd endpoint through a read-only runtime mount; the
+  capability must not enter logs, traces, artifacts, or public config output.
+- Treat the preview controller socket as an owner-only capability. Gateway gets
+  it through a separate read-only runtime mount; the official extension token
+  remains encrypted in the Vault and must never enter Compose environment.
+- Keep `.env.local`, `.env.remote`, model weights, state encryption keys and downloaded data out of git.
 - Scan diffs for tokens before handoff.
 
 ## Troubleshooting
@@ -1053,6 +1000,8 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 | Symptom | Check |
 |---|---|
 | Docker permission denied | Use `sudo -n docker ...` or add the user to the Docker group. |
+| Host-CDP browser unavailable | Run `bash scripts/install-host-browser.sh --check --env-file .env.local` or the `.env.remote` equivalent, inspect `systemctl --user status sparkclaw-browserd.service`, and verify the endpoint path is owned by the deployment UID with mode `0600`. |
+| Playwright Extension preview unavailable | Run `npm run check:browser-controller` or `bash scripts/setup-browser-controller.sh --check --env-file .env.remote`, inspect `systemctl --user status sparkclaw-browser-controller.service`, and verify the qualification browser uses the separate `extension-qualification` profile. |
 | Golden eval browser step fails | Start Gateway with `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal` for Docker eval or `127.0.0.1` for host eval. |
 | CUDA or Triton reports `operation not permitted` after a host restart | Run `scripts/serve_models_compose.sh single-fast`. A stopped or unhealthy member triggers automatic whole-group recreation with fresh runtime caches while retaining `data/models`; set `SPARKCLAW_FORCE_MODEL_RECREATE=true` to force the same recovery manually. |
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |

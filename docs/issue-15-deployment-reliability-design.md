@@ -7,6 +7,12 @@
 > accepted all remaining recommendations on 2026-08-17. Live DGX restart
 > acceptance remains a deployment-window check.
 
+> Current entrypoint note (2026-09-03): these reliability decisions now operate
+> through exactly two product modes: `deploy:local` / `start:local` and
+> `deploy:remote` / `start:remote`. Local and Remote share the application
+> Compose and product contract; only Local adds the model Compose. The failure
+> analysis below describes retired paths, not runnable alternatives.
+
 ## Decision Summary
 
 SparkClaw's product Compose runtime uses PostgreSQL. The repository will not
@@ -61,22 +67,21 @@ Out of scope:
 - changing model checkpoints, warmup payloads, residency budgets, or logical
   model lanes;
 - changing WebChat's internal listener port or Gateway's internal port; and
-- replacing systemd with Docker restart policies.
+- replacing Local model boot recovery with Docker restart policies.
 
-## Current Failure Model
+## Historical Failure Model
 
-The current paths disagree in ways that are individually valid but unsafe in
-combination:
+Before this issue was implemented, the retired paths disagreed in ways that
+were individually valid but unsafe in combination:
 
-1. `docker/env/sparkclaw.example.env` says `SPARKCLAW_STATE_BACKEND=file`, while
-   `scripts/restart_runtime_compose.sh` loads
-   `docker/env/sparkclaw.single-fast.env` later and therefore selects
+1. The retired example environment selected `SPARKCLAW_STATE_BACKEND=file`,
+   while a later runtime profile silently changed the effective value to
    PostgreSQL.
 2. `scripts/serve_models_compose.sh` stops and force-recreates every requested
-   model on every invocation. `npm start` and boot consequently pay a full
+   model on every invocation. Product startup and boot consequently paid a full
    model load even when all containers are already healthy and current.
 3. Compose exposes a configurable WebChat bind address but fixes the host port
-   at `18790`. `scripts/deploy.sh` and the runtime readiness default repeat that
+   at `18790`. The retired deployer and runtime readiness path repeated that
    port independently.
 4. Fast and Guard health checks execute a Python file bind-mounted from the
    checkout. The model process may remain valid while repository movement or
@@ -97,16 +102,16 @@ combination:
 | `SPARKCLAW_VLLM_IMAGE` | current pinned/default upstream image | Remains the upstream base of the local readiness-enabled derivative, preserving the existing operator override. |
 
 Shell entrypoints must not `source .env`. They should share one non-evaluating
-dotenv reader for the small set of script-owned values. Extracting the two
-existing readers from `deploy.sh` and `autostart_compose.sh` is a mechanical
-commit separate from behavior changes.
+dotenv reader for the small set of script-owned values. Extracting the
+duplicated readers from the retired deployer and `autostart_compose.sh` is a
+mechanical commit separate from behavior changes.
 
 ## State Backend Alignment
 
 Change the example environment to PostgreSQL and keep the single-Fast product
 profile explicitly PostgreSQL-backed. The deployment guide must say:
 
-- `npm start`, the one-command deployer, and boot autostart use PostgreSQL;
+- `start:local`, `start:remote`, both deployers, and Local boot autostart use PostgreSQL;
 - an old file snapshot is neither migrated nor deleted;
 - direct upgrade may therefore start with an empty PostgreSQL database; and
 - the file backend is still available for an explicitly selected isolated
@@ -132,8 +137,8 @@ Checking process state separately matters after a host reboot: Docker may
 retain an old health value on a stopped container. A stopped container is not a
 healthy resident service.
 
-For `single-fast`, Fast, embedding, Guard, and OCR remain one atomic residency
-group. If one member requires recovery, all four are recovered together. The
+For `single-fast`, Fast, embedding, Guard, ASR, and OCR remain one atomic
+residency group. If one member requires recovery, all five are recovered together. The
 legacy Deep container is still stopped before the product group is evaluated.
 Explicit standalone and benchmark commands apply the same decision rules only
 to their selected services.
@@ -172,10 +177,11 @@ service-to-service routing remain on `18790`.
 The shared dotenv reader resolves and validates the host port once. That value
 then owns:
 
-- the WebChat and `/readyz` probe URLs in `deploy.sh`;
-- local and LAN URLs printed by the deployer;
-- the default readiness URL in `restart_runtime_compose.sh`; and
-- the Compose interpolation used by direct `npm start` and boot startup.
+- the WebChat and `/readyz` probe URLs in the Local and Remote entrypoints;
+- local, LAN, and Remote URLs printed by the deployers;
+- the default readiness URL shared by both start scripts; and
+- the Compose interpolation used by `start:local`, `start:remote`, and Local
+  boot startup.
 
 An explicit `SPARKCLAW_GATEWAY_READY_URL` remains the highest-precedence escape
 hatch for unusual proxy layouts. Tests must use a non-default port so a hidden
@@ -239,7 +245,7 @@ recovered, or explicitly force-recreated.
 
 - Invalid script-owned configuration fails before stopping containers.
 - Model inspection errors fail closed and preserve the current group.
-- A healthy/current group is not stopped merely because `npm start` or boot ran.
+- A healthy/current group is not stopped merely because `start:local` or boot ran.
 - Group recovery never starts only one member of the single-Fast residency set.
 - Model readiness remains failed until model evidence succeeds; only marker
   persistence after that evidence is non-fatal.
@@ -272,10 +278,11 @@ Focused deterministic checks:
 python3 -m unittest scripts/test_model_readiness.py
 python3 -m unittest scripts/test_dotenv.py
 python3 -m unittest scripts/test_serve_models_compose.py
-python3 -m unittest scripts/test_runtime_compose.py
+python3 -m unittest scripts/test_local_compose.py scripts/test_remote_compose.py
 python3 -m unittest scripts/test_autostart_compose.py
-bash -n scripts/deploy.sh scripts/start_compose.sh \
-  scripts/restart_runtime_compose.sh scripts/serve_models_compose.sh \
+bash -n scripts/deploy_local.sh scripts/deploy_remote.sh \
+  scripts/start_local_compose.sh scripts/start_remote_compose.sh \
+  scripts/serve_models_compose.sh \
   scripts/autostart_compose.sh scripts/install_autostart_systemd.sh
 ```
 
@@ -297,7 +304,7 @@ The bilingual Markdown mirror and local-link check also gate the change.
 
 DGX acceptance evidence must cover:
 
-1. a healthy/current `npm start` preserves all four model container IDs and
+1. a healthy/current `npm run start:local` preserves all five model container IDs and
    returns without another heavy warmup;
 2. each degraded predicate triggers the accepted whole-group recovery;
 3. the explicit force flag replaces all selected container IDs;

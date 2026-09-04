@@ -48,15 +48,17 @@ Node 依赖由根 npm workspace 管理，`setup:document-tools` 将 Python 文�
 npm run setup:host
 ```
 
-重建并重启当前 external-model/OCR/PostgreSQL 开发运行态：
+根据要验证的模型来源，使用明确的产品运行态：
 
 ```bash
-npm run dev
+npm run start:local
+npm run start:remote
 ```
 
-使用托管 chat 只重建一个应用容器时，运行 `npm run dev:gateway` 或
-`npm run dev:webchat`。通过明确的 `:online` 与 `:local` 变体切换 profile；两套命令都保留
-OCR/PostgreSQL 环境，并验证 Gateway readiness。
+两条命令都先加载 `docker/env/sparkclaw.product.env`，再分别加载
+`docker/env/sparkclaw.local.env` 加 `.env.local`，或
+`docker/env/sparkclaw.remote.env` 加 `.env.remote`。不再存在托管 chat 加本地辅助模型的
+混合模式，也不提供可绕过 profile 校验的局部产品重建命令。
 
 仅在隔离的 mock/file 与 Vite 调试中直接运行宿主进程，对应命令为
 `npm run dev:gateway:host` 和 `npm run dev:webchat:host`。Compose、auth、
@@ -77,7 +79,17 @@ bash scripts/doctor.sh
 还需要按范围运行：
 
 - 路由、Workflow、模型、tool、Policy、delivery 或用户流程改动：`bash scripts/run-eval.sh`；
-- Compose/config 改动：`docker compose --env-file .env -f docker/compose.yaml config --quiet`；
+- Compose/config 改动同时验证两套版本化展开：
+
+  ```bash
+  docker compose --env-file docker/env/sparkclaw.product.env \
+    --env-file docker/env/sparkclaw.local.env \
+    -f docker/compose.yaml -f docker/compose.models.local.yaml \
+    --profile product --profile models-local config --quiet
+  docker compose --env-file docker/env/sparkclaw.product.env \
+    --env-file docker/env/sparkclaw.remote.env \
+    -f docker/compose.yaml --profile product config --quiet
+  ```
 - browser transport/profile 改动：`npm run setup:browser` 加针对性测试/eval；
 - Markdown 改动：本地或 CI 运行 `docs` job 规则，每份英文文档必须有 `zh-cn/` 镜像，
   所有本地链接必须有效。
@@ -134,10 +146,12 @@ Gateway/Agent code 不得按 provider name 分支。
 
 ## 浏览器修改
 
-唯一执行后端是固定 agent-browser、系统 Chromium 和 SparkClaw-owned profile。ToolHub contract
-保持 provider-neutral，process/profile ownership 有界，page evidence 不可信，click ref 绑定 fresh
-snapshot。不要恢复 Playwright、personal Chrome attach、cookie export 或第二 DOM collector。
-见[浏览器 Runtime](browser-runtime.md)。
+唯一执行后端是固定 agent-browser，通过 Host-CDP attach 到宿主机拥有的 SparkClaw
+Chromium 进程与专用 Profile。ToolHub contract 保持 provider-neutral，process/profile/tab
+ownership 有界，page evidence 不可信，click ref 绑定 fresh snapshot。不要恢复容器 Chromium、
+personal Chrome attach、cookie export 或第二 DOM collector。隔离的宿主机 Playwright
+Extension Controller 只是资格验证 Preview，在[Playwright 扩展浏览器迁移](playwright-extension-browser-design.md)
+的门槛通过前不得接入浏览器执行。见[浏览器 Runtime](browser-runtime.md)。
 
 ## 文档修改
 

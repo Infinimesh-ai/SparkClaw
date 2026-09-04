@@ -33,7 +33,9 @@ The workbench includes:
 Startup loads readiness first, then authentication and private state. Bearer
 tokens come from `VITE_SPARKCLAW_API_TOKEN` or the local token flow. Pairing and
 token failures remain visible; language switching does not depend on Gateway
-availability.
+availability. In product Compose, the local token flow uses the exact
+host-loopback pairing proxy on `127.0.0.1:18795`; the normal WebChat ingress
+never receives its private proxy credential.
 
 State is separated into global data and active-session data. Session events
 drive prompt refreshes when possible, with bounded polling as fallback. Native

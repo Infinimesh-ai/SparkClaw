@@ -1,5 +1,7 @@
 # JingSi Runtime v1 Provider
 
+> Language: English | [简体中文](../zh-cn/docs/jingsi-runtime-v1.md)
+
 SparkClaw implements the provider side of the accepted ProjectGroup-2
 `JingSi → SparkClaw` Runtime v1 contract. The authority remains InfiniCenter
 decision 0007 and its central JSON Schema, HTTP binding, and conformance fixtures.

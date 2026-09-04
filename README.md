@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](zh-cn/README.md)
 
-**Reliable local agent runtime for DGX Spark.**
+**Reliable personal agent runtime with explicit local and remote model deployments.**
 
 SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape uses one responsive `fast` MoE chat model, plus resident embedding and guard endpoints. The `deep` model is temporarily excluded from the default product runtime.
 
@@ -25,42 +25,46 @@ Implemented and validated:
 
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
 - Agent Runtime with a Catalog-derived semantic graph, full-candidate embedding and Fast/Tree score fusion, deterministic Top-2 and one-leaf Workflow dispatch, grounded execution, repair, and trace snapshots.
-- Single-machine `single-fast-v1` product profile for NVIDIA GB10: one `fast` chat model plus embedding, guard, and the OvisOCR2 document adapter, with the logical deep Workflow profile routed to the same Fast endpoint.
+- Shared `sparkclaw-product-v1` capacity contract for Local and Remote, with one Local `fast` chat process plus embedding, guard, Qwen3-ASR, and OvisOCR2; logical Deep routes to the same Fast endpoint. Local 262K physical-model qualification remains follow-up work.
 - ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
 - File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
-- Email, calendar and workspace knowledge/RAG are deliberately deferred until they have complete product designs; see [Deferred Capabilities](docs/deferred-email-calendar-knowledge.md).
+- Send-only browser email is implemented for configured QQ Mail, Outlook, and Gmail accounts through the dedicated Host-CDP Chromium profile; see [Browser email Workflow](docs/browser-email-workflow-design.md). Email reading, calendar, and workspace knowledge/RAG remain deferred; see [Deferred Capabilities](docs/deferred-email-calendar-knowledge.md).
 - File-backed state for local runs, PostgreSQL 18/pgvector for durable runtime records, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
-- Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
+- Two explicit product deployments: full-local models on NVIDIA GB10 and full-remote public model endpoints, both with PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat.
 - The JingSi→SparkClaw Runtime JSON/HTTP v1 provider is implemented behind an explicit loopback-only, dedicated bearer configuration. It persists request-key bindings and irreversible negative fences before execution, exposes submit/lookup/status/cancel/event-page actions, recovers unfinished records, and dispatches accepted work into the existing Agent Runtime with request-scoped tool and budget narrowing. `return_nowhere` performs no endpoint lookup, while bounded IMMS Memory Context is persisted and supplied as data only after intent and capability admission. The repository still reads the central decision 0007 Schema/binding/fixtures directly.
 - DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. On 2026-08-24, the restored vLLM-managed NVFP4 path passed all 47 real-model golden cases with no mock calls or model errors.
 
 Known operating boundary:
 
 - On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
-- The current single-machine product profile is `single-fast-v1`: fast runs at 32K context with an 8G KV cache and MTP off; embedding, guard, and OvisOCR2 retain bounded auxiliary profiles. The historical `dual-light-v1` measurements remain as evidence, not as the startup default.
+- Both product modes select `sparkclaw-product-v1`: Fast and logical Deep share a 262K context contract and the Remote output budgets; embedding, guard, and OCR use 8K, 8K, and 32K contracts. Local serving must satisfy that contract rather than silently selecting a smaller profile. The historical `dual-light-v1` measurements remain benchmark evidence, not a product mode.
 - Gateway still records its logical fast/deep Workflow choice, but both chat profiles resolve to `sparkclaw-fast` in the current deployment configuration. No `sparkclaw-deep` model process is started.
 - Workflow capabilities are the only execution path; see the [Workflow capability matrix](docs/workflow-capabilities.md) for the current capability surface.
 - A development-host gate now runs PostgreSQL 18, real IMMS/SparkClaw/JingSi services and a real JingSi-Node process independently through Task Intake, Memory Context, successful Runtime result, IMMS Observation and origin notification/ACK. Production service credentials, power-loss/backup recovery, real networking and GB10 physical validation remain pending.
 
 ## Quick Start
 
-For an Ubuntu test VM that uses externally managed model endpoints, run the
-cloud installer as a normal sudo-capable user. It installs Docker when needed,
-keeps all endpoint and optional API-key values in a local mode-0600 file, and
-verifies the containerized Chromium automation runtime:
+For an Ubuntu server or VM that uses the versioned public model endpoints, run
+the remote installer as a normal sudo-capable user. It installs Docker when
+needed, keeps credentials and machine-specific overrides in a local mode-0600
+`.env.remote` file, and
+installs the pinned SparkClaw Chromium on the host. Deployment verifies
+`agent-browser` attachment through the protected Host-CDP endpoint and confirms
+that stopping the MCP smoke process leaves host Chromium running:
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
   --connect-timeout 15 --max-time 300 \
-  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
+  https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-remote.sh | bash
 ```
 
-The interactive setup accepts an empty model API key when the endpoints do not
-require authentication. The current trusted-LAN cloud profile does not enable
-Gateway owner-token authentication, so open `http://<vm-ip>:18790` directly
-after deployment.
+The five public Fast, Embedding, Guard, ASR, and OCR endpoints are versioned in
+`docker/env/sparkclaw.remote.env`; the shared capacity and business contract is
+versioned in `docker/env/sparkclaw.product.env`, and Fast also serves the logical Deep lane. The
+interactive setup accepts an empty model API key when the endpoints do not
+require authentication.
 
 On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
 toolkit already installed, run the streamed installer:
@@ -73,11 +77,14 @@ The website may mirror the repository's top-level `install.sh` and replace the
 URL above. The bootstrap installs or safely fast-forwards the repository under
 `$HOME/SparkClaw`, then reconnects stdin to the terminal so the Hugging Face
 token can be entered without echo. The deployment requires Linux/ARM64 and
-NVIDIA GB10, downloads Fast, embedding, guard, and OCR, then builds and starts
-Gateway, Sandbox Runner, and WebChat. Later runs reuse the model cache.
+NVIDIA GB10, downloads Fast, embedding, guard, ASR, and OCR, then builds and
+starts PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat. Later runs
+reuse the model cache.
 
 Open [http://127.0.0.1:18790](http://127.0.0.1:18790) locally, or use
-`http://<host-lan-ip>:18790` from another device on the same LAN.
+`http://<host-lan-ip>:18790` from another device on the same LAN. Complete the
+first self-pairing from the SparkClaw host; LAN browsers require a previously
+provisioned Gateway client token.
 
 Run the project health check and golden eval:
 
@@ -99,23 +106,23 @@ npm run setup:host
 ```
 
 This installs root-workspace Node packages, user-site Python document
-libraries, verifies the pinned agent-browser runtime, and resolves a system
-Chromium installation. It does not download Chrome for Testing. Set
-`adapters.browserAutomation.chromiumExecutable` when Chromium is installed in a
-non-standard location.
+libraries, verifies pinned `agent-browser 0.32.3`, installs the approved
+architecture-specific SparkClaw Chromium artifact on the host, and configures
+the owner-scoped `sparkclaw-browserd` service and dedicated persistent profile.
+Gateway contains no Chromium and attaches only through Host-CDP.
 
-Rebuild and restart the external-model/OCR/PostgreSQL development runtime used on
-this machine:
+Product startup is always explicit. The versioned profile is loaded first, then
+the matching ignored private override file:
 
 ```bash
-npm run dev
+npm run start:local   # product env + local env + .env.local
+npm run start:remote  # product env + remote env + .env.remote
 ```
 
-Use `npm run dev:gateway:online` or `npm run dev:gateway:local` to choose the
-chat profile while rebuilding Gateway; `npm run dev:gateway` selects online.
-Equivalent `dev:webchat:online` and `dev:webchat:local` commands rebuild only
-WebChat. Direct host mock/file and Vite debugging remain
-available as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
+There is no `online` or mixed hosted-chat/local-auxiliary product mode. Remote
+startup validates every model URL and stops the local model containers before
+reconciling the application services. Direct host mock/file and Vite debugging
+remain available as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
 
 For a direct model-router smoke test without starting an Agent session or executing tools:
 
@@ -138,7 +145,13 @@ npm --workspace @sparkclaw/webchat run build
 go test ./services/gateway/...
 bash scripts/doctor.sh
 bash scripts/run-eval.sh
-docker compose --env-file .env -f docker/compose.yaml config --quiet
+docker compose --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env \
+  -f docker/compose.yaml -f docker/compose.models.local.yaml \
+  --profile product --profile models-local config --quiet
+docker compose --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.remote.env \
+  -f docker/compose.yaml --profile product config --quiet
 ```
 
 Current golden eval coverage is 47 cases. It verifies direct chat, config/tool visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
@@ -153,14 +166,18 @@ The npm workspace root is intentionally marked `private` to prevent accidental p
 
 ## DGX Spark Models
 
-For the current local-model path, start the single-Fast product profile first:
+For the current full-local product, deploy once and then use the explicit local
+startup entrypoint:
 
 ```bash
-scripts/serve_models_compose.sh single-fast
-scripts/restart_runtime_compose.sh local
+npm run deploy:local
+npm run start:local
 ```
 
-`single-fast` stops any old `sparkclaw-deep` container and starts Fast, embedding, guard, and OCR together. The explicit `local` selection then reloads Gateway/WebChat with the single-Fast and OCR environments, maps both logical chat profiles to `sparkclaw-fast`, enables the document OCR adapter, and fails if Gateway is not ready.
+The local entrypoint owns Fast, embedding, guard, ASR, and OCR as one model
+group, maps both logical chat profiles to `sparkclaw-fast`, and starts the five
+application services including Gotenberg. The model helper commands below are
+only for targeted model controls and benchmarks, not additional product modes.
 
 Other serving entrypoints are available for targeted tests and controls:
 

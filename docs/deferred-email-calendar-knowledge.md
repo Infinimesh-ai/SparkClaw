@@ -1,59 +1,115 @@
-# Deferred Email, Calendar, and Knowledge Capabilities
+# Deferred Email Expansion, Calendar, and Knowledge Capabilities
 
 > Language: English | [简体中文](../zh-cn/docs/deferred-email-calendar-knowledge.md)
 
-## Status
+## Current Status
 
-Email, calendar, and workspace knowledge/RAG were removed from the active SparkClaw architecture on 2026-07-16. They were prototype shells rather than designed product capabilities, and keeping them registered made the runtime, storage layer, policy, UI, and eval matrix look more complete than they were.
+The generic email, calendar, and workspace knowledge/RAG prototypes were
+removed from the active SparkClaw architecture on 2026-07-16. They were
+cross-layer placeholders rather than complete product capabilities.
 
-They are not available through ToolHub, Agent Runtime routing, Skills, public configuration, WebChat settings, or the golden eval suite. The owner profile may still contain an email-shaped identity field; that field is profile metadata and is not an email integration. Authenticated personal sites may still be accessed through the governed browser workflow; that does not restore a dedicated email or calendar connector.
+On 2026-09-03, SparkClaw introduced a new and deliberately narrower active
+email slice: `browser.email` r1 can send one approved plain-text message through
+a freshly validated configured QQ Mail, Outlook, or Gmail browser account. Its
+login, Host-CDP, provider-script, approval, and unknown-outcome contracts are
+defined in [Browser email Workflow](browser-email-workflow-design.md).
 
-The standalone Embedding lane remains part of the architecture and configuration for semantic routing. The removed knowledge prototype does not own or extend that lane.
+That send-only capability does not reactivate the old personal-data connector.
+Email reading and all broader mailbox operations remain deferred. Calendar and
+built-in workspace knowledge/RAG also remain deferred.
 
-## What Was Removed
+The standalone Embedding lane remains active for semantic routing. It is not
+owned or extended by the removed knowledge prototype.
 
-The removed surface included:
+## Retired Prototype Surface
 
-- Tool contracts and executors: `email.search`, `email.read_thread`, `email.draft_reply`, `email.send`, `calendar.read`, `calendar.propose_event`, `calendar.create`, `knowledge.index_workspace`, and `knowledge.search`.
-- File-fixture and assumed HTTP adapters under `internal/personaldata`, including mock outbox and created-event logs.
-- The local keyword index, embedding/reranking glue, `DocumentStore`, document/chunk state, and PostgreSQL document/vector schema.
-- Routing heuristics, mock-model actions, grounded answer formatters, schema/repair special cases, and approval labels dedicated to these tools.
-- The `email_triage` and `calendar_assistant` Skills, personal-data fixtures, WebChat adapter rows, environment variables, policy entries, and dedicated unit/golden cases.
+The 2026-07-16 removal covered:
 
-The source history remains the code backup. This document preserves the previous boundary and the reasons it must not be restored piecemeal.
+- legacy personal-data email operations such as search, thread reading, draft
+  reply, and mock send;
+- calendar read, propose-event, and create-event operations;
+- knowledge workspace indexing and search operations;
+- file-fixture and assumed HTTP adapters under `internal/personaldata`;
+- mock outbox and created-event logs;
+- the local keyword index, optional embedding/reranking glue, document/chunk
+  state, and PostgreSQL vector schema;
+- dedicated routing heuristics, mock-model actions, answer formatters, Skills,
+  configuration rows, policy entries, and golden cases.
 
-## Why the Prototypes Were Insufficient
+The current ToolHub name `email.send` is a new strict browser-bound tool. It can
+run only inside `browser.email` after fresh admission and exact-content owner
+approval. It is not compatible with the retired mock/HTTP adapter contract.
 
-### Email
+## Why The Old Prototypes Were Insufficient
 
-The file adapter searched JSON fixtures and appended sends to a local JSONL file. The HTTP adapter assumed three endpoints but did not define account authorization, mailbox identity, pagination/cursors, MIME and attachment behavior, draft synchronization, delivery/idempotency semantics, provider error mapping, or reconciliation after uncertain sends. Approval around a mock append did not make this a real email capability.
+### Generic Email
+
+The file adapter searched JSON fixtures and appended sends to a local JSONL
+file. The HTTP adapter assumed provider endpoints without defining account
+authorization, mailbox identity, pagination, MIME, attachments, draft state,
+delivery semantics, provider error mapping, or reconciliation after an unknown
+send result. Approval around a mock append did not make it a real email system.
+
+The active browser send slice closes only the bounded one-recipient send
+contract. It does not imply that inbox reading, search, replies, attachments,
+draft synchronization, or multi-account semantics have been designed.
 
 ### Calendar
 
-The file adapter filtered fixture strings and appended created events. The HTTP adapter assumed a generic event endpoint. There was no account lifecycle, provider capability model, timezone and daylight-saving contract, recurrence model, attendee/update semantics, conflict policy, idempotent create key, or reconciliation after partial failures.
+The file adapter filtered fixture strings and appended created events. The HTTP
+adapter assumed a generic event endpoint. There was no account lifecycle,
+provider capability model, timezone/daylight-saving contract, recurrence model,
+attendee/update semantics, conflict policy, idempotent create key, or
+reconciliation after partial failure.
 
 ### Knowledge/RAG
 
-The implementation combined workspace crawling, text chunking, a local JSON index, optional embeddings, reranking, artifact archival, and three storage backends behind two tools. It lacked a corpus/collection model, source ownership and access rules, format strategy, incremental update/delete lifecycle, embedding migration policy, quality/latency budgets, operator observability, and a stable citation contract. The result was substantial cross-layer coupling without a product-level design.
+The implementation combined workspace crawling, text chunking, a local JSON
+index, optional embeddings, reranking, artifact archival, and three storage
+backends behind two tools. It lacked a corpus model, source ownership and access
+rules, supported-format policy, incremental update/delete lifecycle, embedding
+migration, quality and latency budgets, operator observability, and a stable
+citation contract.
 
 ## Existing Data
 
-Removal does not delete user data automatically.
+The 2026-07-16 removal did not automatically delete historical data:
 
-- Old file-state `documents` and `document_chunks` fields are ignored when state is loaded.
-- Existing `.sparkclaw/knowledge.json`, mock personal-data fixtures, drafts, outbox logs, event logs, and archived knowledge artifacts remain ordinary files until an operator backs them up or removes them.
-- Existing PostgreSQL `documents` and `document_chunks` tables are not dropped by startup migration. Fresh databases no longer create them. Operators should export any needed data before dropping those tables manually.
+- old file-state `documents` and `document_chunks` fields are ignored when
+  state is loaded;
+- existing `.sparkclaw/knowledge.json`, personal-data fixtures, mock drafts,
+  outbox/event logs, and archived knowledge artifacts remain ordinary files
+  until an operator backs them up or removes them;
+- existing PostgreSQL `documents` and `document_chunks` tables are not dropped
+  by startup migration, while fresh databases do not create them.
 
-## Reintroduction Gate
+The active browser email provider settings are separate non-secret records.
+They contain enable/default state, masked readiness metadata, and versions;
+provider authentication remains only in the dedicated Chromium profile.
 
-Any future implementation should begin with a focused design document and land as a complete vertical slice. At minimum it must define:
+## Future Expansion Gate
 
-1. Owner/account identity, authorization, credential storage, connector lifecycle, and explicit trust boundaries.
-2. Typed provider-neutral contracts, error taxonomy, timeout/retry/idempotency rules, and reconciliation for uncertain external effects.
-3. Policy and approval semantics based on real provider behavior, not mock file writes.
-4. Storage ownership and migrations across the default file backend, memory, and PostgreSQL, including deletion and upgrade behavior.
-5. Intent/Profile/Tool Exposure integration without parallel tool-name routing lists.
-6. End-to-end tests against the default configuration plus connector contract tests and operator-visible health states.
-7. For knowledge specifically: corpus lifecycle, supported formats, incremental indexing, embedding/version migration, retrieval quality evaluation, citation guarantees, and resource budgets.
+Any new email-reading or mailbox-management capability, calendar capability, or
+workspace knowledge capability must begin with a focused design and land as a
+complete vertical slice. At minimum it must define:
 
-Until those gates are met, use existing file search/read, browser workflows, and memory as separate bounded capabilities rather than recreating these names as placeholders.
+1. Owner/account identity, authorization, credential ownership, lifecycle, and
+   trust boundaries.
+2. Provider-neutral contracts, error taxonomy, deadlines, retry/idempotency
+   rules, and reconciliation for uncertain external effects.
+3. Policy and approval semantics based on real provider behavior.
+4. Storage ownership and migrations across memory, the default file backend,
+   and PostgreSQL, including deletion and upgrade behavior.
+5. Catalog, semantic routing, Workflow Profile, Tool Exposure, and result
+   projection without parallel name lists or generic fallback execution.
+6. End-to-end tests under the default configuration plus deterministic provider
+   contract tests and operator-visible health states.
+7. For email expansion: read side effects, mailbox/message identity, MIME and
+   attachment boundaries, reply/draft behavior, and account selection.
+8. For knowledge: corpus lifecycle, formats, incremental indexing,
+   embedding/version migration, retrieval evaluation, citations, and resource
+   budgets.
+
+Until those gates are met, keep the active browser email send slice, browser
+page workflows, file/document workflows, calendar requests, and memory as
+separate bounded domains. Do not recreate the retired prototypes as placeholders.

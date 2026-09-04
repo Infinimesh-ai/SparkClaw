@@ -27,6 +27,8 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 
 启动先加载 readiness，再处理 authentication 和 private state。Bearer token 来自
 `VITE_SPARKCLAW_API_TOKEN` 或本地 token flow。pairing/token 失败保持可见，语言切换不依赖 Gateway。
+产品 Compose 中，本地 token flow 使用 `127.0.0.1:18795` 上的精确宿主回环配对 proxy；普通
+WebChat ingress 永远不会获得其私有代理凭据。
 
 状态分为 global data 和 active-session data。条件允许时由 session event 触发刷新，并用有界
 polling 兜底。原生 `EventSource` 不能附带 bearer header，因此 authenticated mode 使用当前实现的

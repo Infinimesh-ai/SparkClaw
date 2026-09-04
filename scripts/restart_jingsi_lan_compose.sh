@@ -50,16 +50,15 @@ echo "JingSi LAN binding validated on port $port"
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
-runtime_profile="${1:-online}"
-if [[ "$runtime_profile" != "online" && "$runtime_profile" != "local" ]]; then
-  echo "usage: $0 [online|local]" >&2
+runtime_profile="${1:-remote}"
+if [[ "$runtime_profile" != "remote" && "$runtime_profile" != "local" ]]; then
+  echo "usage: $0 [remote|local]" >&2
   exit 1
 fi
 
 export SPARKCLAW_JINGSI_LAN_ENABLED=true
 export SPARKCLAW_JINGSI_LAN_PORT="$port"
-export SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE=docker/compose.jingsi-lan.yaml
-bash scripts/restart_runtime_compose.sh "$runtime_profile" gateway webchat
+bash "scripts/start_${runtime_profile}_compose.sh" --jingsi-lan
 
 for _ in $(seq 1 30); do
   if curl --noproxy '*' -fsS "http://$bind:$port/api/jingsi/v0/readyz" >/dev/null 2>&1; then

@@ -23,22 +23,22 @@
       "executable": false,
       "mock": false
     },
-    "infinimesh-online-fast-v1": {
-      "description": "Hosted Fast endpoint with logical Fast and Deep lanes sharing one physical model.",
+    "sparkclaw-product-v1": {
+      "description": "Shared Local/Remote product capacity contract with logical Fast and Deep lanes sharing one physical chat model.",
       "executable": true,
       "mock": false,
       "physical_models": {
-        "hosted-fast": { "context_tokens": 262144 },
-        "local-embedding": { "context_tokens": 8192 },
-        "local-guard": { "context_tokens": 16384 },
-        "local-ocr": { "context_tokens": 32768 }
+        "product-fast": { "context_tokens": 262144 },
+        "product-embedding": { "context_tokens": 8192 },
+        "product-guard": { "context_tokens": 8192 },
+        "product-ocr": { "context_tokens": 32768 }
       },
       "lanes": {
-        "fast": { "physical_model": "hosted-fast", "output_budgets": { "compact_structured": 2048, "workflow_structured": 8192, "answer": 8192, "vision_structured": 4096 } },
-        "deep": { "physical_model": "hosted-fast", "output_budgets": { "workflow_structured": 8192, "answer": 8192 } },
-        "embedding": { "physical_model": "local-embedding", "output_budgets": {} },
-        "guard": { "physical_model": "local-guard", "output_budgets": { "guard": 256 } },
-        "ocr": { "physical_model": "local-ocr", "output_budgets": { "ocr_document": 16384 } }
+        "fast": { "physical_model": "product-fast", "output_budgets": { "compact_structured": 2048, "workflow_structured": 8192, "answer": 8192, "vision_structured": 4096 } },
+        "deep": { "physical_model": "product-fast", "output_budgets": { "workflow_structured": 8192, "answer": 8192 } },
+        "embedding": { "physical_model": "product-embedding", "output_budgets": {} },
+        "guard": { "physical_model": "product-guard", "output_budgets": { "guard": 256 } },
+        "ocr": { "physical_model": "product-ocr", "output_budgets": { "ocr_document": 16384 } }
       }
     },
     "dgx-spark-local": {
@@ -55,24 +55,6 @@
       "lanes": {
         "fast": { "physical_model": "local-fast", "output_budgets": { "compact_structured": 1024, "workflow_structured": 4096, "answer": 4096, "vision_structured": 2048 } },
         "deep": { "physical_model": "local-deep", "output_budgets": { "workflow_structured": 8192, "answer": 8192 } },
-        "embedding": { "physical_model": "local-embedding", "output_budgets": {} },
-        "guard": { "physical_model": "local-guard", "output_budgets": { "guard": 256 } },
-        "ocr": { "physical_model": "local-ocr", "output_budgets": { "ocr_document": 16384 } }
-      }
-    },
-    "dgx-spark-single-fast-v1": {
-      "description": "Current single-GB10 product profile; logical Deep aliases the physical Fast model.",
-      "executable": true,
-      "mock": false,
-      "physical_models": {
-        "local-fast": { "context_tokens": 32768 },
-        "local-embedding": { "context_tokens": 8192 },
-        "local-guard": { "context_tokens": 16384 },
-        "local-ocr": { "context_tokens": 32768 }
-      },
-      "lanes": {
-        "fast": { "physical_model": "local-fast", "output_budgets": { "compact_structured": 1024, "workflow_structured": 4096, "answer": 4096, "vision_structured": 2048 } },
-        "deep": { "physical_model": "local-fast", "output_budgets": { "workflow_structured": 4096, "answer": 4096 } },
         "embedding": { "physical_model": "local-embedding", "output_budgets": {} },
         "guard": { "physical_model": "local-guard", "output_budgets": { "guard": 256 } },
         "ocr": { "physical_model": "local-ocr", "output_budgets": { "ocr_document": 16384 } }

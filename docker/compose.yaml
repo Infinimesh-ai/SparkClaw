@@ -1,66 +1,43 @@
 name: sparkclaw
 
-x-vllm-common: &vllm-common
-  profiles: ["models-local"]
-  image: sparkclaw-vllm-readiness:local
-  build:
-    context: ..
-    dockerfile: docker/images/vllm.Dockerfile
-    args:
-      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly}
-  ipc: host
-  shm_size: ${SPARKCLAW_VLLM_SHM_SIZE:-16gb}
-  gpus: all
-  entrypoint: ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
-  environment: &vllm-environment
-    HF_HOME: /models/huggingface
-    HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
-    HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
-    VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
-    SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
-    SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
-  volumes:
-    - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
-  tmpfs:
-    - /run/sparkclaw-readiness:rw,noexec,nosuid,nodev,size=1m,mode=1777
-  networks:
-    - sparkclaw_internal
-
-x-chat-vllm-common: &chat-vllm-common
-  <<: *vllm-common
-  image: sparkclaw-chat-vllm-readiness:local
-  build:
-    context: ..
-    dockerfile: docker/images/vllm.Dockerfile
-    args:
-      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_CHAT_VLLM_IMAGE:-vllm/vllm-openai:v0.24.0}
-
 services:
   gateway:
-    profiles: ["dev", "eval", "compat", "models-local"]
+    profiles: ["product", "eval"]
     build:
       context: ..
       dockerfile: docker/images/gateway.Dockerfile
     user: "${SPARKCLAW_CONTAINER_UID:-1000}:${SPARKCLAW_CONTAINER_GID:-1000}"
     init: true
+    restart: unless-stopped
     depends_on:
       gotenberg:
         condition: service_healthy
-    env_file:
-      - env/sparkclaw.example.env
+      postgres:
+        condition: service_healthy
     environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SPARKCLAW_BIND: 0.0.0.0
+      SPARKCLAW_PORT: ${SPARKCLAW_PORT:-18789}
+      SPARKCLAW_API_TOKEN: ""
+      SPARKCLAW_PAIRING_REQUIRED: ${SPARKCLAW_PAIRING_REQUIRED:-false}
+      SPARKCLAW_WEBCHAT_PROXY_TOKEN: ${SPARKCLAW_WEBCHAT_PROXY_TOKEN:?run npm run deploy:local or npm run deploy:remote first}
+      SPARKCLAW_DEPLOYMENT_PROFILE: ${SPARKCLAW_DEPLOYMENT_PROFILE:?select deploy:local/start:local or deploy:remote/start:remote}
+      SPARKCLAW_WORKSPACE_ROOT: ${SPARKCLAW_WORKSPACE_ROOT:-/var/lib/sparkclaw/workspaces}
+      SPARKCLAW_TRACE_DIR: ${SPARKCLAW_TRACE_DIR:-/var/lib/sparkclaw/traces}
       SPARKCLAW_BROWSER_READ_ALLOW_HOSTS: ${SPARKCLAW_BROWSER_READ_ALLOW_HOSTS:-}
       SPARKCLAW_BROWSER_AUTOMATION_COMMAND: ${SPARKCLAW_BROWSER_AUTOMATION_COMMAND:-/app/node_modules/.bin/agent-browser}
       SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS:-30000}
       SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS:-10000}
-      SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS:-1200000}
       SPARKCLAW_BROWSER_AUTOMATION_SETTLE_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_SETTLE_TIMEOUT_MS:-15000}
       SPARKCLAW_BROWSER_AUTOMATION_SETTLE_QUIET_PERIOD_MS: ${SPARKCLAW_BROWSER_AUTOMATION_SETTLE_QUIET_PERIOD_MS:-500}
       SPARKCLAW_BROWSER_AUTOMATION_SETTLE_POLL_INTERVAL_MS: ${SPARKCLAW_BROWSER_AUTOMATION_SETTLE_POLL_INTERVAL_MS:-100}
       SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT: ${SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT:-2}
-      SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE: ${SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE:-/usr/bin/chromium}
-      SPARKCLAW_BROWSER_PROFILE_DIR: ${SPARKCLAW_BROWSER_PROFILE_DIR:-/var/lib/sparkclaw/browser-profiles}
+      SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE: ${SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE:-/run/sparkclaw/browserd/cdp-endpoint}
+      SPARKCLAW_BROWSER_CDP_PROFILE_ID: ${SPARKCLAW_BROWSER_CDP_PROFILE_ID:-default}
+      SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS: ${SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS:-10000}
+      SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET: ${SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET:-/run/sparkclaw/browser-controller/controller.sock}
+      SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID: ${SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID:-default}
+      SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS: ${SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS:-15000}
       SPARKCLAW_ARTIFACT_BACKEND: ${SPARKCLAW_ARTIFACT_BACKEND:-filesystem}
       SPARKCLAW_ARTIFACT_DIR: ${SPARKCLAW_ARTIFACT_DIR:-/var/lib/sparkclaw/artifacts}
       SPARKCLAW_ARTIFACT_BUCKET: ${SPARKCLAW_ARTIFACT_BUCKET:-sparkclaw}
@@ -69,11 +46,15 @@ services:
       SPARKCLAW_S3_ACCESS_KEY: ${SPARKCLAW_S3_ACCESS_KEY:-sparkclaw}
       SPARKCLAW_S3_SECRET_KEY: ${SPARKCLAW_S3_SECRET_KEY:-sparkclaw-local}
       SPARKCLAW_STATE_BACKEND: ${SPARKCLAW_STATE_BACKEND:-file}
+      SPARKCLAW_STATE_PATH: ${SPARKCLAW_STATE_PATH:-/var/lib/sparkclaw/memory/gateway-state.json}
       SPARKCLAW_STATE_DSN: ${SPARKCLAW_STATE_DSN:-postgres://sparkclaw:sparkclaw@postgres:5432/sparkclaw?sslmode=disable}
       SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS: ${SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS:-180}
       SPARKCLAW_STATE_READ_TIMEOUT_SECONDS: ${SPARKCLAW_STATE_READ_TIMEOUT_SECONDS:-10}
       SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS: ${SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS:-30}
       SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS: ${SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS:-60}
+      SPARKCLAW_STATE_ENCRYPT_AT_REST: ${SPARKCLAW_STATE_ENCRYPT_AT_REST:-false}
+      SPARKCLAW_STATE_ENCRYPTION_KEY: ${SPARKCLAW_STATE_ENCRYPTION_KEY:-}
+      SPARKCLAW_STATE_ENCRYPTION_KEY_FILE: ${SPARKCLAW_STATE_ENCRYPTION_KEY_FILE:-}
       SPARKCLAW_CREDENTIAL_KEY: ${SPARKCLAW_CREDENTIAL_KEY:-}
       SPARKCLAW_CREDENTIAL_KEY_FILE: ${SPARKCLAW_CREDENTIAL_KEY_FILE:-/var/lib/sparkclaw/memory/gateway-credentials.key}
       SPARKCLAW_JINGSI_LAN_ENABLED: ${SPARKCLAW_JINGSI_LAN_ENABLED:-false}
@@ -90,6 +71,8 @@ services:
       SPARKCLAW_TELEGRAM_MAX_PENDING: ${SPARKCLAW_TELEGRAM_MAX_PENDING:-32}
       SPARKCLAW_SANDBOX_BACKEND: ${SPARKCLAW_SANDBOX_BACKEND:-http}
       SPARKCLAW_SANDBOX_RUNNER_URL: ${SPARKCLAW_SANDBOX_RUNNER_URL:-http://sandbox-runner:18889}
+      SPARKCLAW_SANDBOX_IMAGE: ${SPARKCLAW_SANDBOX_IMAGE:-alpine:3.22}
+      SPARKCLAW_SANDBOX_NETWORK: ${SPARKCLAW_SANDBOX_NETWORK:-none}
       SPARKCLAW_MODEL_MODE: ${SPARKCLAW_MODEL_MODE:-external}
       SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS: ${SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS:-300}
       SPARKCLAW_MODEL_DISABLE_THINKING: ${SPARKCLAW_MODEL_DISABLE_THINKING:-true}
@@ -104,6 +87,7 @@ services:
       SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES: ${SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES:-3145728}
       SPARKCLAW_SPEECH_MAX_CONCURRENCY: ${SPARKCLAW_SPEECH_MAX_CONCURRENCY:-1}
       SPARKCLAW_SPEECH_MAX_PENDING: ${SPARKCLAW_SPEECH_MAX_PENDING:-1}
+      SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION: ${SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION:-}
       SPARKCLAW_ISCP_PAIRING_ENABLED: ${SPARKCLAW_ISCP_PAIRING_ENABLED:-false}
       SPARKCLAW_ISCP_DOMAIN_ID: ${SPARKCLAW_ISCP_DOMAIN_ID:-}
       SPARKCLAW_ISCP_AUTHORITY_URL: ${SPARKCLAW_ISCP_AUTHORITY_URL:-}
@@ -113,6 +97,7 @@ services:
       SPARKCLAW_MCP_LOCAL_DOMAIN_ID: ${SPARKCLAW_MCP_LOCAL_DOMAIN_ID:-sparkclaw-local}
       LOCALMIND_MCP_URL: ${LOCALMIND_MCP_URL:-}
       LOCALMIND_MCP_TOKEN: ${LOCALMIND_MCP_TOKEN:-}
+      SPARKCLAW_TOOLS_POLICY_PATH: ${SPARKCLAW_TOOLS_POLICY_PATH:-/var/lib/sparkclaw/memory/tools.policy.json}
       SPARKCLAW_FAST_BASE_URL: ${SPARKCLAW_FAST_BASE_URL:-http://sparkclaw-fast:8001/v1}
       SPARKCLAW_FAST_MODEL: ${SPARKCLAW_FAST_MODEL:-sparkclaw-fast}
       SPARKCLAW_FAST_SERVED_NAME: ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
@@ -176,7 +161,8 @@ services:
       - ../data/artifacts:/var/lib/sparkclaw/artifacts
       - ../data/memory:/var/lib/sparkclaw/memory
       - ../data/logs:/var/log/sparkclaw
-      - ../data/browser-profiles:/var/lib/sparkclaw/browser-profiles
+      - ${SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST:-/run/user/1000/sparkclaw/browserd}:/run/sparkclaw/browserd:ro
+      - ${SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST:-/run/user/1000/sparkclaw/browser-controller}:/run/sparkclaw/browser-controller:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -186,8 +172,9 @@ services:
       - sparkclaw_internal
 
   gotenberg:
-    profiles: ["dev", "eval", "compat", "models-local"]
+    profiles: ["product", "eval"]
     image: gotenberg/gotenberg:8.36.0@sha256:87c16b9f364279d321bc9772d31fa58aa6abe036423c270698bd636c3a8e9466
+    restart: unless-stopped
     command:
       - gotenberg
       - --api-timeout=120s
@@ -204,14 +191,15 @@ services:
       - sparkclaw_internal
 
   sandbox-runner:
-    profiles: ["dev", "eval", "models-local"]
+    profiles: ["product", "eval"]
     build:
       context: ..
       dockerfile: docker/images/sandbox-runner.Dockerfile
+    restart: unless-stopped
     environment:
       SPARKCLAW_SANDBOX_RUNNER_ADDR: 0.0.0.0:18889
       SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT: ${SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT:-${PWD}/data/workspaces}
-      SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT: /var/lib/sparkclaw/workspaces
+      SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT: ${SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT:-/var/lib/sparkclaw/workspaces}
     ports:
       - "127.0.0.1:18889:18889"
     volumes:
@@ -226,184 +214,28 @@ services:
       - sparkclaw_internal
 
   webchat:
-    profiles: ["dev", "eval", "compat", "models-local"]
+    profiles: ["product", "eval"]
     build:
       context: ..
       dockerfile: docker/images/webchat.Dockerfile
+    restart: unless-stopped
+    environment:
+      SPARKCLAW_WEBCHAT_PROXY_TOKEN: ${SPARKCLAW_WEBCHAT_PROXY_TOKEN:?run npm run deploy:local or npm run deploy:remote first}
     ports:
       - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:${SPARKCLAW_WEBCHAT_PORT:-18790}:18790"
+      - "127.0.0.1:18795:18795"
     depends_on:
       gateway:
         condition: service_healthy
     networks:
       - sparkclaw_internal
 
-  sparkclaw-fast:
-    <<: *chat-vllm-common
-    environment:
-      <<: *vllm-environment
-      SPARKCLAW_MODEL_CAPACITY_LANE: fast
-    command:
-      - ${SPARKCLAW_FAST_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8001"
-      - --served-model-name
-      - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
-      - --tensor-parallel-size
-      - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
-      - --gpu-memory-utilization
-      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}
-      - --kv-cache-memory-bytes
-      - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
-      - --max-num-seqs
-      - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
-      - --trust-remote-code
-      - --enable-prefix-caching
-      - --reasoning-parser
-      - qwen3
-      - --enable-auto-tool-choice
-      - --tool-call-parser
-      - qwen3_coder
-      - --language-model-only
-    ports:
-      - "127.0.0.1:8001:8001"
-    healthcheck:
-      test:
-        - CMD
-        - python3
-        - /opt/sparkclaw/model_readiness.py
-        - --base-url
-        - http://127.0.0.1:8001/v1
-        - --model
-        - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
-        - --marker
-        - /run/sparkclaw-readiness/fast-warmed
-        - --health-timeout
-        - "3"
-        - --warmup-timeout
-        - "150"
-        - --warmup-prompt-repetitions
-        - "284"
-        - --warmup-max-tokens
-        - "480"
-        - --warmup-min-tokens
-        - "480"
-      interval: 30s
-      timeout: 180s
-      retries: 20
-      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
-
-  sparkclaw-deep:
-    <<: *chat-vllm-common
-    environment:
-      <<: *vllm-environment
-      SPARKCLAW_MODEL_CAPACITY_LANE: deep
-    command:
-      - ${SPARKCLAW_DEEP_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8002"
-      - --served-model-name
-      - ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
-      - --tensor-parallel-size
-      - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
-      - --gpu-memory-utilization
-      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
-      - --kv-cache-memory-bytes
-      - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
-      - --max-num-seqs
-      - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
-      - --trust-remote-code
-      - --enable-prefix-caching
-      - --reasoning-parser
-      - qwen3
-      - --enable-auto-tool-choice
-      - --tool-call-parser
-      - qwen3_coder
-      - --language-model-only
-    ports:
-      - "127.0.0.1:8002:8002"
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/models', timeout=3).read()"]
-      interval: 30s
-      timeout: 5s
-      retries: 20
-      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
-
-  sparkclaw-embedding:
-    <<: *vllm-common
-    environment:
-      <<: *vllm-environment
-      SPARKCLAW_MODEL_CAPACITY_LANE: embedding
-    command:
-      - ${SPARKCLAW_EMBEDDING_MODEL_ID:-Qwen/Qwen3-Embedding-0.6B}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8003"
-      - --served-model-name
-      - ${SPARKCLAW_EMBEDDING_SERVED_NAME:-sparkclaw-embedding}
-      - --gpu-memory-utilization
-      - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.12}
-    ports:
-      - "127.0.0.1:8003:8003"
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/v1/models', timeout=3).read()"]
-      interval: 30s
-      timeout: 5s
-      retries: 20
-      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
-
-  sparkclaw-guard:
-    <<: *vllm-common
-    environment:
-      <<: *vllm-environment
-      SPARKCLAW_MODEL_CAPACITY_LANE: guard
-    command:
-      - ${SPARKCLAW_GUARD_MODEL_ID:-Qwen/Qwen3Guard-Gen-0.6B}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8005"
-      - --served-model-name
-      - ${SPARKCLAW_GUARD_SERVED_NAME:-Qwen/Qwen3Guard-Gen-0.6B}
-      - --gpu-memory-utilization
-      - ${SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION:-0.06}
-      - --kv-cache-memory-bytes
-      - ${SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES:-4G}
-      - --max-num-seqs
-      - ${SPARKCLAW_GUARD_MAX_NUM_SEQS:-1}
-      - --enforce-eager
-    ports:
-      - "127.0.0.1:8005:8005"
-    healthcheck:
-      test:
-        - CMD
-        - python3
-        - /opt/sparkclaw/model_readiness.py
-        - --base-url
-        - http://127.0.0.1:8005/v1
-        - --model
-        - ${SPARKCLAW_GUARD_SERVED_NAME:-Qwen/Qwen3Guard-Gen-0.6B}
-        - --marker
-        - /run/sparkclaw-readiness/guard-warmed
-        - --health-timeout
-        - "3"
-        - --warmup-timeout
-        - "110"
-      interval: 30s
-      timeout: 120s
-      retries: 20
-      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
-
   postgres:
-    profiles: ["models-local", "eval"]
+    profiles: ["product", "eval"]
     build:
       context: ..
       dockerfile: docker/images/postgres.Dockerfile
+    restart: unless-stopped
     environment:
       POSTGRES_USER: sparkclaw
       POSTGRES_PASSWORD: sparkclaw
@@ -421,7 +253,7 @@ services:
       - sparkclaw_internal
 
   minio:
-    profiles: ["models-local", "eval"]
+    profiles: ["eval"]
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     environment:
@@ -436,7 +268,7 @@ services:
       - sparkclaw_internal
 
   minio-init:
-    profiles: ["models-local", "eval"]
+    profiles: ["eval"]
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       - minio

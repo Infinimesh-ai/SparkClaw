@@ -120,6 +120,12 @@ jobs:
           python-version: "3.12"
       - name: Install document tool runtimes
         run: npm run setup:document-tools
+      - name: Install browser controller test runtime
+        run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --prefix tools/browser-controller --ignore-scripts
+      - name: Test browser controller
+        run: npm test --prefix tools/browser-controller
+      - name: Test browser email provider scripts
+        run: npm run test:email-scripts
       - uses: actions/setup-go@v5
         with:
           go-version-file: services/gateway/go.mod
@@ -174,28 +180,37 @@ jobs:
       - run: python3 -m unittest scripts/test_model_readiness.py
       - run: python3 -m unittest scripts/test_model_capacity_entrypoint.py
       - run: python3 -m unittest scripts/test_serve_models_compose.py
-      - run: python3 -m unittest scripts/test_runtime_compose.py
+      - run: python3 -m unittest scripts/test_local_compose.py
       - run: python3 -m unittest scripts/test_resolve_browser_display.py
-      - run: python3 -m unittest scripts/test_cloud_compose.py
+      - run: python3 -m unittest scripts/test_remote_compose.py
+      - run: python3 -m unittest scripts/test_deploy_remote.py
+      - run: python3 -m unittest scripts/test_install_remote.py
       - run: python3 -m unittest scripts/test_autostart_compose.py
+      - run: python3 -m unittest scripts/test_host_browser.py
       - run: python3 -m unittest scripts/test_jingsi_lan.py
-      - run: bash -n install.sh scripts/lib/dotenv.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/start_cloud_compose.sh scripts/resolve-browser-display.sh scripts/restart_jingsi_lan_compose.sh scripts/start_compose.sh scripts/doctor.sh
+      - run: bash -n install.sh install-remote.sh scripts/lib/dotenv.sh scripts/lib/deployment-profile.sh scripts/deploy_local.sh scripts/deploy_remote.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/install-host-browser.sh scripts/setup-browser.sh scripts/setup-browser-controller.sh scripts/open-browser-extension-preview.sh scripts/serve_models_compose.sh scripts/start_local_compose.sh scripts/start_remote_compose.sh scripts/resolve-browser-display.sh scripts/restart_jingsi_lan_compose.sh scripts/doctor.sh
       - run: bash -s -- --help < install.sh | grep -F 'curl -fsSL'
-      - run: cp docker/env/sparkclaw.example.env .env
-      - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
-      - run: docker compose --env-file docker/env/sparkclaw.cloud.example.env -f docker/compose.yaml -f docker/compose.cloud.yaml --profile models-local config --quiet
-      - run: SPARKCLAW_JINGSI_LAN_BIND=192.168.1.8 SPARKCLAW_JINGSI_SESSION_ID=session-ci docker compose --env-file .env -f docker/compose.yaml -f docker/compose.jingsi-lan.yaml config --quiet
+      - run: bash -s -- --help < install-remote.sh | grep -F 'curl -fsSL'
+      - name: Build effective product environments
+        run: |
+          source scripts/lib/dotenv.sh
+          source scripts/lib/deployment-profile.sh
+          umask 077
+          printf '%s\n' 'SPARKCLAW_WEBCHAT_PROXY_TOKEN=ci_webchat_proxy_token_0123456789abcdefghijklmnop' > /tmp/sparkclaw-ci-private.env
+          sparkclaw_validate_product_profile local docker/env/sparkclaw.product.env docker/env/sparkclaw.local.env /tmp/sparkclaw-ci-private.env
+          sparkclaw_validate_product_profile remote docker/env/sparkclaw.product.env docker/env/sparkclaw.remote.env /tmp/sparkclaw-ci-private.env
+          sparkclaw_merge_profile_env docker/env/sparkclaw.product.env docker/env/sparkclaw.local.env /tmp/sparkclaw-ci-private.env /tmp/sparkclaw-local.env
+          sparkclaw_merge_profile_env docker/env/sparkclaw.product.env docker/env/sparkclaw.remote.env /tmp/sparkclaw-ci-private.env /tmp/sparkclaw-remote.env
+      - run: docker compose --env-file /tmp/sparkclaw-local.env -f docker/compose.yaml -f docker/compose.models.local.yaml --profile product --profile models-local config --quiet
+      - run: docker compose --env-file /tmp/sparkclaw-remote.env -f docker/compose.yaml --profile product config --quiet
+      - run: SPARKCLAW_JINGSI_LAN_BIND=192.168.1.8 SPARKCLAW_JINGSI_SESSION_ID=session-ci docker compose --env-file /tmp/sparkclaw-local.env -f docker/compose.yaml -f docker/compose.models.local.yaml -f docker/compose.jingsi-lan.yaml --profile product --profile models-local config --quiet
       - name: Verify product runtime defaults
         run: |
           docker compose \
-            --env-file .env \
-            --env-file docker/env/sparkclaw.single-fast.env \
-            --env-file docker/env/sparkclaw.asr.env \
-            --env-file docker/env/sparkclaw.ocr.env \
+            --env-file /tmp/sparkclaw-local.env \
             -f docker/compose.yaml \
-            -f docker/compose.dual-light.yaml \
-            -f docker/compose.asr.yaml \
-            -f docker/compose.ocr.yaml \
+            -f docker/compose.models.local.yaml \
+            --profile product \
             --profile models-local \
             config --format json > /tmp/sparkclaw-compose.json
           python3 - <<'PY'
@@ -210,7 +225,14 @@ jobs:
           assert environment["SPARKCLAW_OCR_ENABLED"] == "true"
           assert environment["SPARKCLAW_DEEP_BASE_URL"] == environment["SPARKCLAW_FAST_BASE_URL"]
           assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
-          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-single-fast-v1"
+          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "sparkclaw-product-v1"
+          assert environment["SPARKCLAW_API_TOKEN"] == ""
+          assert environment["SPARKCLAW_PAIRING_REQUIRED"] == "true"
+          assert len(environment["SPARKCLAW_WEBCHAT_PROXY_TOKEN"]) >= 43
+          assert config["services"]["webchat"]["environment"]["SPARKCLAW_WEBCHAT_PROXY_TOKEN"] == environment["SPARKCLAW_WEBCHAT_PROXY_TOKEN"]
+          assert environment["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"] == "200000"
+          assert environment["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"] == "72000"
+          assert environment["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"] == "96000"
           assert all(key not in environment for key in (
               "SPARKCLAW_FAST_CONTEXT_TOKENS", "SPARKCLAW_FAST_MAX_INPUT_TOKENS", "SPARKCLAW_FAST_MAX_TOKENS",
               "SPARKCLAW_DEEP_CONTEXT_TOKENS", "SPARKCLAW_DEEP_MAX_INPUT_TOKENS", "SPARKCLAW_DEEP_MAX_TOKENS",
@@ -231,7 +253,7 @@ jobs:
           assert "--max-model-len" not in fast["command"]
           assert fast["entrypoint"] == ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
           assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "fast"
-          assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-single-fast-v1"
+          assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "sparkclaw-product-v1"
           assert fast["command"][fast["command"].index("--kv-cache-memory-bytes") + 1] == "8G"
           assert fast["command"][fast["command"].index("--max-num-seqs") + 1] == "4"
           assert all(flag not in fast["command"] for flag in (
@@ -265,12 +287,18 @@ jobs:
               "target": 18790,
               "published": "18790",
               "protocol": "tcp",
+          }, {
+              "mode": "ingress",
+              "host_ip": "127.0.0.1",
+              "target": 18795,
+              "published": "18795",
+              "protocol": "tcp",
           }]
           PY
           docker compose \
-            --env-file .env \
+            --env-file /tmp/sparkclaw-local.env \
             --env-file docker/env/sparkclaw.dual-light.env \
-            -f docker/compose.yaml \
+            -f docker/compose.models.local.yaml \
             -f docker/compose.dual-light.yaml \
             --profile models-local \
             config --format json > /tmp/sparkclaw-dual-light-compose.json
@@ -279,20 +307,16 @@ jobs:
 
           with open("/tmp/sparkclaw-dual-light-compose.json", encoding="utf-8") as source:
               config = json.load(source)
-          environment = config["services"]["gateway"]["environment"]
-          assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-dual-light-v1"
-          assert environment["SPARKCLAW_DEEP_BASE_URL"] == "http://sparkclaw-deep:8002/v1"
           assert config["services"]["sparkclaw-deep"]["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "dgx-spark-dual-light-v1"
           PY
       - name: Verify custom WebChat host port
         run: |
           SPARKCLAW_WEBCHAT_PORT=19876 docker compose \
-            --env-file .env \
+            --env-file /tmp/sparkclaw-local.env \
             -f docker/compose.yaml \
-            --profile models-local \
+            --profile product \
             config --format json > /tmp/sparkclaw-compose-custom-port.json
           SPARKCLAW_WEBCHAT_PORT=19876 docker compose \
-            --env-file .env \
             -f docker/compose.dev.yaml \
             config --format json > /tmp/sparkclaw-compose-dev-custom-port.json
           python3 - <<'PY'
@@ -300,21 +324,21 @@ jobs:
 
           with open("/tmp/sparkclaw-compose-custom-port.json", encoding="utf-8") as source:
               config = json.load(source)
-          expected_ports = [{
+          expected_product_ports = [{
               "mode": "ingress",
               "host_ip": "0.0.0.0",
               "target": 18790,
               "published": "19876",
               "protocol": "tcp",
+          }, {
+              "mode": "ingress",
+              "host_ip": "127.0.0.1",
+              "target": 18795,
+              "published": "18795",
+              "protocol": "tcp",
           }]
-          assert config["services"]["webchat"]["ports"] == expected_ports
+          assert config["services"]["webchat"]["ports"] == expected_product_ports
           with open("/tmp/sparkclaw-compose-dev-custom-port.json", encoding="utf-8") as source:
               dev_config = json.load(source)
-          assert dev_config["services"]["webchat"]["ports"] == expected_ports
+          assert dev_config["services"]["webchat"]["ports"] == [expected_product_ports[0]]
           PY
-      - run: >-
-          SPARKCLAW_BROWSER_DISPLAY=:1
-          SPARKCLAW_BROWSER_XAUTHORITY=/tmp/Xauthority
-          docker compose --env-file .env
-          -f docker/compose.yaml -f docker/compose.visible-browser.yaml
-          config --quiet

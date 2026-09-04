@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 
-ENV_FILE="${SPARKCLAW_AUTOSTART_ENV_FILE:-$ROOT/.env}"
+ENV_FILE="${SPARKCLAW_AUTOSTART_ENV_FILE:-$ROOT/.env.local}"
 
 dotenv_value() {
   sparkclaw_dotenv_value "$ENV_FILE" "$1"
@@ -92,4 +92,4 @@ while true; do
 done
 
 echo "Reconciling the SparkClaw product runtime"
-exec "$BASH_BIN" "$ROOT/scripts/start_compose.sh"
+exec "$BASH_BIN" "$ROOT/scripts/start_local_compose.sh"

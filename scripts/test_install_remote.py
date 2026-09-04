@@ -11,10 +11,10 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALLER = ROOT / "install-cloud.sh"
+INSTALLER = ROOT / "install-remote.sh"
 
 
-class CloudInstallerTest(unittest.TestCase):
+class RemoteInstallerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -23,7 +23,7 @@ class CloudInstallerTest(unittest.TestCase):
         self.target = self.base / "target"
         self.record = self.base / "deploy-record"
         self.source.mkdir()
-        deploy = self.source / "scripts" / "deploy_cloud_vm.sh"
+        deploy = self.source / "scripts" / "deploy_remote.sh"
         deploy.parent.mkdir()
         deploy.write_text(
             "#!/usr/bin/env bash\n"
@@ -31,7 +31,7 @@ class CloudInstallerTest(unittest.TestCase):
             encoding="utf-8",
         )
         deploy.chmod(deploy.stat().st_mode | stat.S_IXUSR)
-        (self.source / "README.md").write_text("cloud bootstrap fixture\n", encoding="utf-8")
+        (self.source / "README.md").write_text("remote bootstrap fixture\n", encoding="utf-8")
 
         self.git("init", "-b", "main")
         self.git("add", ".")

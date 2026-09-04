@@ -7,22 +7,26 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
+source "$ROOT/scripts/lib/deployment-profile.sh"
+source "$ROOT/scripts/lib/host-browser.sh"
 
-ENV_FILE="$ROOT/.env"
-ENV_TEMPLATE="$ROOT/docker/env/sparkclaw.example.env"
+ENV_FILE="$ROOT/.env.local"
+PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
+MODE_ENV="$ROOT/docker/env/sparkclaw.local.env"
 MODE="deploy"
 TEMP_ENV=""
+EFFECTIVE_ENV_FILE=""
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/deploy.sh [--check]
+Usage: bash scripts/deploy_local.sh [--check]
 
-Deploy SparkClaw on an NVIDIA GB10 DGX Spark. The command prepares .env,
+Deploy SparkClaw on an NVIDIA GB10 DGX Spark. The command prepares .env.local,
 validates the host, downloads and warms the single-fast model group, then
-builds and starts Gateway, Sandbox Runner, and WebChat.
+builds and starts PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat.
 
 Options:
-  --check  Prepare configuration and run preflight checks without starting
+  --check  Run read-only host, browser, and Compose preflight checks
   -h, --help  Show this help
 EOF
 }
@@ -84,9 +88,10 @@ done
 
 [[ "$(uname -s)" == "Linux" ]] || fail "this deployment entrypoint supports Linux hosts only"
 [[ "$EUID" -ne 0 ]] || fail "run this script as a normal user; it uses passwordless sudo only when Docker requires it"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 dotenv_value() {
-  sparkclaw_dotenv_value "$ENV_FILE" "$1"
+  sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" "$1" ''
 }
 
 set_dotenv_value() {
@@ -94,37 +99,57 @@ set_dotenv_value() {
   local value="$2"
   local line=""
   local found=false
+  local temporary=""
 
   [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || fail "invalid newline in $key"
-  TEMP_ENV="$(mktemp "$ROOT/.env.tmp.XXXXXX")"
+  temporary="$(mktemp "$ROOT/.env.local.tmp.XXXXXX")"
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "$line" == "$key="* ]]; then
       if [[ "$found" == false ]]; then
-        printf '%s=%s\n' "$key" "$value" >>"$TEMP_ENV"
+        printf '%s=%s\n' "$key" "$value" >>"$temporary"
         found=true
       fi
     else
-      printf '%s\n' "$line" >>"$TEMP_ENV"
+      printf '%s\n' "$line" >>"$temporary"
     fi
   done <"$ENV_FILE"
   if [[ "$found" == false ]]; then
-    printf '%s=%s\n' "$key" "$value" >>"$TEMP_ENV"
+    printf '%s=%s\n' "$key" "$value" >>"$temporary"
   fi
-  chmod 600 "$TEMP_ENV"
-  mv -f -- "$TEMP_ENV" "$ENV_FILE"
-  TEMP_ENV=""
+  chmod 600 "$temporary"
+  mv -f -- "$temporary" "$ENV_FILE"
 }
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  [[ -f "$ENV_TEMPLATE" ]] || fail "environment template not found: $ENV_TEMPLATE"
-  install -m 600 "$ENV_TEMPLATE" "$ENV_FILE"
-  log "created $ENV_FILE from the project template"
-else
-  chmod go-rwx "$ENV_FILE"
-  log "preserving existing $ENV_FILE"
-fi
+refresh_effective_env() {
+  if [[ -n "$TEMP_ENV" && -f "$TEMP_ENV" ]]; then
+    rm -f -- "$TEMP_ENV"
+  fi
+  TEMP_ENV="$(mktemp "${TMPDIR:-/tmp}/sparkclaw-local-env.XXXXXX")"
+  sparkclaw_merge_profile_env "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" "$TEMP_ENV"
+  EFFECTIVE_ENV_FILE="$TEMP_ENV"
+}
 
-webchat_port="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
+[[ -f "$PRODUCT_ENV" ]] || fail "product profile not found: $PRODUCT_ENV"
+[[ -f "$MODE_ENV" ]] || fail "local profile not found: $MODE_ENV"
+if [[ "$MODE" == "check" ]]; then
+  [[ -f "$ENV_FILE" ]] || fail "environment file not found: $ENV_FILE"
+else
+  if [[ ! -f "$ENV_FILE" ]]; then
+    install -m 600 /dev/null "$ENV_FILE"
+    log "created private override file: $ENV_FILE"
+  else
+    chmod go-rwx "$ENV_FILE"
+    log "preserving private overrides in $ENV_FILE"
+  fi
+fi
+if [[ "$MODE" != "check" && -z "$(dotenv_value SPARKCLAW_WEBCHAT_PROXY_TOKEN)" ]]; then
+  set_dotenv_value SPARKCLAW_WEBCHAT_PROXY_TOKEN "$(sparkclaw_generate_webchat_proxy_token)"
+  log "created the private WebChat-to-Gateway pairing credential"
+fi
+refresh_effective_env
+sparkclaw_validate_product_profile local "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" || fail "invalid local product profile"
+
+webchat_port="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
 sparkclaw_tcp_port_valid "$webchat_port" ||
   fail "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535"
 export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
@@ -132,9 +157,11 @@ webchat_base_url="http://127.0.0.1:$webchat_port"
 
 autostart_enabled="$(dotenv_value SPARKCLAW_AUTOSTART_ENABLED)"
 if [[ -z "$autostart_enabled" ]]; then
-  set_dotenv_value SPARKCLAW_AUTOSTART_ENABLED true
   autostart_enabled=true
-  log "enabled boot autostart by default"
+  if [[ "$MODE" != "check" ]]; then
+    set_dotenv_value SPARKCLAW_AUTOSTART_ENABLED true
+    log "enabled boot autostart by default"
+  fi
 fi
 case "$(printf '%s' "$autostart_enabled" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on|0|false|no|off) ;;
@@ -152,7 +179,7 @@ if [[ -z "$hf_token" && -n "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
   hf_token="$HUGGING_FACE_HUB_TOKEN"
 fi
 if [[ -z "$hf_token" ]]; then
-  if [[ -t 0 ]]; then
+  if [[ "$MODE" != "check" && -t 0 ]]; then
     read -r -s -p "Hugging Face token (input hidden): " hf_token
     printf '\n'
   else
@@ -160,24 +187,45 @@ if [[ -z "$hf_token" ]]; then
   fi
 fi
 [[ -n "$hf_token" ]] || fail "a Hugging Face token is required to download the configured models"
-if [[ -z "$(dotenv_value HF_TOKEN)" && -z "$(dotenv_value HUGGING_FACE_HUB_TOKEN)" ]]; then
+if [[ "$MODE" != "check" ]] &&
+  ! sparkclaw_dotenv_has_key "$ENV_FILE" HF_TOKEN &&
+  ! sparkclaw_dotenv_has_key "$ENV_FILE" HUGGING_FACE_HUB_TOKEN; then
   set_dotenv_value HF_TOKEN "$hf_token"
-  log "stored the Hugging Face token in the local mode-0600 .env file"
+  log "stored the Hugging Face token in the local mode-0600 .env.local file"
 fi
 unset hf_token
 
 host_uid="$(id -u)"
 host_gid="$(id -g)"
-set_dotenv_value SPARKCLAW_CONTAINER_UID "$host_uid"
-set_dotenv_value SPARKCLAW_CONTAINER_GID "$host_gid"
-set_dotenv_value SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT "$ROOT/data/workspaces"
+if [[ "$MODE" == "check" ]]; then
+  [[ "$(dotenv_value SPARKCLAW_CONTAINER_UID)" == "$host_uid" ]] ||
+    fail "SPARKCLAW_CONTAINER_UID must match the deployment user ($host_uid)"
+  [[ "$(dotenv_value SPARKCLAW_CONTAINER_GID)" == "$host_gid" ]] ||
+    fail "SPARKCLAW_CONTAINER_GID must match the deployment group ($host_gid)"
+else
+  set_dotenv_value SPARKCLAW_CONTAINER_UID "$host_uid"
+  set_dotenv_value SPARKCLAW_CONTAINER_GID "$host_gid"
+  set_dotenv_value SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT "$ROOT/data/workspaces"
+fi
 
 for directory in \
   data/models data/workspaces data/traces data/artifacts data/logs data/memory \
-  data/eval data/browser-profiles; do
-  mkdir -p "$directory"
-  chmod u+rwx "$directory"
+  data/eval; do
+  if [[ "$MODE" == "check" ]]; then
+    [[ -d "$directory" && -w "$directory" ]] ||
+      fail "$ROOT/$directory must exist and be writable"
+  else
+    mkdir -p "$directory"
+    chmod u+rwx "$directory"
+  fi
 done
+
+if [[ "$MODE" == "check" ]]; then
+  sparkclaw_check_host_browser "$ROOT" "$EFFECTIVE_ENV_FILE"
+else
+  sparkclaw_install_host_browser "$ROOT" "$ENV_FILE"
+  refresh_effective_env
+fi
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v docker >/dev/null 2>&1 || fail "Docker is required; install Docker Engine and the Compose plugin first"
@@ -223,8 +271,13 @@ if [[ "$model_cache_setting" == /* ]]; then
 else
   model_cache="$(realpath -m "$ROOT/docker/$model_cache_setting")"
 fi
-mkdir -p "$model_cache"
-chmod u+rwx "$model_cache"
+if [[ "$MODE" == "check" ]]; then
+  [[ -d "$model_cache" && -w "$model_cache" ]] ||
+    fail "model cache must exist and be writable: $model_cache"
+else
+  mkdir -p "$model_cache"
+  chmod u+rwx "$model_cache"
+fi
 
 # du exits non-zero on unreadable (container-owned root) subdirectories; a
 # partial size is fine for the headroom estimate, so don't let the ERR trap
@@ -249,25 +302,16 @@ log "model cache: $model_cache (${cache_gib} GiB present, ${free_gib} GiB free)"
 
 model_compose=(
   compose
-  --env-file .env
-  --env-file docker/env/sparkclaw.single-fast.env
-  --env-file docker/env/sparkclaw.asr.env
-  --env-file docker/env/sparkclaw.ocr.env
-  -f docker/compose.yaml
-  -f docker/compose.dual-light.yaml
-  -f docker/compose.asr.yaml
-  -f docker/compose.ocr.yaml
+  --env-file "$EFFECTIVE_ENV_FILE"
+  -f docker/compose.models.local.yaml
   --profile models-local
 )
 runtime_compose=(
   compose
-  --env-file .env
-  --env-file docker/env/sparkclaw.single-fast.env
-  --env-file docker/env/sparkclaw.asr.env
-  --env-file docker/env/sparkclaw.ocr.env
+  --env-file "$EFFECTIVE_ENV_FILE"
   -f docker/compose.yaml
-  -f docker/compose.asr.yaml
-  -f docker/compose.ocr.yaml
+  -f docker/compose.models.local.yaml
+  --profile product
   --profile models-local
 )
 "${docker_cmd[@]}" "${model_compose[@]}" config --quiet
@@ -281,7 +325,7 @@ fi
 
 log "starting the single-fast model group; a cold download can take up to several hours"
 log "models are cached under $model_cache and reused on later runs"
-bash scripts/start_compose.sh
+bash scripts/start_local_compose.sh
 
 webchat_ready=false
 for _ in $(seq 1 60); do

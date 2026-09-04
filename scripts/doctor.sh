@@ -3,19 +3,46 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/lib/dotenv.sh"
+source "$ROOT/scripts/lib/deployment-profile.sh"
+source "$ROOT/scripts/lib/host-browser.sh"
 
 echo "SparkClaw doctor"
 echo "root=$ROOT"
 
+DOCTOR_PROFILE="${SPARKCLAW_DOCTOR_PROFILE:-local}"
+PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
+case "$DOCTOR_PROFILE" in
+  local)
+    MODE_ENV="$ROOT/docker/env/sparkclaw.local.env"
+    PRIVATE_ENV="${SPARKCLAW_LOCAL_ENV_FILE:-$ROOT/.env.local}"
+    ;;
+  remote)
+    MODE_ENV="$ROOT/docker/env/sparkclaw.remote.env"
+    PRIVATE_ENV="${SPARKCLAW_REMOTE_ENV_FILE:-$ROOT/.env.remote}"
+    ;;
+  *)
+    echo "SPARKCLAW_DOCTOR_PROFILE must be local or remote" >&2
+    exit 1
+    ;;
+esac
+EFFECTIVE_ENV_FILE=""
+if [[ -f "$PRODUCT_ENV" && -f "$MODE_ENV" ]]; then
+  EFFECTIVE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/sparkclaw-doctor-env.XXXXXX")"
+  sparkclaw_merge_profile_env "$PRODUCT_ENV" "$MODE_ENV" "$PRIVATE_ENV" "$EFFECTIVE_ENV_FILE"
+  trap 'rm -f -- "$EFFECTIVE_ENV_FILE"' EXIT
+else
+  EFFECTIVE_ENV_FILE="$PRIVATE_ENV"
+fi
+echo "profile=$DOCTOR_PROFILE"
+
 load_dotenv_var() {
   local name="$1"
-  local line
-  if [[ -n "${!name+x}" || ! -f .env ]]; then
+  if [[ -n "${!name+x}" || ! -f "$EFFECTIVE_ENV_FILE" ]]; then
     return
   fi
-  line="$(grep -E "^${name}=" .env | tail -n 1 || true)"
-  if [[ -n "$line" ]]; then
-    export "$name=${line#*=}"
+  if sparkclaw_dotenv_has_key "$EFFECTIVE_ENV_FILE" "$name"; then
+    export "$name=$(sparkclaw_dotenv_value "$EFFECTIVE_ENV_FILE" "$name")"
   fi
 }
 
@@ -33,7 +60,9 @@ for name in \
   SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION \
   SPARKCLAW_OCR_ENABLED \
   SPARKCLAW_OCR_BASE_URL \
-  SPARKCLAW_OCR_MODEL; do
+  SPARKCLAW_OCR_MODEL \
+  SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST \
+  SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST; do
   load_dotenv_var "$name"
 done
 
@@ -95,24 +124,16 @@ info_license_configured() {
   [[ "$license_key" == "ilk_v1.${license_id}."* && "$license_key" != "ilk_v1.${license_id}." ]]
 }
 
-check_system_chromium() {
-  CHROMIUM_EXECUTABLE="$(bash scripts/resolve-chromium.sh)"
-  [[ "$($CHROMIUM_EXECUTABLE --version)" == Chromium* ]]
-}
-
-check_agent_browser_snapshot() {
-  local browser="./node_modules/.bin/agent-browser"
-  local namespace="sparkclaw-doctor-$$"
-  local session="snapshot-$$"
-  local snapshot
-  export AGENT_BROWSER_NAMESPACE="$namespace"
-  export AGENT_BROWSER_EXECUTABLE_PATH="$CHROMIUM_EXECUTABLE"
-  trap '"$browser" --session "$session" close >/dev/null 2>&1 || true' RETURN
-  "$browser" --session "$session" open about:blank >/dev/null
-  snapshot="$("$browser" --session "$session" snapshot -i)"
-  [[ -n "$snapshot" ]]
-  "$browser" --session "$session" close >/dev/null
-  trap - RETURN
+check_host_browser_snapshot() {
+  local browser_pid endpoint_file
+  bash "$ROOT/scripts/install-host-browser.sh" --check --env-file "$EFFECTIVE_ENV_FILE"
+  browser_pid="$(sparkclaw_host_browser_pid "$EFFECTIVE_ENV_FILE")"
+  endpoint_file="$(sparkclaw_host_browser_endpoint_file "$EFFECTIVE_ENV_FILE")"
+  SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE="$endpoint_file" \
+  SPARKCLAW_BROWSER_AUTOMATION_COMMAND="$ROOT/node_modules/.bin/agent-browser" \
+  SPARKCLAW_BROWSER_SMOKE_USE_HOST_ENDPOINT=true \
+    node "$ROOT/scripts/host_browser_mcp_smoke.mjs" >/dev/null
+  sparkclaw_assert_host_browser_pid_alive "$browser_pid"
 }
 
 check_npm_install_script_approvals() {
@@ -136,9 +157,7 @@ check "pip" python3 -m pip --version
 check "Python document dependencies" python3 -c 'import docx, PIL, pptx, pypdf, pypdfium2'
 check "repository-private .tools absent" test ! -e "$ROOT/.tools"
 check "agent-browser 0.32.3" bash -lc '[[ "$(./node_modules/.bin/agent-browser --version)" == "agent-browser 0.32.3" ]]'
-CHROMIUM_EXECUTABLE=""
-check "system Chromium" check_system_chromium
-check "agent-browser Chromium snapshot smoke" check_agent_browser_snapshot
+check "Host-CDP browser and agent-browser snapshot smoke" check_host_browser_snapshot
 check "curl" curl --version
 check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"
@@ -149,13 +168,9 @@ if [[ -z "$GO_BIN" ]]; then
 fi
 check "Go 1.25" bash -lc '[[ "$("$1" version)" == "go version go1.25."* ]]' _ "$GO_BIN"
 
-for dir in data/workspaces data/traces data/artifacts data/logs data/memory data/eval data/browser-profiles configs docker; do
+for dir in data/workspaces data/traces data/artifacts data/logs data/memory data/eval configs docker; do
   if [[ ! -d "$dir" ]]; then
     echo "err missing $dir"
-    exit 1
-  fi
-  if [[ "$dir" == "data/browser-profiles" && ! -w "$dir" ]]; then
-    echo "err $dir is not writable"
     exit 1
   fi
   echo "ok  $dir"
@@ -218,16 +233,20 @@ SPEECH_ENABLED="${SPARKCLAW_SPEECH_ENABLED:-false}"
 if [[ "$SPEECH_ENABLED" == "true" || "$SPEECH_ENABLED" == "1" ]]; then
   SPEECH_BASE_URL="${SPARKCLAW_SPEECH_BASE_URL:-}"
   SPEECH_MODEL="${SPARKCLAW_SPEECH_MODEL:-sparkclaw-asr}"
-  SPEECH_RUNTIME_VERSION="${SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION:-0.24.0}"
+  SPEECH_RUNTIME_VERSION="${SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION:-}"
   if [[ -z "$SPEECH_BASE_URL" ]]; then
     echo "err speech endpoint missing"
     exit 1
   fi
   check "speech health" curl --fail --silent --show-error --max-time 5 "$SPEECH_BASE_URL/health"
-  check "speech runtime" bash -lc '
-    payload="$(curl --fail --silent --show-error --max-time 5 "$1/version")" || exit 1
-    node -e '\''const body = JSON.parse(process.argv[1]); if (body.version !== process.argv[2]) { throw new Error(`expected vLLM ${process.argv[2]}, got ${body.version ?? "missing"}`); }'\'' "$payload" "$2"
-  ' _ "$SPEECH_BASE_URL" "$SPEECH_RUNTIME_VERSION"
+  if [[ -n "$SPEECH_RUNTIME_VERSION" ]]; then
+    check "speech runtime" bash -lc '
+      payload="$(curl --fail --silent --show-error --max-time 5 "$1/version")" || exit 1
+      node -e '\''const body = JSON.parse(process.argv[1]); if (body.version !== process.argv[2]) { throw new Error(`expected vLLM ${process.argv[2]}, got ${body.version ?? "missing"}`); }'\'' "$payload" "$2"
+    ' _ "$SPEECH_BASE_URL" "$SPEECH_RUNTIME_VERSION"
+  else
+    echo "ok  speech runtime version check not configured"
+  fi
   check "speech model" bash -lc '
     payload="$(curl --fail --silent --show-error --max-time 5 "$1/v1/models")" || exit 1
     node -e '\''const body = JSON.parse(process.argv[1]); if (!body.data?.some((item) => item.id === process.argv[2])) { throw new Error(`served model ${process.argv[2]} is unavailable`); }'\'' "$payload" "$2"

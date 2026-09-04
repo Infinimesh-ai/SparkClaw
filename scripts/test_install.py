@@ -28,7 +28,7 @@ class InstallerTest(unittest.TestCase):
         self.source.mkdir()
         (self.source / "scripts").mkdir()
 
-        deploy = self.source / "scripts" / "deploy.sh"
+        deploy = self.source / "scripts" / "deploy_local.sh"
         deploy.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"

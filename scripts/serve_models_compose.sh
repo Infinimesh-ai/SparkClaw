@@ -4,34 +4,31 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
+source "$ROOT/scripts/lib/deployment-profile.sh"
 
 LANES="${1:-single-fast}"
 MODEL_PROFILE="${SPARKCLAW_MODEL_LOADING_PROFILE:-}"
-INCLUDE_ASR=false
-INCLUDE_OCR=false
+PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
+LOCAL_MODE_ENV="$ROOT/docker/env/sparkclaw.local.env"
+PRIVATE_ENV="${SPARKCLAW_LOCAL_ENV_FILE:-$ROOT/.env.local}"
 SINGLE_FAST=false
-if [[ "$LANES" == "single-fast" || "$LANES" == "fast-only" || "$LANES" == "single-fast-with-ocr" ]]; then
+if [[ "$LANES" == "single-fast" ]]; then
   LANES="fast,embedding,guard,asr,ocr"
   MODEL_PROFILE="single-fast"
   SINGLE_FAST=true
-  INCLUDE_ASR=true
-  INCLUDE_OCR=true
 elif [[ "$LANES" == "all" ]]; then
   LANES="fast,deep,embedding,guard"
 elif [[ "$LANES" == "all-with-asr" ]]; then
   LANES="fast,deep,embedding,guard,asr"
-  INCLUDE_ASR=true
 elif [[ "$LANES" == "all-with-ocr" ]]; then
   LANES="fast,deep,embedding,guard,ocr"
-  INCLUDE_OCR=true
-elif [[ "$LANES" == "dual-light" || "$LANES" == "light-dual" ]]; then
+elif [[ "$LANES" == "dual-light" ]]; then
   LANES="fast,deep,embedding,guard"
   MODEL_PROFILE="dual-light"
-elif [[ "$LANES" == "dual-light-asr" || "$LANES" == "light-dual-asr" ]]; then
+elif [[ "$LANES" == "dual-light-asr" ]]; then
   LANES="fast,deep,embedding,guard,asr"
   MODEL_PROFILE="dual-light"
-  INCLUDE_ASR=true
-elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
+elif [[ "$LANES" == "dual-light-chat" ]]; then
   LANES="fast,deep"
   MODEL_PROFILE="dual-light"
 fi
@@ -44,7 +41,7 @@ case "$MODEL_PROFILE" in
 esac
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-force_model_recreate="$(sparkclaw_resolve_env_value "$ROOT/.env" SPARKCLAW_FORCE_MODEL_RECREATE false)"
+force_model_recreate="$(sparkclaw_profile_value "$PRODUCT_ENV" "$LOCAL_MODE_ENV" "$PRIVATE_ENV" SPARKCLAW_FORCE_MODEL_RECREATE false)"
 case "$(printf '%s' "$force_model_recreate" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on)
     force_model_recreate=true
@@ -82,8 +79,8 @@ for lane in "${requested[@]}"; do
     deep|sparkclaw-deep) services+=(sparkclaw-deep) ;;
     embedding|embed|sparkclaw-embedding) services+=(sparkclaw-embedding) ;;
     guard|safety|sparkclaw-guard) services+=(sparkclaw-guard) ;;
-    asr|speech|sparkclaw-asr) services+=(sparkclaw-asr); INCLUDE_ASR=true ;;
-    ocr|ovis|ovisocr2|sparkclaw-ocr) services+=(sparkclaw-ocr); INCLUDE_OCR=true ;;
+    asr|speech|sparkclaw-asr) services+=(sparkclaw-asr) ;;
+    ocr|ovis|ovisocr2|sparkclaw-ocr) services+=(sparkclaw-ocr) ;;
     "") ;;
     *)
       echo "unknown lane: $lane" >&2
@@ -93,31 +90,22 @@ for lane in "${requested[@]}"; do
 done
 
 if [[ "${#services[@]}" -eq 0 ]]; then
-  echo "usage: $0 single-fast|single-fast-with-ocr|fast|deep|embedding|guard|asr|ocr|all|all-with-asr|all-with-ocr|dual-light|dual-light-asr|dual-light-chat|lane,lane" >&2
+  echo "usage: $0 single-fast|fast|deep|embedding|guard|asr|ocr|all|all-with-asr|all-with-ocr|dual-light|dual-light-asr|dual-light-chat|lane,lane" >&2
   exit 1
 fi
 
 mkdir -p data/models
-compose_args=(compose)
-if [[ -f .env ]]; then
-  compose_args+=(--env-file .env)
-fi
+EFFECTIVE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/sparkclaw-local-model-env.XXXXXX")"
+trap 'rm -f -- "$EFFECTIVE_ENV_FILE"' EXIT
+sparkclaw_validate_product_profile local "$PRODUCT_ENV" "$LOCAL_MODE_ENV" "$PRIVATE_ENV"
+sparkclaw_merge_profile_env "$PRODUCT_ENV" "$LOCAL_MODE_ENV" "$PRIVATE_ENV" "$EFFECTIVE_ENV_FILE"
+sparkclaw_export_profile_env "$EFFECTIVE_ENV_FILE"
+compose_args=(compose --env-file "$EFFECTIVE_ENV_FILE" -f docker/compose.models.local.yaml)
 if [[ "$MODEL_PROFILE" == "single-fast" ]]; then
-  compose_args+=(--env-file docker/env/sparkclaw.single-fast.env)
-  compose_args+=(-f docker/compose.yaml -f docker/compose.dual-light.yaml)
+  :
 elif [[ "$MODEL_PROFILE" == "dual-light" ]]; then
   compose_args+=(--env-file docker/env/sparkclaw.dual-light.env)
-  compose_args+=(-f docker/compose.yaml -f docker/compose.dual-light.yaml)
-else
-  compose_args+=(-f docker/compose.yaml)
-fi
-if [[ "$INCLUDE_ASR" == "true" ]]; then
-  compose_args+=(--env-file docker/env/sparkclaw.asr.env)
-  compose_args+=(-f docker/compose.asr.yaml)
-fi
-if [[ "$INCLUDE_OCR" == "true" ]]; then
-  compose_args+=(--env-file docker/env/sparkclaw.ocr.env)
-  compose_args+=(-f docker/compose.ocr.yaml)
+  compose_args+=(-f docker/compose.dual-light.yaml)
 fi
 compose_args+=(--profile models-local)
 
@@ -196,6 +184,6 @@ else
   recreate_args+=(--no-recreate)
 fi
 
-exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait \
+"${docker_cmd[@]}" "${compose_args[@]}" up -d --wait \
   --wait-timeout "$MODEL_STARTUP_TIMEOUT_SECONDS" --build \
   "${recreate_args[@]}" "${services[@]}"

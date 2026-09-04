@@ -15,4 +15,4 @@ ENV NGINX_ENVSUBST_FILTER=^SPARKCLAW_ \
     SPARKCLAW_JINGSI_LAN_PORT=18793
 COPY docker/images/webchat.nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /src/apps/webchat/dist /usr/share/nginx/html
-EXPOSE 18790
+EXPOSE 18790 18795

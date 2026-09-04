@@ -1,0 +1,309 @@
+name: sparkclaw
+
+x-vllm-common: &vllm-common
+  profiles: ["models-local"]
+  image: sparkclaw-vllm-readiness:local
+  build:
+    context: ..
+    dockerfile: docker/images/vllm.Dockerfile
+    args:
+      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly}
+  ipc: host
+  shm_size: ${SPARKCLAW_VLLM_SHM_SIZE:-16gb}
+  gpus: all
+  entrypoint: ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
+  environment: &vllm-environment
+    HF_HOME: /models/huggingface
+    HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
+    HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
+    VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+    SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
+    SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
+  volumes:
+    - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
+  tmpfs:
+    - /run/sparkclaw-readiness:rw,noexec,nosuid,nodev,size=1m,mode=1777
+  networks:
+    - sparkclaw_internal
+
+x-chat-vllm-common: &chat-vllm-common
+  <<: *vllm-common
+  image: sparkclaw-chat-vllm-readiness:local
+  build:
+    context: ..
+    dockerfile: docker/images/vllm.Dockerfile
+    args:
+      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_CHAT_VLLM_IMAGE:-vllm/vllm-openai:v0.24.0}
+
+services:
+  sparkclaw-fast:
+    <<: *chat-vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: fast
+    command:
+      - ${SPARKCLAW_FAST_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+      - --served-model-name
+      - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
+      - --tensor-parallel-size
+      - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
+      - --max-num-seqs
+      - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
+      - --trust-remote-code
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --language-model-only
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - /opt/sparkclaw/model_readiness.py
+        - --base-url
+        - http://127.0.0.1:8001/v1
+        - --model
+        - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
+        - --marker
+        - /run/sparkclaw-readiness/fast-warmed
+        - --health-timeout
+        - "3"
+        - --warmup-timeout
+        - "150"
+        - --warmup-prompt-repetitions
+        - "284"
+        - --warmup-max-tokens
+        - "480"
+        - --warmup-min-tokens
+        - "480"
+      interval: 30s
+      timeout: 180s
+      retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
+
+  sparkclaw-deep:
+    <<: *chat-vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: deep
+    command:
+      - ${SPARKCLAW_DEEP_MODEL_ID:-nvidia/Qwen3.6-35B-A3B-NVFP4}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+      - --served-model-name
+      - ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
+      - --tensor-parallel-size
+      - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
+      - --max-num-seqs
+      - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
+      - --trust-remote-code
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --language-model-only
+    ports:
+      - "127.0.0.1:8002:8002"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
+
+  sparkclaw-embedding:
+    <<: *vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: embedding
+    command:
+      - ${SPARKCLAW_EMBEDDING_MODEL_ID:-Qwen/Qwen3-Embedding-0.6B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8003"
+      - --served-model-name
+      - ${SPARKCLAW_EMBEDDING_SERVED_NAME:-sparkclaw-embedding}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.12}
+    ports:
+      - "127.0.0.1:8003:8003"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
+
+  sparkclaw-guard:
+    <<: *vllm-common
+    environment:
+      <<: *vllm-environment
+      SPARKCLAW_MODEL_CAPACITY_LANE: guard
+    command:
+      - ${SPARKCLAW_GUARD_MODEL_ID:-Qwen/Qwen3Guard-Gen-0.6B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8005"
+      - --served-model-name
+      - ${SPARKCLAW_GUARD_SERVED_NAME:-sparkclaw-guard}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION:-0.06}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES:-4G}
+      - --max-num-seqs
+      - ${SPARKCLAW_GUARD_MAX_NUM_SEQS:-1}
+      - --enforce-eager
+    ports:
+      - "127.0.0.1:8005:8005"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - /opt/sparkclaw/model_readiness.py
+        - --base-url
+        - http://127.0.0.1:8005/v1
+        - --model
+        - ${SPARKCLAW_GUARD_SERVED_NAME:-sparkclaw-guard}
+        - --marker
+        - /run/sparkclaw-readiness/guard-warmed
+        - --health-timeout
+        - "3"
+        - --warmup-timeout
+        - "110"
+      interval: 30s
+      timeout: 120s
+      retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
+
+  sparkclaw-asr:
+    profiles: ["models-local"]
+    image: ${SPARKCLAW_ASR_IMAGE:-sparkclaw-asr-vllm:cu130-nightly-realtime}
+    build:
+      context: ..
+      dockerfile: docker/images/asr-vllm.Dockerfile
+      args:
+        SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly}
+    ipc: host
+    shm_size: ${SPARKCLAW_ASR_SHM_SIZE:-4gb}
+    gpus: all
+    environment:
+      HF_HOME: /models/huggingface
+      HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
+      MODELSCOPE_CACHE: /models/modelscope
+      VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+      VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: ${SPARKCLAW_ASR_VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS:-0}
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+    volumes:
+      - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
+    command:
+      - ${SPARKCLAW_ASR_MODEL_ID:-Qwen/Qwen3-ASR-0.6B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${SPARKCLAW_ASR_PORT:-8006}
+      - --served-model-name
+      - ${SPARKCLAW_ASR_SERVED_NAME:-sparkclaw-asr}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION:-0.10}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES:-2G}
+      - --max-model-len
+      - ${SPARKCLAW_ASR_MAX_MODEL_LEN:-8192}
+      - --max-num-seqs
+      - ${SPARKCLAW_ASR_MAX_NUM_SEQS:-1}
+      - --dtype
+      - ${SPARKCLAW_ASR_DTYPE:-bfloat16}
+      - --enforce-eager
+      - --max-audio-seconds
+      - ${SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS:-60}
+      - --max-upload-bytes
+      - ${SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES:-3145728}
+      - --chunk-size-sec
+      - ${SPARKCLAW_ASR_STREAMING_CHUNK_SECONDS:-1.0}
+    ports:
+      - "127.0.0.1:${SPARKCLAW_ASR_PORT:-8006}:${SPARKCLAW_ASR_PORT:-8006}"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SPARKCLAW_ASR_PORT:-8006}/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
+    networks:
+      - sparkclaw_internal
+
+  sparkclaw-ocr:
+    profiles: ["models-local"]
+    image: sparkclaw-ocr-vllm-readiness:local
+    build:
+      context: ..
+      dockerfile: docker/images/vllm.Dockerfile
+      args:
+        SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_OCR_IMAGE:-vllm/vllm-openai:v0.22.1}
+    ipc: host
+    shm_size: ${SPARKCLAW_OCR_SHM_SIZE:-4gb}
+    gpus: all
+    entrypoint: ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
+    environment:
+      HF_HOME: /models/huggingface
+      HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
+      VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+      SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
+      SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
+      SPARKCLAW_MODEL_CAPACITY_LANE: ocr
+    volumes:
+      - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
+    command:
+      - ${SPARKCLAW_OCR_MODEL_ID:-ATH-MaaS/OvisOCR2}
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${SPARKCLAW_OCR_PORT:-8007}
+      - --served-model-name
+      - ${SPARKCLAW_OCR_SERVED_NAME:-sparkclaw-ocr}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION:-0.12}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES:-2G}
+      - --max-num-seqs
+      - ${SPARKCLAW_OCR_MAX_NUM_SEQS:-2}
+      - --gdn-prefill-backend
+      - triton
+      - --enforce-eager
+    ports:
+      - "127.0.0.1:${SPARKCLAW_OCR_PORT:-8007}:${SPARKCLAW_OCR_PORT:-8007}"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SPARKCLAW_OCR_PORT:-8007}/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
+    networks:
+      - sparkclaw_internal
+
+networks:
+  sparkclaw_internal:
+    driver: bridge

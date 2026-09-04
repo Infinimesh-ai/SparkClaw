@@ -5,8 +5,6 @@ services:
     build:
       context: ..
       dockerfile: docker/images/gateway.Dockerfile
-    env_file:
-      - env/sparkclaw.example.env
     environment:
       SPARKCLAW_BIND: 0.0.0.0
       SPARKCLAW_MODEL_MODE: mock

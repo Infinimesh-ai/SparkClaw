@@ -15,11 +15,12 @@ SPEC.loader.exec_module(MODULE)
 class ModelCapacityEntrypointTests(unittest.TestCase):
     def test_resolves_each_lane_from_the_selected_catalog_profile(self) -> None:
         catalog = ROOT / "configs" / "model.profiles.json"
-        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "dgx-spark-single-fast-v1", "fast"), 32768)
+        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "sparkclaw-product-v1", "fast"), 262144)
+        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "sparkclaw-product-v1", "deep"), 262144)
         self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "dgx-spark-dual-light-v1", "deep"), 65536)
-        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "dgx-spark-single-fast-v1", "embedding"), 8192)
-        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "dgx-spark-single-fast-v1", "guard"), 16384)
-        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "dgx-spark-single-fast-v1", "ocr"), 32768)
+        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "sparkclaw-product-v1", "embedding"), 8192)
+        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "sparkclaw-product-v1", "guard"), 8192)
+        self.assertEqual(MODULE.resolve_context_tokens(str(catalog), "sparkclaw-product-v1", "ocr"), 32768)
 
     def test_rejects_missing_zero_and_non_executable_capacity(self) -> None:
         fixtures = [

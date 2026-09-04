@@ -14,12 +14,12 @@ usage() {
   cat <<'EOF'
 Usage: curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
          --connect-timeout 15 --max-time 300 \
-         https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-cloud.sh | bash
-       bash install-cloud.sh [--check] [--configure]
+         https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/refs/heads/main/install-remote.sh | bash
+       bash install-remote.sh [--check] [--configure]
 
-Install or safely update SparkClaw, then deploy the Ubuntu cloud-model VM
-runtime. Model endpoints and optional credentials are stored only in the local
-mode-0600 environment file.
+Install or safely update SparkClaw, then deploy the Ubuntu full-remote runtime.
+Public endpoints are versioned; optional credentials and machine overrides stay
+only in the local mode-0600 .env.remote file.
 
 Options:
   --check      Update the checkout and validate an existing deployment only
@@ -31,16 +31,16 @@ Environment:
   SPARKCLAW_REPOSITORY_URL              HTTPS or SSH Git repository URL
   SPARKCLAW_GIT_REF                     Branch or tag (default: main)
   SPARKCLAW_BOOTSTRAP_TIMEOUT_SECONDS   Git network timeout (default: 900)
-  SPARKCLAW_CLOUD_ENV_FILE              Optional local env file path
+  SPARKCLAW_REMOTE_ENV_FILE             Optional private override file path
 EOF
 }
 
 log() {
-  printf '[sparkclaw-cloud-install] %s\n' "$*"
+  printf '[sparkclaw-remote-install] %s\n' "$*"
 }
 
 fail() {
-  printf '[sparkclaw-cloud-install] error: %s\n' "$*" >&2
+  printf '[sparkclaw-remote-install] error: %s\n' "$*" >&2
   exit 1
 }
 
@@ -48,7 +48,7 @@ on_error() {
   local exit_code=$?
   local line="$1"
   trap - ERR
-  printf '[sparkclaw-cloud-install] failed at line %s (exit %s)\n' "$line" "$exit_code" >&2
+  printf '[sparkclaw-remote-install] failed at line %s (exit %s)\n' "$line" "$exit_code" >&2
   exit "$exit_code"
 }
 
@@ -76,11 +76,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-[[ "$(uname -s)" == "Linux" ]] || fail "the cloud VM installer supports Ubuntu Linux only"
+[[ "$(uname -s)" == "Linux" ]] || fail "the remote installer supports Ubuntu Linux only"
 [[ -r /etc/os-release ]] || fail "cannot identify the operating system"
 # shellcheck disable=SC1091
 source /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "the cloud VM installer supports Ubuntu only; detected ${ID:-unknown}"
+[[ "${ID:-}" == "ubuntu" ]] || fail "the remote installer supports Ubuntu only; detected ${ID:-unknown}"
 [[ "$EUID" -ne 0 ]] || fail "run the installer as a normal sudo-capable user, not as root"
 [[ -n "${HOME:-}" ]] || fail "HOME is required to choose the default installation directory"
 [[ "$BOOTSTRAP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
@@ -145,8 +145,8 @@ else
   fail "installation path exists and is not a SparkClaw Git checkout: $INSTALL_DIR"
 fi
 
-deploy_script="$INSTALL_DIR/scripts/deploy_cloud_vm.sh"
-[[ -f "$deploy_script" ]] || fail "cloud deployment entrypoint not found after checkout: $deploy_script"
+deploy_script="$INSTALL_DIR/scripts/deploy_remote.sh"
+[[ -f "$deploy_script" ]] || fail "remote deployment entrypoint not found after checkout: $deploy_script"
 log "repository ready at $(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
 
 deploy_args=()

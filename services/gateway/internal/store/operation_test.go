@@ -65,6 +65,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
 			Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationConversationCountVisible: {
+			ID: OperationConversationCountVisible, Repository: "ConversationRepository",
+			Method: "CountVisibleMessages", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationRunFeedbackSave: {
 			ID: OperationRunFeedbackSave, Repository: "RunRepository",
 			Method: "SaveRunFeedback", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -85,6 +89,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationRunList, Repository: "RunRepository",
 			Method: "ListRuns", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationRunCountVisible: {
+			ID: OperationRunCountVisible, Repository: "RunRepository",
+			Method: "CountVisibleRuns", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationModelCallSave: {
 			ID: OperationModelCallSave, Repository: "RunRepository",
 			Method: "SaveModelCall", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -92,6 +100,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationModelCallList: {
 			ID: OperationModelCallList, Repository: "RunRepository",
 			Method: "ListModelCalls", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationModelCallStats: {
+			ID: OperationModelCallStats, Repository: "RunRepository",
+			Method: "ModelCallStats", Mode: operationRead, Timeout: timeoutRead,
 		},
 		OperationToolCallSave: {
 			ID: OperationToolCallSave, Repository: "RunRepository",
@@ -109,6 +121,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationToolCallListRecent, Repository: "RunRepository",
 			Method: "ListRecentToolCalls", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationToolCallCount: {
+			ID: OperationToolCallCount, Repository: "RunRepository",
+			Method: "CountToolCalls", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationEpisodeSummarySave: {
 			ID: OperationEpisodeSummarySave, Repository: "RunRepository",
 			Method: "SaveEpisodeSummary", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -120,6 +136,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationEpisodeSummaryListRecent: {
 			ID: OperationEpisodeSummaryListRecent, Repository: "RunRepository",
 			Method: "ListRecentEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationEpisodeSummaryCount: {
+			ID: OperationEpisodeSummaryCount, Repository: "RunRepository",
+			Method: "CountEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
 		},
 		OperationDocumentRecordSave: {
 			ID: OperationDocumentRecordSave, Repository: "DocumentRepository",

@@ -110,6 +110,9 @@ type ConversationRepository interface {
 	ListRecentMessages(context.Context, string, time.Time, string, int) ([]app.Message, error)
 	MessageEventHead(context.Context, string) (string, error)
 	MessageEventsAfter(context.Context, string, string, int) (MessageEventPage, error)
+	// CountVisibleMessages counts the messages of every session that
+	// ListSessions returns (hidden sessions excluded) without loading them.
+	CountVisibleMessages(context.Context) (int, error)
 }
 
 type RunRepository interface {
@@ -118,15 +121,25 @@ type RunRepository interface {
 	SaveRun(context.Context, app.AgentRun) (app.AgentRun, error)
 	GetRun(context.Context, string) (app.AgentRun, bool, error)
 	ListRuns(context.Context, string) ([]app.AgentRun, error)
+	// CountVisibleRuns counts the runs of every session that ListSessions
+	// returns (hidden sessions excluded) without loading them.
+	CountVisibleRuns(context.Context) (int, error)
 	SaveModelCall(context.Context, app.ModelCall) (app.ModelCall, error)
 	ListModelCalls(context.Context, string, string) ([]app.ModelCall, error)
+	// ModelCallStats aggregates every persisted model call without loading it.
+	ModelCallStats(context.Context) (app.ModelCallStats, error)
 	SaveToolCall(context.Context, app.ToolCall) (app.ToolCall, error)
 	GetToolCall(context.Context, string) (app.ToolCall, bool, error)
 	ListToolCalls(context.Context, string) ([]app.ToolCall, error)
 	ListRecentToolCalls(context.Context, string, time.Time, string, int) ([]app.ToolCall, error)
+	// CountToolCalls counts every persisted tool call without loading it.
+	CountToolCalls(context.Context) (int, error)
 	SaveEpisodeSummary(context.Context, app.EpisodeSummary) (app.EpisodeSummary, error)
 	ListEpisodeSummaries(context.Context, string) ([]app.EpisodeSummary, error)
 	ListRecentEpisodeSummaries(context.Context, string, time.Time, int) ([]app.EpisodeSummary, error)
+	// CountEpisodeSummaries counts every persisted episode summary without
+	// loading it.
+	CountEpisodeSummaries(context.Context) (int, error)
 }
 
 type DocumentRepository interface {

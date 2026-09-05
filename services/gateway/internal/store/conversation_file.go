@@ -53,3 +53,12 @@ func (s *FileStore) MessageEventsAfter(ctx context.Context, sessionID, after str
 	defer release()
 	return s.inner.MessageEventsAfter(ctx, sessionID, after, limit)
 }
+
+func (s *FileStore) CountVisibleMessages(ctx context.Context) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationConversationCountVisible, 1)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return s.inner.CountVisibleMessages(ctx)
+}

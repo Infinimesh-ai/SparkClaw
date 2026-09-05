@@ -30,13 +30,13 @@ var migratedFileAdmissions = map[string]string{
 	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated",
 	"ListSessions": "admitMigrated", "GetSession": "admitMigrated",
 	"UpdateSessionTitle": "admitMigrated", "DeleteSession": "admitMigrated",
-	"AddMessage": "admitMigrated", "ListMessages": "admitMigrated", "ListRecentMessages": "admitMigrated",
+	"AddMessage": "admitMigrated", "ListMessages": "admitMigrated", "ListRecentMessages": "admitMigrated", "CountVisibleMessages": "admitMigrated",
 	"MessageEventHead": "admitMigrated", "MessageEventsAfter": "admitMigrated",
 	"SaveRunFeedback": "admitMigrated", "ListRunFeedback": "admitMigrated",
-	"SaveRun": "admitMigrated", "GetRun": "admitMigrated", "ListRuns": "admitMigrated",
-	"SaveModelCall": "admitMigrated", "ListModelCalls": "admitMigrated",
-	"SaveToolCall": "admitMigrated", "GetToolCall": "admitMigrated", "ListToolCalls": "admitMigrated", "ListRecentToolCalls": "admitMigrated",
-	"SaveEpisodeSummary": "admitMigrated", "ListEpisodeSummaries": "admitMigrated", "ListRecentEpisodeSummaries": "admitMigrated",
+	"SaveRun": "admitMigrated", "GetRun": "admitMigrated", "ListRuns": "admitMigrated", "CountVisibleRuns": "admitMigrated",
+	"SaveModelCall": "admitMigrated", "ListModelCalls": "admitMigrated", "ModelCallStats": "admitMigrated",
+	"SaveToolCall": "admitMigrated", "GetToolCall": "admitMigrated", "ListToolCalls": "admitMigrated", "ListRecentToolCalls": "admitMigrated", "CountToolCalls": "admitMigrated",
+	"SaveEpisodeSummary": "admitMigrated", "ListEpisodeSummaries": "admitMigrated", "ListRecentEpisodeSummaries": "admitMigrated", "CountEpisodeSummaries": "admitMigrated",
 	"SaveDocumentRecord": "admitMigrated", "GetDocumentRecord": "admitMigrated", "ListDocumentRecords": "admitMigrated",
 	"SaveApproval": "admitMigrated", "GetApproval": "admitMigrated", "FindApprovalByExternalRef": "admitMigrated",
 	"UpdatePendingApproval": "admitMigrated", "ResolveApproval": "admitMigrated", "ListApprovals": "admitMigrated",
@@ -86,8 +86,8 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			accepted[method] = struct{}{}
 		}
 	}
-	if len(accepted) != 146 {
-		t.Fatalf("accepted FileStore method count = %d, want 146", len(accepted))
+	if len(accepted) != 151 {
+		t.Fatalf("accepted FileStore method count = %d, want 151", len(accepted))
 	}
 	for method := range migratedFileAdmissions {
 		if _, exists := accepted[method]; !exists {

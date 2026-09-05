@@ -683,6 +683,14 @@ const (
 	ModelCallStatusFailed    = "failed"
 )
 
+// ModelCallStats aggregates every persisted model call for telemetry.
+type ModelCallStats struct {
+	Count          int   `json:"count"`
+	FailedCount    int   `json:"failed_count"`
+	LatencyMSTotal int64 `json:"latency_ms_total"`
+	TotalTokens    int   `json:"total_tokens"`
+}
+
 type AuditEvent struct {
 	ID        string         `json:"id"`
 	Time      time.Time      `json:"time"`

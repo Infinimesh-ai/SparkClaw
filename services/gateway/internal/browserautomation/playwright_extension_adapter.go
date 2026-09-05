@@ -145,6 +145,11 @@ func (a *PlaywrightExtensionAdapter) ReadPage(ctx context.Context, targetURL str
 		auth = inferBrowserSnapshotAuth(auth, firstStringValue(page, "title"), firstStringValue(page, "url"), refs)
 		actions = append(actions, "playwright_mcp.page.snapshot")
 	}
+	// A stale-session error on the ignored snapshot call releases the session;
+	// the read is then unusable rather than a nil dereference.
+	if a.session == nil {
+		return PageReadResult{}, errors.New("playwright extension session was lost while reading the page")
+	}
 	lease := a.session.Lease()
 	result := PageReadResult{
 		URL: targetURL, FinalURL: firstNonEmptyBrowserString(firstStringValue(page, "url"), targetURL),
@@ -384,6 +389,9 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 		return nil, errorsForPlaywrightSnapshot("controller omitted the active task page")
 	}
 	read, _ := a.executeControllerLocked(ctx, "page.read", map[string]any{"page_id": pageID, "max_chars": 120000})
+	if a.session == nil {
+		return nil, errors.New("playwright extension session was lost while taking the snapshot")
+	}
 	readPage := mapValue(read["page"])
 	pageText := firstStringValue(readPage, "text")
 	url := firstNonEmptyBrowserString(firstStringValue(page, "url"), firstStringValue(readPage, "url"))

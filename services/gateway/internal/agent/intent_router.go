@@ -603,27 +603,6 @@ func deliveryBusinessProjection(content string, evidence externalSendEvidence) s
 	return content
 }
 
-func (r Runtime) semanticRoutingContext(ctx context.Context, sessionID, runID, currentOwnerText string, resources []app.MessagePart) (string, error) {
-	history, err := r.routingInvocationHistory(ctx, sessionID, runID)
-	if err != nil {
-		return "", err
-	}
-	history.Selected.Messages = withoutCurrentOwnerMessage(history.Selected.Messages, currentOwnerText)
-	documents, err := r.resolveDocumentContextWithHistory(ctx, sessionID, currentOwnerText, resources, history)
-	if err != nil {
-		return "", err
-	}
-	return r.semanticRoutingContextFromHistory(resources, history.Selected, documents)
-}
-
-func (r Runtime) semanticRoutingContextFromHistory(resources []app.MessagePart, snapshot agentContextSnapshot, documents ...documentContextResolution) (string, error) {
-	documentResolution := documentContextResolution{}
-	if len(documents) > 0 {
-		documentResolution = documents[0]
-	}
-	return newTreeRoutingPromptContext(resources, snapshot, documentResolution).FullText(), nil
-}
-
 func withoutCurrentOwnerMessage(messages []app.Message, currentOwnerText string) []app.Message {
 	currentOwnerText = strings.TrimSpace(currentOwnerText)
 	if currentOwnerText == "" || len(messages) == 0 {

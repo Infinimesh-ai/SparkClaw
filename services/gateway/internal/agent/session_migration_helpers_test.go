@@ -7,15 +7,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-func mustSemanticRoutingContext(t testing.TB, runtime Runtime, sessionID, runID, content string, resources []app.MessagePart) string {
-	t.Helper()
-	value, err := runtime.semanticRoutingContext(t.Context(), sessionID, runID, content, resources)
-	if err != nil {
-		t.Fatalf("resolve semantic routing context: %v", err)
-	}
-	return value
-}
-
 func mustResolveDocumentContext(t testing.TB, runtime Runtime, sessionID, runID, content string, resources []app.MessagePart) documentContextResolution {
 	t.Helper()
 	value, err := runtime.resolveDocumentContext(t.Context(), sessionID, runID, content, resources)

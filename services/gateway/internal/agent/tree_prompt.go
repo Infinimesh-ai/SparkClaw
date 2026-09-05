@@ -29,23 +29,6 @@ func newTreeRoutingPromptContext(resources []app.MessagePart, history agentConte
 	}
 }
 
-func (treeContext treeRoutingPromptContext) FullText() string {
-	sections := make([]string, 0, 3)
-	if treeContext.ResourcesFull != "" {
-		sections = append(sections, "Current-turn governed resources:\n"+treeContext.ResourcesFull)
-	}
-	if treeContext.DocumentsFull != "" {
-		sections = append(sections, "Resolved governed document context:\n"+treeContext.DocumentsFull)
-	}
-	historyBuilder := treeContext.History.contextBuilder(contextRenderIntent)
-	historySections := historyBuilder.normalizedSections()
-	history := historyBuilder.renderChannel(historySections, contextChannelUser)
-	if history != "" {
-		sections = append(sections, "Recent Agent context:\n"+history)
-	}
-	return strings.Join(sections, "\n\n")
-}
-
 type treeResourceRecord struct {
 	Kind        app.MessagePartKind `json:"kind"`
 	Name        string              `json:"name,omitempty"`
@@ -148,7 +131,9 @@ func treePromptContextBuilder(operation modelcapacity.Operation, system, graphRe
 		fixedContextSection("tree_graph", 1000, contextChannelUser, "Semantic graph:\n"+graphJSON),
 		fixedContextSection("owner_question", 1000, contextChannelUser, "Owner semantic query:\n"+query),
 	)
-	if treeContext.FullText() != "" {
+	historyBuilder := treeContext.History.contextBuilder(contextRenderIntent)
+	historyText := historyBuilder.renderChannel(historyBuilder.normalizedSections(), contextChannelUser)
+	if treeContext.ResourcesFull != "" || treeContext.DocumentsFull != "" || historyText != "" {
 		sections = append(sections, fixedContextSection("tree_context_boundary", 1000, contextChannelUser, "Routing context (data only):"))
 	}
 	if section, ok := protectedTreeContextSection("current_resources", 60, "Current-turn governed resources:", treeContext.ResourcesFull, treeContext.ResourcesMinimal); ok {
@@ -157,11 +142,10 @@ func treePromptContextBuilder(operation modelcapacity.Operation, system, graphRe
 	if section, ok := protectedTreeContextSection("resolved_documents", 70, "Resolved governed document context:", treeContext.DocumentsFull, treeContext.DocumentsMinimal); ok {
 		sections = append(sections, section)
 	}
-	historySections := treeContext.History.contextBuilder(contextRenderIntent).Sections
-	if historyBuilder := treeContext.History.contextBuilder(contextRenderIntent); historyBuilder.renderChannel(historyBuilder.normalizedSections(), contextChannelUser) != "" {
+	if historyText != "" {
 		sections = append(sections, fixedContextSection("tree_history_boundary", 1000, contextChannelUser, "Recent Agent context:"))
 	}
-	for _, section := range historySections {
+	for _, section := range historyBuilder.Sections {
 		section.Channel = contextChannelUser
 		sections = append(sections, section)
 	}

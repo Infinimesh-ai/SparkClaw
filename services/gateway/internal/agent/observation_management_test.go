@@ -409,17 +409,25 @@ func TestFailedObservationReadCountsAfterExecutionAndStageBudgetResets(t *testin
 	}
 }
 
+// admitWithEstimatedTokens admits a builder with the offline token estimator
+// so section degradation can be asserted without a model profile.
+func admitWithEstimatedTokens(builder contextBuilder, maxTokens int) (contextAdmission, error) {
+	return builder.AdmitWithCounter(maxTokens, func(system, user string) (int, error) {
+		return estimatePromptTokens(system, user), nil
+	})
+}
+
 func TestContextBuilderDegradesLowerPrioritySectionFirst(t *testing.T) {
 	builder := contextBuilder{Sections: []contextSection{
 		degradingContextSection("low", 10, strings.Repeat("low ", 1000), "low compact", true),
 		fixedContextSection("required", 100, contextChannelUser, "required contract"),
 	}}
-	rendered, renderErr := builder.Render(30)
-	if renderErr != nil {
-		t.Fatal(renderErr)
+	admission, err := admitWithEstimatedTokens(builder, 30)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, "required contract") || strings.Contains(rendered, strings.Repeat("low ", 20)) {
-		t.Fatalf("context builder degraded the wrong section: %s", rendered)
+	if !strings.Contains(admission.User, "required contract") || strings.Contains(admission.User, strings.Repeat("low ", 20)) {
+		t.Fatalf("context builder degraded the wrong section: %s", admission.User)
 	}
 }
 
@@ -430,7 +438,7 @@ func TestContextBuilderRejectsInsteadOfTruncatingFixedOwnerGoal(t *testing.T) {
 		fixedContextSection("owner_goal", 1000, contextChannelUser, goal),
 		fixedContextSection("output_contract", 1000, contextChannelUser, tail),
 	}}
-	admission, err := builder.Admit(120)
+	admission, err := admitWithEstimatedTokens(builder, 120)
 	if !errors.Is(err, errPromptFixedSectionsOversized) {
 		t.Fatalf("oversized fixed owner goal was admitted: %v", err)
 	}
@@ -444,7 +452,7 @@ func TestContextBuilderRejectsOversizedFixedSections(t *testing.T) {
 		fixedContextSection("base", 1000, contextChannelSystem, strings.Repeat("fixed ", 200)),
 		fixedContextSection("tail", 1000, contextChannelUser, "output contract"),
 	}}
-	if _, err := builder.Admit(20); !errors.Is(err, errPromptFixedSectionsOversized) {
+	if _, err := admitWithEstimatedTokens(builder, 20); !errors.Is(err, errPromptFixedSectionsOversized) {
 		t.Fatalf("oversized fixed prompt was admitted: %v", err)
 	}
 }

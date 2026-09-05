@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -337,18 +338,33 @@ func (c *Controller) Activate(ctx context.Context, id, credentialID string, useO
 	} else if _, ok := findCredential(bundle, credentialID); !ok {
 		return Status{}, newError("credential_not_found", false, nil)
 	}
-	if bundle.ActiveCredentialID == credentialID && ((credentialID != "") || useOperator) {
+	unchanged := bundle.ActiveCredentialID == credentialID && ((credentialID != "") || useOperator)
+	if unchanged && c.activationHealthyLocked(id) {
 		return c.statusLocked(id), nil
 	}
-	bundle.ActiveCredentialID = credentialID
-	if err := c.writeBundle(ctx, id, bundle); err != nil {
-		return Status{}, err
+	// An unchanged selection whose last activation failed is retried instead
+	// of short-circuited; otherwise a failed operator or household activation
+	// could never be recovered from the settings surface.
+	if !unchanged {
+		bundle.ActiveCredentialID = credentialID
+		if err := c.writeBundle(ctx, id, bundle); err != nil {
+			return Status{}, err
+		}
+		c.bundles[id] = bundle
 	}
-	c.bundles[id] = bundle
 	c.activateLoaded(ctx, id, bundle)
 	status := c.statusLocked(id)
 	c.audit(ctx, id, "active_credential_changed", status.Source, status.State, status.ErrorCode)
 	return status, nil
+}
+
+func (c *Controller) activationHealthyLocked(id string) bool {
+	switch c.runtime[id].state {
+	case StateReady, StateConfigured:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Controller) Check(ctx context.Context, id, credentialID string) (Status, error) {
@@ -358,6 +374,9 @@ func (c *Controller) Check(ctx context.Context, id, credentialID string) (Status
 		return Status{}, newError("integration_not_found", false, nil)
 	}
 	bundle := c.bundles[id]
+	// Work on a private copy: the stored bundle must not observe the check
+	// outcome until the vault write succeeds.
+	bundle.Credentials = slices.Clone(bundle.Credentials)
 	index, found := findCredential(bundle, credentialID)
 	if !found {
 		return Status{}, newError("credential_not_found", false, nil)
@@ -419,7 +438,10 @@ func (c *Controller) Delete(ctx context.Context, id, credentialID string) (Statu
 	if bundle.ActiveCredentialID == credentialID {
 		return Status{}, newError("active_credential_replacement_required", false, nil)
 	}
-	bundle.Credentials = append(bundle.Credentials[:index], bundle.Credentials[index+1:]...)
+	// slices.Concat allocates a new backing array; appending in place would
+	// shift the stored bundle's credentials before the vault write and leave
+	// a duplicated tail behind if that write failed.
+	bundle.Credentials = slices.Concat(bundle.Credentials[:index], bundle.Credentials[index+1:])
 	if len(bundle.Credentials) == 0 {
 		if err := c.deleteBundle(ctx, id); err != nil {
 			return Status{}, err

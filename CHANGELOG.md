@@ -90,6 +90,21 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   `browser_controller_stopping` are mapped explicitly, deadline-less
   controller calls get a five-minute backstop, and CI now runs the browser
   bridge test suite.
+- Browser runtime, seventh pass: Playwright tab-list and snapshot parsing is
+  pinned to a golden recorded from the pinned MCP/CLI packages (the fakes had
+  invented shapes); the Bridge tracks the tab groups it created in
+  `chrome.storage.session` and stale cleanup closes only those (an owner group
+  titled "SparkClaw task" was previously emptied), which adds the `storage`
+  permission and new artifact checksums; a failed relay handshake now closes
+  its socket; Gateway shutdown and session release no longer wait behind an
+  in-flight controller call (a release deferred behind one returns
+  `browser_busy` and completes in the background); `tools.browserAutomation.provider`
+  must be `playwright-extension` and `adapters.browserAutomation.startupTimeoutMs`
+  (now the session-acquire wait, 500 to 30000 ms) is validated; the unread
+  `require_visible_environment` argument, the never-emitted `tabs.select` /
+  `page.reload` controller operations, and the `browser_click` requirement were
+  removed; the browser control status reports `cli` / `cli_version`; the
+  Controller-to-Gateway error codes live in one shared table.
 - The experimental JingSi LAN presentation routes moved under one
   `/api/jingsi/v0/` prefix (`POST /api/jingsi/v0/messages/stream`,
   `GET /api/jingsi/v0/client-events{,/head,/stream}`, and the phone-facing

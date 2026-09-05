@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -1350,22 +1351,16 @@ func normalizePPTXVisualQAConfig(visual *PPTXVisualQAAdapterConfig) error {
 	if visual.MaxRepairAttempts < 0 || visual.MaxRepairAttempts > 2 {
 		return errors.New("PPTX visual QA maxRepairAttempts must be between 0 and 2")
 	}
-	repairable := []string{
-		"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph", "broken_layout", "low_contrast",
-		"text_too_small", "overcrowded", "misaligned", "weak_hierarchy", "poor_whitespace", "unclear_focus", "inconsistent_style",
-	}
-	blocking := []string{"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph"}
-	repairOperations := []string{"rewrite_text", "set_geometry", "set_text_style", "set_shape_style", "place_above", "place_below", "delete_generated_shape"}
 	var qualificationErr error
-	visual.RepairQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedClasses, repairable, "repairQualifiedClasses")
+	visual.RepairQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedClasses, app.PPTXVisualIssueClasses(), "repairQualifiedClasses")
 	if qualificationErr != nil {
 		return qualificationErr
 	}
-	visual.RepairQualifiedOperations, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedOperations, repairOperations, "repairQualifiedOperations")
+	visual.RepairQualifiedOperations, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedOperations, app.PPTXVisualRepairOperationNames(), "repairQualifiedOperations")
 	if qualificationErr != nil {
 		return qualificationErr
 	}
-	visual.BlockingQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.BlockingQualifiedClasses, blocking, "blockingQualifiedClasses")
+	visual.BlockingQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.BlockingQualifiedClasses, app.PPTXVisualBlockingEligibleClasses(), "blockingQualifiedClasses")
 	if qualificationErr != nil {
 		return qualificationErr
 	}

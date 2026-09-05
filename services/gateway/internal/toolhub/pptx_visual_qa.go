@@ -482,7 +482,7 @@ func validatePPTXRenderAnalysis(analysis pptxRenderAnalysis, candidateSHA string
 		}
 		seenFacts := map[string]bool{}
 		for _, fact := range page.Diagnostics.Facts {
-			if strings.TrimSpace(fact.DiagnosticID) == "" || seenFacts[fact.DiagnosticID] || !slices.Contains([]string{"text_clipping", "geometry_overlap", "off_canvas"}, fact.Kind) || !slices.Contains([]string{"confirmed", "observed", "ambiguous", "unavailable"}, fact.Status) {
+			if strings.TrimSpace(fact.DiagnosticID) == "" || seenFacts[fact.DiagnosticID] || !slices.Contains(app.PPTXVisualDiagnosticKinds(), app.PPTXVisualDiagnosticKind(fact.Kind)) || !slices.Contains([]string{"confirmed", "observed", "ambiguous", "unavailable"}, fact.Status) {
 				return fmt.Errorf("PPTX render analysis page %d contains an invalid diagnostic fact", page.SlideIndex)
 			}
 			seenFacts[fact.DiagnosticID] = true
@@ -607,7 +607,7 @@ func (s *pptxVisualQAService) assessPage(ctx context.Context, operation string, 
 		"page_dimensions":        map[string]any{"width": page.Raster.Width, "height": page.Raster.Height},
 		"structure":              page.Structure,
 		"diagnostic_facts":       page.Diagnostics,
-		"subjective_issue_types": pptxVisualSubjectiveIssueTypes(),
+		"subjective_issue_types": app.PPTXVisualSubjectiveIssueTypes(),
 	}
 	user, err := json.Marshal(payload)
 	if err != nil {
@@ -665,7 +665,7 @@ func pptxVisualAssessmentJSONSchema(slideIndex int, facts []pptxDiagnosticFact, 
 					"required": []string{"diagnostic_id", "semantic_effect", "confidence_milli", "evidence"},
 					"properties": map[string]any{
 						"diagnostic_id":    diagnosticIDSchema,
-						"semantic_effect":  map[string]any{"type": "string", "enum": []string{"required_content_lost", "decorative_or_empty", "harmful_obstruction", "intentional_layering", "harmful_overflow", "intentional_bleed", "unclear"}},
+						"semantic_effect":  map[string]any{"type": "string", "enum": app.PPTXVisualSemanticEffects()},
 						"confidence_milli": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
 						"evidence":         map[string]any{"type": "string", "maxLength": pptxVisualAssessmentMaxEvidence},
 					},
@@ -678,7 +678,7 @@ func pptxVisualAssessmentJSONSchema(slideIndex int, facts []pptxDiagnosticFact, 
 					"required": []string{"visual_issue_id", "type", "confidence_milli", "region_milli", "shape_refs", "evidence"},
 					"properties": map[string]any{
 						"visual_issue_id":  map[string]any{"type": "string", "pattern": "^visual-[A-Za-z0-9_-]{1,48}$"},
-						"type":             map[string]any{"type": "string", "enum": pptxVisualSubjectiveIssueTypes()},
+						"type":             map[string]any{"type": "string", "enum": app.PPTXVisualSubjectiveIssueTypes()},
 						"confidence_milli": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
 						"region_milli":     map[string]any{"type": "array", "minItems": 4, "maxItems": 4, "items": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000}},
 						"shape_refs":       map[string]any{"type": "array", "maxItems": shapeRefMaxItems, "items": shapeRefSchema},
@@ -704,14 +704,14 @@ func validatePPTXVisualAssessment(assessment pptxVisualAssessment, slideIndex in
 	seenFacts := map[string]bool{}
 	for _, review := range assessment.FactReviews {
 		fact, ok := factByID[review.DiagnosticID]
-		if !ok || seenFacts[review.DiagnosticID] || review.ConfidenceMilli < 0 || review.ConfidenceMilli > 1000 || len([]byte(review.Evidence)) > pptxVisualAssessmentMaxEvidence || !slices.Contains(pptxSemanticEffectsForFact(fact.Kind), review.SemanticEffect) {
+		if !ok || seenFacts[review.DiagnosticID] || review.ConfidenceMilli < 0 || review.ConfidenceMilli > 1000 || len([]byte(review.Evidence)) > pptxVisualAssessmentMaxEvidence || !slices.Contains(app.PPTXVisualSemanticEffectsForDiagnostic(app.PPTXVisualDiagnosticKind(fact.Kind)), review.SemanticEffect) {
 			return fmt.Errorf("PPTX visual assessment for slide %d contains an invalid fact review", slideIndex)
 		}
 		seenFacts[review.DiagnosticID] = true
 	}
 	seenIssues := map[string]bool{}
 	for _, issue := range assessment.SubjectiveIssues {
-		if strings.TrimSpace(issue.VisualIssueID) == "" || seenIssues[issue.VisualIssueID] || !slices.Contains(pptxVisualSubjectiveIssueTypes(), issue.Type) || issue.ConfidenceMilli < 0 || issue.ConfidenceMilli > 1000 || len([]byte(issue.Evidence)) > pptxVisualAssessmentMaxEvidence || len(issue.RegionMilli) != 4 || len(issue.ShapeRefs) > 8 {
+		if strings.TrimSpace(issue.VisualIssueID) == "" || seenIssues[issue.VisualIssueID] || !slices.Contains(app.PPTXVisualSubjectiveIssueTypes(), issue.Type) || issue.ConfidenceMilli < 0 || issue.ConfidenceMilli > 1000 || len([]byte(issue.Evidence)) > pptxVisualAssessmentMaxEvidence || len(issue.RegionMilli) != 4 || len(issue.ShapeRefs) > 8 {
 			return fmt.Errorf("PPTX visual assessment for slide %d contains an invalid subjective issue", slideIndex)
 		}
 		seenIssues[issue.VisualIssueID] = true
@@ -749,23 +749,6 @@ func offeredPPTXShapeRefs(context pptxVisualRepairContext) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-func pptxSemanticEffectsForFact(kind string) []string {
-	switch kind {
-	case "text_clipping":
-		return []string{"required_content_lost", "decorative_or_empty", "unclear"}
-	case "geometry_overlap":
-		return []string{"harmful_obstruction", "intentional_layering", "unclear"}
-	case "off_canvas":
-		return []string{"harmful_overflow", "intentional_bleed", "unclear"}
-	default:
-		return nil
-	}
-}
-
-func pptxVisualSubjectiveIssueTypes() []string {
-	return []string{"weak_hierarchy", "poor_whitespace", "unclear_focus", "broken_layout", "overcrowded", "misaligned", "low_contrast", "text_too_small", "missing_glyph", "inconsistent_style"}
 }
 
 func decodePPTXVisualStrictJSON(raw []byte, target any) error {

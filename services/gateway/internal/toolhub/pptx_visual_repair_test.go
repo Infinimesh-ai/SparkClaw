@@ -231,34 +231,38 @@ func TestPPTXVisualPolicyQualificationCorpusEnforcesClassAndOperationCeilings(t 
 	if corpus.SchemaVersion != "sparkclaw.pptx_visual_policy_qualification.v1" || len(corpus.Cases) != 13 {
 		t.Fatalf("invalid PPTX visual qualification corpus: %#v", corpus)
 	}
+	// The corpus is a labeled input; the app table is the source of truth it
+	// must agree with on class identity, evidence source, blocking ceiling,
+	// and the operation ceiling.
 	seenClasses := []string{}
-	blockingClasses := []string{}
 	for _, testCase := range corpus.Cases {
 		class := testCase.SubjectiveType
-		if testCase.EvidenceSource == "objective" {
-			class = pptxRuntimeClassForFactReview(testCase.DiagnosticKind, testCase.SemanticEffect)
+		if testCase.EvidenceSource == string(app.PPTXVisualEvidenceObjective) {
+			class = app.PPTXVisualClassForFactReview(app.PPTXVisualDiagnosticKind(testCase.DiagnosticKind), testCase.SemanticEffect)
 		}
-		if class != testCase.ExpectedClass || class == "" || slices.Contains(seenClasses, class) || len(testCase.QualifiedOperations) == 0 {
+		spec, ok := app.PPTXVisualIssueClass(class)
+		if !ok || class != testCase.ExpectedClass || slices.Contains(seenClasses, class) || len(testCase.QualifiedOperations) == 0 {
 			t.Fatalf("invalid qualification case %q: class=%q case=%#v", testCase.ID, class, testCase)
 		}
 		seenClasses = append(seenClasses, class)
-		if testCase.BlockingCeiling {
-			blockingClasses = append(blockingClasses, class)
+		if string(spec.EvidenceSource) != testCase.EvidenceSource || spec.BlockingEligible != testCase.BlockingCeiling {
+			t.Fatalf("qualification case %q disagrees with the class table: case=%#v spec=%#v", testCase.ID, testCase, spec)
 		}
 		issue := PPTXVisualRuntimeIssue{Class: class}
 		for _, operation := range testCase.QualifiedOperations {
-			if !pptxVisualOperationAllowedForIssues(operation, []PPTXVisualRuntimeIssue{issue}, "outcome") {
+			if !spec.AllowsOperation(app.PPTXVisualRepairOperation(operation)) || !pptxVisualOperationAllowedForIssues(operation, []PPTXVisualRuntimeIssue{issue}, "outcome") {
 				t.Fatalf("qualification case %q lists unsupported operation %q", testCase.ID, operation)
 			}
 		}
+		if spec.OutcomeOnly && pptxVisualOperationAllowedForIssues(testCase.QualifiedOperations[0], []PPTXVisualRuntimeIssue{issue}, "exact") {
+			t.Fatalf("outcome-only class %q accepted a repair under exact authority", class)
+		}
 	}
 	slices.Sort(seenClasses)
-	slices.Sort(blockingClasses)
-	if !slices.Equal(seenClasses, []string{"broken_layout", "content_obscured", "element_off_canvas", "inconsistent_style", "low_contrast", "misaligned", "missing_glyph", "overcrowded", "poor_whitespace", "text_clipped", "text_too_small", "unclear_focus", "weak_hierarchy"}) {
-		t.Fatalf("qualification corpus class set drifted: %#v", seenClasses)
-	}
-	if !slices.Equal(blockingClasses, []string{"content_obscured", "element_off_canvas", "missing_glyph", "text_clipped"}) {
-		t.Fatalf("qualification corpus exceeded the blocking ceiling: %#v", blockingClasses)
+	tableClasses := app.PPTXVisualIssueClasses()
+	slices.Sort(tableClasses)
+	if !slices.Equal(seenClasses, tableClasses) {
+		t.Fatalf("qualification corpus class set drifted from the table: corpus=%#v table=%#v", seenClasses, tableClasses)
 	}
 }
 

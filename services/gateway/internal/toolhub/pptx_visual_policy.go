@@ -70,17 +70,17 @@ type PPTXVisualReportSubjectiveIssue struct {
 }
 
 type PPTXVisualRuntimeIssue struct {
-	SlideIndex        int      `json:"slide_index"`
-	Class             string   `json:"class"`
-	EvidenceSource    string   `json:"evidence_source"`
-	EvidenceID        string   `json:"evidence_id"`
-	EvidenceStatus    string   `json:"evidence_status,omitempty"`
-	SemanticEffect    string   `json:"semantic_effect,omitempty"`
-	ConfidenceMilli   int      `json:"confidence_milli"`
-	RegionMilli       []int    `json:"region_milli,omitempty"`
-	ShapeRefs         []string `json:"shape_refs"`
-	RepairQualified   bool     `json:"repair_qualified"`
-	BlockingQualified bool     `json:"blocking_qualified"`
+	SlideIndex        int                          `json:"slide_index"`
+	Class             string                       `json:"class"`
+	EvidenceSource    app.PPTXVisualEvidenceSource `json:"evidence_source"`
+	EvidenceID        string                       `json:"evidence_id"`
+	EvidenceStatus    string                       `json:"evidence_status,omitempty"`
+	SemanticEffect    string                       `json:"semantic_effect,omitempty"`
+	ConfidenceMilli   int                          `json:"confidence_milli"`
+	RegionMilli       []int                        `json:"region_milli,omitempty"`
+	ShapeRefs         []string                     `json:"shape_refs"`
+	RepairQualified   bool                         `json:"repair_qualified"`
+	BlockingQualified bool                         `json:"blocking_qualified"`
 }
 
 type PPTXVisualUnavailableProof struct {
@@ -126,7 +126,7 @@ func buildPPTXVisualReport(result pptxVisualQAResult, cfg config.PPTXVisualQAAda
 				DiagnosticID: fact.DiagnosticID, Kind: fact.Kind, Status: fact.Status, ShapeRefs: slices.Clone(fact.ShapeRefs),
 			})
 			if fact.Status == "unavailable" {
-				if class := pptxRuntimeClassForDiagnostic(fact.Kind); class != "" {
+				if class := app.PPTXVisualClassForDiagnosticKind(app.PPTXVisualDiagnosticKind(fact.Kind)); class != "" {
 					report.Unavailable = append(report.Unavailable, PPTXVisualUnavailableProof{
 						SlideIndex: page.SlideIndex, Class: class, DiagnosticID: fact.DiagnosticID, ShapeRefs: slices.Clone(fact.ShapeRefs),
 					})
@@ -141,12 +141,12 @@ func buildPPTXVisualReport(result pptxVisualQAResult, cfg config.PPTXVisualQAAda
 			if !ok || fact.Status != "confirmed" {
 				continue
 			}
-			class := pptxRuntimeClassForFactReview(fact.Kind, review.SemanticEffect)
+			class := app.PPTXVisualClassForFactReview(app.PPTXVisualDiagnosticKind(fact.Kind), review.SemanticEffect)
 			if class == "" {
 				continue
 			}
 			report.Issues = append(report.Issues, qualifiedPPTXRuntimeIssue(cfg, PPTXVisualRuntimeIssue{
-				SlideIndex: page.SlideIndex, Class: class, EvidenceSource: "objective", EvidenceID: fact.DiagnosticID,
+				SlideIndex: page.SlideIndex, Class: class, EvidenceSource: app.PPTXVisualEvidenceObjective, EvidenceID: fact.DiagnosticID,
 				EvidenceStatus: fact.Status, SemanticEffect: review.SemanticEffect, ConfidenceMilli: review.ConfidenceMilli,
 				ShapeRefs: slices.Clone(fact.ShapeRefs),
 			}))
@@ -157,7 +157,7 @@ func buildPPTXVisualReport(result pptxVisualQAResult, cfg config.PPTXVisualQAAda
 				RegionMilli: slices.Clone(issue.RegionMilli), ShapeRefs: slices.Clone(issue.ShapeRefs),
 			})
 			report.Issues = append(report.Issues, qualifiedPPTXRuntimeIssue(cfg, PPTXVisualRuntimeIssue{
-				SlideIndex: page.SlideIndex, Class: issue.Type, EvidenceSource: "subjective", EvidenceID: issue.VisualIssueID,
+				SlideIndex: page.SlideIndex, Class: issue.Type, EvidenceSource: app.PPTXVisualEvidenceSubjective, EvidenceID: issue.VisualIssueID,
 				ConfidenceMilli: issue.ConfidenceMilli, RegionMilli: slices.Clone(issue.RegionMilli), ShapeRefs: slices.Clone(issue.ShapeRefs),
 			}))
 		}
@@ -186,32 +186,6 @@ func qualifiedPPTXRuntimeIssue(cfg config.PPTXVisualQAAdapterConfig, issue PPTXV
 	issue.RepairQualified = slices.Contains(cfg.RepairQualifiedClasses, issue.Class)
 	issue.BlockingQualified = slices.Contains(cfg.BlockingQualifiedClasses, issue.Class)
 	return issue
-}
-
-func pptxRuntimeClassForFactReview(kind, semanticEffect string) string {
-	switch {
-	case kind == "text_clipping" && semanticEffect == "required_content_lost":
-		return "text_clipped"
-	case kind == "geometry_overlap" && semanticEffect == "harmful_obstruction":
-		return "content_obscured"
-	case kind == "off_canvas" && semanticEffect == "harmful_overflow":
-		return "element_off_canvas"
-	default:
-		return ""
-	}
-}
-
-func pptxRuntimeClassForDiagnostic(kind string) string {
-	switch kind {
-	case "text_clipping":
-		return "text_clipped"
-	case "geometry_overlap":
-		return "content_obscured"
-	case "off_canvas":
-		return "element_off_canvas"
-	default:
-		return ""
-	}
 }
 
 func applyPPTXVisualPolicy(report PPTXVisualReport, cfg config.PPTXVisualQAAdapterConfig) pptxVisualPolicyDecision {

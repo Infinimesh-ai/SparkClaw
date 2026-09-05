@@ -304,12 +304,16 @@ func (s *Server) Handler() http.Handler {
 	if s.jingsiRuntime == nil {
 		return standard
 	}
+	// The runtime carries its own bearer, but it still shares the gateway's
+	// request-rate bound: lookup/status/events are cheap to issue and each
+	// takes the provider's single store lock.
+	runtime := s.withRateLimit(s.jingsiRuntime)
 	root := http.NewServeMux()
-	root.Handle("POST /v1/executions:submit", s.jingsiRuntime)
-	root.Handle("POST /v1/executions:lookup", s.jingsiRuntime)
-	root.Handle("POST /v1/executions:status", s.jingsiRuntime)
-	root.Handle("POST /v1/executions:cancel", s.jingsiRuntime)
-	root.Handle("POST /v1/execution-events:list", s.jingsiRuntime)
+	root.Handle("POST /v1/executions:submit", runtime)
+	root.Handle("POST /v1/executions:lookup", runtime)
+	root.Handle("POST /v1/executions:status", runtime)
+	root.Handle("POST /v1/executions:cancel", runtime)
+	root.Handle("POST /v1/execution-events:list", runtime)
 	root.Handle("/", standard)
 	return root
 }

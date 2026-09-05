@@ -25,7 +25,8 @@ def backend_identity(name: str) -> dict:
         'cmd':info['Config']['Cmd'],'user':info['Config']['User'],
         'readonly_rootfs':info['HostConfig']['ReadonlyRootfs'],'cap_drop':info['HostConfig']['CapDrop'],
         'security_opt':info['HostConfig']['SecurityOpt'],
-        'mounts':[{'source':m['Source'],'destination':m['Destination'],'rw':m['RW']} for m in info['Mounts']],
+        'mounts':sorted([{'source':m['Source'],'destination':m['Destination'],'rw':m['RW']} for m in info['Mounts']],
+                        key=lambda m:(m['destination'],m['source'])),
         'networks':sorted(info['NetworkSettings']['Networks'])}
 
 

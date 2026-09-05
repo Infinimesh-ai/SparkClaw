@@ -14,7 +14,7 @@ from pathlib import Path
 from scripts.e2_reranker_evidence_v3 import EvidenceFailure, V3ContractBundle, canonical_bytes
 from scripts.e2_reranker_fake_smoke_v3 import _NoRedirect
 from scripts.e2_reranker_live_smoke_v3 import LiveNativeRerankClient, durable_new, native_counters
-from scripts.e2_reranker_https_v3 import Boundary
+from scripts.e2_reranker_https_v3 import Boundary, backend_identity
 
 
 def metrics(queries="10.0", hits="4e0", labels='engine="0",model_name="sparkclaw-reranker"'):
@@ -118,6 +118,19 @@ class RawBackend(BaseHTTPRequestHandler):
 
 
 class HTTPSBoundaryTests(unittest.TestCase):
+    def test_docker_mount_enumeration_order_is_not_deployment_drift(self):
+        info={'State':{'Running':True,'StartedAt':'fixed'},'Id':'fixed','Image':'fixed',
+            'Config':{'Image':'fixed','Entrypoint':['vllm'],'Cmd':['serve'],'User':'1000:1000'},
+            'HostConfig':{'ReadonlyRootfs':True,'CapDrop':['ALL'],'SecurityOpt':['no-new-privileges']},
+            'NetworkSettings':{'Networks':{'internal':{}}},
+            'Mounts':[{'Source':'/model','Destination':'/model','RW':False},{'Source':'/cache','Destination':'/cache','RW':True}]}
+        reversed_info=copy.deepcopy(info);reversed_info['Mounts'].reverse()
+        with mock.patch('scripts.e2_reranker_https_v3.subprocess.check_output',side_effect=[json.dumps([info]).encode(),json.dumps([reversed_info]).encode()]):
+            self.assertEqual(backend_identity('fake'),backend_identity('fake'))
+        changed=copy.deepcopy(info);changed['Mounts'][0]['RW']=True
+        with mock.patch('scripts.e2_reranker_https_v3.subprocess.check_output',side_effect=[json.dumps([info]).encode(),json.dumps([changed]).encode()]):
+            self.assertNotEqual(backend_identity('fake'),backend_identity('fake'))
+
     def test_exact_body_identity_drift_and_single_forward(self):
         # The boundary component uses fixtures only against this explicitly fake backend.
         bundle=V3ContractBundle.load();manifest=json.loads(bundle.pinned_raw['fixtures/artifacts/valid-synthetic-deployment-manifest.json'])

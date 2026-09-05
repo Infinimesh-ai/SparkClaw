@@ -143,7 +143,8 @@ Tool。Workflow 不包含 Login、Probe、Re-login 或 Generic Browser Node。
 `email.send` 是 Dangerous、Non-idempotent、Approval-required，并受 90 秒 Tool Deadline
 限制。Approval 展示 Provider、Masked Account Hint、Recipient、Subject 和完整 Body，绑定
 包含全部 Runtime-owned Admission Fact 的完整 Argument Object。Approval 后任何变化都会
-阻断执行。
+阻断执行。Tool Definition 声明 `arguments_immutable`，Approval Payload 携带同一标志，
+Modify 端点对此类 Approval 返回 `409`，WebChat 依据该标志而非 Tool 名称隐藏参数编辑。
 
 调用 Script 前，Runtime 再次检查 Provider 仍 Enabled/Ready，且 Account、Setting Version
 和 Browser Control Credential Generation 与 Approval 相同。发生 Drift 时必须重新请求和

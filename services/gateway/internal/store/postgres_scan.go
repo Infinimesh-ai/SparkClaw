@@ -346,7 +346,7 @@ func scanApproval(row scanner) (app.Approval, error) {
 	var presentation []byte
 	err := row.Scan(&approval.ID, &source, &approval.ExternalID, &externalContext,
 		&approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk,
-		&status, &approval.Summary, &approval.Reason, &resources, &args,
+		&status, &approval.Summary, &approval.Reason, &resources, &args, &approval.ArgumentsImmutable,
 		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext, &presentation)
 	if err != nil {
 		return app.Approval{}, err

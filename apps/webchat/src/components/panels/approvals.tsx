@@ -57,7 +57,7 @@ export function ApprovalPanel({
           const happyPlan = approval.source === "happy_team_plan" ? approval.external_context : undefined;
           const planAvailable = happyPlan?.plan_availability === "available";
           const contextBound = Boolean(approval.policy_context);
-          const argumentsLocked = contextBound || approval.tool === "email.send";
+          const argumentsLocked = contextBound || Boolean(approval.arguments_immutable);
           const workspaceAccess = approval.presentation?.kind === "external_mcp_workspace_data_access" ? approval.presentation : undefined;
           const resolving = resolvingId === approval.id;
           return (

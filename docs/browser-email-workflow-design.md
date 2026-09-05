@@ -169,7 +169,10 @@ re-login, or generic browser node.
 90-second tool deadline. Approval presents the provider, masked account hint,
 recipient, subject, and full body. It binds the complete argument object,
 including every Runtime-owned admission fact. Any post-approval change blocks
-execution.
+execution. The tool definition declares `arguments_immutable`; the approval
+payload carries the same flag, the modify endpoint rejects such approvals with
+`409`, and WebChat hides argument editing based on the flag rather than the
+tool name.
 
 Immediately before script invocation, Runtime verifies that the provider is
 still enabled and ready and that account, setting version, and Browser control

@@ -202,6 +202,7 @@ const (
 	ToolCapabilityScheduleManage            = "schedule.manage"
 	ToolCapabilityObservationRead           = "observation.read"
 	ToolWorkspaceDataAccess                 = "workspace.data.access"
+	ToolEmailSend                           = "email.send"
 	ToolCapabilityExternalMCPWorkspace      = "external.mcp.workspace"
 	ToolCapabilityLocalMindDelegateRead     = "localmind.task.delegate.read"
 	ToolCapabilityLocalMindDelegateWrite    = "localmind.task.delegate.write"

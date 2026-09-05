@@ -138,19 +138,20 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			return ManualInvocation{}, fmt.Errorf("persist manual approval run: %w", err)
 		}
 		approval := app.Approval{
-			ID:         app.NewID("ap"),
-			Source:     app.ApprovalSourceTool,
-			SessionID:  sessionID,
-			RunID:      runID,
-			ToolCallID: call.ID,
-			Tool:       name,
-			Risk:       def.Risk,
-			Status:     app.ApprovalStatusPending,
-			Summary:    summary,
-			Reason:     reason,
-			Resources:  []string{},
-			Arguments:  args,
-			CreatedAt:  time.Now().UTC(),
+			ID:                 app.NewID("ap"),
+			Source:             app.ApprovalSourceTool,
+			SessionID:          sessionID,
+			RunID:              runID,
+			ToolCallID:         call.ID,
+			Tool:               name,
+			Risk:               def.Risk,
+			Status:             app.ApprovalStatusPending,
+			Summary:            summary,
+			Reason:             reason,
+			Resources:          []string{},
+			Arguments:          args,
+			ArgumentsImmutable: def.ArgumentsImmutable,
+			CreatedAt:          time.Now().UTC(),
 		}
 		call.Status = app.ToolCallStatusApprovalPending
 		call.ApprovalID = approval.ID
@@ -226,19 +227,20 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 			approvalSummaryText += " " + pptxVisualWarning
 		}
 		approval := app.Approval{
-			ID:         app.NewID("ap"),
-			Source:     app.ApprovalSourceTool,
-			SessionID:  sessionID,
-			RunID:      runID,
-			ToolCallID: call.ID,
-			Tool:       name,
-			Risk:       def.Risk,
-			Status:     app.ApprovalStatusPending,
-			Summary:    approvalSummaryText,
-			Reason:     decision.Reason,
-			Resources:  decision.Resources,
-			Arguments:  approvalArgs,
-			CreatedAt:  time.Now().UTC(),
+			ID:                 app.NewID("ap"),
+			Source:             app.ApprovalSourceTool,
+			SessionID:          sessionID,
+			RunID:              runID,
+			ToolCallID:         call.ID,
+			Tool:               name,
+			Risk:               def.Risk,
+			Status:             app.ApprovalStatusPending,
+			Summary:            approvalSummaryText,
+			Reason:             decision.Reason,
+			Resources:          decision.Resources,
+			Arguments:          approvalArgs,
+			ArgumentsImmutable: def.ArgumentsImmutable,
+			CreatedAt:          time.Now().UTC(),
 		}
 		call.Status = app.ToolCallStatusApprovalPending
 		call.ApprovalID = approval.ID

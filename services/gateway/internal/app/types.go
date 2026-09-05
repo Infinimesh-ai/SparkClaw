@@ -94,21 +94,25 @@ type PolicyExecutionContext struct {
 }
 
 type ToolDefinition struct {
-	Name             string                 `json:"name"`
-	Title            string                 `json:"title,omitempty"`
-	Description      string                 `json:"description"`
-	InputSchema      map[string]any         `json:"input_schema"`
-	OutputSchema     map[string]any         `json:"output_schema,omitempty"`
-	Annotations      map[string]any         `json:"annotations,omitempty"`
-	Risk             RiskLevel              `json:"risk"`
-	RequiresApproval bool                   `json:"requires_approval"`
-	Idempotent       bool                   `json:"idempotent"`
-	TimeoutMS        int                    `json:"timeout_ms"`
-	Sandbox          string                 `json:"sandbox"`
-	Audit            string                 `json:"audit"`
-	Capabilities     []CapabilityDescriptor `json:"capabilities,omitempty"`
-	OutcomeAdapter   ToolOutcomeAdapter     `json:"outcome_adapter,omitempty"`
-	Directory        ToolDirectoryMetadata  `json:"directory,omitempty"`
+	Name             string         `json:"name"`
+	Title            string         `json:"title,omitempty"`
+	Description      string         `json:"description"`
+	InputSchema      map[string]any `json:"input_schema"`
+	OutputSchema     map[string]any `json:"output_schema,omitempty"`
+	Annotations      map[string]any `json:"annotations,omitempty"`
+	Risk             RiskLevel      `json:"risk"`
+	RequiresApproval bool           `json:"requires_approval"`
+	// ArgumentsImmutable marks a tool whose approved arguments must execute
+	// exactly as requested: the approval cannot be modified and the executor
+	// re-verifies the argument fingerprint before running the call.
+	ArgumentsImmutable bool                   `json:"arguments_immutable,omitempty"`
+	Idempotent         bool                   `json:"idempotent"`
+	TimeoutMS          int                    `json:"timeout_ms"`
+	Sandbox            string                 `json:"sandbox"`
+	Audit              string                 `json:"audit"`
+	Capabilities       []CapabilityDescriptor `json:"capabilities,omitempty"`
+	OutcomeAdapter     ToolOutcomeAdapter     `json:"outcome_adapter,omitempty"`
+	Directory          ToolDirectoryMetadata  `json:"directory,omitempty"`
 }
 
 type ToolCall struct {
@@ -149,11 +153,15 @@ type Approval struct {
 	Reason          string                   `json:"reason"`
 	Resources       []string                 `json:"resources"`
 	Arguments       map[string]any           `json:"arguments"`
-	CreatedAt       time.Time                `json:"created_at"`
-	ResolvedAt      *time.Time               `json:"resolved_at,omitempty"`
-	ResolutionNote  string                   `json:"resolution_note,omitempty"`
-	PolicyContext   *PolicyExecutionContext  `json:"policy_context,omitempty"`
-	Presentation    *ApprovalPresentation    `json:"presentation,omitempty"`
+	// ArgumentsImmutable is projected from the tool definition when the
+	// approval is created so clients can hide argument editing without
+	// knowing tool names.
+	ArgumentsImmutable bool                    `json:"arguments_immutable,omitempty"`
+	CreatedAt          time.Time               `json:"created_at"`
+	ResolvedAt         *time.Time              `json:"resolved_at,omitempty"`
+	ResolutionNote     string                  `json:"resolution_note,omitempty"`
+	PolicyContext      *PolicyExecutionContext `json:"policy_context,omitempty"`
+	Presentation       *ApprovalPresentation   `json:"presentation,omitempty"`
 }
 
 type ApprovalPresentation struct {

@@ -117,11 +117,11 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
 	}
-	if call.Tool == "email.send" && compactToolArgsFingerprint(call.Arguments) != compactToolArgsFingerprint(approval.Arguments) {
+	if def.ArgumentsImmutable && compactToolArgsFingerprint(call.Arguments) != compactToolArgsFingerprint(approval.Arguments) {
 		now := time.Now().UTC()
 		call.Status = app.ToolCallStatusFailedAfterApproval
 		call.CompletedAt = &now
-		call.Error = "approved email content no longer matches the original send request"
+		call.Error = "approved argument set no longer matches the original request"
 		call.ErrorCode = string(app.ToolErrorPolicyBlocked)
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: fmt.Errorf("%s", call.Error), MaxBytes: r.observationSummaryLimit()})
 		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {

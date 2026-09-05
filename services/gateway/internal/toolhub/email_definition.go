@@ -4,7 +4,7 @@ import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 
 func emailSendDefinition() app.ToolDefinition {
 	return app.ToolDefinition{
-		Name:        "email.send",
+		Name:        app.ToolEmailSend,
 		Description: "Send exactly one approved plain-text email through the Runtime-selected browser provider and account.",
 		InputSchema: strictObjectSchema([]string{
 			"provider", "account", "account_hint", "recipient", "body", "setting_version", "browser_credential_generation",
@@ -31,7 +31,7 @@ func emailSendDefinition() app.ToolDefinition {
 			"browser_credential_generation": integerSchema(),
 			"script_revision":               integerSchema(),
 		}),
-		Risk: app.RiskDangerous, RequiresApproval: true, Idempotent: false,
+		Risk: app.RiskDangerous, RequiresApproval: true, ArgumentsImmutable: true, Idempotent: false,
 		TimeoutMS: 90000, Sandbox: "forbidden", Audit: "always",
 	}
 }

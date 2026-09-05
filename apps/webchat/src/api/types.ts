@@ -111,6 +111,9 @@ export type Approval = {
   reason: string;
   resources: string[];
   arguments: Record<string, unknown>;
+  // Projected from the tool definition: the approval can only be accepted or
+  // rejected as requested, never edited.
+  arguments_immutable?: boolean;
   policy_context?: Record<string, unknown>;
   presentation?: ApprovalPresentation;
   created_at: string;

@@ -106,7 +106,7 @@ func TestBrowserEmailWorkflowProjectsOnlyMessageFieldsAndRestoresFrozenBindings(
 		WorkflowID: app.WorkflowBrowserEmail, WorkflowNodeID: "email_send", ScopeRevision: node.ScopeRevision,
 		Capability: app.ToolCapabilityBrowserEmailSend,
 	})
-	if err != nil || approval == nil || call.Status != app.ToolCallStatusApprovalPending {
+	if err != nil || approval == nil || call.Status != app.ToolCallStatusApprovalPending || !approval.ArgumentsImmutable {
 		t.Fatalf("email send approval call=%#v approval=%#v err=%v", call, approval, err)
 	}
 	for key, want := range map[string]any{

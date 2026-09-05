@@ -15,7 +15,7 @@ import (
 const approvalSelectSQL = `
 	SELECT id, source, external_id, external_context,
 		coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
-		tool, risk_level, status, summary, reason, resources, arguments, created_at,
+		tool, risk_level, status, summary, reason, resources, arguments, arguments_immutable, created_at,
 		resolved_at, coalesce(resolution_note, ''), policy_context, presentation
 	FROM approvals`
 
@@ -180,14 +180,14 @@ func (s *PostgresStore) SaveApproval(ctx context.Context, approval app.Approval)
 	if _, err := transaction.Exec(ctx, `
 		INSERT INTO approvals (
 			id, source, external_id, external_context, session_id, run_id, tool_call_id,
-			tool, risk_level, status, summary, reason, resources, arguments, created_at,
+			tool, risk_level, status, summary, reason, resources, arguments, arguments_immutable, created_at,
 			resolved_at, resolution_note, policy_context, presentation
 		)
 		VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), nullif($7, ''), $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''), $18, $19)
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, nullif($18, ''), $19, $20)
 	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID,
 		approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), string(approval.Status), approval.Summary,
-		approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt,
+		approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.ArgumentsImmutable, approval.CreatedAt,
 		approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext), optionalJSON(approval.Presentation)); err != nil {
 		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, approval, session, transaction, release, err)
 	}

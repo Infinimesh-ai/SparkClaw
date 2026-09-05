@@ -104,6 +104,8 @@ def main():
         raise ValueError('deployment record mismatch')
     if record['backend']!=backend_identity(args.container) or record['proxy_source_sha256']!=hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
         raise ValueError('deployment identity mismatch')
+    if record['backend_port']!=args.backend_port or record['https_port']!=args.port:
+        raise ValueError('reviewed port mismatch')
     if record['tls_ca_sha256']!=hashlib.sha256(args.ca_file.read_bytes()).hexdigest():raise ValueError('CA mismatch')
     context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(args.cert_file,args.key_file)

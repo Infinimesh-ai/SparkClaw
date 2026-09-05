@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { ControllerError } from "./errors.mjs";
+import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
 import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
 import { parseTabsMarkdown, renderTabLine } from "./playwright-output.mjs";
 import {
@@ -13,7 +14,6 @@ import {
   scrubPlaywrightEnvironment,
 } from "./cli-runtime.mjs";
 
-const EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
 const EXTENSION_CONNECT_URL = "sparkclaw-internal://extension-connect";
 const RELAY_PATH_PATTERN = /^\/extension\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const TRANSIENT_EVALUATION_ATTEMPTS = 4;
@@ -606,7 +606,7 @@ function isExtensionConnectURL(rawURL, token) {
   }
   if (
     parsed.protocol !== "chrome-extension:" ||
-    parsed.hostname !== EXTENSION_ID ||
+    parsed.hostname !== BRIDGE_EXTENSION_ID ||
     parsed.pathname !== "/connect.html" ||
     parsed.username ||
     parsed.password ||

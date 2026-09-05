@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
 import { ControllerError, invalidRequest } from "./errors.mjs";
 import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
 import {
@@ -26,7 +27,7 @@ const MAX_INPUT_TEXT_BYTES = 24 << 10;
 const MAX_TASK_PAGES = 16;
 const SESSION_OUTPUT_PATTERN = /^session-[0-9a-f]{24}$/u;
 const BRIDGE_REJECTION_MARKER = "browser_extension_rejected";
-const BRIDGE_CONNECT_URL_PREFIX = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html?";
+const BRIDGE_CONNECT_URL_PREFIX = `chrome-extension://${BRIDGE_EXTENSION_ID}/connect.html?`;
 const RELAY_DEBUG_NAMESPACE = "pw:mcp:relay";
 // Every upstream tool the client calls; clicks go through browser_evaluate so
 // the background click never focuses the task tab.

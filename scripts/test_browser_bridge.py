@@ -39,6 +39,23 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         bootstrap = (SOURCE / expected_worker).read_text(encoding="utf-8")
         self.assertIn(f'const BOOTSTRAP_VERSION = "{manifest["version"]}";', bootstrap)
 
+    def test_bridge_version_is_pinned_identically_everywhere(self) -> None:
+        """The Bridge, the Controller handshake, and the docs must name one version."""
+        manifest = load_manifest(MANIFEST)
+        version = manifest["version"]
+        for source in (
+            SOURCE / "src" / "protocol.mjs",
+            ROOT / "tools" / "browser-controller" / "src" / "bridge-native-protocol.mjs",
+        ):
+            text = source.read_text(encoding="utf-8")
+            self.assertIn(f'export const BRIDGE_VERSION = "{version}";', text, source)
+            self.assertIn(f'export const BRIDGE_EXTENSION_ID = "{manifest["extensionID"]}";', text, source)
+        extension = json.loads((SOURCE / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(extension["background"]["service_worker"], f"src/bootstrap-{version}.mjs")
+        self.assertTrue((SOURCE / "src" / f"bootstrap-{version}.mjs").is_file())
+        for doc in (ROOT / "docs" / "browser-runtime.md", ROOT / "zh-cn" / "docs" / "browser-runtime.md"):
+            self.assertIn(f"Browser Bridge `{version}`", doc.read_text(encoding="utf-8"), doc)
+
     def test_verifier_rejects_changed_and_extra_files(self) -> None:
         manifest = load_manifest(MANIFEST)
         with tempfile.TemporaryDirectory() as directory:

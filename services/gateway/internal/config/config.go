@@ -11,7 +11,6 @@ import (
 
 func Load(path string) (Config, error) {
 	cfg := Default()
-	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
 	if path != "" {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -205,11 +204,15 @@ func rejectLegacyBrowserAutomation(raw []byte) error {
 	return nil
 }
 
-// LoadDefault resolves the default model-capacity profile without applying
-// file or environment overrides. Runtime entrypoints should use Load.
-func LoadDefault() (Config, error) {
+// ResolveDefault resolves the default model-capacity profile from an
+// explicit catalog path without applying file or environment overrides.
+// Tests use it through configtest; runtime entrypoints should use Load.
+func ResolveDefault(catalogPath string) (Config, error) {
 	cfg := Default()
-	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
+	cfg.Model.CapacityCatalog = strings.TrimSpace(catalogPath)
+	if cfg.Model.CapacityCatalog == "" {
+		return Config{}, errors.New("ResolveDefault requires a model capacity catalog path")
+	}
 	if err := applySelectedModelCapacity(&cfg, ""); err != nil {
 		return Config{}, err
 	}

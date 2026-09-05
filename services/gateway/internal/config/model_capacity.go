@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -27,6 +26,9 @@ var legacyModelCapacityEnvironment = []string{
 	"SPARKCLAW_OCR_MAX_TOKENS",
 }
 
+// defaultModelCapacityCatalog is resolved relative to the config file when
+// one is given, otherwise relative to the working directory; deployments
+// override it with SPARKCLAW_MODEL_CAPACITY_CATALOG or model.capacity_catalog.
 const defaultModelCapacityCatalog = "configs/model.profiles.json"
 
 type modelCapacityCatalog struct {
@@ -48,13 +50,6 @@ type physicalModelSpec struct {
 type capacityLaneSpec struct {
 	PhysicalModel string         `json:"physical_model"`
 	OutputBudgets map[string]int `json:"output_budgets"`
-}
-
-func defaultModelCapacityCatalogPath() string {
-	if _, source, _, ok := runtime.Caller(0); ok {
-		return filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "..", "..", "configs", "model.profiles.json"))
-	}
-	return defaultModelCapacityCatalog
 }
 
 func rejectLegacyModelCapacity(raw []byte) error {

@@ -54,6 +54,42 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Deployment: `docker compose` now requires an explicit
+  `SPARKCLAW_MODEL_CAPACITY_PROFILE` (the previous `mock` default silently
+  routed every model call to the mock router when the deploy scripts were
+  bypassed), the vLLM capacity entrypoint refuses profiles flagged `mock`,
+  `SPARKCLAW_PAIRING_REQUIRED` defaults to `true` in compose, and the
+  duplicate `dgx-spark-local` capacity profile was removed.
+- Managed browser windows (WeChat QR login) are handed to the owner after
+  opening; the Playwright bridge opens tabs in the background, so the page was
+  previously created but never shown.
+- PPTX final-render visual QA re-reviews the whole authorized slide selection
+  after every repair attempt (a blocking issue on a slide without a repair
+  could previously disappear before sealing), reports a missing Python runtime
+  as renderer unavailability instead of an evidence-integrity failure (so the
+  shadow phase no longer aborts governed mutations), and records
+  `pptx_render_repair_exhausted` when the repair budget ends.
+- Email automation: provider script timeouts and invalid-output codes map to
+  `email_script_timeout` / `email_script_invalid_output` instead of
+  `email_provider_unavailable`; `/api/email` errors carry `code` and
+  `retryable`; store failures return a bounded message; controller calls are
+  bounded by the script budget. The inert `adapters.emailAutomation.scriptDir`
+  setting and `SPARKCLAW_EMAIL_SCRIPT_DIR` were removed.
+- Integration settings: a failed operator or household activation can be
+  retried from the settings panel, and a failed credential write no longer
+  leaves the in-memory credential list corrupted.
+- JingSi Runtime v1 routes share the gateway rate limiter, an execution whose
+  running state cannot be persisted becomes an explicit `failed` outcome, and
+  the central-contract gate in `internal/contracttest` skips (or reads
+  `SPARKCLAW_JINGSI_CONTRACT_MANIFEST`) instead of failing every fresh clone.
+- LocalMind grounding replaces the final answer only for runs of the explicit
+  LocalMind workflows and no longer scans the complete session tool-call
+  history on every routed message; a malformed JingSi `max_tool_calls` budget
+  now fails closed in the step loop as it already did in tool exposure.
+- Browser controller: `browser_lane_unavailable` and
+  `browser_controller_stopping` are mapped explicitly, deadline-less
+  controller calls get a five-minute backstop, and CI now runs the browser
+  bridge test suite.
 - The experimental JingSi LAN presentation routes moved under one
   `/api/jingsi/v0/` prefix (`POST /api/jingsi/v0/messages/stream`,
   `GET /api/jingsi/v0/client-events{,/head,/stream}`, and the phone-facing

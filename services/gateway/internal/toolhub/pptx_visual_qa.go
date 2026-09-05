@@ -403,20 +403,21 @@ func (s *pptxVisualQAService) analyzeRender(ctx context.Context, request pptxVis
 		"diagnostic_tolerance_milli": s.cfg.DiagnosticToleranceMilli,
 	})
 	if err != nil {
-		kind := pptxVisualQAIntegrityError
-		code := app.ToolErrorPPTXRenderDiagnosticInvalid
-		adapterCode := documentAdapterErrorCode(err)
-		switch {
+		// Only evidence the script explicitly reports as inconsistent is an
+		// integrity failure. A missing dependency, a crashed interpreter, or an
+		// unknown code means the renderer was unavailable, which shadow and
+		// warning phases record instead of failing the mutation.
+		kind := pptxVisualQAInfrastructureError
+		code := app.ToolErrorPPTXRenderBackendUnavailable
+		switch adapterCode := documentAdapterErrorCode(err); {
 		case errors.Is(ctx.Err(), context.Canceled):
-			kind, code = pptxVisualQAInfrastructureError, app.ToolErrorPPTXRenderCancelled
+			code = app.ToolErrorPPTXRenderCancelled
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			kind, code = pptxVisualQAInfrastructureError, app.ToolErrorPPTXRenderTimeout
+			code = app.ToolErrorPPTXRenderTimeout
 		case adapterCode == "pptx_visual_qa_page_count" || adapterCode == "pptx_visual_qa_page_dimensions" || adapterCode == "pptx_visual_qa_page_selection":
-			code = app.ToolErrorPPTXRenderPageMismatch
+			kind, code = pptxVisualQAIntegrityError, app.ToolErrorPPTXRenderPageMismatch
 		case adapterCode == "pptx_visual_qa_invalid_png" || adapterCode == "pptx_visual_qa_raster_limit":
-			code = app.ToolErrorPPTXRenderInvalidImage
-		case adapterCode == "pptx_visual_qa_failed":
-			kind, code = pptxVisualQAInfrastructureError, app.ToolErrorPPTXRenderBackendUnavailable
+			kind, code = pptxVisualQAIntegrityError, app.ToolErrorPPTXRenderInvalidImage
 		}
 		return pptxRenderAnalysis{}, newPPTXVisualQAError(kind, code, fmt.Errorf("analyze rendered PPTX: %w", err))
 	}

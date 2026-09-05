@@ -14,7 +14,7 @@ try:
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
 except Exception as exc:
-    print(json.dumps({"error": "PPTX visual QA requires python-pptx, Pillow, and pypdfium2: %s" % exc}))
+    print(json.dumps({"error": "PPTX visual QA requires python-pptx, lxml, Pillow, and pypdfium2: %s" % exc, "error_code": "pptx_visual_qa_unavailable"}))
     sys.exit(0)
 
 

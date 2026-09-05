@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -270,4 +271,118 @@ func strings64(value string) string {
 		value + value + value + value + value + value + value + value +
 		value + value + value + value + value + value + value + value +
 		value + value + value + value + value + value + value + value
+}
+
+// scriptedMultiSlideVisualRunner serves per-slide pages for exactly the slides
+// each Assess request selects, clears the repaired slide's findings after the
+// first pass, and records every selection so the controller's re-review scope
+// can be asserted.
+type scriptedMultiSlideVisualRunner struct {
+	pages       map[int]pptxVisualQAPageResult
+	selections  [][]int
+	assessCalls int
+}
+
+func (runner *scriptedMultiSlideVisualRunner) Assess(_ context.Context, request pptxVisualQARequest) (pptxVisualQAResult, error) {
+	raw, err := os.ReadFile(request.CandidatePath)
+	if err != nil {
+		return pptxVisualQAResult{}, err
+	}
+	candidateSHA := pptxBytesSHA256(raw)
+	runner.assessCalls++
+	runner.selections = append(runner.selections, slices.Clone(request.SlideIndexes))
+	pages := make([]pptxVisualQAPageResult, 0, len(request.SlideIndexes))
+	for _, slideIndex := range request.SlideIndexes {
+		page := runner.pages[slideIndex]
+		page.Diagnostics.CandidateSHA256 = candidateSHA
+		page.Raster.PNGSHA256 = candidateSHA
+		if runner.assessCalls > 1 && slideIndex == 1 {
+			page.Diagnostics.Facts = []pptxDiagnosticFact{}
+			page.Assessment.FactReviews = []pptxVisualFactReview{}
+		}
+		pages = append(pages, page)
+	}
+	return pptxVisualQAResult{
+		SchemaVersion: pptxRenderAnalysisSchema, Status: "completed", CandidateSHA256: candidateSHA,
+		PDFSHA256: candidateSHA, SlideCount: len(runner.pages), Pages: pages,
+	}, nil
+}
+
+func (runner *scriptedMultiSlideVisualRunner) PlanRepair(_ context.Context, request pptxVisualRepairRequest) (pptxVisualRepairPlan, modelrouter.ChatResult, error) {
+	return pptxVisualRepairPlan{
+		SchemaVersion: pptxVisualRepairPlanSchema, Attempt: request.Attempt, SlideIndex: request.Page.SlideIndex,
+		ResolvesDiagnosticIDs: []string{"diag-text-1-2"}, ResolvesVisualIssueIDs: []string{},
+		Operations: []pptxVisualRepairOperation{{Op: "set_geometry", ShapeRef: "slide:1:shape:2", RegionMilli: []int{100, 400, 700, 300}}},
+	}, modelrouter.ChatResult{}, nil
+}
+
+// unchangedSecondSlidePage derives a slide-2 page from a slide-1 page whose
+// shapes were all left untouched by the current run, so any issue on it is
+// blocking-qualified but never actionable under exact authority.
+func unchangedSecondSlidePage(t *testing.T, page pptxVisualQAPageResult) pptxVisualQAPageResult {
+	t.Helper()
+	raw, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = []byte(strings.ReplaceAll(strings.ReplaceAll(string(raw), "slide:1:", "slide:2:"), "diag-text-1-", "diag-text-2-"))
+	var second pptxVisualQAPageResult
+	if err := json.Unmarshal(raw, &second); err != nil {
+		t.Fatal(err)
+	}
+	second.SlideIndex, second.Structure.SlideIndex, second.Diagnostics.SlideIndex, second.Assessment.SlideIndex = 2, 2, 2, 2
+	for _, shape := range second.Structure.Shapes {
+		shape["changed"] = false
+	}
+	return second
+}
+
+func TestPPTXVisualControllerKeepsBlockingIssuesOnUnrepairedSlidesInScope(t *testing.T) {
+	root := t.TempDir()
+	writeSingleSlidePptxFixture(t, root, "candidate.pptx")
+	candidatePath := filepath.Join(root, "candidate.pptx")
+	pdfPath := filepath.Join(root, "candidate.pdf")
+	writePPTXVisualQAPDFFixture(t, pdfPath, 960, 720)
+	candidateSHA, err := pptxVisualFileSHA256(t.Context(), candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newPPTXVisualQAService(testPPTXVisualQAConfig("http://127.0.0.1"), nil)
+	analysis, err := service.analyzeRender(t.Context(), pptxVisualQARequest{
+		CandidatePath: candidatePath, Operation: "update_slide", SlideIndexes: []int{1}, ChangedShapeIndexes: map[int][]int{1: {2}},
+	}, candidateSHA, pdfPath, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	analyzed := analysis.Pages[0]
+	first := pptxVisualQAPageResult{
+		SlideIndex: 1, Raster: analyzed.Raster, Structure: analyzed.Structure, Targets: analyzed.Targets,
+		Diagnostics: pptxDiagnosticFacts{
+			SchemaVersion: pptxDiagnosticFactsSchema, CandidateSHA256: candidateSHA, SlideIndex: 1, CoordinateSpace: "region_milli",
+			Facts: []pptxDiagnosticFact{{DiagnosticID: "diag-text-1-2", Kind: "text_clipping", Status: "confirmed", ShapeRefs: []string{"slide:1:shape:2"}}},
+		},
+		Assessment: pptxVisualAssessment{
+			SchemaVersion: pptxVisualAssessmentSchema, SlideIndex: 1,
+			FactReviews:      []pptxVisualFactReview{{DiagnosticID: "diag-text-1-2", SemanticEffect: "required_content_lost", ConfidenceMilli: 990}},
+			SubjectiveIssues: []pptxVisualSubjectiveIssue{},
+		},
+	}
+	runner := &scriptedMultiSlideVisualRunner{pages: map[int]pptxVisualQAPageResult{1: first, 2: unchangedSecondSlidePage(t, first)}}
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	cfg.Adapters.PPTXVisualQA.Phase = "qualified_blocking"
+	cfg.Adapters.PPTXVisualQA.RepairQualifiedClasses = []string{"text_clipped"}
+	cfg.Adapters.PPTXVisualQA.RepairQualifiedOperations = []string{"set_geometry"}
+	cfg.Adapters.PPTXVisualQA.BlockingQualifiedClasses = []string{"text_clipped"}
+	cfg.Adapters.PPTXVisualQA.MaxRepairAttempts = 2
+	hub := New(cfg, store.NewMemoryStore())
+	hub.pptxVisualQA = runner
+	_, err = hub.preparePPTXVisualCandidate(t.Context(), candidatePath, "update_slide", root, "session", "run", []int{1, 2}, map[int][]int{1: {2}}, nil)
+	if app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderVisualBlocked {
+		t.Fatalf("blocking issue on the unrepaired slide was sealed away: err=%v selections=%v", err, runner.selections)
+	}
+	if runner.assessCalls != 2 || !slices.Equal(runner.selections[1], []int{1, 2}) {
+		t.Fatalf("re-review narrowed the authorized selection: assess=%d selections=%v", runner.assessCalls, runner.selections)
+	}
 }

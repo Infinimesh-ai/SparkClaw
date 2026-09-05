@@ -75,7 +75,7 @@ type managedPeer struct {
 	// on the next attempt so the Cloud dedupes instead of minting a second
 	// grant (managed_lifecycle.go).
 	pendingRenewKey string
-	reinit     chan struct{}
+	reinit          chan struct{}
 }
 
 func (p *managedPeer) markStale(sessionID string) {

@@ -243,7 +243,11 @@ func Default() Config {
 			CredentialKeyFile:         "./data/memory/gateway-credentials.key",
 		},
 		Runtime: RuntimeConfig{
-			ObservationSummaryMaxBytes:    2400,
+			ObservationSummaryMaxBytes: 2400,
+			// 8000 fits the local 32K-context profile. The hosted product
+			// profile (docker/env/sparkclaw.product.env) raises it to the
+			// extracted-document contract; defaults_contract_test.go pins
+			// that override so the two cannot drift silently.
 			StageEvidenceMaxBytes:         8000,
 			StageMaxDurationSeconds:       180,
 			StageMaxNoProgressActions:     3,

@@ -235,7 +235,10 @@ func (h *ToolHub) PreparePPTXCandidate(ctx context.Context, name string, args ma
 	}
 	scopeKey := pptxBytesSHA256([]byte(ownerID + "\x00" + sessionID + "\x00" + runID))[:24]
 	candidateKey := filepath.ToSlash(filepath.Join("pptx", "sealed", scopeKey, candidateSHA+".pptx"))
-	sealedOutput := clonePPTXMap(mutationOutput)
+	sealedOutput, err := clonePPTXMap(mutationOutput)
+	if err != nil {
+		return PPTXSealedCandidateBinding{}, err
+	}
 	sealedOutput["output_path"] = strings.TrimSpace(stringArg(publicArgs, "output_path", ""))
 	if _, ok := sealedOutput["outputs"]; ok {
 		sealedOutput["outputs"] = []string{strings.TrimSpace(stringArg(publicArgs, "output_path", ""))}
@@ -349,7 +352,10 @@ func (h *ToolHub) PublishSealedPPTXCandidate(ctx context.Context, name string, a
 	if err := publishPPTXBytesAtomically(ctx, outputPath, candidate, manifest.CandidateSHA256); err != nil {
 		return Result{}, err
 	}
-	output := clonePPTXMap(manifest.MutationOutput)
+	output, err := clonePPTXMap(manifest.MutationOutput)
+	if err != nil {
+		return Result{}, err
+	}
 	output["output_path"] = outputPath
 	output["bytes"] = len(candidate)
 	if _, ok := output["outputs"]; ok {
@@ -543,16 +549,16 @@ func validPPTXSHA256(value string) bool {
 	return err == nil
 }
 
-func clonePPTXMap(input map[string]any) map[string]any {
+func clonePPTXMap(input map[string]any) (map[string]any, error) {
 	raw, err := json.Marshal(input)
 	if err != nil {
-		return map[string]any{}
+		return nil, fmt.Errorf("encode PPTX mutation output: %w", err)
 	}
 	out := map[string]any{}
-	if json.Unmarshal(raw, &out) != nil {
-		return map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode PPTX mutation output: %w", err)
 	}
-	return out
+	return out, nil
 }
 
 func publishPPTXBytesAtomically(ctx context.Context, outputPath string, raw []byte, expectedSHA string) error {

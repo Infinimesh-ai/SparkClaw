@@ -365,9 +365,6 @@ func boolPPTXShapeField(shape map[string]any, field string) bool {
 }
 
 func stringSlicePPTXShapeField(shape map[string]any, field string) []string {
-	if values, ok := shape[field].([]string); ok {
-		return slices.Clone(values)
-	}
 	values, _ := shape[field].([]any)
 	out := make([]string, 0, len(values))
 	for _, value := range values {

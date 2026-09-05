@@ -13,9 +13,6 @@ import (
 
 const browserSnapshotControlLimit = 24
 
-var browserTreeRefPattern = regexp.MustCompile(`ref=(e[0-9]+)`)
-var browserTreeControlPattern = regexp.MustCompile(`^-\s+([^\s]+)(?:\s+("(?:[^"\\]|\\.)*"))?.*\[[^\]]*ref=(e[0-9]+)[^\]]*\]`)
-var browserTreeTextPattern = regexp.MustCompile(`^-\s+(?:StaticText|text|heading|paragraph)\s+("(?:[^"\\]|\\.)*")`)
 var browserAuthTitlePattern = regexp.MustCompile(`(?i)(?:登录|登陆|sign[[:space:]-]*in|log[[:space:]-]*in|login)`)
 var browserAuthRoutePattern = regexp.MustCompile(`(?i)(?:[/#?&=._-])(?:login|signin|sign-in|logon|auth|oauth|sso|verify|verification|captcha)(?:[/#?&=._-]|$)`)
 var browserAuthControlPattern = regexp.MustCompile(`(?i)(?:登录|登陆|sign[[:space:]-]*in|log[[:space:]-]*in|login|password|passcode|验证码|verification[[:space:]-]*code|one[[:space:]-]*time[[:space:]-]*code|captcha)`)
@@ -261,100 +258,6 @@ func buildBrowserSnapshotRefs(refs map[string]any, goal string) []*browserSnapsh
 		})
 	}
 	return result
-}
-
-func enrichBrowserRefsFromTree(refs map[string]any, tree string) {
-	lines := strings.Split(tree, "\n")
-	for index, line := range lines {
-		match := browserTreeControlPattern.FindStringSubmatch(strings.TrimSpace(line))
-		if len(match) != 4 {
-			continue
-		}
-		rawRef := match[3]
-		values := mapValue(refs[rawRef])
-		if values == nil {
-			values = map[string]any{}
-			refs[rawRef] = values
-		}
-		if firstStringValue(values, "role") == "" {
-			values["role"] = match[1]
-		}
-		if strings.Contains(line, " clickable") || strings.Contains(line, "cursor:pointer") || strings.Contains(line, "onclick") {
-			values["clickable"] = true
-		}
-		if firstStringValue(values, "name", "accessible_name") == "" && match[2] != "" {
-			name, err := strconv.Unquote(match[2])
-			if err == nil {
-				values["name"] = name
-			}
-		}
-		if firstStringValue(values, "name", "accessible_name") == "" {
-			values["name"] = browserDescendantText(lines, index)
-		}
-	}
-}
-
-func browserDescendantText(lines []string, parentIndex int) string {
-	parentIndent := browserTreeIndent(lines[parentIndex])
-	labels := make([]string, 0, 3)
-	nestedRefIndents := []int{}
-	for index := parentIndex + 1; index < len(lines); index++ {
-		line := lines[index]
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		indent := browserTreeIndent(line)
-		if strings.HasPrefix(trimmed, "-") && indent <= parentIndent {
-			break
-		}
-		for len(nestedRefIndents) > 0 && indent <= nestedRefIndents[len(nestedRefIndents)-1] {
-			nestedRefIndents = nestedRefIndents[:len(nestedRefIndents)-1]
-		}
-		if browserTreeRefPattern.MatchString(trimmed) {
-			nestedRefIndents = append(nestedRefIndents, indent)
-			continue
-		}
-		if len(nestedRefIndents) > 0 {
-			continue
-		}
-		match := browserTreeTextPattern.FindStringSubmatch(trimmed)
-		if len(match) != 2 {
-			continue
-		}
-		label, err := strconv.Unquote(match[1])
-		if err != nil || strings.TrimSpace(label) == "" {
-			continue
-		}
-		labels = append(labels, strings.TrimSpace(label))
-		if len(labels) == 3 || len(strings.Join(labels, " ")) >= 160 {
-			break
-		}
-	}
-	return truncateBrowserText(strings.Join(labels, " "), 160)
-}
-
-func truncateBrowserText(value string, limit int) string {
-	characters := []rune(value)
-	if limit <= 0 || len(characters) <= limit {
-		return value
-	}
-	return string(characters[:limit])
-}
-
-func browserTreeIndent(line string) int {
-	indent := 0
-	for _, value := range line {
-		switch value {
-		case ' ':
-			indent++
-		case '\t':
-			indent += 2
-		default:
-			return indent
-		}
-	}
-	return indent
 }
 
 func projectBrowserTreeRefs(refs []*browserSnapshotRef) string {

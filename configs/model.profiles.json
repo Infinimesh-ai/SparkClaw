@@ -41,25 +41,6 @@
         "ocr": { "physical_model": "product-ocr", "output_budgets": { "ocr_document": 16384 } }
       }
     },
-    "dgx-spark-local": {
-      "description": "General DGX Spark dual-lane local profile.",
-      "executable": true,
-      "mock": false,
-      "physical_models": {
-        "local-fast": { "context_tokens": 32768 },
-        "local-deep": { "context_tokens": 65536 },
-        "local-embedding": { "context_tokens": 8192 },
-        "local-guard": { "context_tokens": 16384 },
-        "local-ocr": { "context_tokens": 32768 }
-      },
-      "lanes": {
-        "fast": { "physical_model": "local-fast", "output_budgets": { "compact_structured": 1024, "workflow_structured": 4096, "answer": 4096, "vision_structured": 2048 } },
-        "deep": { "physical_model": "local-deep", "output_budgets": { "workflow_structured": 8192, "answer": 8192 } },
-        "embedding": { "physical_model": "local-embedding", "output_budgets": {} },
-        "guard": { "physical_model": "local-guard", "output_budgets": { "guard": 256 } },
-        "ocr": { "physical_model": "local-ocr", "output_budgets": { "ocr_document": 16384 } }
-      }
-    },
     "dgx-spark-dual-light-v1": {
       "description": "Single-GB10 dual-residency profile with separate physical Fast and Deep windows.",
       "executable": true,

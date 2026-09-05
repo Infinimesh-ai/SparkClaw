@@ -152,9 +152,12 @@ func jingsiRuntimeMaxToolCalls(run app.AgentRun) (int, bool) {
 			continue
 		}
 		value, err := strconv.Atoi(strings.TrimPrefix(scope, "sparkclaw.budget.max_tool_calls:"))
-		if err == nil && value >= 0 {
-			return value, true
+		if err != nil || value < 0 {
+			// Fail closed like jingsiRuntimeToolAuthorized: a malformed budget
+			// grants zero tool calls rather than an unbounded run.
+			return 0, true
 		}
+		return value, true
 	}
 	return 0, false
 }

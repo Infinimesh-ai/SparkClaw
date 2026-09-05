@@ -35,3 +35,15 @@ python3 -m unittest scripts.test_e2_reranker_evidence_v3 scripts.test_e2_reranke
 The fake-server suite is explicitly synthetic. Neither its fixtures nor a passing
 test may stand in for real deployment review. A real smoke receipt still requires
 external byte-pin review before reference parity, tolerance or calibration work.
+
+On 2026-09-05 UTC, the reviewed GB10 deployment completed its one planned native
+POST with HTTP 200. Manifest `c08e03610a6da695b9b01cc70cb1b9db034aaf66a8087cb340f70e656984d8c4/12893`
+and receipt `a5818f01f8cf961c3ddc60a625b80dcacaf2e04a7e673d5dc7c0d23bfec97bca/9926`
+passed independent Go/Python implementations' external pin checks. The receipt is
+stored in IMMS commit `2aef26ba54346c0d7eebe42e5150155b11df317f`, at
+`docs/evidence/gb10-e2-v3-20260905/smoke-stable/receipt.json`. Both attempt ledgers
+are consumed; this documentation does not authorize resending the POST. Full
+scripts validation passed 148 tests. See the
+[GB10 result](../../IMMS/docs/gb10-e2-admission-2026-09-05.md) for the prior GET-only
+mount-order rejection, exact deployment review, patch candidates and remaining
+parity/calibration/production work. Historical v1/v2 are unchanged.

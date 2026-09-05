@@ -25,3 +25,13 @@ python3 -m unittest scripts.test_e2_reranker_evidence_v3 scripts.test_e2_reranke
 
 fake-server suite 明确使用合成 fixture，不能替代真实部署评审。真实 smoke receipt 仍须经过外部
 byte-pin review，之后才进入 reference parity、tolerance 或 calibration 工作。
+
+2026-09-05 UTC，已评审的 GB10 部署完成唯一一次 planned native POST，返回 HTTP 200。
+manifest `c08e03610a6da695b9b01cc70cb1b9db034aaf66a8087cb340f70e656984d8c4/12893` 与
+receipt `a5818f01f8cf961c3ddc60a625b80dcacaf2e04a7e673d5dc7c0d23bfec97bca/9926`
+通过独立 Go/Python 实现的外部 pin 检查。receipt 首次保存在 IMMS commit
+`2aef26ba54346c0d7eebe42e5150155b11df317f` 的
+`docs/evidence/gb10-e2-v3-20260905/smoke-stable/receipt.json`。两个 attempt ledger 已消耗，
+本文不授权重新发送 POST。完整 scripts 验证 148 项通过。
+[GB10 结果](../../../IMMS/docs/gb10-e2-admission-2026-09-05.md) 保留先前仅 GET 的 mount 换序拒绝、
+精确部署审阅、镜像补丁候选及剩余 parity/calibration/生产工作。历史 v1/v2 保持原样。

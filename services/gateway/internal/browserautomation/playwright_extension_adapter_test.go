@@ -279,6 +279,9 @@ type fakePlaywrightSession struct {
 	calls    []fakePlaywrightCall
 	releases int
 	snapshot []any
+	// executeErr, when set, fails every Execute; a coded browsercontrol error
+	// simulates the controller declaring the session stale.
+	executeErr error
 }
 
 func newFakePlaywrightSession(sequence int) *fakePlaywrightSession {
@@ -304,6 +307,9 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 	s.calls = append(s.calls, fakePlaywrightCall{Operation: operation, Arguments: cloneArgs(arguments)})
 	if s.releases > 0 {
 		return nil, errors.New("session released")
+	}
+	if s.executeErr != nil {
+		return nil, s.executeErr
 	}
 	s.lease.PageGeneration++
 
@@ -469,6 +475,39 @@ func (s *fakePlaywrightSession) snapshotLocked() []any {
 		return s.snapshot
 	}
 	return fakePlaywrightSnapshot()
+}
+
+func TestPlaywrightExtensionAdapterSettleStopsPollingOnceTheSessionIsStale(t *testing.T) {
+	controller := newFakePlaywrightController()
+	adapter := NewPlaywrightExtensionAdapter(playwrightAdapterTestConfig(), controller).(*PlaywrightExtensionAdapter)
+	ctx := context.Background()
+	baseArgs := map[string]any{"owner_id": "owner-stale"}
+
+	for _, mode := range []string{"stable_state", "ready"} {
+		opened, err := adapter.Call(ctx, "browser.open", mergeArgs(baseArgs, map[string]any{"url": "https://example.com/settle"}))
+		if err != nil {
+			t.Fatalf("%s open: %v", mode, err)
+		}
+		pageID := selectedPageID(mapValue(opened.Output))
+		session := controller.lastSession()
+		session.mu.Lock()
+		session.executeErr = &browsercontrol.Error{Code: browsercontrol.CodeSessionStale}
+		session.mu.Unlock()
+
+		started := time.Now()
+		_, err = adapter.Call(ctx, "browser.wait", mergeArgs(baseArgs, map[string]any{
+			"page_id": pageID, "mode": mode, "timeout_ms": 5000, "quiet_period_ms": 200, "poll_interval_ms": 50,
+		}))
+		if elapsed := time.Since(started); elapsed > 2*time.Second {
+			t.Fatalf("%s wait kept polling for %s after the session went stale", mode, elapsed)
+		}
+		if err == nil {
+			t.Fatalf("%s wait succeeded against a stale session", mode)
+		}
+		if adapter.session != nil {
+			t.Fatalf("%s wait left the stale session attached", mode)
+		}
+	}
 }
 
 func fakePlaywrightSnapshot() []any {

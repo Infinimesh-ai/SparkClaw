@@ -25,6 +25,8 @@ const (
 
 	minTokenBytes = 16
 	maxTokenBytes = 4096
+
+	defaultCloseTimeout = 5 * time.Second
 )
 
 type BindingVault interface {
@@ -48,10 +50,11 @@ type Status struct {
 }
 
 type Service struct {
-	vault     BindingVault
-	client    ControllerClient
-	profileID string
-	now       func() time.Time
+	vault        BindingVault
+	client       ControllerClient
+	profileID    string
+	now          func() time.Time
+	closeTimeout time.Duration
 
 	opMu   sync.Mutex
 	mu     sync.RWMutex
@@ -66,7 +69,8 @@ func New(vault BindingVault, client ControllerClient, profileID string) *Service
 	}
 	service := &Service{
 		vault: vault, client: client, profileID: profileID, now: func() time.Time { return time.Now().UTC() },
-		state: Status{State: StateNotConfigured, ProfileID: profileID},
+		closeTimeout: defaultCloseTimeout,
+		state:        Status{State: StateNotConfigured, ProfileID: profileID},
 	}
 	if vault == nil || vault.Ready() != nil {
 		service.state.State = StateVaultUnavailable

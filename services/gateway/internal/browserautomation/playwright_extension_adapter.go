@@ -652,6 +652,8 @@ func (a *PlaywrightExtensionAdapter) waitForReadyLocked(ctx context.Context, pag
 			if state == "interactive" || state == "complete" {
 				return nil
 			}
+		} else if a.sessionLostLocked(err) {
+			return err
 		}
 		select {
 		case <-readyCtx.Done():
@@ -688,6 +690,9 @@ func (a *PlaywrightExtensionAdapter) waitForStableStateLocked(ctx context.Contex
 	var stableSince time.Time
 	for {
 		read, err := a.executeControllerLocked(settleCtx, "page.read", mergePageArgs(pageID, map[string]any{"max_chars": 120000}))
+		if err != nil && a.sessionLostLocked(err) {
+			return nil, err
+		}
 		if err == nil {
 			page := mapValue(read["page"])
 			observation := browserStableObservation{
@@ -745,6 +750,13 @@ func (a *PlaywrightExtensionAdapter) waitForStableStateLocked(ctx context.Contex
 		case <-time.After(time.Duration(pollMS) * time.Millisecond):
 		}
 	}
+}
+
+// sessionLostLocked reports whether a polling loop must stop: the controller
+// session is gone (a stale-session error already released it) or the
+// controller answered with a typed failure that repeating the poll cannot fix.
+func (a *PlaywrightExtensionAdapter) sessionLostLocked(err error) bool {
+	return a.session == nil || browsercontrol.ErrorCode(err) != ""
 }
 
 func (a *PlaywrightExtensionAdapter) invalidateSnapshotsLocked() {

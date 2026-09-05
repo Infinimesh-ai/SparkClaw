@@ -80,7 +80,7 @@ func (c *Controller) List(ctx context.Context, ownerID string) ([]ProviderStatus
 func (c *Controller) Update(ctx context.Context, ownerID, actorID, providerID string, input UpdateProviderInput) (ProviderStatus, error) {
 	provider, ok := c.registry.Get(providerID)
 	if !ok {
-		return ProviderStatus{}, codedError(CodeInvalidInput, "Email provider is not registered")
+		return ProviderStatus{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
 	if err != nil {
@@ -112,12 +112,12 @@ func (c *Controller) Update(ctx context.Context, ownerID, actorID, providerID st
 func (c *Controller) OpenLoginBrowser(ctx context.Context, ownerID, actorID, providerID string) (ProviderStatus, error) {
 	provider, ok := c.registry.Get(providerID)
 	if !ok {
-		return ProviderStatus{}, codedError(CodeInvalidInput, "Email provider is not registered")
+		return ProviderStatus{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
 	c.profile.Lock()
 	defer c.profile.Unlock()
 	if c.browser == nil {
-		return ProviderStatus{}, codedError(CodeProviderUnavailable, "SparkClaw browser is unavailable")
+		return ProviderStatus{}, codedError(app.ToolErrorEmailProviderUnavailable, "SparkClaw browser is unavailable")
 	}
 	if err := c.browser.OpenLogin(ctx, provider); err != nil {
 		return ProviderStatus{}, err
@@ -145,14 +145,14 @@ func (c *Controller) OpenLoginBrowser(ctx context.Context, ownerID, actorID, pro
 func (c *Controller) Check(ctx context.Context, ownerID, actorID, providerID string) (ProviderStatus, error) {
 	provider, ok := c.registry.Get(providerID)
 	if !ok {
-		return ProviderStatus{}, codedError(CodeInvalidInput, "Email provider is not registered")
+		return ProviderStatus{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
 	if err != nil {
 		return ProviderStatus{}, err
 	}
 	if !exists || !setting.Enabled {
-		return providerStatus(provider, settingOrEmpty(setting, exists, ownerID, provider.ID)), codedError(CodeNotConfigured, "Email provider is not enabled")
+		return providerStatus(provider, settingOrEmpty(setting, exists, ownerID, provider.ID)), codedError(app.ToolErrorEmailNotConfigured, "Email provider is not enabled")
 	}
 	c.profile.Lock()
 	defer c.profile.Unlock()
@@ -189,26 +189,26 @@ func (c *Controller) Admit(ctx context.Context, ownerID, request string) (Admiss
 func (c *Controller) SendForOwner(ctx context.Context, ownerID string, request SendRequest) (SendResult, error) {
 	provider, ok := c.registry.Get(request.Provider)
 	if !ok {
-		return SendResult{}, codedError(CodeInvalidInput, "Email provider is not registered")
+		return SendResult{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
 	if err != nil {
 		return SendResult{}, err
 	}
 	if !exists || !setting.Enabled || setting.State != app.EmailStateReady || setting.Version != request.SettingVersion || setting.Account != request.Account {
-		return SendResult{}, codedError(CodeAdmissionStale, "Email provider configuration changed after approval was prepared")
+		return SendResult{}, codedError(app.ToolErrorEmailAdmissionStale, "Email provider configuration changed after approval was prepared")
 	}
 	c.profile.Lock()
 	defer c.profile.Unlock()
 	if c.runner == nil {
-		return SendResult{}, codedError(CodeProviderUnavailable, "Email provider scripts are unavailable")
+		return SendResult{}, codedError(app.ToolErrorEmailProviderUnavailable, "Email provider scripts are unavailable")
 	}
 	return c.runner.Send(ctx, provider, request)
 }
 
 func (c *Controller) probe(ctx context.Context, provider Provider, invocationID string) (ProbeResult, error) {
 	if c.runner == nil {
-		return ProbeResult{}, codedError(CodeProviderUnavailable, "Email provider scripts are unavailable")
+		return ProbeResult{}, codedError(app.ToolErrorEmailProviderUnavailable, "Email provider scripts are unavailable")
 	}
 	result, err := c.runner.Probe(ctx, provider, invocationID, 0)
 	if err != nil {
@@ -216,7 +216,7 @@ func (c *Controller) probe(ctx context.Context, provider Provider, invocationID 
 	}
 	if result.Provider != provider.ID || result.Generation == 0 || result.Revision != provider.Probe.Revision ||
 		result.CheckedAt.IsZero() || !validAccountHint(result.AccountHint) {
-		return ProbeResult{}, codedError(CodeScriptInvalidOutput, "Email login probe returned an invalid result")
+		return ProbeResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email login probe returned an invalid result")
 	}
 	return result, nil
 }
@@ -224,7 +224,7 @@ func (c *Controller) probe(ctx context.Context, provider Provider, invocationID 
 func (c *Controller) resolveProvider(ctx context.Context, ownerID, request string) (Provider, app.EmailProviderSetting, error) {
 	matches := c.registry.MatchRequest(request)
 	if len(matches) > 1 {
-		return Provider{}, app.EmailProviderSetting{}, codedError(CodeAccountAmbiguous, "More than one email provider was named")
+		return Provider{}, app.EmailProviderSetting{}, codedError(app.ToolErrorEmailAccountAmbiguous, "More than one email provider was named")
 	}
 	if len(matches) == 1 {
 		setting, ok, err := c.store.GetEmailProviderSetting(ctx, ownerID, matches[0].ID)
@@ -232,7 +232,7 @@ func (c *Controller) resolveProvider(ctx context.Context, ownerID, request strin
 			return Provider{}, app.EmailProviderSetting{}, err
 		}
 		if !ok || !setting.Enabled {
-			return Provider{}, app.EmailProviderSetting{}, codedError(CodeNotConfigured, "Requested email provider is not enabled")
+			return Provider{}, app.EmailProviderSetting{}, codedError(app.ToolErrorEmailNotConfigured, "Requested email provider is not enabled")
 		}
 		return matches[0], setting, nil
 	}
@@ -246,17 +246,17 @@ func (c *Controller) resolveProvider(ctx context.Context, ownerID, request strin
 			continue
 		}
 		if selected != nil {
-			return Provider{}, app.EmailProviderSetting{}, codedError(CodeAccountAmbiguous, "Default email provider is ambiguous")
+			return Provider{}, app.EmailProviderSetting{}, codedError(app.ToolErrorEmailAccountAmbiguous, "Default email provider is ambiguous")
 		}
 		copy := settings[index]
 		selected = &copy
 	}
 	if selected == nil {
-		return Provider{}, app.EmailProviderSetting{}, codedError(CodeNotConfigured, "No default email provider is configured")
+		return Provider{}, app.EmailProviderSetting{}, codedError(app.ToolErrorEmailNotConfigured, "No default email provider is configured")
 	}
 	provider, ok := c.registry.Get(selected.Provider)
 	if !ok {
-		return Provider{}, app.EmailProviderSetting{}, codedError(CodeNotConfigured, "Default email provider is not registered")
+		return Provider{}, app.EmailProviderSetting{}, codedError(app.ToolErrorEmailNotConfigured, "Default email provider is not registered")
 	}
 	return provider, *selected, nil
 }
@@ -270,12 +270,13 @@ func (c *Controller) persistProbe(ctx context.Context, setting app.EmailProvider
 		setting.State = app.EmailStateReady
 		setting.AccountHint = result.AccountHint
 	} else {
-		setting.ErrorCode = ErrorCode(probeErr)
-		switch setting.ErrorCode {
-		case CodeLoginRequired, CodeNotConfigured:
+		code := ErrorCode(probeErr)
+		setting.ErrorCode = string(code)
+		switch code {
+		case app.ToolErrorEmailLoginRequired, app.ToolErrorEmailNotConfigured:
 			setting.State = app.EmailStateLoginRequired
 			setting.AccountHint = ""
-		case CodeProviderUnavailable, CodeScriptTimeout:
+		case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout:
 			setting.State = app.EmailStateTemporarilyUnavailable
 		default:
 			setting.State = app.EmailStateNeedsAttention
@@ -283,7 +284,7 @@ func (c *Controller) persistProbe(ctx context.Context, setting app.EmailProvider
 	}
 	updated, err := c.store.UpdateEmailProviderSetting(ctx, setting, setting.Version)
 	if errors.Is(err, store.ErrEmailProviderSettingConflict) {
-		return app.EmailProviderSetting{}, codedError(CodeAdmissionStale, "Email provider setting changed during login validation")
+		return app.EmailProviderSetting{}, codedError(app.ToolErrorEmailAdmissionStale, "Email provider setting changed during login validation")
 	}
 	return updated, err
 }

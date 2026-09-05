@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/http"
 	"strings"
 
@@ -94,15 +95,15 @@ func writeEmailError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch emailautomation.ErrorCode(err) {
-	case emailautomation.CodeInvalidInput:
+	case app.ToolErrorEmailInvalidInput:
 		writeError(w, http.StatusBadRequest, err)
-	case emailautomation.CodeNotConfigured, emailautomation.CodeLoginRequired, emailautomation.CodeAccountAmbiguous, emailautomation.CodeAdmissionStale, emailautomation.CodeDraftConflict:
+	case app.ToolErrorEmailNotConfigured, app.ToolErrorEmailLoginRequired, app.ToolErrorEmailAccountAmbiguous, app.ToolErrorEmailAdmissionStale, app.ToolErrorEmailDraftConflict:
 		writeError(w, http.StatusConflict, err)
-	case emailautomation.CodePageContractChanged, emailautomation.CodeDraftVerifyFailed, emailautomation.CodeSendControlUnverified, emailautomation.CodeScriptInvalidOutput:
+	case app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified, app.ToolErrorEmailScriptInvalidOutput:
 		writeError(w, http.StatusUnprocessableEntity, err)
-	case emailautomation.CodeProviderUnavailable, emailautomation.CodeScriptTimeout:
+	case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout:
 		writeError(w, http.StatusServiceUnavailable, err)
-	case emailautomation.CodeSendOutcomeUnknown:
+	case app.ToolErrorEmailSendOutcomeUnknown:
 		writeError(w, http.StatusBadGateway, err)
 	default:
 		if code := store.StoreErrorCodeOf(err); code != "" {

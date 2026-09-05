@@ -116,7 +116,7 @@ func TestEmailProviderEndpointsRejectMalformedAndMapTypedFailures(t *testing.T) 
 		t.Fatalf("malformed patch status=%d actions=%v", response.StatusCode, controller.actions)
 	}
 
-	controller.err = &emailautomation.Error{Code: emailautomation.CodeAdmissionStale, Message: "stale"}
+	controller.err = &emailautomation.Error{Code: app.ToolErrorEmailAdmissionStale, Message: "stale"}
 	response, err = http.Post(server.URL+"/api/email/providers/gmail/check", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestEmailProviderEndpointsRejectMalformedAndMapTypedFailures(t *testing.T) 
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("stale check status=%d", response.StatusCode)
 	}
-	controller.err = &emailautomation.Error{Code: emailautomation.CodeProviderUnavailable, Message: "unavailable"}
+	controller.err = &emailautomation.Error{Code: app.ToolErrorEmailProviderUnavailable, Message: "unavailable"}
 	response, err = http.Get(server.URL + "/api/email/providers")
 	if err != nil {
 		t.Fatal(err)

@@ -83,7 +83,7 @@ func TestPlaywrightRunnerRejectsStaleCredentialBeforeControllerInvocation(t *tes
 		Recipient: "alice@example.com", Body: "body", InvocationID: "send:stale",
 		BrowserCredentialGeneration: 7, ProbeRevision: 1, ScriptRevision: 1, SettingVersion: 1,
 	})
-	if ErrorCode(err) != CodeAdmissionStale || len(controller.requests) != 0 {
+	if ErrorCode(err) != app.ToolErrorEmailAdmissionStale || len(controller.requests) != 0 {
 		t.Fatalf("stale error=%v code=%q requests=%#v", err, ErrorCode(err), controller.requests)
 	}
 }
@@ -103,17 +103,17 @@ func TestPlaywrightRunnerPreservesProviderFailureAndUnknownTransportOutcome(t *t
 		Recipient: "alice@example.com", Body: "body", InvocationID: "send:unknown",
 		BrowserCredentialGeneration: 7, ProbeRevision: 1, ScriptRevision: 1, SettingVersion: 1,
 	}
-	if _, err := runner.Send(t.Context(), provider, request); ErrorCode(err) != CodeSendOutcomeUnknown {
+	if _, err := runner.Send(t.Context(), provider, request); ErrorCode(err) != app.ToolErrorEmailSendOutcomeUnknown {
 		t.Fatalf("provider failure=%v code=%q", err, ErrorCode(err))
 	}
 
 	controller.result = browsercontrol.ScriptExecutionResult{}
 	controller.err = &browsercontrol.Error{Code: browsercontrol.CodeControllerUnavailable, Retryable: true}
-	if _, err := runner.Send(t.Context(), provider, request); ErrorCode(err) != CodeSendOutcomeUnknown {
+	if _, err := runner.Send(t.Context(), provider, request); ErrorCode(err) != app.ToolErrorEmailSendOutcomeUnknown {
 		t.Fatalf("transport failure=%v code=%q", err, ErrorCode(err))
 	}
 	controller.err = errors.New("untyped")
-	if _, err := runner.Probe(t.Context(), provider, "probe:failed", 0); ErrorCode(err) != CodeProviderUnavailable {
+	if _, err := runner.Probe(t.Context(), provider, "probe:failed", 0); ErrorCode(err) != app.ToolErrorEmailProviderUnavailable {
 		t.Fatalf("probe failure=%v code=%q", err, ErrorCode(err))
 	}
 }

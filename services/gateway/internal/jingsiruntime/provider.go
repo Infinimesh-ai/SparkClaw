@@ -432,6 +432,9 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 	value.UpdatedAt = nextTime(value.UpdatedAt)
 	p.appendEventLocked(value, "execution.running", "running", "")
 	if err := p.store.persistLocked(value); err != nil {
+		// The in-memory record already says running; without a terminal
+		// outcome status polls would report it as running forever.
+		p.finishLocked(value, "failed", "runtime state could not be persisted")
 		p.store.mu.Unlock()
 		return
 	}

@@ -42,6 +42,10 @@
 
 ### Changed
 
+- Store：内存与 File 后端改用二分查找插入维护每个 session 的 tool call 与 episode 顺序，
+  加载快照时每个 session 只排序一次，默认 File 后端的 Gateway 启动时间不再随 session 长度
+  平方增长（4000 条 tool call 加 4000 条 episode 的 session 从 1.37 s 降到 7 ms）。
+  recent-history 的排序契约保持不变。
 - 部署：`docker compose` 现在要求显式提供 `SPARKCLAW_MODEL_CAPACITY_PROFILE`
   （此前默认 `mock` 会在绕过部署脚本时把所有模型调用静默路由到 mock 路由器），
   vLLM 容量入口拒绝标记为 `mock` 的 profile，compose 中 `SPARKCLAW_PAIRING_REQUIRED`

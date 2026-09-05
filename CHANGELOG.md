@@ -54,6 +54,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Store: the in-memory and File backends keep their per-session tool-call and
+  episode ordering by binary-search insertion and rebuild it with one sort per
+  session on load, so Gateway startup on the default File backend no longer
+  slows down quadratically with session length (1.37 s to 7 ms per session at
+  4000 tool calls and 4000 episodes). The recent-history ordering contract is
+  unchanged.
 - Deployment: `docker compose` now requires an explicit
   `SPARKCLAW_MODEL_CAPACITY_PROFILE` (the previous `mock` default silently
   routed every model call to the mock router when the deploy scripts were

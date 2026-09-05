@@ -52,8 +52,8 @@ episode 和 3 张 image。更大窗口只允许同一批选中信息保留更丰
 
 ### 保留的已实施行为
 
-- `buildAgentContextSnapshot` 选择固定 8/6/4/3 session context，并提供 Workflow 与 routing render
-  路径；
+- `buildInvocationHistory` 在每次调用中一次性选择固定 8/6/4/3 session context；Tree routing 与
+  Workflow prompt 各自通过容量准入的 builder 渲染同一份选择结果；
 - 每个 step 的 observation 只在一个模型可见位置出现，不再同时出现在 system 与 user prompt；
 - `adaptToolResult` 产生统一 summary/structured/evidence envelope；完整输出作为 artifact 存储，
   并由 `artifact_uri` 或 `ObservationRef` 引用；

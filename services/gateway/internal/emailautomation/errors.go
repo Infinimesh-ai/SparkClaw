@@ -1,6 +1,7 @@
 package emailautomation
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -23,9 +24,8 @@ const (
 )
 
 type Error struct {
-	Code      string
-	Message   string
-	Retryable bool
+	Code    string
+	Message string
 }
 
 func (e *Error) Error() string {
@@ -39,12 +39,29 @@ func (e *Error) ToolErrorCode() app.ToolErrorCode {
 	return app.ToolErrorCode(e.Code)
 }
 
+// ErrorCode and Retryable satisfy the interfaces the gateway's shared error
+// writer probes, so /api/email responses carry the same {code, retryable}
+// shape as the browser and integration endpoints.
+func (e *Error) ErrorCode() string { return e.Code }
+
+func (e *Error) Retryable() bool { return retryableEmailCode(e.Code) }
+
 func codedError(code, message string) error {
 	return &Error{Code: code, Message: message}
 }
 
+func retryableEmailCode(code string) bool {
+	switch code {
+	case CodeProviderUnavailable, CodeScriptTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
 func ErrorCode(err error) string {
-	if typed, ok := err.(*Error); ok {
+	var typed *Error
+	if errors.As(err, &typed) {
 		return typed.Code
 	}
 	return ""

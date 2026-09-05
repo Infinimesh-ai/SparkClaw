@@ -105,6 +105,14 @@ func writeEmailError(w http.ResponseWriter, err error) {
 	case emailautomation.CodeSendOutcomeUnknown:
 		writeError(w, http.StatusBadGateway, err)
 	default:
+		if code := store.StoreErrorCodeOf(err); code != "" {
+			// Store failures carry driver text; the client gets a stable code
+			// and a bounded message like the sibling integration endpoints.
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"error": "email provider settings are temporarily unavailable", "code": "store_" + string(code), "retryable": true,
+			})
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err)
 	}
 }

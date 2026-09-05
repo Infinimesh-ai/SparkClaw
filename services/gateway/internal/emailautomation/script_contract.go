@@ -107,22 +107,20 @@ func normalizeScriptErrorCode(code string) string {
 		CodePageContractChanged, CodeInvalidInput, CodeDraftConflict, CodeDraftVerifyFailed,
 		CodeSendControlUnverified, CodeSendOutcomeUnknown, CodeScriptTimeout, CodeScriptInvalidOutput:
 		return code
-	case "invalid_request", "invalid_input", "email_probe_invalid_input", "email_send_invalid_input", "invalid_recipient", "invalid_subject", "invalid_body":
+	case "invalid_request", "invalid_input", "invalid_json", "invalid_message", "email_probe_invalid_input", "email_send_invalid_input", "invalid_recipient", "invalid_subject", "invalid_body":
 		return CodeInvalidInput
 	case "page_contract_changed", "email_login_evidence_conflict", "login_evidence_conflict", "provider_origin_mismatch",
 		"email_provider_origin_invalid", "outlook_origin_not_allowed", "outlook_evidence_conflict", "outlook_page_contract_changed":
 		return CodePageContractChanged
-	case "existing_draft_open", "draft_conflict":
-		return CodeDraftConflict
 	case "draft_verification_failed", "field_verification_failed", "email_send_precondition_failed", "send_precondition_failed", "send_preparation_failed":
 		return CodeDraftVerifyFailed
-	case "send_control_not_ready", "send_control_unverified", "send_unavailable":
+	case "send_control_not_ready", "send_unavailable":
 		return CodeSendControlUnverified
-	case "send_not_confirmed", "send_clicked_unverified", "send_outcome_unknown":
+	case "send_outcome_unknown":
 		return CodeSendOutcomeUnknown
-	case "probe_timeout", "login_probe_timeout", "email_probe_timeout":
+	case "login_probe_timeout", "email_probe_timeout", "email_send_timeout", "browser_script_timeout":
 		return CodeScriptTimeout
-	case "login_probe_invalid_output", "send_browser_output_invalid":
+	case "login_probe_invalid_output", "send_browser_output_invalid", "browser_output_invalid", "email_browser_output_invalid":
 		return CodeScriptInvalidOutput
 	default:
 		return CodeProviderUnavailable

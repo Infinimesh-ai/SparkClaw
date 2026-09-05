@@ -1382,10 +1382,10 @@ func hasWorkflowStepModelCall(calls []app.ModelCall) bool {
 }
 
 func modelCallFromChat(sessionID, runID, operation string, chat modelrouter.ChatResult, err error, started, completed time.Time) app.ModelCall {
-	status := "completed"
+	status := app.ModelCallStatusCompleted
 	errorText := ""
 	if err != nil {
-		status = "failed"
+		status = app.ModelCallStatusFailed
 		errorText = err.Error()
 	}
 	if chat.Lane == "" {
@@ -1419,10 +1419,10 @@ func modelCallFromChat(sessionID, runID, operation string, chat modelrouter.Chat
 }
 
 func modelCallFromGuard(sessionID, runID string, guard modelrouter.GuardResult, err error, started, completed time.Time) app.ModelCall {
-	status := "completed"
+	status := app.ModelCallStatusCompleted
 	errorText := ""
 	if err != nil {
-		status = "failed"
+		status = app.ModelCallStatusFailed
 		errorText = err.Error()
 	}
 	if guard.Lane == "" {

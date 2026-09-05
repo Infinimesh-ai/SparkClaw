@@ -830,9 +830,9 @@ func modelCallFromEmbedding(sessionID, runID, operation string, result modelrout
 
 func modelCallStatus(err error) string {
 	if err != nil {
-		return "failed"
+		return app.ModelCallStatusFailed
 	}
-	return "completed"
+	return app.ModelCallStatusCompleted
 }
 
 func modelCallError(err error) string {

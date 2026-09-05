@@ -677,6 +677,12 @@ type ModelCall struct {
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 }
 
+// Model call statuses persisted in ModelCall.Status.
+const (
+	ModelCallStatusCompleted = "completed"
+	ModelCallStatusFailed    = "failed"
+)
+
 type AuditEvent struct {
 	ID        string         `json:"id"`
 	Time      time.Time      `json:"time"`

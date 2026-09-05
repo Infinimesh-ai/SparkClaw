@@ -54,7 +54,7 @@ func (a *PlaywrightExtensionAdapter) Health(ctx context.Context, args map[string
 	}
 	status := a.controller.Status(ctx)
 	output := map[string]any{
-		"ok":                    status.Configured && status.State == browsercontrol.StateReady,
+		"ok":                    status.Configured && status.State == app.IntegrationStateReady,
 		"status":                status.State,
 		"configured":            status.Configured,
 		"profile_id":            status.ProfileID,

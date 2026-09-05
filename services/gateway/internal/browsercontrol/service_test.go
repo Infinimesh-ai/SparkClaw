@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestServiceValidatesBeforePersistAndProjectsOnlyRedactedState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Configured || status.State != StateReady || status.CredentialGeneration <= 0 ||
+	if !status.Configured || status.State != app.IntegrationStateReady || status.CredentialGeneration <= 0 ||
 		status.ControllerGeneration != 41 || status.SessionGeneration != 7 || status.PageGeneration != 1 {
 		t.Fatalf("unexpected ready status: %#v", status)
 	}
@@ -56,7 +57,7 @@ func TestServiceFailedReplacementRetainsExistingCredential(t *testing.T) {
 	}
 	controller.err = newError(CodeExtensionRejected, false, errors.New("private extension detail"))
 	status, err := service.SaveToken(t.Context(), []byte("rejected-extension-token"))
-	if ErrorCode(err) != CodeExtensionRejected || status.CredentialGeneration != first.CredentialGeneration || !status.Configured || status.State != StateNeedsAttention {
+	if ErrorCode(err) != CodeExtensionRejected || status.CredentialGeneration != first.CredentialGeneration || !status.Configured || status.State != app.IntegrationStateNeedsAttention {
 		t.Fatalf("failed replacement status=%#v err=%v", status, err)
 	}
 	opened, found, openErr := vault.OpenBinding(t.Context(), credentialBinding, credentialKind)
@@ -76,7 +77,7 @@ func TestServiceProjectsExtensionUnavailableAsRetryableState(t *testing.T) {
 
 	status, err := service.SaveToken(t.Context(), []byte("unavailable-extension-token"))
 	if ErrorCode(err) != CodeExtensionUnavailable || !ErrorRetryable(err) || status.Configured ||
-		status.State != StateTemporarilyUnavailable || status.ErrorCode != CodeExtensionUnavailable {
+		status.State != app.IntegrationStateTemporarilyUnavailable || status.ErrorCode != CodeExtensionUnavailable {
 		t.Fatalf("status=%#v err=%v", status, err)
 	}
 }
@@ -99,7 +100,7 @@ func TestServiceCheckAndRemoveAdvanceCredentialLifecycle(t *testing.T) {
 		t.Fatalf("check status=%#v err=%v", checked, err)
 	}
 	removed, err := service.Remove(t.Context())
-	if err != nil || removed.Configured || removed.State != StateNotConfigured || removed.CredentialGeneration != saved.CredentialGeneration+1 || !removed.LastValidatedAt.IsZero() {
+	if err != nil || removed.Configured || removed.State != app.IntegrationStateNotConfigured || removed.CredentialGeneration != saved.CredentialGeneration+1 || !removed.LastValidatedAt.IsZero() {
 		t.Fatalf("remove status=%#v err=%v", removed, err)
 	}
 	if _, found, err := vault.OpenBinding(t.Context(), credentialBinding, credentialKind); err != nil || found {

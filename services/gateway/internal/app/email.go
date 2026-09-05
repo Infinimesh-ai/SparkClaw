@@ -9,11 +9,11 @@ const (
 
 	EmailAccountDefault = "default"
 
-	EmailStateNotConfigured          = "not_configured"
+	EmailStateNotConfigured          = IntegrationStateNotConfigured
 	EmailStateLoginRequired          = "login_required"
-	EmailStateReady                  = "ready"
-	EmailStateNeedsAttention         = "needs_attention"
-	EmailStateTemporarilyUnavailable = "temporarily_unavailable"
+	EmailStateReady                  = IntegrationStateReady
+	EmailStateNeedsAttention         = IntegrationStateNeedsAttention
+	EmailStateTemporarilyUnavailable = IntegrationStateTemporarilyUnavailable
 
 	EmailRouteFactProvider                    = "email_provider"
 	EmailRouteFactAccount                     = "email_account"

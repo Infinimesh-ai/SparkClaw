@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, LoaderCircle, LogIn, Mail, RefreshCw, Star } from "lucide-react";
 import { api } from "../../api/client";
-import type { EmailProviderStatus } from "../../api/types";
+import type { EmailProviderState, EmailProviderStatus } from "../../api/types";
 import type { Copy } from "../../i18n";
 
 type Feedback = {
@@ -193,13 +193,13 @@ function EmailFeedback({ feedback }: { feedback: Feedback }) {
   );
 }
 
-function emailStateLabel(state: string, text: Copy) {
+function emailStateLabel(state: EmailProviderState, text: Copy) {
   switch (state) {
     case "ready": return text.settings.integrationReady;
     case "login_required": return text.settings.browserEmailLoginRequired;
     case "needs_attention": return text.settings.integrationNeedsAttention;
     case "temporarily_unavailable": return text.settings.integrationTemporarilyUnavailable;
-    default: return text.settings.integrationNotConfigured;
+    case "not_configured": return text.settings.integrationNotConfigured;
   }
 }
 

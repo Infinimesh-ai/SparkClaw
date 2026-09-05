@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,7 +56,7 @@ func (c *browserControlEndpointController) Remove(context.Context) (browsercontr
 func TestBrowserControlAPIIsAuthenticatedAndRedacted(t *testing.T) {
 	validatedAt := time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC)
 	controller := &browserControlEndpointController{status: browsercontrol.Status{
-		Configured: true, State: browsercontrol.StateReady, ProfileID: "default", CredentialGeneration: 3,
+		Configured: true, State: app.IntegrationStateReady, ProfileID: "default", CredentialGeneration: 3,
 		ControllerGeneration: 11, SessionGeneration: 7, PageGeneration: 1, LastValidatedAt: validatedAt,
 		Versions: browsercontrol.Versions{
 			Client: "playwright-mcp", ClientVersion: "0.0.80",
@@ -115,7 +116,7 @@ func TestBrowserControlAPIIsAuthenticatedAndRedacted(t *testing.T) {
 }
 
 func TestBrowserControlAPIRejectsQueriesAndInvalidJSON(t *testing.T) {
-	controller := &browserControlEndpointController{status: browsercontrol.Status{State: browsercontrol.StateNotConfigured, ProfileID: "default"}}
+	controller := &browserControlEndpointController{status: browsercontrol.Status{State: app.IntegrationStateNotConfigured, ProfileID: "default"}}
 	server := newBrowserControlEndpointTestServer(t, controller, true)
 	const secret = "query-secret-canary"
 
@@ -168,7 +169,7 @@ func TestBrowserControlAPITypedFailures(t *testing.T) {
 		{name: "controller unavailable", method: http.MethodPost, path: "/api/browser/extension/check", body: `{}`, error: &browsercontrol.Error{Code: browsercontrol.CodeControllerUnavailable, Retryable: true}, wantStatus: http.StatusServiceUnavailable, wantCode: browsercontrol.CodeControllerUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			controller := &browserControlEndpointController{status: browsercontrol.Status{State: browsercontrol.StateNeedsAttention, ProfileID: "default"}}
+			controller := &browserControlEndpointController{status: browsercontrol.Status{State: app.IntegrationStateNeedsAttention, ProfileID: "default"}}
 			switch test.method {
 			case http.MethodPut:
 				controller.saveErr = test.error
@@ -186,7 +187,7 @@ func TestBrowserControlAPITypedFailures(t *testing.T) {
 }
 
 func TestBrowserControlAPIRequiresConfiguredGatewayAuthentication(t *testing.T) {
-	controller := &browserControlEndpointController{status: browsercontrol.Status{State: browsercontrol.StateNotConfigured, ProfileID: "default"}}
+	controller := &browserControlEndpointController{status: browsercontrol.Status{State: app.IntegrationStateNotConfigured, ProfileID: "default"}}
 	server := newBrowserControlEndpointTestServer(t, controller, false)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/browser/extension", nil))

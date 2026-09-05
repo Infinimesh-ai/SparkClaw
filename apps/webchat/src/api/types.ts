@@ -552,6 +552,22 @@ export type MCPAccessRecordDeletion = {
 
 export type IntegrationID = "infinimesh-info" | "localmind";
 
+// Mirrors the Go app.IntegrationState* vocabulary shared by Browser control and
+// the credential-backed integrations. "checking" is reported live only by
+// Browser control; the integration panel synthesises it client-side while a
+// check request is in flight.
+export type IntegrationState =
+  | "not_configured"
+  | "configured"
+  | "checking"
+  | "ready"
+  | "needs_attention"
+  | "temporarily_unavailable"
+  | "vault_unavailable";
+
+// Mirrors the Go app.EmailState* vocabulary.
+export type EmailProviderState = "not_configured" | "login_required" | "ready" | "needs_attention" | "temporarily_unavailable";
+
 export type EmailProviderStatus = {
   provider: "qq_mail" | "outlook" | "gmail";
   display_name: string;
@@ -559,7 +575,7 @@ export type EmailProviderStatus = {
   default: boolean;
   account: "default";
   account_hint?: string;
-  state: string;
+  state: EmailProviderState;
   last_checked_at?: string;
   error_code?: string;
   version: number;
@@ -568,7 +584,7 @@ export type EmailProviderStatus = {
 
 export type BrowserExtensionStatus = {
   configured: boolean;
-  state: "not_configured" | "checking" | "ready" | "needs_attention" | "temporarily_unavailable" | "vault_unavailable" | string;
+  state: IntegrationState;
   profile_id: "default" | string;
   credential_generation: number;
   controller_generation?: number;
@@ -589,7 +605,7 @@ export type IntegrationCredential = {
   label: string;
   validated_at: string;
   last_checked_at?: string;
-  state: string;
+  state: IntegrationState;
   error_code?: string;
   active: boolean;
 };
@@ -599,7 +615,7 @@ export type IntegrationStatus = {
   category: "data_provider" | "outbound_mcp";
   configured: boolean;
   source: "household" | "operator" | "none";
-  state: string;
+  state: IntegrationState;
   editable: boolean;
   checkable: boolean;
   operator_available: boolean;

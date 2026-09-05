@@ -14,7 +14,7 @@ import (
 
 func TestPlaywrightRunnerBindsFixedScriptsAndCredentialGeneration(t *testing.T) {
 	controller := &fakePlaywrightController{status: browsercontrol.Status{
-		Configured: true, State: browsercontrol.StateReady, CredentialGeneration: 7,
+		Configured: true, State: app.IntegrationStateReady, CredentialGeneration: 7,
 	}}
 	runner := NewPlaywrightRunner(controller)
 	runner.now = func() time.Time { return time.Date(2026, 9, 4, 14, 0, 0, 0, time.UTC) }
@@ -74,7 +74,7 @@ func TestPlaywrightRunnerBindsFixedScriptsAndCredentialGeneration(t *testing.T) 
 
 func TestPlaywrightRunnerRejectsStaleCredentialBeforeControllerInvocation(t *testing.T) {
 	controller := &fakePlaywrightController{status: browsercontrol.Status{
-		Configured: true, State: browsercontrol.StateReady, CredentialGeneration: 8,
+		Configured: true, State: app.IntegrationStateReady, CredentialGeneration: 8,
 	}}
 	runner := NewPlaywrightRunner(controller)
 	provider, _ := DefaultRegistry().Get(app.EmailProviderGmail)

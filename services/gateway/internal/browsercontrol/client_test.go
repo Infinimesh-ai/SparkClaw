@@ -13,7 +13,7 @@ import (
 )
 
 func TestHTTPControllerClientUsesUnixSocketAndStrictResponse(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "controller.sock")
+	socketPath := testSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestHTTPControllerClientRejectsMalformedSuccess(t *testing.T) {
 }
 
 func TestHTTPControllerClientRunsStrictSessionProtocol(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "controller.sock")
+	socketPath := testSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestHTTPControllerClientRunsStrictSessionProtocol(t *testing.T) {
 }
 
 func TestHTTPControllerClientRunsStrictScriptProtocol(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "controller.sock")
+	socketPath := testSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestHTTPControllerClientRunsStrictScriptProtocol(t *testing.T) {
 
 func serveControllerResponse(t *testing.T, status int, body string) *HTTPControllerClient {
 	t.Helper()
-	socketPath := filepath.Join(t.TempDir(), "controller.sock")
+	socketPath := testSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -274,4 +274,17 @@ func serveControllerResponse(t *testing.T, status int, body string) *HTTPControl
 	}
 	t.Cleanup(client.Close)
 	return client
+}
+
+// testSocketPath returns a socket path short enough for every platform's
+// sun_path limit. t.TempDir() embeds the full test name, which on darwin pushes
+// the path past 104 bytes and makes net.Listen fail with EINVAL.
+func testSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "bc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "controller.sock")
 }

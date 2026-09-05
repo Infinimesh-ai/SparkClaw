@@ -42,6 +42,21 @@
 
 ### Changed
 
+- 配置：`SPARKCLAW_MODEL_MODE` 与 JSON 字段 `model.mock` 已退役；自模型容量契约落地以来，
+  两者一直无效，因为所选容量 profile 的 `mock` 标志是 mock 路由的唯一来源。现在设置任一项都会
+  在配置加载时报错，并提示改用 `model.capacity_profile` / `SPARKCLAW_MODEL_CAPACITY_PROFILE`。
+  该变量已从 compose、env profile、部署校验器、CI、`run-eval.sh`（现根据容量 profile 推导
+  `SPARKCLAW_EXPECT_REAL_MODELS`）和 `local-dev-env.sh` 中移除。
+- 配置：`OPENAI_API_KEY` 成为正式配置项（`ModelConfig.APIKey`，仅限环境变量），由模型路由器
+  在每次请求时附带，不再逐请求读取进程环境；非 mock lane 的 base URL 指向远程主机而密钥为空时，
+  启动时记录一条警告。
+- 配置：gateway 二进制不再内置构建机器上的 `configs/model.profiles.json` 路径；
+  `model.capacity_catalog` 相对配置文件解析，内置默认值相对工作目录解析，
+  `SPARKCLAW_MODEL_CAPACITY_CATALOG` 为显式覆盖。
+- 配置：`docker/compose.yaml` 的 `SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS` 回退值改为
+  文档记载的 20000 ms（原为 15000）；新增契约测试将 Go 默认值与 `configs/sparkclaw.default.json`、
+  `docker/env/sparkclaw.product.env` 和 compose 回退值逐项比对，包括产品 profile 有意设置的
+  200000 字节阶段证据预算。
 - 部署：`docker compose` 现在要求显式提供 `SPARKCLAW_MODEL_CAPACITY_PROFILE`
   （此前默认 `mock` 会在绕过部署脚本时把所有模型调用静默路由到 mock 路由器），
   vLLM 容量入口拒绝标记为 `mock` 的 profile，compose 中 `SPARKCLAW_PAIRING_REQUIRED`

@@ -54,6 +54,28 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Configuration: `SPARKCLAW_MODEL_MODE` and the JSON `model.mock` field are
+  retired; both had been inert since the capacity contract landed because the
+  selected capacity profile's `mock` flag is the only source of mock routing.
+  Setting either now fails config load with a message pointing at
+  `model.capacity_profile` / `SPARKCLAW_MODEL_CAPACITY_PROFILE`. The variable
+  was removed from compose, the env profiles, the deployment validator, CI,
+  `run-eval.sh` (which now derives `SPARKCLAW_EXPECT_REAL_MODELS` from the
+  capacity profile), and `local-dev-env.sh`.
+- Configuration: `OPENAI_API_KEY` is a real config knob (`ModelConfig.APIKey`,
+  environment only) attached by the model router on every request instead of
+  being read from the process environment per request; a non-mock lane whose
+  base URL points at a remote host while the key is empty is logged as a
+  startup warning.
+- Configuration: the gateway binary no longer carries a build-machine path to
+  `configs/model.profiles.json`; `model.capacity_catalog` resolves relative to
+  the config file and the built-in default relative to the working directory,
+  with `SPARKCLAW_MODEL_CAPACITY_CATALOG` as the explicit override.
+- Configuration: `docker/compose.yaml` falls back to the documented 20000 ms
+  `SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS` (was 15000); a contract test
+  now pins the Go defaults against `configs/sparkclaw.default.json`,
+  `docker/env/sparkclaw.product.env`, and the compose fallbacks, including the
+  product profile's deliberate 200000-byte stage evidence budget.
 - Deployment: `docker compose` now requires an explicit
   `SPARKCLAW_MODEL_CAPACITY_PROFILE` (the previous `mock` default silently
   routed every model call to the mock router when the deploy scripts were

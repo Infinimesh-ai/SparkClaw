@@ -226,7 +226,7 @@ class LocalComposeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         config = json.loads(result.stdout)
         environment = config["services"]["gateway"]["environment"]
-        self.assertEqual(environment["SPARKCLAW_MODEL_MODE"], "mock")
+        self.assertNotIn("SPARKCLAW_MODEL_MODE", environment)
         self.assertNotIn("SPARKCLAW_DEPLOYMENT_PROFILE", environment)
         self.assertNotIn("SPARKCLAW_MODEL_CAPACITY_PROFILE", environment)
         self.assertNotIn("env_file", config["services"]["gateway"])

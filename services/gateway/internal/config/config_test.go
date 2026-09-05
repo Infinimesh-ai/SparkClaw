@@ -256,7 +256,7 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 func TestLoadMCPAccessLocalDomain(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":" local-domain "}}`
+	raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":" local-domain "}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestLoadMCPAccessLocalDomain(t *testing.T) {
 	}
 
 	path = filepath.Join(root, "missing-domain.json")
-	if err := os.WriteFile(path, []byte(`{"model":{"mock":true},"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"local_domain_id":""}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"local_domain_id":""}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "local_domain_id") {
@@ -280,7 +280,7 @@ func TestLoadMCPAccessLocalDomain(t *testing.T) {
 func TestLoadMCPAllowedOrigins(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[" HTTPS://Panel.Example.COM "," https://panel.example.com/","","http://192.168.1.20:8443"]}}`
+	raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[" HTTPS://Panel.Example.COM "," https://panel.example.com/","","http://192.168.1.20:8443"]}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestLoadMCPAllowedOrigins(t *testing.T) {
 		"null origin":    `"null"`,
 	} {
 		path := filepath.Join(root, "invalid-origin.json")
-		invalid := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[` + entry + `]}}`
+		invalid := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[` + entry + `]}}`
 		if err := os.WriteFile(path, []byte(invalid), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -319,7 +319,7 @@ func TestLoadMCPAllowedOrigins(t *testing.T) {
 func TestLoadNormalizesEnabledISCPPairing(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,"domain_id":" domain-a ","authority_url":"http://127.0.0.1:8090/v1/pairing/","token_env":"ISCP_TEST_TOKEN"}}`
+	raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,"domain_id":" domain-a ","authority_url":"http://127.0.0.1:8090/v1/pairing/","token_env":"ISCP_TEST_TOKEN"}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestLoadRejectsUnsafeISCPPairing(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "sparkclaw.json")
-			raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,` + test.config + `}}`
+			raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,` + test.config + `}}`
 			if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -357,7 +357,6 @@ func TestLoadNormalizesLocalMindMCPServer(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{
-  "model": {"mock": true},
   "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
   "mcp_servers": {
     "localmind": {
@@ -409,7 +408,7 @@ func TestLoadRejectsInvalidLocalMindMCPServer(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "sparkclaw.json")
-			raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":{` + test.server + `}}`
+			raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":{` + test.server + `}}`
 			if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -424,7 +423,6 @@ func TestLoadNormalizesMixedMCPServerKinds(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{
-  "model": {"mock": true},
   "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
   "mcp_servers": {
     "localmind": {
@@ -456,7 +454,6 @@ func TestLoadNormalizesGenericMCPSafeguards(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{
-  "model": {"mock": true},
   "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
   "mcp_servers": {
     "happy-tasks": {
@@ -483,7 +480,7 @@ func TestLoadNormalizesGenericMCPSafeguards(t *testing.T) {
 func TestLoadDefaultsGenericMCPMutationsOffAndRejectsFilterConflict(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
-	base := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":%s}`
+	base := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":%s}`
 	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(base, `{"happy":{"url":"https://happy.example.test/mcp"}}`)), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +502,6 @@ func TestLoadDefaultsGenericMCPMutationsOffAndRejectsFilterConflict(t *testing.T
 
 func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T) {
 	for _, name := range []string{
-		"SPARKCLAW_MODEL_MODE",
 		"SPARKCLAW_FAST_BASE_URL",
 		"SPARKCLAW_DEEP_BASE_URL",
 		"SPARKCLAW_EMBEDDING_BASE_URL",
@@ -1082,10 +1078,10 @@ func TestLoadAllowsWeixinNotificationToBeExplicitlyEnabled(t *testing.T) {
 }
 
 func TestLoadRejectsExternalModelModeWithoutBaseURLs(t *testing.T) {
-	// Mirrors the shipped sparkclaw.default.json after 7d0653f: mock mode
-	// with the fast/deep endpoints blanked out.
+	// Mirrors the shipped sparkclaw.default.json with the fast/deep
+	// endpoints blanked out under a non-mock capacity profile.
 	path := filepath.Join(t.TempDir(), "config.json")
-	raw := `{"model":{"mock":false,"fast":{"base_url":""},"deep":{"base_url":""}}}`
+	raw := `{"model":{"fast":{"base_url":""},"deep":{"base_url":""}}}`
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1120,7 +1116,6 @@ func TestLoadKeepsWebSearchDisabledWhenExplicitlyDisabled(t *testing.T) {
 }
 
 func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
-	t.Setenv("SPARKCLAW_MODEL_MODE", "external-model")
 	t.Setenv("SPARKCLAW_MODEL_CAPACITY_PROFILE", "dgx-spark-dual-light-v1")
 	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://fast.example.test/v1")
 	t.Setenv("SPARKCLAW_FAST_MODEL", "sparkclaw-fast")
@@ -1136,7 +1131,7 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Model.Mock {
-		t.Fatal("external-model mode should disable mock routing")
+		t.Fatal("a non-mock capacity profile should disable mock routing")
 	}
 	if cfg.Model.Fast.BaseURL != "http://fast.example.test/v1" || cfg.Model.Fast.Model != "sparkclaw-fast" || cfg.Model.Fast.Name != "fast-lane" {
 		t.Fatalf("fast model env did not apply: %#v", cfg.Model.Fast)

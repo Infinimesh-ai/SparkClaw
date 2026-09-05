@@ -87,15 +87,17 @@ type RateLimitConfig struct {
 }
 
 type ModelConfig struct {
-	CapacityProfile    string       `json:"capacity_profile"`
-	CapacityCatalog    string       `json:"capacity_catalog"`
-	Fast               ModelProfile `json:"fast"`
-	Deep               ModelProfile `json:"deep"`
-	Embedding          ModelProfile `json:"embedding"`
-	Guard              ModelProfile `json:"guard"`
-	Mock               bool         `json:"mock"`
-	HTTPTimeoutSeconds int          `json:"http_timeout_seconds"`
-	DisableThinking    bool         `json:"disable_thinking"`
+	CapacityProfile string       `json:"capacity_profile"`
+	CapacityCatalog string       `json:"capacity_catalog"`
+	Fast            ModelProfile `json:"fast"`
+	Deep            ModelProfile `json:"deep"`
+	Embedding       ModelProfile `json:"embedding"`
+	Guard           ModelProfile `json:"guard"`
+	// Mock is resolved from the selected capacity profile; it is not a
+	// file or environment knob.
+	Mock               bool `json:"-"`
+	HTTPTimeoutSeconds int  `json:"http_timeout_seconds"`
+	DisableThinking    bool `json:"disable_thinking"`
 }
 
 type ModelProfile struct {

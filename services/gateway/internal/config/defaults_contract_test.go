@@ -309,7 +309,6 @@ func TestGoDefaultsMatchRepositoryDefaultJSON(t *testing.T) {
 		// The repository default runs mock models; the Go default describes
 		// the local DGX Spark layout that the deployment profiles override.
 		"Model.CapacityProfile":   "dgx-spark-dual-light-v1 -> mock",
-		"Model.Mock":              "false -> true",
 		"Model.Fast.BaseURL":      "http://127.0.0.1:8001/v1 -> ",
 		"Model.Deep.BaseURL":      "http://127.0.0.1:8002/v1 -> ",
 		"Model.Embedding.BaseURL": "http://127.0.0.1:8003/v1 -> ",

@@ -68,6 +68,9 @@ func rejectLegacyModelCapacity(raw []byte) error {
 			return fmt.Errorf("decode model configuration: %w", err)
 		}
 	}
+	if _, exists := model["mock"]; exists {
+		return errors.New("model.mock is not allowed; mock routing comes from the selected capacity profile")
+	}
 	for _, lane := range []string{"fast", "deep", "embedding", "guard"} {
 		var profile map[string]json.RawMessage
 		if rawProfile := model[lane]; len(rawProfile) > 0 {

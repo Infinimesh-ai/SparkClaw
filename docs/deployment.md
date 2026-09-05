@@ -920,7 +920,6 @@ Run real-model golden eval:
 
 ```bash
 SPARKCLAW_EXPECT_REAL_MODELS=1 \
-SPARKCLAW_MODEL_MODE=external \
 BROWSER_FIXTURE_URL=http://host.docker.internal:18791 \
 BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh

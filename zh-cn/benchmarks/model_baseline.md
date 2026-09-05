@@ -58,7 +58,7 @@ curl -fsS http://127.0.0.1:8005/v1/models
 然后以 external model mode 运行 Gateway：
 
 ```bash
-SPARKCLAW_MODEL_MODE=external \
+SPARKCLAW_MODEL_CAPACITY_PROFILE=dgx-spark-dual-light-v1 \
 SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=300 \
 SPARKCLAW_MODEL_DISABLE_THINKING=true \
 SPARKCLAW_FAST_MODEL=sparkclaw-fast \

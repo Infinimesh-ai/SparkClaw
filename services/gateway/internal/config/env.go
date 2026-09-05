@@ -29,19 +29,27 @@ type envBinding struct {
 
 // retiredEnvironment lists variables whose feature was removed; a set value
 // fails config load so a stale deployment cannot silently lose the knob.
-var retiredEnvironment = []string{
-	"SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE",
-	"SPARKCLAW_BROWSER_PROFILE_DIR",
-	"SPARKCLAW_BROWSER_DISPLAY",
-	"SPARKCLAW_BROWSER_XAUTHORITY",
-	"SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS",
-	"SPARKCLAW_BROWSER_AUTOMATION_COMMAND",
-	"SPARKCLAW_BROWSER_AUTOMATION_TRANSPORT",
-	"SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST",
-	"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE",
-	"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST",
-	"SPARKCLAW_BROWSER_CDP_PROFILE_ID",
-	"SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS",
+var retiredEnvironment = []retiredEnv{
+	{name: "SPARKCLAW_MODEL_MODE", reason: "mock routing comes from the selected capacity profile (SPARKCLAW_MODEL_CAPACITY_PROFILE)"},
+	{name: "SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_PROFILE_DIR", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_DISPLAY", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_XAUTHORITY", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_AUTOMATION_COMMAND", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_AUTOMATION_TRANSPORT", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_CDP_PROFILE_ID", reason: retiredBrowserReason},
+	{name: "SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS", reason: retiredBrowserReason},
+}
+
+const retiredBrowserReason = "remove it and use the SparkClaw Browser Bridge controller"
+
+type retiredEnv struct {
+	name   string
+	reason string
 }
 
 func envString(field func(*Config) *string) envApply {
@@ -193,15 +201,6 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_STATE_ENCRYPTION_KEY_FILE", doc: "File holding the state encryption key.", apply: envString(func(c *Config) *string { return &c.State.EncryptionKeyFile })},
 	{name: "SPARKCLAW_CREDENTIAL_KEY", doc: "Key protecting stored integration credentials.", apply: envString(func(c *Config) *string { return &c.State.CredentialKey })},
 	{name: "SPARKCLAW_CREDENTIAL_KEY_FILE", doc: "File holding the credential key; resolved to an absolute path.", apply: envString(func(c *Config) *string { return &c.State.CredentialKeyFile })},
-	{name: "SPARKCLAW_MODEL_MODE", doc: "Legacy mock/external switch; the selected capacity profile overrides it.", apply: func(cfg *Config, value string) error {
-		switch strings.ToLower(strings.TrimSpace(value)) {
-		case "external", "external-model", "real", "local", "dgx-spark-local":
-			cfg.Model.Mock = false
-		case "mock":
-			cfg.Model.Mock = true
-		}
-		return nil
-	}},
 	{name: "SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", doc: "HTTP timeout for model server calls.", apply: envInt(func(c *Config) *int { return &c.Model.HTTPTimeoutSeconds })},
 	{name: "SPARKCLAW_MODEL_TIMEOUT_SECONDS", doc: "Alias of SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS; wins when both are set.", apply: envInt(func(c *Config) *int { return &c.Model.HTTPTimeoutSeconds })},
 	{name: "SPARKCLAW_MODEL_DISABLE_THINKING", doc: "Send chat requests with thinking disabled.", apply: envBool(func(c *Config) *bool { return &c.Model.DisableThinking })},
@@ -330,9 +329,9 @@ var envBindings = []envBinding{
 }
 
 func applyEnv(cfg *Config) error {
-	for _, name := range retiredEnvironment {
-		if strings.TrimSpace(os.Getenv(name)) != "" {
-			return fmt.Errorf("%s is retired; remove it and use the SparkClaw Browser Bridge controller", name)
+	for _, retired := range retiredEnvironment {
+		if strings.TrimSpace(os.Getenv(retired.name)) != "" {
+			return fmt.Errorf("%s is retired; %s", retired.name, retired.reason)
 		}
 	}
 	if err := rejectLegacyModelCapacityEnv(); err != nil {

@@ -281,10 +281,6 @@ sparkclaw_validate_product_profile() {
     printf 'SPARKCLAW_DEPLOYMENT_PROFILE must be %s for this entrypoint\n' "$expected_profile" >&2
     return 1
   }
-  [[ "$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_MODEL_MODE '')" == "external" ]] || {
-    printf 'SPARKCLAW_MODEL_MODE must be external\n' >&2
-    return 1
-  }
   [[ "$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_STATE_BACKEND '')" == "postgres" ]] || {
     printf 'SPARKCLAW_STATE_BACKEND must be postgres\n' >&2
     return 1

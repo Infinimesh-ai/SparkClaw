@@ -1,6 +1,9 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,9 +23,9 @@ func TestEnvBindingsAreUniqueAndDocumented(t *testing.T) {
 			seen[name] = true
 		}
 	}
-	for _, name := range retiredEnvironment {
-		if seen[name] {
-			t.Fatalf("retired variable %q is also a live binding", name)
+	for _, retired := range retiredEnvironment {
+		if seen[retired.name] {
+			t.Fatalf("retired variable %q is also a live binding", retired.name)
 		}
 	}
 }
@@ -64,5 +67,21 @@ func TestEnvBindingsSkipEmptyValues(t *testing.T) {
 	want.Storage.ArtifactDir = cfg.Storage.ArtifactDir
 	if cfg.Gateway != want.Gateway || cfg.Runtime != want.Runtime || cfg.Model.Fast.BaseURL != want.Model.Fast.BaseURL || cfg.State != want.State {
 		t.Fatalf("empty environment changed the defaults: %#v", cfg)
+	}
+}
+
+func TestLoadRejectsRetiredModelModeAndJSONMock(t *testing.T) {
+	t.Setenv("SPARKCLAW_MODEL_MODE", "external")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "SPARKCLAW_MODEL_MODE is retired") {
+		t.Fatalf("SPARKCLAW_MODEL_MODE should be rejected: %v", err)
+	}
+	t.Setenv("SPARKCLAW_MODEL_MODE", "")
+
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"model":{"mock":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "model.mock is not allowed") {
+		t.Fatalf("model.mock should be rejected: %v", err)
 	}
 }

@@ -195,6 +195,14 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if _, err := r.saveToolCall(ctx, call); err != nil {
 		return app.ToolCall{}, fmt.Errorf("persist completed approved tool call: %w", err)
 	}
+	if pptxMutation {
+		// The sealed candidate is only disposable once the completed status
+		// is durable: a crash between publish and that write leaves the
+		// call running_after_approval with its manifest intact, so nothing
+		// that might still need the sealed bytes is ever orphaned. Cleanup
+		// failures are logged by the hub and collected by the expiry sweep.
+		_ = r.tools.DiscardSealedPPTXCandidate(context.WithoutCancel(ctx), call.Tool, call.Arguments, call.SessionID, call.RunID)
+	}
 	if err := r.recordDocumentToolActivity(execCtx, call); err != nil {
 		return call, err
 	}

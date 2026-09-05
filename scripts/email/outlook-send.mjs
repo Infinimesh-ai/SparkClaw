@@ -7,14 +7,10 @@ import {
   classifyProbeEvidence,
   hasExactKeys,
   parseProbeEvidence,
-  readCommandTimeout,
-  readJsonStdin,
   recipientDigest,
   validateInvocationId,
   withOwnedOutlookTab,
-  writeFailure,
-  writeSuccess,
-} from "./outlook-host-cdp.mjs";
+} from "./outlook-browser.mjs";
 
 const INPUT_KEYS = [
   "account",
@@ -59,14 +55,14 @@ const BODY_SELECTOR = [
   '[contenteditable="true"][aria-label="\u90ae\u4ef6\u6b63\u6587"]',
   '[contenteditable="true"][aria-label="\u6d88\u606f\u6b63\u6587"]',
 ].join(", ");
-const SEND_SELECTOR = [
+export const OUTLOOK_SEND_SELECTOR = [
   'button[aria-label="Send"]',
   'button[aria-label="\u53d1\u9001"]',
   'button[title="Send"]',
   'button[title="\u53d1\u9001"]',
 ].join(", ");
 
-const SEND_VERIFICATION_EXPRESSION = String.raw`(async () => {
+export const OUTLOOK_SEND_VERIFICATION_EXPRESSION = String.raw`(async () => {
   const isVisible = (element) => {
     if (!element || !element.isConnected) return false;
     const style = window.getComputedStyle(element);
@@ -78,7 +74,7 @@ const SEND_VERIFICATION_EXPRESSION = String.raw`(async () => {
   const anyVisible = (selector) =>
     Array.from(document.querySelectorAll(selector)).some(isVisible);
   const bodySelector = ${JSON.stringify(BODY_SELECTOR)};
-  const sendSelector = ${JSON.stringify(SEND_SELECTOR)};
+  const sendSelector = ${JSON.stringify(OUTLOOK_SEND_SELECTOR)};
   const statusPattern = /^(Message sent|Email sent|\u90ae\u4ef6\u5df2\u53d1\u9001|\u5df2\u53d1\u9001\u90ae\u4ef6)(?:[.!\s]|$)/i;
   const collect = () => {
     const statusVisible = Array.from(document.querySelectorAll('[role="status"], [role="alert"]'))
@@ -101,16 +97,16 @@ const SEND_VERIFICATION_EXPRESSION = String.raw`(async () => {
   return result;
 })()`;
 
-async function main() {
+export async function sendOutlook(rawInput, runtime = {}) {
   let sendClickAttempted = false;
   try {
-    if (process.argv.length !== 2) throw new OutlookCliError("invalid_request");
-    const input = validateInput(await readJsonStdin());
-    const timeoutMs = readCommandTimeout("OUTLOOK_SEND_TIMEOUT_MS");
-    const result = await withOwnedOutlookTab({
+    const input = validateInput(rawInput);
+    const timeoutMs = runtime.timeoutMs ?? 10_000;
+    return await withOwnedOutlookTab({
       invocationId: input.invocation_id,
       operation: "send",
       timeoutMs,
+      runtime,
     }, async (tab) => {
       const evidence = parseProbeEvidence(await tab.inspect(PROBE_EXPRESSION));
       classifyProbeEvidence(evidence);
@@ -118,7 +114,7 @@ async function main() {
 
       sendClickAttempted = true;
       try {
-        await tab.act(["click", SEND_SELECTOR]);
+        await tab.act(["click", OUTLOOK_SEND_SELECTOR]);
       } catch {
         throw new OutlookCliError("send_outcome_unknown");
       }
@@ -129,7 +125,7 @@ async function main() {
           await tab.act([
             "eval",
             "-b",
-            Buffer.from(SEND_VERIFICATION_EXPRESSION, "utf8").toString("base64"),
+            Buffer.from(OUTLOOK_SEND_VERIFICATION_EXPRESSION, "utf8").toString("base64"),
           ]),
         );
       } catch {
@@ -145,13 +141,11 @@ async function main() {
         recipient_digest: recipientDigest(input.message.recipient),
       };
     });
-    writeSuccess(result);
   } catch (error) {
     if (sendClickAttempted) {
-      writeFailure(new OutlookCliError("send_outcome_unknown"));
-    } else {
-      writeFailure(error);
+      throw new OutlookCliError("send_outcome_unknown");
     }
+    throw error;
   }
 }
 
@@ -184,8 +178,8 @@ async function composeAndVerify(tab, message, timeoutMs) {
       throw new OutlookCliError("field_verification_failed");
     }
 
-    await tab.act(["wait", SEND_SELECTOR, "--timeout", uiTimeout]);
-    const send = await tab.act(["is", "enabled", SEND_SELECTOR]);
+    await tab.act(["wait", OUTLOOK_SEND_SELECTOR, "--timeout", uiTimeout]);
+    const send = await tab.act(["is", "enabled", OUTLOOK_SEND_SELECTOR]);
     if (send.enabled !== true) throw new OutlookCliError("send_unavailable");
   } catch (error) {
     if (error instanceof OutlookCliError) throw error;
@@ -259,13 +253,13 @@ function parseSendVerification(evalData) {
     typeof evalData.result.sent_evidence !== "boolean" ||
     typeof evalData.result.compose_open !== "boolean"
   ) {
-    throw new OutlookCliError("agent_browser_invalid_output");
+    throw new OutlookCliError("browser_output_invalid");
   }
   let url;
   try {
     url = new URL(evalData.result.url);
   } catch {
-    throw new OutlookCliError("agent_browser_invalid_output");
+    throw new OutlookCliError("browser_output_invalid");
   }
   if (url.protocol !== "https:" || !OUTLOOK_ORIGINS.has(url.origin)) {
     throw new OutlookCliError("outlook_origin_not_allowed");
@@ -276,5 +270,3 @@ function parseSendVerification(evalData) {
 function normalizeNewlines(value) {
   return typeof value === "string" ? value.replace(/\r\n?/g, "\n") : null;
 }
-
-await main();

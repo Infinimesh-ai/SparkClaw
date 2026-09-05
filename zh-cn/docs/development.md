@@ -146,12 +146,11 @@ Gateway/Agent code 不得按 provider name 分支。
 
 ## 浏览器修改
 
-唯一执行后端是固定 agent-browser，通过 Host-CDP attach 到宿主机拥有的 SparkClaw
-Chromium 进程与专用 Profile。ToolHub contract 保持 provider-neutral，process/profile/tab
-ownership 有界，page evidence 不可信，click ref 绑定 fresh snapshot。不要恢复容器 Chromium、
-personal Chrome attach、cookie export 或第二 DOM collector。隔离的宿主机 Playwright
-Extension Controller 只是资格验证 Preview，在[Playwright 扩展浏览器迁移](playwright-extension-browser-design.md)
-的门槛通过前不得接入浏览器执行。见[浏览器 Runtime](browser-runtime.md)。
+唯一执行后端是 Checksum-pinned SparkClaw Browser Bridge 与 Owner-scoped Playwright
+Controller，连接持久 SparkClaw Chromium Profile。ToolHub Contract 保持 Provider-neutral，
+Controller/Session/Page Ownership 有界，Page Evidence 不可信，Action Ref 绑定 Fresh Snapshot。
+不要恢复 Container Chromium、其他 Browser Profile、Cookie Export、CDP、任意 Playwright Code
+或第二 DOM Collector。见[浏览器 Runtime](browser-runtime.md)。
 
 ## 文档修改
 

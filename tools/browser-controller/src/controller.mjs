@@ -7,25 +7,67 @@ import {
   parseBoundedMilliseconds,
   parseGeneration,
   parseID,
+  parseOperationArguments,
   parseProfileID,
+  parseScriptInput,
   parseToken,
   requireExactObject,
 } from "./protocol.mjs";
 
 const DEFAULT_SESSION_TTL_MS = 2 * 60_000;
+const GENERIC_OPERATIONS = new Set([
+  "page.click",
+  "page.fill",
+  "page.info",
+  "page.navigate",
+  "page.read",
+  "page.reload",
+  "page.screenshot",
+  "page.select",
+  "page.snapshot",
+  "page.type",
+  "page.wait",
+  "tabs.close",
+  "tabs.handoff",
+  "tabs.list",
+  "tabs.new",
+  "tabs.select",
+]);
+const PAGE_MUTATING_OPERATIONS = new Set([
+  "page.click",
+  "page.fill",
+  "page.navigate",
+  "page.reload",
+  "page.select",
+  "page.type",
+  "tabs.close",
+  "tabs.handoff",
+  "tabs.new",
+  "tabs.select",
+]);
+const SCRIPT_OPERATIONS = new Set(["probe", "send"]);
 
 export class BrowserController {
   constructor({
     profileID = "default",
     clientFactory,
+    scriptFactory = null,
     controllerGeneration = randomGeneration(),
     defaultSessionTTLMS = DEFAULT_SESSION_TTL_MS,
   }) {
     if (!clientFactory || typeof clientFactory.open !== "function") {
       throw new TypeError("clientFactory.open is required");
     }
+    if (
+      scriptFactory !== null &&
+      (typeof scriptFactory.runScript !== "function" ||
+        typeof scriptFactory.openProviderLogin !== "function")
+    ) {
+      throw new TypeError("scriptFactory is invalid");
+    }
     this.profileID = parseID(profileID, "profile_id");
     this.clientFactory = clientFactory;
+    this.scriptFactory = scriptFactory;
     this.controllerGeneration = parseGeneration(controllerGeneration, "controller_generation");
     this.defaultSessionTTLMS = parseBoundedMilliseconds(
       defaultSessionTTLMS,
@@ -45,7 +87,7 @@ export class BrowserController {
       profile_id: this.profileID,
       controller_generation: this.controllerGeneration,
       active_session: Boolean(this.active),
-      versions: this.clientFactory.info?.() ?? {},
+      versions: this.#versions(),
     };
   }
 
@@ -67,7 +109,7 @@ export class BrowserController {
         controller_generation: this.controllerGeneration,
         session_generation: reservation.sessionGeneration,
         page_generation: reservation.pageGeneration,
-        versions: this.clientFactory.info?.() ?? {},
+        versions: this.#versions(),
       };
     } catch (error) {
       throw normalizeClientError(error);
@@ -167,10 +209,172 @@ export class BrowserController {
     };
   }
 
+  async execute(input) {
+    requireExactObject(input, [
+      "session_id",
+      "controller_generation",
+      "session_generation",
+      "page_generation",
+      "operation",
+      "arguments",
+    ]);
+    const active = this.#requireActiveSession(input);
+    const operation = parseID(input.operation, "operation");
+    if (active.lane !== "mcp" || !GENERIC_OPERATIONS.has(operation)) {
+      throw new ControllerError("browser_operation_unavailable", "browser operation is unavailable", {
+        status: 400,
+      });
+    }
+    const args = parseOperationArguments(input.arguments);
+    let result;
+    try {
+      result = await active.client.execute(operation, args);
+    } catch (error) {
+      throw normalizeClientError(error);
+    }
+    if (PAGE_MUTATING_OPERATIONS.has(operation)) {
+      active.pageGeneration++;
+    }
+    return {
+      schema_version: 1,
+      state: "completed",
+      profile_id: this.profileID,
+      lane: active.lane,
+      session_id: active.sessionID,
+      credential_generation: active.credentialGeneration,
+      controller_generation: this.controllerGeneration,
+      session_generation: active.sessionGeneration,
+      page_generation: active.pageGeneration,
+      operation,
+      result,
+    };
+  }
+
+  async runScript(input) {
+    try {
+      requireExactObject(
+        input,
+        [
+          "profile_id",
+          "task_id",
+          "credential_generation",
+          "token",
+          "provider",
+          "operation",
+          "script_id",
+          "revision",
+          "input",
+        ],
+        ["wait_timeout_ms"],
+      );
+      parseProfileID(input.profile_id, this.profileID);
+      const taskID = parseID(input.task_id, "task_id");
+      const credentialGeneration = parseGeneration(
+        input.credential_generation,
+        "credential_generation",
+      );
+      const token = parseToken(input.token);
+      const provider = parseID(input.provider, "provider");
+      const operation = parseID(input.operation, "operation");
+      if (!SCRIPT_OPERATIONS.has(operation)) {
+        throw new ControllerError("browser_script_unavailable", "browser provider script is unavailable", {
+          status: 400,
+        });
+      }
+      const scriptID = parseID(input.script_id, "script_id");
+      const revision = parseGeneration(input.revision, "revision");
+      const scriptInput = parseScriptInput(input.input);
+      const waitMS = parseBoundedMilliseconds(
+        input.wait_timeout_ms,
+        "wait_timeout_ms",
+        MAX_WAIT_MS,
+        0,
+      );
+      this.#requireScriptFactory();
+
+      let reservation;
+      try {
+        reservation = await this.#reserve(waitMS, "cli", taskID);
+        const result = await this.scriptFactory.runScript({
+          token,
+          sessionID: reservation.sessionID,
+          provider,
+          operation,
+          scriptID,
+          revision,
+          input: scriptInput,
+          signal: reservation.abortController.signal,
+        });
+        return {
+          schema_version: 1,
+          state: result.state,
+          profile_id: this.profileID,
+          lane: reservation.lane,
+          provider,
+          operation,
+          script_id: scriptID,
+          revision,
+          source_checksum: result.sourceChecksum,
+          credential_generation: credentialGeneration,
+          controller_generation: this.controllerGeneration,
+          session_generation: reservation.sessionGeneration,
+          result: result.result,
+        };
+      } catch (error) {
+        throw normalizeClientError(error);
+      } finally {
+        if (reservation) this.#finishReservation(reservation);
+      }
+    } finally {
+      if (input && typeof input === "object" && !Array.isArray(input)) {
+        if (typeof input.token === "string") input.token = "";
+        clearScriptInput(input.input);
+      }
+    }
+  }
+
+  async openProviderLogin(input) {
+    requireExactObject(input, ["profile_id", "task_id", "provider"], ["wait_timeout_ms"]);
+    parseProfileID(input.profile_id, this.profileID);
+    const taskID = parseID(input.task_id, "task_id");
+    const provider = parseID(input.provider, "provider");
+    const waitMS = parseBoundedMilliseconds(
+      input.wait_timeout_ms,
+      "wait_timeout_ms",
+      MAX_WAIT_MS,
+      0,
+    );
+    this.#requireScriptFactory();
+
+    const reservation = await this.#reserve(waitMS, "login", taskID);
+    try {
+      await this.scriptFactory.openProviderLogin(provider);
+      return {
+        schema_version: 1,
+        state: "opened",
+        profile_id: this.profileID,
+        provider,
+        controller_generation: this.controllerGeneration,
+        session_generation: reservation.sessionGeneration,
+      };
+    } catch (error) {
+      throw normalizeClientError(error);
+    } finally {
+      this.#finishReservation(reservation);
+    }
+  }
+
   async shutdown() {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
-    if (this.active) await this.#releaseReservation(this.active);
+    if (!this.active) return;
+    const active = this.active;
+    if (active.lane === "mcp") {
+      await this.#releaseReservation(active);
+      return;
+    }
+    active.abortController.abort();
+    await active.done.promise;
   }
 
   async #reserve(waitMS, lane, taskID) {
@@ -209,9 +413,55 @@ export class BrowserController {
       timer: null,
       done,
       cleanupPromise: null,
+      abortController: new AbortController(),
     };
     this.active = reservation;
     return reservation;
+  }
+
+  #requireScriptFactory() {
+    if (!this.scriptFactory) {
+      throw new ControllerError("browser_script_unavailable", "browser provider script is unavailable", {
+        status: 503,
+        retryable: true,
+      });
+    }
+  }
+
+  #versions() {
+    return {
+      ...(this.clientFactory.info?.() ?? {}),
+      ...(this.scriptFactory?.info?.() ?? {}),
+    };
+  }
+
+  #requireActiveSession(input) {
+    const sessionID = parseID(input.session_id, "session_id");
+    const controllerGeneration = parseGeneration(input.controller_generation, "controller_generation");
+    const sessionGeneration = parseGeneration(input.session_generation, "session_generation");
+    const pageGeneration = parseGeneration(input.page_generation, "page_generation");
+    if (controllerGeneration !== this.controllerGeneration) {
+      throw new ControllerError("browser_controller_stale", "browser controller generation is stale", {
+        status: 409,
+      });
+    }
+    const active = this.active;
+    if (!active || active.sessionID !== sessionID) {
+      throw new ControllerError("browser_session_not_found", "browser session was not found", {
+        status: 404,
+      });
+    }
+    if (active.sessionGeneration !== sessionGeneration) {
+      throw new ControllerError("browser_session_stale", "browser session generation is stale", {
+        status: 409,
+      });
+    }
+    if (active.pageGeneration !== pageGeneration) {
+      throw new ControllerError("browser_page_stale", "browser page generation is stale", {
+        status: 409,
+      });
+    }
+    return active;
   }
 
   async #releaseReservation(reservation) {
@@ -239,6 +489,13 @@ export class BrowserController {
     if (this.active !== reservation) return;
     await this.#releaseReservation(reservation);
   }
+}
+
+function clearScriptInput(input) {
+  if (!input?.message) return;
+  input.message.recipient = "";
+  if (Object.hasOwn(input.message, "subject")) input.message.subject = "";
+  if (input.message.body) input.message.body.content = "";
 }
 
 function normalizeClientError(error) {

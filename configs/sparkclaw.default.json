@@ -105,7 +105,7 @@
     },
     "browserAutomation": {
       "enabled": true,
-      "provider": "agent-browser",
+      "provider": "playwright-extension",
       "profile": "default"
     },
     "reminders": {
@@ -182,18 +182,12 @@
   },
   "adapters": {
     "browserAutomation": {
-      "command": "agent-browser",
       "timeoutMs": 30000,
       "startupTimeoutMs": 10000,
       "settleTimeoutMs": 15000,
       "settleQuietPeriodMs": 500,
       "settlePollIntervalMs": 100,
       "routeRebindLimit": 2,
-      "hostCDP": {
-        "endpointFile": "/run/sparkclaw/browserd/cdp-endpoint",
-        "profileID": "default",
-        "connectTimeoutMs": 10000
-      },
       "playwrightExtension": {
         "controllerSocket": "/run/sparkclaw/browser-controller/controller.sock",
         "profileID": "default",

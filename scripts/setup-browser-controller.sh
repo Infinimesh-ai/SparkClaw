@@ -15,9 +15,8 @@ usage() {
   cat <<'EOF'
 Usage: bash scripts/setup-browser-controller.sh [--check] [--env-file PATH]
 
-Install or verify the preview-only Playwright Extension host controller. The
-controller uses a disposable qualification profile and does not replace the
-Host-CDP production browser backend.
+Install or verify the Playwright host controller for the persistent SparkClaw
+Browser profile and checksum-pinned Browser Bridge.
 
 Options:
   --check          Verify dependencies, service files, and the private socket
@@ -66,17 +65,31 @@ npm_major="$(npm --version | cut -d. -f1)"
 runtime_base="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 runtime_dir="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST "$runtime_base/sparkclaw/browser-controller")"
 socket_path="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST "$runtime_dir/controller.sock")"
+native_socket="$runtime_dir/bridge-native.sock"
+output_dir="$runtime_dir/mcp-output"
+cli_runtime_dir="$runtime_dir/cli-runtime"
 container_socket="/run/sparkclaw/browser-controller/controller.sock"
-profile_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser/extension-qualification/user-data"
-browser_config="${XDG_CONFIG_HOME:-$HOME/.config}/sparkclaw/browserd.json"
+profile_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser/default/user-data"
+controller_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser-controller"
+controller_bin_dir="$controller_data_dir/bin"
+bridge_launcher="$controller_bin_dir/browser-bridge-launcher"
+native_host_launcher="$controller_bin_dir/browser-bridge-native-host"
+native_manifest_dir="$profile_dir/NativeMessagingHosts"
+native_manifest="$native_manifest_dir/com.sparkclaw.browser_bridge.json"
+browser_config="${XDG_CONFIG_HOME:-$HOME/.config}/sparkclaw/browser.json"
 systemd_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 unit_path="$systemd_dir/sparkclaw-browser-controller.service"
 node_path="$(command -v node)"
 entry_path="$PACKAGE_DIR/src/main.mjs"
+bridge_launcher_source="$PACKAGE_DIR/src/browser-bridge-launcher.mjs"
+native_host_source="$PACKAGE_DIR/src/browser-bridge-native-host.mjs"
+focus_helper_source="$PACKAGE_DIR/src/browser-bridge-focus.py"
 
 [[ "$runtime_dir" == /* && "$socket_path" == /* ]] || fail "controller runtime paths must be absolute"
 [[ "$socket_path" == "$runtime_dir/controller.sock" ]] || fail "controller socket must be inside its private runtime directory"
-[[ -r "$browser_config" ]] || fail "host browser config is missing; run npm run setup:browser first"
+[[ -x "$bridge_launcher_source" && -x "$native_host_source" && -r "$focus_helper_source" ]] ||
+  fail "Browser Bridge native entrypoints are unavailable"
+[[ -r "$browser_config" ]] || fail "SparkClaw browser config is missing; run npm run setup:browser first"
 
 mapfile -t browser_values < <(python3 - "$browser_config" <<'PY'
 import json
@@ -127,6 +140,37 @@ print(json.dumps(sys.argv[1], ensure_ascii=False))
 PY
 }
 
+verify_wrapper() {
+  local wrapper="$1"
+  local source="$2"
+  [[ -f "$wrapper" && ! -L "$wrapper" && -x "$wrapper" ]] || fail "Browser Bridge wrapper is missing: $wrapper"
+  [[ "$(stat -c '%u:%a' "$wrapper")" == "$(id -u):700" ]] || fail "Browser Bridge wrapper must be owner-only"
+  grep -Fqx "exec $(systemd_quote "$node_path") $(systemd_quote "$source") \"\$@\"" "$wrapper" ||
+    fail "Browser Bridge wrapper is stale: $wrapper"
+}
+
+verify_native_manifest() {
+  [[ -f "$native_manifest" && ! -L "$native_manifest" ]] || fail "Browser Bridge native host manifest is missing"
+  [[ "$(stat -c '%u:%a' "$native_manifest")" == "$(id -u):600" ]] ||
+    fail "Browser Bridge native host manifest must be owner-only"
+  python3 - "$native_manifest" "$native_host_launcher" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "name": "com.sparkclaw.browser_bridge",
+    "description": "SparkClaw Browser Bridge native connection broker",
+    "path": sys.argv[2],
+    "type": "stdio",
+    "allowed_origins": ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/"],
+}
+if value != expected:
+    raise SystemExit("Browser Bridge native host manifest is stale")
+PY
+}
+
 verify_installation() {
   local health
 
@@ -134,6 +178,15 @@ verify_installation() {
   [[ -d "$runtime_dir" && ! -L "$runtime_dir" ]] || fail "controller runtime directory is missing or unsafe"
   [[ "$(stat -c '%u:%a' "$runtime_dir")" == "$(id -u):700" ]] ||
     fail "controller runtime directory must be owner-only"
+  [[ -d "$output_dir" && ! -L "$output_dir" ]] || fail "controller MCP output directory is missing or unsafe"
+  [[ "$(stat -c '%u:%a' "$output_dir")" == "$(id -u):700" ]] ||
+    fail "controller MCP output directory must be owner-only"
+  [[ -d "$cli_runtime_dir" && ! -L "$cli_runtime_dir" ]] || fail "controller CLI runtime directory is missing or unsafe"
+  [[ "$(stat -c '%u:%a' "$cli_runtime_dir")" == "$(id -u):700" ]] ||
+    fail "controller CLI runtime directory must be owner-only"
+  verify_wrapper "$bridge_launcher" "$bridge_launcher_source"
+  verify_wrapper "$native_host_launcher" "$native_host_source"
+  verify_native_manifest
   [[ -r "$unit_path" ]] || fail "browser controller user unit is missing"
   grep -Fqx "WorkingDirectory=$PACKAGE_DIR" "$unit_path" ||
     fail "browser controller user unit has a stale working directory"
@@ -142,14 +195,24 @@ verify_installation() {
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_CONTROLLER_SOCKET=$socket_path")" "$unit_path" ||
     fail "browser controller user unit has a stale socket"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_USER_DATA_DIR=$profile_dir")" "$unit_path" ||
-    fail "browser controller user unit has a stale qualification profile"
+    fail "browser controller user unit has a stale browser profile"
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_OUTPUT_DIR=$output_dir")" "$unit_path" ||
+    fail "browser controller user unit has a stale MCP output directory"
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_CLI_RUNTIME_DIR=$cli_runtime_dir")" "$unit_path" ||
+    fail "browser controller user unit has a stale CLI runtime directory"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_CHANNEL=chromium")" "$unit_path" ||
     fail "browser controller user unit has a stale browser channel"
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_EXECUTABLE=$bridge_launcher")" "$unit_path" ||
+    fail "browser controller user unit has a stale Browser Bridge launcher"
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_BRIDGE_NATIVE_SOCKET=$native_socket")" "$unit_path" ||
+    fail "browser controller user unit has a stale native socket"
   systemctl --user is-active --quiet sparkclaw-browser-controller.service ||
     fail "sparkclaw-browser-controller is not active"
   [[ -S "$socket_path" && ! -L "$socket_path" ]] || fail "browser controller socket is unavailable"
   [[ "$(stat -c '%u:%a' "$socket_path")" == "$(id -u):600" ]] ||
     fail "browser controller socket must be owner-only"
+  "$bridge_launcher" --check ||
+    fail "loaded Browser Bridge is unavailable or stale; restart SparkClaw Browser to load the installed version"
   health="$(curl --fail --silent --show-error --max-time 5 --unix-socket "$socket_path" http://localhost/v1/health)" ||
     fail "browser controller health request failed"
   python3 - "$health" <<'PY'
@@ -176,7 +239,7 @@ PY
 
 if [[ "$MODE" == "check" ]]; then
   verify_installation
-  log "Playwright Extension preview controller is current"
+  log "Browser Bridge controller is current"
   exit 0
 fi
 
@@ -184,12 +247,36 @@ log "installing pinned Playwright controller dependencies without browser downlo
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_ignore_scripts=true npm_config_audit=false \
   npm ci --prefix "$PACKAGE_DIR" --omit=dev --ignore-scripts
 
-mkdir -p "$runtime_dir" "$profile_dir" "$systemd_dir"
-chmod 700 "$runtime_dir" "$profile_dir" "$systemd_dir"
+mkdir -p "$runtime_dir" "$output_dir" "$cli_runtime_dir" "$profile_dir" "$systemd_dir"
+mkdir -p "$controller_bin_dir" "$native_manifest_dir"
+chmod 700 "$runtime_dir" "$output_dir" "$cli_runtime_dir" "$profile_dir" "$systemd_dir" \
+  "$controller_data_dir" "$controller_bin_dir" "$native_manifest_dir"
+
+printf '#!/bin/sh\nexec %s %s "$@"\n' \
+  "$(systemd_quote "$node_path")" "$(systemd_quote "$bridge_launcher_source")" >"$bridge_launcher"
+printf '#!/bin/sh\nexec %s %s "$@"\n' \
+  "$(systemd_quote "$node_path")" "$(systemd_quote "$native_host_source")" >"$native_host_launcher"
+chmod 700 "$bridge_launcher" "$native_host_launcher"
+python3 - "$native_manifest" "$native_host_launcher" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+target = Path(sys.argv[1])
+value = {
+    "name": "com.sparkclaw.browser_bridge",
+    "description": "SparkClaw Browser Bridge native connection broker",
+    "path": sys.argv[2],
+    "type": "stdio",
+    "allowed_origins": ["chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/"],
+}
+target.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+PY
+chmod 600 "$native_manifest"
 
 cat >"$unit_path" <<EOF
 [Unit]
-Description=SparkClaw Playwright Extension preview controller
+Description=SparkClaw Browser Controller
 After=graphical-session.target
 
 [Service]
@@ -204,8 +291,11 @@ UMask=0077
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_CONTROLLER_SOCKET=$socket_path")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_PROFILE_ID=default")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_CHANNEL=chromium")
-Environment=$(systemd_quote "SPARKCLAW_BROWSER_EXECUTABLE=$browser_executable")
+Environment=$(systemd_quote "SPARKCLAW_BROWSER_EXECUTABLE=$bridge_launcher")
+Environment=$(systemd_quote "SPARKCLAW_BROWSER_BRIDGE_NATIVE_SOCKET=$native_socket")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_USER_DATA_DIR=$profile_dir")
+Environment=$(systemd_quote "SPARKCLAW_BROWSER_OUTPUT_DIR=$output_dir")
+Environment=$(systemd_quote "SPARKCLAW_BROWSER_CLI_RUNTIME_DIR=$cli_runtime_dir")
 
 [Install]
 WantedBy=default.target
@@ -221,10 +311,14 @@ set_env_value SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS 20000
 systemctl --user daemon-reload
 systemctl --user enable sparkclaw-browser-controller.service
 systemctl --user restart sparkclaw-browser-controller.service
+systemctl --user restart sparkclaw-browser.service
 for _ in $(seq 1 50); do
   [[ -S "$socket_path" ]] && break
   sleep 0.2
 done
+for _ in $(seq 1 100); do
+  "$bridge_launcher" --check >/dev/null 2>&1 && break
+  sleep 0.2
+done
 verify_installation
-log "controller ready; qualification profile: $profile_dir"
-log "Host-CDP remains the production browser backend"
+log "controller and Browser Bridge ready; persistent profile: $profile_dir"

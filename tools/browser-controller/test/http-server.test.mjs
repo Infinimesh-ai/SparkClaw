@@ -56,6 +56,45 @@ test("HTTP endpoints return redacted status and strict JSON errors", async (t) =
     retryable: false,
   });
 
+  const leaseResponse = await fetch(`${base}/v1/acquire`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      profile_id: "default",
+      lane: "mcp",
+      task_id: "http-task",
+      credential_generation: 1,
+      token,
+    }),
+  });
+  assert.equal(leaseResponse.status, 201);
+  const lease = await leaseResponse.json();
+  const execute = await fetch(`${base}/v1/execute`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      session_id: lease.session_id,
+      controller_generation: lease.controller_generation,
+      session_generation: lease.session_generation,
+      page_generation: lease.page_generation,
+      operation: "tabs.list",
+      arguments: {},
+    }),
+  });
+  assert.equal(execute.status, 200);
+  assert.equal((await execute.json()).operation, "tabs.list");
+
+  const release = await fetch(`${base}/v1/release`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      session_id: lease.session_id,
+      controller_generation: lease.controller_generation,
+      session_generation: lease.session_generation,
+    }),
+  });
+  assert.equal(release.status, 200);
+
   const query = await fetch(`${base}/v1/health?token=${encodeURIComponent(token)}`);
   assert.equal(query.status, 400);
   assert.equal((await query.text()).includes(token), false);
@@ -76,6 +115,71 @@ test("Unix socket is owner-only and removed on shutdown", async () => {
   await assert.rejects(fs.stat(socketPath), (error) => error.code === "ENOENT");
 });
 
+test("script routes accept bounded email bodies and return no sensitive values", async (t) => {
+  const scriptFactory = new FakeScriptFactory();
+  const controller = new BrowserController({
+    profileID: "default",
+    clientFactory: new FakeFactory(),
+    scriptFactory,
+    controllerGeneration: 505,
+  });
+  const server = http.createServer(createRequestHandler(controller));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  const base = `http://127.0.0.1:${address.port}`;
+  const body = "x".repeat(64 << 10);
+  const request = {
+    profile_id: "default",
+    task_id: "email-task",
+    credential_generation: 8,
+    token,
+    provider: "gmail",
+    operation: "send",
+    script_id: "gmail.send",
+    revision: 1,
+    input: {
+      schema_version: 1,
+      operation: "send",
+      invocation_id: "send-1",
+      provider: "gmail",
+      account: "default",
+      message: {
+        recipient: "person@example.test",
+        subject: "subject",
+        body: { format: "text", content: body },
+      },
+    },
+  };
+
+  const response = await fetch(`${base}/v1/run-script`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  assert.equal(response.status, 200);
+  const responseText = await response.text();
+  assert.equal(responseText.includes(token), false);
+  assert.equal(responseText.includes(body), false);
+  const result = JSON.parse(responseText);
+  assert.equal(result.state, "completed");
+  assert.equal(result.source_checksum, `sha256:${"b".repeat(64)}`);
+  assert.equal(scriptFactory.bodyBytes, Buffer.byteLength(body));
+
+  const opened = await fetch(`${base}/v1/open-provider-login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      profile_id: "default",
+      task_id: "login-task",
+      provider: "gmail",
+    }),
+  });
+  assert.equal(opened.status, 200);
+  assert.equal((await opened.json()).state, "opened");
+  assert.deepEqual(scriptFactory.loginProviders, ["gmail"]);
+});
+
 class FakeFactory {
   info() {
     return { client: "fake" };
@@ -87,8 +191,33 @@ class FakeFactory {
       closed: closed.promise,
       async createTaskPage() {},
       async closeTaskPage() {},
+      async execute(operation, args) { return { operation, arguments: args }; },
       async close() { closed.resolve({ code: 0, signal: null }); },
     };
+  }
+}
+
+class FakeScriptFactory {
+  constructor() {
+    this.bodyBytes = 0;
+    this.loginProviders = [];
+  }
+
+  info() {
+    return { cli: "fake" };
+  }
+
+  async runScript({ input }) {
+    this.bodyBytes = Buffer.byteLength(input.message.body.content, "utf8");
+    return {
+      state: "completed",
+      sourceChecksum: `sha256:${"b".repeat(64)}`,
+      result: { schema_version: 1, status: "sent", provider: "gmail" },
+    };
+  }
+
+  async openProviderLogin(provider) {
+    this.loginProviders.push(provider);
   }
 }
 

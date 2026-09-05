@@ -2,16 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-email-workflow-design.md)
 
-Status: Implemented on 2026-09-03 as a send-only Host-CDP browser capability.
-Its transport-specific design was superseded for future implementation on
-2026-09-04 by the
-[Playwright Extension browser migration design](playwright-extension-browser-design.md).
-This document remains the record of current code until the atomic cutover, but
-must not be used as the target contract for new browser transport work.
+Status: Implemented. QQ Mail, Outlook, and Gmail use deterministic Playwright
+CLI handlers through the production SparkClaw Browser Bridge. The Phase 6
+cutover removed the former Host-CDP runner without changing the send-only
+Workflow, approval, or unknown-outcome semantics.
 
 ## Decision
 
-SparkClaw owns browser-backed email under the existing browser branch:
+SparkClaw owns browser-backed email under the browser branch:
 
 ```text
 browser
@@ -23,98 +21,69 @@ browser
 `send`. Email reading is not registered. Requests to inspect an inbox, read an
 unread message, reply, forward, or manage drafts do not receive email tools.
 
-QQ Mail, Outlook, and Gmail use first-party provider scripts against the
-dedicated SparkClaw Chromium profile. The model chooses only the supported
-function and supplies the recipient, optional subject, and plain-text body.
-Runtime owns provider selection, account selection, login admission, browser
-identity, script revision, approval, invocation, and result validation.
-
-This capability does not restore the retired generic personal-data email
-connector. It is a bounded Host-CDP browser workflow with a new execution and
-failure contract.
+The model chooses only the supported function and supplies one recipient, an
+optional subject, and a plain-text body. Runtime owns provider and account
+selection, login admission, Browser control credential generation, provider
+script revision, approval, invocation identity, and result validation.
 
 ## Supported Surface
 
-The current slice supports:
+The current capability supports:
 
-- one new plain-text message;
-- exactly one recipient;
+- one new plain-text message to exactly one recipient;
 - an optional single-line subject;
 - one effective signed-in account per provider;
 - QQ Mail, Outlook, and Gmail;
-- manual login in headed SparkClaw Chromium;
-- login probes and sends in headless SparkClaw Chromium;
+- manual login in the persistent SparkClaw Browser;
+- deterministic read-only login probes and one-attempt send handlers;
 - one exact-content approval immediately before the external send effect.
 
-It does not support:
-
-- reading, searching, listing, replying to, forwarding, deleting, archiving,
-  or marking mail;
-- draft-only requests or reuse of an existing provider draft;
-- multiple recipients, CC/BCC, attachments, HTML authoring, or signatures;
-- OAuth, IMAP, SMTP, Gmail API, Microsoft Graph, or provider access tokens;
-- multiple accounts within one provider;
-- cookie export, profile copying, Playwright, container Chromium, or fallback
-  to another browser runtime.
-
-### Qualification-Only Read Script
-
-The repository retains `scripts/email/qqmail-read-unread.mjs` as a deterministic
-QQ Mail qualification utility imported from the provider worktree. It is not
-registered in the Capability Catalog, Workflow Registry, ToolHub, Gateway API,
-or WebChat, so its presence does not enable email reading in SparkClaw.
-
-The utility accepts only the versioned `read_first_unread` JSON stdin contract,
-uses a unique task-owned Host-CDP tab, opens the first unread message once, and
-returns its sender, subject, displayed times, body, and bounded attachment
-metadata. Opening the message marks it read. Any browser failure after that
-click returns `read_outcome_unknown`; callers must not retry automatically.
+It does not support reading, search, listing, replies, forwarding, deletion,
+archive, read-state changes, reusable drafts, multiple recipients, CC/BCC,
+attachments, HTML authoring, signatures, or multiple accounts per provider.
+It does not use OAuth, IMAP, SMTP, Gmail API, Microsoft Graph, cookie export,
+profile copying, container Chromium, or a fallback browser backend.
 
 ## Routing And Provider Resolution
 
-The semantic graph contains one `browser.email` candidate for the `send`
-operation. Its hard negatives include email reading, inbox inspection,
-attachments, replies, login checks, and requests that merely open a provider
-website.
+The semantic graph contains one `browser.email` candidate for `send`. Hard
+negatives include inbox inspection, email reading, attachments, replies, login
+checks, and requests that merely open a provider website.
 
-Provider selection is deterministic and is never delegated to the model:
+Provider selection is deterministic:
 
-1. If the owner request names exactly one registered provider alias, Runtime
-   selects that provider.
+1. If the request names exactly one registered provider alias, Runtime selects
+   that provider.
 2. Otherwise Runtime selects the single enabled default provider.
 3. Missing configuration, multiple named providers, or an ambiguous default
    blocks before Workflow creation.
 
-Provider IDs, aliases, login URLs, origins, script commands, revisions, and
-timeouts live in `internal/emailautomation.Registry`. They are not copied into
-parallel routing or dispatch switches.
+Provider IDs, aliases, login URLs, allowed origins, handler paths, source
+closure hashes, revisions, deadlines, result verifiers, and send-effect
+selectors live in the Controller provider registry. Runtime registration maps
+only those fixed handlers; callers cannot provide a script path or selector.
 
-QQ Mail is not a generic registered browser destination. A request that merely
-opens QQ Mail remains a normal public named-target browser request and does not
-gain email-send authority.
+QQ Mail is not a generic browser destination. A request that merely opens QQ
+Mail does not gain email-send authority.
 
 ## Login Configuration
 
-WebChat exposes `Settings > Connections > Browser email` with entries for QQ
-Mail, Outlook, and Gmail. Each entry supports:
-
-- enable or disable;
-- select as the one default provider;
-- open the dedicated login browser;
-- run a login-status check;
-- display the current readiness state, last check time, bounded error code,
-  version, and optional masked account hint.
+WebChat exposes `Settings > Connections > Browser email` with QQ Mail, Outlook,
+and Gmail entries. Each provider can be enabled or disabled, selected as the
+single default, opened for manual login, and checked with a read-only probe.
+The panel reports bounded readiness metadata and an optional masked account
+hint.
 
 The Gateway API surface is:
 
 ```text
-GET  /api/email/providers
+GET   /api/email/providers
 PATCH /api/email/providers/{provider}
-POST /api/email/providers/{provider}/login-browser
-POST /api/email/providers/{provider}/check
+POST  /api/email/providers/{provider}/login-browser
+POST  /api/email/providers/{provider}/check
 ```
 
-The three login origins are fixed by the provider registry:
+Fixed login origins are:
 
 | Provider | Login URL |
 |---|---|
@@ -122,64 +91,60 @@ The three login origins are fixed by the provider registry:
 | `outlook` | `https://outlook.live.com/mail/` |
 | `gmail` | `https://mail.google.com/` |
 
-`Open login browser` asks browserd for headed presentation and opens the fixed
-provider URL. The owner enters credentials and completes CAPTCHA or 2FA
-manually, then closes the headed browser. SparkClaw never receives those
-credentials.
-
-The next check asks browserd for headless presentation against the same
-dedicated profile. Headed and headless Chromium use that profile sequentially,
-never concurrently. Authentication remains in Chromium's profile; SparkClaw
-does not copy cookies or tokens into Gateway state.
+`Open login browser` creates a provider task tab and explicitly hands it to the
+owner. The owner enters credentials and completes CAPTCHA or 2FA directly in
+the browser. SparkClaw never receives those values. Authentication remains in
+the owner-only persistent profile and is reused by later task tabs without
+state export.
 
 Durable provider settings contain only owner ID, provider ID, enabled/default
-flags, the fixed `default` account ID, optional masked account hint, readiness
-state, last-check metadata, error code, version, and update metadata. Memory,
-file, and PostgreSQL backends implement the same repository contract.
+flags, fixed `default` account ID, optional masked account hint, readiness,
+last-check metadata, bounded error code, version, and update metadata. Memory,
+file, and PostgreSQL implement the same repository contract.
 
 ## Login Probe Boundary
 
-Login probing is configuration and admission logic, not a Workflow node or a
+Login probing is configuration and admission logic, not a Workflow node or
 model-visible tool. A probe:
 
-1. requires browserd to report actual `headless` presentation;
-2. creates a new task-owned provider tab;
-3. opens the registered provider URL;
+1. acquires a fresh Controller CLI session with the shared Browser control
+   credential;
+2. creates one allowlisted task-owned provider tab;
+3. opens the fixed provider URL;
 4. checks deterministic signed-in and signed-out page markers;
 5. returns `ready` plus an optional masked account hint;
-6. closes only its own tab.
+6. closes only its own tab and detaches without closing Chromium.
 
-The probe cannot list, open, read, compose, or send mail. Conflicting login
-evidence or an incomplete provider page contract fails closed. A previous
-`ready` setting is only status history and never bypasses the fresh probe.
+The probe cannot list, open, read, compose, or send mail. Conflicting evidence,
+unexpected origins, stale task ownership, or incomplete provider page state
+fails closed. A stored `ready` state is only history and never bypasses the
+fresh pre-send probe.
 
 ## Fresh Pre-Workflow Admission
 
-Every clear send request runs a fresh probe before the Workflow Registry creates
-the plan. Successful admission freezes these Runtime-owned route facts:
+Every clear send request runs a fresh probe before Workflow creation. Successful
+admission freezes these Runtime-owned facts:
 
 - provider and fixed account ID;
 - optional masked account hint;
 - provider-setting version;
-- headless browser generation;
-- probe-script revision;
-- send-script revision;
+- Browser control Vault credential generation;
+- probe-handler revision;
+- send-handler revision;
 - validation time;
 - unique send invocation ID.
 
-If probing reports login required, unavailable browser control, invalid script
-output, provider ambiguity, or configuration conflict, the request terminates
-before Workflow creation. No email tool and no send approval are exposed.
+Login-required, unavailable Controller or Bridge, invalid handler output,
+provider ambiguity, configuration conflict, or stale credential state stops
+before Workflow creation. No email tool or send approval is exposed.
 
 ## One-Node Workflow
-
-`browser.email` r1 creates one node named `email_send`:
 
 ```text
 owner request
   -> semantic route: browser.email#send
   -> deterministic provider resolution
-  -> fresh headless login admission outside Workflow
+  -> fresh read-only login admission outside Workflow
   -> browser.email r1 / email_send
        -> model supplies recipient, optional subject, and body
        -> Runtime restores all frozen admission bindings
@@ -188,57 +153,55 @@ owner request
   -> grounded send receipt
 ```
 
-The node has one attempt, dangerous risk, evidence completion, and only the
-`browser.email.send` capability in scope. The model-visible schema excludes
-provider, account, setting version, browser generation, script revisions,
-validation time, and invocation ID. Runtime restores those values before
-ToolHub validation and Policy.
+The `email_send` node has one attempt, dangerous risk, evidence completion, and
+only `browser.email.send` in scope. The model-visible schema excludes provider,
+account, setting version, credential generation, script revisions, validation
+time, and invocation ID. Runtime restores them before ToolHub validation and
+Policy.
 
 The model cannot choose a provider, account, executable, URL, tab, browser
-action, retry, or alternate tool. The Workflow does not contain login, probe,
-re-login, or generic browser nodes.
+action, retry, or alternate tool. The Workflow contains no login, probe,
+re-login, or generic browser node.
 
 ## Approval And Send Semantics
 
-`email.send` is dangerous, non-idempotent, approval-required, and has a 90
-second tool deadline. The approval presents the provider, masked account hint,
-recipient, subject, and full body. Approval binds the complete argument object,
-including Runtime-owned admission facts. If any argument changes after approval
-was created, execution fails with a policy block.
+`email.send` is dangerous, non-idempotent, approval-required, and bounded by a
+90-second tool deadline. Approval presents the provider, masked account hint,
+recipient, subject, and full body. It binds the complete argument object,
+including every Runtime-owned admission fact. Any post-approval change blocks
+execution.
 
-Immediately before invoking the script, the controller verifies that the
-provider remains enabled and ready and that its account and setting version
-still match the approved admission. The runner then requires browserd to return
-the same headless browser generation. Configuration or browser drift requires a
-fresh owner request and approval.
+Immediately before script invocation, Runtime verifies that the provider is
+still enabled and ready and that account, setting version, and Browser control
+credential generation still match the approval. Drift requires a new request
+and approval.
 
-Each provider script verifies the composed recipient, subject, body, and Send
-control before the effect. It may attempt the Send click at most once. A timeout,
-invalid error envelope, lost target, cleanup failure after the click, or missing
-positive send confirmation becomes `email_send_outcome_unknown`. That outcome
-is terminal and non-retryable because the provider may already have sent the
-message.
+Each send handler verifies recipient, subject, body, and the unique Send control
+before the effect. It may attempt the Send action once. Any timeout, target
+loss, invalid result, context loss, or cleanup failure after the registered
+effect selector may have been activated becomes `email_send_outcome_unknown`.
+That result is terminal and non-retryable because the provider may already have
+sent the message.
 
-Successful output contains no subject or body. It returns the provider,
-`sent` status, a SHA-256 digest of the exact recipient, optional opaque provider
-message ID, browser generation, and send-script revision.
+Success returns no subject or body. It contains provider, `sent` status, a
+SHA-256 digest of the exact recipient, optional opaque provider message ID,
+Browser credential generation, and handler revision.
 
 ## Script Registry And Isolation
 
-The provider registry owns one probe and one send script for each provider.
-Scripts use a strict stdin/stdout JSON protocol and run as bounded subprocesses.
-Message content is passed on stdin, never in argv. Unknown input or output
-fields are rejected, and stdout/stderr are size-limited.
+The fixed registry contains one probe and one send revision for each provider.
+All six real handlers run through an injected Playwright task runtime. There is
+no standalone stdin entrypoint or process/CDP fallback inside a handler.
 
-Runner-owned environment contains only the private Host-CDP attachment needed
-for the invocation, a derived unique agent-browser session, browser generation,
-and the pinned agent-browser executable. Inherited agent-browser profile,
-restore, state, auto-connect, headed, extension, and init-script settings are
-removed or rejected.
+The Controller sends message values through an owner-only `0600` ephemeral
+input file. Recipient, subject, body, and extension credential are absent from
+argv, logs, artifacts, and model output. Inputs and results use strict bounded
+JSON contracts; unknown fields and malformed output are rejected.
 
-Every invocation creates a unique task-owned tab and binds all later actions to
-it. Scripts may close only that tab. Existing owner tabs, former login tabs, and
-idle tabs are never reused; user inactivity does not transfer tab ownership.
+Every invocation owns one task tab. Handler actions use only page operations
+and locators exposed by the injected runtime. Existing owner tabs and former
+task tabs are never reused. Completion and cancellation detach the CLI session,
+reap its subprocess, and remove its private runtime directory.
 
 Probe request:
 
@@ -249,17 +212,6 @@ Probe request:
   "invocation_id": "opaque-runtime-id",
   "provider": "gmail",
   "account": "default"
-}
-```
-
-Probe success:
-
-```json
-{
-  "schema_version": 1,
-  "status": "ready",
-  "provider": "gmail",
-  "account_hint": "us***@gmail.com"
 }
 ```
 
@@ -294,49 +246,41 @@ Send success:
 
 ## Failure Contract
 
-Stable public error codes include:
-
 | Code | Meaning |
 |---|---|
 | `email_not_configured` | The requested/default provider is not enabled. |
 | `email_login_required` | Manual login is required. |
 | `email_account_ambiguous` | Provider or default selection is ambiguous. |
-| `email_provider_unavailable` | browserd, Host-CDP, or the script runtime is unavailable. |
-| `email_page_contract_changed` | Deterministic provider page evidence no longer matches the script contract. |
+| `email_provider_unavailable` | The Controller, Bridge, or script runtime is unavailable. |
+| `email_page_contract_changed` | Deterministic provider evidence no longer matches the handler contract. |
 | `email_invalid_input` | Recipient, subject, body, or Runtime binding is invalid. |
-| `email_draft_conflict` | A provider draft state makes a new send unsafe. |
-| `email_draft_verification_failed` | Composed values could not be verified; Send is not clicked. |
+| `email_draft_conflict` | Existing provider draft state makes a new send unsafe. |
+| `email_draft_verification_failed` | Composed values could not be verified; Send is not activated. |
 | `email_send_control_unverified` | The Send control was not uniquely verified. |
 | `email_send_outcome_unknown` | The message may have been sent; never retry automatically. |
 | `email_script_timeout` | A probe timed out before any send effect. |
-| `email_script_invalid_output` | The provider script violated its strict result contract. |
-| `email_admission_stale` | Configuration or browser generation changed after admission. |
+| `email_script_invalid_output` | A provider handler violated its strict result contract. |
+| `email_admission_stale` | Configuration or credential generation changed after admission. |
 
-Selectors, page text, raw script diagnostics, profile paths, CDP ports,
-capability WebSocket URLs, target IDs, and cookies are not part of public
-settings or user-facing error payloads.
+Selectors, page text, raw diagnostics, profile and socket paths, page IDs,
+task identities, tokens, and cookies are absent from public settings and error
+payloads.
 
-## Current Acceptance Boundary
+## Acceptance Boundary
 
-The implementation is complete only while all of these invariants remain true:
+- Catalog and semantic routing expose send only; email reading stays unavailable.
+- Provider resolution and admission facts remain Runtime-owned.
+- A fresh read-only probe succeeds before Workflow creation.
+- Workflow exposes one email tool and no generic browser tools.
+- Approval binds exact content and every frozen admission fact.
+- Provider setting and credential generation are rechecked after approval.
+- Send is attempted at most once and unknown outcome is never retried.
+- Every provider operation uses one Bridge-allowlisted task tab.
+- Existing owner tabs are never selected, read, changed, or closed.
+- No container Chromium, cookie/profile copy, CDP path, or browser fallback exists.
+- QQ Mail remains absent from the generic destination registry.
+- Provider settings behave identically in memory, file, and PostgreSQL stores.
 
-- the Catalog and semantic graph expose send only;
-- email reading remains unavailable;
-- provider resolution and all admission facts remain Runtime-owned;
-- a fresh headless probe succeeds before Workflow creation;
-- the Workflow exposes one email tool and no generic browser tools;
-- approval binds the exact provider, account, recipient, subject, body, setting
-  version, browser generation, script revisions, validation time, and invocation
-  ID;
-- the provider setting and browser generation are rechecked after approval;
-- Send is attempted at most once and an unknown result is never retried;
-- all provider operations use task-owned headless tabs;
-- headed Chromium is used only for manual configuration login;
-- no container Chromium, Playwright, cookie copy, profile copy, or browser
-  fallback exists;
-- QQ Mail is absent from the generic browser destination registry;
-- provider settings behave identically in memory, file, and PostgreSQL stores.
-
-Future email reading, attachments, replies, drafts, or multi-account support
-requires a separate capability and product contract. It must not be added as an
-unreviewed script mode under `browser.email` r1.
+Email reading, attachments, replies, drafts, or multi-account support requires a
+separate capability and product contract. It must not be added as an unreviewed
+mode under `browser.email` r1.

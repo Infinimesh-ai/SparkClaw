@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
 import {
   QQMailScriptError,
   normalizeVisibleText,
@@ -11,9 +8,8 @@ import {
 import {
   parseQQMailURL,
   withQQMailTaskTab,
-} from "./lib/qqmail-host-cdp.mjs";
+} from "./lib/qqmail-task.mjs";
 
-const INPUT_LIMIT_BYTES = 16 * 1024;
 const ACCOUNT_HINT_LIMIT = 64;
 
 export const QQMAIL_LOGIN_PROBE_SELECTORS = Object.freeze({
@@ -72,30 +68,12 @@ function strictInput(input) {
   }
 }
 
-async function readJSONInput(stream) {
-  let raw = "";
-  for await (const chunk of stream) {
-    raw += chunk;
-    if (Buffer.byteLength(raw, "utf8") > INPUT_LIMIT_BYTES) {
-      throw new QQMailScriptError("input_too_large", "stdin exceeds the login probe input limit");
-    }
-  }
-  if (!raw.trim()) {
-    throw new QQMailScriptError("missing_input", "provide the login probe request on stdin");
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new QQMailScriptError("invalid_json", "stdin is not valid JSON");
-  }
-}
-
 function countAt(results, index, phase) {
   const count = resultAt(results, index, phase).count;
   if (!Number.isInteger(count) || count < 0) {
     throw new QQMailScriptError(
       "login_probe_invalid_output",
-      "agent-browser returned invalid login evidence",
+      "browser runtime returned invalid login evidence",
     );
   }
   return count;
@@ -159,7 +137,7 @@ async function collectEvidence(task, phase) {
     if (typeof visible !== "boolean") {
       throw new QQMailScriptError(
         "login_probe_invalid_output",
-        "agent-browser returned invalid login visibility evidence",
+        "browser runtime returned invalid login visibility evidence",
       );
     }
     evidence[name].visible = visible;
@@ -227,6 +205,9 @@ function accountHint(value) {
 }
 
 function normalizedProbeError(error) {
+  if (error?.code === "browser_script_timeout") {
+    return new QQMailScriptError("login_probe_timeout", "QQ Mail login probe timed out");
+  }
   if (!(error instanceof QQMailScriptError)) {
     return new QQMailScriptError("login_probe_browser_failure", "QQ Mail login probe failed");
   }
@@ -236,14 +217,12 @@ function normalizedProbeError(error) {
   if (error.code.endsWith("_invalid_output") || error.code.endsWith("_browser_output_invalid")) {
     return new QQMailScriptError(
       "login_probe_invalid_output",
-      "agent-browser returned invalid login probe output",
+      "browser runtime returned invalid login probe output",
     );
   }
   const preserved = new Set([
-    "agent_browser_unavailable",
     "email_login_required",
-    "forbidden_browser_environment",
-    "host_cdp_required",
+    "browser_runtime_unavailable",
     "login_evidence_conflict",
     "page_contract_changed",
     "provider_origin_mismatch",
@@ -309,23 +288,4 @@ export async function probeQQMailLogin(rawInput, runtime = {}) {
   } catch (error) {
     throw normalizedProbeError(error);
   }
-}
-
-async function main() {
-  if (process.argv.length !== 2) {
-    throw new QQMailScriptError("invalid_arguments", "the login probe accepts stdin only");
-  }
-  const input = await readJSONInput(process.stdin);
-  const result = await probeQQMailLogin(input);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-}
-
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
-  main().catch((error) => {
-    const code = error instanceof QQMailScriptError ? error.code : "unexpected_error";
-    process.stderr.write(
-      `${JSON.stringify({ schema_version: 1, status: "failed", provider: "qq_mail", code })}\n`,
-    );
-    process.exitCode = 1;
-  });
 }

@@ -91,6 +91,36 @@ func TestVaultFileBackendPersistsOnlyCiphertext(t *testing.T) {
 	}
 }
 
+func TestVaultBindingGenerationSurvivesRestartAndChangesOnReplacement(t *testing.T) {
+	repository := store.NewMemoryStore()
+	key := testKey(14)
+	firstVault := New(repository, Options{Key: key})
+	if err := firstVault.ReplaceBinding(t.Context(), "integration:generation", "bundle-v1", []byte("same-value")); err != nil {
+		t.Fatal(err)
+	}
+	opened, firstGeneration, found, err := firstVault.OpenBindingVersion(t.Context(), "integration:generation", "bundle-v1")
+	if err != nil || !found || string(opened) != "same-value" || firstGeneration <= 0 || firstGeneration > 1<<53-1 {
+		t.Fatalf("first binding=%q generation=%d found=%v err=%v", opened, firstGeneration, found, err)
+	}
+	zero(opened)
+
+	restartedVault := New(repository, Options{Key: key})
+	opened, restartedGeneration, found, err := restartedVault.OpenBindingVersion(t.Context(), "integration:generation", "bundle-v1")
+	if err != nil || !found || string(opened) != "same-value" || restartedGeneration != firstGeneration {
+		t.Fatalf("restarted binding=%q generation=%d found=%v err=%v, want generation %d", opened, restartedGeneration, found, err, firstGeneration)
+	}
+	zero(opened)
+
+	if err := restartedVault.ReplaceBinding(t.Context(), "integration:generation", "bundle-v1", []byte("same-value")); err != nil {
+		t.Fatal(err)
+	}
+	opened, replacedGeneration, found, err := restartedVault.OpenBindingVersion(t.Context(), "integration:generation", "bundle-v1")
+	if err != nil || !found || string(opened) != "same-value" || replacedGeneration <= 0 || replacedGeneration == firstGeneration {
+		t.Fatalf("replaced binding=%q generation=%d found=%v err=%v, old generation %d", opened, replacedGeneration, found, err, firstGeneration)
+	}
+	zero(opened)
+}
+
 func TestVaultReportsStableSanitizedFailures(t *testing.T) {
 	st := store.NewMemoryStore()
 	token := []byte("111111111:AA-error-canary-token")

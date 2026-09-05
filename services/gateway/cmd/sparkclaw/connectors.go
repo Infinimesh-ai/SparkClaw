@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
@@ -34,22 +33,15 @@ func newConnectorAssembly(
 	runtime connectorruntime.AgentRuntime,
 	transcriber speech.Transcriber,
 	endpoints *messagecontrol.EndpointRegistry,
+	vault *credential.Vault,
 ) (*connectorAssembly, error) {
 	if endpoints == nil {
 		return nil, fmt.Errorf("assemble connectors: endpoint registry is required")
 	}
-	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
-	vault := credential.New(st, credential.Options{
-		Key:        cfg.State.CredentialKey,
-		KeyFile:    cfg.State.CredentialKeyFile,
-		AutoCreate: true,
-	})
-	// Warn unconditionally: since runtime channel control (0b75ce9) a channel
-	// can be enabled later through the API with the config flag still false,
-	// and that path is exactly the one that needs the vault.
-	if err := vault.Ready(); err != nil {
-		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
+	if vault == nil {
+		return nil, fmt.Errorf("assemble connectors: credential vault is required")
 	}
+	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
 
 	registry := connector.NewRegistry(cfg, st).WithCredentialLifecycle(vault)
 	endpoints.WithChannelEnabled(registry.Enabled)

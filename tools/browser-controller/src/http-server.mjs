@@ -3,7 +3,7 @@ import http from "node:http";
 import path from "node:path";
 
 import { asControllerError, invalidRequest, publicError } from "./errors.mjs";
-import { MAX_REQUEST_BYTES } from "./protocol.mjs";
+import { MAX_REQUEST_BYTES, MAX_SCRIPT_REQUEST_BYTES } from "./protocol.mjs";
 
 export function createRequestHandler(controller) {
   return async function requestHandler(request, response) {
@@ -24,6 +24,22 @@ export function createRequestHandler(controller) {
       if (request.method === "POST" && url.pathname === "/v1/release") {
         rejectQuery(url);
         return writeJSON(response, 200, await controller.release(await readJSON(request)));
+      }
+      if (request.method === "POST" && url.pathname === "/v1/execute") {
+        rejectQuery(url);
+        return writeJSON(response, 200, await controller.execute(await readJSON(request)));
+      }
+      if (request.method === "POST" && url.pathname === "/v1/run-script") {
+        rejectQuery(url);
+        return writeJSON(
+          response,
+          200,
+          await controller.runScript(await readJSON(request, MAX_SCRIPT_REQUEST_BYTES)),
+        );
+      }
+      if (request.method === "POST" && url.pathname === "/v1/open-provider-login") {
+        rejectQuery(url);
+        return writeJSON(response, 200, await controller.openProviderLogin(await readJSON(request)));
       }
       return writeJSON(response, 404, {
         error: "browser controller route was not found",
@@ -68,21 +84,27 @@ export async function startUnixServer({ socketPath, controller }) {
   };
 }
 
-async function readJSON(request) {
+async function readJSON(request, maximumBytes = MAX_REQUEST_BYTES) {
   const contentType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") throw invalidRequest();
   let size = 0;
   const chunks = [];
-  for await (const chunk of request) {
-    size += chunk.length;
-    if (size > MAX_REQUEST_BYTES) throw invalidRequest();
-    chunks.push(chunk);
-  }
-  if (size === 0) throw invalidRequest();
+  let body;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    for await (const chunk of request) {
+      const buffered = Buffer.from(chunk);
+      size += buffered.length;
+      if (size > maximumBytes) throw invalidRequest();
+      chunks.push(buffered);
+    }
+    if (size === 0) throw invalidRequest();
+    body = Buffer.concat(chunks);
+    return JSON.parse(body.toString("utf8"));
   } catch {
     throw invalidRequest();
+  } finally {
+    body?.fill(0);
+    for (const chunk of chunks) chunk.fill(0);
   }
 }
 

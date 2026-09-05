@@ -227,9 +227,11 @@ worker 保持运行，并在 acquisition 与 dispatch 前通过 owner gate 过�
 
 ### 浏览器、文档与集成
 
-浏览器使用固定 agent-browser 和 SparkClaw-owned Chromium profile，没有备用 browser backend。
-现有 destination registry 是 candidate-independent 的命名目标 fast path；它 miss 且 browser
-leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 semantic classifier。
+浏览器使用 Checksum-pinned SparkClaw Browser Bridge、Owner-scoped Playwright Controller
+和一个持久 SparkClaw Chromium Profile，没有备用 Browser Backend。每个 Client 只控制
+Task-owned Tab；后台工作不聚焦 Owner Tab，显式 Handoff 可把 Task Tab 带到前台。现有
+Destination Registry 是 Candidate-independent 的命名目标 Fast Path；它 Miss 且 Browser
+Leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 Semantic Classifier。
 
 Info 搜索响应以单个版本化 aggregate 进入 ToolHub，不再生成多份平行 answer 副本。
 `websearch` owner 只校验一次 source graph，再派生两个只读视图：一个保持顺序、按完整单元

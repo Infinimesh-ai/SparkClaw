@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
 import {
   QQMailScriptError,
   normalizeVisibleText,
@@ -12,9 +9,8 @@ import {
 import {
   parseQQMailURL,
   withQQMailTaskTab,
-} from "./lib/qqmail-host-cdp.mjs";
+} from "./lib/qqmail-task.mjs";
 
-const INPUT_LIMIT_BYTES = 256 * 1024;
 const BODY_LIMIT_BYTES = 200 * 1024;
 
 export const QQMAIL_SELECTORS = Object.freeze({
@@ -109,28 +105,10 @@ function validateInput(input) {
   return { recipient, subject, body };
 }
 
-async function readJSONInput(stream) {
-  let raw = "";
-  for await (const chunk of stream) {
-    raw += chunk;
-    if (Buffer.byteLength(raw, "utf8") > INPUT_LIMIT_BYTES) {
-      throw new QQMailScriptError("input_too_large", "stdin exceeds the QQ Mail send limit");
-    }
-  }
-  if (!raw.trim()) {
-    throw new QQMailScriptError("missing_input", "provide the QQ Mail send request on stdin");
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new QQMailScriptError("invalid_json", "stdin is not valid JSON");
-  }
-}
-
 function requireCount(results, index, phase) {
   const count = resultAt(results, index, phase).count;
   if (!Number.isInteger(count) || count < 0) {
-    throw new QQMailScriptError("send_browser_output_invalid", "agent-browser returned an invalid count");
+    throw new QQMailScriptError("send_browser_output_invalid", "browser runtime returned an invalid count");
   }
   return count;
 }
@@ -140,7 +118,7 @@ function requireBoolean(results, index, field, phase) {
   if (typeof value !== "boolean") {
     throw new QQMailScriptError(
       "send_browser_output_invalid",
-      "agent-browser returned an invalid control state",
+      "browser runtime returned an invalid control state",
     );
   }
   return value;
@@ -161,11 +139,9 @@ function normalizedSendError(error) {
     return new QQMailScriptError("send_precondition_failed", "QQ Mail send preparation failed");
   }
   const preserved = new Set([
-    "agent_browser_unavailable",
+    "browser_runtime_unavailable",
     "draft_verification_failed",
     "email_login_required",
-    "forbidden_browser_environment",
-    "host_cdp_required",
     "invalid_body",
     "invalid_input",
     "invalid_json",
@@ -324,23 +300,4 @@ export async function sendQQMail(rawInput, runtime = {}) {
     }
     throw normalizedSendError(error);
   }
-}
-
-async function main() {
-  if (process.argv.length !== 2) {
-    throw new QQMailScriptError("invalid_arguments", "the send script accepts stdin only");
-  }
-  const input = await readJSONInput(process.stdin);
-  const result = await sendQQMail(input);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-}
-
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
-  main().catch((error) => {
-    const code = error instanceof QQMailScriptError ? error.code : "unexpected_error";
-    process.stderr.write(
-      `${JSON.stringify({ schema_version: 1, status: "failed", provider: "qq_mail", code })}\n`,
-    );
-    process.exitCode = 1;
-  });
 }

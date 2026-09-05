@@ -9,6 +9,14 @@ const (
 	CodeExtensionUnavailable  = "browser_extension_unavailable"
 	CodeExtensionRejected     = "browser_extension_rejected"
 	CodeBusy                  = "browser_busy"
+	CodeCredentialStale       = "browser_credential_stale"
+	CodeControllerStale       = "browser_controller_stale"
+	CodeSessionNotFound       = "browser_session_not_found"
+	CodeSessionStale          = "browser_session_stale"
+	CodePageStale             = "browser_page_stale"
+	CodeOperationUnavailable  = "browser_operation_unavailable"
+	CodeScriptUnavailable     = "browser_script_unavailable"
+	CodeScriptTimeout         = "browser_script_timeout"
 	CodeVaultUnavailable      = "browser_control_vault_unavailable"
 )
 
@@ -30,6 +38,16 @@ func (e *Error) Error() string {
 		return "browser extension rejected the credential"
 	case CodeBusy:
 		return "browser profile is busy"
+	case CodeCredentialStale:
+		return "browser credential generation is stale"
+	case CodeControllerStale, CodeSessionNotFound, CodeSessionStale, CodePageStale:
+		return "browser session is stale"
+	case CodeOperationUnavailable:
+		return "browser operation is unavailable"
+	case CodeScriptUnavailable:
+		return "browser provider script is unavailable"
+	case CodeScriptTimeout:
+		return "browser provider script timed out"
 	case CodeVaultUnavailable:
 		return "encrypted browser credential storage is unavailable"
 	case CodeControllerUnavailable:

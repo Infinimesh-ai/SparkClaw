@@ -29,10 +29,10 @@ documentation tree.
 | [Tree same-session context consistency design](tree-session-context-parity-design.md) | Accepted shared selected-history source and whole-prompt admission, plus implemented strict Tree scoring JSON structure hardening |
 | [Model input and output capacity contract](model-capacity-contract-design.md) | Accepted physical-window and output-capability-class contract, oversized-question rejection, final admission, completion handling, and fail-fast profile authority |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
-| [Browser runtime](browser-runtime.md) | Current host-owned Chromium/browserd topology, protected agent-browser attachment, tab ownership, login handoff, deployment, and security |
-| [Host-CDP browser design](host-cdp-browser-design.md) | Implemented design record for the host Chromium daemon, guarded CDP attachment, stable tab ownership, authentication handoff, and container-browser retirement |
-| [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Proposed ordinary-browser architecture using an extension-backed MCP lane for governed browser work and a CLI lane for deterministic scripts; Host-CDP remains current until qualification and atomic cutover |
-| [Browser email Workflow design](browser-email-workflow-design.md) | Current implemented send-only Host-CDP record; its future browser transport is superseded by the Playwright Extension migration design while its send-only, deterministic, approval, and unknown-outcome invariants remain |
+| [Browser runtime](browser-runtime.md) | Current persistent Chromium, SparkClaw Browser Bridge, owner-scoped Controller, task-tab ownership, login handoff, deployment, and security |
+| [Host-CDP browser design](host-cdp-browser-design.md) | Historical record of the retired browserd/Host-CDP implementation that preceded the Playwright cutover |
+| [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |
+| [Browser email Workflow design](browser-email-workflow-design.md) | Current send-only Playwright provider handlers, deterministic admission, exact-content approval, and unknown-outcome invariants |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |

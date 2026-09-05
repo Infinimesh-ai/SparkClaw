@@ -311,21 +311,13 @@ type EmailAutomationAdapterConfig struct {
 }
 
 type BrowserAutomationAdapterConfig struct {
-	Command              string                    `json:"command"`
 	TimeoutMS            int                       `json:"timeoutMs"`
 	StartupTimeoutMS     int                       `json:"startupTimeoutMs"`
 	SettleTimeoutMS      int                       `json:"settleTimeoutMs"`
 	SettleQuietPeriodMS  int                       `json:"settleQuietPeriodMs"`
 	SettlePollIntervalMS int                       `json:"settlePollIntervalMs"`
 	RouteRebindLimit     int                       `json:"routeRebindLimit"`
-	HostCDP              HostCDPConfig             `json:"hostCDP"`
 	PlaywrightExtension  PlaywrightExtensionConfig `json:"playwrightExtension"`
-}
-
-type HostCDPConfig struct {
-	EndpointFile     string `json:"endpointFile"`
-	ProfileID        string `json:"profileID"`
-	ConnectTimeoutMS int    `json:"connectTimeoutMs"`
 }
 
 type PlaywrightExtensionConfig struct {
@@ -566,9 +558,6 @@ func Load(path string) (Config, error) {
 			cfg.Workspaces.Allowlist[i] = abs
 		}
 	}
-	if strings.TrimSpace(cfg.Adapters.BrowserAutomation.Command) == "" {
-		cfg.Adapters.BrowserAutomation.Command = "agent-browser"
-	}
 	if cfg.Adapters.BrowserAutomation.TimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	}
@@ -598,29 +587,6 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Adapters.BrowserAutomation.RouteRebindLimit < 1 || cfg.Adapters.BrowserAutomation.RouteRebindLimit > 5 {
 		return Config{}, errors.New("adapters.browserAutomation.routeRebindLimit must be between 1 and 5")
-	}
-	hostCDP := &cfg.Adapters.BrowserAutomation.HostCDP
-	hostCDP.EndpointFile = strings.TrimSpace(hostCDP.EndpointFile)
-	if hostCDP.EndpointFile == "" {
-		hostCDP.EndpointFile = "/run/sparkclaw/browserd/cdp-endpoint"
-	}
-	endpointFile, err := filepath.Abs(hostCDP.EndpointFile)
-	if err != nil {
-		return Config{}, fmt.Errorf("resolve Host-CDP endpoint file: %w", err)
-	}
-	hostCDP.EndpointFile = endpointFile
-	hostCDP.ProfileID = strings.TrimSpace(hostCDP.ProfileID)
-	if hostCDP.ProfileID == "" {
-		hostCDP.ProfileID = "default"
-	}
-	if hostCDP.ProfileID != "default" {
-		return Config{}, errors.New("adapters.browserAutomation.hostCDP.profileID must be default")
-	}
-	if hostCDP.ConnectTimeoutMS <= 0 {
-		hostCDP.ConnectTimeoutMS = 10000
-	}
-	if hostCDP.ConnectTimeoutMS < 1000 || hostCDP.ConnectTimeoutMS > 120000 {
-		return Config{}, errors.New("adapters.browserAutomation.hostCDP.connectTimeoutMs must be between 1000 and 120000")
 	}
 	extension := &cfg.Adapters.BrowserAutomation.PlaywrightExtension
 	extension.ControllerSocket = strings.TrimSpace(extension.ControllerSocket)
@@ -716,7 +682,7 @@ func rejectLegacyBrowserAutomation(raw []byte) error {
 	for _, key := range legacy {
 		if _, exists := browser[key]; exists {
 			return fmt.Errorf(
-				"adapters.browserAutomation.%s is retired; migrate to the sole hostCDP endpoint-file configuration",
+				"adapters.browserAutomation.%s is retired; migrate to the sole playwrightExtension controller-socket configuration",
 				key,
 			)
 		}
@@ -1607,7 +1573,7 @@ func Default() Config {
 			},
 			BrowserAutomation: BrowserAutomationToolConfig{
 				Enabled:  false,
-				Provider: "agent-browser",
+				Provider: "playwright-extension",
 				Profile:  "default",
 			},
 			Reminders: RemindersToolConfig{
@@ -1669,18 +1635,12 @@ func Default() Config {
 		},
 		Adapters: AdapterConfig{
 			BrowserAutomation: BrowserAutomationAdapterConfig{
-				Command:              "agent-browser",
 				TimeoutMS:            30000,
 				StartupTimeoutMS:     10000,
 				SettleTimeoutMS:      15000,
 				SettleQuietPeriodMS:  500,
 				SettlePollIntervalMS: 100,
 				RouteRebindLimit:     2,
-				HostCDP: HostCDPConfig{
-					EndpointFile:     "/run/sparkclaw/browserd/cdp-endpoint",
-					ProfileID:        "default",
-					ConnectTimeoutMS: 10000,
-				},
 				PlaywrightExtension: PlaywrightExtensionConfig{
 					ControllerSocket: "/run/sparkclaw/browser-controller/controller.sock",
 					ProfileID:        "default",
@@ -1781,9 +1741,16 @@ func applyEnv(cfg *Config) error {
 		"SPARKCLAW_BROWSER_DISPLAY",
 		"SPARKCLAW_BROWSER_XAUTHORITY",
 		"SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS",
+		"SPARKCLAW_BROWSER_AUTOMATION_COMMAND",
+		"SPARKCLAW_BROWSER_AUTOMATION_TRANSPORT",
+		"SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST",
+		"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE",
+		"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST",
+		"SPARKCLAW_BROWSER_CDP_PROFILE_ID",
+		"SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS",
 	} {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
-			return fmt.Errorf("%s is retired; migrate to SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE", name)
+			return fmt.Errorf("%s is retired; remove it and use the SparkClaw Browser Bridge controller", name)
 		}
 	}
 	if err := rejectLegacyModelCapacityEnv(); err != nil {
@@ -2076,9 +2043,6 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_PROFILE"); v != "" {
 		cfg.Tools.BrowserAutomation.Profile = v
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND"); v != "" {
-		cfg.Adapters.BrowserAutomation.Command = v
-	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS"); v != "" {
 		if timeoutMS, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.BrowserAutomation.TimeoutMS = timeoutMS
@@ -2107,17 +2071,6 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT"); v != "" {
 		if limit, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.BrowserAutomation.RouteRebindLimit = limit
-		}
-	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE"); v != "" {
-		cfg.Adapters.BrowserAutomation.HostCDP.EndpointFile = v
-	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_CDP_PROFILE_ID"); v != "" {
-		cfg.Adapters.BrowserAutomation.HostCDP.ProfileID = v
-	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS"); v != "" {
-		if timeoutMS, err := strconv.Atoi(v); err == nil {
-			cfg.Adapters.BrowserAutomation.HostCDP.ConnectTimeoutMS = timeoutMS
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET"); v != "" {

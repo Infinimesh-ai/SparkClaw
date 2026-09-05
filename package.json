@@ -25,9 +25,7 @@
     "apps/webchat",
     "tools/document-runtime"
   ],
-  "dependencies": {
-    "agent-browser": "0.32.3"
-  },
+  "dependencies": {},
   "overrides": {
     "postcss": "^8.5.23",
     "exceljs": {
@@ -46,11 +44,12 @@
     "dev:webchat:host": "npm --workspace @sparkclaw/webchat run dev",
     "build:webchat": "npm --workspace @sparkclaw/webchat run build",
     "test:webchat": "npm --workspace @sparkclaw/webchat run test",
-    "test:email-scripts": "node --test scripts/email/gmail-login-probe.test.mjs scripts/email/gmail-send.test.mjs scripts/email/outlook-login-probe.test.mjs scripts/email/outlook-send.test.mjs && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.email.test_qqmail_login_probe scripts.email.test_qqmail_send scripts.email.test_qqmail_read_unread",
+    "test:email-scripts": "node --test tools/browser-controller/test/provider-runtime.test.mjs",
     "setup:browser": "bash scripts/setup-browser.sh",
     "setup:browser-controller": "bash scripts/setup-browser-controller.sh",
     "check:browser-controller": "bash scripts/setup-browser-controller.sh --check",
-    "open:browser-extension-preview": "bash scripts/open-browser-extension-preview.sh",
+    "open:browser": "bash scripts/open-browser.sh",
+    "qualify:playwright-email": "bash scripts/qualify-playwright-email.sh",
     "setup:host": "npm run setup:document-tools && npm run setup:browser",
     "test:gateway": "go test ./services/gateway/...",
     "doctor": "bash scripts/doctor.sh",
@@ -61,8 +60,5 @@
   "engines": {
     "node": ">=26 <27",
     "npm": ">=11 <12"
-  },
-  "allowScripts": {
-    "agent-browser@0.32.3": true
   }
 }

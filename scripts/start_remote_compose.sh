@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
-source "$ROOT/scripts/lib/host-browser.sh"
+source "$ROOT/scripts/lib/browser-runtime.sh"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
@@ -36,7 +36,7 @@ remote HTTP(S) endpoints. Before application startup, any local GPU model
 containers in the shared SparkClaw Compose project are explicitly stopped.
 
 Options:
-  --check          Validate the remote profile, Host-CDP, and expanded Compose only
+  --check          Validate the remote profile, Browser Bridge, and expanded Compose only
   --env-file PATH  Use a private override file instead of .env.remote
   --jingsi-lan     Apply the fixed JingSi LAN presentation overlay
   -h, --help       Show this help
@@ -78,7 +78,7 @@ sparkclaw_tcp_port_valid "$webchat_port" || {
 }
 export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
 
-sparkclaw_check_host_browser "$ROOT" "$EFFECTIVE_ENV_FILE"
+sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
 
 docker_cmd=("$DOCKER_BIN")
 if ! "${docker_cmd[@]}" ps >/dev/null 2>&1; then
@@ -105,7 +105,7 @@ services=(postgres sandbox-runner gotenberg gateway webchat)
 
 if [[ "$MODE" == "check" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" config --quiet
-  echo "SparkClaw remote configuration valid: five public model endpoints plus five application services; Host-CDP ready"
+  echo "SparkClaw remote configuration valid: five public model endpoints plus five application services; Browser Bridge ready"
   exit 0
 fi
 
@@ -129,7 +129,7 @@ echo "Stopping local SparkClaw model containers before remote startup"
 "${docker_cmd[@]}" "${local_model_args[@]}" stop "${local_model_services[@]}"
 
 sparkclaw_export_profile_env "$EFFECTIVE_ENV_FILE"
-browser_pid="$(sparkclaw_host_browser_pid "$EFFECTIVE_ENV_FILE")"
+browser_pid="$(sparkclaw_browser_main_pid "$EFFECTIVE_ENV_FILE")"
 "${docker_cmd[@]}" "${compose_args[@]}" up -d --build --wait --wait-timeout 600 "${services[@]}"
 
 ready_url="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:$webchat_port/readyz}"
@@ -152,7 +152,7 @@ done
 [[ "$gateway_ready" == true ]] || { echo "Timed out waiting for Gateway ready check at $ready_url" >&2; exit 1; }
 
 "${docker_cmd[@]}" "${compose_args[@]}" exec -T gateway \
-  node /app/scripts/host_browser_mcp_smoke.mjs
-sparkclaw_assert_host_browser_pid_alive "$browser_pid"
+  node /app/scripts/browser_controller_smoke.mjs
+sparkclaw_assert_browser_pid_alive "$browser_pid"
 
-echo "SparkClaw remote runtime ready: local models stopped; PostgreSQL, Sandbox Runner, Gotenberg, Gateway, WebChat, and Host-CDP ready"
+echo "SparkClaw remote runtime ready: local models stopped; PostgreSQL, Sandbox Runner, Gotenberg, Gateway, WebChat, and Browser Bridge ready"

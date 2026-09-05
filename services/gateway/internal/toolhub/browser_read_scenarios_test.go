@@ -179,7 +179,7 @@ func TestBrowserReadScenarioHiddenRenderedAndLazyPages(t *testing.T) {
 			}
 			actions := fmt.Sprint(out["browser_actions"])
 			if !strings.Contains(actions, "agent_browser_tab_new") || !strings.Contains(actions, "agent_browser_read") || !strings.Contains(actions, "agent_browser_snapshot") {
-				t.Fatalf("hidden read actions should remain agent-browser native: %#v", out["browser_actions"])
+				t.Fatalf("hidden read actions should remain Playwright native: %#v", out["browser_actions"])
 			}
 			if intArg(out, "browser_scroll_height", 0) < tc.scrollHigh {
 				t.Fatalf("scroll diagnostics missing: %#v", out["browser_scroll_height"])
@@ -223,7 +223,7 @@ func TestBrowserReadScenarioFallbackUsesDirectHTTPWithExplicitMetadata(t *testin
 
 func TestBrowserReadScenarioRealHiddenProviderSmoke(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
-		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real hidden agent-browser Chromium smoke test")
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real hidden Playwright Chromium smoke test")
 	}
 	server := newBrowserScenarioFixtureServer(t)
 	defer server.Close()

@@ -4,45 +4,45 @@
 
 ## Status
 
-Proposed on 2026-09-04. Phase 1 preview scaffolding is implemented: the pinned
-host controller, encrypted token APIs, WebChat settings, disposable
-qualification profile, and private Gateway socket mount are available. This
-does not change the current browser runtime.
+Proposed on 2026-09-04 and completed on 2026-09-05. All phases and cutover gates
+have been implemented. The checksum-pinned SparkClaw Browser Bridge `1.0.18`,
+fixed Chromium `148.0.7778.0`, owner-scoped Controller, Playwright MCP, and
+Playwright CLI now form the only production browser runtime. Browserd,
+Host-CDP, `agent-browser`, and the migration selector have been removed.
+
+Final live qualification covered background-without-focus behavior, explicit
+task-tab handoff, generic form interaction, restart and detach cleanup, and
+read-only probes against signed-in QQ Mail, Outlook, and Gmail accounts. No
+browser authentication or Bridge credential was copied or exported, and no
+email send was invoked.
 
 For the concise current-state baseline and the exact starting point for a new
 development session, read the dated
 [Playwright Extension migration handoff](playwright-extension-migration-handoff.md)
 before making changes.
 
-This document is the normative authority for the target Playwright
-implementation. The existing
-[Browser email Workflow design](browser-email-workflow-design.md) records the
-currently implemented Host-CDP path only. When that document mentions
-browserd, Host-CDP, `agent-browser`, headless provider tabs, or prohibition of
-Playwright, those statements describe the legacy implementation and do not
-constrain the target defined here.
+This document is the normative record of the Playwright implementation and its
+migration gates. [Browser email Workflow design](browser-email-workflow-design.md)
+and [Browser runtime](browser-runtime.md) describe the resulting current
+implementation. Host-CDP references in the historical design are retained only
+to explain the retired source architecture and the reasons for the cutover.
 
-The implemented runtime remains the host-owned SparkClaw Chromium controlled by
-`agent-browser` through Host-CDP until every cutover gate in this document
-passes. There is no automatic fallback between the two transports. Failed
-qualification leaves Host-CDP unchanged.
-
-The extension implementation sequence is fixed. SparkClaw first integrates the
-unmodified official Playwright Extension to prove the browser, controller, MCP,
-CLI, settings, credential, and task-tab contracts. After those product contracts
-are complete and frozen, SparkClaw derives an independently packaged extension
-from the upstream source to implement the final background-without-focus and
-explicit-handoff behavior. The official extension is an integration baseline,
-not the final production extension.
+The migration followed a fixed extension sequence. SparkClaw first integrated
+the unmodified official Playwright Extension to prove the browser, controller,
+MCP, CLI, settings, credential, and task-tab contracts. After those product
+contracts were complete and frozen, SparkClaw derived an independently packaged
+extension from the upstream source to implement background-without-focus and
+explicit-handoff behavior. The official extension remains an integration
+baseline, not the production extension.
 
 ## Decision Summary
 
-SparkClaw will qualify a Playwright Extension architecture in which the owner
+SparkClaw qualified a Playwright Extension architecture in which the owner
 uses an ordinarily launched browser and SparkClaw attaches only while it owns a
 task tab. Browser startup must not expose a remote-debugging port or add
 automation startup flags.
 
-The target divides browser control into two lanes:
+The implementation divides browser control into two lanes:
 
 | Lane | Backend | Purpose |
 |---|---|---|
@@ -54,7 +54,7 @@ profile, cookies, local storage, passkeys, and authenticated sessions without
 copying them into SparkClaw. They must use separate task tabs and must never
 control the same tab concurrently.
 
-Extension adoption has two deliberate stages:
+Extension adoption used two deliberate stages:
 
 1. The official Web Store extension is used unchanged while SparkClaw designs
    and implements the surrounding product boundary. Its known foreground-focus
@@ -71,10 +71,9 @@ extension packages is installed. Moving to the Browser Bridge is an extension
 implementation replacement, not a Gateway or Workflow redesign.
 
 Playwright Library remains the common implementation engine underneath the MCP
-and CLI packages. SparkClaw does not initially build a third direct-Library
-backend. A later replacement of CLI with a typed long-lived Library worker is
-allowed only if qualification shows that CLI process or result contracts are
-insufficient.
+and CLI packages. SparkClaw added no third direct-Library backend. A later
+replacement of CLI with a typed long-lived Library worker remains allowed only
+if new evidence shows that CLI process or result contracts are insufficient.
 
 ## Official Extension Isolation Limitation
 
@@ -82,21 +81,21 @@ Source inspection of the pinned official extension path found that it enables
 automatic debugger attachment for every known browser tab, initializes MCP tab
 wrappers for all pages, and may read existing console and request metadata while
 building those wrappers. Tab-list operations can also render headers for all
-attached pages. Creating a fresh SparkClaw task tab therefore does not make the
-current official extension a per-tab privacy boundary.
+attached pages. Creating a fresh SparkClaw task tab therefore did not make the
+official baseline extension a per-tab privacy boundary.
 
-This changes the qualification posture, not the target contract:
+This changed the qualification posture, not the production contract:
 
-- the official extension may be used only with a disposable qualification
-  profile that contains no ordinary owner tabs or production credentials;
-- the Phase 1 settings and controller integration remain preview-only and must
-  not be qualified against the owner's everyday profile;
-- Gateway still requests only a neutral task tab and never intentionally selects
-  an owner tab, but that is not sufficient to prevent extension-level
-  attachment or observation;
-- the independent SparkClaw Browser Bridge is mandatory for production because
-  it must implement and prove an explicit task-tab allowlist before attachment,
-  not merely remove foreground focus.
+- the official extension was used only with a disposable qualification profile
+  that contained no ordinary owner tabs or production credentials;
+- the Phase 1 settings and controller integration were preview-only and were
+  not qualified against the owner's everyday profile;
+- during official qualification, Gateway requested only a neutral task tab and
+  never intentionally selected an owner tab, but that was not sufficient to
+  prevent extension-level attachment or observation;
+- the independent SparkClaw Browser Bridge was mandatory for production and now
+  enforces the qualified task-tab allowlist before attachment rather than merely
+  removing foreground focus.
 
 ## Context
 
@@ -172,18 +171,18 @@ used for initial integration. **Browser Bridge** means the later independently
 packaged SparkClaw derivative. The generic term **extension bridge** applies to
 their shared protocol boundary.
 
-## Target Topology
+## Current Production Topology
 
 ```text
 Owner desktop session
   -> ordinarily launched fixed SparkClaw Chromium artifact
        -> one persistent fixed SparkClaw profile
-       -> Playwright Extension
+       -> SparkClaw Browser Bridge
        -> ordinary owner tabs
        -> SparkClaw task-tab groups
 
 Host user service: sparkclaw-browser-controller
-  -> extension pairing and token custody
+  -> extension pairing and bounded credential relay
   -> generic lane: pinned Playwright MCP server
   -> script lane: pinned Playwright CLI sessions
   -> private versioned capability endpoint
@@ -197,10 +196,10 @@ Gateway container
   -> Workflow -> ToolHub -> Policy -> Approval
 ```
 
-The first proof of concept must run the MCP and CLI clients as the same host
-desktop owner as the browser. Container-to-extension discovery is not assumed.
-Only after local attachment is proven may the private Gateway-to-controller
-transport be implemented and qualified.
+The completed proof of concept ran MCP and CLI as the same host desktop owner
+as the browser and did not assume container-to-extension discovery. After local
+attachment passed, the private Gateway-to-controller transport was implemented
+and qualified.
 
 ## Browser And Profile Ownership
 
@@ -213,13 +212,10 @@ for extension mode forbids:
 - a second browser process against the same profile;
 - an automation-owned temporary profile for configured account operations.
 
-The transport does not require a SparkClaw-specific browser brand. Initial
-qualification starts with the pinned SparkClaw Chromium artifact because the
-deployment already owns and verifies it. Cutover is blocked until the
-Playwright Extension and both Playwright clients work with that Chromium build.
-The official extension path currently documents Chrome and Edge; compatibility
-with the SparkClaw Chromium artifact is therefore an explicit PoC result, not an
-assumption.
+The transport does not require a SparkClaw-specific browser brand. Qualification
+used the pinned SparkClaw Chromium artifact because the deployment already owns
+and verifies it. The official extension documentation named Chrome and Edge,
+so compatibility with SparkClaw Chromium was proved explicitly before cutover.
 
 The selected profile remains browser-owned. SparkClaw stores only a bounded
 profile identity, browser generation, extension pairing state, and readiness
@@ -253,13 +249,13 @@ extension generations. It reports typed health without returning secret values.
 
 ## Settings Surface And Secret Persistence
 
-WebChat adds one connection entry separate from browser email:
+WebChat provides one connection entry separate from browser email:
 
 ```text
 Settings
 `- Connections
    |- Browser control
-   |  `- Playwright Extension
+   |  `- SparkClaw Browser Bridge
    `- Browser email
       |- QQ Mail
       |- Outlook
@@ -270,14 +266,14 @@ Settings
 continue to own only provider enablement, login-page opening, and provider
 readiness. They do not store separate extension tokens.
 
-During official-extension integration, the detail view may display
-`Playwright Extension (preview)`. The production cutover changes the display
-name to `SparkClaw Browser Bridge` without changing the API paths or provider
-settings. Because the independently packaged extension has its own identity and
-storage, its token is enrolled as a new credential; SparkClaw never copies or
-silently reuses the official extension token.
+During official-extension integration, the detail view displayed
+`Playwright Extension (preview)`. Production now displays `SparkClaw Browser
+Bridge` without changing the API paths or provider settings. Because the
+independently packaged extension has its own identity and storage, its token was
+enrolled as a new credential; SparkClaw never copied or silently reused the
+official extension token.
 
-The Playwright Extension detail view contains:
+The Browser Bridge detail view contains:
 
 - browser/profile identity and current non-secret status;
 - one password-style token input that is never prefilled;
@@ -294,10 +290,10 @@ Saving the token is a validate-before-persist operation:
    surrounding whitespace, and an opaque token outside the bounded length.
 3. Gateway passes the candidate only in memory to the host controller.
 4. The controller performs one bounded extension handshake, requests creation
-   and closure of one neutral task tab, then detaches. With the official
-   extension this is permitted only in a disposable qualification profile
-   because upstream may still attach to and observe every known page. The final
-   Browser Bridge must prove that owner tabs are never attached or inspected.
+   and closure of one neutral task tab, then detaches. The official baseline ran
+   only in a disposable qualification profile because upstream could attach to
+   every known page. Production Browser Bridge tests prove that owner tabs are
+   never attached or inspected.
 5. Only a successful handshake is sealed into the existing credential Vault as
    `playwright-extension-token-v1`. A failed candidate does not replace the
    current credential.
@@ -377,6 +373,20 @@ only the registered script, validates the result envelope, detaches the CLI
 session, and closes or releases the task tab according to the operation
 contract.
 
+The private controller API exposes `POST /v1/run-script` for exact registered
+script IDs and revisions and `POST /v1/open-provider-login` for fixed provider
+identities. Neither route accepts a script path, URL, selector, executable, or
+browser option from Gateway. The current registry contains only QQ Mail,
+Outlook, and Gmail probe/send revision 1 entries and computes a SHA-256 over
+each entry's repository source closure at controller startup.
+
+CLI subprocess failures are projected only as a fixed command category, typed
+failure class, output stream, secret-match count, and residual byte count.
+Provider-owned targetless URL reads and evaluations may retry a destroyed
+execution context up to four times at 250 ms intervals, revalidating the current
+origin before each evaluation attempt. Element-targeted click, fill, press, and
+other effect operations are never retried by this mechanism.
+
 Scripts receive structured input on stdin or an equivalent private pipe.
 Message content and credentials never appear in argv. `run-code --filename`
 may reference only repository-owned, checksum-qualified files. Inline
@@ -434,7 +444,8 @@ effect still requires a fresh probe according to the provider contract.
 
 ## Target Email Workflow Binding
 
-The target retains these email business invariants from the legacy Workflow:
+The implementation retains these email business invariants from the legacy
+Workflow:
 
 - send only; reading, search, reply, forward, attachments, and draft management
   remain unavailable;
@@ -459,7 +470,7 @@ The following transport-specific legacy requirements are superseded:
 | Email configuration may imply browser process/profile configuration | Email configuration references the one shared Browser control credential and stores no extension token |
 | Playwright is forbidden | Playwright CLI plus Extension is the sole target provider-script backend |
 
-The target send sequence is:
+The current send sequence is:
 
 1. Resolve one configured provider and account deterministically.
 2. Require a ready shared Browser control credential.
@@ -525,17 +536,23 @@ invalidates every task grant, and requires fresh attachment and page evidence.
 
 ## Configuration Shape
 
-The proposed logical configuration is:
+The implemented logical configuration is:
 
 ```json
 {
   "adapters": {
     "browserAutomation": {
-      "transport": "playwright_extension",
-      "controllerEndpointFile": "/run/sparkclaw/browser-controller/endpoint",
-      "profileID": "default",
-      "connectTimeoutMs": 10000,
-      "actionTimeoutMs": 30000
+      "timeoutMs": 30000,
+      "startupTimeoutMs": 10000,
+      "settleTimeoutMs": 15000,
+      "settleQuietPeriodMs": 500,
+      "settlePollIntervalMs": 100,
+      "routeRebindLimit": 2,
+      "playwrightExtension": {
+        "controllerSocket": "/run/sparkclaw/browser-controller/controller.sock",
+        "profileID": "default",
+        "connectTimeoutMs": 20000
+      }
     }
   }
 }
@@ -557,26 +574,20 @@ projected through APIs only as redacted status. The controller receives the
 decrypted value over its authenticated private transport only when validating
 or opening an on-demand Playwright connection.
 
-The migration selector exists only during qualification. After cutover,
-`playwright_extension` becomes the sole accepted transport and stale Host-CDP
-settings fail with a documented migration error.
-
-During Phase 1 preview, the current `transport` remains `host-cdp`. The nested
-`playwrightExtension` block registers only the private controller socket,
-fixed `default` profile identity, and connection timeout. It does not activate
-the Playwright adapter or create a runtime fallback.
+The migration selector was removed during cutover. The nested
+`playwrightExtension` block registers only the private controller socket, fixed
+`default` profile identity, and connection timeout. Stale Host-CDP environment
+settings fail with a documented migration error and cannot create a fallback.
 
 ## Deployment And Packaging
 
-The local and remote deployment entrypoints must use one shared browser setup
-path. The target setup:
+The local and remote deployment entrypoints use one shared browser setup path.
+The production setup:
 
 - installs or verifies the qualified ordinary browser on the host, never in the
   Gateway image;
-- installs the official extension through an owner-visible process during the
-  integration stages;
 - installs the checksum-qualified SparkClaw Browser Bridge through an
-  owner-visible and auditable process for production qualification and cutover;
+  owner-visible and auditable process;
 - installs pinned Playwright MCP, CLI, and compatible Library dependencies on
   the host controller runtime;
 - creates the owner-scoped controller service, private runtime directory, and
@@ -588,41 +599,36 @@ path. The target setup:
   capabilities.
 
 Extension mode requires a persistent owner browser session. A displayless
-remote host is not silently converted to headless Playwright or Host-CDP. The
-remote cutover is blocked until its supported owner-session mechanism and
-restart behavior pass qualification.
+remote host is not silently converted to headless Playwright or Host-CDP. A
+missing supported owner session is a deployment error.
 
 The Gateway image contains neither Chromium nor Playwright browser binaries.
 Whether it retains a small MCP client library is an implementation detail; all
 browser and extension process ownership remains on the host.
 
-The Phase 1 preview is installed explicitly after the current Host-CDP browser
-setup. It is not part of either production startup gate yet:
+Install or verify the production browser, Bridge, Controller, and persistent
+profile with the shared entrypoint:
 
 ```bash
-npm run setup:browser-controller
-npm run check:browser-controller
-npm run open:browser-extension-preview
+npm run setup:browser
+bash scripts/setup-browser.sh --check
+npm run open:browser
 ```
 
-For Remote deployments, pass the matching private environment file directly:
+For Remote deployments, bind the same setup to the matching private environment
+file:
 
 ```bash
-bash scripts/setup-browser-controller.sh --env-file .env.remote
-bash scripts/setup-browser-controller.sh --check --env-file .env.remote
+SPARKCLAW_BROWSER_ENV_FILE=.env.remote bash scripts/setup-browser.sh
+SPARKCLAW_BROWSER_ENV_FILE=.env.remote bash scripts/setup-browser.sh --check
 ```
 
-The open command uses the separate `extension-qualification` profile. Install
-the official extension and perform all preview sign-ins only in that profile.
-The controller identifies the pinned host artifact as `chromium`, not `chrome`.
-This selects the official Playwright MCP Linux Chromium handoff path required
-when the controller runs as a user service; declaring the artifact as Chrome
-causes the short-lived connect-page launcher to fail under Ubuntu's AppArmor
-user-namespace restrictions. Start the qualification browser with the open
-command before validating or checking the extension connection.
-The controller service stores no extension token; the token remains in the
-Gateway credential Vault and crosses the owner-only Unix socket only for a
-bounded validation or acquisition attempt.
+The open command uses the persistent `default` profile. The controller
+identifies the pinned host artifact as `chromium`, not `chrome`, and invokes the
+Bridge's native launcher rather than starting another browser. The Controller
+service stores no extension token; the token remains in the Gateway credential
+Vault and crosses the owner-only Unix socket only for a bounded validation or
+acquisition attempt.
 
 ## Security Boundaries
 
@@ -641,154 +647,141 @@ bounded validation or acquisition attempt.
 - Do not claim that Playwright allowed-origin options are a security boundary;
   SparkClaw authorization and network containment remain mandatory.
 
-## Migration Plan
+## Completed Migration Plan
 
-### Phase 0: Compatibility PoC
+### Phase 0: Compatibility PoC (Completed)
 
-- Install the official extension in a disposable qualified browser profile.
-- Keep that profile free of owner browsing tabs and production account state;
-  the pinned official extension currently auto-attaches all known pages.
-- Launch the fixed SparkClaw Chromium without remote-debugging, automation, or
-  headless flags.
-- Complete Gmail login manually before attachment.
-- Attach Playwright MCP, create a task tab, read a page, interact, close the tab,
-  and detach while the browser remains alive.
-- Attach Playwright CLI in a separate session and execute a fixed local script.
-- Verify that Gmail remains signed in and permits ordinary manual login.
-- Verify extension token rotation and one-client-per-tab behavior.
-- Determine whether the SparkClaw Chromium artifact is supported; record a
-  clear GO or NO-GO.
+- The unmodified official extension was qualified in a disposable profile that
+  contained no ordinary owner tabs or production account state.
+- Fixed SparkClaw Chromium launched without remote-debugging, automation, or
+  headless flags; ordinary manual Gmail login completed before attachment.
+- MCP and CLI independently attached, operated a task tab, detached, and left
+  the browser and login state intact.
+- Credential rotation and one-client-per-tab ownership passed. Chromium
+  `148.0.7778.0` received a GO as the fixed product artifact.
 
-No production code or deployment default changes in this phase.
+This phase changed no production default.
 
-### Phase 1: Host Controller
+### Phase 1: Host Controller (Completed)
 
-- Add the owner-scoped controller, endpoint schema, authentication, health,
-  process supervision, deadlines, and cleanup reconciliation.
-- Add the encrypted `playwright-extension-token-v1` credential, authenticated
-  redacted APIs, and the `Settings > Connections > Browser control` detail
-  view.
-- Pin a mutually compatible Playwright Library, MCP, CLI, and extension set.
-- Add fake-client and live host qualification tests.
-- Use the official extension unchanged so failures in the product boundary are
-  not confused with changes to extension internals.
+- The owner-scoped controller, versioned private protocol, authentication,
+  health, process supervision, deadlines, generation handling, and cleanup
+  reconciliation were implemented and installed.
+- The encrypted `playwright-extension-token-v1` credential, authenticated
+  redacted APIs, and `Settings > Connections > Browser control` view were added.
+- Fake-client, protocol, lifecycle, WebChat, Gateway, and live host coverage
+  qualified the pinned Playwright set against the official baseline.
 
-### Phase 2: Generic MCP Adapter
+### Phase 2: Generic MCP Adapter (Completed)
 
-- Implement the provider-neutral Playwright adapter behind the existing
-  interface.
-- Map the current tool surface and preserve snapshot, ref, generation, settle,
-  and tab-ownership tests.
-- Keep Host-CDP as the explicit qualification default until live acceptance.
+- The provider-neutral Playwright adapter replaced the former implementation
+  behind the existing interface without changing ToolHub contracts.
+- Snapshot, ref, generation, settle, task-tab ownership, action, screenshot,
+  close, detach, and failure characterization passed offline and live.
+- The temporary Host-CDP qualification default was removed in Phase 6.
 
-### Phase 3: Deterministic CLI Scripts
+### Phase 3: Deterministic CLI Scripts (Completed)
 
-- Migrate QQ Mail, Outlook, and Gmail probes and sends to the fixed CLI script
-  contract and the target email binding above without changing their retained
-  Workflow or approval semantics.
-- Run provider-specific offline fixtures and live login probes.
-- Do not send a real message without the existing final content confirmation.
+- QQ Mail, Outlook, and Gmail probes and sends moved to six fixed, checksummed
+  CLI handlers without changing Workflow, approval, one-attempt, or
+  unknown-outcome semantics.
+- Provider fixtures retained signed-out classification, bounded
+  context-destroyed recovery, origin validation, and fail-closed redirects.
+- On 2026-09-05, `npm run qualify:playwright-email -- --profile remote` passed
+  all three signed-in accounts sequentially in a read-only run through Browser
+  Bridge `1.0.18`. The browser remained running, cleanup left no CLI daemon or
+  session directory, focus did not move to the browser, and no send handler ran.
 
-### Phase 4: SparkClaw Browser Bridge
+### Phase 4: SparkClaw Browser Bridge (Completed)
 
-- Freeze the extension handshake, controller endpoint, credential, generation,
-  task-tab ownership, background-operation, and explicit-handoff contracts.
-- Derive the independently packaged SparkClaw Browser Bridge from the qualified
-  upstream source and retain the applicable license and attribution files.
-- Remove unconditional tab and window focus during attachment and normal task
-  actions. Permit foreground activation only for an explicit owner handoff.
-- Keep WebChat owner tabs outside the automation-owned tab set and verify that
-  background work does not select, read, mutate, or close them.
-- Preserve the official-baseline MCP and CLI behavior through compatibility
-  tests, then enroll a newly generated Browser Bridge token. Do not migrate or
-  reuse the official-extension token.
+- The extension handshake, credential, generation, task-tab ownership,
+  background-operation, and explicit-handoff contracts were frozen.
+- SparkClaw Browser Bridge `1.0.18` was independently packaged from the
+  qualified upstream source with license, attribution, versioned Service Worker
+  entry, and checksum closure.
+- Compatibility tests retained the official-baseline MCP and CLI behavior.
+  Background attachment and actions do not focus the browser or expose owner
+  tabs; only an explicit owner handoff focuses the requested task tab.
+- Production enrolled a newly generated Bridge credential. The official
+  extension credential was neither reused nor migrated.
 
-### Phase 5: Deployment Qualification
+### Phase 5: Deployment Qualification (Completed)
 
-- Update both deployment entrypoints and doctor checks behind the temporary
-  selector.
-- Validate local and remote owner-session startup, restart, pairing, detach,
-  and profile persistence.
-- Validate that the Browser Bridge performs background work without changing
-  the active WebChat tab or focusing its window, and that explicit handoff does
-  focus the requested task tab.
-- Run full Gateway, WebChat, Compose, docs, browser, and email validation.
+- Local and Remote deployment entrypoints and doctor checks now use the shared
+  Bridge-only Browser setup with no migration selector.
+- Owner-session startup, service restart, pairing, detach, generation
+  invalidation, profile persistence, and Local/Remote Browser checks passed.
+- X11-monitored no-handoff and explicit-handoff scenarios proved the focus
+  contract. Gateway, WebChat, Compose, docs, browser, provider, shell, and
+  security suites passed within the environment limits recorded below.
 
-### Phase 6: Atomic Cutover And Removal
+### Phase 6: Atomic Cutover And Removal (Completed)
 
-Only after all acceptance gates pass:
+- SparkClaw Browser Bridge became the sole production extension transport.
+- Browserd, Host-CDP endpoint/proxy/configuration and deployment wiring,
+  `agent-browser`, its MCP adapter and daemon cleanup, obsolete tests, package
+  pins, migration selectors, and fallback paths were removed.
+- Current architecture, runtime, deployment, development, email, README, and
+  capability documentation were updated in both languages.
+- Gateway image and dependency checks confirm that it downloads no Chromium or
+  Playwright browser binary.
 
-- make the SparkClaw Browser Bridge the sole production extension transport;
-- remove browserd, Host-CDP endpoint/proxy/configuration, and their deployment
-  wiring;
-- remove `agent-browser`, its MCP adapter, daemon cleanup, tests, and package
-  pin;
-- remove migration selectors and fallback language;
-- update current architecture, runtime, deployment, development, email, README,
-  and capability documentation in both languages;
-- verify no Chromium or browser automation engine is downloaded in the Gateway
-  container.
+## Completed Acceptance Gates
 
-## Acceptance Gates
+The cutover passed every browser-migration gate:
 
-Cutover requires all of the following:
+- manual login and authentication reuse worked without state export;
+- the shared-profile browser command line contained no remote-debugging,
+  automation, or headless flags;
+- MCP and CLI attached independently and detached without closing the browser;
+- the official integration baseline and Browser Bridge compatibility suites
+  passed;
+- background work did not focus the browser or select an owner tab, while
+  explicit handoff focused only the requested task tab;
+- owner tabs remained outside task ownership and MCP and CLI could not control
+  one task tab concurrently;
+- settings and Gateway tests proved token non-prefill, clear-after-save,
+  handshake-before-persist, ciphertext-only storage, rotation, deletion, and
+  stale-generation rejection without deleting browser authentication;
+- browser restart invalidated stale task and snapshot identities while
+  preserving the profile and pairing;
+- subprocess and session cleanup left no persistent Playwright process or
+  runtime directory;
+- generic adapter characterization, live form interaction, and all three
+  signed-in provider probes passed without invoking a send;
+- send handlers retained exact approval, one-attempt, and unknown-outcome rules;
+- shared Local/Remote Browser setup, Compose, and deployment contracts passed,
+  as did both complete Local and Remote deployment preflights;
+- Gateway, WebChat, Compose, docs, and security validation passed;
+- removal verification found no active `agent-browser`, browserd, Host-CDP,
+  container Chromium, or executable compatibility path.
 
-- ordinary manual Gmail login succeeds before any automation attachment;
-- the browser command line contains no remote-debugging, automation, or
-  headless flags for the shared profile;
-- MCP and CLI can independently attach through the extension and detach without
-  closing the browser;
-- the official-extension integration baseline passes before extension changes
-  begin, and the Browser Bridge subsequently passes the same compatibility
-  suite;
-- Browser Bridge attachment and background actions do not focus the browser or
-  replace the active WebChat tab; explicit owner handoff does;
-- authentication is reused in newly created task tabs without state export;
-- the settings form never prefills or returns the token, clears it after every
-  save attempt, and persists only Vault ciphertext after a real handshake;
-- replacing or deleting the token invalidates old-generation sessions without
-  deleting browser authentication state;
-- owner tabs are never selected, read, mutated, or closed;
-- MCP and CLI cannot concurrently control one tab;
-- browser restart invalidates stale task and snapshot identities;
-- subprocess and session cleanup leaves no persistent daemon accumulation;
-- generic browser adapter characterization and live scenarios pass;
-- all three provider probes pass against real signed-in accounts;
-- send scripts preserve exact approval, one-attempt, and unknown-outcome rules;
-- local and remote deployment checks pass from fresh supported hosts;
-- Gateway, WebChat, Compose, docs, and security validation pass;
-- removal verification finds no active `agent-browser`, browserd, Host-CDP,
-  container Chromium, or legacy compatibility path.
+## Resolved Qualification Answers
 
-## Qualification Risks And Required Answers
-
-These are implementation gates, not reasons to weaken the target contract:
-
-1. Resolved on 2026-09-04: the pinned official extension and MCP stack work with
-   the fixed SparkClaw Chromium artifact when the channel is declared as
-   `chromium`. Chrome and Edge are not product alternatives.
-2. What owner-visible pairing or permission confirmation occurs on first MCP
-   and CLI attachment, and can it be completed once without silent privilege
-   escalation?
-3. Can separate MCP and CLI clients keep distinct tab groups without cross-tab
-   visibility under the chosen extension version?
-4. How does the owner-session browser recover after host reboot on local and
-   remote deployments without adding automation startup flags?
-5. Can the Browser Bridge remove foreground focus without changing the
-   qualified MCP/CLI behavior or weakening tab ownership?
-6. Which extension, MCP, CLI, and Library versions form one tested compatibility
-   set?
-
-A NO-GO on any mandatory gate keeps Host-CDP as the current runtime and returns
-the design for revision. It does not trigger cookie copying, hidden automation
-flags, or a container-browser fallback.
+1. Fixed Chromium `148.0.7778.0` works with the Playwright extension channel
+   declared as `chromium`; Chrome and Edge are not product alternatives.
+2. Pairing is an owner-visible credential enrollment through WebChat followed
+   by a real bounded handshake. The token is not exposed again, and attachment
+   grants no tab outside the Controller's task ownership.
+3. MCP and CLI receive distinct controller sessions and task grants. Ownership
+   checks reject cross-task and concurrent same-tab control.
+4. User services restart the fixed browser and Controller against the
+   persistent `default` profile without automation flags. Readiness restores
+   pairing and authentication while rotating task/session generations.
+5. Browser Bridge compatibility and X11-monitored live scenarios proved that
+   attachment and normal actions remain in the background; only
+   `tabs.handoff` activates the task tab.
+6. The final production set is SparkClaw Browser Bridge `1.0.18`, Playwright MCP
+   `0.0.80`, Playwright CLI `0.1.19`, Playwright Library/Core
+   `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. Official Extension
+   `0.4.0` remains only the completed compatibility baseline.
 
 ## Version Evidence At Proposal Time
 
 On 2026-09-04, discovery found `playwright` `1.62.1`, `@playwright/mcp`
-`0.0.80`, and `@playwright/cli` `0.1.19` as the npm `latest` releases. These are
-PoC candidates only. Implementation must record and pin the exact mutually
-qualified set rather than installing `latest`.
+`0.0.80`, and `@playwright/cli` `0.1.19` as the npm `latest` releases. These
+were PoC candidates only. The completed implementation pins the mutually
+qualified production set listed above and never installs a floating `latest`.
 
 ## References
 

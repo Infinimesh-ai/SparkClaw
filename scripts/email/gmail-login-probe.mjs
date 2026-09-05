@@ -2,15 +2,10 @@
 
 import {
   GmailCliError,
-  createOwnedGmailTab,
   inspectGmailLogin,
-  readStrictJson,
   requireExactObject,
   requireInvocationId,
-  requireSafeHostCdpEnvironment,
-  writeFailure,
-  writeSuccess
-} from "./gmail-host-cdp.mjs";
+} from "./gmail-browser.mjs";
 
 const KNOWN_ERROR_CODES = new Set([
   "email_login_required",
@@ -20,33 +15,33 @@ const KNOWN_ERROR_CODES = new Set([
   "email_login_evidence_conflict",
   "email_page_contract_changed",
   "email_probe_timeout",
-  "email_agent_browser_invalid_output",
-  "email_agent_browser_failed",
+  "email_browser_output_invalid",
+  "email_browser_failed",
   "email_tab_cleanup_failed"
 ]);
 
-async function main() {
+export async function probeGmailLogin(rawInput, runtime = {}) {
   let tab;
-  let response;
   let failure;
 
   try {
-    const request = validateRequest(await readStrictJson("email_probe_invalid_input"));
-    const cdpEndpoint = requireSafeHostCdpEnvironment("email_probe_configuration_error");
-    tab = await createOwnedGmailTab({
+    const request = validateRequest(rawInput);
+    if (typeof runtime.createOwnedTab !== "function") {
+      throw new GmailCliError("email_probe_configuration_error");
+    }
+    tab = await runtime.createOwnedTab({
       kind: "probe",
-      cdpEndpoint,
       configurationErrorCode: "email_probe_configuration_error",
       timeoutErrorCode: "email_probe_timeout",
-      invalidOutputErrorCode: "email_agent_browser_invalid_output",
-      browserErrorCode: "email_agent_browser_failed",
+      invalidOutputErrorCode: "email_browser_output_invalid",
+      browserErrorCode: "email_browser_failed",
       originErrorCode: "email_provider_origin_invalid",
       originConflictErrorCode: "email_login_evidence_conflict"
     });
 
     await tab.open();
     const { accountHint } = await inspectGmailLogin(tab, { includeAccountHint: true });
-    response = {
+    const response = {
       schema_version: request.schema_version,
       status: "ready",
       provider: "gmail"
@@ -54,6 +49,7 @@ async function main() {
     if (accountHint !== undefined) {
       response.account_hint = accountHint;
     }
+    return response;
   } catch (caught) {
     failure = normalizeFailure(caught);
   } finally {
@@ -67,12 +63,7 @@ async function main() {
     }
   }
 
-  if (failure !== undefined) {
-    writeFailure(failure.code);
-    process.exitCode = failure.code === "email_login_required" ? 3 : 2;
-    return;
-  }
-  writeSuccess(response);
+  if (failure !== undefined) throw failure;
 }
 
 function validateRequest(request) {
@@ -94,7 +85,5 @@ function normalizeFailure(caught) {
   if (caught instanceof GmailCliError && KNOWN_ERROR_CODES.has(caught.code)) {
     return caught;
   }
-  return new GmailCliError("email_agent_browser_failed");
+  return new GmailCliError("email_browser_failed");
 }
-
-await main();

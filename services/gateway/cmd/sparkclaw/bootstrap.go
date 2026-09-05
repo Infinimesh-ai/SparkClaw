@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/happyapproval"
@@ -47,19 +50,39 @@ func newGatewayServices(
 	integrationRuns := integrationrun.New()
 	tools.WithIntegrationRuns(integrationRuns)
 	runtime = runtime.WithIntegrationRuns(integrationRuns)
-	browserd := emailautomation.NewBrowserdClient(cfg.Adapters.BrowserAutomation.HostCDP)
+	vault := credential.New(st, credential.Options{
+		Key:        cfg.State.CredentialKey,
+		KeyFile:    cfg.State.CredentialKeyFile,
+		AutoCreate: true,
+	})
+	// Runtime connector control can enable a credential-backed channel after
+	// startup, so the shared vault is checked even when all channels start off.
+	if err := vault.Ready(); err != nil {
+		slog.Warn("credential vault is unavailable", "code", credential.ErrorCode(err))
+	}
+	extensionConfig := cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	browserClient, err := browsercontrol.NewHTTPControllerClient(
+		extensionConfig.ControllerSocket,
+		time.Duration(extensionConfig.ConnectTimeoutMS)*time.Millisecond,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("assemble browser extension controller: %w", err)
+	}
+	browserControl := browsercontrol.New(vault, browserClient, extensionConfig.ProfileID)
+	emailRegistry := emailautomation.DefaultRegistry(cfg.Adapters.EmailAutomation.ScriptDir)
+	emailRunner := emailautomation.NewPlaywrightRunner(browserControl)
 	emailController := emailautomation.NewController(
 		st,
-		emailautomation.DefaultRegistry(cfg.Adapters.EmailAutomation.ScriptDir),
-		browserd,
-		emailautomation.NewRunner(browserd, cfg.Adapters.BrowserAutomation.Command),
+		emailRegistry,
+		emailRunner,
+		emailRunner,
 	)
 	tools.WithEmailSender(emailController)
 	runtime = runtime.WithEmailAdmission(emailController)
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
 	transcriber = speech.WithModelCallRecording(transcriber, st, cfg.Speech)
-	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber, endpoints)
+	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber, endpoints, vault)
 	if err != nil {
 		return nil, err
 	}
@@ -70,15 +93,7 @@ func newGatewayServices(
 	// Schedule admission through reminder tools must honor the owner's
 	// connector opt-out; without this gate third-party routes fail closed.
 	tools.WithConnectorGate(connectors.registry.Enabled)
-	extensionConfig := cfg.Adapters.BrowserAutomation.PlaywrightExtension
-	browserClient, err := browsercontrol.NewHTTPControllerClient(
-		extensionConfig.ControllerSocket,
-		time.Duration(extensionConfig.ConnectTimeoutMS)*time.Millisecond,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("assemble browser extension controller: %w", err)
-	}
-	browserControl := browsercontrol.New(connectors.credentials, browserClient, extensionConfig.ProfileID)
+	tools.WithBrowserAutomationAdapter(browserautomation.NewPlaywrightExtensionAdapter(cfg, browserControl))
 
 	var reminderScheduler *reminder.Scheduler
 	if cfg.Tools.Reminders.Enabled {
@@ -183,6 +198,11 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 }
 
 func (s *gatewayServices) Close() {
+	if s.browserControl != nil {
+		if err := s.browserControl.Close(); err != nil {
+			slog.Warn("browser control shutdown failed", "error", err)
+		}
+	}
 	if s.browserClient != nil {
 		s.browserClient.Close()
 	}

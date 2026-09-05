@@ -183,18 +183,11 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.RuntimeReadiness) map[string]any {
 	return map[string]any{
 		"browserAutomation": map[string]any{
-			"transport":          "host-cdp",
-			"command":            cfg.BrowserAutomation.Command,
 			"timeout_ms":         cfg.BrowserAutomation.TimeoutMS,
 			"startup_timeout_ms": cfg.BrowserAutomation.StartupTimeoutMS,
-			"host_cdp": map[string]any{
-				"profile_id":         cfg.BrowserAutomation.HostCDP.ProfileID,
-				"connect_timeout_ms": cfg.BrowserAutomation.HostCDP.ConnectTimeoutMS,
-			},
-			"playwright_extension": map[string]any{
+			"browser_bridge": map[string]any{
 				"profile_id":         cfg.BrowserAutomation.PlaywrightExtension.ProfileID,
 				"connect_timeout_ms": cfg.BrowserAutomation.PlaywrightExtension.ConnectTimeoutMS,
-				"preview":            true,
 			},
 		},
 		"emailAutomation": map[string]any{

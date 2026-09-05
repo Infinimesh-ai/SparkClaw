@@ -166,11 +166,12 @@ multicast addresses. It then explicitly stops the shared-project local model
 containers and starts exactly PostgreSQL, Sandbox Runner, Gotenberg, Gateway,
 and WebChat. All five application services use `restart: unless-stopped`.
 
-The deployment installs or verifies the pinned host Chromium and
-`sparkclaw-browserd`, validates Gateway readiness, runs a container-side
-Host-CDP MCP smoke, and proves Chromium remains alive afterward. A displayless
-server runs host-owned headless Chromium; a desktop owner can open **SparkClaw
-Browser** to restart the same dedicated profile in headed presentation.
+The deployment installs or verifies pinned host Chromium, the checksum-pinned
+SparkClaw Browser Bridge, and the owner-scoped Playwright Controller. It requires
+an active owner X11/XWayland session, starts the persistent headed browser,
+validates the loaded Bridge version and private Controller socket, waits for
+Gateway readiness, runs a container-side Controller smoke, and proves Chromium
+remains alive afterward. No headless or remote-debugging startup path exists.
 
 Reconcile, reconfigure, or check the remote deployment with:
 
@@ -178,25 +179,46 @@ Reconcile, reconfigure, or check the remote deployment with:
 npm run start:remote
 bash scripts/deploy_remote.sh --configure
 bash scripts/deploy_remote.sh --check
-bash scripts/install-host-browser.sh --check --env-file .env.remote
+bash scripts/setup-browser.sh --check
 ```
 
-The Playwright Extension controller is an explicit preview and is not a
-production browser backend. After the Remote deployment has installed the host
-browser, an owner with host Node.js 26 and npm 11 may install it with:
+Both deployment modes use this same production browser setup. It creates
+owner-only Controller, MCP-output, CLI-runtime, profile, and Native Messaging
+Host directories, then records only the fixed Controller paths in the selected
+mode-`0600` environment file. These directories persist no extension token or
+email message archive. The Bridge token is enrolled through `Settings >
+Connections > Browser control` and remains encrypted in the Gateway Vault.
+
+Use the desktop launcher or this command when manual login or human verification
+is required:
 
 ```bash
-bash scripts/setup-browser-controller.sh --env-file .env.remote
-bash scripts/open-browser-extension-preview.sh
+npm run open:browser
 ```
 
-Install the official extension and any qualification-only accounts in the
-separate browser opened by the second command. Do not use an everyday profile
-or production account state: the pinned official extension may attach to every
-tab in that profile. Keep that qualification browser open before validating the
-extension token. The controller declares the pinned artifact as `chromium` so
-the official MCP uses its Linux user-service handoff path. `npm run start:remote`
-continues to use Host-CDP for all browser and email execution.
+After the accounts are signed in within the persistent SparkClaw profile, run
+the fixed read-only provider probes from the host:
+
+```bash
+npm run qualify:playwright-email -- --profile remote
+```
+
+Use `--providers qq_mail`, `--providers outlook`, or `--providers gmail` to
+isolate one provider. The helper validates and merges the selected product
+environment, maps the container PostgreSQL and controller paths to their fixed
+host endpoints, opens the existing Vault credential through its owner-only key,
+and invokes only `TestPlaywrightExtensionLiveEmailProbes`. It accepts no URL,
+selector, script path, message content, or send operation, and exits nonzero
+until every selected account passes its login probe.
+
+The 2026-09-04 Remote qualification baseline passed QQ Mail, Outlook, and Gmail
+sequentially through this exact command in about 94 seconds total. QQ Mail uses
+a Playwright CLI-only 90-second probe deadline for its two signed-in evidence
+passes; the other probes remain bounded at 45 seconds. Closing the official
+extension task page may end the CLI connection before `tab-close` returns, so
+the controller recognizes only that exact page-closed terminal class and then
+reaps the metadata-bound daemon. The qualification Chromium stays running, the
+private runtime directories return to empty, and no send operation is invoked.
 
 Gateway remains Docker-internal; WebChat publishes `18790` by default, while
 the exact pairing bootstrap is host-loopback-only on `18795`. This topology
@@ -612,11 +634,12 @@ npm run start:local
 npm run start:remote
 ```
 
-Both paths verify Host-CDP before Gateway startup, wait for PostgreSQL and
-Gotenberg, require Gateway readiness with `model_mode=external` and
-`state_backend=postgres`, run the MCP smoke, and prove Chromium survives MCP
-shutdown. Local additionally owns the five-model group; remote rejects local
-model URLs and stops that group before application startup.
+Both paths verify the Browser Bridge and Controller before Gateway startup,
+wait for PostgreSQL and Gotenberg, require Gateway readiness with
+`model_mode=external` and `state_backend=postgres`, run the Controller smoke,
+and prove Chromium survives client detach. Local additionally owns the
+five-model group; remote rejects local model URLs and stops that group before
+application startup.
 
 ## DGX Spark Model Services
 
@@ -943,10 +966,11 @@ For filesystem state, stop Gateway before copying state files if possible.
 
 ### Behavior changes to check when upgrading past 2026-07-30
 
-- As of 2026-09-02, Host-CDP is the sole browser runtime. Both deployment
-  scripts install or verify host `sparkclaw-browserd`; Gateway contains no
-  Chromium/Xvfb, mounts no browser profile or X11 resources, and rejects legacy
-  container-browser configuration.
+- As of 2026-09-05, the SparkClaw Browser Bridge and owner-scoped Playwright
+  Controller are the sole browser runtime. Both deployment modes install or
+  verify the persistent host Chromium and two user services. Gateway contains
+  no Chromium/Xvfb or browser automation engine, mounts only the Controller
+  runtime read-only, and rejects retired CDP/transport configuration.
 - Telegram and Weixin now both ship disabled in typed config, Compose, and the
   example environment. Enable a channel from WebChat before account setup.
   `SPARKCLAW_TELEGRAM_ENABLED` and
@@ -987,11 +1011,9 @@ For filesystem state, stop Gateway before copying state files if possible.
 - Keep shell execution sandboxed and network-disabled.
 - Treat browser/email/file observations as untrusted.
 - Keep the host desktop and browser profile closed to containers. Gateway gets
-  only the mode-`0600` browserd endpoint through a read-only runtime mount; the
-  capability must not enter logs, traces, artifacts, or public config output.
-- Treat the preview controller socket as an owner-only capability. Gateway gets
-  it through a separate read-only runtime mount; the official extension token
-  remains encrypted in the Vault and must never enter Compose environment.
+  only the owner-only Controller socket through a read-only runtime mount; the
+  Browser Bridge token remains encrypted in the Vault and must never enter
+  Compose environment, logs, traces, artifacts, or public config output.
 - Keep `.env.local`, `.env.remote`, model weights, state encryption keys and downloaded data out of git.
 - Scan diffs for tokens before handoff.
 
@@ -1000,8 +1022,7 @@ For filesystem state, stop Gateway before copying state files if possible.
 | Symptom | Check |
 |---|---|
 | Docker permission denied | Use `sudo -n docker ...` or add the user to the Docker group. |
-| Host-CDP browser unavailable | Run `bash scripts/install-host-browser.sh --check --env-file .env.local` or the `.env.remote` equivalent, inspect `systemctl --user status sparkclaw-browserd.service`, and verify the endpoint path is owned by the deployment UID with mode `0600`. |
-| Playwright Extension preview unavailable | Run `npm run check:browser-controller` or `bash scripts/setup-browser-controller.sh --check --env-file .env.remote`, inspect `systemctl --user status sparkclaw-browser-controller.service`, and verify the qualification browser uses the separate `extension-qualification` profile. |
+| Browser Bridge unavailable | Run `bash scripts/setup-browser.sh --check`, inspect `systemctl --user status sparkclaw-browser.service` and `sparkclaw-browser-controller.service`, and verify the Controller socket is owned by the deployment UID with mode `0600`. A stale loaded Bridge requires restarting SparkClaw Browser. |
 | Golden eval browser step fails | Start Gateway with `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal` for Docker eval or `127.0.0.1` for host eval. |
 | CUDA or Triton reports `operation not permitted` after a host restart | Run `scripts/serve_models_compose.sh single-fast`. A stopped or unhealthy member triggers automatic whole-group recreation with fresh runtime caches while retaining `data/models`; set `SPARKCLAW_FORCE_MODEL_RECREATE=true` to force the same recovery manually. |
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |

@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
-source "$ROOT/scripts/lib/host-browser.sh"
+source "$ROOT/scripts/lib/browser-runtime.sh"
 
 ENV_FILE="$ROOT/.env.local"
 PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
@@ -221,9 +221,9 @@ for directory in \
 done
 
 if [[ "$MODE" == "check" ]]; then
-  sparkclaw_check_host_browser "$ROOT" "$EFFECTIVE_ENV_FILE"
+  sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
 else
-  sparkclaw_install_host_browser "$ROOT" "$ENV_FILE"
+  sparkclaw_install_browser_runtime "$ROOT" "$ENV_FILE"
   refresh_effective_env
 fi
 

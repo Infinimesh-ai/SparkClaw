@@ -166,7 +166,6 @@ func New(cfg config.Config, st Repository) *ToolHub {
 		artifacts:             artifact.NewStore(cfg.Storage),
 		reminders:             remindertarget.NewResolver(st),
 		info:                  newInfoRuntime(searchInfo, weatherInfo),
-		browser:               browserautomation.NewAdapter(cfg),
 		managedBrowserWindows: newManagedBrowserWindowRegistry(),
 		ocr:                   ocrAdapter,
 		ocrRuntime:            newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
@@ -222,6 +221,11 @@ func (h *ToolHub) WithArtifactStore(artifacts artifact.Store) *ToolHub {
 }
 
 func (h *ToolHub) WithBrowserAutomationAdapter(adapter browserautomation.Adapter) *ToolHub {
+	if h.browser != nil {
+		if err := h.browser.Close(); err != nil {
+			slog.Warn("replaced browser automation adapter did not close cleanly", "error", err)
+		}
+	}
 	h.browser = adapter
 	return h
 }

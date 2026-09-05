@@ -3,18 +3,13 @@
 import {
   GMAIL_ORIGIN,
   GmailCliError,
-  createOwnedGmailTab,
   inspectGmailLogin,
-  readStrictJson,
   recipientDigest,
   requireExactObject,
   requireInvocationId,
-  requireSafeHostCdpEnvironment,
-  writeFailure,
-  writeSuccess
-} from "./gmail-host-cdp.mjs";
+} from "./gmail-browser.mjs";
 
-const SELECTORS = Object.freeze({
+export const GMAIL_SEND_SELECTORS = Object.freeze({
   compose: '[role="button"][gh="cm"]',
   subject: 'input[name="subjectbox"]',
   recipientInput: [
@@ -41,30 +36,30 @@ const KNOWN_ERROR_CODES = new Set([
   "email_login_evidence_conflict",
   "email_page_contract_changed",
   "email_send_timeout",
-  "email_agent_browser_invalid_output",
-  "email_agent_browser_failed",
+  "email_browser_output_invalid",
+  "email_browser_failed",
   "email_send_precondition_failed",
   "email_tab_cleanup_failed",
   "send_outcome_unknown"
 ]);
 
-async function main() {
+export async function sendGmail(rawInput, runtime = {}) {
   let tab;
-  let response;
   let failure;
   let sendClickAttempted = false;
   let sendConfirmed = false;
 
   try {
-    const request = validateRequest(await readStrictJson("email_send_invalid_input"));
-    const cdpEndpoint = requireSafeHostCdpEnvironment("email_send_configuration_error");
-    tab = await createOwnedGmailTab({
+    const request = validateRequest(rawInput);
+    if (typeof runtime.createOwnedTab !== "function") {
+      throw new GmailCliError("email_send_configuration_error");
+    }
+    tab = await runtime.createOwnedTab({
       kind: "send",
-      cdpEndpoint,
       configurationErrorCode: "email_send_configuration_error",
       timeoutErrorCode: "email_send_timeout",
-      invalidOutputErrorCode: "email_agent_browser_invalid_output",
-      browserErrorCode: "email_agent_browser_failed",
+      invalidOutputErrorCode: "email_browser_output_invalid",
+      browserErrorCode: "email_browser_failed",
       originErrorCode: "email_provider_origin_invalid",
       originConflictErrorCode: "email_login_evidence_conflict"
     });
@@ -75,7 +70,7 @@ async function main() {
     try {
       await prepareMessage(tab, request.message);
       sendClickAttempted = true;
-      await tab.click(SELECTORS.send, GMAIL_ORIGIN);
+      await tab.click(GMAIL_SEND_SELECTORS.send, GMAIL_ORIGIN);
       await confirmSent(tab);
       sendConfirmed = true;
     } catch (caught) {
@@ -88,7 +83,7 @@ async function main() {
       throw new GmailCliError("email_send_precondition_failed");
     }
 
-    response = {
+    return {
       schema_version: request.schema_version,
       status: "sent",
       provider: "gmail",
@@ -109,12 +104,7 @@ async function main() {
     }
   }
 
-  if (failure !== undefined) {
-    writeFailure(failure.code);
-    process.exitCode = failure.code === "email_login_required" ? 3 : 2;
-    return;
-  }
-  writeSuccess(response);
+  if (failure !== undefined) throw failure;
 }
 
 function validateRequest(request) {
@@ -179,32 +169,32 @@ function requireRecipient(recipient) {
 }
 
 async function prepareMessage(tab, message) {
-  if (await tab.getCount(SELECTORS.compose, GMAIL_ORIGIN) !== 1) {
+  if (await tab.getCount(GMAIL_SEND_SELECTORS.compose, GMAIL_ORIGIN) !== 1) {
     throw new GmailCliError("email_send_precondition_failed");
   }
-  await tab.click(SELECTORS.compose, GMAIL_ORIGIN);
-  await tab.waitFor(SELECTORS.subject, GMAIL_ORIGIN);
+  await tab.click(GMAIL_SEND_SELECTORS.compose, GMAIL_ORIGIN);
+  await tab.waitFor(GMAIL_SEND_SELECTORS.subject, GMAIL_ORIGIN);
 
   for (const selector of [
-    SELECTORS.subject,
-    SELECTORS.recipientInput,
-    SELECTORS.body,
-    SELECTORS.send
+    GMAIL_SEND_SELECTORS.subject,
+    GMAIL_SEND_SELECTORS.recipientInput,
+    GMAIL_SEND_SELECTORS.body,
+    GMAIL_SEND_SELECTORS.send
   ]) {
     if (await tab.getCount(selector, GMAIL_ORIGIN) !== 1) {
       throw new GmailCliError("email_send_precondition_failed");
     }
   }
 
-  await tab.fill(SELECTORS.recipientInput, message.recipient, GMAIL_ORIGIN);
-  await tab.focus(SELECTORS.recipientInput, GMAIL_ORIGIN);
+  await tab.fill(GMAIL_SEND_SELECTORS.recipientInput, message.recipient, GMAIL_ORIGIN);
+  await tab.focus(GMAIL_SEND_SELECTORS.recipientInput, GMAIL_ORIGIN);
   await tab.press("Enter", GMAIL_ORIGIN);
-  await tab.waitFor(SELECTORS.recipientChip, GMAIL_ORIGIN);
-  if (await tab.getCount(SELECTORS.recipientChip, GMAIL_ORIGIN) !== 1) {
+  await tab.waitFor(GMAIL_SEND_SELECTORS.recipientChip, GMAIL_ORIGIN);
+  if (await tab.getCount(GMAIL_SEND_SELECTORS.recipientChip, GMAIL_ORIGIN) !== 1) {
     throw new GmailCliError("email_send_precondition_failed");
   }
   const committedRecipient = await tab.getAttribute(
-    SELECTORS.recipientChip,
+    GMAIL_SEND_SELECTORS.recipientChip,
     "email",
     GMAIL_ORIGIN
   );
@@ -215,32 +205,32 @@ async function prepareMessage(tab, message) {
 
   const subject = message.subject ?? "";
   if (Object.hasOwn(message, "subject")) {
-    await tab.fill(SELECTORS.subject, subject, GMAIL_ORIGIN);
+    await tab.fill(GMAIL_SEND_SELECTORS.subject, subject, GMAIL_ORIGIN);
   }
-  if (await tab.getValue(SELECTORS.subject, GMAIL_ORIGIN) !== subject) {
+  if (await tab.getValue(GMAIL_SEND_SELECTORS.subject, GMAIL_ORIGIN) !== subject) {
     throw new GmailCliError("email_send_precondition_failed");
   }
 
-  await tab.fill(SELECTORS.body, message.body.content, GMAIL_ORIGIN);
-  const bodyReadback = await tab.getText(SELECTORS.body, GMAIL_ORIGIN);
+  await tab.fill(GMAIL_SEND_SELECTORS.body, message.body.content, GMAIL_ORIGIN);
+  const bodyReadback = await tab.getText(GMAIL_SEND_SELECTORS.body, GMAIL_ORIGIN);
   if (normalizeLineEndings(bodyReadback) !== normalizeLineEndings(message.body.content)) {
     throw new GmailCliError("email_send_precondition_failed");
   }
 
-  if (await tab.getCount(SELECTORS.send, GMAIL_ORIGIN) !== 1) {
+  if (await tab.getCount(GMAIL_SEND_SELECTORS.send, GMAIL_ORIGIN) !== 1) {
     throw new GmailCliError("email_send_precondition_failed");
   }
 }
 
 async function confirmSent(tab) {
-  await tab.waitFor(SELECTORS.sentStatus, GMAIL_ORIGIN);
-  const status = (await tab.getText(SELECTORS.sentStatus, GMAIL_ORIGIN))
+  await tab.waitFor(GMAIL_SEND_SELECTORS.sentStatus, GMAIL_ORIGIN);
+  const status = (await tab.getText(GMAIL_SEND_SELECTORS.sentStatus, GMAIL_ORIGIN))
     .replace(/\s+/g, " ")
     .trim();
   if (!(status.startsWith("Message sent") || status.startsWith("邮件已发送"))) {
     throw new GmailCliError("send_outcome_unknown");
   }
-  if (await tab.getCount(SELECTORS.subject, GMAIL_ORIGIN) !== 0) {
+  if (await tab.getCount(GMAIL_SEND_SELECTORS.subject, GMAIL_ORIGIN) !== 0) {
     throw new GmailCliError("send_outcome_unknown");
   }
 }
@@ -259,7 +249,5 @@ function normalizeFailure(caught) {
   if (caught instanceof GmailCliError && KNOWN_ERROR_CODES.has(caught.code)) {
     return caught;
   }
-  return new GmailCliError("email_agent_browser_failed");
+  return new GmailCliError("email_browser_failed");
 }
-
-await main();

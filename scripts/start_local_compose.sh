@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
-source "$ROOT/scripts/lib/host-browser.sh"
+source "$ROOT/scripts/lib/browser-runtime.sh"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
@@ -33,7 +33,7 @@ ASR, and OCR run in the local Compose model group; PostgreSQL, Sandbox Runner,
 Gotenberg, Gateway, and WebChat run in the application group.
 
 Options:
-  --check      Validate the local profile, Host-CDP, and expanded Compose only
+  --check      Validate the local profile, Browser Bridge, and expanded Compose only
   --jingsi-lan Apply the fixed JingSi LAN presentation overlay
   -h, --help   Show this help
 EOF
@@ -68,7 +68,7 @@ sparkclaw_tcp_port_valid "$webchat_port" || {
 }
 export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
 
-sparkclaw_check_host_browser "$ROOT" "$EFFECTIVE_ENV_FILE"
+sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
 
 docker_cmd=("$DOCKER_BIN")
 if ! "${docker_cmd[@]}" ps >/dev/null 2>&1; then
@@ -94,11 +94,11 @@ services=(postgres sandbox-runner gotenberg gateway webchat)
 
 if [[ "$MODE" == "check" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" config --quiet
-  echo "SparkClaw local configuration valid: five local models plus five application services; Host-CDP ready"
+  echo "SparkClaw local configuration valid: five local models plus five application services; Browser Bridge ready"
   exit 0
 fi
 
-browser_pid="$(sparkclaw_host_browser_pid "$EFFECTIVE_ENV_FILE")"
+browser_pid="$(sparkclaw_browser_main_pid "$EFFECTIVE_ENV_FILE")"
 SPARKCLAW_LOCAL_ENV_FILE="$PRIVATE_ENV" \
   bash "$ROOT/scripts/serve_models_compose.sh" single-fast
 "${docker_cmd[@]}" "${compose_args[@]}" up -d --build --wait --wait-timeout 600 "${services[@]}"
@@ -123,7 +123,7 @@ done
 [[ "$gateway_ready" == true ]] || { echo "Timed out waiting for Gateway ready check at $ready_url" >&2; exit 1; }
 
 "${docker_cmd[@]}" "${compose_args[@]}" exec -T gateway \
-  node /app/scripts/host_browser_mcp_smoke.mjs
-sparkclaw_assert_host_browser_pid_alive "$browser_pid"
+  node /app/scripts/browser_controller_smoke.mjs
+sparkclaw_assert_browser_pid_alive "$browser_pid"
 
-echo "SparkClaw local runtime ready: five local models, PostgreSQL, Sandbox Runner, Gotenberg, Gateway, WebChat, and Host-CDP"
+echo "SparkClaw local runtime ready: five local models, PostgreSQL, Sandbox Runner, Gotenberg, Gateway, WebChat, and Browser Bridge"

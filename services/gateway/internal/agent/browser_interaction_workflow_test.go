@@ -29,7 +29,7 @@ func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing
 		want    app.OutcomeSignal
 	}{
 		{name: "stable boolean", payload: map[string]any{"ok": true}, want: app.OutcomeSignalBrowserHealthy},
-		{name: "agent-browser status", payload: map[string]any{"status": "ok", "provider": "agent-browser"}, want: app.OutcomeSignalBrowserHealthy},
+		{name: "Playwright status", payload: map[string]any{"status": "ok", "provider": "playwright-extension"}, want: app.OutcomeSignalBrowserHealthy},
 		{name: "explicit failure wins", payload: map[string]any{"ok": false, "status": "ok"}, want: app.OutcomeSignalBrowserUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {

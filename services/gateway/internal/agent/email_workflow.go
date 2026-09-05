@@ -35,7 +35,7 @@ func (p browserEmailProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 	}
 	for _, key := range []string{
 		app.EmailRouteFactProvider, app.EmailRouteFactAccount, app.EmailRouteFactAccountHint,
-		app.EmailRouteFactSettingVersion, app.EmailRouteFactBrowserGeneration, app.EmailRouteFactProbeRevision,
+		app.EmailRouteFactSettingVersion, app.EmailRouteFactBrowserCredentialGeneration, app.EmailRouteFactProbeRevision,
 		app.EmailRouteFactSendScriptRevision, app.EmailRouteFactValidatedAt, app.EmailRouteFactInvocationID,
 	} {
 		if strings.TrimSpace(route.Facts[key]) == "" {
@@ -51,7 +51,7 @@ func (p browserEmailProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "account", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactAccount},
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "account_hint", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactAccountHint},
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "setting_version", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactSettingVersion},
-		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "browser_generation", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactBrowserGeneration},
+		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "browser_credential_generation", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactBrowserCredentialGeneration},
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "probe_revision", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactProbeRevision},
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "send_script_revision", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactSendScriptRevision},
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "validated_at", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactValidatedAt},

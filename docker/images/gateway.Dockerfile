@@ -18,19 +18,13 @@ COPY package.json package-lock.json ./
 COPY apps/webchat/package.json apps/webchat/package.json
 COPY tools/document-runtime/package.json tools/document-runtime/package.json
 COPY tools/document-runtime/requirements.txt tools/document-runtime/requirements.txt
-ENV HOME=/opt/agent-browser
 RUN npm ci --omit=dev \
     && python3 -m pip install --break-system-packages --no-cache-dir --quiet -r tools/document-runtime/requirements.txt \
-    && ./node_modules/.bin/agent-browser --version \
-    && useradd --create-home --uid 10001 sparkclaw \
-    && mkdir -p /opt/agent-browser/.agent-browser \
-    && chown -R sparkclaw:sparkclaw /opt/agent-browser/.agent-browser \
-    && chmod a+rwx /opt/agent-browser \
-    && chmod -R a+rwX /opt/agent-browser/.agent-browser
+    && useradd --create-home --uid 10001 sparkclaw
 COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
 COPY --from=build /out/iscp-bridge /usr/local/bin/iscp-bridge
 COPY configs /app/configs
-COPY scripts/host_browser_mcp_smoke.mjs /app/scripts/host_browser_mcp_smoke.mjs
+COPY scripts/browser_controller_smoke.mjs /app/scripts/browser_controller_smoke.mjs
 COPY scripts/email /app/scripts/email
 RUN chmod -R a+rX /app/configs /app/scripts
 ENV SPARKCLAW_MODEL_CAPACITY_CATALOG=/app/configs/model.profiles.json

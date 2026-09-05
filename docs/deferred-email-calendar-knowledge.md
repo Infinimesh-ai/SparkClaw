@@ -11,7 +11,7 @@ cross-layer placeholders rather than complete product capabilities.
 On 2026-09-03, SparkClaw introduced a new and deliberately narrower active
 email slice: `browser.email` r1 can send one approved plain-text message through
 a freshly validated configured QQ Mail, Outlook, or Gmail browser account. Its
-login, Host-CDP, provider-script, approval, and unknown-outcome contracts are
+login, Browser Bridge provider-handler, approval, and unknown-outcome contracts are
 defined in [Browser email Workflow](browser-email-workflow-design.md).
 
 That send-only capability does not reactivate the old personal-data connector.

@@ -24,7 +24,7 @@ func TestServiceValidatesBeforePersistAndProjectsOnlyRedactedState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Configured || status.State != StateReady || status.CredentialGeneration != 1 ||
+	if !status.Configured || status.State != StateReady || status.CredentialGeneration <= 0 ||
 		status.ControllerGeneration != 41 || status.SessionGeneration != 7 || status.PageGeneration != 1 {
 		t.Fatalf("unexpected ready status: %#v", status)
 	}
@@ -50,12 +50,13 @@ func TestServiceFailedReplacementRetainsExistingCredential(t *testing.T) {
 	controller := &fakeControllerClient{result: validationResult(1, 1, 1)}
 	service := New(vault, controller, "default")
 	service.Initialize(t.Context())
-	if _, err := service.SaveToken(t.Context(), []byte("first-extension-token")); err != nil {
+	first, err := service.SaveToken(t.Context(), []byte("first-extension-token"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	controller.err = newError(CodeExtensionRejected, false, errors.New("private extension detail"))
 	status, err := service.SaveToken(t.Context(), []byte("rejected-extension-token"))
-	if ErrorCode(err) != CodeExtensionRejected || status.CredentialGeneration != 1 || !status.Configured || status.State != StateNeedsAttention {
+	if ErrorCode(err) != CodeExtensionRejected || status.CredentialGeneration != first.CredentialGeneration || !status.Configured || status.State != StateNeedsAttention {
 		t.Fatalf("failed replacement status=%#v err=%v", status, err)
 	}
 	opened, found, openErr := vault.OpenBinding(t.Context(), credentialBinding, credentialKind)
@@ -88,16 +89,17 @@ func TestServiceCheckAndRemoveAdvanceCredentialLifecycle(t *testing.T) {
 	if _, err := service.Check(t.Context()); ErrorCode(err) != CodeNotConfigured {
 		t.Fatalf("unconfigured check error = %v", err)
 	}
-	if _, err := service.SaveToken(t.Context(), []byte("configured-extension-token")); err != nil {
+	saved, err := service.SaveToken(t.Context(), []byte("configured-extension-token"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	controller.result = validationResult(11, 2, 1)
 	checked, err := service.Check(t.Context())
-	if err != nil || checked.CredentialGeneration != 1 || checked.ControllerGeneration != 11 || checked.SessionGeneration != 2 {
+	if err != nil || checked.CredentialGeneration != saved.CredentialGeneration || checked.ControllerGeneration != 11 || checked.SessionGeneration != 2 {
 		t.Fatalf("check status=%#v err=%v", checked, err)
 	}
 	removed, err := service.Remove(t.Context())
-	if err != nil || removed.Configured || removed.State != StateNotConfigured || removed.CredentialGeneration != 2 || !removed.LastValidatedAt.IsZero() {
+	if err != nil || removed.Configured || removed.State != StateNotConfigured || removed.CredentialGeneration != saved.CredentialGeneration+1 || !removed.LastValidatedAt.IsZero() {
 		t.Fatalf("remove status=%#v err=%v", removed, err)
 	}
 	if _, found, err := vault.OpenBinding(t.Context(), credentialBinding, credentialKind); err != nil || found {
@@ -126,18 +128,111 @@ func TestServiceRejectsMalformedTokenBeforeControllerCall(t *testing.T) {
 	}
 }
 
+func TestServiceRunsScriptsOnlyForTheCurrentCredentialGeneration(t *testing.T) {
+	repository := store.NewMemoryStore()
+	key := strings.Repeat("s", 32)
+	vault := credential.New(repository, credential.Options{Key: key})
+	controller := &fakeControllerClient{result: validationResult(10, 1, 1)}
+	service := New(vault, controller, "default")
+	service.Initialize(t.Context())
+	saved, err := service.SaveToken(t.Context(), []byte("configured-extension-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.scriptResult = ScriptExecutionResult{
+		SchemaVersion: 1, State: "completed", ProfileID: "default", Lane: "cli",
+		Provider: "gmail", Operation: "probe", ScriptID: "gmail.login_probe", Revision: 1,
+		SourceChecksum: `sha256:` + strings.Repeat("a", 64), CredentialGeneration: saved.CredentialGeneration,
+		ControllerGeneration: 20, SessionGeneration: 3,
+		Result: json.RawMessage(`{"schema_version":1,"status":"ready","provider":"gmail"}`),
+	}
+	result, err := service.RunScript(t.Context(), RunScriptRequest{
+		TaskID: "email-probe", CredentialGeneration: saved.CredentialGeneration, Provider: "gmail", Operation: "probe",
+		ScriptID: "gmail.login_probe", Revision: 1, Input: map[string]any{"schema_version": 1},
+	})
+	if err != nil || result.State != "completed" || controller.scriptCalls != 1 ||
+		controller.lastScript.ProfileID != "default" || string(controller.scriptToken) != "configured-extension-token" {
+		t.Fatalf("script result=%#v err=%v controller=%#v", result, err, controller)
+	}
+	zero(controller.scriptToken)
+	controller.scriptToken = nil
+
+	_, err = service.RunScript(t.Context(), RunScriptRequest{
+		TaskID: "email-probe", CredentialGeneration: saved.CredentialGeneration + 1, Provider: "gmail", Operation: "probe",
+		ScriptID: "gmail.login_probe", Revision: 1, Input: map[string]any{"schema_version": 1},
+	})
+	if ErrorCode(err) != CodeCredentialStale || controller.scriptCalls != 1 {
+		t.Fatalf("stale script err=%v code=%q calls=%d", err, ErrorCode(err), controller.scriptCalls)
+	}
+
+	restartedVault := credential.New(repository, credential.Options{Key: key})
+	restartedController := &fakeControllerClient{result: validationResult(11, 2, 1)}
+	restartedService := New(restartedVault, restartedController, "default")
+	restartedService.Initialize(t.Context())
+	if restartedService.Status(t.Context()).CredentialGeneration != saved.CredentialGeneration {
+		t.Fatalf("credential generation changed across restart: old=%d new=%d", saved.CredentialGeneration, restartedService.Status(t.Context()).CredentialGeneration)
+	}
+	replaced, err := restartedService.SaveToken(t.Context(), []byte("replacement-extension-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced.CredentialGeneration == saved.CredentialGeneration {
+		t.Fatalf("credential generation did not change after replacement: %d", replaced.CredentialGeneration)
+	}
+	_, err = service.RunScript(t.Context(), RunScriptRequest{
+		TaskID: "email-probe", CredentialGeneration: saved.CredentialGeneration, Provider: "gmail", Operation: "probe",
+		ScriptID: "gmail.login_probe", Revision: 1, Input: map[string]any{"schema_version": 1},
+	})
+	if ErrorCode(err) != CodeCredentialStale || controller.scriptCalls != 1 {
+		t.Fatalf("persisted stale script err=%v code=%q calls=%d", err, ErrorCode(err), controller.scriptCalls)
+	}
+}
+
+func TestServiceOpensOnlyRegisteredProviderLoginRequests(t *testing.T) {
+	controller := &fakeControllerClient{loginResult: OpenProviderLoginResult{
+		SchemaVersion: 1, State: "opened", ProfileID: "default", Provider: "outlook",
+		ControllerGeneration: 30, SessionGeneration: 4,
+	}}
+	service := New(nil, controller, "default")
+	result, err := service.OpenProviderLogin(t.Context(), OpenProviderLoginRequest{
+		TaskID: "email-login", Provider: "outlook",
+	})
+	if err != nil || result.State != "opened" || controller.loginCalls != 1 ||
+		controller.lastLogin.ProfileID != "default" {
+		t.Fatalf("login result=%#v err=%v controller=%#v", result, err, controller)
+	}
+}
+
 func validationResult(controller, session, page int64) ValidationResult {
 	return ValidationResult{
 		SchemaVersion: 1, State: "ready", ProfileID: "default",
 		ControllerGeneration: controller, SessionGeneration: session, PageGeneration: page,
-		Versions: Versions{Client: "playwright-mcp", ClientVersion: "0.0.80", PlaywrightVersion: "1.63.0-alpha-2026-08-31", BrowserChannel: "chrome"},
+		Versions: Versions{Client: "playwright-mcp", ClientVersion: "0.0.80", PlaywrightVersion: "1.63.0-alpha-2026-08-31", BrowserChannel: "chromium"},
 	}
 }
 
 type fakeControllerClient struct {
-	result ValidationResult
-	err    error
-	calls  int
+	result       ValidationResult
+	err          error
+	calls        int
+	acquireErr   error
+	executeErr   error
+	releaseErr   error
+	acquireCalls int
+	executeCalls int
+	releaseCalls int
+	lastAcquire  AcquireRequest
+	lastExecute  ExecuteRequest
+	lease        SessionLease
+	scriptResult ScriptExecutionResult
+	scriptErr    error
+	scriptCalls  int
+	lastScript   RunScriptRequest
+	scriptToken  []byte
+	loginResult  OpenProviderLoginResult
+	loginErr     error
+	loginCalls   int
+	lastLogin    OpenProviderLoginRequest
 }
 
 func (f *fakeControllerClient) ValidateToken(_ context.Context, profileID string, token []byte) (ValidationResult, error) {
@@ -146,4 +241,63 @@ func (f *fakeControllerClient) ValidateToken(_ context.Context, profileID string
 		return ValidationResult{}, errors.New("invalid test request")
 	}
 	return f.result, f.err
+}
+
+func (f *fakeControllerClient) Acquire(_ context.Context, input AcquireRequest, token []byte) (SessionLease, error) {
+	f.acquireCalls++
+	f.lastAcquire = input
+	if len(token) == 0 {
+		return SessionLease{}, errors.New("missing test token")
+	}
+	if f.acquireErr != nil {
+		return SessionLease{}, f.acquireErr
+	}
+	if f.lease.SchemaVersion == 0 {
+		f.lease = SessionLease{
+			SchemaVersion: 1, State: "acquired", ProfileID: input.ProfileID, Lane: "mcp",
+			SessionID: "session-test", CredentialGeneration: input.CredentialGeneration,
+			ControllerGeneration: 50, SessionGeneration: 2, PageGeneration: 1,
+			ExpiresAt: time.Now().UTC().Add(time.Minute),
+		}
+	}
+	return f.lease, nil
+}
+
+func (f *fakeControllerClient) Execute(_ context.Context, input ExecuteRequest) (ExecutionResult, error) {
+	f.executeCalls++
+	f.lastExecute = input
+	if f.executeErr != nil {
+		return ExecutionResult{}, f.executeErr
+	}
+	result, _ := json.Marshal(map[string]any{"operation": input.Operation})
+	return ExecutionResult{
+		SchemaVersion: 1, State: "completed", ProfileID: input.Lease.ProfileID, Lane: input.Lease.Lane,
+		SessionID: input.Lease.SessionID, CredentialGeneration: input.Lease.CredentialGeneration,
+		ControllerGeneration: input.Lease.ControllerGeneration, SessionGeneration: input.Lease.SessionGeneration,
+		PageGeneration: input.Lease.PageGeneration + 1, Operation: input.Operation, Result: result,
+	}, nil
+}
+
+func (f *fakeControllerClient) Release(_ context.Context, input ReleaseRequest) (ReleaseResult, error) {
+	f.releaseCalls++
+	if f.releaseErr != nil {
+		return ReleaseResult{}, f.releaseErr
+	}
+	return ReleaseResult{
+		SchemaVersion: 1, State: "released", ProfileID: input.ProfileID,
+		ControllerGeneration: input.ControllerGeneration, SessionGeneration: input.SessionGeneration,
+	}, nil
+}
+
+func (f *fakeControllerClient) RunScript(_ context.Context, input RunScriptRequest, token []byte) (ScriptExecutionResult, error) {
+	f.scriptCalls++
+	f.lastScript = input
+	f.scriptToken = append([]byte(nil), token...)
+	return f.scriptResult, f.scriptErr
+}
+
+func (f *fakeControllerClient) OpenProviderLogin(_ context.Context, input OpenProviderLoginRequest) (OpenProviderLoginResult, error) {
+	f.loginCalls++
+	f.lastLogin = input
+	return f.loginResult, f.loginErr
 }

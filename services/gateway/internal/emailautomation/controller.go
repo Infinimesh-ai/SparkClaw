@@ -11,6 +11,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
+type LoginBrowser interface {
+	OpenLogin(context.Context, Provider) error
+}
+
 type Repository interface {
 	store.ConnectorRepository
 }
@@ -40,13 +44,13 @@ type AdmissionResult = app.EmailAdmissionBinding
 type Controller struct {
 	store    Repository
 	registry Registry
-	browser  BrowserController
+	browser  LoginBrowser
 	runner   ScriptRunner
 	now      func() time.Time
 	profile  sync.Mutex
 }
 
-func NewController(st Repository, registry Registry, browser BrowserController, runner ScriptRunner) *Controller {
+func NewController(st Repository, registry Registry, browser LoginBrowser, runner ScriptRunner) *Controller {
 	return &Controller{
 		store: st, registry: registry, browser: browser, runner: runner,
 		now: func() time.Time { return time.Now().UTC() },
@@ -115,7 +119,7 @@ func (c *Controller) OpenLoginBrowser(ctx context.Context, ownerID, actorID, pro
 	if c.browser == nil {
 		return ProviderStatus{}, codedError(CodeProviderUnavailable, "SparkClaw browser is unavailable")
 	}
-	if err := c.browser.OpenLogin(ctx, provider.LoginURL); err != nil {
+	if err := c.browser.OpenLogin(ctx, provider); err != nil {
 		return ProviderStatus{}, err
 	}
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
@@ -177,7 +181,7 @@ func (c *Controller) Admit(ctx context.Context, ownerID, request string) (Admiss
 	}
 	return AdmissionResult{
 		Provider: provider.ID, Account: app.EmailAccountDefault, AccountHint: updated.AccountHint,
-		SettingVersion: updated.Version, BrowserGeneration: result.Generation,
+		SettingVersion: updated.Version, BrowserCredentialGeneration: result.Generation,
 		ProbeRevision: provider.Probe.Revision, SendScriptRevision: provider.Send.Revision, ValidatedAt: result.CheckedAt,
 	}, nil
 }

@@ -35,9 +35,15 @@ FAKE_CURL = r"""#!/usr/bin/env python3
 print('{"ok":true,"auth_required":false,"model_mode":"external","state_backend":"postgres"}')
 """
 
-FAKE_HOST_BROWSER_INSTALLER = r"""#!/usr/bin/env bash
+FAKE_BROWSER_SETUP = r"""#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$REMOTE_DEPLOY_BROWSER_LOG"
+"""
+
+FAKE_SYSTEMCTL = r"""#!/usr/bin/env python3
+import os
+
+print(os.environ["SPARKCLAW_TEST_BROWSER_PID"])
 """
 
 
@@ -51,40 +57,16 @@ class DeployRemoteTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             temp_path = Path(directory)
             private_env = temp_path / ".env.remote"
-            endpoint_file = temp_path / "browserd" / "cdp-endpoint"
-            endpoint_file.parent.mkdir()
-            endpoint_file.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "profileID": "default",
-                        "presentation": "headless",
-                        "browserPID": os.getpid(),
-                        "generation": 1,
-                        "browserVersion": "Chromium 148.0.7778.0",
-                        "webSocketURL": "ws://host.docker.internal:18791/test/devtools/browser/id",
-                        "hostWebSocketURL": "ws://127.0.0.1:18791/test/devtools/browser/id",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            endpoint_file.chmod(0o600)
-            private_env.write_text(
-                f"SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST={endpoint_file.parent}\n"
-                f"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST={endpoint_file}\n"
-                f"{private_text}",
-                encoding="utf-8",
-            )
+            private_env.write_text(private_text, encoding="utf-8")
             docker = temp_path / "docker"
             curl = temp_path / "curl"
-            browser_installer = temp_path / "install-host-browser.sh"
+            browser_setup = temp_path / "setup-browser.sh"
+            systemctl = temp_path / "systemctl"
             docker.write_text(textwrap.dedent(FAKE_DOCKER), encoding="utf-8")
             curl.write_text(textwrap.dedent(FAKE_CURL), encoding="utf-8")
-            browser_installer.write_text(
-                textwrap.dedent(FAKE_HOST_BROWSER_INSTALLER), encoding="utf-8"
-            )
-            for executable in (docker, curl, browser_installer):
+            browser_setup.write_text(textwrap.dedent(FAKE_BROWSER_SETUP), encoding="utf-8")
+            systemctl.write_text(textwrap.dedent(FAKE_SYSTEMCTL), encoding="utf-8")
+            for executable in (docker, curl, browser_setup, systemctl):
                 executable.chmod(0o755)
             docker_log = temp_path / "docker.jsonl"
             browser_log = temp_path / "browser.log"
@@ -95,7 +77,8 @@ class DeployRemoteTest(unittest.TestCase):
                     "PATH": f"{temp_path}:{environment['PATH']}",
                     "REMOTE_DEPLOY_DOCKER_LOG": str(docker_log),
                     "REMOTE_DEPLOY_BROWSER_LOG": str(browser_log),
-                    "SPARKCLAW_HOST_BROWSER_INSTALLER": str(browser_installer),
+                    "SPARKCLAW_BROWSER_SETUP": str(browser_setup),
+                    "SPARKCLAW_TEST_BROWSER_PID": str(os.getpid()),
                 }
             )
             result = subprocess.run(
@@ -155,8 +138,8 @@ class DeployRemoteTest(unittest.TestCase):
             self.assertNotIn(f"{profile_key}=", final_env)
         self.assertTrue(any("stop" in call for call in calls))
         self.assertTrue(any("up" in call for call in calls))
-        self.assertTrue(any(call.startswith("--env-file ") for call in browser_calls))
-        self.assertTrue(any(call.startswith("--check --env-file ") for call in browser_calls))
+        self.assertIn("", browser_calls)
+        self.assertIn("--check", browser_calls)
 
     def test_check_does_not_change_containers_or_private_env(self) -> None:
         original = (
@@ -170,7 +153,8 @@ class DeployRemoteTest(unittest.TestCase):
         self.assertFalse(any("stop" in call or "up" in call or "exec" in call for call in calls))
         self.assertTrue(any("config" in call for call in calls))
         self.assertTrue(final_env.endswith(original))
-        self.assertTrue(any(call.startswith("--check --env-file ") for call in browser_calls))
+        self.assertTrue(browser_calls)
+        self.assertTrue(all(call == "--check" for call in browser_calls))
 
     def test_configure_writes_only_optional_api_credential(self) -> None:
         result, _, final_env, _ = self.run_script(

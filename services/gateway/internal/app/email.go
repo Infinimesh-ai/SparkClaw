@@ -15,15 +15,15 @@ const (
 	EmailStateNeedsAttention         = "needs_attention"
 	EmailStateTemporarilyUnavailable = "temporarily_unavailable"
 
-	EmailRouteFactProvider           = "email_provider"
-	EmailRouteFactAccount            = "email_account"
-	EmailRouteFactAccountHint        = "email_account_hint"
-	EmailRouteFactSettingVersion     = "email_setting_version"
-	EmailRouteFactBrowserGeneration  = "email_browser_generation"
-	EmailRouteFactProbeRevision      = "email_probe_revision"
-	EmailRouteFactSendScriptRevision = "email_send_script_revision"
-	EmailRouteFactValidatedAt        = "email_validated_at"
-	EmailRouteFactInvocationID       = "email_invocation_id"
+	EmailRouteFactProvider                    = "email_provider"
+	EmailRouteFactAccount                     = "email_account"
+	EmailRouteFactAccountHint                 = "email_account_hint"
+	EmailRouteFactSettingVersion              = "email_setting_version"
+	EmailRouteFactBrowserCredentialGeneration = "email_browser_credential_generation"
+	EmailRouteFactProbeRevision               = "email_probe_revision"
+	EmailRouteFactSendScriptRevision          = "email_send_script_revision"
+	EmailRouteFactValidatedAt                 = "email_validated_at"
+	EmailRouteFactInvocationID                = "email_invocation_id"
 )
 
 // EmailProviderSetting is the durable, non-secret owner configuration for one
@@ -48,37 +48,37 @@ type EmailProviderSetting struct {
 // created. These fields are persisted as route facts and never selected by the
 // model.
 type EmailAdmissionBinding struct {
-	Provider           string
-	Account            string
-	AccountHint        string
-	SettingVersion     int64
-	BrowserGeneration  uint64
-	ProbeRevision      int
-	SendScriptRevision int
-	ValidatedAt        time.Time
+	Provider                    string
+	Account                     string
+	AccountHint                 string
+	SettingVersion              int64
+	BrowserCredentialGeneration uint64
+	ProbeRevision               int
+	SendScriptRevision          int
+	ValidatedAt                 time.Time
 }
 
 // EmailSendRequest contains the complete approved send contract. Provider,
 // account, revisions, generation, and invocation identity are Runtime-owned;
 // only recipient, subject, and body originate from the model.
 type EmailSendRequest struct {
-	Provider          string
-	Account           string
-	Recipient         string
-	Subject           string
-	Body              string
-	InvocationID      string
-	BrowserGeneration uint64
-	ProbeRevision     int
-	ScriptRevision    int
-	SettingVersion    int64
+	Provider                    string
+	Account                     string
+	Recipient                   string
+	Subject                     string
+	Body                        string
+	InvocationID                string
+	BrowserCredentialGeneration uint64
+	ProbeRevision               int
+	ScriptRevision              int
+	SettingVersion              int64
 }
 
 type EmailSendResult struct {
-	Provider          string `json:"provider"`
-	Status            string `json:"status"`
-	RecipientDigest   string `json:"recipient_digest"`
-	ProviderMessageID string `json:"provider_message_id,omitempty"`
-	BrowserGeneration uint64 `json:"browser_generation"`
-	ScriptRevision    int    `json:"script_revision"`
+	Provider                    string `json:"provider"`
+	Status                      string `json:"status"`
+	RecipientDigest             string `json:"recipient_digest"`
+	ProviderMessageID           string `json:"provider_message_id,omitempty"`
+	BrowserCredentialGeneration uint64 `json:"browser_credential_generation"`
+	ScriptRevision              int    `json:"script_revision"`
 }

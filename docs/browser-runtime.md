@@ -2,214 +2,209 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-runtime.md)
 
-This document is the current browser implementation and operating guide.
-SparkClaw uses one host-owned Chromium process, a dedicated persistent profile,
-and pinned `agent-browser` `0.32.3` attached through a protected Host-CDP
-endpoint. The previous container Chromium, Xvfb, profile mount, X11 overlay,
-profile lease, and launch fallback have been removed.
-
-The detailed migration rationale remains in
-[Host-CDP browser design](host-cdp-browser-design.md).
+This document describes the current production browser implementation. SparkClaw
+uses one persistent owner-session Chromium profile, the checksum-pinned
+SparkClaw Browser Bridge, and an owner-scoped Playwright Controller. The old
+browserd, Host-CDP, and `agent-browser` paths were removed in the Phase 6
+cutover.
 
 ## Runtime Topology
 
 ```text
-Browser Workflow
-  -> ToolHub browser capability
-  -> internal/browserautomation
-  -> private agent-browser MCP process
-       AGENT_BROWSER_CDP=<capability WebSocket URL>
-  -> browserd CDP proxy on a Docker bridge
-  -> host sparkclaw-browserd
-  -> one SparkClaw Chromium process
-  -> dedicated owner-only persistent profile
+Browser or email Workflow
+  -> Gateway browserautomation / emailautomation
+  -> owner-only Controller Unix socket
+  -> fixed Playwright MCP or CLI client
+  -> SparkClaw Browser Bridge native connection
+  -> task-owned tab in persistent SparkClaw Chromium
 ```
 
-There is no Playwright fallback, direct CDP execution backend, daily-browser
-attachment, cookie export, or container-side Chromium launcher.
+Chromium and the Controller are systemd user services. Gateway mounts only the
+Controller runtime directory at `/run/sparkclaw/browser-controller` as read-only.
+It does not receive the browser profile, native-host manifest, display socket,
+or browser executable. The Gateway image contains no Chromium, Xvfb, or browser
+automation engine.
 
-## Process And Profile Ownership
-
-`sparkclaw-browserd` is a systemd user service and the sole owner of Chromium.
-It installs the approved architecture-specific artifact under
-`/opt/sparkclaw`, launches it with a dedicated profile under the owner's local
-data directory, and publishes browser health through an owner-only runtime
-directory.
-
-The default paths are:
-
-| Resource | Host path |
+| Component | Location |
 |---|---|
-| Browser daemon | `/opt/sparkclaw/browserd/sparkclaw-browserd` |
-| Browser config | `~/.config/sparkclaw/browserd.json` |
+| Browser service | `sparkclaw-browser.service` |
+| Controller service | `sparkclaw-browser-controller.service` |
+| Browser config | `~/.config/sparkclaw/browser.json` |
 | Persistent profile | `~/.local/share/sparkclaw/browser/default/user-data` |
-| Runtime directory | `${XDG_RUNTIME_DIR}/sparkclaw/browserd` |
-| Capability endpoint | `${XDG_RUNTIME_DIR}/sparkclaw/browserd/cdp-endpoint` |
+| Controller runtime | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller` |
+| Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-The runtime directory and profile are mode `0700`. The endpoint is an ordinary,
-non-symlink file owned by the deployment user with permissions no wider than
-`0600`. Gateway runs with the same numeric UID/GID and receives only a read-only
-mount of the browserd runtime directory. It never receives the profile or raw
-Chromium debugging port.
+The pinned compatibility set is Browser Bridge `1.0.17`, Playwright MCP
+`0.0.80`, Playwright CLI `0.1.19`, Playwright Library
+`1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. The Bridge source
+closure is recorded in `configs/browser-bridge-artifacts.json`; installation
+rejects changed or extra files.
 
-`browserd` starts headed when it can validate the owner's X11/XWayland display;
-otherwise it starts host-side headless Chromium. Opening **SparkClaw Browser**
-from the desktop launcher can restart the same browserd-owned process against a
-valid desktop display and the same profile. It never launches a second process
-against that profile.
+## Browser Process
 
-## Capability Endpoint
+`sparkclaw-browser.service` is the sole long-lived owner of the default profile.
+It starts a normal headed Chromium process with the fixed user-data directory
+and unpacked Bridge. Its command line intentionally contains no remote-debugging,
+automation, or headless flag.
 
-Browserd binds its capability proxy only to loopback and discovered `docker0`
-or `br-*` Docker bridge addresses. The endpoint file contains browser identity,
-generation, presentation, qualified version, and capability-bearing WebSocket
-URLs for container and direct-host use.
+Use **SparkClaw Browser** from the desktop launcher, or run:
 
-The capability value is not returned by public config/status APIs and must not
-appear in logs, traces, artifacts, or model context. Browserd rotates it on
-every Chromium generation. Gateway re-reads the endpoint when it creates or
-replaces its private MCP connection. A stale endpoint, wrong owner, broad file
-mode, profile mismatch, invalid URL boundary, or lost process fails closed.
+```bash
+npm run open:browser
+```
 
-## Tab Ownership
+The explicit open command brings the browser forward for owner work such as
+login or human verification. Background acquisition and task actions do not
+focus the browser or replace the active owner tab. An explicit owner handoff is
+the only automation operation allowed to focus a task tab.
 
-Connecting to the same Chromium process does not authorize SparkClaw to use
-tabs that the owner already opened. Gateway maintains an in-memory allowlist of
-target IDs created by each logical browser scope.
+Authentication remains inside the persistent profile. SparkClaw never copies
+cookies, exports storage state, mounts the profile into a container, or attaches
+to another browser profile.
 
-- `browser.open` lists tabs before and after `agent_browser_tab_new` and registers
-  ownership only when exactly one new target exists.
-- Existing owner tabs and tabs owned by another logical scope are filtered from
-  list results and cannot be focused, read, clicked, typed into, selected, or
-  closed.
-- Implicit active-tab operations verify that the active target belongs to the
-  current scope before execution.
-- An ambiguous multi-target diff fails closed and records no ownership instead
-  of guessing which target SparkClaw created.
-- MCP transport loss, browser generation change, or reconnect clears all
-  in-memory target grants. No target ownership is persisted across reconnects.
+## Bridge And Controller
 
-Owner inactivity never transfers tab ownership to SparkClaw.
+The Browser Bridge is independently packaged from a qualified upstream
+Playwright Extension source. SparkClaw adds attachment-time task-tab
+allowlisting, native Controller version handshake, stale-session cleanup, and
+background-without-focus behavior. The extension ID and complete file hashes
+are pinned.
 
-## Login Handoff
+The Controller owns the private Unix socket and supervises bounded MCP and CLI
+processes. Each acquisition creates one task page and binds it to controller,
+session, page, and credential generations. Every observation and action is
+checked against that ownership before execution. Owner tabs are never selected,
+read, changed, or closed.
 
-Authentication remains inside the dedicated Chromium profile. When a Workflow
-detects a login or human-verification gate, it persists a handoff and asks the
-owner to open **SparkClaw Browser**. The owner completes login in the dedicated
-profile; SparkClaw resumes only the frozen task-owned target after fresh target,
-URL, and page evidence validation.
+MCP serves the generic browser adapter. CLI runs only six registered provider
+handlers: probe and send revision 1 for QQ Mail, Outlook, and Gmail. Callers
+cannot supply Playwright code, selectors, JavaScript, commands, storage access,
+network interception, or arbitrary file paths.
 
-SparkClaw does not attach to the owner's ordinary browser profile, copy cookies,
-or select an arbitrary already-open authenticated tab. Login state survives
-Gateway and MCP restarts because browserd and the host profile remain running.
+MCP and CLI sessions detach without closing Chromium. Cancellation, replacement,
+credential removal, browser restart, Controller restart, Gateway shutdown, and
+normal completion invalidate their bounded identities and reap subprocesses and
+private output. A stale identity is never rebound silently.
 
-## Agent-Browser Lifecycle
+## Credential Boundary
 
-Gateway validates the exact `agent-browser 0.32.3` CLI and MCP server version.
-It starts one private MCP subprocess with the browserd WebSocket URL in
-`AGENT_BROWSER_CDP`. The subprocess owns protocol transport only; browserd owns
-Chromium.
+Browser control uses the `playwright-extension-token-v1` credential. The owner
+enters it under `Settings > Connections > Browser control`; Gateway validates a
+fresh Bridge handshake before persisting encrypted Vault ciphertext. The form
+never returns or prefills the token and clears the input after every save
+attempt.
 
-During normal shutdown, Gateway first calls `agent_browser_close` for its unique
-session so the invocation-owned agent-browser daemon and socket are reclaimed,
-then stops the private MCP subprocess. This close detaches agent-browser from the
-externally owned browser; it does not terminate browserd or Chromium. An unhealthy
-MCP transport is aborted directly and relies on the bounded daemon idle timeout.
-In every case the host Chromium PID must remain alive. Browserd or Chromium loss
-produces a typed unavailable/reconnect failure and never falls back to a container
-browser.
+The raw token is not stored in Compose files, repository configuration, logs,
+traces, artifacts, command arguments, or model context. The Controller service
+does not retain it. Replacing or deleting the credential invalidates sessions
+from the previous credential generation without changing browser authentication
+state.
 
 ## Configuration
 
-The active adapter configuration is:
+The sole production provider is `playwright-extension`:
 
 ```json
 {
+  "tools": {
+    "browserAutomation": {
+      "enabled": true,
+      "provider": "playwright-extension",
+      "profile": "default"
+    }
+  },
   "adapters": {
     "browserAutomation": {
-      "command": "agent-browser",
       "timeoutMs": 30000,
       "startupTimeoutMs": 10000,
-      "hostCDP": {
-        "endpointFile": "/run/sparkclaw/browserd/cdp-endpoint",
+      "settleTimeoutMs": 15000,
+      "settleQuietPeriodMs": 500,
+      "settlePollIntervalMs": 100,
+      "routeRebindLimit": 2,
+      "playwrightExtension": {
+        "controllerSocket": "/run/sparkclaw/browser-controller/controller.sock",
         "profileID": "default",
-        "connectTimeoutMs": 10000
+        "connectTimeoutMs": 20000
       }
     }
   }
 }
 ```
 
-Deployment environment values:
+Deployment may set these machine-specific values in the selected mode-`0600`
+environment file:
 
 | Variable | Purpose |
 |---|---|
-| `SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST` | Host browserd runtime directory mounted read-only into Gateway |
-| `SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE` | Endpoint path inside Gateway; default `/run/sparkclaw/browserd/cdp-endpoint` |
-| `SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST` | Direct-host endpoint path used by setup, doctor, and PID checks |
-| `SPARKCLAW_BROWSER_CDP_PROFILE_ID` | Expected browserd profile identity; default `default` |
-| `SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS` | Bounded Host-CDP attachment timeout |
+| `SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST` | Host Controller runtime directory mounted read-only into Gateway |
+| `SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET` | Controller socket path inside Gateway |
+| `SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST` | Direct host socket used by setup, doctor, and qualification |
+| `SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID` | Fixed profile identity; must be `default` |
+| `SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS` | Bounded acquisition/handshake timeout |
 
-Legacy Chromium executable, profile directory, daemon idle, display, and
-Xauthority environment fields are rejected. Legacy JSON launch/profile fields
-are also rejected instead of silently selecting a compatibility path.
+Retired browser automation command, transport selector, and CDP variables are
+rejected by configuration loading. There is no runtime fallback.
 
-## Installation And Operation
+## Installation And Operations
 
-The two official deployment entrypoints call the same installer:
-
-```bash
-npm run deploy:local
-npm run deploy:remote
-```
-
-`scripts/install-host-browser.sh` resolves the approved artifact from
-`configs/host-browser-artifacts.json`, verifies its checksum and architecture,
-installs browserd, creates the systemd user service and desktop launcher, and
-writes the Host-CDP paths to the selected mode-`0600` env file.
-
-Read-only verification is available through:
-
-```bash
-bash scripts/deploy_local.sh --check
-bash scripts/deploy_remote.sh --check
-bash scripts/install-host-browser.sh --check --env-file .env.local
-bash scripts/install-host-browser.sh --check --env-file .env.remote
-```
-
-For local setup and diagnostics:
+Local and Remote deployment both call the same browser setup before Compose:
 
 ```bash
 npm run setup:browser
-bash scripts/doctor.sh
-systemctl --user status sparkclaw-browserd.service
-/opt/sparkclaw/browserd/sparkclaw-browserd \
-  --config "$HOME/.config/sparkclaw/browserd.json" status
+npm run check:browser-controller
+systemctl --user status sparkclaw-browser.service
+systemctl --user status sparkclaw-browser-controller.service
 ```
 
-Compose contains `agent-browser` but no Chromium or Xvfb. Startup checks
-browserd before Gateway, runs an MCP open/snapshot/close smoke through
-`AGENT_BROWSER_CDP`, stops the MCP process, and verifies that the recorded host
-Chromium PID remains alive.
+`setup:browser` verifies or installs the pinned Chromium and Bridge, writes the
+browser service and desktop launcher, installs Controller dependencies with
+browser downloads disabled, writes the native-host manifest, starts both user
+services, verifies the loaded Bridge version, and checks the private socket.
+The Local and Remote startup paths repeat the check and run
+`browser_controller_smoke.mjs` from Gateway after readiness.
+
+To complete or refresh browser logins, open the persistent browser and use the
+provider login action in WebChat. Login state persists across Gateway,
+Controller, and Chromium restarts because the same owner-only profile remains
+in place.
 
 ## Verification
 
-Browser runtime changes require:
-
 ```bash
-cd services/gateway && go test ./internal/browserautomation ./internal/config ./internal/gateway
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_host_browser \
-  scripts.test_local_compose scripts.test_remote_compose scripts.test_deploy_remote
-docker compose --env-file docker/env/sparkclaw.product.env \
-  --env-file docker/env/sparkclaw.local.env \
-  -f docker/compose.yaml -f docker/compose.models.local.yaml \
-  --profile product --profile models-local config --quiet
-docker compose --env-file docker/env/sparkclaw.product.env \
-  --env-file docker/env/sparkclaw.remote.env \
-  -f docker/compose.yaml --profile product config --quiet
+python3 -m unittest scripts/test_browser_bridge.py
+npm test --prefix tools/browser-bridge
+npm test --prefix tools/browser-controller
+npm run test:email-scripts
+cd services/gateway && go test ./internal/browserautomation ./internal/browsercontrol ./internal/emailautomation ./internal/gateway ./internal/toolhub
 ```
 
-Final live acceptance also runs browserd plus the container-side MCP smoke and
-confirms that owner tabs remain untouched and Chromium survives Gateway/MCP
-shutdown.
+Live acceptance additionally checks startup and restart, Bridge pairing and
+detach, profile persistence, no-handoff focus isolation, explicit handoff,
+generic adapter interaction, all three signed-in provider probes, process
+cleanup, and the absence of forbidden browser flags. Provider qualification is
+probe-only:
+
+```bash
+npm run qualify:playwright-email -- --profile remote
+```
+
+Never use qualification to send a real message. Email send retains exact-content
+approval, one-attempt execution, and terminal unknown-outcome handling.
+
+## Security Invariants
+
+- Treat the Bridge as browser-wide privileged code even though SparkClaw limits
+  every client to task-owned tabs.
+- Keep the browser profile, native host, runtime directories, socket, and Vault
+  credential owner-only.
+- Keep provider origins and Controller operations allowlisted.
+- Reject arbitrary code, selectors, commands, storage export, file URLs, and
+  network interception.
+- Redact page evidence and diagnostics before they reach traces or model input.
+- Do not introduce container Chromium, profile copying, permanent CDP, or a
+  compatibility backend.
+
+See [Playwright Extension browser design](playwright-extension-browser-design.md)
+for the migration decisions and [Browser email Workflow](browser-email-workflow-design.md)
+for provider and approval semantics.

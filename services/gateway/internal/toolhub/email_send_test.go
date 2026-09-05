@@ -28,7 +28,7 @@ func TestEmailSendUsesAuthenticatedSessionOwnerAndRuntimeBindings(t *testing.T) 
 	session := storetest.MustCreateSessionWithScope(t, st, "email", "owner-email", t.TempDir(), "web", false)
 	sender := &fakeEmailSender{result: app.EmailSendResult{
 		Provider: app.EmailProviderGmail, Status: "sent", RecipientDigest: "sha256:digest",
-		BrowserGeneration: 7, ScriptRevision: 3,
+		BrowserCredentialGeneration: 7, ScriptRevision: 3,
 	}}
 	hub := New(config.Default(), st).WithEmailSender(sender)
 	t.Cleanup(func() { _ = hub.Close() })
@@ -43,7 +43,7 @@ func TestEmailSendUsesAuthenticatedSessionOwnerAndRuntimeBindings(t *testing.T) 
 	request := sender.requests[0]
 	if request.Provider != app.EmailProviderGmail || request.Account != app.EmailAccountDefault || request.Recipient != "alice@example.com" ||
 		request.Subject != "Exact subject" || request.Body != "Exact body" || request.SettingVersion != 4 ||
-		request.BrowserGeneration != 7 || request.ProbeRevision != 2 || request.ScriptRevision != 3 || request.InvocationID != "email:send:1" {
+		request.BrowserCredentialGeneration != 7 || request.ProbeRevision != 2 || request.ScriptRevision != 3 || request.InvocationID != "email:send:1" {
 		t.Fatalf("bound request = %#v", request)
 	}
 	if result.Output != sender.result {
@@ -59,7 +59,7 @@ func TestEmailSendRejectsMissingSessionAndInvalidRuntimeNumbers(t *testing.T) {
 	if _, err := hub.Execute(t.Context(), "email.send", args, "missing", "run-email"); app.ToolErrorCodeFrom(err) != app.ToolErrorEmailInvalidInput {
 		t.Fatalf("missing session error=%v code=%q", err, app.ToolErrorCodeFrom(err))
 	}
-	args["browser_generation"] = "0"
+	args["browser_credential_generation"] = "0"
 	if _, err := hub.Execute(t.Context(), "email.send", args, "", "run-email"); app.ToolErrorCodeFrom(err) != app.ToolErrorEmailInvalidInput {
 		t.Fatalf("invalid binding error=%v code=%q", err, app.ToolErrorCodeFrom(err))
 	}
@@ -87,7 +87,7 @@ func validEmailSendArgs() map[string]any {
 	return map[string]any{
 		"provider": app.EmailProviderGmail, "account": app.EmailAccountDefault, "account_hint": "a***@gmail.com",
 		"recipient": "alice@example.com", "subject": "Exact subject", "body": "Exact body",
-		"setting_version": "4", "browser_generation": "7", "probe_revision": "2", "send_script_revision": "3",
+		"setting_version": "4", "browser_credential_generation": "7", "probe_revision": "2", "send_script_revision": "3",
 		"validated_at": "2026-09-03T08:00:00Z", "invocation_id": "email:send:1",
 	}
 }

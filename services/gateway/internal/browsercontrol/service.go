@@ -29,7 +29,7 @@ const (
 
 type BindingVault interface {
 	Ready() error
-	OpenBinding(context.Context, string, string) ([]byte, bool, error)
+	OpenBindingVersion(context.Context, string, string) ([]byte, int64, bool, error)
 	ReplaceBinding(context.Context, string, string, []byte) error
 	DeleteBinding(context.Context, string, string) error
 }
@@ -53,9 +53,10 @@ type Service struct {
 	profileID string
 	now       func() time.Time
 
-	opMu  sync.Mutex
-	mu    sync.RWMutex
-	state Status
+	opMu   sync.Mutex
+	mu     sync.RWMutex
+	state  Status
+	active *RuntimeSession
 }
 
 func New(vault BindingVault, client ControllerClient, profileID string) *Service {
@@ -81,7 +82,7 @@ func (s *Service) Initialize(ctx context.Context) {
 		s.publishFailure(StateVaultUnavailable, CodeVaultUnavailable)
 		return
 	}
-	token, found, err := s.vault.OpenBinding(ctx, credentialBinding, credentialKind)
+	token, generation, found, err := s.vault.OpenBindingVersion(ctx, credentialBinding, credentialKind)
 	defer zero(token)
 	if err != nil {
 		s.publishFailure(StateVaultUnavailable, CodeVaultUnavailable)
@@ -93,7 +94,12 @@ func (s *Service) Initialize(ctx context.Context) {
 	s.state.State = StateNotConfigured
 	s.state.ErrorCode = ""
 	if found {
-		s.state.CredentialGeneration = 1
+		if generation <= 0 {
+			s.state.State = StateVaultUnavailable
+			s.state.ErrorCode = CodeVaultUnavailable
+			return
+		}
+		s.state.CredentialGeneration = generation
 		s.state.State = StateNeedsAttention
 	}
 }
@@ -120,6 +126,10 @@ func (s *Service) SaveToken(ctx context.Context, candidate []byte) (Status, erro
 		s.publishFailure(StateTemporarilyUnavailable, err.Code)
 		return s.Status(ctx), err
 	}
+	if err := s.releaseActiveLocked(ctx); err != nil {
+		s.publishValidationFailure(err)
+		return s.Status(ctx), err
+	}
 	s.publishChecking()
 	result, err := s.client.ValidateToken(ctx, s.profileID, candidate)
 	if err != nil {
@@ -131,7 +141,19 @@ func (s *Service) SaveToken(ctx context.Context, candidate []byte) (Status, erro
 		s.publishFailure(StateVaultUnavailable, mapped.Code)
 		return s.Status(ctx), mapped
 	}
-	s.publishReady(result, true)
+	stored, generation, found, err := s.vault.OpenBindingVersion(ctx, credentialBinding, credentialKind)
+	defer zero(stored)
+	if err != nil || !found || generation <= 0 || !bytes.Equal(stored, candidate) {
+		var mapped *Error
+		if err != nil {
+			mapped = mapVaultError(err)
+		} else {
+			mapped = newError(CodeVaultUnavailable, false, errors.New("persisted browser credential is unavailable"))
+		}
+		s.publishFailure(StateVaultUnavailable, mapped.Code)
+		return s.Status(ctx), mapped
+	}
+	s.publishReady(result, generation)
 	return s.Status(ctx), nil
 }
 
@@ -143,7 +165,7 @@ func (s *Service) Check(ctx context.Context) (Status, error) {
 		s.publishFailure(StateVaultUnavailable, err.Code)
 		return s.Status(ctx), err
 	}
-	token, found, err := s.vault.OpenBinding(ctx, credentialBinding, credentialKind)
+	token, generation, found, err := s.vault.OpenBindingVersion(ctx, credentialBinding, credentialKind)
 	defer zero(token)
 	if err != nil {
 		mapped := mapVaultError(err)
@@ -153,6 +175,11 @@ func (s *Service) Check(ctx context.Context) (Status, error) {
 	if !found {
 		err := newError(CodeNotConfigured, false, errors.New("browser extension credential is missing"))
 		s.publishFailure(StateNotConfigured, err.Code)
+		return s.Status(ctx), err
+	}
+	if generation <= 0 {
+		err := newError(CodeVaultUnavailable, false, errors.New("browser credential generation is unavailable"))
+		s.publishFailure(StateVaultUnavailable, err.Code)
 		return s.Status(ctx), err
 	}
 	if s.client == nil {
@@ -166,7 +193,7 @@ func (s *Service) Check(ctx context.Context) (Status, error) {
 		s.publishValidationFailure(err)
 		return s.Status(ctx), err
 	}
-	s.publishReady(result, false)
+	s.publishReady(result, generation)
 	return s.Status(ctx), nil
 }
 
@@ -176,6 +203,10 @@ func (s *Service) Remove(ctx context.Context) (Status, error) {
 	if s.vault == nil || s.vault.Ready() != nil {
 		err := newError(CodeVaultUnavailable, false, errors.New("credential vault is unavailable"))
 		s.publishFailure(StateVaultUnavailable, err.Code)
+		return s.Status(ctx), err
+	}
+	if err := s.releaseActiveLocked(ctx); err != nil {
+		s.publishValidationFailure(err)
 		return s.Status(ctx), err
 	}
 	if err := s.vault.DeleteBinding(ctx, credentialBinding, credentialKind); err != nil {
@@ -197,6 +228,16 @@ func (s *Service) Remove(ctx context.Context) (Status, error) {
 	return s.Status(ctx), nil
 }
 
+func (s *Service) releaseActiveLocked(ctx context.Context) error {
+	s.mu.RLock()
+	active := s.active
+	s.mu.RUnlock()
+	if active == nil {
+		return nil
+	}
+	return active.Release(ctx)
+}
+
 func (s *Service) publishChecking() {
 	s.mu.Lock()
 	s.state.State = StateChecking
@@ -204,14 +245,12 @@ func (s *Service) publishChecking() {
 	s.mu.Unlock()
 }
 
-func (s *Service) publishReady(result ValidationResult, replaced bool) {
+func (s *Service) publishReady(result ValidationResult, credentialGeneration int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Configured = true
 	s.state.State = StateReady
-	if replaced || s.state.CredentialGeneration == 0 {
-		s.state.CredentialGeneration++
-	}
+	s.state.CredentialGeneration = credentialGeneration
 	s.state.ControllerGeneration = result.ControllerGeneration
 	s.state.SessionGeneration = result.SessionGeneration
 	s.state.PageGeneration = result.PageGeneration

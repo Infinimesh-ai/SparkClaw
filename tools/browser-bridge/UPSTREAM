@@ -1,0 +1,11 @@
+SparkClaw Browser Bridge 1.0.16 is derived from Microsoft Playwright's
+packages/extension at commit 260eae31113073927b93c5c7591b5ae039952dd0
+(Playwright Extension 0.4.0).
+
+The relay protocol, connection lifecycle, and tab-group behavior retain the
+upstream design. SparkClaw modifications enforce attachment-time task-tab
+authorization, suppress ordinary foreground activation, remove owner-tab
+selection and drag-in attachment, and add an explicit one-shot handoff marker.
+
+Upstream source: https://github.com/microsoft/playwright/tree/260eae31113073927b93c5c7591b5ae039952dd0/packages/extension
+License: Apache License 2.0 (see LICENSE and NOTICE.upstream)

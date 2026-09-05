@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -318,39 +319,47 @@ func (v *Vault) Open(ctx context.Context, ref string) ([]byte, error) {
 // deterministic repository reference. The boolean is false when the binding
 // has never been created.
 func (v *Vault) OpenBinding(ctx context.Context, bindingID, kind string) ([]byte, bool, error) {
+	plaintext, _, found, err := v.OpenBindingVersion(ctx, bindingID, kind)
+	return plaintext, found, err
+}
+
+// OpenBindingVersion returns an opaque positive generation that is stable for
+// one persisted encrypted record and changes on every successful replacement.
+// It is bounded to JavaScript's exact integer range for controller protocols.
+func (v *Vault) OpenBindingVersion(ctx context.Context, bindingID, kind string) ([]byte, int64, bool, error) {
 	if err := v.Ready(); err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	bindingID = strings.TrimSpace(bindingID)
 	kind = strings.TrimSpace(kind)
 	if bindingID == "" || len([]byte(bindingID)) > maxSealIdentityBytes || kind == "" {
-		return nil, false, credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
+		return nil, 0, false, credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, credentialError(CodeCanceled, err)
+		return nil, 0, false, credentialError(CodeCanceled, err)
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	ref := v.credentialRef(bindingID)
 	if _, _, err := v.resolvePendingLocked(ctx, pendingCommand{ref: ref}); err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	stored, found, err := v.repository.GetCredentialSecret(ctx, ref)
 	if err != nil {
-		return nil, false, v.mapRepositoryError(err)
+		return nil, 0, false, v.mapRepositoryError(err)
 	}
 	if !found {
-		return nil, false, nil
+		return nil, 0, false, nil
 	}
 	if stored.Kind != kind {
-		return nil, false, credentialError(CodeUnsealFailed, errors.New("credential binding kind does not match"))
+		return nil, 0, false, credentialError(CodeUnsealFailed, errors.New("credential binding kind does not match"))
 	}
 	plaintext, isEnvelope, err := v.openEnvelope(stored)
 	if !isEnvelope || err != nil {
 		zero(plaintext)
-		return nil, false, credentialError(CodeUnsealFailed, errors.New("credential envelope is invalid"))
+		return nil, 0, false, credentialError(CodeUnsealFailed, errors.New("credential envelope is invalid"))
 	}
-	return plaintext, true, nil
+	return plaintext, v.bindingGeneration(stored), true, nil
 }
 
 // ReplaceBinding atomically creates or replaces the encrypted value at a
@@ -418,6 +427,26 @@ func (v *Vault) DeleteBinding(ctx context.Context, bindingID, kind string) error
 		return credentialError(CodeInvalid, errors.New("credential binding and kind are required"))
 	}
 	return v.deleteAuthenticated(ctx, v.credentialRef(bindingID), kind, false)
+}
+
+func (v *Vault) bindingGeneration(secret app.CredentialSecret) int64 {
+	digest := hmac.New(sha256.New, v.refKey[:])
+	writeGenerationField := func(value string) {
+		var size [8]byte
+		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+		_, _ = digest.Write(size[:])
+		_, _ = digest.Write([]byte(value))
+	}
+	writeGenerationField("sparkclaw-credential-binding-generation-v1")
+	writeGenerationField(secret.Ref)
+	writeGenerationField(secret.Kind)
+	writeGenerationField(secret.Value)
+	writeGenerationField(secret.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	value := binary.BigEndian.Uint64(digest.Sum(nil)[:8]) & ((1 << 53) - 1)
+	if value == 0 {
+		value = 1
+	}
+	return int64(value)
 }
 
 func (v *Vault) Delete(ctx context.Context, ref string) error {

@@ -186,9 +186,10 @@ jobs:
       - run: python3 -m unittest scripts/test_deploy_remote.py
       - run: python3 -m unittest scripts/test_install_remote.py
       - run: python3 -m unittest scripts/test_autostart_compose.py
-      - run: python3 -m unittest scripts/test_host_browser.py
+      - run: python3 -m unittest scripts/test_browser_bridge.py
+      - run: python3 -m unittest scripts/test_playwright_email_qualification.py
       - run: python3 -m unittest scripts/test_jingsi_lan.py
-      - run: bash -n install.sh install-remote.sh scripts/lib/dotenv.sh scripts/lib/deployment-profile.sh scripts/deploy_local.sh scripts/deploy_remote.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/install-host-browser.sh scripts/setup-browser.sh scripts/setup-browser-controller.sh scripts/open-browser-extension-preview.sh scripts/serve_models_compose.sh scripts/start_local_compose.sh scripts/start_remote_compose.sh scripts/resolve-browser-display.sh scripts/restart_jingsi_lan_compose.sh scripts/doctor.sh
+      - run: bash -n install.sh install-remote.sh scripts/lib/dotenv.sh scripts/lib/deployment-profile.sh scripts/lib/browser-runtime.sh scripts/deploy_local.sh scripts/deploy_remote.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/install-browser.sh scripts/install-browser-bridge.sh scripts/setup-browser.sh scripts/setup-browser-controller.sh scripts/sparkclaw-browser-launcher.sh scripts/open-browser.sh scripts/qualify-playwright-email.sh scripts/serve_models_compose.sh scripts/start_local_compose.sh scripts/start_remote_compose.sh scripts/resolve-browser-display.sh scripts/restart_jingsi_lan_compose.sh scripts/doctor.sh
       - run: bash -s -- --help < install.sh | grep -F 'curl -fsSL'
       - run: bash -s -- --help < install-remote.sh | grep -F 'curl -fsSL'
       - name: Build effective product environments

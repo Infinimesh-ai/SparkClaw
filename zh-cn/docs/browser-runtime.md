@@ -1,196 +1,186 @@
 # 浏览器 Runtime
 
-> 语言： [English](../../docs/browser-runtime.md) | 简体中文
+> Language: [English](../../docs/browser-runtime.md) | 简体中文
 
-本文档是当前浏览器实现与运行手册。SparkClaw 使用一个由宿主机拥有的 Chromium
-进程、一个专用持久 Profile，以及通过受保护 Host-CDP endpoint 附着的固定版本
-`agent-browser` `0.32.3`。旧的容器 Chromium、Xvfb、Profile mount、X11 overlay、
-Profile lease 和启动 fallback 已全部删除。
-
-迁移理由与完整设计记录保留在
-[Host-CDP 浏览器设计](host-cdp-browser-design.md)。
+本文描述当前生产浏览器实现。SparkClaw 使用一个持久的 Owner Session Chromium Profile、
+校验和固定的 SparkClaw Browser Bridge，以及 Owner-scoped Playwright Controller。旧的
+browserd、Host-CDP 和 `agent-browser` 路径已在 Phase 6 原子切换中删除。
 
 ## Runtime 拓扑
 
 ```text
-Browser Workflow
-  -> ToolHub browser capability
-  -> internal/browserautomation
-  -> private agent-browser MCP process
-       AGENT_BROWSER_CDP=<capability WebSocket URL>
-  -> browserd CDP proxy on a Docker bridge
-  -> host sparkclaw-browserd
-  -> one SparkClaw Chromium process
-  -> dedicated owner-only persistent profile
+Browser 或 Email Workflow
+  -> Gateway browserautomation / emailautomation
+  -> Owner-only Controller Unix socket
+  -> 固定 Playwright MCP 或 CLI Client
+  -> SparkClaw Browser Bridge Native Connection
+  -> 持久 SparkClaw Chromium 中 Task-owned Tab
 ```
 
-不存在 Playwright fallback、direct CDP execution backend、日常浏览器 attach、cookie
-导出或容器侧 Chromium launcher。
+Chromium 和 Controller 都是 systemd user service。Gateway 仅把 Controller Runtime
+Directory 以只读方式挂载到 `/run/sparkclaw/browser-controller`，不会获得浏览器 Profile、
+Native Host Manifest、Display Socket 或 Browser Executable。Gateway 镜像不包含 Chromium、
+Xvfb 或浏览器自动化引擎。
 
-## 进程与 Profile 所有权
-
-`sparkclaw-browserd` 是 systemd user service，也是 Chromium 的唯一进程 owner。它把
-当前架构获准的固定制品安装到 `/opt/sparkclaw`，使用 owner 专属数据目录中的持久
-Profile 启动，并通过 owner-only runtime directory 发布浏览器健康信息。
-
-默认路径如下：
-
-| 资源 | 宿主机路径 |
+| 组件 | 位置 |
 |---|---|
-| Browser daemon | `/opt/sparkclaw/browserd/sparkclaw-browserd` |
-| Browser config | `~/.config/sparkclaw/browserd.json` |
-| Persistent profile | `~/.local/share/sparkclaw/browser/default/user-data` |
-| Runtime directory | `${XDG_RUNTIME_DIR}/sparkclaw/browserd` |
-| Capability endpoint | `${XDG_RUNTIME_DIR}/sparkclaw/browserd/cdp-endpoint` |
-| Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
+| Browser Service | `sparkclaw-browser.service` |
+| Controller Service | `sparkclaw-browser-controller.service` |
+| Browser Config | `~/.config/sparkclaw/browser.json` |
+| 持久 Profile | `~/.local/share/sparkclaw/browser/default/user-data` |
+| Controller Runtime | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller` |
+| Controller Socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
+| Desktop Launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-runtime directory 与 Profile 权限为 `0700`。endpoint 必须是 deployment user 拥有、
-非 symlink 的普通文件，权限不得宽于 `0600`。Gateway 使用相同 numeric UID/GID，
-只读挂载 browserd runtime directory；它不会获得 Profile 或 Chromium 原始调试端口。
+固定兼容组合为 Browser Bridge `1.0.17`、Playwright MCP `0.0.80`、Playwright CLI
+`0.1.19`、Playwright Library `1.63.0-alpha-2026-08-31` 和 Chromium
+`148.0.7778.0`。Bridge Source Closure 记录在 `configs/browser-bridge-artifacts.json`，
+安装时拒绝发生修改或出现额外文件的 Source Tree。
 
-当 browserd 能验证 owner 的 X11/XWayland display 时，宿主 Chromium 以 headed 方式
-启动；否则以宿主机 headless 方式启动。点击桌面应用 **SparkClaw Browser** 时，可以让
-browserd 使用有效桌面 display 和同一 Profile 按序重启该唯一进程；绝不会针对同一
-Profile 启动第二个进程。
+## Browser Process
 
-## Capability Endpoint
+`sparkclaw-browser.service` 是默认 Profile 唯一的长驻 Owner。它以固定 User Data
+Directory 和 Unpacked Bridge 启动正常的 Headed Chromium。命令行有意不包含
+remote-debugging、automation 或 headless Flag。
 
-Browserd 的 capability proxy 只绑定 loopback，以及发现到的 `docker0` 或 `br-*`
-Docker bridge 地址。endpoint 文件包含 browser identity、generation、presentation、
-已验证版本，以及供容器和 direct-host 使用的 capability-bearing WebSocket URL。
+从桌面 Launcher 打开 **SparkClaw Browser**，或运行：
 
-capability 不会出现在公开 config/status API、日志、trace、artifact 或模型上下文中。
-Chromium generation 每次变化时 browserd 都会轮换 capability。Gateway 创建或替换私有
-MCP connection 时重新读取 endpoint。endpoint 过期、owner 不匹配、权限过宽、Profile
-不匹配、URL boundary 非法或进程丢失都会 fail closed。
+```bash
+npm run open:browser
+```
 
-## 标签页所有权
+显式 Open Command 会把浏览器带到前台，供 Owner 完成登录或 Human Verification。
+后台 Acquisition 和 Task Action 不会聚焦浏览器或替换当前 Owner Tab；只有显式 Owner
+Handoff 才允许自动化聚焦 Task Tab。
 
-连接同一个 Chromium 进程并不授权 SparkClaw 使用 owner 已打开的标签页。Gateway
-维护按逻辑 browser scope 分隔的内存 target ID allowlist。
+认证只保留在持久 Profile 内。SparkClaw 不复制 Cookie、不导出 Storage State、不把
+Profile 挂入容器，也不附着其他浏览器 Profile。
 
-- `browser.open` 在调用 `agent_browser_tab_new` 前后分别列出 tab，只有差集恰好包含一个
-  新 target 时才登记所有权。
-- owner 既有 tab 和其他逻辑 scope 的 tab 不会出现在列表中，也不能被 focus、read、
-  click、type、select 或 close。
-- 所有隐式 active-tab 操作执行前都验证 active target 属于当前 scope。
-- 多个新增 target 的歧义差集会 fail closed 且不登记任何所有权，而不是猜测哪个
-  target 由 SparkClaw 创建。
-- MCP transport 丢失、browser generation 变化或 reconnect 会清空全部内存授权；
-  target ownership 不跨 reconnect 持久化。
+## Bridge 与 Controller
 
-owner 停止操作不会把标签页所有权转移给 SparkClaw。
+Browser Bridge 从已资格验证的上游 Playwright Extension Source 独立打包。SparkClaw 增加
+Attachment-time Task-tab Allowlist、Native Controller Version Handshake、Stale Session
+Cleanup 和后台不抢焦点行为。Extension ID 与完整文件 Hash 均已固定。
 
-## 登录 Handoff
+Controller 拥有私有 Unix Socket，并监管有界 MCP 与 CLI Process。每次 Acquisition 只创建
+一个 Task Page，并绑定 Controller、Session、Page 和 Credential Generation。每次 Observation
+和 Action 执行前都会检查所有权。Owner Tab 永远不会被选中、读取、修改或关闭。
 
-认证状态只保留在专用 Chromium Profile 中。当 Workflow 检测到登录或人工验证 gate
-时，会持久化 handoff 并要求 owner 打开 **SparkClaw Browser**。owner 在专用 Profile
-中完成登录；SparkClaw 只会在重新验证 target、URL 和页面 evidence 后恢复同一个冻结
-任务拥有的 target。
+MCP 承载通用 Browser Adapter。CLI 只运行六个已注册 Provider Handler：QQ 邮箱、Outlook
+和 Gmail 各自的 Probe 与 Send Revision 1。Caller 不能提供 Playwright Code、Selector、
+JavaScript、Command、Storage Access、Network Interception 或任意文件路径。
 
-SparkClaw 不 attach owner 的日常浏览器 Profile，不复制 cookie，也不选择任意已登录的
-既有 tab。browserd 和宿主 Profile 持续运行，因此登录状态可跨 Gateway 与 MCP restart
-保留。
+MCP 与 CLI Session Detach 时不会关闭 Chromium。Cancellation、Replacement、Credential
+Removal、Browser Restart、Controller Restart、Gateway Shutdown 和正常完成都会使有界
+Identity 失效，并回收 Subprocess 与私有输出。Stale Identity 绝不会被静默重新绑定。
 
-## Agent-Browser 生命周期
+## Credential 边界
 
-Gateway 校验精确的 `agent-browser 0.32.3` CLI 和 MCP server 版本，并使用 browserd
-WebSocket URL 作为 `AGENT_BROWSER_CDP` 启动一个私有 MCP subprocess。该 subprocess
-只拥有协议 transport；Chromium 由 browserd 拥有。
+Browser Control 使用 `playwright-extension-token-v1` Credential。Owner 在
+`设置 > 连接 > 浏览器控制` 中输入 Token；Gateway 完成一次新的 Bridge Handshake 后才保存
+加密 Vault Ciphertext。表单不会返回或预填 Token，并在每次保存尝试后清空输入。
 
-正常关闭时，Gateway 先针对唯一 session 调用 `agent_browser_close`，回收本次调用拥有的
-agent-browser daemon 与 socket，再停止私有 MCP subprocess。该 close 只让 agent-browser
-从外部 owner 的浏览器断开，不会终止 browserd 或 Chromium。MCP transport 已不健康时则
-直接 abort，并依赖有界 daemon idle timeout 回收。无论哪条路径，宿主 Chromium PID 都必须
-保持存活。browserd 或 Chromium 丢失会产生 typed unavailable/reconnect failure，且绝不
-回退到容器浏览器。
+Raw Token 不会保存到 Compose 文件、仓库配置、Log、Trace、Artifact、命令参数或 Model
+Context。Controller Service 不持有该 Token。替换或删除 Credential 会使旧 Credential
+Generation 的 Session 失效，但不会修改浏览器认证状态。
 
 ## 配置
 
-当前 adapter 配置如下：
+唯一生产 Provider 是 `playwright-extension`：
 
 ```json
 {
+  "tools": {
+    "browserAutomation": {
+      "enabled": true,
+      "provider": "playwright-extension",
+      "profile": "default"
+    }
+  },
   "adapters": {
     "browserAutomation": {
-      "command": "agent-browser",
       "timeoutMs": 30000,
       "startupTimeoutMs": 10000,
-      "hostCDP": {
-        "endpointFile": "/run/sparkclaw/browserd/cdp-endpoint",
+      "settleTimeoutMs": 15000,
+      "settleQuietPeriodMs": 500,
+      "settlePollIntervalMs": 100,
+      "routeRebindLimit": 2,
+      "playwrightExtension": {
+        "controllerSocket": "/run/sparkclaw/browser-controller/controller.sock",
         "profileID": "default",
-        "connectTimeoutMs": 10000
+        "connectTimeoutMs": 20000
       }
     }
   }
 }
 ```
 
-部署环境变量：
+部署可在所选 mode-`0600` 环境文件中设置以下 Machine-specific 值：
 
 | 变量 | 用途 |
 |---|---|
-| `SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST` | 只读挂载到 Gateway 的宿主 browserd runtime directory |
-| `SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE` | Gateway 内 endpoint 路径；默认 `/run/sparkclaw/browserd/cdp-endpoint` |
-| `SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST` | setup、doctor 和 PID 检查使用的 direct-host endpoint 路径 |
-| `SPARKCLAW_BROWSER_CDP_PROFILE_ID` | 预期 browserd Profile identity；默认 `default` |
-| `SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS` | 有界 Host-CDP attach timeout |
+| `SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST` | 以只读方式挂入 Gateway 的宿主 Controller Runtime Directory |
+| `SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET` | Gateway 内的 Controller Socket 路径 |
+| `SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST` | Setup、Doctor 和资格验证直接使用的宿主 Socket |
+| `SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID` | 固定 Profile Identity，必须为 `default` |
+| `SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS` | 有界 Acquisition/Handshake Timeout |
 
-旧 Chromium executable、Profile directory、daemon idle、display 与 Xauthority 环境字段
-都会被拒绝。旧 JSON launch/Profile 字段同样会被拒绝，不存在静默 compatibility path。
+配置加载会拒绝已退役的 Browser Automation Command、Transport Selector 和 CDP Variable。
+不存在 Runtime Fallback。
 
-## 安装与运行
+## 安装与运维
 
-两个正式部署入口调用同一个 installer：
-
-```bash
-npm run deploy:local
-npm run deploy:remote
-```
-
-`scripts/install-host-browser.sh` 从 `configs/host-browser-artifacts.json` 解析获准
-制品，验证 checksum 与架构，安装 browserd，创建 systemd user service 和 desktop
-launcher，并把 Host-CDP 路径写入选定的 mode-`0600` env 文件。
-
-只读检查：
-
-```bash
-bash scripts/deploy_local.sh --check
-bash scripts/deploy_remote.sh --check
-bash scripts/install-host-browser.sh --check --env-file .env.local
-bash scripts/install-host-browser.sh --check --env-file .env.remote
-```
-
-本地 setup 与诊断：
+Local 与 Remote 部署都在 Compose 前调用同一个 Browser Setup：
 
 ```bash
 npm run setup:browser
-bash scripts/doctor.sh
-systemctl --user status sparkclaw-browserd.service
-/opt/sparkclaw/browserd/sparkclaw-browserd \
-  --config "$HOME/.config/sparkclaw/browserd.json" status
+npm run check:browser-controller
+systemctl --user status sparkclaw-browser.service
+systemctl --user status sparkclaw-browser-controller.service
 ```
 
-Compose 包含 `agent-browser`，但不包含 Chromium 或 Xvfb。启动流程先检查 browserd，
-再通过 `AGENT_BROWSER_CDP` 执行 MCP open/snapshot/close smoke，停止 MCP process，并验证
-记录的宿主 Chromium PID 仍存活。
+`setup:browser` 验证或安装固定 Chromium 与 Bridge，写入 Browser Service 和 Desktop
+Launcher，以禁用 Browser Download 的方式安装 Controller Dependency，写入 Native Host
+Manifest，启动两个 User Service，验证已加载 Bridge Version，并检查 Private Socket。
+Local 和 Remote 启动路径会重复该检查，并在 Gateway Ready 后从容器内运行
+`browser_controller_smoke.mjs`。
+
+需要完成或刷新浏览器登录时，打开持久浏览器并使用 WebChat 的 Provider Login Action。
+由于同一 Owner-only Profile 始终保留，登录状态可跨 Gateway、Controller 和 Chromium Restart
+持久化。
 
 ## 验证
 
-浏览器 runtime 变更至少执行：
-
 ```bash
-cd services/gateway && go test ./internal/browserautomation ./internal/config ./internal/gateway
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.test_host_browser \
-  scripts.test_local_compose scripts.test_remote_compose scripts.test_deploy_remote
-docker compose --env-file docker/env/sparkclaw.product.env \
-  --env-file docker/env/sparkclaw.local.env \
-  -f docker/compose.yaml -f docker/compose.models.local.yaml \
-  --profile product --profile models-local config --quiet
-docker compose --env-file docker/env/sparkclaw.product.env \
-  --env-file docker/env/sparkclaw.remote.env \
-  -f docker/compose.yaml --profile product config --quiet
+python3 -m unittest scripts/test_browser_bridge.py
+npm test --prefix tools/browser-bridge
+npm test --prefix tools/browser-controller
+npm run test:email-scripts
+cd services/gateway && go test ./internal/browserautomation ./internal/browsercontrol ./internal/emailautomation ./internal/gateway ./internal/toolhub
 ```
 
-最终 live acceptance 还会运行 browserd 与容器侧 MCP smoke，确认 owner 既有 tab 未被操作，
-并确认 Gateway/MCP shutdown 后 Chromium 仍在运行。
+Live Acceptance 还会检查 Startup/Restart、Bridge Pairing/Detach、Profile Persistence、
+No-handoff Focus Isolation、Explicit Handoff、Generic Adapter Interaction、三个已登录账户的
+Provider Probe、Process Cleanup，以及不存在禁止的 Browser Flag。Provider Qualification
+只运行 Probe：
+
+```bash
+npm run qualify:playwright-email -- --profile remote
+```
+
+不得使用资格验证发送真实邮件。Email Send 继续保留 Exact-content Approval、One-attempt
+Execution 和 Terminal Unknown-outcome Handling。
+
+## 安全不变量
+
+- 即使 SparkClaw 把每个 Client 限制在 Task-owned Tab，仍要把 Bridge 视为 Browser-wide
+  Privileged Code。
+- Browser Profile、Native Host、Runtime Directory、Socket 和 Vault Credential 必须保持
+  Owner-only。
+- Provider Origin 和 Controller Operation 必须使用 Allowlist。
+- 拒绝任意 Code、Selector、Command、Storage Export、File URL 和 Network Interception。
+- Page Evidence 与 Diagnostic 到达 Trace 或 Model Input 前必须脱敏。
+- 不得引入 Container Chromium、Profile Copy、Permanent CDP 或兼容 Backend。
+
+迁移决策见 [Playwright Extension 浏览器设计](playwright-extension-browser-design.md)，Provider
+与 Approval 语义见[浏览器邮箱 Workflow](browser-email-workflow-design.md)。

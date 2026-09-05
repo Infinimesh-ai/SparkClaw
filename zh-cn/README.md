@@ -28,7 +28,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - ToolHub：为文件、memory、browser access、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser 和 external adapter observation 都被当作 untrusted data，并在进入回答前被摘要。
-- 已通过专用 Host-CDP Chromium Profile 实现 QQ 邮箱、Outlook 和 Gmail 的仅发送浏览器邮箱能力；见[浏览器邮箱 Workflow](docs/browser-email-workflow-design.md)。邮件读取、日历和 Workspace Knowledge/RAG 仍保持暂缓；见[暂缓能力说明](docs/deferred-email-calendar-knowledge.md)。
+- 已通过持久 SparkClaw Browser Bridge Profile 实现 QQ 邮箱、Outlook 和 Gmail 的仅发送浏览器邮箱能力；见[浏览器邮箱 Workflow](docs/browser-email-workflow-design.md)。邮件读取、日历和 Workspace Knowledge/RAG 仍保持暂缓；见[暂缓能力说明](docs/deferred-email-calendar-knowledge.md)。
 - 本地 file-backed state，PostgreSQL 18/pgvector 持久化 runtime records，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - 两套明确产品部署：NVIDIA GB10 全本地模型与公网模型全远端；两者都包含 PostgreSQL、Sandbox Runner、Gotenberg、Gateway 和 WebChat。
@@ -48,8 +48,9 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 Ubuntu 服务器或 VM 使用版本化公网模型端点时，以具备 sudo 权限的普通用户运行 remote
 安装入口。它会在需要时安装 Docker，把凭据和机器覆盖项只保存在本机权限为 `0600` 的
 `.env.remote` 中，并
-在宿主机安装固定版本的 SparkClaw Chromium。部署会验证 `agent-browser` 能通过受保护的
-Host-CDP endpoint attach，并确认 MCP smoke process 停止后宿主 Chromium 仍在运行：
+在宿主机安装固定版本的 SparkClaw Chromium、Browser Bridge 和 Owner-scoped Playwright
+Controller。部署会验证 Private Controller Socket，并确认 Smoke Client Detach 后宿主 Chromium
+仍在运行：
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -98,10 +99,10 @@ browser allowlist 只用于确定性的本地 fixture。正常运行中，`brows
 npm run setup:host
 ```
 
-该命令安装根 workspace Node 包、用户 site-packages 中的 Python 文档库，校验固定版本的
-`agent-browser 0.32.3`，在宿主机安装当前架构获准的 SparkClaw Chromium 制品，并配置
-owner-scoped `sparkclaw-browserd` service 与专用持久 Profile。Gateway 不包含 Chromium，
-只通过 Host-CDP attach。
+该命令安装根 Workspace Node 包、用户 Site-packages 中的 Python 文档库、当前架构获准的
+SparkClaw Chromium 制品、Checksum-pinned Browser Bridge 和 Owner-scoped Controller。
+Gateway 不包含 Chromium 或 Browser Automation Engine，只通过只读挂载的 Controller Unix
+Socket 执行 Browser Task。
 
 产品启动必须显式选择模式。先加载版本化 profile，再加载对应的 Git 忽略私有覆盖文件：
 

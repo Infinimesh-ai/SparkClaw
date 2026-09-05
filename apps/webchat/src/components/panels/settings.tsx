@@ -312,7 +312,7 @@ export function SettingsPanel({
           {category === "connections" && (
             <>
               <DirectoryRow icon={<MessageSquare size={17} />} title={text.settings.messaging} status={connectionCountLabel(connectors, text)} onClick={() => setDetail("messaging")} />
-              <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.playwrightExtensionPreview} onClick={() => setDetail("browser-control")} />
+              <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.browserBridge} onClick={() => setDetail("browser-control")} />
               <DirectoryRow icon={<Mail size={17} />} title={text.settings.browserEmail} status={text.settings.browserEmailProviders} onClick={() => setDetail("browser-email")} />
               <DirectoryRow icon={<DatabaseZap size={17} />} title={text.settings.info} status={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} onClick={() => setDetail("info")} />
               <DirectoryRow icon={<Network size={17} />} title={text.settings.localMind} status={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} onClick={() => setDetail("localmind")} />

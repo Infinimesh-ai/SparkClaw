@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
-source "$ROOT/scripts/lib/host-browser.sh"
+source "$ROOT/scripts/lib/browser-runtime.sh"
 
 ENV_FILE="${SPARKCLAW_REMOTE_ENV_FILE:-$ROOT/.env.remote}"
 PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
@@ -25,7 +25,7 @@ non-secret defaults come from the versioned remote profile. The private
 mode-0600 env file stores only credentials and machine-specific overrides.
 
 Options:
-  --check          Validate Ubuntu, private overrides, Host-CDP, Docker, and Compose
+  --check          Validate Ubuntu, private overrides, Browser Bridge, Docker, and Compose
   --configure      Re-enter the optional shared remote-model API key
   --env-file PATH  Use a private override file instead of .env.remote
   -h, --help       Show this help
@@ -211,9 +211,9 @@ refresh_effective_env
 sparkclaw_validate_product_profile remote "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" || fail "invalid remote product profile"
 
 if [[ "$MODE" == "check" ]]; then
-  sparkclaw_check_host_browser "$ROOT" "$EFFECTIVE_ENV_FILE"
+  sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
 else
-  sparkclaw_install_host_browser "$ROOT" "$ENV_FILE"
+  sparkclaw_install_browser_runtime "$ROOT" "$ENV_FILE"
   refresh_effective_env
 fi
 

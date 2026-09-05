@@ -542,10 +542,10 @@ func browserReadSource(page browserautomation.PageReadResult) ([]byte, string) {
 		return []byte(page.HTML), contentType
 	}
 	if strings.TrimSpace(page.Text) != "" {
-		return []byte(page.Text), "text/plain; source=agent-browser-read"
+		return []byte(page.Text), "text/plain; source=playwright-read"
 	}
 	if strings.TrimSpace(page.SnapshotText) != "" {
-		return []byte(page.SnapshotText), "text/plain; source=agent-browser-snapshot"
+		return []byte(page.SnapshotText), "text/plain; source=playwright-snapshot"
 	}
 	return nil, contentType
 }

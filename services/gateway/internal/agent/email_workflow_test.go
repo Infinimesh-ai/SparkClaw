@@ -30,14 +30,14 @@ type recordingAgentEmailSender struct {
 
 func (r *recordingAgentEmailSender) SendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error) {
 	r.calls++
-	return app.EmailSendResult{Provider: app.EmailProviderGmail, Status: "sent", RecipientDigest: "sha256:digest", BrowserGeneration: 7, ScriptRevision: 3}, nil
+	return app.EmailSendResult{Provider: app.EmailProviderGmail, Status: "sent", RecipientDigest: "sha256:digest", BrowserCredentialGeneration: 7, ScriptRevision: 3}, nil
 }
 
 func TestEmailAdmissionFreezesRuntimeOwnedRouteFactsBeforeWorkflowCreation(t *testing.T) {
 	validatedAt := time.Date(2026, 9, 3, 8, 30, 0, 0, time.UTC)
 	admission := &fakeEmailAdmission{binding: app.EmailAdmissionBinding{
 		Provider: app.EmailProviderGmail, Account: app.EmailAccountDefault, AccountHint: "a***@gmail.com",
-		SettingVersion: 4, BrowserGeneration: 7, ProbeRevision: 2, SendScriptRevision: 3, ValidatedAt: validatedAt,
+		SettingVersion: 4, BrowserCredentialGeneration: 7, ProbeRevision: 2, SendScriptRevision: 3, ValidatedAt: validatedAt,
 	}}
 	runtime := Runtime{store: store.NewMemoryStore(), capabilities: capability.MustDefaultCatalog(), emailAdmission: admission}
 	route := emailSendRoute(runtime.capabilities.Revision())
@@ -51,7 +51,7 @@ func TestEmailAdmissionFreezesRuntimeOwnedRouteFactsBeforeWorkflowCreation(t *te
 	for key, want := range map[string]string{
 		app.EmailRouteFactProvider: app.EmailProviderGmail, app.EmailRouteFactAccount: app.EmailAccountDefault,
 		app.EmailRouteFactAccountHint: "a***@gmail.com", app.EmailRouteFactSettingVersion: "4",
-		app.EmailRouteFactBrowserGeneration: "7", app.EmailRouteFactProbeRevision: "2",
+		app.EmailRouteFactBrowserCredentialGeneration: "7", app.EmailRouteFactProbeRevision: "2",
 		app.EmailRouteFactSendScriptRevision: "3", app.EmailRouteFactValidatedAt: validatedAt.Format(time.RFC3339Nano),
 	} {
 		if admitted.Facts[key] != want {
@@ -100,7 +100,7 @@ func TestBrowserEmailWorkflowProjectsOnlyMessageFieldsAndRestoresFrozenBindings(
 		Args: map[string]any{
 			"provider": app.EmailProviderOutlook, "account": "invented", "account_hint": "invented@example.com",
 			"recipient": "alice@example.com", "subject": "Exact subject", "body": "Exact body",
-			"setting_version": "999", "browser_generation": "999", "probe_revision": "999", "send_script_revision": "999",
+			"setting_version": "999", "browser_credential_generation": "999", "probe_revision": "999", "send_script_revision": "999",
 			"validated_at": "2099-01-01T00:00:00Z", "invocation_id": "invented",
 		},
 		WorkflowID: app.WorkflowBrowserEmail, WorkflowNodeID: "email_send", ScopeRevision: node.ScopeRevision,
@@ -111,7 +111,7 @@ func TestBrowserEmailWorkflowProjectsOnlyMessageFieldsAndRestoresFrozenBindings(
 	}
 	for key, want := range map[string]any{
 		"provider": app.EmailProviderGmail, "account": app.EmailAccountDefault, "account_hint": "a***@gmail.com",
-		"setting_version": "4", "browser_generation": "7", "probe_revision": "2", "send_script_revision": "3",
+		"setting_version": "4", "browser_credential_generation": "7", "probe_revision": "2", "send_script_revision": "3",
 		"validated_at": "2026-09-03T08:30:00Z", "invocation_id": "email_send_fixture",
 		"recipient": "alice@example.com", "subject": "Exact subject", "body": "Exact body",
 	} {
@@ -138,7 +138,7 @@ func TestApprovedEmailRejectsAnyPersistedArgumentChangeBeforeExecution(t *testin
 	callArgs := map[string]any{
 		"provider": app.EmailProviderGmail, "account": app.EmailAccountDefault, "account_hint": "a***@gmail.com",
 		"recipient": "alice@example.com", "subject": "subject", "body": "original body",
-		"setting_version": "4", "browser_generation": "7", "probe_revision": "2", "send_script_revision": "3",
+		"setting_version": "4", "browser_credential_generation": "7", "probe_revision": "2", "send_script_revision": "3",
 		"validated_at": "2026-09-03T08:30:00Z", "invocation_id": "email:approval:1",
 	}
 	approvalArgs := clonePlanArgs(callArgs)
@@ -172,7 +172,7 @@ func TestApprovedEmailRejectsAnyPersistedArgumentChangeBeforeExecution(t *testin
 func TestBrowserEmailOutcomeIsTerminalAndNonRetryable(t *testing.T) {
 	outcome := adaptBrowserEmailSendOutcome(app.ToolCall{
 		ID: "tc_email", Tool: "email.send", Status: app.ToolCallStatusCompleted,
-		Result: map[string]any{"provider": app.EmailProviderGmail, "status": "sent", "recipient_digest": "sha256:digest", "browser_generation": 7, "script_revision": 3},
+		Result: map[string]any{"provider": app.EmailProviderGmail, "status": "sent", "recipient_digest": "sha256:digest", "browser_credential_generation": 7, "script_revision": 3},
 	}, "email_send")
 	if outcome.Retryable || len(outcome.Signals) != 1 || outcome.Signals[0] != app.OutcomeSignalEmailSent || len(outcome.Refs) != 1 {
 		t.Fatalf("email outcome = %#v", outcome)
@@ -191,7 +191,7 @@ func emailSendRoute(catalogRevision string) app.RouteDecision {
 		Facts: map[string]string{
 			app.EmailRouteFactProvider: app.EmailProviderGmail, app.EmailRouteFactAccount: app.EmailAccountDefault,
 			app.EmailRouteFactAccountHint: "a***@gmail.com", app.EmailRouteFactSettingVersion: "4",
-			app.EmailRouteFactBrowserGeneration: "7", app.EmailRouteFactProbeRevision: "2",
+			app.EmailRouteFactBrowserCredentialGeneration: "7", app.EmailRouteFactProbeRevision: "2",
 			app.EmailRouteFactSendScriptRevision: "3", app.EmailRouteFactValidatedAt: "2026-09-03T08:30:00Z",
 			app.EmailRouteFactInvocationID: "email_send_fixture",
 		},

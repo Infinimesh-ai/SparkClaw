@@ -29,7 +29,7 @@ Implemented and validated:
 - ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
 - File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
-- Send-only browser email is implemented for configured QQ Mail, Outlook, and Gmail accounts through the dedicated Host-CDP Chromium profile; see [Browser email Workflow](docs/browser-email-workflow-design.md). Email reading, calendar, and workspace knowledge/RAG remain deferred; see [Deferred Capabilities](docs/deferred-email-calendar-knowledge.md).
+- Send-only browser email is implemented for configured QQ Mail, Outlook, and Gmail accounts through the persistent SparkClaw Browser Bridge profile; see [Browser email Workflow](docs/browser-email-workflow-design.md). Email reading, calendar, and workspace knowledge/RAG remain deferred; see [Deferred Capabilities](docs/deferred-email-calendar-knowledge.md).
 - File-backed state for local runs, PostgreSQL 18/pgvector for durable runtime records, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Two explicit product deployments: full-local models on NVIDIA GB10 and full-remote public model endpoints, both with PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat.
@@ -50,9 +50,9 @@ For an Ubuntu server or VM that uses the versioned public model endpoints, run
 the remote installer as a normal sudo-capable user. It installs Docker when
 needed, keeps credentials and machine-specific overrides in a local mode-0600
 `.env.remote` file, and
-installs the pinned SparkClaw Chromium on the host. Deployment verifies
-`agent-browser` attachment through the protected Host-CDP endpoint and confirms
-that stopping the MCP smoke process leaves host Chromium running:
+installs the pinned SparkClaw Chromium, Browser Bridge, and owner-scoped
+Playwright Controller on the host. Deployment validates the private Controller
+socket and confirms that a detached smoke client leaves host Chromium running:
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -106,10 +106,10 @@ npm run setup:host
 ```
 
 This installs root-workspace Node packages, user-site Python document
-libraries, verifies pinned `agent-browser 0.32.3`, installs the approved
-architecture-specific SparkClaw Chromium artifact on the host, and configures
-the owner-scoped `sparkclaw-browserd` service and dedicated persistent profile.
-Gateway contains no Chromium and attaches only through Host-CDP.
+libraries, the approved architecture-specific SparkClaw Chromium artifact,
+checksum-pinned Browser Bridge, and owner-scoped Controller. Gateway contains
+no Chromium or browser automation engine and reaches browser tasks only through
+the Controller's read-only mounted Unix socket.
 
 Product startup is always explicit. The versioned profile is loaded first, then
 the matching ignored private override file:

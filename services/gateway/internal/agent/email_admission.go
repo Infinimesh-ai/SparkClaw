@@ -26,7 +26,7 @@ func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID,
 		return app.RouteDecision{}, err
 	}
 	if strings.TrimSpace(binding.Provider) == "" || strings.TrimSpace(binding.Account) == "" ||
-		binding.SettingVersion <= 0 || binding.BrowserGeneration == 0 || binding.ProbeRevision <= 0 ||
+		binding.SettingVersion <= 0 || binding.BrowserCredentialGeneration == 0 || binding.ProbeRevision <= 0 ||
 		binding.SendScriptRevision <= 0 || binding.ValidatedAt.IsZero() {
 		return app.RouteDecision{}, errors.New("Email login admission returned an incomplete binding")
 	}
@@ -43,7 +43,7 @@ func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID,
 	facts[app.EmailRouteFactAccount] = strings.TrimSpace(binding.Account)
 	facts[app.EmailRouteFactAccountHint] = accountHint
 	facts[app.EmailRouteFactSettingVersion] = strconv.FormatInt(binding.SettingVersion, 10)
-	facts[app.EmailRouteFactBrowserGeneration] = strconv.FormatUint(binding.BrowserGeneration, 10)
+	facts[app.EmailRouteFactBrowserCredentialGeneration] = strconv.FormatUint(binding.BrowserCredentialGeneration, 10)
 	facts[app.EmailRouteFactProbeRevision] = strconv.Itoa(binding.ProbeRevision)
 	facts[app.EmailRouteFactSendScriptRevision] = strconv.Itoa(binding.SendScriptRevision)
 	facts[app.EmailRouteFactValidatedAt] = binding.ValidatedAt.UTC().Format(time.RFC3339Nano)
@@ -56,7 +56,7 @@ func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID,
 		SessionID: sessionID, RunID: runID, Actor: "email_admission", Type: "email.admission.completed", Summary: "Validated the Runtime-selected browser email account before Workflow creation",
 		Fields: map[string]any{
 			"provider": binding.Provider, "account": binding.Account, "account_hint": accountHint,
-			"setting_version": binding.SettingVersion, "browser_generation": binding.BrowserGeneration,
+			"setting_version": binding.SettingVersion, "browser_credential_generation": binding.BrowserCredentialGeneration,
 			"probe_revision": binding.ProbeRevision, "send_script_revision": binding.SendScriptRevision,
 		},
 	})

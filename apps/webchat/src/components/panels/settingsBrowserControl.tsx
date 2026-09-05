@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, CircleAlert, ExternalLink, KeyRound, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, KeyRound, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "../../api/client";
 import type { BrowserExtensionStatus } from "../../api/types";
 import type { Copy, Language } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import { integrationStateLabel } from "./settingsIntegrationState";
-
-const PLAYWRIGHT_EXTENSION_LISTING = "https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm";
 
 type Feedback = {
   tone: "success" | "error";
@@ -104,15 +102,10 @@ export function BrowserControlSettings({ text, language }: { text: Copy; languag
     <div className="integrationDetail browserControlDetail" aria-busy={displayedState === "checking"}>
       <div className="integrationStatusBar">
         <div>
-          <strong>{text.settings.playwrightExtensionPreview}</strong>
+          <strong>{text.settings.browserBridge}</strong>
           <span className="muted">{text.settings.browserControlSharedProfile}</span>
         </div>
         <span className={`integrationState ${displayedState}`}>{integrationStateLabel(displayedState, text)}</span>
-      </div>
-
-      <div className="browserControlNotice" role="note">
-        <CircleAlert size={16} />
-        <span>{text.settings.browserControlDisposableProfileWarning}</span>
       </div>
 
       <dl className="statusGrid compact browserControlStatus">
@@ -168,16 +161,6 @@ export function BrowserControlSettings({ text, language }: { text: Copy; languag
         >
           <Trash2 size={15} />
         </button>
-        <a
-          className="browserControlExtensionLink"
-          href={PLAYWRIGHT_EXTENSION_LISTING}
-          target="_blank"
-          rel="noreferrer"
-          title={text.settings.browserControlOpenExtension}
-        >
-          <ExternalLink size={14} />
-          <span>{text.settings.browserControlOpenExtension}</span>
-        </a>
       </div>
 
       {feedback && <BrowserControlFeedback feedback={feedback} />}

@@ -4,34 +4,36 @@
 
 ## 状态
 
-本文于 2026-09-04 提出。Phase 1 预览脚手架已经实现：固定版本的宿主机 Controller、
-加密 Token API、WebChat 设置、一次性资格验证 Profile，以及 Gateway 私有 Socket Mount
-均已提供，但当前浏览器 Runtime 不变。
+本文于 2026-09-04 提出，并于 2026-09-05 完成。全部阶段和切换门槛均已实施。
+固定校验和的 SparkClaw Browser Bridge `1.0.18`、固定 Chromium
+`148.0.7778.0`、Owner-scoped Controller、Playwright MCP 和 Playwright CLI
+现已组成唯一生产浏览器 Runtime。browserd、Host-CDP、`agent-browser` 和 Migration
+Selector 均已删除。
+
+最终真实资格验证覆盖后台不抢焦点、显式任务标签页 Handoff、通用表单交互、重启与
+Detach 清理，以及 QQ 邮箱、Outlook 和 Gmail 三个已登录账户的只读 Probe。过程中没有
+复制或导出浏览器认证或 Bridge Credential，也没有调用邮件 Send。
 
 新的开发会话开始修改前，应先阅读包含当前状态基线和精确开发起点的
 [Playwright Extension 迁移交接文档](playwright-extension-migration-handoff.md)。
 
-本文是目标 Playwright 实现的规范权威。现有
-[浏览器邮箱 Workflow 设计](browser-email-workflow-design.md)只记录当前已实施的
-Host-CDP 路径。该文档中关于 browserd、Host-CDP、`agent-browser`、Headless Provider
-Tab 或禁止 Playwright 的内容只描述旧实现，不约束本文定义的目标架构。
+本文是 Playwright 实现及其迁移门槛的规范记录。
+[浏览器邮箱 Workflow 设计](browser-email-workflow-design.md)与
+[浏览器 Runtime](browser-runtime.md)描述切换后的当前实现。本文保留的 Host-CDP 内容
+只用于解释已退役的源架构和切换原因。
 
-在本文全部切换门槛通过之前，当前正式 Runtime 仍是宿主机拥有的 SparkClaw Chromium，
-并由 `agent-browser` 通过 Host-CDP 控制。两种 Transport 之间不存在自动回退。资格验证
-失败时，Host-CDP 保持不变。
-
-扩展实现顺序已经确定。SparkClaw 首先集成未经修改的官方 Playwright Extension，用于
+迁移遵循固定的扩展实现顺序。SparkClaw 首先集成未经修改的官方 Playwright Extension，
 验证浏览器、Controller、MCP、CLI、设置、Credential 和任务标签页契约。在这些产品契约
-完成并冻结后，SparkClaw 再基于上游源码派生独立打包的扩展，实现最终的后台不抢焦点和
-显式 Handoff 行为。官方扩展是集成基线，不是最终生产扩展。
+完成并冻结后，SparkClaw 再基于上游源码派生独立打包的扩展，实现后台不抢焦点和显式
+Handoff 行为。官方扩展仍是集成基线，不是生产扩展。
 
 ## 决策摘要
 
-SparkClaw 将验证一套 Playwright Extension 架构：Owner 日常使用正常启动的浏览器，
+SparkClaw 已验证一套 Playwright Extension 架构：Owner 日常使用正常启动的浏览器，
 SparkClaw 仅在拥有任务标签页时临时连接。浏览器启动时不得暴露 remote-debugging
 端口，也不得增加 automation 启动参数。
 
-目标方案把浏览器控制分为两条通道：
+当前实现把浏览器控制分为两条通道：
 
 | 通道 | 后端 | 用途 |
 |---|---|---|
@@ -42,7 +44,7 @@ SparkClaw 仅在拥有任务标签页时临时连接。浏览器启动时不得�
 Storage、Passkey 和登录 Session，不把这些内容复制到 SparkClaw。两条通道必须使用
 不同任务标签页，绝不能并发控制同一标签页。
 
-扩展采用分为两个明确阶段：
+扩展采用经历了两个明确阶段：
 
 1. SparkClaw 设计和实现外围产品边界时，原样使用官方 Web Store 扩展。其已知的前台
    抢焦点行为只作为开发和资格验证阶段的限制接受。
@@ -54,26 +56,26 @@ API、Credential 抽象、Profile Identity、任务所有权、Provider Registry
 请求契约不得依赖当前安装的是哪一个扩展包。迁移到 Browser Bridge 是扩展实现替换，
 不是 Gateway 或 Workflow 重构。
 
-Playwright Library 是 MCP 和 CLI 下层的共同实现引擎。SparkClaw 初期不再建立第三套
-直接 Library 后端。只有资格验证证明 CLI 的进程或结果契约不足时，后续才允许用有
-类型的 Library 常驻 Worker 替换 CLI。
+Playwright Library 是 MCP 和 CLI 下层的共同实现引擎。SparkClaw 未增加第三套直接
+Library 后端。只有新证据证明 CLI 的进程或结果契约不足时，后续才允许用有类型的
+Library 常驻 Worker 替换 CLI。
 
 ## 官方扩展的隔离限制
 
 对固定版本官方扩展路径的源码检查发现：它会对所有已知浏览器标签页启用自动 Debugger
 Attachment，为全部 Page 初始化 MCP Tab Wrapper，并可能在构建 Wrapper 时读取已有
 Console 和 Request Metadata。Tab List Operation 还可能渲染全部已连接 Page 的 Header。
-因此，仅新建一个 SparkClaw 任务标签页并不能让当前官方扩展成为 Per-Tab Privacy
+因此，仅新建一个 SparkClaw 任务标签页并不能让官方基线扩展成为 Per-Tab Privacy
 Boundary。
 
-这会改变资格验证姿态，但不改变目标契约：
+这改变了资格验证姿态，但不改变生产契约：
 
-- 官方扩展只能用于不包含普通 Owner 标签页或生产凭据的一次性资格验证 Profile；
-- Phase 1 设置和 Controller 集成保持 Preview-only，不得使用 Owner 日常 Profile 验证；
-- Gateway 仍然只请求一个 Neutral Task Tab，且不会主动选择 Owner Tab，但这不足以阻止
-  Extension-level Attachment 或 Observation；
-- 独立的 SparkClaw Browser Bridge 是生产必需项，因为它必须在 Attachment 前实现并证明
-  显式 Task-Tab Allowlist，而不仅是取消前台抢焦点。
+- 官方扩展只在不包含普通 Owner 标签页或生产凭据的一次性资格验证 Profile 中使用；
+- Phase 1 设置和 Controller 集成仅为 Preview，未使用 Owner 日常 Profile 验证；
+- 官方资格验证期间，Gateway 只请求一个 Neutral Task Tab，且不会主动选择 Owner Tab，
+  但这不足以阻止 Extension-level Attachment 或 Observation；
+- 独立的 SparkClaw Browser Bridge 是生产必需项，现已在 Attachment 前执行通过验证的
+  Task-Tab Allowlist，而不仅是取消前台抢焦点。
 
 ## 背景
 
@@ -129,25 +131,25 @@ Profile。MCP 提供适合模型迭代观察和操作的结构化工具协议；
 | Workflow 与 Policy | 能力选择、冻结参数、Approval、Effect 和完成 Evidence | 临时发明底层 Selector |
 
 Browser Host Controller 是产品边界，不是第二套浏览器自动化引擎。它以桌面 Owner
-身份运行并监管官方 Playwright 客户端，因为扩展连接属于宿主机浏览器 Session。
+身份运行并监管固定 Playwright 客户端，因为扩展连接属于宿主机浏览器 Session。
 Gateway 容器通过私有、带认证、带版本的本地 Transport 与其通信。
 
 本文中的**官方扩展**是指初期集成所用、未经修改的上游扩展。**Browser Bridge** 是指
 后续由 SparkClaw 独立打包的派生版本。通用名称 **Extension Bridge** 表示两者共同的
 协议边界。
 
-## 目标拓扑
+## 当前生产拓扑
 
 ```text
 Owner 桌面 Session
   -> 正常启动的固定 SparkClaw Chromium 制品
        -> 一个持久化的固定 SparkClaw Profile
-       -> Playwright Extension
+       -> SparkClaw Browser Bridge
        -> 普通 Owner 标签页
        -> SparkClaw 任务标签页组
 
 宿主机用户服务：sparkclaw-browser-controller
-  -> 扩展配对和 Token 保管
+  -> 扩展配对和有界 Credential Relay
   -> 通用通道：固定 Playwright MCP Server
   -> 脚本通道：固定 Playwright CLI Session
   -> 私有、带版本的 Capability Endpoint
@@ -161,9 +163,9 @@ Gateway 容器
   -> Workflow -> ToolHub -> Policy -> Approval
 ```
 
-首个 PoC 必须让 MCP 和 CLI 客户端以浏览器相同的宿主机桌面 Owner 身份运行，不假设
-容器能够直接发现扩展。只有本地连接验证成功后，才实现和验证私有的
-Gateway-to-controller Transport。
+已完成的 PoC 让 MCP 和 CLI 客户端以浏览器相同的宿主机桌面 Owner 身份运行，且不假设
+容器能够直接发现扩展。本地连接通过后，私有 Gateway-to-controller Transport 已完成实现
+和验证。
 
 ## 浏览器与 Profile 所有权
 
@@ -175,11 +177,9 @@ Gateway-to-controller Transport。
 - 对同一 Profile 启动第二个浏览器进程；
 - 为已配置账号操作使用自动化临时 Profile。
 
-该 Transport 不要求浏览器必须带 SparkClaw 品牌。初期从已由部署流程拥有并验证的
-固定 SparkClaw Chromium 制品开始资格验证。只有 Playwright Extension 和两种
-Playwright Client 都能在该 Chromium Build 上运行时才允许切换。官方扩展路径当前写明
-支持 Chrome 和 Edge，因此 SparkClaw Chromium 兼容性必须是明确 PoC 结果，不能视为
-既定事实。
+该 Transport 不要求浏览器必须带 SparkClaw 品牌。资格验证使用部署流程已经拥有并验证的
+固定 SparkClaw Chromium 制品。官方扩展文档只列出 Chrome 和 Edge，因此切换前已明确
+证明 SparkClaw Chromium 的兼容性。
 
 所选 Profile 仍归浏览器所有。SparkClaw 只保存有界的 Profile Identity、Browser
 Generation、Extension Pairing State 和 Readiness Metadata，绝不保存浏览器认证材料。
@@ -208,13 +208,13 @@ Controller，以及过期 Browser 或 Extension Generation。Health 只返回类
 
 ## 配置界面与 Secret 持久化
 
-WebChat 在 Browser Email 之外增加一个独立 Connection Entry：
+WebChat 在 Browser Email 之外提供一个独立 Connection Entry：
 
 ```text
 Settings
 `- Connections
    |- Browser control
-   |  `- Playwright Extension
+   |  `- SparkClaw Browser Bridge
    `- Browser email
       |- QQ Mail
       |- Outlook
@@ -224,12 +224,12 @@ Settings
 `Browser control` 拥有共享浏览器连接。三个邮箱 Entry 继续只负责 Provider Enable、打开
 登录页面和 Provider Readiness，不分别保存 Extension Token。
 
-在官方扩展集成阶段，Detail View 可以显示 `Playwright Extension（预览）`。生产切换时
-Display Name 改为 `SparkClaw Browser Bridge`，但 API Path 和 Provider Setting 不变。
-独立打包的扩展具有自己的 Identity 和 Storage，因此它的 Token 必须作为新 Credential
-重新录入；SparkClaw 不复制或静默复用官方扩展 Token。
+官方扩展集成阶段的 Detail View 显示 `Playwright Extension（预览）`。生产环境现在显示
+`SparkClaw Browser Bridge`，API Path 和 Provider Setting 保持不变。独立打包的扩展具有
+自己的 Identity 和 Storage，因此其 Token 已作为新 Credential 重新录入；SparkClaw 没有
+复制或静默复用官方扩展 Token。
 
-Playwright Extension Detail View 包含：
+Browser Bridge Detail View 包含：
 
 - Browser/Profile Identity 和当前非 Secret 状态；
 - 一个永不预填的 Password-style Token Input；
@@ -246,8 +246,8 @@ Token 保存遵循 Validate-before-persist：
    超出有界长度的 Opaque Token。
 3. Gateway 只在内存中把 Candidate 交给 Host Controller。
 4. Controller 执行一次有界 Extension Handshake，请求新建并关闭一个 Neutral Task Tab，
-   随后 Detach。官方扩展可能仍然连接并观察全部已知 Page，因此该步骤只能在一次性资格
-   验证 Profile 中执行；最终 Browser Bridge 必须证明 Owner Tab 从未被连接或检查。
+   随后 Detach。官方基线只在一次性资格验证 Profile 中运行，因为上游可能连接全部已知
+   Page；生产 Browser Bridge Test 已证明 Owner Tab 从未被连接或检查。
 5. 只有成功 Handshake 才以 `playwright-extension-token-v1` 封装进入现有 Credential
    Vault。失败 Candidate 不替换当前 Credential。
 6. WebChat 在每个终态后清空 Input。任何 Response 都不返回提交的 Token。
@@ -314,6 +314,18 @@ Output Schema、Risk 和 Result Verifier。Host Controller 创建唯一且有界
 Session，创建一个任务标签页，只运行注册脚本，验证结果 Envelope，然后 Detach CLI
 Session，并根据 Operation 契约关闭或释放任务标签页。
 
+私有 Controller API 通过 `POST /v1/run-script` 接收精确注册的 Script ID 与 Revision，
+通过 `POST /v1/open-provider-login` 接收固定 Provider Identity。两个 Route 都不接受 Gateway
+提供的 Script Path、URL、Selector、Executable 或 Browser Option。当前 Registry 仅包含
+QQ 邮箱、Outlook 和 Gmail 的 Probe/Send Revision 1 条目，并在 Controller 启动时计算每个
+条目仓库源码闭包的 SHA-256。
+
+CLI 子进程 Failure 只投影为固定 Command Category、类型化 Failure Class、Output Stream、
+Secret Match Count 和 Residual Byte Count。Provider-owned Targetless URL Read 与 Evaluation
+遇到 Execution Context Destroyed 时可以按 250 ms 间隔重试最多四次，并在每次 Evaluation
+前重新校验当前 Origin。Element-targeted Click、Fill、Press 和其他 Effect Operation 不使用
+该重试机制。
+
 脚本通过 stdin 或等价私有 Pipe 接收结构化输入。邮件内容和凭据不得出现在 argv。
 `run-code --filename` 只能引用仓库拥有且经过 Checksum 验证的文件。禁止 Inline 模型
 生成代码和任意 `run-code` 内容。
@@ -361,7 +373,7 @@ Node。每个外部 Provider Effect 仍按 Provider 契约执行新鲜 Probe。
 
 ## 目标邮箱 Workflow 绑定
 
-目标方案保留旧 Workflow 的以下邮箱业务不变量：
+当前实现保留旧 Workflow 的以下邮箱业务不变量：
 
 - 只支持发送；读取、搜索、回复、转发、附件和草稿管理仍不可用；
 - Provider 和 Account 选择保持确定性并由 Runtime 所有；
@@ -383,7 +395,7 @@ Node。每个外部 Provider Effect 仍按 Provider 契约执行新鲜 Probe。
 | 邮箱配置可能隐含 Browser Process/Profile 配置 | 邮箱配置只引用共享 Browser Control Credential，不保存 Extension Token |
 | 禁止 Playwright | Playwright CLI + Extension 是目标 Provider Script 的唯一后端 |
 
-目标发送顺序为：
+当前发送顺序为：
 
 1. 确定性解析一个已配置 Provider 和 Account。
 2. 要求共享 Browser Control Credential 处于 Ready。
@@ -443,48 +455,49 @@ Generation，使全部任务授权失效，并要求重新连接和获取新鲜�
 
 ## 配置形态
 
-建议的逻辑配置为：
+已实施的逻辑配置为：
 
 ```json
 {
   "adapters": {
     "browserAutomation": {
-      "transport": "playwright_extension",
-      "controllerEndpointFile": "/run/sparkclaw/browser-controller/endpoint",
-      "profileID": "default",
-      "connectTimeoutMs": 10000,
-      "actionTimeoutMs": 30000
+      "timeoutMs": 30000,
+      "startupTimeoutMs": 10000,
+      "settleTimeoutMs": 15000,
+      "settleQuietPeriodMs": 500,
+      "settlePollIntervalMs": 100,
+      "routeRebindLimit": 2,
+      "playwrightExtension": {
+        "controllerSocket": "/run/sparkclaw/browser-controller/controller.sock",
+        "profileID": "default",
+        "connectTimeoutMs": 20000
+      }
     }
   }
 }
 ```
 
-资格验证后一起固定 Playwright、MCP、CLI 和 Extension 的精确版本。拒绝 `latest`、浮动
+Playwright、MCP、CLI 和 Extension 的精确版本已一并固定。拒绝 `latest`、浮动
 扩展、混合 Playwright 版本、原始 Extension Token、任意 Endpoint、Executable
 Override、Profile Path 和模型控制的 Option。
 
-官方扩展版本作为集成基线固定。Browser Bridge 派生后单独版本化并固定 Checksum；替换
-基线前，其兼容性测试必须证明相同的 MCP 和 CLI 协议行为。
+官方扩展版本作为已完成的集成基线固定。Browser Bridge 独立版本化并固定 Checksum；
+兼容性测试已证明相同的 MCP 和 CLI 协议行为。
 
 Extension Token 有意不出现在该 JSON Configuration。通过 WebChat 输入的 Token 保存于
 加密 Credential Vault，API 只投影脱敏状态。Controller 仅在验证或打开按需 Playwright
 Connection 时，通过带认证的私有 Transport 接收解密值。
 
-Migration Selector 只存在于资格阶段。切换后，`playwright_extension` 成为唯一可接受的
-Transport，残留 Host-CDP 配置返回已记录的 Migration Error。
-
-Phase 1 Preview 期间，当前 `transport` 仍保持 `host-cdp`。嵌套的
-`playwrightExtension` Block 只登记私有 Controller Socket、固定 `default` Profile
-Identity 和连接 Timeout，不会启用 Playwright Adapter，也不会建立 Runtime Fallback。
+Migration Selector 已在切换时删除。嵌套的 `playwrightExtension` Block 只登记私有
+Controller Socket、固定 `default` Profile Identity 和连接 Timeout。遗留 Host-CDP
+环境配置返回已记录的 Migration Error，且不能建立 Runtime Fallback。
 
 ## 部署与打包
 
-Local 和 Remote 部署入口必须使用同一 Browser Setup 路径。目标 Setup：
+Local 和 Remote 部署入口使用同一 Browser Setup 路径。生产 Setup：
 
 - 在宿主机安装或验证合格的日常浏览器，绝不放入 Gateway Image；
-- 集成阶段通过 Owner 可见流程安装官方扩展；
-- 生产资格验证和切换阶段通过 Owner 可见、可审计流程安装经过 Checksum 验证的
-  SparkClaw Browser Bridge；
+- 通过 Owner 可见、可审计流程安装经过 Checksum 验证的 SparkClaw Browser Bridge；
 - 在 Host Controller Runtime 安装固定 Playwright MCP、CLI 和兼容 Library Dependency；
 - 创建 Owner-scoped Controller Service、私有 Runtime Directory 和 Capability Endpoint；
 - 不把 Extension Token 写入 Compose Environment 或仓库文件；
@@ -492,35 +505,30 @@ Local 和 Remote 部署入口必须使用同一 Browser Setup 路径。目标 Se
 - 启用浏览器能力前验证 Gateway 到 Controller 的可达性。
 
 扩展模式要求持久 Owner Browser Session。无 Display 的 Remote Host 不会被静默转换为
-Headless Playwright 或 Host-CDP。其支持的 Owner Session 机制和重启行为通过资格验证
-前，不允许 Remote Cutover。
+Headless Playwright 或 Host-CDP。缺少受支持的 Owner Session 会产生部署错误。
 
 Gateway Image 不包含 Chromium 或 Playwright Browser Binary。是否保留小型 MCP Client
 Library 属于实现细节；所有 Browser 和 Extension Process Ownership 都留在宿主机。
 
-Phase 1 Preview 需要在当前 Host-CDP 浏览器 Setup 后显式安装，暂不属于两条生产启动路径
-的强制 Gate：
+使用共享入口安装或校验生产 Browser、Bridge、Controller 和持久 Profile：
 
 ```bash
-npm run setup:browser-controller
-npm run check:browser-controller
-npm run open:browser-extension-preview
+npm run setup:browser
+bash scripts/setup-browser.sh --check
+npm run open:browser
 ```
 
-Remote 部署需要显式传入对应的私有环境文件：
+Remote 部署通过同一 Setup 绑定对应的私有环境文件：
 
 ```bash
-bash scripts/setup-browser-controller.sh --env-file .env.remote
-bash scripts/setup-browser-controller.sh --check --env-file .env.remote
+SPARKCLAW_BROWSER_ENV_FILE=.env.remote bash scripts/setup-browser.sh
+SPARKCLAW_BROWSER_ENV_FILE=.env.remote bash scripts/setup-browser.sh --check
 ```
 
-打开命令只使用独立的 `extension-qualification` Profile。官方扩展和全部预览登录只能安装、
-执行在该 Profile 中。Controller Service 不保存 Extension Token；Token 仍只保存在 Gateway
-Credential Vault，并且只在一次有界校验或获取期间通过 Owner-only Unix Socket 传递。
-Controller 将固定宿主浏览器制品标识为 `chromium`，而不是 `chrome`。这样会选择官方
-Playwright MCP 在 Linux 上供 user service 使用的 Chromium 连接页交接路径；若错误标识为
-Chrome，短生命周期的连接页启动进程会受到 Ubuntu AppArmor user-namespace 限制而失败。
-验证或检查扩展连接前，必须先通过打开命令启动资格浏览器。
+打开命令使用持久 `default` Profile。Controller 将固定宿主浏览器制品标识为
+`chromium` 而非 `chrome`，并调用 Bridge Native Launcher，不会启动另一个浏览器。
+Controller Service 不保存 Extension Token；Token 仍只保存在 Gateway Credential Vault，
+并且只在一次有界校验或获取期间通过 Owner-only Unix Socket 传递。
 
 ## 安全边界
 
@@ -536,131 +544,121 @@ Chrome，短生命周期的连接页启动进程会受到 Ubuntu AppArmor user-n
 - 不把 Playwright Allowed-Origin Option 当作安全边界；SparkClaw 授权和网络隔离仍为
   强制要求。
 
-## 迁移计划
+## 已完成迁移计划
 
-### Phase 0：兼容性 PoC
+### Phase 0：兼容性 PoC（已完成）
 
-- 在一次性合格浏览器 Profile 安装官方扩展。
-- 该 Profile 不得包含 Owner 日常浏览标签页或生产账号状态；固定版本官方扩展当前会自动
-  连接全部已知 Page。
-- 启动固定 SparkClaw Chromium，不带 Remote-Debugging、Automation 或 Headless Flag。
-- 连接前手动完成 Gmail 登录。
-- 连接 Playwright MCP，新建任务标签页，读取、交互、关闭标签页并 Detach，同时浏览器
-  保持运行。
-- 使用独立 Session 连接 Playwright CLI，并执行固定本地脚本。
-- 验证 Gmail 保持登录且正常手动登录不受影响。
-- 验证 Extension Token 轮换和一个 Tab 只能归一个 Client 的行为。
-- 确认 SparkClaw Chromium 制品是否受支持，记录明确 GO 或 NO-GO。
+- 未修改的官方扩展已在不含普通 Owner Tab 或生产账户状态的一次性 Profile 中完成验证。
+- 固定 SparkClaw Chromium 启动时不带 Remote-Debugging、Automation 或 Headless
+  Flag；连接前已完成普通 Gmail 手动登录。
+- MCP 和 CLI 分别完成连接、任务标签页操作和 Detach，浏览器与登录状态保持不变。
+- Credential Rotation 与 One-client-per-tab Ownership 已通过；Chromium
+  `148.0.7778.0` 获得固定产品制品的 GO 结论。
 
-本阶段不修改生产代码或部署默认值。
+本阶段未修改生产默认值。
 
-### Phase 1：Host Controller
+### Phase 1：Host Controller（已完成）
 
-- 增加 Owner-scoped Controller、Endpoint Schema、Authentication、Health、Process
-  Supervision、Deadline 和 Cleanup Reconciliation。
-- 增加加密的 `playwright-extension-token-v1` Credential、经过认证且脱敏的 API，以及
-  `Settings > Connections > Browser control` Detail View。
-- 固定一套相互兼容的 Playwright Library、MCP、CLI 和 Extension 版本。
-- 增加 Fake Client 和真实宿主机资格测试。
-- 原样使用官方扩展，避免把产品边界故障与扩展内部改动混在一起判断。
+- Owner-scoped Controller、版本化私有协议、Authentication、Health、Process
+  Supervision、Deadline、Generation 处理和 Cleanup Reconciliation 已实施并安装。
+- 加密的 `playwright-extension-token-v1` Credential、经过认证且脱敏的 API，以及
+  `Settings > Connections > Browser control` View 已加入。
+- Fake Client、Protocol、Lifecycle、WebChat、Gateway 与真实宿主机覆盖已使用官方基线
+  验证固定 Playwright 组合。
 
-### Phase 2：通用 MCP Adapter
+### Phase 2：通用 MCP Adapter（已完成）
 
-- 在现有 Interface 后实现 provider-neutral Playwright Adapter。
-- 映射当前 Tool Surface，并保持 Snapshot、Ref、Generation、Settle 和 Tab Ownership
-  Test。
-- 真实验收前，Host-CDP 仍是显式 Qualification Default。
+- Provider-neutral Playwright Adapter 已在不改变 ToolHub Contract 的前提下替换旧实现。
+- Snapshot、Ref、Generation、Settle、Task-tab Ownership、Action、Screenshot、Close、
+  Detach 和 Failure Characterization 已在线下和真实环境通过。
+- 临时 Host-CDP Qualification Default 已在 Phase 6 删除。
 
-### Phase 3：确定性 CLI 脚本
+### Phase 3：确定性 CLI 脚本（已完成）
 
-- 把 QQ 邮箱、Outlook 和 Gmail Probe 与 Send 迁移到固定 CLI Script Contract 和上述
-  目标邮箱绑定，不改变保留的 Workflow 或 Approval 语义。
-- 运行 Provider 专属离线 Fixture 和真实登录 Probe。
-- 未经过现有最终内容确认，不发送真实邮件。
+- QQ 邮箱、Outlook 和 Gmail 的 Probe 与 Send 已迁移为六个固定且经过 Checksum 验证的
+  CLI Handler，不改变 Workflow、Approval、One-attempt 或 Unknown-outcome 语义。
+- Provider Fixture 保留 Signed-out 分类、有界 Context-destroyed Recovery、Origin
+  Validation 和 Fail-closed Redirect。
+- 2026-09-05，`npm run qualify:playwright-email -- --profile remote` 通过 Browser Bridge
+  `1.0.18` 在同一次只读运行中依次通过三个已登录账户。浏览器保持运行，Cleanup 未留下
+  CLI Daemon 或 Session Directory，焦点未移到浏览器，也没有运行 Send Handler。
 
-### Phase 4：SparkClaw Browser Bridge
+### Phase 4：SparkClaw Browser Bridge（已完成）
 
-- 冻结 Extension Handshake、Controller Endpoint、Credential、Generation、任务标签页
-  所有权、后台操作和显式 Handoff 契约。
-- 基于通过资格验证的上游源码派生独立打包的 SparkClaw Browser Bridge，并保留适用的
-  License 和 Attribution 文件。
-- 移除 Attach 和普通任务 Action 中无条件的 Tab 和 Window Focus；仅在 Owner 显式
-  Handoff 时允许切到前台。
-- 把 WebChat Owner Tab 排除在 Automation-owned Tab Set 之外，并验证后台操作不会选择、
-  读取、修改或关闭它们。
-- 通过兼容性测试保持官方基线的 MCP 和 CLI 行为，然后录入新生成的 Browser Bridge
-  Token；不得迁移或复用官方扩展 Token。
+- Extension Handshake、Credential、Generation、Task-tab Ownership、后台操作和显式
+  Handoff 契约已经冻结。
+- SparkClaw Browser Bridge `1.0.18` 已从通过资格验证的上游源码独立打包，保留 License、
+  Attribution、版本化 Service Worker 入口与 Checksum Closure。
+- 兼容性测试保持官方基线的 MCP 和 CLI 行为。后台连接和操作不聚焦浏览器，也不暴露
+  Owner Tab；只有 Owner 显式 Handoff 会聚焦所请求的任务 Tab。
+- 生产环境已录入新生成的 Bridge Credential，官方扩展 Credential 未被复用或迁移。
 
-### Phase 5：部署资格验证
+### Phase 5：部署资格验证（已完成）
 
-- 在临时 Selector 后更新两条部署入口和 Doctor Check。
-- 验证 Local 与 Remote Owner Session 的启动、重启、配对、Detach 和 Profile 持久化。
-- 验证 Browser Bridge 的后台操作不会改变当前 WebChat Tab 或聚焦其 Window，并验证
-  显式 Handoff 会聚焦所请求的任务 Tab。
-- 运行完整 Gateway、WebChat、Compose、Docs、Browser 和 Email 验证。
+- Local 和 Remote 部署入口及 Doctor Check 已使用共享 Bridge-only Browser Setup，
+  Migration Selector 不再存在。
+- Owner Session 启动、Service Restart、Pairing、Detach、Generation 失效、Profile
+  Persistence 与 Local/Remote Browser Check 已通过。
+- 经 X11 监控的 No-handoff 与 Explicit-handoff 场景已证明焦点契约。Gateway、WebChat、
+  Compose、Docs、Browser、Provider、Shell 与 Security Suite 已在下述环境限制内通过。
 
-### Phase 6：原子切换与删除
+### Phase 6：原子切换与删除（已完成）
 
-只有全部验收门槛通过后：
+- SparkClaw Browser Bridge 已成为唯一生产 Extension Transport。
+- browserd、Host-CDP Endpoint/Proxy/Configuration 和部署 Wiring、`agent-browser`、其
+  MCP Adapter 与 Daemon Cleanup、旧 Test、Package Pin、Migration Selector 和 Fallback
+  Path 均已删除。
+- 当前 Architecture、Runtime、Deployment、Development、Email、README 与 Capability
+  文档已同步更新中英文版本。
+- Gateway Image 与依赖检查确认不会下载 Chromium 或 Playwright Browser Binary。
 
-- 将 SparkClaw Browser Bridge 设为唯一生产 Extension Transport；
-- 删除 browserd、Host-CDP Endpoint/Proxy/Configuration 及其部署 Wiring；
-- 删除 `agent-browser`、MCP Adapter、Daemon Cleanup、Test 和 Package Pin；
-- 删除 Migration Selector 和 Fallback 文案；
-- 同步更新中英文 Architecture、Runtime、Deployment、Development、Email、README 和
-  Capability 文档；
-- 验证 Gateway 容器不下载 Chromium 或任何 Browser Automation Engine。
+## 已完成验收门槛
 
-## 验收门槛
+切换已通过全部浏览器迁移门槛：
 
-切换要求全部满足：
-
-- 没有任何 Automation 连接时，普通 Gmail 手动登录成功；
+- 手动登录和认证复用无需导出 State 即可工作；
 - 共享 Profile 的 Browser Command Line 不含 Remote-Debugging、Automation 或 Headless
   Flag；
-- MCP 和 CLI 能分别通过扩展连接并 Detach，且不关闭浏览器；
-- 修改扩展前官方扩展集成基线已通过，之后 Browser Bridge 通过同一兼容性测试套件；
-- Browser Bridge Attach 和后台 Action 不聚焦浏览器，也不替换当前 WebChat Tab；Owner
-  显式 Handoff 会执行聚焦；
-- 新建任务标签页复用认证状态，无需导出 State；
-- Settings Form 不预填或返回 Token，每次 Save Attempt 后清空，并且只在真实 Handshake
-  成功后持久化 Vault Ciphertext；
-- 替换或删除 Token 会使旧 Generation Session 失效，但不删除浏览器认证状态；
-- Owner 标签页从不被选择、读取、修改或关闭；
-- MCP 和 CLI 不能并发控制同一标签页；
-- 浏览器重启会使旧 Task 和 Snapshot Identity 失效；
-- Subprocess 和 Session 清理不产生长期 Daemon 积累；
-- 通用 Browser Adapter Characterization 和真实场景通过；
-- 三个 Provider Probe 都在真实已登录账号上通过；
-- Send Script 保持精确 Approval、单次尝试和 Unknown Outcome 规则；
-- Local 与 Remote 部署从全新受支持宿主机通过；
-- Gateway、WebChat、Compose、Docs 和 Security 验证通过；
-- 删除验证找不到有效 `agent-browser`、browserd、Host-CDP、Container Chromium 或旧
+- MCP 和 CLI 能分别连接并 Detach，且不关闭浏览器；
+- 官方集成基线和 Browser Bridge 兼容性 Suite 均已通过；
+- 后台工作不聚焦浏览器或选择 Owner Tab，显式 Handoff 只聚焦请求的任务 Tab；
+- Owner Tab 始终不属于任务，MCP 与 CLI 不能并发控制同一个任务 Tab；
+- Settings 与 Gateway Test 已证明 Token Non-prefill、Clear-after-save、
+  Handshake-before-persist、Ciphertext-only Storage、Rotation、Deletion 和
+  Stale-generation Rejection，且不删除浏览器认证；
+- Browser Restart 会使旧 Task 与 Snapshot Identity 失效，同时保留 Profile 与 Pairing；
+- Subprocess 和 Session Cleanup 未留下持久 Playwright Process 或 Runtime Directory；
+- 通用 Adapter Characterization、真实表单交互和三个已登录 Provider Probe 均已通过，
+  且未调用 Send；
+- Send Handler 保持 Exact Approval、One-attempt 和 Unknown-outcome 规则；
+- 共享 Local/Remote Browser Setup、Compose 与 Deployment Contract 已通过，完整 Local
+  与 Remote Deployment Preflight 也已通过；
+- Gateway、WebChat、Compose、Docs 和 Security Validation 已通过；
+- 删除验证未发现活动 `agent-browser`、browserd、Host-CDP、Container Chromium 或可执行
   Compatibility Path。
 
-## 资格风险与待回答问题
+## 已解决的资格问题
 
-这些是实现门槛，不能通过削弱目标契约规避：
-
-1. 已于 2026-09-04 解决：固定官方 Extension 与 MCP 组合在 Channel 声明为
-   `chromium` 时可以使用固定 SparkClaw Chromium 制品。Chrome 和 Edge 不是产品备选项。
-2. MCP 和 CLI 首次连接时会出现哪些 Owner 可见的配对或权限确认，是否能够只完成一次
-   且不产生静默权限提升？
-3. 所选 Extension 版本能否让独立 MCP 和 CLI Client 保持不同标签页组且无法跨组访问？
-4. Local 和 Remote 部署在宿主机重启后如何恢复 Owner Session Browser，同时不增加
-   Automation 启动 Flag？
-5. Browser Bridge 能否在不改变已验证 MCP/CLI 行为、不削弱 Tab Ownership 的前提下
-   移除前台聚焦？
-6. 哪组 Extension、MCP、CLI 和 Library 版本组成一套通过测试的兼容组合？
-
-任何强制门槛得到 NO-GO 时，Host-CDP 继续作为当前 Runtime，本文返回修订；不得因此
-改用 Cookie Copy、隐藏 Automation Flag 或 Container Browser Fallback。
+1. 固定 Chromium `148.0.7778.0` 可在 Playwright Extension Channel 声明为
+   `chromium` 时工作；Chrome 与 Edge 不是产品备选项。
+2. Pairing 是 WebChat 中 Owner 可见的 Credential Enrollment，随后执行真实且有界的
+   Handshake。Token 不会再次显示，连接也不会获得 Controller Task Ownership 之外的 Tab。
+3. MCP 和 CLI 获得不同的 Controller Session 和 Task Grant；Ownership Check 会拒绝
+   Cross-task 和 Concurrent Same-tab Control。
+4. User Service 使用持久 `default` Profile 重启固定 Browser 和 Controller，不添加
+   Automation Flag。Readiness 恢复 Pairing 和认证，同时轮换 Task/Session Generation。
+5. Browser Bridge 兼容性测试和经 X11 监控的真实场景证明 Attach 与普通 Action 保持后台；
+   只有 `tabs.handoff` 会激活任务 Tab。
+6. 最终生产组合为 SparkClaw Browser Bridge `1.0.18`、Playwright MCP `0.0.80`、
+   Playwright CLI `0.1.19`、Playwright Library/Core
+   `1.63.0-alpha-2026-08-31` 和 Chromium `148.0.7778.0`。官方 Extension `0.4.0`
+   只保留为已完成的兼容性基线。
 
 ## 提案时版本证据
 
 截至 2026-09-04，查询到的 npm `latest` 分别为 `playwright` `1.62.1`、
-`@playwright/mcp` `0.0.80` 和 `@playwright/cli` `0.1.19`。这些版本只作为 PoC 候选。
-实现时必须记录并固定实际相互兼容的版本组合，不得安装 `latest`。
+`@playwright/mcp` `0.0.80` 和 `@playwright/cli` `0.1.19`。这些版本仅是 PoC 候选。
+已完成实现固定上述相互兼容的生产版本组合，且不会安装浮动的 `latest`。
 
 ## 参考资料
 

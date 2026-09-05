@@ -32,7 +32,7 @@ func (h *ToolHub) emailSend(ctx context.Context, args map[string]any, sessionID 
 	if err != nil {
 		return Result{}, err
 	}
-	browserGeneration, err := positiveUint64StringArg(args, "browser_generation")
+	browserCredentialGeneration, err := positiveUint64StringArg(args, "browser_credential_generation")
 	if err != nil {
 		return Result{}, err
 	}
@@ -46,16 +46,16 @@ func (h *ToolHub) emailSend(ctx context.Context, args map[string]any, sessionID 
 	}
 
 	result, err := h.emailSender.SendForOwner(ctx, session.OwnerID, app.EmailSendRequest{
-		Provider:          stringArg(args, "provider", ""),
-		Account:           stringArg(args, "account", ""),
-		Recipient:         stringArg(args, "recipient", ""),
-		Subject:           stringArg(args, "subject", ""),
-		Body:              stringArg(args, "body", ""),
-		InvocationID:      stringArg(args, "invocation_id", ""),
-		BrowserGeneration: browserGeneration,
-		ProbeRevision:     probeRevision,
-		ScriptRevision:    scriptRevision,
-		SettingVersion:    settingVersion,
+		Provider:                    stringArg(args, "provider", ""),
+		Account:                     stringArg(args, "account", ""),
+		Recipient:                   stringArg(args, "recipient", ""),
+		Subject:                     stringArg(args, "subject", ""),
+		Body:                        stringArg(args, "body", ""),
+		InvocationID:                stringArg(args, "invocation_id", ""),
+		BrowserCredentialGeneration: browserCredentialGeneration,
+		ProbeRevision:               probeRevision,
+		ScriptRevision:              scriptRevision,
+		SettingVersion:              settingVersion,
 	})
 	if err != nil {
 		var classified emailToolError

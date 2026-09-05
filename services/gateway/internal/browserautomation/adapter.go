@@ -93,13 +93,6 @@ func shouldUseHiddenAutomationTool(tool string, metadata browserModeFields, args
 	return tool != "browser.status" && shouldUseHiddenBrowserSession(metadata, args)
 }
 
-func browserProviderName(hidden bool) string {
-	if hidden {
-		return "agent-browser-headless"
-	}
-	return "agent-browser-visible"
-}
-
 type browserModeFields struct {
 	BrowserMode    string
 	Presentation   string

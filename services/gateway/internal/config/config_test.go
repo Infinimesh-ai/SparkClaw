@@ -819,28 +819,17 @@ func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadAppliesHostCDPEnvironment(t *testing.T) {
-	endpointFile := filepath.Join(t.TempDir(), "cdp-endpoint")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND", "/opt/test/agent-browser")
+func TestLoadAppliesBrowserAutomationEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS", "31000")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", "11000")
-	t.Setenv("SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE", endpointFile)
-	t.Setenv("SPARKCLAW_BROWSER_CDP_PROFILE_ID", "default")
-	t.Setenv("SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS", "12000")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Adapters.BrowserAutomation.Command != "/opt/test/agent-browser" ||
-		cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
+	if cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
 		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 {
-		t.Fatalf("agent-browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
-	}
-	hostCDP := cfg.Adapters.BrowserAutomation.HostCDP
-	if hostCDP.EndpointFile != endpointFile || !filepath.IsAbs(hostCDP.EndpointFile) ||
-		hostCDP.ProfileID != "default" || hostCDP.ConnectTimeoutMS != 12000 {
-		t.Fatalf("Host-CDP env did not apply: %#v", hostCDP)
+		t.Fatalf("browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
 	}
 }
 
@@ -899,6 +888,13 @@ func TestLoadRejectsRetiredBrowserEnvironment(t *testing.T) {
 		"SPARKCLAW_BROWSER_DISPLAY",
 		"SPARKCLAW_BROWSER_XAUTHORITY",
 		"SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS",
+		"SPARKCLAW_BROWSER_AUTOMATION_COMMAND",
+		"SPARKCLAW_BROWSER_AUTOMATION_TRANSPORT",
+		"SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST",
+		"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE",
+		"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST",
+		"SPARKCLAW_BROWSER_CDP_PROFILE_ID",
+		"SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv(name, "retired")
@@ -918,7 +914,8 @@ func TestLoadRejectsRetiredBrowserJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Load(path)
-	if err == nil || !strings.Contains(err.Error(), "chromiumExecutable is retired") {
+	if err == nil || !strings.Contains(err.Error(), "chromiumExecutable is retired") ||
+		!strings.Contains(err.Error(), "playwrightExtension controller-socket configuration") {
 		t.Fatalf("retired browser JSON error = %v", err)
 	}
 }

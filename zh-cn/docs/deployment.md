@@ -138,10 +138,11 @@ unspecified、link-local、reserved 与 multicast 地址。随后显式停止共
 本地模型容器，再准确启动 PostgreSQL、Sandbox Runner、Gotenberg、Gateway 与 WebChat。
 五个应用服务都使用 `restart: unless-stopped`。
 
-部署会安装或校验固定宿主 Chromium 与 `sparkclaw-browserd`，验证 Gateway readiness，执行
-容器侧 Host-CDP MCP smoke，并证明 Chromium 随后仍存活。无 display 主机运行宿主拥有的
-headless Chromium；桌面 owner 可以打开 **SparkClaw Browser**，让同一专用 Profile 按序
-切换到 headed presentation。
+部署会安装或校验固定宿主 Chromium、Checksum-pinned SparkClaw Browser Bridge 与
+Owner-scoped Playwright Controller。它要求有效 Owner X11/XWayland Session，启动持久 Headed
+Browser，校验已加载 Bridge Version 与 Private Controller Socket，等待 Gateway Ready，执行
+容器侧 Controller Smoke，并证明 Chromium 随后仍存活。不存在 Headless 或 Remote-debugging
+Startup Path。
 
 远端运行态的 reconcile、重新配置与只读检查：
 
@@ -149,22 +150,37 @@ headless Chromium；桌面 owner 可以打开 **SparkClaw Browser**，让同一�
 npm run start:remote
 bash scripts/deploy_remote.sh --configure
 bash scripts/deploy_remote.sh --check
-bash scripts/install-host-browser.sh --check --env-file .env.remote
+bash scripts/setup-browser.sh --check
 ```
 
-Playwright Extension Controller 是显式 Preview，不是生产浏览器 Backend。Remote 部署完成
-宿主浏览器安装后，具备宿主机 Node.js 26 与 npm 11 的 Owner 可以执行：
+两种部署模式使用相同的生产 Browser Setup。它创建 Owner-only Controller、MCP Output、CLI
+Runtime、Profile 和 Native Messaging Host Directory，只把固定 Controller Path 写入所选
+mode-`0600` 环境文件。这些目录不持久化 Extension Token，也不形成 Email Message Archive。
+Bridge Token 通过 `设置 > 连接 > 浏览器控制` 登记，并在 Gateway Vault 中保持加密。
+
+手动登录或 Human Verification 时使用 Desktop Launcher 或以下命令：
 
 ```bash
-bash scripts/setup-browser-controller.sh --env-file .env.remote
-bash scripts/open-browser-extension-preview.sh
+npm run open:browser
 ```
 
-只在第二条命令打开的独立浏览器中安装官方扩展并配置资格验证账号。不要使用日常 Profile
-或生产账号状态：固定版本官方扩展可能连接该 Profile 中的全部标签页。
-验证扩展 Token 前应保持该资格浏览器处于打开状态。Controller 将固定浏览器制品声明为
-`chromium`，以便官方 MCP 使用 Linux user-service 连接页交接路径。`npm run start:remote`
-的全部浏览器与邮箱执行仍继续使用 Host-CDP。
+账户在持久 SparkClaw Profile 中完成登录后，在宿主机运行固定只读 Provider Probe：
+
+```bash
+npm run qualify:playwright-email -- --profile remote
+```
+
+可用 `--providers qq_mail`、`--providers outlook` 或 `--providers gmail` 隔离单个 Provider。
+该 Helper 会校验并合并所选产品环境，把容器 PostgreSQL 与 Controller Path 映射到固定宿主机
+Endpoint，通过 Owner-only Key 打开现有 Vault Credential，并且只调用
+`TestPlaywrightExtensionLiveEmailProbes`。它不接受 URL、Selector、Script Path、邮件内容或 Send
+Operation；任一所选账号未通过 Login Probe 时都会非零退出。
+
+2026-09-04 的 Remote 资格验证基线通过上述精确命令依次完成 QQ 邮箱、Outlook 和 Gmail，
+总耗时约 94 秒。QQ 邮箱的两轮已登录 Evidence 使用 Playwright CLI-only 的 90 秒 Probe
+Deadline；其他 Probe 保持 45 秒上限。关闭官方扩展任务页可能在 `tab-close` 返回前终止 CLI
+连接，因此 Controller 只识别这一精确的 Page-closed 终态，并随后回收 Metadata-bound Daemon。
+资格 Chromium 保持运行，私有 Runtime Directory 恢复为空，且没有调用 Send Operation。
 
 Gateway 仍只在 Docker 内部可达，WebChat 默认发布 `18790`，精确配对 bootstrap 则只在宿主
 回环地址 `18795` 可达。该拓扑不安装 TLS 或防火墙规则，主 WebChat 端口应只放在 Owner
@@ -526,10 +542,10 @@ npm run start:local
 npm run start:remote
 ```
 
-两条路径都会在 Gateway startup 前验证 Host-CDP，等待 PostgreSQL 与 Gotenberg，要求
-Gateway 以 `model_mode=external` 和 `state_backend=postgres` ready，执行 MCP smoke，并证明
-Chromium 在 MCP shutdown 后仍存活。local 额外拥有五模型组；remote 拒绝本地模型 URL，
-并在应用启动前停止该模型组。
+两条路径都会在 Gateway Startup 前验证 Browser Bridge 与 Controller，等待 PostgreSQL 与
+Gotenberg，要求 Gateway 以 `model_mode=external` 和 `state_backend=postgres` Ready，执行
+Controller Smoke，并证明 Chromium 在 Client Detach 后仍存活。Local 额外拥有五模型组；
+Remote 拒绝本地模型 URL，并在应用启动前停止该模型组。
 
 ## DGX Spark Model Services
 
@@ -831,9 +847,10 @@ filesystem state 最好在 Gateway 停止后复制。
 
 ### 2026-07-30 之后升级需要注意的行为变化
 
-- 自 2026-09-02 起，Host-CDP 是唯一浏览器 runtime。两条部署脚本都会安装或校验宿主
-  `sparkclaw-browserd`；Gateway 不包含 Chromium/Xvfb，不挂载浏览器 Profile 或 X11
-  资源，并拒绝旧容器浏览器配置。
+- 自 2026-09-05 起，SparkClaw Browser Bridge 与 Owner-scoped Playwright Controller 是唯一
+  Browser Runtime。两种部署模式都会安装或校验持久宿主 Chromium 和两个 User Service。
+  Gateway 不包含 Chromium/Xvfb 或 Browser Automation Engine，只读挂载 Controller Runtime，
+  并拒绝已退役的 CDP/Transport 配置。
 - Telegram 和微信现在在 typed config、Compose 与示例环境中都出厂默认关闭；账号设置前需从
   WebChat 显式开启渠道。`SPARKCLAW_TELEGRAM_ENABLED` 和
   `SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED` 只在 owner 尚无持久化选择时提供初始值；binding
@@ -866,11 +883,9 @@ filesystem state 最好在 Gateway 停止后复制。
 - dangerous 和 reversible tools 保持 approval-gated。
 - shell execution 保持 sandboxed 且 network-disabled。
 - browser/email/file observations 视为 untrusted。
-- 保持 host 桌面和浏览器 Profile 对容器关闭。Gateway 只通过只读 runtime mount 获得
-  mode-`0600` browserd endpoint；capability 不得进入日志、trace、artifact 或公开配置输出。
-- 把 Preview Controller Socket 视为 Owner-only Capability。Gateway 只通过另一条只读
-  Runtime Mount 获得它；官方 Extension Token 保持在 Vault 中加密，绝不能进入 Compose
-  Environment。
+- 保持 Host Desktop 与 Browser Profile 对容器关闭。Gateway 只通过只读 Runtime Mount 获得
+  Owner-only Controller Socket；Browser Bridge Token 在 Vault 中保持加密，绝不能进入 Compose
+  Environment、Log、Trace、Artifact 或 Public Config Output。
 - `.env.local`、`.env.remote`、model weights、state encryption keys 和下载数据不进入 git。
 - 交付前扫描 diff 中的 token。
 
@@ -879,8 +894,7 @@ filesystem state 最好在 Gateway 停止后复制。
 | Symptom | Check |
 |---|---|
 | Docker permission denied | 使用 `sudo -n docker ...` 或将用户加入 Docker group。 |
-| Host-CDP browser unavailable | 运行 `bash scripts/install-host-browser.sh --check --env-file .env.local` 或对应 `.env.remote` 命令，检查 `systemctl --user status sparkclaw-browserd.service`，并确认 endpoint 由 deployment UID 拥有且权限为 `0600`。 |
-| Playwright Extension Preview unavailable | 运行 `npm run check:browser-controller` 或 `bash scripts/setup-browser-controller.sh --check --env-file .env.remote`，检查 `systemctl --user status sparkclaw-browser-controller.service`，并确认资格验证浏览器使用独立的 `extension-qualification` Profile。 |
+| Browser Bridge unavailable | 运行 `bash scripts/setup-browser.sh --check`，检查 `systemctl --user status sparkclaw-browser.service` 与 `sparkclaw-browser-controller.service`，并确认 Controller Socket 由 Deployment UID 拥有且权限为 `0600`。已加载 Bridge 过期时需重启 SparkClaw Browser。 |
 | Golden eval browser step fails | Docker eval 启动 Gateway 时设置 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal`；host eval 使用 `127.0.0.1`。 |
 | 主机重启后 CUDA 或 Triton 报 `operation not permitted` | 运行 `scripts/serve_models_compose.sh single-fast`。任一成员停止或不健康时会自动整组重建，以新的 runtime cache 启动，同时保留 `data/models`；设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可手动强制相同恢复。 |
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |

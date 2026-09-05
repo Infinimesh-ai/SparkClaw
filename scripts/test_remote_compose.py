@@ -89,9 +89,15 @@ with Path(os.environ["REMOTE_TEST_CURL_LOG"]).open("a", encoding="utf-8") as str
 print('{"ok":true,"auth_required":false,"model_mode":"external","state_backend":"postgres"}')
 """
 
-FAKE_HOST_BROWSER_INSTALLER = r"""#!/usr/bin/env bash
+FAKE_BROWSER_SETUP = r"""#!/usr/bin/env bash
 set -euo pipefail
 exit 0
+"""
+
+FAKE_SYSTEMCTL = r"""#!/usr/bin/env python3
+import os
+
+print(os.environ["SPARKCLAW_TEST_BROWSER_PID"])
 """
 
 
@@ -106,39 +112,18 @@ class RemoteComposeTest(unittest.TestCase):
             private_env = temp_path / ".env.remote"
             docker = temp_path / "docker"
             curl = temp_path / "curl"
-            browser_installer = temp_path / "install-host-browser.sh"
-            endpoint_file = temp_path / "browserd" / "cdp-endpoint"
-            endpoint_file.parent.mkdir()
-            endpoint_file.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "profileID": "default",
-                        "presentation": "headless",
-                        "browserPID": os.getpid(),
-                        "generation": 1,
-                        "browserVersion": "Chromium 148.0.7778.0",
-                        "webSocketURL": "ws://host.docker.internal:18791/test/devtools/browser/id",
-                        "hostWebSocketURL": "ws://127.0.0.1:18791/test/devtools/browser/id",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            endpoint_file.chmod(0o600)
+            browser_setup = temp_path / "setup-browser.sh"
+            systemctl = temp_path / "systemctl"
             private_env.write_text(
-                f"SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST={endpoint_file.parent}\n"
-                f"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST={endpoint_file}\n"
                 f"SPARKCLAW_WEBCHAT_PROXY_TOKEN={TEST_PROXY_TOKEN}\n"
                 f"{private_extra}",
                 encoding="utf-8",
             )
             docker.write_text(textwrap.dedent(FAKE_DOCKER), encoding="utf-8")
             curl.write_text(textwrap.dedent(FAKE_CURL), encoding="utf-8")
-            browser_installer.write_text(
-                textwrap.dedent(FAKE_HOST_BROWSER_INSTALLER), encoding="utf-8"
-            )
-            for executable in (docker, curl, browser_installer):
+            browser_setup.write_text(textwrap.dedent(FAKE_BROWSER_SETUP), encoding="utf-8")
+            systemctl.write_text(textwrap.dedent(FAKE_SYSTEMCTL), encoding="utf-8")
+            for executable in (docker, curl, browser_setup, systemctl):
                 executable.chmod(0o755)
             docker_log = temp_path / "docker.jsonl"
             curl_log = temp_path / "curl.jsonl"
@@ -150,7 +135,8 @@ class RemoteComposeTest(unittest.TestCase):
                     "SPARKCLAW_REMOTE_ENV_FILE": str(private_env),
                     "REMOTE_TEST_DOCKER_LOG": str(docker_log),
                     "REMOTE_TEST_CURL_LOG": str(curl_log),
-                    "SPARKCLAW_HOST_BROWSER_INSTALLER": str(browser_installer),
+                    "SPARKCLAW_BROWSER_SETUP": str(browser_setup),
+                    "SPARKCLAW_TEST_BROWSER_PID": str(os.getpid()),
                 }
             )
             result = subprocess.run(

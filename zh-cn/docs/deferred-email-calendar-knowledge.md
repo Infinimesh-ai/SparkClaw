@@ -9,7 +9,7 @@
 
 2026-09-03，SparkClaw 引入了一个全新且刻意收窄的活动邮箱切片：`browser.email` r1
 可以通过刚刚校验的已配置 QQ 邮箱、Outlook 或 Gmail 浏览器账户，发送一封经审批的纯文本
-邮件。其登录、Host-CDP、提供方脚本、审批和未知结果契约见
+邮件。其登录、Browser Bridge Provider Handler、审批和未知结果契约见
 [浏览器邮箱 Workflow](browser-email-workflow-design.md)。
 
 该仅发送能力不会重新启用旧 Personal Data Connector。邮件读取和更广泛的邮箱操作仍保持

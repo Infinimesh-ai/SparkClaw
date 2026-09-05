@@ -18,6 +18,16 @@ type fakeScriptRunner struct {
 	sendCalls   []SendRequest
 }
 
+type fakeLoginBrowser struct {
+	loginErr  error
+	loginURLs []string
+}
+
+func (f *fakeLoginBrowser) OpenLogin(_ context.Context, provider Provider) error {
+	f.loginURLs = append(f.loginURLs, provider.LoginURL)
+	return f.loginErr
+}
+
 func (f *fakeScriptRunner) Probe(_ context.Context, provider Provider, invocationID string, expectedGeneration uint64) (ProbeResult, error) {
 	f.probeCalls = append(f.probeCalls, provider.ID+":"+invocationID)
 	if expectedGeneration != 0 {
@@ -33,7 +43,7 @@ func (f *fakeScriptRunner) Send(_ context.Context, _ Provider, request SendReque
 
 func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) {
 	st := store.NewMemoryStore()
-	browser := &fakeBrowserController{endpoint: testHeadlessEndpoint(3)}
+	browser := &fakeLoginBrowser{}
 	checkedAt := time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
 	runner := &fakeScriptRunner{probeResult: ProbeResult{
 		Provider: app.EmailProviderGmail, AccountHint: "a***@gmail.com", Generation: 11, Revision: 1, CheckedAt: checkedAt,
@@ -66,7 +76,7 @@ func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) 
 		t.Fatal(err)
 	}
 	if binding.Provider != app.EmailProviderGmail || binding.Account != app.EmailAccountDefault || binding.AccountHint != "a***@gmail.com" ||
-		binding.SettingVersion != updated.Version+1 || binding.BrowserGeneration != 11 || binding.ProbeRevision != 1 || binding.SendScriptRevision != 1 ||
+		binding.SettingVersion != updated.Version+1 || binding.BrowserCredentialGeneration != 11 || binding.ProbeRevision != 1 || binding.SendScriptRevision != 1 ||
 		!binding.ValidatedAt.Equal(checkedAt) {
 		t.Fatalf("admission binding = %#v", binding)
 	}
@@ -82,7 +92,7 @@ func TestControllerRejectsAmbiguousInvalidAndStaleAdmission(t *testing.T) {
 	runner := &fakeScriptRunner{probeResult: ProbeResult{
 		Provider: app.EmailProviderGmail, AccountHint: "a***@gmail.com", Generation: 12, Revision: 1, CheckedAt: checkedAt,
 	}, sendResult: SendResult{Provider: app.EmailProviderGmail, Status: "sent"}}
-	controller := NewController(st, DefaultRegistry(t.TempDir()), &fakeBrowserController{}, runner)
+	controller := NewController(st, DefaultRegistry(t.TempDir()), &fakeLoginBrowser{}, runner)
 	gmail, err := controller.Update(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail, UpdateProviderInput{
 		Enabled: boolPointer(true), Default: boolPointer(true), ExpectedVersion: 0,
 	})
@@ -109,7 +119,7 @@ func TestControllerRejectsAmbiguousInvalidAndStaleAdmission(t *testing.T) {
 	}
 	request := SendRequest{
 		Provider: binding.Provider, Account: binding.Account, Recipient: "alice@example.com", Body: "body", InvocationID: "send:controller",
-		BrowserGeneration: binding.BrowserGeneration, ProbeRevision: binding.ProbeRevision,
+		BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision,
 		ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion,
 	}
 	if _, err := controller.SendForOwner(t.Context(), "owner-email", request); err != nil || len(runner.sendCalls) != 1 {

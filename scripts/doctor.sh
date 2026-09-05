@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
-source "$ROOT/scripts/lib/host-browser.sh"
+source "$ROOT/scripts/lib/browser-runtime.sh"
 
 echo "SparkClaw doctor"
 echo "root=$ROOT"
@@ -61,8 +61,7 @@ for name in \
   SPARKCLAW_OCR_ENABLED \
   SPARKCLAW_OCR_BASE_URL \
   SPARKCLAW_OCR_MODEL \
-  SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST \
-  SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST; do
+  SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST; do
   load_dotenv_var "$name"
 done
 
@@ -124,16 +123,15 @@ info_license_configured() {
   [[ "$license_key" == "ilk_v1.${license_id}."* && "$license_key" != "ilk_v1.${license_id}." ]]
 }
 
-check_host_browser_snapshot() {
-  local browser_pid endpoint_file
-  bash "$ROOT/scripts/install-host-browser.sh" --check --env-file "$EFFECTIVE_ENV_FILE"
-  browser_pid="$(sparkclaw_host_browser_pid "$EFFECTIVE_ENV_FILE")"
-  endpoint_file="$(sparkclaw_host_browser_endpoint_file "$EFFECTIVE_ENV_FILE")"
-  SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE="$endpoint_file" \
-  SPARKCLAW_BROWSER_AUTOMATION_COMMAND="$ROOT/node_modules/.bin/agent-browser" \
-  SPARKCLAW_BROWSER_SMOKE_USE_HOST_ENDPOINT=true \
-    node "$ROOT/scripts/host_browser_mcp_smoke.mjs" >/dev/null
-  sparkclaw_assert_host_browser_pid_alive "$browser_pid"
+check_browser_controller() {
+  local browser_pid socket_path
+  sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
+  browser_pid="$(sparkclaw_browser_main_pid)"
+  socket_path="$(sparkclaw_resolve_env_value "$EFFECTIVE_ENV_FILE" SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST '')"
+  [[ -n "$socket_path" ]] || return 1
+  SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET="$socket_path" \
+    node "$ROOT/scripts/browser_controller_smoke.mjs" >/dev/null
+  sparkclaw_assert_browser_pid_alive "$browser_pid"
 }
 
 check_npm_install_script_approvals() {
@@ -156,8 +154,7 @@ check "Python 3.12" python3 -c 'import sys; raise SystemExit(sys.version_info[:2
 check "pip" python3 -m pip --version
 check "Python document dependencies" python3 -c 'import docx, PIL, pptx, pypdf, pypdfium2'
 check "repository-private .tools absent" test ! -e "$ROOT/.tools"
-check "agent-browser 0.32.3" bash -lc '[[ "$(./node_modules/.bin/agent-browser --version)" == "agent-browser 0.32.3" ]]'
-check "Host-CDP browser and agent-browser snapshot smoke" check_host_browser_snapshot
+check "SparkClaw Browser, Bridge, and controller" check_browser_controller
 check "curl" curl --version
 check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"

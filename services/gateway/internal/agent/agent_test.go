@@ -744,7 +744,7 @@ func TestBrowserSelectedTabTargetReadsNormalizedAgentBrowserPage(t *testing.T) {
 	}
 	target, ok := browserSelectedTabTarget(call)
 	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "page_2" {
-		t.Fatalf("selected normalized agent-browser page was not read: %#v ok=%v", target, ok)
+		t.Fatalf("selected normalized Playwright page was not read: %#v ok=%v", target, ok)
 	}
 }
 
@@ -1551,7 +1551,7 @@ func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.
 	call := app.ToolCall{ID: "tc_rich_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"browser_mode": "autonomous", "presentation": "hidden", "surface_visible": false,
-		"provider": "agent-browser-headless", "owner_id": "owner", "page_id": "page_7",
+		"provider": "playwright-extension", "owner_id": "owner", "page_id": "page_7",
 		"snapshot_id": "snapshot_7", "digest": strings.Repeat("a", 64),
 		"browser_page_auth_signals": []string{strings.Repeat("bounded-auth-metadata", 50)},
 		"snapshot": map[string]any{

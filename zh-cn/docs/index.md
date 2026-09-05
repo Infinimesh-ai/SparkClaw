@@ -26,10 +26,10 @@
 | [Tree 同 Session 上下文一致性设计](tree-session-context-parity-design.md) | 已接受的共享选中历史源与整体 prompt admission，以及已实施的 strict Tree 评分 JSON 结构加固 |
 | [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
-| [浏览器 Runtime](browser-runtime.md) | 当前宿主 Chromium/browserd 拓扑、受保护 agent-browser attach、标签页所有权、登录 handoff、部署与安全约束 |
-| [Host-CDP 浏览器设计](host-cdp-browser-design.md) | 已实施的宿主 Chromium daemon、受保护 CDP attach、稳定标签页所有权、认证 handoff 和容器浏览器退役设计记录 |
-| [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | Proposed 日常浏览器架构：扩展支持的 MCP 通道承载受治理浏览器操作，CLI 通道承载确定性脚本；资格验证和原子切换前仍以 Host-CDP 为当前实现 |
-| [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 当前已实现的仅发送 Host-CDP 记录；未来 Browser Transport 由 Playwright Extension 迁移设计取代，但仅发送、确定性、Approval 和 Unknown Outcome 不变量继续保留 |
+| [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
+| [Host-CDP 浏览器设计](host-cdp-browser-design.md) | Playwright 切换前已退役 browserd/Host-CDP 实现的历史记录 |
+| [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |
+| [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 当前仅发送 Playwright Provider Handler、确定性 Admission、Exact-content Approval 与 Unknown-outcome 不变量 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |

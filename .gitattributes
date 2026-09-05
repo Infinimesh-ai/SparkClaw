@@ -1,0 +1,2 @@
+# Preserve the checksum-pinned upstream license bytes, including CRLF.
+/tools/browser-bridge/LICENSE -text whitespace=trailing-space,space-before-tab,cr-at-eol

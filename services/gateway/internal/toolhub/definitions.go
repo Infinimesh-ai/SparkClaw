@@ -268,7 +268,7 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 		},
 		{
 			Name:        "browser.read",
-			Description: "Read a public HTTP(S) page through the mode-safe access path. Browser sessions use agent-browser rendered active-tab text and typed page evidence; use browser.snapshot separately for executable controls.",
+			Description: "Read a public HTTP(S) page through the mode-safe access path. Browser sessions use Playwright-rendered task-tab text and typed page evidence; use browser.snapshot separately for executable controls.",
 			InputSchema: schema("object", []string{"url"}, map[string]any{
 				"url":                     map[string]any{"type": "string"},
 				"max_bytes":               map[string]any{"type": "number"},
@@ -432,9 +432,9 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
 			TimeoutMS: 125000, Sandbox: "forbidden", Audit: "always",
 		},
-		browserAutomationDefinition("browser.status", "Check whether the managed agent-browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed agent-browser Chromium session.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.open", "Open a URL in a managed agent-browser Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.status", "Check whether the managed Playwright browser adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.list_tabs", "List task-owned tabs in the managed SparkClaw Chromium session.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.open", "Open a URL in a managed task-owned Chromium tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.focus", "Focus/select a browser page/tab by stable page identifier.", app.RiskRead, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.close", "Close a managed Chromium tab opened by the active Workflow, using its stable page identifier.", app.RiskDraft, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, []string{"page_id"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),

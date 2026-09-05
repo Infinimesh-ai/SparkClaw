@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "extensionID": "mmlmfjhmonkocbjadbfplnigmagldckm",
+  "version": "1.0.18",
+  "sourceSHA256": "db1e44f447d07e94531f962eda3cd632ec2914db5daade01d96e8e9a695fa2ac",
+  "upstreamCommit": "260eae31113073927b93c5c7591b5ae039952dd0",
+  "files": {
+    "LICENSE": "45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb",
+    "NOTICE.upstream": "6d602191187b35b9b01d2cffa01c8469c2c8d9de8a96f1bf868e0f264f51c81d",
+    "UPSTREAM": "5c261ca74ce143cd3a09c0025d83aed3c038d645707cabb4cfdd4eeb6fb6d493",
+    "connect.html": "81d372e50c18b41eda1e0eb2bf4739195a1ac26af6944ea3191c34c9357aad5e",
+    "manifest.json": "ffa88ab741ee7a6a8175039b4633bd032f1857bb172d40ee28340d063cfba7f3",
+    "package.json": "2c8bc547ca3345e329cce80c212c83e7fcb450f55c7842c7ac33cf47c1e56266",
+    "src/background.mjs": "97cef61e1a7b12f3baa9c485f608c97a94e0a6f283825080d88b8031be3a611d",
+    "src/bootstrap-1.0.18.mjs": "6051f23ea48cd4f6f711e60f7ece28d44f6ae6529f628ccc8a755892c5166621",
+    "src/connect.mjs": "d23e76c4dd8e8887bead790f097c6b7f4a36d832fda69135047c67a4fa907647",
+    "src/protocol.mjs": "3203f98b6f84106cdf78ac880f390a8bf81f84e446b8ed8a925b507bdff9cace",
+    "src/relay-connection.mjs": "767e92a603f7eba0cac7b3579c3098a24734187c40eb2c3f53e0fc41f9d9845c",
+    "src/status.mjs": "105f8593e7aab3f579db5c822327464882951b49890fd462ab12fb065ff783ed",
+    "src/token.mjs": "a27b0facf9cc1da475ec728cd460623b33039bd98800155cd19edcd03328cc41",
+    "status.html": "812350b1442712d7ae4714189853a279e684c0bfd91df0e6fc5a510018bd38a4",
+    "ui.css": "1e13391036e8220d9b1eb950853375172f9ffac539c5731de5d3950f4966c62e"
+  }
+}

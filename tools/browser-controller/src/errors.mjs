@@ -1,10 +1,32 @@
 export class ControllerError extends Error {
-  constructor(code, message, { status = 500, retryable = false, cause } = {}) {
+  constructor(
+    code,
+    message,
+    {
+      status = 500,
+      retryable = false,
+      cause,
+      diagnosticReason,
+      diagnosticContext,
+    } = {},
+  ) {
     super(message, { cause });
     this.name = "ControllerError";
     this.code = code;
     this.status = status;
     this.retryable = retryable;
+    if (diagnosticReason) {
+      Object.defineProperty(this, "diagnosticReason", {
+        value: diagnosticReason,
+        enumerable: false,
+      });
+    }
+    if (diagnosticContext) {
+      Object.defineProperty(this, "diagnosticContext", {
+        value: diagnosticContext,
+        enumerable: false,
+      });
+    }
   }
 }
 

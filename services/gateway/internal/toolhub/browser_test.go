@@ -264,7 +264,7 @@ func TestBrowserReadAutonomousHiddenUsesHiddenBrowserSessionWhenEnabled(t *testi
 	}
 	actions := fmt.Sprint(out["browser_actions"])
 	if !strings.Contains(actions, "agent_browser_tab_new") || !strings.Contains(actions, "agent_browser_read") {
-		t.Fatalf("hidden read should use the native agent-browser read path: %#v", out["browser_actions"])
+		t.Fatalf("hidden read should use the native Playwright read path: %#v", out["browser_actions"])
 	}
 	if !strings.Contains(fmt.Sprint(out["text"]), "Browser-rendered content loaded after JavaScript execution") {
 		t.Fatalf("hidden browser read did not extract rendered text: %#v", out)

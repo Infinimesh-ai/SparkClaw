@@ -169,15 +169,13 @@ provider name.
 
 ## Browser Changes
 
-The only execution backend is pinned agent-browser attached through Host-CDP to
-the host-owned SparkClaw Chromium process and dedicated profile. Keep ToolHub
-contracts provider-neutral, process/profile and tab ownership bounded, page
-evidence untrusted, and click refs tied to fresh snapshots. Do not restore
-container Chromium, personal Chrome attachment, cookie export, or a second DOM
-collector. The isolated host-only Playwright Extension controller is a
-qualification preview and must not be wired into browser execution until the
-gates in [Playwright Extension browser migration](playwright-extension-browser-design.md)
-pass. See [Browser runtime](browser-runtime.md).
+The only execution backend is the checksum-pinned SparkClaw Browser Bridge and
+owner-scoped Playwright Controller attached to the persistent SparkClaw
+Chromium profile. Keep ToolHub contracts provider-neutral, Controller/session/
+page ownership bounded, page evidence untrusted, and action refs tied to fresh
+snapshots. Do not restore container Chromium, another browser profile, cookie
+export, CDP, arbitrary Playwright code, or a second DOM collector. See
+[Browser runtime](browser-runtime.md).
 
 ## Document Changes
 

@@ -292,11 +292,13 @@ Store boundary. See [Per-owner connector activation](connector-owner-runtime-des
 
 ### Browser, Documents, And Integrations
 
-Browser execution uses pinned agent-browser with a SparkClaw-owned Chromium
-profile and no alternate browser backend. The existing destination registry is
-the candidate-independent named-target fast path; after its miss and browser
-leaf selection, the Workflow may use Info's ordered structured URLs without
-another semantic classifier.
+Browser execution uses the checksum-pinned SparkClaw Browser Bridge and an
+owner-scoped Playwright Controller with one persistent SparkClaw Chromium
+profile and no alternate backend. Each client is confined to a task-owned tab;
+background work does not focus owner tabs, while explicit handoff can foreground
+the task tab. The existing destination registry is the candidate-independent
+named-target fast path; after its miss and browser leaf selection, the Workflow
+may use Info's ordered structured URLs without another semantic classifier.
 
 Info search responses enter ToolHub as one versioned aggregate rather than
 parallel answer copies. The `websearch` owner validates the source graph once

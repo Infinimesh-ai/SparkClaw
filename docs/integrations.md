@@ -33,18 +33,19 @@ OAuth tokens, IMAP, SMTP, Gmail API, or Microsoft Graph. Authentication stays
 inside the dedicated host-owned SparkClaw Chromium profile.
 
 WebChat exposes the three providers under `Settings > Connections > Browser
-email`. Opening a login entry switches browserd to headed presentation for
-manual owner login. Login checks and sends switch to headless presentation and
-create a new task-owned provider tab; they never reuse the visible login tab or
+email`. Opening a login entry creates a task-owned provider tab and explicitly
+hands it to the owner for manual login. Login checks and sends create separate
+background task-owned tabs; they never reuse an owner tab, former login tab, or
 another idle tab.
 
 Every send request runs a deterministic login probe before Workflow creation.
 Runtime selects an explicitly named provider or the single configured default,
-then freezes the provider setting version, browser generation, script revisions,
-validation time, and invocation ID. The model supplies only one recipient, an
-optional single-line subject, and a plain-text body. One exact-content approval
-precedes the provider script, which attempts Send at most once. An unknown send
-outcome is terminal and is never retried automatically.
+then freezes the provider setting version, Browser control credential
+generation, handler revisions, validation time, and invocation ID. The model
+supplies only one recipient, an optional single-line subject, and a plain-text
+body. One exact-content approval precedes the provider handler, which attempts
+Send at most once. An unknown send outcome is terminal and is never retried
+automatically.
 
 Email reading, replies, drafts, attachments, multiple recipients/accounts, and
 generic browser fallback are unavailable. QQ Mail is not a generic registered
@@ -158,7 +159,7 @@ window and renews its fixed 10-minute lease, capped by any earlier binding
 expiry. A ToolHub-owned janitor sweeps expired leases every 30 seconds without
 polling browser tabs. Poll-observed activation, expiry, or failure and explicit
 owner revocation still release immediately. Graceful Gateway shutdown drains
-SparkClaw-owned QR tabs without stopping browserd or Chromium. The owner opens
+SparkClaw-owned QR tabs without stopping persistent Chromium. The owner opens
 **SparkClaw Browser** on the host desktop for QR interaction; Gateway receives
 no display socket, cannot take over existing owner tabs, and never falls back
 to the default browser.

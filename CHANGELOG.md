@@ -54,6 +54,24 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Approvals carry `arguments_immutable`, projected from the new
+  `ToolDefinition.ArgumentsImmutable` flag (set for `email.send`); the
+  executor fingerprint check, the `409` from `POST /api/approvals/{id}/modify`,
+  and the WebChat edit affordance all read the flag instead of matching the
+  tool name. Postgres migration `0009` adds the column; approvals persisted
+  before the upgrade report the flag as `false` while the server still rejects
+  modification.
+- Email automation: the Gateway provider registry is generated from the
+  Controller registry (`provider_scripts.json`, regenerated with
+  `npm run sync:provider-contract --prefix tools/browser-controller`); the Go
+  copies of login URLs and allowed origins, which had drifted and were never
+  used, are gone. Provider script failures are classified through the shared
+  `app.ToolErrorEmail*` codes; QQ Mail's `body_too_large` now reports
+  `email_invalid_input` instead of `email_provider_unavailable`.
+- Integration settings: the credential-check API never returned the documented
+  `checking` state (it was overwritten before any response), so the state table
+  drops it; WebChat keeps rendering its own in-flight label. Browser control
+  still reports `checking` while a validation is running.
 - Deployment: `docker compose` now requires an explicit
   `SPARKCLAW_MODEL_CAPACITY_PROFILE` (the previous `mock` default silently
   routed every model call to the mock router when the deploy scripts were

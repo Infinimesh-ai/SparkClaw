@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -626,5 +627,83 @@ with open(__import__("sys").argv[1], "wb") as output:
 	cmd := exec.Command(documentPythonBinary(), "-c", script, path, string(raw))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create multi-page PPTX visual QA PDF fixture: %v\n%s", err, output)
+	}
+}
+
+type stubPPTXVisualModel struct {
+	content string
+	err     error
+}
+
+func (m stubPPTXVisualModel) Profile(string) (config.ModelProfile, error) {
+	return config.ModelProfile{Name: "fast"}, nil
+}
+
+func (m stubPPTXVisualModel) ChatWithProfileOptions(context.Context, modelcapacity.Operation, string, string, string, modelrouter.ChatOptions) (modelrouter.ChatResult, error) {
+	return modelrouter.ChatResult{Content: m.content}, m.err
+}
+
+func (m stubPPTXVisualModel) ChatWithImageOptions(context.Context, modelcapacity.Operation, string, string, string, modelrouter.ImageInput, modelrouter.ChatOptions) (modelrouter.ChatResult, error) {
+	return modelrouter.ChatResult{Content: m.content}, m.err
+}
+
+// The failure code must come from the validation branch that fired, not from
+// substrings of the message, so each contract violation is asserted by code.
+func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
+	cfg := testPPTXVisualQAConfig("http://127.0.0.1")
+	sha := strings64("a")
+	validPage := pptxRenderAnalysisPage{
+		SlideIndex: 1, PDFWidth: 10, PDFHeight: 10,
+		Raster:      pptxVisualQARaster{Width: 2, Height: 2, PixelCount: 4, PNGBytes: 10},
+		Structure:   pptxVisualRepairContext{SchemaVersion: pptxVisualRepairContextSchema, SlideIndex: 1, Shapes: []map[string]any{}},
+		Diagnostics: pptxDiagnosticFacts{SchemaVersion: pptxDiagnosticFactsSchema, CandidateSHA256: sha, SlideIndex: 1, CoordinateSpace: "region_milli"},
+	}
+	analysis := func(mutate func(*pptxRenderAnalysis)) pptxRenderAnalysis {
+		out := pptxRenderAnalysis{SchemaVersion: pptxRenderAnalysisSchema, CandidateSHA256: sha, SlideCount: 1, SlideWidth: 100, SlideHeight: 100, Pages: []pptxRenderAnalysisPage{validPage}}
+		mutate(&out)
+		return out
+	}
+	for _, test := range []struct {
+		name     string
+		analysis pptxRenderAnalysis
+		selected []int
+		want     app.ToolErrorCode
+	}{
+		{name: "identity", analysis: analysis(func(a *pptxRenderAnalysis) { a.CandidateSHA256 = strings64("b") }), selected: []int{1}, want: app.ToolErrorPPTXRenderDiagnosticInvalid},
+		{name: "dimensions", analysis: analysis(func(a *pptxRenderAnalysis) { a.SlideWidth = 0 }), selected: []int{1}, want: app.ToolErrorPPTXRenderPageMismatch},
+		{name: "page set", analysis: analysis(func(*pptxRenderAnalysis) {}), selected: []int{1, 2}, want: app.ToolErrorPPTXRenderPageMismatch},
+		{name: "unexpected page", analysis: analysis(func(*pptxRenderAnalysis) {}), selected: []int{2}, want: app.ToolErrorPPTXRenderPageMismatch},
+		{name: "raster", analysis: analysis(func(a *pptxRenderAnalysis) { a.Pages[0].Raster.UniformBlack = true }), selected: []int{1}, want: app.ToolErrorPPTXRenderInvalidImage},
+		{name: "structure", analysis: analysis(func(a *pptxRenderAnalysis) { a.Pages[0].Structure.Truncated = true }), selected: []int{1}, want: app.ToolErrorPPTXRenderDiagnosticInvalid},
+		{name: "diagnostics", analysis: analysis(func(a *pptxRenderAnalysis) { a.Pages[0].Diagnostics.Truncated = true }), selected: []int{1}, want: app.ToolErrorPPTXRenderDiagnosticInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePPTXRenderAnalysis(test.analysis, sha, test.selected, cfg)
+			if err == nil || pptxVisualQAErrorKindOf(err) != pptxVisualQAIntegrityError || pptxVisualQAErrorCodeOf(err) != test.want {
+				t.Fatalf("validatePPTXRenderAnalysis error = %v (kind %q code %q), want integrity %q", err, pptxVisualQAErrorKindOf(err), pptxVisualQAErrorCodeOf(err), test.want)
+			}
+		})
+	}
+
+	page := validPage
+	page.Diagnostics.Facts = []pptxDiagnosticFact{{DiagnosticID: "diag-1", Kind: "geometry_overlap", Status: "confirmed", ShapeRefs: []string{"slide:1:shape:1"}}}
+	page.Structure.Shapes = []map[string]any{{"shape_ref": "slide:1:shape:1"}}
+	for _, test := range []struct {
+		name  string
+		model stubPPTXVisualModel
+		want  app.ToolErrorCode
+	}{
+		{name: "model call failed", model: stubPPTXVisualModel{err: os.ErrDeadlineExceeded}, want: app.ToolErrorPPTXRenderModelUnavailable},
+		{name: "model call cancelled", model: stubPPTXVisualModel{err: context.Canceled}, want: app.ToolErrorPPTXRenderCancelled},
+		{name: "model output not JSON", model: stubPPTXVisualModel{content: "not json"}, want: app.ToolErrorPPTXRenderModelInvalid},
+		{name: "model skipped a required fact", model: stubPPTXVisualModel{content: `{"schema_version":"sparkclaw.pptx_visual_assessment.v1","slide_index":1,"fact_reviews":[],"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := newPPTXVisualQAService(cfg, test.model)
+			_, _, err := service.assessPage(t.Context(), "update_slide", page, []byte("png"))
+			if err == nil || pptxVisualQAErrorKindOf(err) != pptxVisualQAModelError || pptxVisualQAErrorCodeOf(err) != test.want {
+				t.Fatalf("assessPage error = %v (kind %q code %q), want model %q", err, pptxVisualQAErrorKindOf(err), pptxVisualQAErrorCodeOf(err), test.want)
+			}
+		})
 	}
 }

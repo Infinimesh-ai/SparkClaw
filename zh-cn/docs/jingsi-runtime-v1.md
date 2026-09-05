@@ -68,6 +68,10 @@ data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题
 
 ## 证据与剩余边界
 
+`internal/contracttest` 校验中央 conformance manifest、HTTP binding 和 fixtures。它优先从
+`SPARKCLAW_JINGSI_CONTRACT_MANIFEST` 解析 manifest，否则查找同级的 `InfiniCenter` 检出；两者都
+不存在时（全新克隆、CI），该门禁会跳过而不是让 `go test ./...` 失败。
+
 提供方测试覆盖完全一致的重放与漂移、跨重启持久化的 negative fence、响应丢失后的查询、
 单调事件分页、统一授权、幂等取消、专用 bearer 路由、`return_nowhere`、data-only
 Memory Context，以及分发到现有 Agent Runtime。JingSi 还负责一个开发门禁：独立启动

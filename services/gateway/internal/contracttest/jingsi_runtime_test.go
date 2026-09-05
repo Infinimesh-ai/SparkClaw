@@ -133,8 +133,20 @@ func TestJingSiRuntimeProviderConsumesCentralContract(t *testing.T) {
 	}
 }
 
+// jingsiContractManifestEnv points the gate at an explicit central manifest.
+// When it is unset the test looks for a sibling InfiniCenter checkout; a fresh
+// clone (and CI) has neither, so the gate skips instead of failing the suite.
+const jingsiContractManifestEnv = "SPARKCLAW_JINGSI_CONTRACT_MANIFEST"
+
 func locateJingSiRuntimeManifest(t *testing.T) string {
 	t.Helper()
+	if explicit := strings.TrimSpace(os.Getenv(jingsiContractManifestEnv)); explicit != "" {
+		info, err := os.Stat(explicit)
+		if err != nil || info.IsDir() {
+			t.Fatalf("%s=%q does not name a central manifest file", jingsiContractManifestEnv, explicit)
+		}
+		return explicit
+	}
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve current test file")
@@ -146,7 +158,7 @@ func locateJingSiRuntimeManifest(t *testing.T) string {
 		}
 		parent := filepath.Dir(directory)
 		if parent == directory {
-			t.Fatal("locate sibling InfiniCenter SparkClaw--JingSi manifest")
+			t.Skipf("sibling InfiniCenter checkout not found; set %s to gate against the central SparkClaw--JingSi contract", jingsiContractManifestEnv)
 		}
 	}
 }

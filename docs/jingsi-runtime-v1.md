@@ -79,6 +79,11 @@ internal paths and store identifiers do not cross this surface.
 
 ## Evidence and remaining boundary
 
+`internal/contracttest` checks the central conformance manifest, HTTP binding,
+and fixtures. It resolves the manifest from `SPARKCLAW_JINGSI_CONTRACT_MANIFEST`
+first and otherwise from a sibling `InfiniCenter` checkout; when neither is
+present (a fresh clone, CI) the gate skips instead of failing `go test ./...`.
+
 Provider tests cover exact replay/drift, durable negative fences across restart,
 lost-response lookup, monotonic event pages, uniform authorization, idempotent
 cancel, dedicated bearer routing, `return_nowhere`, data-only Memory Context, and

@@ -1419,28 +1419,10 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		}
 		return call, nil, call.ObservationSummary, nil
 	}
-	if r.tools.IsPPTXMutationTool(plan.Name, plan.Args) {
-		if !hasSealedBinding {
-			sealedBinding, err = r.tools.PreparePPTXCandidate(ctx, plan.Name, plan.Args, sessionID, runID)
-			if err != nil {
-				call.Status = app.ToolCallStatusBlocked
-				call.Error = err.Error()
-				call.ErrorCode = string(app.ToolErrorCodeFrom(err))
-				done := time.Now().UTC()
-				call.CompletedAt = &done
-				call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
-				if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
-					return call, nil, call.ObservationSummary, fmt.Errorf("persist failed PPTX candidate preparation: %w", saveErr)
-				}
-				return call, nil, call.ObservationSummary, nil
-			}
-		}
-		plan.Args = toolhub.AttachPPTXSealedCandidate(plan.Args, sealedBinding)
-		call.Arguments = plan.Args
-		pptxVisualWarning, err = r.tools.PPTXSealedCandidateWarningSummary(ctx, plan.Args)
-		if err != nil {
-			return app.ToolCall{}, nil, "", fmt.Errorf("load sealed PPTX visual warning: %w", err)
-		}
+	var pptxStop bool
+	plan, call, pptxVisualWarning, pptxStop, err = r.sealPPTXMutationPlan(ctx, sessionID, runID, plan, call, sealedBinding, hasSealedBinding)
+	if pptxStop || err != nil {
+		return call, nil, call.ObservationSummary, err
 	}
 	if decision.RequiresApproval {
 		if err := validateApprovalArgumentPersistence(def, toolhub.PPTXPublicArguments(plan.Args)); err != nil {

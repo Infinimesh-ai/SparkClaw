@@ -133,14 +133,13 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 			return IntentRoutingOutput{}, err
 		}
 	}
-	grounding, err := r.projectIntentGrounding(ctx, sessionID, runID, groundingContent, documents)
+	grounding, err := r.projectIntentGrounding(ctx, sessionID, runID, groundingContent, documents, history.ToolCandidates)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
 	grounding.HasUnsupportedMedia = len(resources) > 0 || len(locators) > 0
 	treePromptContext := newTreeRoutingPromptContext(resources, history.Selected, documents)
-	routingContext := treePromptContext.FullText()
-	channelInputs := newSemanticChannelInputs(businessContent, routingContext)
+	channelInputs := newSemanticChannelInputs(businessContent)
 	eligible := r.semanticRouter.graph.EligibleCandidates(sourceKind)
 	if grounding.ExternalMCP || !containsEnglishSemanticTerm(content, "localmind") {
 		eligible = withoutLocalMindCandidates(eligible)
@@ -260,19 +259,17 @@ func (r Runtime) routeMediaOnlyMessage(ctx context.Context, sessionID, runID, ow
 	return IntentRoutingOutput{Route: route}, true, nil
 }
 
+// semanticChannelInputs carries the owner question to both routing channels;
+// the tree channel receives its typed prompt context separately, so no
+// rendered context is duplicated here.
 type semanticChannelInputs struct {
 	EmbeddingQuery string
 	TreeQuery      string
-	TreeContext    string
 }
 
-func newSemanticChannelInputs(question, routingContext string) semanticChannelInputs {
+func newSemanticChannelInputs(question string) semanticChannelInputs {
 	question = strings.TrimSpace(question)
-	return semanticChannelInputs{
-		EmbeddingQuery: question,
-		TreeQuery:      question,
-		TreeContext:    strings.TrimSpace(routingContext),
-	}
+	return semanticChannelInputs{EmbeddingQuery: question, TreeQuery: question}
 }
 
 func enforceDeliveryFusionBoundary(decision semanticrouting.Decision, delivery DeliveryDirective) semanticrouting.Decision {

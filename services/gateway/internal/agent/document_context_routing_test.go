@@ -50,22 +50,9 @@ func TestFinalAnswerLanguageUsesOwnerRequest(t *testing.T) {
 
 func TestSemanticChannelInputsKeepEmbeddingQuestionContextFree(t *testing.T) {
 	question := "作为23级学生要注意什么"
-	context := strings.Join([]string{
-		"Resolved governed document context:",
-		`- document_id="doc_notice" name="通识选修课提醒.docx" format="docx" source="attachment" recent_activity="read"`,
-		"Recent Agent context:",
-		"- assistant: 已读取说明文档",
-	}, "\n")
-	inputs := newSemanticChannelInputs(question, context)
+	inputs := newSemanticChannelInputs("  " + question + "  ")
 	if inputs.EmbeddingQuery != question || inputs.TreeQuery != question {
 		t.Fatalf("dual channels did not receive the same owner question: %#v", inputs)
-	}
-	if strings.Contains(inputs.EmbeddingQuery, "doc_notice") || strings.Contains(inputs.EmbeddingQuery, "docx") ||
-		strings.Contains(inputs.EmbeddingQuery, "已读取") {
-		t.Fatalf("Embedding input leaked Fast-only context: %q", inputs.EmbeddingQuery)
-	}
-	if !strings.Contains(inputs.TreeContext, "doc_notice") || !strings.Contains(inputs.TreeContext, "recent_activity") {
-		t.Fatalf("Fast input omitted typed document context: %q", inputs.TreeContext)
 	}
 }
 

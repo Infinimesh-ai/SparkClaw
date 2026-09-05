@@ -76,6 +76,15 @@ func (s *FileStore) ListModelCalls(ctx context.Context, sessionID, runID string)
 	return s.inner.ListModelCalls(ctx, sessionID, runID)
 }
 
+func (s *FileStore) LatestModelCallsByLane(ctx context.Context) (map[string]app.ModelCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationModelCallLatestByLane, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.LatestModelCallsByLane(ctx)
+}
+
 func (s *FileStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationToolCallSave, fileAdmissionCapacity)
 	if err != nil {

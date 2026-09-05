@@ -46,6 +46,7 @@ const (
 	OperationRunList                     StoreOperation = "run.list"
 	OperationModelCallSave               StoreOperation = "model_call.save"
 	OperationModelCallList               StoreOperation = "model_call.list"
+	OperationModelCallLatestByLane       StoreOperation = "model_call.latest_by_lane"
 	OperationToolCallSave                StoreOperation = "tool_call.save"
 	OperationToolCallGet                 StoreOperation = "tool_call.get"
 	OperationToolCallList                StoreOperation = "tool_call.list"
@@ -321,6 +322,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationModelCallList: {
 		ID: OperationModelCallList, Repository: "RunRepository",
 		Method: "ListModelCalls", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationModelCallLatestByLane: {
+		ID: OperationModelCallLatestByLane, Repository: "RunRepository",
+		Method: "LatestModelCallsByLane", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationToolCallSave: {
 		ID: OperationToolCallSave, Repository: "RunRepository",

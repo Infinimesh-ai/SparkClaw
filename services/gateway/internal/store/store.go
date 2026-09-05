@@ -120,6 +120,7 @@ type RunRepository interface {
 	ListRuns(context.Context, string) ([]app.AgentRun, error)
 	SaveModelCall(context.Context, app.ModelCall) (app.ModelCall, error)
 	ListModelCalls(context.Context, string, string) ([]app.ModelCall, error)
+	LatestModelCallsByLane(context.Context) (map[string]app.ModelCall, error)
 	SaveToolCall(context.Context, app.ToolCall) (app.ToolCall, error)
 	GetToolCall(context.Context, string) (app.ToolCall, bool, error)
 	ListToolCalls(context.Context, string) ([]app.ToolCall, error)

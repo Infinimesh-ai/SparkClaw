@@ -93,6 +93,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationModelCallList, Repository: "RunRepository",
 			Method: "ListModelCalls", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationModelCallLatestByLane: {
+			ID: OperationModelCallLatestByLane, Repository: "RunRepository",
+			Method: "LatestModelCallsByLane", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationToolCallSave: {
 			ID: OperationToolCallSave, Repository: "RunRepository",
 			Method: "SaveToolCall", Mode: operationWrite, Timeout: timeoutTransaction,

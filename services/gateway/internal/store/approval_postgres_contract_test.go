@@ -113,11 +113,12 @@ func scanFakeApproval(destinations []any, approval app.Approval, corrupt string)
 	*destinations[11].(*string) = approval.Reason
 	*destinations[12].(*[]byte) = resources
 	*destinations[13].(*[]byte) = arguments
-	*destinations[14].(*time.Time) = approval.CreatedAt
-	*destinations[15].(**time.Time) = approval.ResolvedAt
-	*destinations[16].(*string) = approval.ResolutionNote
-	*destinations[17].(*[]byte) = policyContext
-	*destinations[18].(*[]byte) = presentation
+	*destinations[14].(*bool) = approval.ArgumentsImmutable
+	*destinations[15].(*time.Time) = approval.CreatedAt
+	*destinations[16].(**time.Time) = approval.ResolvedAt
+	*destinations[17].(*string) = approval.ResolutionNote
+	*destinations[18].(*[]byte) = policyContext
+	*destinations[19].(*[]byte) = presentation
 	return nil
 }
 

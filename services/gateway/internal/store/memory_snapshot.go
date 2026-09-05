@@ -281,13 +281,25 @@ func (s *MemoryStore) rebuildHistoryIndexesLocked() {
 	for sessionID := range s.messages {
 		slices.SortFunc(s.messages[sessionID], compareMessagesAscending)
 	}
+	// Map keys are unique, so every ID is collected once per session and
+	// each session is sorted exactly once instead of re-sorting per record.
 	s.toolCallIDsBySession = map[string][]string{}
-	for _, call := range s.toolCalls {
-		s.indexToolCallLocked(call)
+	for id, call := range s.toolCalls {
+		s.toolCallIDsBySession[call.SessionID] = append(s.toolCallIDsBySession[call.SessionID], id)
+	}
+	for _, ids := range s.toolCallIDsBySession {
+		slices.SortFunc(ids, func(left, right string) int {
+			return compareToolCallsAscending(s.toolCalls[left], s.toolCalls[right])
+		})
 	}
 	s.episodeIDsBySession = map[string][]string{}
-	for _, summary := range s.episodeSummaries {
-		s.indexEpisodeSummaryLocked(summary)
+	for id, summary := range s.episodeSummaries {
+		s.episodeIDsBySession[summary.SessionID] = append(s.episodeIDsBySession[summary.SessionID], id)
+	}
+	for _, ids := range s.episodeIDsBySession {
+		slices.SortFunc(ids, func(left, right string) int {
+			return compareEpisodeSummariesNewestFirst(s.episodeSummaries[left], s.episodeSummaries[right])
+		})
 	}
 }
 

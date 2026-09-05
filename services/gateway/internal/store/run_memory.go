@@ -218,8 +218,8 @@ func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.
 	if err := operationContextError(OperationToolCallSave, ctx); err != nil {
 		return app.ToolCall{}, err
 	}
-	s.toolCalls[call.ID] = call
 	s.indexToolCallLocked(call)
+	s.toolCalls[call.ID] = call
 	s.appendAuditLocked("tool_call."+string(call.Status), call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
@@ -228,19 +228,35 @@ func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.
 	return cloneToolCall(call)
 }
 
+// indexToolCallLocked keeps the per-session tool-call order (StartedAt
+// ascending, ID ascending) that ListRecentToolCalls walks newest-first. It
+// must run before s.toolCalls[call.ID] is replaced: the comparator resolves
+// indexed IDs through s.toolCalls, so a re-saved record is located by its
+// previous key first. Runtime writes are near-monotonic, so the binary search
+// usually lands at the tail and the insert is a no-op move.
 func (s *MemoryStore) indexToolCallLocked(call app.ToolCall) {
-	ids := s.toolCallIDsBySession[call.SessionID]
-	if !slices.Contains(ids, call.ID) {
-		ids = append(ids, call.ID)
+	compare := func(id string, target app.ToolCall) int {
+		return compareToolCallsAscending(s.toolCalls[id], target)
 	}
-	slices.SortFunc(ids, func(leftID, rightID string) int {
-		left, right := s.toolCalls[leftID], s.toolCalls[rightID]
-		if order := left.StartedAt.Compare(right.StartedAt); order != 0 {
-			return order
+	if previous, existed := s.toolCalls[call.ID]; existed {
+		if previous.SessionID == call.SessionID && compareToolCallsAscending(previous, call) == 0 {
+			return
 		}
-		return strings.Compare(left.ID, right.ID)
-	})
-	s.toolCallIDsBySession[call.SessionID] = ids
+		previousIDs := s.toolCallIDsBySession[previous.SessionID]
+		if index, found := slices.BinarySearchFunc(previousIDs, previous, compare); found {
+			s.toolCallIDsBySession[previous.SessionID] = slices.Delete(previousIDs, index, index+1)
+		}
+	}
+	ids := s.toolCallIDsBySession[call.SessionID]
+	index, _ := slices.BinarySearchFunc(ids, call, compare)
+	s.toolCallIDsBySession[call.SessionID] = slices.Insert(ids, index, call.ID)
+}
+
+func compareToolCallsAscending(left, right app.ToolCall) int {
+	if order := left.StartedAt.Compare(right.StartedAt); order != 0 {
+		return order
+	}
+	return strings.Compare(left.ID, right.ID)
 }
 
 func (s *MemoryStore) GetToolCall(ctx context.Context, id string) (app.ToolCall, bool, error) {
@@ -286,12 +302,7 @@ func (s *MemoryStore) ListToolCalls(ctx context.Context, sessionID string) ([]ap
 			out = append(out, cloned)
 		}
 	}
-	slices.SortFunc(out, func(a, b app.ToolCall) int {
-		if order := a.StartedAt.Compare(b.StartedAt); order != 0 {
-			return order
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
+	slices.SortFunc(out, compareToolCallsAscending)
 	return out, nil
 }
 
@@ -340,8 +351,8 @@ func (s *MemoryStore) SaveEpisodeSummary(ctx context.Context, summary app.Episod
 	if err := operationContextError(OperationEpisodeSummarySave, ctx); err != nil {
 		return app.EpisodeSummary{}, err
 	}
-	s.episodeSummaries[summary.ID] = summary
 	s.indexEpisodeSummaryLocked(summary)
+	s.episodeSummaries[summary.ID] = summary
 	s.appendAuditLocked("episode_summary.saved", summary.SessionID, summary.RunID, "runtime", summary.Outcome, map[string]any{
 		"tools":            summary.Tools,
 		"repair_performed": summary.RepairPerformed,
@@ -350,19 +361,33 @@ func (s *MemoryStore) SaveEpisodeSummary(ctx context.Context, summary app.Episod
 	return cloneEpisodeSummary(summary), nil
 }
 
+// indexEpisodeSummaryLocked keeps the per-session episode order (CreatedAt
+// descending, ID ascending) that ListRecentEpisodeSummaries walks from the
+// front. Like indexToolCallLocked it must run before
+// s.episodeSummaries[summary.ID] is replaced.
 func (s *MemoryStore) indexEpisodeSummaryLocked(summary app.EpisodeSummary) {
-	ids := s.episodeIDsBySession[summary.SessionID]
-	if !slices.Contains(ids, summary.ID) {
-		ids = append(ids, summary.ID)
+	compare := func(id string, target app.EpisodeSummary) int {
+		return compareEpisodeSummariesNewestFirst(s.episodeSummaries[id], target)
 	}
-	slices.SortFunc(ids, func(leftID, rightID string) int {
-		left, right := s.episodeSummaries[leftID], s.episodeSummaries[rightID]
-		if order := right.CreatedAt.Compare(left.CreatedAt); order != 0 {
-			return order
+	if previous, existed := s.episodeSummaries[summary.ID]; existed {
+		if previous.SessionID == summary.SessionID && compareEpisodeSummariesNewestFirst(previous, summary) == 0 {
+			return
 		}
-		return strings.Compare(left.ID, right.ID)
-	})
-	s.episodeIDsBySession[summary.SessionID] = ids
+		previousIDs := s.episodeIDsBySession[previous.SessionID]
+		if index, found := slices.BinarySearchFunc(previousIDs, previous, compare); found {
+			s.episodeIDsBySession[previous.SessionID] = slices.Delete(previousIDs, index, index+1)
+		}
+	}
+	ids := s.episodeIDsBySession[summary.SessionID]
+	index, _ := slices.BinarySearchFunc(ids, summary, compare)
+	s.episodeIDsBySession[summary.SessionID] = slices.Insert(ids, index, summary.ID)
+}
+
+func compareEpisodeSummariesNewestFirst(left, right app.EpisodeSummary) int {
+	if order := right.CreatedAt.Compare(left.CreatedAt); order != 0 {
+		return order
+	}
+	return strings.Compare(left.ID, right.ID)
 }
 
 func (s *MemoryStore) ListEpisodeSummaries(ctx context.Context, sessionID string) ([]app.EpisodeSummary, error) {
@@ -382,12 +407,7 @@ func (s *MemoryStore) ListEpisodeSummaries(ctx context.Context, sessionID string
 			out = append(out, cloneEpisodeSummary(summary))
 		}
 	}
-	slices.SortFunc(out, func(a, b app.EpisodeSummary) int {
-		if order := b.CreatedAt.Compare(a.CreatedAt); order != 0 {
-			return order
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
+	slices.SortFunc(out, compareEpisodeSummariesNewestFirst)
 	return out, nil
 }
 

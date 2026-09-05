@@ -278,6 +278,7 @@ type fakePlaywrightSession struct {
 	pages    []fakePlaywrightPage
 	calls    []fakePlaywrightCall
 	releases int
+	snapshot []any
 }
 
 func newFakePlaywrightSession(sequence int) *fakePlaywrightSession {
@@ -351,11 +352,13 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 		}
 		return map[string]any{"page": s.readPageMapLocked(*page)}, nil
 	case "page.snapshot":
+		// The controller returns only the page identity with a snapshot; URL and
+		// title are observed through page.read (see playwright-golden.json).
 		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"page": s.pageMapLocked(*page), "snapshot": fakePlaywrightSnapshot()}, nil
+		return map[string]any{"page": map[string]any{"page_id": page.ID}, "snapshot": s.snapshotLocked()}, nil
 	case "page.click", "page.fill", "page.type", "page.select":
 		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
 		if err != nil {
@@ -368,7 +371,7 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 			return nil, err
 		}
 		return map[string]any{
-			"page": s.pageMapLocked(*page), "screenshot": map[string]any{"mime_type": "image/png", "data_base64": "c2NyZWVuc2hvdA=="},
+			"page": map[string]any{"page_id": page.ID}, "screenshot": map[string]any{"mime_type": "image/png", "data_base64": "c2NyZWVuc2hvdA=="},
 		}, nil
 	default:
 		return nil, errors.New("unsupported fake operation: " + operation)
@@ -459,6 +462,13 @@ func (s *fakePlaywrightSession) removePageLocked(pageID string) bool {
 		return true
 	}
 	return false
+}
+
+func (s *fakePlaywrightSession) snapshotLocked() []any {
+	if s.snapshot != nil {
+		return s.snapshot
+	}
+	return fakePlaywrightSnapshot()
 }
 
 func fakePlaywrightSnapshot() []any {

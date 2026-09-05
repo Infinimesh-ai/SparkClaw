@@ -159,6 +159,15 @@ npm run test:email-scripts
 cd services/gateway && go test ./internal/browserautomation ./internal/browsercontrol ./internal/emailautomation ./internal/gateway ./internal/toolhub
 ```
 
+Controller 与 Gateway 解析 Playwright Tab List、Snapshot 和 CLI 错误输出的代码都以
+`tools/browser-controller/test/fixtures/playwright-golden.json` 为准，该文件是从固定
+版本的 MCP 与 CLI 包录制的真实输出，离线 Fake 也回放同样的形态。修改 Playwright 版本
+Pin 后，用本机 Headless 浏览器重新录制并审阅差异：
+
+```bash
+node tools/browser-controller/test/fixtures/record-playwright-golden.mjs
+```
+
 Live Acceptance 还会检查 Startup/Restart、Bridge Pairing/Detach、Profile Persistence、
 No-handoff Focus Isolation、Explicit Handoff、Generic Adapter Interaction、三个已登录账户的
 Provider Probe、Process Cleanup，以及不存在禁止的 Browser Flag。Provider Qualification

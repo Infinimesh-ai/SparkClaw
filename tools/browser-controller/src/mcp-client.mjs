@@ -7,6 +7,12 @@ import { fileURLToPath } from "node:url";
 
 import { ControllerError, invalidRequest } from "./errors.mjs";
 import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
+import {
+  PLAYWRIGHT_REF_PATTERN,
+  collectSnapshotRefs,
+  comparePlaywrightRefs,
+  parseTabsMarkdown,
+} from "./playwright-output.mjs";
 import { parseID, requireExactObject } from "./protocol.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,7 +24,6 @@ const MAX_MCP_OUTPUT_BYTES = 8 << 20;
 const MAX_PAGE_TEXT_CHARS = 120_000;
 const MAX_INPUT_TEXT_BYTES = 24 << 10;
 const MAX_TASK_PAGES = 16;
-const PLAYWRIGHT_REF_PATTERN = /^e[1-9][0-9]*$/u;
 const SESSION_OUTPUT_PATTERN = /^session-[0-9a-f]{24}$/u;
 const BRIDGE_REJECTION_MARKER = "browser_extension_rejected";
 const BRIDGE_CONNECT_URL_PREFIX = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html?";
@@ -382,12 +387,14 @@ export class PlaywrightMCPClient {
       ...(depth === undefined ? {} : { depth }),
       ...(boxes === undefined ? {} : { boxes }),
     });
+    // Under `_meta.json` the pinned MCP returns only `{ snapshot }`; page URL and
+    // title are observed separately through page.info / page.read.
     const snapshot = result.payload.snapshot;
-    if (snapshot === undefined) throw clientContractError();
+    if (!Array.isArray(snapshot)) throw clientContractError();
     const refs = collectSnapshotRefs(snapshot);
     page.refs = refs;
     return {
-      page: { page_id: page.pageID, ...pageInfoFromPayload(result.payload) },
+      page: { page_id: page.pageID },
       snapshot,
       refs: [...refs].sort(comparePlaywrightRefs),
     };
@@ -459,7 +466,7 @@ export class PlaywrightMCPClient {
     const image = result.images[0];
     if (!image || image.mimeType !== `image/${type}`) throw clientContractError();
     return {
-      page: { page_id: page.pageID, ...pageInfoFromPayload(result.payload) },
+      page: { page_id: page.pageID },
       screenshot: { mime_type: image.mimeType, data_base64: image.data },
     };
   }
@@ -868,36 +875,12 @@ function selectValues(args) {
   return values.map(requiredText);
 }
 
+// browser_tabs renders its tab list as markdown in `result` even under
+// `_meta.json`; playwright-output.mjs owns that format.
 function tabsFromPayload(payload) {
-  const markdown = typeof payload.result === "string" ? payload.result : payload.tabs;
-  if (typeof markdown !== "string") throw clientContractError();
-  if (markdown.trim() === "No open tabs. Navigate to a URL to create one.") return [];
-  const tabs = [];
-  for (const line of markdown.split("\n")) {
-    if (!line.trim()) continue;
-    const match = /^- ([0-9]+):( \(current\))? \[(.*)\]\((.*)\)( \[crashed\])?$/u.exec(line);
-    if (!match || Number(match[1]) !== tabs.length) throw clientContractError();
-    tabs.push({
-      index: Number(match[1]),
-      current: Boolean(match[2]),
-      title: match[3],
-      url: match[4],
-      crashed: Boolean(match[5]),
-    });
-  }
-  if (tabs.length === 0) throw clientContractError();
+  const tabs = parseTabsMarkdown(payload.result);
+  if (tabs === undefined) throw clientContractError();
   return tabs;
-}
-
-function pageInfoFromPayload(payload) {
-  if (typeof payload.page !== "string") return {};
-  const info = {};
-  for (const line of payload.page.split("\n")) {
-    if (line.startsWith("- Page URL: ")) info.url = line.slice(12);
-    if (line.startsWith("- Page Title: ")) info.title = line.slice(14);
-    if (line === "- Page status: crashed") info.crashed = true;
-  }
-  return info;
 }
 
 function normalizePageInfo(value) {
@@ -927,20 +910,6 @@ function normalizePageRead(value, maximum) {
     text_truncated: originalLength > maximum,
     scroll_height: value.scroll_height,
   };
-}
-
-function collectSnapshotRefs(value, refs = new Set()) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectSnapshotRefs(item, refs);
-  } else if (value && typeof value === "object") {
-    if (typeof value.ref === "string" && PLAYWRIGHT_REF_PATTERN.test(value.ref)) refs.add(value.ref);
-    for (const item of Object.values(value)) collectSnapshotRefs(item, refs);
-  }
-  return refs;
-}
-
-function comparePlaywrightRefs(left, right) {
-  return Number(left.slice(1)) - Number(right.slice(1));
 }
 
 function tabFingerprint(tab) {

@@ -179,6 +179,17 @@ npm run test:email-scripts
 cd services/gateway && go test ./internal/browserautomation ./internal/browsercontrol ./internal/emailautomation ./internal/gateway ./internal/toolhub
 ```
 
+The Controller and Gateway parsers for Playwright tab lists, snapshots, and
+CLI error output are pinned to
+`tools/browser-controller/test/fixtures/playwright-golden.json`, a recording of
+the pinned MCP and CLI packages. The offline fakes replay those shapes. After
+changing a Playwright pin, re-record it against a local headless browser and
+review the diff:
+
+```bash
+node tools/browser-controller/test/fixtures/record-playwright-golden.mjs
+```
+
 Live acceptance additionally checks startup and restart, Bridge pairing and
 detach, profile persistence, no-handoff focus isolation, explicit handoff,
 generic adapter interaction, all three signed-in provider probes, process

@@ -54,6 +54,16 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Sealed PPTX candidates no longer accumulate in the artifact store. The
+  candidate bytes and manifest are discarded right after an approved
+  publication's completed status is durable (audited as
+  `document.pptx.candidate_discarded`), and the hourly retention coordinator
+  sweeps `pptx/sealed/` objects older than the 24h approval TTL in bounded
+  pages (audited as `document.pptx.candidate_expired`). The artifact store
+  interface gained a bounded `List(prefix, startAfter, limit)`; the
+  filesystem and S3 backends implement it and unimplemented backends return
+  an explicit error, so the sweep logs and skips rather than silently
+  doing nothing.
 - Deployment: `docker compose` now requires an explicit
   `SPARKCLAW_MODEL_CAPACITY_PROFILE` (the previous `mock` default silently
   routed every model call to the mock router when the deploy scripts were

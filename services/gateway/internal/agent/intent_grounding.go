@@ -28,7 +28,7 @@ type intentGroundingProjection struct {
 	HasUnsupportedMedia bool
 }
 
-func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, content string, documents documentContextResolution) (intentGroundingProjection, error) {
+func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, content string, documents documentContextResolution, recentToolCalls []app.ToolCall) (intentGroundingProjection, error) {
 	projection := intentGroundingProjection{SessionID: sessionID, RunID: runID}
 	if r.store != nil {
 		session, ok, err := r.store.GetSession(ctx, sessionID)
@@ -77,7 +77,7 @@ func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, c
 			Kind: "workspace_path", Ref: document.Ref, Facts: facts, Document: document,
 		})
 	}
-	localMindTargets, err := r.resolveLocalMindTaskTargets(ctx, sessionID, content)
+	localMindTargets, err := r.resolveLocalMindTaskTargets(ctx, sessionID, content, recentToolCalls)
 	if err != nil {
 		return intentGroundingProjection{}, err
 	}

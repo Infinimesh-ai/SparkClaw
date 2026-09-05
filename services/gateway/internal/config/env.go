@@ -226,6 +226,10 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_GUARD_BASE_URL", doc: "Guard lane model server base URL.", apply: envString(func(c *Config) *string { return &c.Model.Guard.BaseURL })},
 	{name: "SPARKCLAW_GUARD_MODEL", doc: "Guard lane model identifier.", apply: envString(func(c *Config) *string { return &c.Model.Guard.Model })},
 	{name: "SPARKCLAW_MODEL_CAPACITY_PROFILE", doc: "Capacity profile selected from the catalog; sets mock routing and token budgets.", apply: envString(func(c *Config) *string { return &c.Model.CapacityProfile })},
+	{name: "OPENAI_API_KEY", doc: "Bearer token sent to the fast, deep, embedding, and guard model servers; leave empty for unauthenticated local servers.", apply: func(cfg *Config, value string) error {
+		cfg.Model.APIKey = strings.TrimSpace(value)
+		return nil
+	}},
 	{name: "SPARKCLAW_MODEL_CAPACITY_CATALOG", doc: "Path to the model capacity catalog JSON.", apply: envString(func(c *Config) *string { return &c.Model.CapacityCatalog })},
 	{name: "SPARKCLAW_BROWSER_READ_ALLOW_HOSTS", doc: "Comma-separated hosts the browser read tool may fetch.", apply: envCSV(func(c *Config) *[]string { return &c.Security.BrowserReadAllowHosts })},
 	{name: "SPARKCLAW_WEB_SEARCH_ENABLED", doc: "Enable the web search tool.", apply: envBool(func(c *Config) *bool { return &c.Tools.Web.Search.Enabled })},

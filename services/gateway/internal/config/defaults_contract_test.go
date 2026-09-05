@@ -242,7 +242,6 @@ var nonGatewayProductKeys = map[string]string{
 // nonGatewayComposeKeys are gateway-service compose entries that no env
 // binding reads directly.
 var nonGatewayComposeKeys = map[string]string{
-	"OPENAI_API_KEY":                             "modelrouter reads it per request",
 	"SPARKCLAW_DEPLOYMENT_PROFILE":               "deployment entrypoint marker",
 	"SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION":  "scripts/doctor.sh",
 	"SPARKCLAW_ISCP_AUTHORITY_TOKEN":             "read indirectly through SPARKCLAW_ISCP_AUTHORITY_TOKEN_ENV",

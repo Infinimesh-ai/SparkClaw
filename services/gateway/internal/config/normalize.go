@@ -162,6 +162,30 @@ func validateModelConfig(model *ModelConfig) error {
 	return nil
 }
 
+// modelConfigWarnings reports non-mock model lanes that point at a remote
+// host while no API key is configured. It is a warning rather than an
+// error because private-network servers legitimately run without auth;
+// Docker service names and loopback addresses count as local.
+func modelConfigWarnings(model ModelConfig) []string {
+	if model.Mock || model.APIKey != "" {
+		return nil
+	}
+	warnings := []string{}
+	for _, lane := range []struct {
+		name    string
+		profile ModelProfile
+	}{
+		{"fast", model.Fast}, {"deep", model.Deep}, {"embedding", model.Embedding}, {"guard", model.Guard},
+	} {
+		endpoint, err := url.Parse(strings.TrimSpace(lane.profile.BaseURL))
+		if err != nil || endpoint.Host == "" || isLocalHTTPHost(endpoint.Hostname()) {
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("model.%s.base_url %s is a remote endpoint but OPENAI_API_KEY is empty; requests will be sent without a bearer token", lane.name, endpoint.Redacted()))
+	}
+	return warnings
+}
+
 // normalizeRuntimeLimits backfills non-positive workflow budgets with the
 // defaults so a partial runtime section in JSON cannot silently disable the
 // stage or run stop conditions.

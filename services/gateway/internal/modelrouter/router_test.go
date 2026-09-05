@@ -849,3 +849,49 @@ func TestDangerousTaskChoosesDeepWithoutFallbackFlag(t *testing.T) {
 		t.Fatalf("dangerous task chose %q, want %q", profile.Name, cfg.Model.Deep.Name)
 	}
 }
+
+func TestRouterSendsConfiguredAPIKeyAsBearer(t *testing.T) {
+	var authorization []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = append(authorization, r.Header.Get("Authorization"))
+		if strings.HasSuffix(r.URL.Path, "/tokenize") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"count": 3})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
+			"usage":   map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+		})
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.APIKey = "secret-token"
+	router := New(cfg)
+
+	if _, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if len(authorization) == 0 {
+		t.Fatal("no requests reached the model server")
+	}
+	for _, header := range authorization {
+		if header != "Bearer secret-token" {
+			t.Fatalf("authorization header = %q, want the configured bearer on every request", header)
+		}
+	}
+
+	authorization = nil
+	cfg.Model.APIKey = ""
+	router = New(cfg)
+	if _, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	for _, header := range authorization {
+		if header != "" {
+			t.Fatalf("authorization header = %q, want none without a configured key", header)
+		}
+	}
+}

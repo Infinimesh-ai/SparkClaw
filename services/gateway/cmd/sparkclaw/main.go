@@ -31,6 +31,9 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	for _, warning := range cfg.Warnings {
+		slog.Warn("config warning", "warning", warning)
+	}
 	storeStartupCtx, cancelStoreStartup := context.WithTimeout(
 		context.Background(),
 		time.Duration(cfg.State.StartupTimeoutSeconds)*time.Second,

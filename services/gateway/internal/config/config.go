@@ -160,6 +160,7 @@ func Load(path string) (Config, error) {
 	if err := validateModelConfig(&cfg.Model); err != nil {
 		return Config{}, err
 	}
+	cfg.Warnings = append(cfg.Warnings, modelConfigWarnings(cfg.Model)...)
 	if err := normalizeNotificationChannels(&cfg.Tools.Notifications); err != nil {
 		return Config{}, err
 	}

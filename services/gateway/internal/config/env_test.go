@@ -85,3 +85,46 @@ func TestLoadRejectsRetiredModelModeAndJSONMock(t *testing.T) {
 		t.Fatalf("model.mock should be rejected: %v", err)
 	}
 }
+
+func TestLoadPopulatesModelAPIKeyAndWarnsOnRemoteEndpointsWithoutIt(t *testing.T) {
+	t.Setenv("SPARKCLAW_FAST_BASE_URL", "https://models.example.com/v1")
+	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://sparkclaw-deep:8002/v1")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model.APIKey != "" {
+		t.Fatalf("api key should be empty: %q", cfg.Model.APIKey)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "model.fast.base_url") || !strings.Contains(cfg.Warnings[0], "OPENAI_API_KEY") {
+		t.Fatalf("expected one remote-endpoint warning for the fast lane, got %v", cfg.Warnings)
+	}
+
+	t.Setenv("OPENAI_API_KEY", " secret-token ")
+	cfg, err = Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model.APIKey != "secret-token" {
+		t.Fatalf("api key should be trimmed from OPENAI_API_KEY: %q", cfg.Model.APIKey)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Fatalf("no warnings expected once the key is set: %v", cfg.Warnings)
+	}
+}
+
+func TestMockProfileNeverWarnsAboutMissingAPIKey(t *testing.T) {
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_PROFILE", "mock")
+	t.Setenv("SPARKCLAW_FAST_BASE_URL", "https://models.example.com/v1")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Model.Mock || len(cfg.Warnings) != 0 {
+		t.Fatalf("mock profile should not warn: mock=%v warnings=%v", cfg.Model.Mock, cfg.Warnings)
+	}
+}

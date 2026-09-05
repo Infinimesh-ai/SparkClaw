@@ -44,6 +44,10 @@ type Config struct {
 	State                StateConfig                `json:"state"`
 	Runtime              RuntimeConfig              `json:"runtime"`
 	Logging              LoggingConfig              `json:"logging"`
+	// Warnings collects load-time findings that do not block startup, such
+	// as a remote model endpoint configured without an API key. Load fills
+	// it and the entrypoint logs each entry.
+	Warnings []string `json:"-"`
 }
 
 type JingSiLANConfig struct {
@@ -98,6 +102,10 @@ type ModelConfig struct {
 	Mock               bool `json:"-"`
 	HTTPTimeoutSeconds int  `json:"http_timeout_seconds"`
 	DisableThinking    bool `json:"disable_thinking"`
+	// APIKey is the bearer token sent to every OpenAI-compatible model
+	// server. It is secret-only: OPENAI_API_KEY in the environment, never
+	// the config file.
+	APIKey string `json:"-"`
 }
 
 type ModelProfile struct {

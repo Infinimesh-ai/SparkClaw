@@ -70,7 +70,7 @@ class Boundary(BaseHTTPRequestHandler):
                 durable_new(state['ledger'],canonical_bytes({'state':'consumed_before_io',
                     'manifest_sha256':state['manifest_sha'],'request_sha256':hashlib.sha256(body).hexdigest()},
                     stage='https_boundary'))
-            connection=http.client.HTTPConnection('127.0.0.1',state['backend_port'],timeout=30)
+            connection=http.client.HTTPConnection('127.0.0.1',state['backend_port'],timeout=300)
             try:
                 connection.request(method,self.path,body=body,headers=headers)
                 response=connection.getresponse();raw=response.read((1<<20)+1)

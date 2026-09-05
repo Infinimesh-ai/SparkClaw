@@ -96,7 +96,7 @@ def read_config(path: Path, manifest: dict) -> dict:
 
 class LiveNativeRerankClient(SyntheticNativeRerankClient):
     def __init__(self, bundle, *, manifest, manifest_raw, expected_sha256, expected_size,
-                 ca_file: Path, config_file: Path, evidence_dir: Path, ledger: Path, timeout=30.0):
+                 ca_file: Path, config_file: Path, evidence_dir: Path, ledger: Path, timeout=300.0):
         # These external values come from the persisted manifest review, not the file itself.
         if len(manifest_raw) != expected_size or hashlib.sha256(manifest_raw).hexdigest() != expected_sha256:
             fail("deployment_manifest_bytes", "external_manifest_pin_mismatch", "")

@@ -18,6 +18,7 @@ const GROUP_TITLE_PREFIX = "SparkClaw task";
 const GROUP_COLORS = ["green", "blue", "cyan", "yellow", "purple", "orange"];
 const MAX_OWNER_TAB_HISTORY = 16;
 const PENDING_CONNECTION_TTL_MS = 6500;
+const RELAY_CONNECT_TIMEOUT_MS = 5000;
 const OWNED_GROUP_IDS_KEY = "sparkclawTaskGroupIDs";
 
 export class SparkClawBrowserBridge {
@@ -153,7 +154,7 @@ export class SparkClawBrowserBridge {
     if (!this.#isConnectTab(selectorTab)) throw new Error("Task connection page is invalid");
     const pending = this.pending.get(selectorTab.id);
     if (!pending) throw new Error("Pending client connection closed");
-    const webSocket = await openRelayConnection(this.WebSocketClass, pending.relayURL);
+    const webSocket = await openRelayConnection(this.WebSocketClass, pending.relayURL, this);
     if (!this.#clearPending(selectorTab.id, pending)) {
       webSocket.close(1000, "Pending client connection closed");
       throw new Error("Pending client connection closed");
@@ -626,18 +627,29 @@ export class FocusTracker {
   }
 }
 
-async function openRelayConnection(WebSocketClass, relayURL) {
+// Opens the relay WebSocket and settles once it is open. A socket that times
+// out or errors is closed here so a failed attempt never leaves a half-open
+// connection behind; the timers come from the Bridge so tests can drive them.
+async function openRelayConnection(WebSocketClass, relayURL, timers) {
   const socket = new WebSocketClass(relayURL);
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Relay connection timeout")), 5000);
+    const fail = (message) => {
+      timers.clearTimeout(timer);
+      socket.onopen = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000, message);
+      } catch {
+        // A socket that already failed may refuse close(); nothing is left open.
+      }
+      reject(new Error(message));
+    };
+    const timer = timers.setTimeout(() => fail("Relay connection timeout"), RELAY_CONNECT_TIMEOUT_MS);
     socket.onopen = () => {
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       resolve();
     };
-    socket.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error("Relay connection failed"));
-    };
+    socket.onerror = () => fail("Relay connection failed");
   });
   return socket;
 }

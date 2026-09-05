@@ -72,6 +72,44 @@ test("successful connection cancels pending expiry", async () => {
   assert.deepEqual(fixture.calls.tabsRemove, []);
 });
 
+test("relay connect timeout and error close the pending socket", async () => {
+  for (const mode of ["timeout", "error"]) {
+    const fixture = createBridgeFixture();
+    const clock = createClock();
+    const sockets = [];
+    class StalledWebSocket {
+      constructor() {
+        this.readyState = 0;
+        this.closed = [];
+        sockets.push(this);
+        if (mode === "error") queueMicrotask(() => this.onerror?.(new Event("error")));
+      }
+      close(code, reason) { this.readyState = 3; this.closed.push([code, reason]); }
+      send() {}
+    }
+    new SparkClawBrowserBridge({
+      chromeAPI: fixture.chromeAPI,
+      WebSocketClass: StalledWebSocket,
+      setTimeoutFn: clock.setTimeout,
+      clearTimeoutFn: clock.clearTimeout,
+      staleCleanupDelays: [],
+    });
+    assert.deepEqual(await fixture.send({ type: "connectionRequested", mcpRelayUrl: RELAY_URL }), { success: true });
+
+    const connecting = fixture.send({ type: "connectToTask", clientName: "test" });
+    await tick();
+    if (mode === "timeout") {
+      const connectTimer = clock.findByDelay(5000);
+      assert.ok(connectTimer, "relay connect timeout must use the injected timer");
+      await clock.run(connectTimer);
+    }
+    assert.deepEqual(await connecting, { success: false, error: "Bridge request failed" }, mode);
+    assert.equal(sockets.length, 1, mode);
+    assert.deepEqual(sockets[0].closed, [[1000, mode === "timeout" ? "Relay connection timeout" : "Relay connection failed"]], mode);
+    assert.equal(clock.findByDelay(5000), undefined, `${mode} left the connect timer armed`);
+  }
+});
+
 test("discard, tab removal, and replacement cancel pending expiry", async () => {
   for (const action of ["discard", "remove", "replace"]) {
     const fixture = createBridgeFixture();

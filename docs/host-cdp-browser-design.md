@@ -4,11 +4,13 @@
 
 ## Status
 
-Implemented on 2026-09-02. This document records the replacement browser
-transport, host process lifecycle, tab ownership model, and authentication
-handoff. It does not define any application-specific browser capability.
+**Superseded.** Host-CDP was implemented on 2026-09-02 and retired by the
+Playwright Browser Bridge cutover on 2026-09-05; see
+[Browser runtime](browser-runtime.md) for the current design. This document
+is kept as the historical record of that transport, host process lifecycle,
+tab ownership model, and authentication handoff.
 
-Host-CDP is now the only supported browser runtime. The
+Host-CDP was, at the time, the only supported browser runtime. The
 two official deployment entrypoints,
 `scripts/deploy_local.sh` and `scripts/deploy_remote.sh`, configure the sole
 Host-CDP transport and install or verify Chromium on the host. The Gateway image

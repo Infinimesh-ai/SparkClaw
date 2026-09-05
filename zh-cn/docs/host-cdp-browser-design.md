@@ -4,10 +4,11 @@
 
 ## 状态
 
-本方案于 2026-09-02 完成实施，记录替代旧实现的浏览器 transport、宿主机进程生命周期、
-标签页所有权模型和认证 handoff。它不定义任何业务专用的浏览器能力。
+**已被取代。** Host-CDP 于 2026-09-02 完成实施，并在 2026-09-05 被 Playwright Browser
+Bridge 切换取代；当前设计见 [浏览器运行时](browser-runtime.md)。本文档仅作为该 transport、
+宿主机进程生命周期、标签页所有权模型和认证 handoff 的历史记录保留。
 
-Host-CDP 现为唯一受支持的浏览器 runtime。两条正式部署入口
+Host-CDP 当时是唯一受支持的浏览器 runtime。两条正式部署入口
 `scripts/deploy_local.sh` 和
 `scripts/deploy_remote.sh` 统一配置唯一的 Host-CDP transport，并在宿主机安装或校验
 Chromium。Gateway 镜像不再包含 Chromium。Container-managed 的实现、配置、打包、

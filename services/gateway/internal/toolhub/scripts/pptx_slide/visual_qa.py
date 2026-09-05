@@ -1,4 +1,5 @@
 import hashlib
+import importlib.metadata
 import json
 import math
 import os
@@ -593,6 +594,7 @@ try:
     print(json.dumps({
         "schema_version": ANALYSIS_SCHEMA,
         "candidate_sha256": candidate_sha256,
+        "rasterizer_version": importlib.metadata.version("pypdfium2"),
         "slide_count": slide_count,
         "slide_width": slide_width,
         "slide_height": slide_height,

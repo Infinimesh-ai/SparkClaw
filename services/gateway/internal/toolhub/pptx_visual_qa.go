@@ -103,6 +103,10 @@ type pptxVisualQAService struct {
 	readyMu    sync.Mutex
 	readyKey   string
 	readyUntil time.Time
+	// rendererUntil caches a successful Gotenberg version probe for the
+	// readiness TTL so the pin is verified once per window, not per render.
+	rendererMu    sync.Mutex
+	rendererUntil time.Time
 }
 
 type pptxVisualQAResult struct {
@@ -126,12 +130,13 @@ type pptxVisualQAPageResult struct {
 }
 
 type pptxRenderAnalysis struct {
-	SchemaVersion   string                   `json:"schema_version"`
-	CandidateSHA256 string                   `json:"candidate_sha256"`
-	SlideCount      int                      `json:"slide_count"`
-	SlideWidth      int64                    `json:"slide_width"`
-	SlideHeight     int64                    `json:"slide_height"`
-	Pages           []pptxRenderAnalysisPage `json:"pages"`
+	SchemaVersion     string                   `json:"schema_version"`
+	CandidateSHA256   string                   `json:"candidate_sha256"`
+	RasterizerVersion string                   `json:"rasterizer_version"`
+	SlideCount        int                      `json:"slide_count"`
+	SlideWidth        int64                    `json:"slide_width"`
+	SlideHeight       int64                    `json:"slide_height"`
+	Pages             []pptxRenderAnalysisPage `json:"pages"`
 }
 
 type pptxRenderAnalysisPage struct {
@@ -255,6 +260,9 @@ func (s *pptxVisualQAService) Assess(ctx context.Context, request pptxVisualQARe
 	}
 	defer os.RemoveAll(jobDir)
 
+	if err := s.ensureRendererPinned(ctx); err != nil {
+		return pptxVisualQAResult{}, err
+	}
 	pdf, err := s.convertCandidate(ctx, request.CandidatePath)
 	if err != nil {
 		return pptxVisualQAResult{}, err
@@ -302,6 +310,46 @@ func (s *pptxVisualQAService) Assess(ctx context.Context, request pptxVisualQARe
 	}
 	result.DurationMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+// ensureRendererPinned asks Gotenberg for its version and refuses to render
+// through anything but the configured pin, so the sealed manifest never
+// attests to a renderer that was not used. A failed probe is an
+// infrastructure error; a different version is an integrity error.
+func (s *pptxVisualQAService) ensureRendererPinned(ctx context.Context) error {
+	now := time.Now()
+	s.rendererMu.Lock()
+	cached := now.Before(s.rendererUntil)
+	s.rendererMu.Unlock()
+	if cached {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.cfg.BaseURL, "/")+"/version", nil)
+	if err != nil {
+		return newPPTXVisualQAError(pptxVisualQAInfrastructureError, app.ToolErrorPPTXRenderBackendUnavailable, err)
+	}
+	response, err := s.client.Do(req)
+	if err != nil {
+		code := app.ToolErrorPPTXRenderBackendUnavailable
+		if errors.Is(err, context.Canceled) {
+			code = app.ToolErrorPPTXRenderCancelled
+		} else if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+			code = app.ToolErrorPPTXRenderTimeout
+		}
+		return newPPTXVisualQAError(pptxVisualQAInfrastructureError, code, fmt.Errorf("probe Gotenberg version: %w", err))
+	}
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 256))
+	if err != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
+		return newPPTXVisualQAError(pptxVisualQAInfrastructureError, app.ToolErrorPPTXRenderBackendUnavailable, fmt.Errorf("Gotenberg version probe returned HTTP %d", response.StatusCode))
+	}
+	if version := strings.TrimSpace(string(raw)); version != s.cfg.GotenbergVersion {
+		return newPPTXVisualQAError(pptxVisualQAIntegrityError, app.ToolErrorPPTXRenderStackMismatch, fmt.Errorf("Gotenberg reports version %q, configured pin is %q", version, s.cfg.GotenbergVersion))
+	}
+	s.rendererMu.Lock()
+	s.rendererUntil = time.Now().Add(time.Duration(s.cfg.ReadinessTTLSeconds) * time.Second)
+	s.rendererMu.Unlock()
+	return nil
 }
 
 func (s *pptxVisualQAService) convertCandidate(ctx context.Context, candidatePath string) ([]byte, error) {
@@ -437,6 +485,9 @@ func validatePPTXRenderAnalysis(analysis pptxRenderAnalysis, candidateSHA string
 	}
 	if analysis.SchemaVersion != pptxRenderAnalysisSchema || analysis.CandidateSHA256 != candidateSHA {
 		return integrity(app.ToolErrorPPTXRenderDiagnosticInvalid, errors.New("PPTX render analysis identity is invalid"))
+	}
+	if analysis.RasterizerVersion != cfg.PDFiumVersion {
+		return integrity(app.ToolErrorPPTXRenderStackMismatch, fmt.Errorf("PPTX render analysis used pypdfium2 %q, configured pin is %q", analysis.RasterizerVersion, cfg.PDFiumVersion))
 	}
 	if analysis.SlideCount <= 0 || analysis.SlideCount > cfg.MaxPages || analysis.SlideWidth <= 0 || analysis.SlideHeight <= 0 {
 		return integrity(app.ToolErrorPPTXRenderPageMismatch, errors.New("PPTX render analysis dimensions are invalid"))

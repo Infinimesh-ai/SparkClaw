@@ -428,10 +428,9 @@ func preparePPTXSealedCandidateTest(t *testing.T) (*ToolHub, map[string]any, PPT
 func TestPPTXVisualQARejectsHTTP200NonPDF(t *testing.T) {
 	root := t.TempDir()
 	writeSingleSlidePptxFixture(t, root, "candidate.pptx")
-	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	renderer := newPPTXVisualTestRenderer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("writer error page"))
-	}))
-	defer renderer.Close()
+	})
 	service := newPPTXVisualQAService(testPPTXVisualQAConfig(renderer.URL), nil)
 
 	_, err := service.Assess(t.Context(), pptxVisualQARequest{CandidatePath: filepath.Join(root, "candidate.pptx"), Operation: "update_slide", SlideIndexes: []int{1}})
@@ -450,7 +449,7 @@ func TestPPTXVisualQAEndToEndUsesFixedRenderAndStrictFastReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	rendererCalls := 0
-	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	renderer := newPPTXVisualTestRenderer(t, func(w http.ResponseWriter, r *http.Request) {
 		rendererCalls++
 		if r.URL.Path != "/forms/libreoffice/convert" {
 			t.Fatalf("unexpected Gotenberg path %q", r.URL.Path)
@@ -469,8 +468,7 @@ func TestPPTXVisualQAEndToEndUsesFixedRenderAndStrictFastReview(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/pdf")
 		_, _ = w.Write(pdf)
-	}))
-	defer renderer.Close()
+	})
 
 	modelCalls := []string{}
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -525,11 +523,10 @@ func TestPPTXVisualQAEmptyPageSelectionStillValidatesCompleteRender(t *testing.T
 		t.Fatal(err)
 	}
 	rendererCalls := 0
-	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	renderer := newPPTXVisualTestRenderer(t, func(w http.ResponseWriter, _ *http.Request) {
 		rendererCalls++
 		_, _ = w.Write(pdf)
-	}))
-	defer renderer.Close()
+	})
 
 	service := newPPTXVisualQAService(testPPTXVisualQAConfig(renderer.URL), nil)
 	result, err := service.Assess(t.Context(), pptxVisualQARequest{
@@ -552,10 +549,9 @@ func TestPPTXVisualQAValidatesUnselectedPDFPageDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	renderer := newPPTXVisualTestRenderer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(pdf)
-	}))
-	defer renderer.Close()
+	})
 
 	service := newPPTXVisualQAService(testPPTXVisualQAConfig(renderer.URL), nil)
 	_, err = service.Assess(t.Context(), pptxVisualQARequest{
@@ -586,12 +582,30 @@ func TestValidatePPTXVisualAssessmentRejectsWrongSemanticEffectAndUnknownShape(t
 }
 
 func testPPTXVisualQAConfig(baseURL string) config.PPTXVisualQAAdapterConfig {
+	pins := config.Default().Adapters.PPTXVisualQA
 	return config.PPTXVisualQAAdapterConfig{
 		Phase: "shadow", BaseURL: baseURL, TimeoutSeconds: 30,
 		MaxInputBytes: 4 << 20, MaxPDFBytes: 4 << 20, MaxPages: 10, MaxChangedPages: 4,
 		RasterScale: 1, MaxPagePixels: 2_000_000, MaxPNGBytes: 2 << 20,
 		DiagnosticToleranceMilli: 2, ReadinessTTLSeconds: 300,
+		GotenbergVersion: pins.GotenbergVersion, LibreOfficeVersion: pins.LibreOfficeVersion, PDFiumVersion: pins.PDFiumVersion,
 	}
+}
+
+// newPPTXVisualTestRenderer stands in for Gotenberg: it answers the version
+// probe with the pinned release and hands every other request to convert.
+func newPPTXVisualTestRenderer(t *testing.T, convert http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
+			_, _ = io.WriteString(w, config.Default().Adapters.PPTXVisualQA.GotenbergVersion+"\n")
+			return
+		}
+		convert(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server
 }
 
 func writePPTXVisualQAPDFFixture(t *testing.T, path string, width, height int) {
@@ -659,7 +673,7 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 		Diagnostics: pptxDiagnosticFacts{SchemaVersion: pptxDiagnosticFactsSchema, CandidateSHA256: sha, SlideIndex: 1, CoordinateSpace: "region_milli"},
 	}
 	analysis := func(mutate func(*pptxRenderAnalysis)) pptxRenderAnalysis {
-		out := pptxRenderAnalysis{SchemaVersion: pptxRenderAnalysisSchema, CandidateSHA256: sha, SlideCount: 1, SlideWidth: 100, SlideHeight: 100, Pages: []pptxRenderAnalysisPage{validPage}}
+		out := pptxRenderAnalysis{SchemaVersion: pptxRenderAnalysisSchema, CandidateSHA256: sha, RasterizerVersion: cfg.PDFiumVersion, SlideCount: 1, SlideWidth: 100, SlideHeight: 100, Pages: []pptxRenderAnalysisPage{validPage}}
 		mutate(&out)
 		return out
 	}
@@ -670,6 +684,7 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 		want     app.ToolErrorCode
 	}{
 		{name: "identity", analysis: analysis(func(a *pptxRenderAnalysis) { a.CandidateSHA256 = strings64("b") }), selected: []int{1}, want: app.ToolErrorPPTXRenderDiagnosticInvalid},
+		{name: "rasterizer pin", analysis: analysis(func(a *pptxRenderAnalysis) { a.RasterizerVersion = "0.0.1" }), selected: []int{1}, want: app.ToolErrorPPTXRenderStackMismatch},
 		{name: "dimensions", analysis: analysis(func(a *pptxRenderAnalysis) { a.SlideWidth = 0 }), selected: []int{1}, want: app.ToolErrorPPTXRenderPageMismatch},
 		{name: "page set", analysis: analysis(func(*pptxRenderAnalysis) {}), selected: []int{1, 2}, want: app.ToolErrorPPTXRenderPageMismatch},
 		{name: "unexpected page", analysis: analysis(func(*pptxRenderAnalysis) {}), selected: []int{2}, want: app.ToolErrorPPTXRenderPageMismatch},
@@ -705,5 +720,64 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 				t.Fatalf("assessPage error = %v (kind %q code %q), want model %q", err, pptxVisualQAErrorKindOf(err), pptxVisualQAErrorCodeOf(err), test.want)
 			}
 		})
+	}
+}
+
+// A renderer stack that differs from the configured pin must stop the
+// candidate before conversion: the sealed manifest attests to the pin, so
+// evidence from any other Gotenberg or pypdfium2 would make it a false record.
+func TestPPTXVisualQARefusesUnpinnedRendererStack(t *testing.T) {
+	root := t.TempDir()
+	writeSingleSlidePptxFixture(t, root, "candidate.pptx")
+	pdfPath := filepath.Join(root, "rendered.pdf")
+	writePPTXVisualQAPDFFixture(t, pdfPath, 960, 720)
+	pdf, err := os.ReadFile(pdfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := pptxVisualQARequest{CandidatePath: filepath.Join(root, "candidate.pptx"), Operation: "duplicate_slide"}
+
+	converts := 0
+	drifted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			_, _ = io.WriteString(w, "8.99.0")
+			return
+		}
+		converts++
+		_, _ = w.Write(pdf)
+	}))
+	defer drifted.Close()
+	service := newPPTXVisualQAService(testPPTXVisualQAConfig(drifted.URL), nil)
+	_, err = service.Assess(t.Context(), request)
+	if converts != 0 || pptxVisualQAErrorKindOf(err) != pptxVisualQAIntegrityError || pptxVisualQAErrorCodeOf(err) != app.ToolErrorPPTXRenderStackMismatch {
+		t.Fatalf("unpinned Gotenberg was used: converts=%d err=%v", converts, err)
+	}
+
+	renderer := newPPTXVisualTestRenderer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(pdf) })
+	cfg := testPPTXVisualQAConfig(renderer.URL)
+	cfg.PDFiumVersion = "0.0.1"
+	_, err = newPPTXVisualQAService(cfg, nil).Assess(t.Context(), request)
+	if pptxVisualQAErrorKindOf(err) != pptxVisualQAIntegrityError || pptxVisualQAErrorCodeOf(err) != app.ToolErrorPPTXRenderStackMismatch || !strings.Contains(err.Error(), "pypdfium2") {
+		t.Fatalf("unpinned pypdfium2 was accepted: %v", err)
+	}
+
+	probes := 0
+	counted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			probes++
+			_, _ = io.WriteString(w, config.Default().Adapters.PPTXVisualQA.GotenbergVersion)
+			return
+		}
+		_, _ = w.Write(pdf)
+	}))
+	defer counted.Close()
+	service = newPPTXVisualQAService(testPPTXVisualQAConfig(counted.URL), nil)
+	for range 2 {
+		if _, err := service.Assess(t.Context(), request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if probes != 1 {
+		t.Fatalf("Gotenberg version probe ran %d times within the readiness TTL, want 1", probes)
 	}
 }

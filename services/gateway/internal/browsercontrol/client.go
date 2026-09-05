@@ -317,7 +317,17 @@ func (c *HTTPControllerClient) OpenProviderLogin(ctx context.Context, input Open
 	return result, nil
 }
 
+// controllerRequestBackstop bounds a controller round trip whose caller
+// carries no deadline. Provider scripts run for up to 90s plus a bounded
+// profile wait, so this only catches a wedged controller process.
+const controllerRequestBackstop = 5 * time.Minute
+
 func (c *HTTPControllerClient) postJSON(ctx context.Context, route string, input any, maximum int64, output any) error {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, controllerRequestBackstop)
+		defer cancel()
+	}
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return newError(CodeInvalidRequest, false, err)
@@ -389,6 +399,10 @@ func mapControllerFailure(status int, body []byte) error {
 		return newError(CodeScriptUnavailable, false, errors.New("controller provider script is unavailable"))
 	case "browser_script_timeout":
 		return newError(CodeScriptTimeout, true, errors.New("controller provider script timed out"))
+	case "browser_lane_unavailable":
+		return newError(CodeOperationUnavailable, false, errors.New("controller lane is unavailable"))
+	case "browser_controller_stopping":
+		return newError(CodeControllerUnavailable, true, errors.New("controller is stopping"))
 	default:
 		return newError(CodeControllerUnavailable, status >= 500 || projected.Retryable, fmt.Errorf("browser controller returned status %d", status))
 	}

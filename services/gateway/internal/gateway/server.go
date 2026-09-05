@@ -99,6 +99,10 @@ type Server struct {
 	pairing                  *pairingCoordinator
 	storeRuntime             StoreRuntimeMonitor
 	jingsiRuntime            *jingsiruntime.Provider
+	// pptxSealedSweepCursor is the artifact key the next sealed-candidate
+	// expiry sweep resumes after; only the retention coordinator goroutine
+	// reads or writes it.
+	pptxSealedSweepCursor string
 }
 
 func (s *Server) addAudit(ctx context.Context, event app.AuditEvent) {

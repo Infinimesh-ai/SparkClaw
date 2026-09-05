@@ -18,8 +18,15 @@ const retentionSweepInterval = time.Hour
 // indefinitely; the store's own operation timeouts are the graceful stop.
 const retentionSweepTimeout = time.Minute
 
+// pptxSealedSweepLimit bounds the artifact keys one sealed-candidate expiry
+// sweep examines. Each candidate is two objects, so this drains a hundred
+// abandoned approvals per hour while keeping a single sweep's listing and
+// deletes well inside retentionSweepTimeout.
+const pptxSealedSweepLimit = 200
+
 // StartRetentionSweeps runs the retention coordinator that owns the
-// destructive pruning of expired memories and passive notifications. Pruning
+// destructive pruning of expired memories, passive notifications and sealed
+// PPTX candidates that were never published within their approval TTL. Pruning
 // lives here on a ticker rather than in request handlers because GET
 // endpoints must stay side-effect free (engineering baseline rule 7). The
 // first sweep runs immediately so short-lived processes still age data out;
@@ -50,5 +57,18 @@ func (s *Server) runRetentionSweep(ctx context.Context) {
 	}
 	if err := s.applyPassiveNotificationRetention(sweepCtx); err != nil {
 		slog.Warn("passive notification retention sweep unavailable", "code", store.StoreErrorCodeOf(err))
+	}
+	s.applyPPTXSealedCandidateRetention(sweepCtx)
+}
+
+// applyPPTXSealedCandidateRetention runs one bounded sweep over the sealed
+// PPTX namespace and remembers where to resume. A short page resets the
+// cursor so the next sweep restarts from the beginning of the namespace; a
+// listing failure yields an empty cursor for the same reason.
+func (s *Server) applyPPTXSealedCandidateRetention(ctx context.Context) {
+	result, err := s.tools.SweepExpiredPPTXSealedCandidates(ctx, s.pptxSealedSweepCursor, pptxSealedSweepLimit)
+	s.pptxSealedSweepCursor = result.NextCursor
+	if err != nil {
+		slog.Warn("sealed PPTX candidate retention sweep incomplete", "scanned", result.Scanned, "deleted", result.Deleted, "error", err)
 	}
 }

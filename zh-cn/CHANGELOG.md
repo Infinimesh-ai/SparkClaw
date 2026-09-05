@@ -52,6 +52,12 @@
   阻断问题可能在密封前消失），把缺失的 Python 运行时报告为渲染器不可用而不是证据完整性
   失败（shadow 阶段不再中止受治理的变更），并在修复预算耗尽时记录
   `pptx_render_repair_exhausted`。
+- PPTX 最终渲染视觉 QA 会校验其所声明的渲染器栈：Gotenberg、LibreOffice 与 pypdfium2
+  的 pin 成为配置项（`SPARKCLAW_PPTX_VISUAL_QA_{GOTENBERG,LIBREOFFICE,PDFIUM}_VERSION`，
+  默认值不变，并由测试对照 Compose 与文档运行时的 pin），密封 manifest 记录配置值，
+  运行中的 Gotenberg 或 pypdfium2 版本与 pin 不一致时在所有阶段都以
+  `pptx_render_stack_mismatch` 终止准备。Fast 评估遗漏必需的 fact review 时报告为
+  `pptx_render_model_invalid` 而不是 `pptx_render_model_unavailable`。
 - 邮件自动化：提供方脚本的超时与输出无效代码映射为 `email_script_timeout` /
   `email_script_invalid_output` 而不是 `email_provider_unavailable`；`/api/email`
   错误携带 `code` 与 `retryable`；store 失败返回有界消息；控制器调用受脚本预算约束。

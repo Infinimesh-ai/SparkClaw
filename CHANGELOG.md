@@ -69,6 +69,15 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   as renderer unavailability instead of an evidence-integrity failure (so the
   shadow phase no longer aborts governed mutations), and records
   `pptx_render_repair_exhausted` when the repair budget ends.
+- PPTX final-render visual QA verifies the renderer stack it attests to: the
+  Gotenberg, LibreOffice, and pypdfium2 pins are configuration
+  (`SPARKCLAW_PPTX_VISUAL_QA_{GOTENBERG,LIBREOFFICE,PDFIUM}_VERSION`, defaults
+  unchanged and checked against the Compose and document-runtime pins by test),
+  the sealed manifest records the configured values, and a running Gotenberg
+  or pypdfium2 whose version differs from the pin fails preparation with
+  `pptx_render_stack_mismatch` in every phase. A Fast assessment that omits a
+  required fact review is reported as `pptx_render_model_invalid` instead of
+  `pptx_render_model_unavailable`.
 - Email automation: provider script timeouts and invalid-output codes map to
   `email_script_timeout` / `email_script_invalid_output` instead of
   `email_provider_unavailable`; `/api/email` errors carry `code` and

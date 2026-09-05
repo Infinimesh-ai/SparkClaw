@@ -390,3 +390,53 @@ func TestPPTXVisualControllerKeepsBlockingIssuesOnUnrepairedSlidesInScope(t *tes
 		t.Fatalf("re-review narrowed the authorized selection: assess=%d selections=%v", runner.assessCalls, runner.selections)
 	}
 }
+
+// TestPPTXVisualRepairAcceptsAnalysisTargetBindings runs the real QA
+// analysis and the real repair adapter on one candidate: the target hashes
+// QA offers must be exactly what repair recomputes, and any drift must be
+// refused as stale rather than silently applied.
+func TestPPTXVisualRepairAcceptsAnalysisTargetBindings(t *testing.T) {
+	root := t.TempDir()
+	writeSingleSlidePptxFixture(t, root, "candidate.pptx")
+	candidatePath := filepath.Join(root, "candidate.pptx")
+	pdfPath := filepath.Join(root, "candidate.pdf")
+	writePPTXVisualQAPDFFixture(t, pdfPath, 960, 720)
+	candidateSHA, err := pptxVisualFileSHA256(t.Context(), candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newPPTXVisualQAService(testPPTXVisualQAConfig("http://127.0.0.1"), nil)
+	analysis, err := service.analyzeRender(t.Context(), pptxVisualQARequest{
+		CandidatePath: candidatePath, Operation: "update_slide", SlideIndexes: []int{1}, ChangedShapeIndexes: map[int][]int{1: {2}},
+	}, candidateSHA, pdfPath, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	analyzed := analysis.Pages[0]
+	if !validPPTXSHA256(analyzed.Targets["slide:1:shape:2"]) {
+		t.Fatalf("QA analysis offered no target binding for shape 2: %#v", analyzed.Targets)
+	}
+	page := pptxVisualQAPageResult{SlideIndex: 1, Raster: analyzed.Raster, Structure: analyzed.Structure, Targets: analyzed.Targets, Diagnostics: analyzed.Diagnostics}
+	plan := pptxVisualRepairPlan{
+		SchemaVersion: pptxVisualRepairPlanSchema, Attempt: 1, SlideIndex: 1,
+		ResolvesDiagnosticIDs: []string{"diag-text-1-2"}, ResolvesVisualIssueIDs: []string{},
+		Operations: []pptxVisualRepairOperation{{Op: string(app.PPTXVisualRepairSetGeometry), ShapeRef: "slide:1:shape:2", RegionMilli: []int{100, 400, 700, 300}}},
+	}
+	result, err := applyPPTXVisualRepair(t.Context(), candidatePath, filepath.Join(root, "repaired.pptx"), candidateSHA, page, plan)
+	if err != nil {
+		t.Fatalf("repair rejected the bindings QA produced for the same candidate: %v", err)
+	}
+	if !slices.Equal(result.ChangedShapeIndexes, []int{2}) || result.CandidateSHA256 == candidateSHA {
+		t.Fatalf("unexpected repair result: %#v", result)
+	}
+
+	drifted := pptxVisualQAPageResult{SlideIndex: 1, Raster: analyzed.Raster, Structure: analyzed.Structure, Diagnostics: analyzed.Diagnostics, Targets: map[string]string{}}
+	for shapeRef, hash := range analyzed.Targets {
+		drifted.Targets[shapeRef] = hash
+	}
+	drifted.Targets["slide:1:shape:2"] = strings64("0")
+	_, err = applyPPTXVisualRepair(t.Context(), candidatePath, filepath.Join(root, "drifted.pptx"), candidateSHA, drifted, plan)
+	if app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderRepairInvalid || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("drifted target binding was not refused as stale: %v", err)
+	}
+}

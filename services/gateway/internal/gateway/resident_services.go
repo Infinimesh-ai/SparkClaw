@@ -6,6 +6,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 )
 
@@ -25,24 +26,24 @@ func (s *Server) residentServiceStatuses(ctx context.Context, speechStatus speec
 	latest := latestResidentServiceCalls(calls)
 	ocr := s.tools.DocumentOCRReadiness()
 	services := []residentServiceStatus{
-		modelResidentService("fast", s.cfg.Model.Fast, s.cfg.Model, latest),
-		modelResidentService("embedding", s.cfg.Model.Embedding, s.cfg.Model, latest),
-		modelResidentService("guard", s.cfg.Model.Guard, s.cfg.Model, latest),
+		modelResidentService(modelcapacity.LaneFast, s.cfg.Model.Fast, s.cfg.Model, latest),
+		modelResidentService(modelcapacity.LaneEmbedding, s.cfg.Model.Embedding, s.cfg.Model, latest),
+		modelResidentService(modelcapacity.LaneGuard, s.cfg.Model.Guard, s.cfg.Model, latest),
 		{
-			Lane: "asr", Backend: firstNonEmpty(s.cfg.Speech.Backend, speechStatus.Backend),
+			Lane: string(modelcapacity.LaneASR), Backend: firstNonEmpty(s.cfg.Speech.Backend, speechStatus.Backend),
 			Model: firstNonEmpty(speechStatus.Model, s.cfg.Speech.Model), Readiness: firstNonEmpty(speechStatus.State, speech.StateUnavailable),
-			LastCallStatus: latestCallStatus(latest, "asr"),
+			LastCallStatus: latestCallStatus(latest, string(modelcapacity.LaneASR)),
 		},
 		{
-			Lane: "ocr", Backend: firstNonEmpty(ocr.Provider, s.cfg.Adapters.DocumentOCR.Provider),
+			Lane: string(modelcapacity.LaneOCR), Backend: firstNonEmpty(ocr.Provider, s.cfg.Adapters.DocumentOCR.Provider),
 			Model: firstNonEmpty(ocr.Model, s.cfg.Adapters.DocumentOCR.Model), Readiness: firstNonEmpty(ocr.RuntimeStatus, "unavailable"),
-			LastCallStatus: latestCallStatus(latest, "ocr"),
+			LastCallStatus: latestCallStatus(latest, string(modelcapacity.LaneOCR)),
 		},
 	}
 	return services, nil
 }
 
-func modelResidentService(lane string, profile config.ModelProfile, cfg config.ModelConfig, latest map[string]app.ModelCall) residentServiceStatus {
+func modelResidentService(lane modelcapacity.Lane, profile config.ModelProfile, cfg config.ModelConfig, latest map[string]app.ModelCall) residentServiceStatus {
 	backend := "openai-http"
 	readiness := "configured"
 	if cfg.Mock {
@@ -52,15 +53,20 @@ func modelResidentService(lane string, profile config.ModelProfile, cfg config.M
 		readiness = speech.StateUnavailable
 	}
 	return residentServiceStatus{
-		Lane: lane, Backend: backend, Model: strings.TrimSpace(profile.Model), Readiness: readiness,
-		LastCallStatus: latestCallStatus(latest, lane),
+		Lane: string(lane), Backend: backend, Model: strings.TrimSpace(profile.Model), Readiness: readiness,
+		LastCallStatus: latestCallStatus(latest, string(lane)),
 	}
+}
+
+var residentServiceLanes = map[modelcapacity.Lane]bool{
+	modelcapacity.LaneFast: true, modelcapacity.LaneDeep: true, modelcapacity.LaneEmbedding: true,
+	modelcapacity.LaneGuard: true, modelcapacity.LaneASR: true, modelcapacity.LaneOCR: true,
 }
 
 func latestResidentServiceCalls(calls []app.ModelCall) map[string]app.ModelCall {
 	latest := map[string]app.ModelCall{}
 	for _, call := range calls {
-		if call.Lane != "fast" && call.Lane != "embedding" && call.Lane != "guard" && call.Lane != "asr" && call.Lane != "ocr" {
+		if !residentServiceLanes[modelcapacity.Lane(call.Lane)] {
 			continue
 		}
 		previous, ok := latest[call.Lane]

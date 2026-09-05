@@ -14,6 +14,9 @@ const (
 	LaneEmbedding Lane = "embedding"
 	LaneGuard     Lane = "guard"
 	LaneOCR       Lane = "ocr"
+	// LaneASR names the speech lane in model-call records and diagnostics.
+	// It is not a capacity-catalog lane: ASR is served outside the catalog.
+	LaneASR Lane = "asr"
 )
 
 type OutputBudgetClass string

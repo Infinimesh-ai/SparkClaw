@@ -105,6 +105,12 @@
   文档合并为六份当前专项手册和一份文档索引；删除 29 对已完成或被替代文档。
 - 将 runtime skill packages 排除出 bilingual documentation mirror，因为 skills 独立演进。
 
+- `GET /readyz` 的常驻服务状态现在通过新的有界读取
+  `RunRepository.LatestModelCallsByLane` 只读取每个 lane 最新一条 model call
+  （Postgres 使用 `DISTINCT ON`，并由 schema migration `0009` 为 `model_calls`
+  增加 `(lane, started_at DESC, id DESC)` 索引），不再在 WebChat 每 5 秒轮询时
+  加载全部已持久化的 model call。
+
 ### Validated
 
 - 已验证 Qwen3-ASR candidate 的冷启动 readiness 与首请求预热、batch output parity、真实

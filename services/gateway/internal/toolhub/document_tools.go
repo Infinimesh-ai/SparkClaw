@@ -100,8 +100,18 @@ func runPythonAdapter(ctx context.Context, script string, request map[string]any
 }
 
 func runPythonPackageAdapter(ctx context.Context, packageFS fs.FS, packageRoot, packageName string, request map[string]any) (map[string]any, error) {
-	if strings.TrimSpace(packageName) == "" || strings.ContainsAny(packageName, `/\\`) || packageName == "." || packageName == ".." {
+	return runPythonPackageModuleAdapter(ctx, packageFS, packageRoot, packageName, packageName, request)
+}
+
+// runPythonPackageModuleAdapter materializes packageFS/packageRoot as
+// packageName and runs `python -m module`, where module is the package itself
+// (its __main__) or a dotted submodule such as "pptx_slide.visual_qa".
+func runPythonPackageModuleAdapter(ctx context.Context, packageFS fs.FS, packageRoot, packageName, module string, request map[string]any) (map[string]any, error) {
+	if strings.TrimSpace(packageName) == "" || strings.ContainsAny(packageName, `/\\.`) || packageName == ".." {
 		return nil, errors.New("python adapter package name is invalid")
+	}
+	if module != packageName && !strings.HasPrefix(module, packageName+".") {
+		return nil, errors.New("python adapter module is outside the package")
 	}
 	packageSource, err := fs.Sub(packageFS, packageRoot)
 	if err != nil {
@@ -138,7 +148,7 @@ func runPythonPackageAdapter(ctx context.Context, packageFS fs.FS, packageRoot, 
 	}
 
 	return runSubprocessAdapter(ctx, request, func(ctx context.Context) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, documentPythonBinary(), "-m", packageName)
+		cmd := exec.CommandContext(ctx, documentPythonBinary(), "-m", module)
 		cmd.Dir = tempRoot
 		return cmd
 	})

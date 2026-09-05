@@ -289,7 +289,7 @@ func applyPPTXVisualRepair(ctx context.Context, inputPath, outputPath, candidate
 	if err := json.Unmarshal(operationsRaw, &operations); err != nil {
 		return pptxVisualRepairResult{}, err
 	}
-	out, err := runPythonAdapter(ctx, pptxVisualRepairAdapterScript, map[string]any{
+	out, err := runPythonPackageModuleAdapter(ctx, pptxSlideAdapterPackage, pptxSlideAdapterPackageRoot, pptxSlideAdapterPackageName, pptxVisualRepairAdapterModule, map[string]any{
 		"path": inputPath, "output_path": outputPath, "candidate_sha256": candidateSHA,
 		"slide_index": plan.SlideIndex, "target_hashes": targets, "operations": operations,
 	})

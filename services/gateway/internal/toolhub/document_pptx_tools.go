@@ -11,8 +11,15 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
+const (
+	pptxSlideAdapterPackageRoot   = "scripts/pptx_slide"
+	pptxSlideAdapterPackageName   = "pptx_slide"
+	pptxVisualQAAdapterModule     = pptxSlideAdapterPackageName + ".visual_qa"
+	pptxVisualRepairAdapterModule = pptxSlideAdapterPackageName + ".visual_repair"
+)
+
 func runPptxSlideAdapter(ctx context.Context, request map[string]any) (map[string]any, error) {
-	result, err := runPythonPackageAdapter(ctx, pptxSlideAdapterPackage, "scripts/pptx_slide", "pptx_slide", request)
+	result, err := runPythonPackageAdapter(ctx, pptxSlideAdapterPackage, pptxSlideAdapterPackageRoot, pptxSlideAdapterPackageName, request)
 	if documentAdapterErrorCode(err) == "pptx_layout_fit_conflict" {
 		return nil, &app.CodedToolError{Code: app.ToolErrorPPTXLayoutFitConflict, Err: err}
 	}

@@ -386,7 +386,7 @@ func (s *pptxVisualQAService) analyzeRender(ctx context.Context, request pptxVis
 		}
 	}
 	slices.Sort(changedAll)
-	out, err := runPythonAdapter(ctx, pptxVisualQAAdapterScript, map[string]any{
+	out, err := runPythonPackageModuleAdapter(ctx, pptxSlideAdapterPackage, pptxSlideAdapterPackageRoot, pptxSlideAdapterPackageName, pptxVisualQAAdapterModule, map[string]any{
 		"path":                       request.CandidatePath,
 		"operation":                  request.Operation,
 		"pdf_path":                   pdfPath,

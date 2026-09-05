@@ -33,6 +33,8 @@ def resolve_context_tokens(catalog_path: str, profile_id: str, lane: str) -> int
     profile = _required_object(profiles.get(profile_id), f"capacity profile {profile_id!r}")
     if profile.get("executable") is not True:
         raise ValueError(f"capacity profile {profile_id!r} is not executable")
+    if profile.get("mock") is True:
+        raise ValueError(f"capacity profile {profile_id!r} is a mock profile and cannot launch a model server")
     lanes = _required_object(profile.get("lanes"), f"capacity profile {profile_id!r} lanes")
     lane_config = _required_object(lanes.get(lane), f"capacity lane {lane!r}")
     physical_id = lane_config.get("physical_model")

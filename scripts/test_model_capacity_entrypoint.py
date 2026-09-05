@@ -26,6 +26,7 @@ class ModelCapacityEntrypointTests(unittest.TestCase):
         fixtures = [
             ({"profiles": {}}, "missing"),
             ({"profiles": {"bad": {"executable": False}}}, "bad"),
+            ({"profiles": {"bad": {"executable": True, "mock": True, "lanes": {"fast": {"physical_model": "p"}}, "physical_models": {"p": {"context_tokens": 4096}}}}}, "bad"),
             ({"profiles": {"bad": {"executable": True, "lanes": {"fast": {"physical_model": "p"}}, "physical_models": {"p": {"context_tokens": 0}}}}}, "bad"),
         ]
         for payload, profile in fixtures:

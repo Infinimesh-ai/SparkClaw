@@ -17,7 +17,7 @@ x-vllm-common: &vllm-common
     HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
     HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
     VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
-    SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
+    SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:?select a capacity profile via deploy:local/start:local or deploy:remote/start:remote}
     SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
   volumes:
     - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
@@ -271,7 +271,7 @@ services:
       HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
       VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
-      SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}
+      SPARKCLAW_MODEL_CAPACITY_PROFILE: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:?select a capacity profile via deploy:local/start:local or deploy:remote/start:remote}
       SPARKCLAW_MODEL_CAPACITY_CATALOG: /opt/sparkclaw/model.profiles.json
       SPARKCLAW_MODEL_CAPACITY_LANE: ocr
     volumes:

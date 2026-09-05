@@ -2,6 +2,7 @@
 # Installed into the host Python user site by scripts/setup-document-tools.sh.
 python-docx>=1.1
 python-pptx>=1.0
+lxml>=5.0
 pypdf>=5.0
 pypdfium2==5.12.1
 Pillow>=10.0

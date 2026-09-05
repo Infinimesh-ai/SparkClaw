@@ -79,13 +79,45 @@ def verify_tree(root: Path, manifest: dict[str, object], *, require_root_owner: 
         raise ValueError("browser bridge package identity is invalid")
 
 
+def update_manifest(path: Path, root: Path) -> None:
+    """Rewrite the file checksums and source closure from the repository tree.
+
+    Every other field (version, extension ID, upstream commit) is kept; bump
+    them by hand when the package identity changes.
+    """
+    manifest = load_manifest(path)
+    files: dict[str, str] = {}
+    for candidate in sorted(root.rglob("*")):
+        if not candidate.is_file() or candidate.is_symlink():
+            continue
+        relative = candidate.relative_to(root)
+        if relative.parts[0] == "test":
+            continue
+        files[str(relative)] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    closure = hashlib.sha256()
+    for relative, digest in sorted(files.items()):
+        closure.update(f"{digest}  {relative}\n".encode())
+    manifest["files"] = files
+    manifest["sourceSHA256"] = closure.hexdigest()
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    verify_tree(root, load_manifest(path), require_root_owner=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
     parser.add_argument("root", type=Path)
     parser.add_argument("--installed", action="store_true")
     parser.add_argument("--print-field", choices=("version", "extensionID", "sourceSHA256"))
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="rewrite the manifest checksums from the source tree after an intentional Bridge change",
+    )
     args = parser.parse_args()
+    if args.update:
+        update_manifest(args.manifest, args.root)
+        return
     manifest = load_manifest(args.manifest)
     verify_tree(args.root, manifest, require_root_owner=args.installed)
     if args.print_field:

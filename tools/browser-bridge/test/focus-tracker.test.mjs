@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanupStaleTaskTabs, FocusTracker } from "../src/background.mjs";
+import { FocusTracker, OwnedGroupRegistry, cleanupStaleTaskTabs } from "../src/background.mjs";
 
 test("task activation restores the owner tab unless handoff was granted", async () => {
   const fixture = createFixture();
@@ -188,8 +188,14 @@ test("cold service worker closes grouped and ungrouped stale task tabs after res
   });
   fixture.groups.push({ id: 9, title: "SparkClaw task · old-client" });
   const tracker = new FocusTracker(fixture.chromeAPI);
+  const stored = new Map();
+  const ownedGroups = new OwnedGroupRegistry({ storage: { session: {
+    get: async (key) => (stored.has(key) ? { [key]: stored.get(key) } : {}),
+    set: async (items) => { for (const [key, value] of Object.entries(items)) stored.set(key, value); },
+  } } });
+  await ownedGroups.add(9);
 
-  await cleanupStaleTaskTabs(fixture.chromeAPI, tracker, new Set([5]));
+  await cleanupStaleTaskTabs(fixture.chromeAPI, tracker, ownedGroups, new Set([5]));
 
   assert.deepEqual(fixture.calls.tabsUpdate, [[1, { active: true }], [1, { active: true }]]);
   assert.deepEqual(fixture.calls.tabsUngroup, [[3, 4]]);

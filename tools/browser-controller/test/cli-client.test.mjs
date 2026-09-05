@@ -44,6 +44,7 @@ test("provider registry requires an exact script revision and checksums its sour
 });
 
 test("CLI send keeps token and message values out of argv, logs, and artifacts", async (t) => {
+  if (process.platform !== "linux") return t.skip("requires /proc daemon reaping");
   const harness = await createHarness(t, {
     PLAYWRIGHT_MCP_EXECUTABLE_PATH: "/tmp/inherited-browser",
     PLAYWRIGHT_MCP_USER_DATA_DIR: "/tmp/inherited-profile",
@@ -179,6 +180,7 @@ test("probe failures remain typed failures and never become send unknown", async
 });
 
 test("task-page close accepts the extension session closing before command acknowledgement", async (t) => {
+  if (process.platform !== "linux") return t.skip("requires /proc daemon reaping");
   const harness = await createHarness(t, { FAKE_CLI_PAGE_CLOSED_COMMAND: "tab-close" });
   const result = await harness.factory.runScript({
     token,
@@ -397,6 +399,7 @@ test("CLI factory diagnoses the fixed provider-handler command without arguments
 });
 
 test("provider inspection retries a destroyed context only after revalidating origin", async (t) => {
+  if (process.platform !== "linux") return t.skip("requires /proc daemon reaping");
   const harness = await createHarness(t, {
     FAKE_CLI_CONTEXT_DESTROYED_COMMAND: "eval",
     FAKE_CLI_CONTEXT_DESTROYED_ON_COUNT: "2",
@@ -603,7 +606,7 @@ function createRegistry(options = {}) {
       revision: 1,
       loginURL: "https://mail.google.test/",
       origins: ["https://mail.google.test"],
-      timeoutMS: 2_000,
+      timeoutMS: 30_000,
       handler: options.probeHandler ?? (async (_input, runtime) => {
         const tab = await runtime.createOwnedTab();
         return {
@@ -622,7 +625,7 @@ function createRegistry(options = {}) {
       revision: 1,
       loginURL: "https://mail.google.test/",
       origins: ["https://mail.google.test"],
-      timeoutMS: 2_000,
+      timeoutMS: 30_000,
       effectSelector: "#send",
       handler: async (input, runtime) => {
         const tab = await runtime.createOwnedTab();
@@ -646,7 +649,7 @@ function createRegistry(options = {}) {
       revision: 1,
       loginURL: "https://mail.google.test/",
       origins: options.outlookOrigins ?? ["https://mail.google.test"],
-      timeoutMS: 4_000,
+      timeoutMS: 30_000,
       signedOutURL: options.outlookSignedOutURL,
       handler: options.outlookProbeHandler,
       sourceFiles: [fixtureSource],

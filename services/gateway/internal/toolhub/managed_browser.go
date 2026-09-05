@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -107,21 +108,25 @@ func (h *ToolHub) OpenManagedBrowserWindow(ctx context.Context, ownerID, windowI
 	if healthy, isBool := output["ok"].(bool); !isBool || !healthy {
 		return fmt.Errorf("visible Chromium is unavailable: %s", firstString(output, "error", "reason", "status"))
 	}
+	var opened browserautomation.Result
 	if !registry.isTracked(entry) {
-		_, err = h.browser.Call(ctx, "browser.open", args)
+		opened, err = h.browser.Call(ctx, "browser.open", args)
 	} else {
 		var tabs browserautomation.Result
 		tabs, err = h.browser.Call(ctx, "browser.list_tabs", args)
 		if err == nil {
 			if pageID := selectedManagedBrowserPage(tabs.Pages); pageID != "" {
 				args["page_id"] = pageID
-				_, err = h.browser.Call(ctx, "browser.navigate", args)
+				opened, err = h.browser.Call(ctx, "browser.navigate", args)
 			} else {
-				_, err = h.browser.Call(ctx, "browser.open", args)
+				opened, err = h.browser.Call(ctx, "browser.open", args)
 			}
 		}
 	}
 	if err != nil {
+		return err
+	}
+	if err := h.surfaceManagedBrowserPage(ctx, args, opened); err != nil {
 		return err
 	}
 	deadline, expiryErr := managedBrowserWindowDeadline(registry.now(), bindingExpiresAt)
@@ -381,6 +386,31 @@ func (h *ToolHub) closeManagedBrowserWindows() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// surfaceManagedBrowserPage hands the managed page to the owner. The browser
+// bridge opens every automation tab in the background and only an explicit
+// handoff (browser.focus) activates it, so without this step a QR login page
+// exists but is never shown.
+func (h *ToolHub) surfaceManagedBrowserPage(ctx context.Context, args map[string]any, opened browserautomation.Result) error {
+	pageID := strings.TrimSpace(stringArg(args, "page_id", ""))
+	if pageID == "" {
+		pageID = selectedManagedBrowserPage(opened.Pages)
+	}
+	if pageID == "" {
+		tabs, err := h.browser.Call(ctx, "browser.list_tabs", args)
+		if err != nil {
+			return err
+		}
+		pageID = selectedManagedBrowserPage(tabs.Pages)
+	}
+	if pageID == "" {
+		return errors.New("managed browser page was opened but cannot be surfaced")
+	}
+	focusArgs := maps.Clone(args)
+	focusArgs["page_id"] = pageID
+	_, err := h.browser.Call(ctx, "browser.focus", focusArgs)
+	return err
 }
 
 // releaseManagedBrowserWindowEntryLocked expects entry.operationMu to be held.

@@ -3,6 +3,7 @@ package toolhub
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -71,20 +72,25 @@ func TestManagedBrowserWindowReusesAndReleasesDedicatedVisibleProfile(t *testing
 	if err := hub.OpenManagedBrowserWindow(t.Context(), "owner-a", "bind-a", "https://liteapp.weixin.qq.com/q/example", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(adapter.calls) != 1 || adapter.calls[0] != "browser.open" {
-		t.Fatalf("managed window did not open its first target directly: %#v", adapter.calls)
+	// The bridge opens tabs in the background; the managed page must be handed
+	// off explicitly or the owner never sees the QR code.
+	if !slices.Equal(adapter.calls, []string{"browser.open", "browser.list_tabs", "browser.focus"}) {
+		t.Fatalf("managed window did not open and surface its first target: %#v", adapter.calls)
 	}
 	if got := adapter.callArgs[0]["browser_profile_id"]; got != "managed-bind-a" {
 		t.Fatalf("managed window did not use its dedicated profile: %#v", adapter.callArgs[0])
 	}
+	if got := adapter.callArgs[2]["page_id"]; got != "page_3" {
+		t.Fatalf("managed window surfaced an unexpected page: %#v", adapter.callArgs[2])
+	}
 	if err := hub.OpenManagedBrowserWindow(t.Context(), "owner-a", "bind-a", "https://liteapp.weixin.qq.com/q/replacement", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(adapter.calls) != 3 || adapter.calls[1] != "browser.list_tabs" || adapter.calls[2] != "browser.navigate" {
-		t.Fatalf("managed window did not reuse its selected tab: %#v", adapter.calls)
+	if !slices.Equal(adapter.calls[3:], []string{"browser.list_tabs", "browser.navigate", "browser.focus"}) {
+		t.Fatalf("managed window did not reuse and surface its selected tab: %#v", adapter.calls)
 	}
-	if got := adapter.callArgs[2]["page_id"]; got != "page_3" {
-		t.Fatalf("managed window navigated an unexpected page: %#v", adapter.callArgs[2])
+	if got := adapter.callArgs[4]["page_id"]; got != "page_3" {
+		t.Fatalf("managed window navigated an unexpected page: %#v", adapter.callArgs[4])
 	}
 	if err := hub.CloseManagedBrowserWindow(t.Context(), "owner-a", "bind-a"); err != nil {
 		t.Fatal(err)
@@ -337,7 +343,10 @@ func (a *blockingManagedBrowserAdapter) Health(ctx context.Context, args map[str
 	}
 }
 
-func (*blockingManagedBrowserAdapter) Call(context.Context, string, map[string]any) (browserautomation.Result, error) {
+func (*blockingManagedBrowserAdapter) Call(_ context.Context, tool string, _ map[string]any) (browserautomation.Result, error) {
+	if tool == "browser.open" || tool == "browser.list_tabs" {
+		return browserautomation.Result{Pages: []any{map[string]any{"page_id": "page_1", "selected": true}}}, nil
+	}
 	return browserautomation.Result{}, nil
 }
 func (*blockingManagedBrowserAdapter) ReadPage(context.Context, string, map[string]any) (browserautomation.PageReadResult, error) {

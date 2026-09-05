@@ -42,6 +42,11 @@
 
 ### Changed
 
+- Store 与 Gateway 遥测：`GET /metrics` 的消息、运行、模型调用、工具调用与
+  情节摘要总数现在来自有界的 Store 聚合读取（`CountVisibleMessages`、
+  `CountVisibleRuns`、`ModelCallStats`、`CountToolCalls`、
+  `CountEpisodeSummaries`，memory、file 与 PostgreSQL 三个后端均已实现），
+  不再在每次抓取时列出全部记录。导出的指标名称与数值保持不变。
 - 部署：`docker compose` 现在要求显式提供 `SPARKCLAW_MODEL_CAPACITY_PROFILE`
   （此前默认 `mock` 会在绕过部署脚本时把所有模型调用静默路由到 mock 路由器），
   vLLM 容量入口拒绝标记为 `mock` 的 profile，compose 中 `SPARKCLAW_PAIRING_REQUIRED`

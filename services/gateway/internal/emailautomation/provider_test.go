@@ -1,6 +1,7 @@
 package emailautomation
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -38,8 +39,8 @@ func TestRegistryRejectsAmbiguousAliasesAndClonesRegistrations(t *testing.T) {
 		return Script{ID: id, Revision: 1, Timeout: time.Second}
 	}
 	providers := []Provider{
-		{ID: app.EmailProviderGmail, DisplayName: "Gmail", LoginURL: "https://mail.google.com/", Aliases: []string{"shared"}, Probe: script("gmail-probe"), Send: script("gmail-send")},
-		{ID: app.EmailProviderOutlook, DisplayName: "Outlook", LoginURL: "https://outlook.live.com/mail/", Aliases: []string{"shared"}, Probe: script("outlook-probe"), Send: script("outlook-send")},
+		{ID: app.EmailProviderGmail, DisplayName: "Gmail", Aliases: []string{"shared"}, Probe: script("gmail-probe"), Send: script("gmail-send")},
+		{ID: app.EmailProviderOutlook, DisplayName: "Outlook", Aliases: []string{"shared"}, Probe: script("outlook-probe"), Send: script("outlook-send")},
 	}
 	if _, err := NewRegistry(providers); err == nil {
 		t.Fatal("ambiguous provider alias was accepted")
@@ -55,5 +56,52 @@ func TestRegistryRejectsAmbiguousAliasesAndClonesRegistrations(t *testing.T) {
 	again := registry.List()
 	if again[0].Aliases[0] == "mutated" {
 		t.Fatal("registry list exposed mutable provider state")
+	}
+}
+
+func TestDefaultRegistryIsGeneratedFromTheControllerContract(t *testing.T) {
+	var contract providerScriptContractFile
+	if err := decodeStrictJSON(providerScriptContract, &contract); err != nil {
+		t.Fatalf("embedded provider_scripts.json is invalid: %v", err)
+	}
+	registry := DefaultRegistry()
+	listed := registry.List()
+	wantIDs := app.EmailProviderIDs()
+	slices.Sort(wantIDs)
+	if len(listed) != len(wantIDs) {
+		t.Fatalf("registry lists %d providers, want %v", len(listed), wantIDs)
+	}
+	for index, provider := range listed {
+		if provider.ID != wantIDs[index] || provider.DisplayName != app.EmailProviderDisplayName(provider.ID) {
+			t.Fatalf("provider %d = %#v, want %s", index, provider, wantIDs[index])
+		}
+		for operation, script := range map[string]Script{"probe": provider.Probe, "send": provider.Send} {
+			index := slices.IndexFunc(contract.Scripts, func(entry providerScriptContractEntry) bool {
+				return entry.Provider == provider.ID && entry.Operation == operation
+			})
+			if index < 0 {
+				t.Fatalf("contract has no %s script for %s", operation, provider.ID)
+			}
+			entry := contract.Scripts[index]
+			if script.ID != entry.ScriptID || script.Revision != entry.Revision || script.Timeout != time.Duration(entry.TimeoutMS)*time.Millisecond {
+				t.Fatalf("%s %s script %#v does not match contract entry %#v", provider.ID, operation, script, entry)
+			}
+		}
+	}
+	if len(contract.Scripts) != 2*len(wantIDs) {
+		t.Fatalf("contract lists %d scripts for %d providers", len(contract.Scripts), len(wantIDs))
+	}
+}
+
+func TestRegistryFromContractRejectsIncompleteOrForeignScripts(t *testing.T) {
+	for name, raw := range map[string]string{
+		"missing send":     `{"schema_version":1,"scripts":[{"provider":"gmail","operation":"probe","script_id":"gmail.login_probe","revision":1,"timeout_ms":1000}]}`,
+		"unknown provider": `{"schema_version":1,"scripts":[{"provider":"yahoo","operation":"probe","script_id":"yahoo.login_probe","revision":1,"timeout_ms":1000}]}`,
+		"schema":           `{"schema_version":2,"scripts":[]}`,
+		"unknown field":    `{"schema_version":1,"scripts":[],"login_url":"https://example.com"}`,
+	} {
+		if _, err := registryFromContract([]byte(raw)); err == nil {
+			t.Errorf("%s contract was accepted", name)
+		}
 	}
 }

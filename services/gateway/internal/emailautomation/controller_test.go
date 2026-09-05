@@ -19,12 +19,12 @@ type fakeScriptRunner struct {
 }
 
 type fakeLoginBrowser struct {
-	loginErr  error
-	loginURLs []string
+	loginErr       error
+	loginProviders []string
 }
 
 func (f *fakeLoginBrowser) OpenLogin(_ context.Context, provider Provider) error {
-	f.loginURLs = append(f.loginURLs, provider.LoginURL)
+	f.loginProviders = append(f.loginProviders, provider.ID)
 	return f.loginErr
 }
 
@@ -54,7 +54,7 @@ func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opened.Enabled || opened.State != app.EmailStateLoginRequired || len(browser.loginURLs) != 1 || browser.loginURLs[0] != "https://mail.google.com/" {
+	if !opened.Enabled || opened.State != app.EmailStateLoginRequired || len(browser.loginProviders) != 1 || browser.loginProviders[0] != app.EmailProviderGmail {
 		t.Fatalf("opened status = %#v browser=%#v", opened, browser)
 	}
 	checked, err := controller.Check(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail)

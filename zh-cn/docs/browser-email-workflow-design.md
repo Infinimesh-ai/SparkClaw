@@ -53,7 +53,11 @@ Provider Selection 是确定性的：
 
 Provider ID、Alias、Login URL、Allowed Origin、Handler Path、Source Closure Hash、Revision、
 Deadline、Result Verifier 和 Send-effect Selector 位于 Controller Provider Registry。Runtime
-只映射这些固定 Handler；Caller 不能提供 Script Path 或 Selector。
+只映射这些固定 Handler；Caller 不能提供 Script Path 或 Selector。Gateway 通过生成的投影
+`services/gateway/internal/emailautomation/provider_scripts.json` 绑定该 Registry，其中
+只包含每个 Provider 的 Probe/Send Script ID、Revision 和预算。
+`npm run sync:provider-contract --prefix tools/browser-controller` 重新生成该文件，
+Controller 测试套件在两者漂移时失败；Gateway 不再重复声明 Login URL 或 Origin。
 
 QQ 邮箱不是 Generic Browser Destination。只要求打开 QQ 邮箱的请求不会获得 Email-send
 Authority。

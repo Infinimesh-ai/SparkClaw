@@ -62,6 +62,12 @@ Provider IDs, aliases, login URLs, allowed origins, handler paths, source
 closure hashes, revisions, deadlines, result verifiers, and send-effect
 selectors live in the Controller provider registry. Runtime registration maps
 only those fixed handlers; callers cannot provide a script path or selector.
+The Gateway binds to that registry through a generated projection,
+`services/gateway/internal/emailautomation/provider_scripts.json`, that
+carries each provider's probe and send script ID, revision, and budget.
+`npm run sync:provider-contract --prefix tools/browser-controller` regenerates
+it and the Controller test suite fails when it drifts; the Gateway never
+restates login URLs or origins.
 
 QQ Mail is not a generic browser destination. A request that merely opens QQ
 Mail does not gain email-send authority.

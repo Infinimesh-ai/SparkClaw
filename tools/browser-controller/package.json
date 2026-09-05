@@ -10,7 +10,9 @@
   },
   "scripts": {
     "start": "node ./src/main.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "sync:provider-contract": "node ./src/provider-script-contract.mjs --write",
+    "check:provider-contract": "node ./src/provider-script-contract.mjs --check"
   },
   "engines": {
     "node": ">=26 <27",

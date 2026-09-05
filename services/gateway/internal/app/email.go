@@ -1,6 +1,9 @@
 package app
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 const (
 	EmailProviderQQMail  = "qq_mail"
@@ -25,6 +28,34 @@ const (
 	EmailRouteFactValidatedAt                 = "email_validated_at"
 	EmailRouteFactInvocationID                = "email_invocation_id"
 )
+
+// emailProviderIDs is the single registration point for browser-backed mail
+// providers. The Controller registry (tools/browser-controller) owns each
+// provider's scripts, login URL, and origins; the Gateway binds to that
+// registry through the generated provider_scripts.json contract.
+var emailProviderIDs = []string{EmailProviderQQMail, EmailProviderOutlook, EmailProviderGmail}
+
+// EmailProviderIDs returns the supported provider identities in registration
+// order.
+func EmailProviderIDs() []string { return slices.Clone(emailProviderIDs) }
+
+// KnownEmailProvider reports whether id names a supported provider.
+func KnownEmailProvider(id string) bool { return slices.Contains(emailProviderIDs, id) }
+
+// EmailProviderDisplayName returns the owner-facing provider name, or "" for
+// an unknown provider.
+func EmailProviderDisplayName(id string) string {
+	switch id {
+	case EmailProviderQQMail:
+		return "QQ Mail"
+	case EmailProviderOutlook:
+		return "Outlook"
+	case EmailProviderGmail:
+		return "Gmail"
+	default:
+		return ""
+	}
+}
 
 // EmailProviderSetting is the durable, non-secret owner configuration for one
 // browser-backed mail provider. Authentication remains in Chromium.

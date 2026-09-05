@@ -1,13 +1,45 @@
 package emailautomation
 
 import (
+	_ "embed"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
+
+// providerScriptContract is generated from the Controller provider registry
+// (tools/browser-controller/src/provider-scripts.mjs) by
+// `npm run sync:provider-contract --prefix tools/browser-controller`. The
+// Controller test suite fails when the two drift, so the script identity,
+// revision, and budget the gateway binds to are never restated by hand here.
+//
+//go:embed provider_scripts.json
+var providerScriptContract []byte
+
+// providerAliases are the gateway-side request phrasings that select a
+// provider; they are a routing concern and have no Controller counterpart.
+var providerAliases = map[string][]string{
+	app.EmailProviderQQMail:  {"QQ 邮箱", "QQ邮箱", "QQMail", "腾讯邮箱"},
+	app.EmailProviderOutlook: {"Outlook Mail", "Outlook 邮箱", "微软邮箱", "Hotmail"},
+	app.EmailProviderGmail:   {"Google Mail", "谷歌邮箱", "Google 邮箱"},
+}
+
+type providerScriptContractFile struct {
+	SchemaVersion int                           `json:"schema_version"`
+	Scripts       []providerScriptContractEntry `json:"scripts"`
+}
+
+type providerScriptContractEntry struct {
+	Provider  string `json:"provider"`
+	Operation string `json:"operation"`
+	ScriptID  string `json:"script_id"`
+	Revision  int    `json:"revision"`
+	TimeoutMS int    `json:"timeout_ms"`
+}
 
 // Script identifies a provider script by the ID and revision the browser
 // controller resolves in its own registry; Timeout is the controller-side
@@ -18,12 +50,13 @@ type Script struct {
 	Timeout  time.Duration
 }
 
+// Provider is the gateway's view of one Controller-registered mail provider.
+// Login URL and allowed origins live only in the Controller registry, which
+// resolves them from the provider ID at run time.
 type Provider struct {
 	ID          string
 	DisplayName string
 	Aliases     []string
-	LoginURL    string
-	Origins     []string
 	Probe       Script
 	Send        Script
 }
@@ -39,11 +72,10 @@ func NewRegistry(providers []Provider) (Registry, error) {
 	for _, provider := range providers {
 		provider.ID = strings.ToLower(strings.TrimSpace(provider.ID))
 		provider.DisplayName = strings.TrimSpace(provider.DisplayName)
-		provider.LoginURL = strings.TrimSpace(provider.LoginURL)
-		if provider.ID == "" || provider.DisplayName == "" || provider.LoginURL == "" {
-			return Registry{}, errors.New("email provider identity, display name, and login URL are required")
+		if provider.ID == "" || provider.DisplayName == "" {
+			return Registry{}, errors.New("email provider identity and display name are required")
 		}
-		if provider.ID != app.EmailProviderQQMail && provider.ID != app.EmailProviderOutlook && provider.ID != app.EmailProviderGmail {
+		if !app.KnownEmailProvider(provider.ID) {
 			return Registry{}, errors.New("email provider is not supported")
 		}
 		if _, exists := registry.providers[provider.ID]; exists {
@@ -67,7 +99,6 @@ func NewRegistry(providers []Provider) (Registry, error) {
 			}
 			aliases[key] = provider.ID
 		}
-		provider.Origins = uniqueStrings(provider.Origins)
 		registry.providers[provider.ID] = cloneProvider(provider)
 		registry.ordered = append(registry.ordered, provider.ID)
 	}
@@ -75,37 +106,51 @@ func NewRegistry(providers []Provider) (Registry, error) {
 	return registry, nil
 }
 
+// DefaultRegistry binds every app.EmailProviderIDs entry to the probe and
+// send scripts the Controller contract declares for it.
 func DefaultRegistry() Registry {
-	script := func(id string, revision int, timeout time.Duration) Script {
-		return Script{ID: id, Revision: revision, Timeout: timeout}
-	}
-	registry, err := NewRegistry([]Provider{
-		{
-			ID: app.EmailProviderQQMail, DisplayName: "QQ Mail",
-			Aliases:  []string{"QQ 邮箱", "QQ邮箱", "QQMail", "腾讯邮箱"},
-			LoginURL: "https://wx.mail.qq.com/", Origins: []string{"https://mail.qq.com", "https://wx.mail.qq.com"},
-			Probe: script("qqmail.login_probe", 1, 90*time.Second),
-			Send:  script("qqmail.send", 1, 90*time.Second),
-		},
-		{
-			ID: app.EmailProviderOutlook, DisplayName: "Outlook",
-			Aliases:  []string{"Outlook Mail", "Outlook 邮箱", "微软邮箱", "Hotmail"},
-			LoginURL: "https://outlook.live.com/mail/", Origins: []string{"https://outlook.live.com", "https://outlook.office.com", "https://outlook.office365.com"},
-			Probe: script("outlook.login_probe", 1, 45*time.Second),
-			Send:  script("outlook.send", 1, 90*time.Second),
-		},
-		{
-			ID: app.EmailProviderGmail, DisplayName: "Gmail",
-			Aliases:  []string{"Google Mail", "谷歌邮箱", "Google 邮箱"},
-			LoginURL: "https://mail.google.com/", Origins: []string{"https://mail.google.com", "https://accounts.google.com"},
-			Probe: script("gmail.login_probe", 1, 45*time.Second),
-			Send:  script("gmail.send", 1, 90*time.Second),
-		},
-	})
+	registry, err := registryFromContract(providerScriptContract)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+func registryFromContract(raw []byte) (Registry, error) {
+	var contract providerScriptContractFile
+	if err := decodeStrictJSON(raw, &contract); err != nil {
+		return Registry{}, fmt.Errorf("email provider script contract: %w", err)
+	}
+	if contract.SchemaVersion != 1 {
+		return Registry{}, fmt.Errorf("email provider script contract schema %d is unsupported", contract.SchemaVersion)
+	}
+	scripts := map[string]Script{}
+	for _, entry := range contract.Scripts {
+		if !app.KnownEmailProvider(entry.Provider) || entry.Operation != "probe" && entry.Operation != "send" {
+			return Registry{}, fmt.Errorf("email provider script contract lists unknown %s %s", entry.Provider, entry.Operation)
+		}
+		key := entry.Provider + ":" + entry.Operation
+		if _, exists := scripts[key]; exists {
+			return Registry{}, fmt.Errorf("email provider script contract repeats %s", key)
+		}
+		scripts[key] = Script{ID: entry.ScriptID, Revision: entry.Revision, Timeout: time.Duration(entry.TimeoutMS) * time.Millisecond}
+	}
+	providers := make([]Provider, 0, len(providerAliases))
+	for _, id := range app.EmailProviderIDs() {
+		probe, probeOK := scripts[id+":probe"]
+		send, sendOK := scripts[id+":send"]
+		if !probeOK || !sendOK {
+			return Registry{}, fmt.Errorf("email provider script contract has no probe and send scripts for %s", id)
+		}
+		providers = append(providers, Provider{
+			ID: id, DisplayName: app.EmailProviderDisplayName(id), Aliases: providerAliases[id],
+			Probe: probe, Send: send,
+		})
+	}
+	if len(scripts) != 2*len(providers) {
+		return Registry{}, errors.New("email provider script contract lists scripts for an unregistered provider")
+	}
+	return NewRegistry(providers)
 }
 
 func (r Registry) Get(id string) (Provider, bool) {
@@ -145,7 +190,6 @@ func validateScript(script Script) error {
 
 func cloneProvider(provider Provider) Provider {
 	provider.Aliases = append([]string(nil), provider.Aliases...)
-	provider.Origins = append([]string(nil), provider.Origins...)
 	return provider
 }
 

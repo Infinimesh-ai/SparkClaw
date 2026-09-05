@@ -14,7 +14,7 @@ func (s *MemoryStore) GetEmailProviderSetting(ctx context.Context, ownerID, prov
 		return app.EmailProviderSetting{}, false, err
 	}
 	provider = stringsLowerTrim(provider)
-	if !supportedEmailProvider(provider) {
+	if !app.KnownEmailProvider(provider) {
 		return app.EmailProviderSetting{}, false, nil
 	}
 	s.mu.RLock()

@@ -1965,13 +1965,8 @@ func approvalSummary(name string, args map[string]any) string {
 		return "Write sensitive memory after owner approval"
 	case app.ToolEmailSend:
 		provider := strings.TrimSpace(stringValue(args["provider"]))
-		switch provider {
-		case app.EmailProviderQQMail:
-			provider = "QQ Mail"
-		case app.EmailProviderOutlook:
-			provider = "Outlook"
-		case app.EmailProviderGmail:
-			provider = "Gmail"
+		if displayName := app.EmailProviderDisplayName(provider); displayName != "" {
+			provider = displayName
 		}
 		return fmt.Sprintf(
 			"Send one email via %s account %q. Recipient: %q. Subject: %q. Full body: %q",

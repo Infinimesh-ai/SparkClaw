@@ -45,7 +45,7 @@ func (s *PostgresStore) GetEmailProviderSetting(ctx context.Context, ownerID, pr
 	defer cancel()
 	ownerID = normalizeConnectorOwner(ownerID)
 	provider = stringsLowerTrim(provider)
-	if !supportedEmailProvider(provider) {
+	if !app.KnownEmailProvider(provider) {
 		return app.EmailProviderSetting{}, false, nil
 	}
 	setting, err := scanEmailProviderSetting(s.connectorPostgres.QueryRow(ctx, emailProviderSettingSelectSQL+` WHERE owner_id=$1 AND provider=$2`, ownerID, provider))

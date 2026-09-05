@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "scripts": [
+    {
+      "provider": "gmail",
+      "operation": "probe",
+      "script_id": "gmail.login_probe",
+      "revision": 1,
+      "timeout_ms": 45000
+    },
+    {
+      "provider": "gmail",
+      "operation": "send",
+      "script_id": "gmail.send",
+      "revision": 1,
+      "timeout_ms": 90000
+    },
+    {
+      "provider": "outlook",
+      "operation": "probe",
+      "script_id": "outlook.login_probe",
+      "revision": 1,
+      "timeout_ms": 45000
+    },
+    {
+      "provider": "outlook",
+      "operation": "send",
+      "script_id": "outlook.send",
+      "revision": 1,
+      "timeout_ms": 90000
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "probe",
+      "script_id": "qqmail.login_probe",
+      "revision": 1,
+      "timeout_ms": 90000
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "send",
+      "script_id": "qqmail.send",
+      "revision": 1,
+      "timeout_ms": 90000
+    }
+  ]
+}

@@ -77,7 +77,7 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 		}
 	})
 
-	registry := DefaultRegistry("")
+	registry := DefaultRegistry()
 	runner := NewPlaywrightRunner(&liveEmailController{Service: controller, t: t})
 	seen := map[string]bool{}
 	for _, rawProvider := range strings.Split(providerList, ",") {

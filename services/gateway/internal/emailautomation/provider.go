@@ -2,7 +2,6 @@ package emailautomation
 
 import (
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -10,10 +9,12 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+// Script identifies a provider script by the ID and revision the browser
+// controller resolves in its own registry; Timeout is the controller-side
+// budget for that script and bounds the gateway's wait for it.
 type Script struct {
 	ID       string
 	Revision int
-	Command  []string
 	Timeout  time.Duration
 }
 
@@ -74,35 +75,31 @@ func NewRegistry(providers []Provider) (Registry, error) {
 	return registry, nil
 }
 
-func DefaultRegistry(scriptDir string) Registry {
-	scriptDir = strings.TrimSpace(scriptDir)
-	if scriptDir == "" {
-		scriptDir = "/app/scripts"
-	}
-	script := func(id, name string, revision int, timeout time.Duration) Script {
-		return Script{ID: id, Revision: revision, Command: []string{"node", filepath.Join(scriptDir, name)}, Timeout: timeout}
+func DefaultRegistry() Registry {
+	script := func(id string, revision int, timeout time.Duration) Script {
+		return Script{ID: id, Revision: revision, Timeout: timeout}
 	}
 	registry, err := NewRegistry([]Provider{
 		{
 			ID: app.EmailProviderQQMail, DisplayName: "QQ Mail",
 			Aliases:  []string{"QQ 邮箱", "QQ邮箱", "QQMail", "腾讯邮箱"},
 			LoginURL: "https://wx.mail.qq.com/", Origins: []string{"https://mail.qq.com", "https://wx.mail.qq.com"},
-			Probe: script("qqmail.login_probe", "qqmail-login-probe.mjs", 1, 45*time.Second),
-			Send:  script("qqmail.send", "qqmail-send.mjs", 1, 90*time.Second),
+			Probe: script("qqmail.login_probe", 1, 90*time.Second),
+			Send:  script("qqmail.send", 1, 90*time.Second),
 		},
 		{
 			ID: app.EmailProviderOutlook, DisplayName: "Outlook",
 			Aliases:  []string{"Outlook Mail", "Outlook 邮箱", "微软邮箱", "Hotmail"},
 			LoginURL: "https://outlook.live.com/mail/", Origins: []string{"https://outlook.live.com", "https://outlook.office.com", "https://outlook.office365.com"},
-			Probe: script("outlook.login_probe", "outlook-login-probe.mjs", 1, 45*time.Second),
-			Send:  script("outlook.send", "outlook-send.mjs", 1, 90*time.Second),
+			Probe: script("outlook.login_probe", 1, 45*time.Second),
+			Send:  script("outlook.send", 1, 90*time.Second),
 		},
 		{
 			ID: app.EmailProviderGmail, DisplayName: "Gmail",
 			Aliases:  []string{"Google Mail", "谷歌邮箱", "Google 邮箱"},
 			LoginURL: "https://mail.google.com/", Origins: []string{"https://mail.google.com", "https://accounts.google.com"},
-			Probe: script("gmail.login_probe", "gmail-login-probe.mjs", 1, 45*time.Second),
-			Send:  script("gmail.send", "gmail-send.mjs", 1, 90*time.Second),
+			Probe: script("gmail.login_probe", 1, 45*time.Second),
+			Send:  script("gmail.send", 1, 90*time.Second),
 		},
 	})
 	if err != nil {
@@ -140,13 +137,8 @@ func (r Registry) MatchRequest(value string) []Provider {
 }
 
 func validateScript(script Script) error {
-	if strings.TrimSpace(script.ID) == "" || script.Revision <= 0 || len(script.Command) == 0 || script.Timeout <= 0 {
+	if strings.TrimSpace(script.ID) == "" || script.Revision <= 0 || script.Timeout <= 0 {
 		return errors.New("email provider script registration is incomplete")
-	}
-	for _, part := range script.Command {
-		if strings.TrimSpace(part) == "" || strings.ContainsRune(part, '\x00') {
-			return errors.New("email provider script command is invalid")
-		}
 	}
 	return nil
 }
@@ -154,8 +146,6 @@ func validateScript(script Script) error {
 func cloneProvider(provider Provider) Provider {
 	provider.Aliases = append([]string(nil), provider.Aliases...)
 	provider.Origins = append([]string(nil), provider.Origins...)
-	provider.Probe.Command = append([]string(nil), provider.Probe.Command...)
-	provider.Send.Command = append([]string(nil), provider.Send.Command...)
 	return provider
 }
 

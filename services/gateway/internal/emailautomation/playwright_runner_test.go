@@ -18,7 +18,7 @@ func TestPlaywrightRunnerBindsFixedScriptsAndCredentialGeneration(t *testing.T) 
 	}}
 	runner := NewPlaywrightRunner(controller)
 	runner.now = func() time.Time { return time.Date(2026, 9, 4, 14, 0, 0, 0, time.UTC) }
-	provider, ok := DefaultRegistry(t.TempDir()).Get(app.EmailProviderGmail)
+	provider, ok := DefaultRegistry().Get(app.EmailProviderGmail)
 	if !ok {
 		t.Fatal("Gmail provider is missing")
 	}
@@ -77,7 +77,7 @@ func TestPlaywrightRunnerRejectsStaleCredentialBeforeControllerInvocation(t *tes
 		Configured: true, State: browsercontrol.StateReady, CredentialGeneration: 8,
 	}}
 	runner := NewPlaywrightRunner(controller)
-	provider, _ := DefaultRegistry(t.TempDir()).Get(app.EmailProviderGmail)
+	provider, _ := DefaultRegistry().Get(app.EmailProviderGmail)
 	_, err := runner.Send(t.Context(), provider, SendRequest{
 		Provider: app.EmailProviderGmail, Account: app.EmailAccountDefault,
 		Recipient: "alice@example.com", Body: "body", InvocationID: "send:stale",
@@ -89,7 +89,7 @@ func TestPlaywrightRunnerRejectsStaleCredentialBeforeControllerInvocation(t *tes
 }
 
 func TestPlaywrightRunnerPreservesProviderFailureAndUnknownTransportOutcome(t *testing.T) {
-	provider, _ := DefaultRegistry(t.TempDir()).Get(app.EmailProviderGmail)
+	provider, _ := DefaultRegistry().Get(app.EmailProviderGmail)
 	controller := &fakePlaywrightController{
 		status: browsercontrol.Status{Configured: true, CredentialGeneration: 7},
 		result: browsercontrol.ScriptExecutionResult{

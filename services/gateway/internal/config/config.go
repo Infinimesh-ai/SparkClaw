@@ -301,13 +301,8 @@ type SandboxConfig struct {
 
 type AdapterConfig struct {
 	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
-	EmailAutomation   EmailAutomationAdapterConfig   `json:"emailAutomation"`
 	DocumentOCR       DocumentOCRAdapterConfig       `json:"documentOCR"`
 	PPTXVisualQA      PPTXVisualQAAdapterConfig      `json:"pptxVisualQA"`
-}
-
-type EmailAutomationAdapterConfig struct {
-	ScriptDir string `json:"scriptDir"`
 }
 
 type BrowserAutomationAdapterConfig struct {
@@ -610,15 +605,6 @@ func Load(path string) (Config, error) {
 	if extension.ConnectTimeoutMS < 1000 || extension.ConnectTimeoutMS > 120000 {
 		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.connectTimeoutMs must be between 1000 and 120000")
 	}
-	emailScripts := strings.TrimSpace(cfg.Adapters.EmailAutomation.ScriptDir)
-	if emailScripts == "" {
-		emailScripts = "./scripts/email"
-	}
-	emailScripts, err = filepath.Abs(emailScripts)
-	if err != nil {
-		return Config{}, fmt.Errorf("resolve email automation script directory: %w", err)
-	}
-	cfg.Adapters.EmailAutomation.ScriptDir = emailScripts
 	if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
 		return Config{}, err
 	}
@@ -1647,7 +1633,6 @@ func Default() Config {
 					ConnectTimeoutMS: 20000,
 				},
 			},
-			EmailAutomation: EmailAutomationAdapterConfig{ScriptDir: "./scripts/email"},
 			DocumentOCR: DocumentOCRAdapterConfig{
 				Enabled:        false,
 				Provider:       "openai-http",
@@ -2085,9 +2070,6 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS must be an integer: %w", err)
 		}
 		cfg.Adapters.BrowserAutomation.PlaywrightExtension.ConnectTimeoutMS = timeoutMS
-	}
-	if v := os.Getenv("SPARKCLAW_EMAIL_SCRIPT_DIR"); v != "" {
-		cfg.Adapters.EmailAutomation.ScriptDir = v
 	}
 	if v := os.Getenv("SPARKCLAW_OCR_ENABLED"); v != "" {
 		cfg.Adapters.DocumentOCR.Enabled = parseBool(v)

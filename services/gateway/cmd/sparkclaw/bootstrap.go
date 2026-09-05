@@ -69,7 +69,7 @@ func newGatewayServices(
 		return nil, fmt.Errorf("assemble browser extension controller: %w", err)
 	}
 	browserControl := browsercontrol.New(vault, browserClient, extensionConfig.ProfileID)
-	emailRegistry := emailautomation.DefaultRegistry(cfg.Adapters.EmailAutomation.ScriptDir)
+	emailRegistry := emailautomation.DefaultRegistry()
 	emailRunner := emailautomation.NewPlaywrightRunner(browserControl)
 	emailController := emailautomation.NewController(
 		st,

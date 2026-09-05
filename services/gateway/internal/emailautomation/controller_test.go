@@ -48,7 +48,7 @@ func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) 
 	runner := &fakeScriptRunner{probeResult: ProbeResult{
 		Provider: app.EmailProviderGmail, AccountHint: "a***@gmail.com", Generation: 11, Revision: 1, CheckedAt: checkedAt,
 	}}
-	controller := NewController(st, DefaultRegistry(t.TempDir()), browser, runner)
+	controller := NewController(st, DefaultRegistry(), browser, runner)
 
 	opened, err := controller.OpenLoginBrowser(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestControllerRejectsAmbiguousInvalidAndStaleAdmission(t *testing.T) {
 	runner := &fakeScriptRunner{probeResult: ProbeResult{
 		Provider: app.EmailProviderGmail, AccountHint: "a***@gmail.com", Generation: 12, Revision: 1, CheckedAt: checkedAt,
 	}, sendResult: SendResult{Provider: app.EmailProviderGmail, Status: "sent"}}
-	controller := NewController(st, DefaultRegistry(t.TempDir()), &fakeLoginBrowser{}, runner)
+	controller := NewController(st, DefaultRegistry(), &fakeLoginBrowser{}, runner)
 	gmail, err := controller.Update(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail, UpdateProviderInput{
 		Enabled: boolPointer(true), Default: boolPointer(true), ExpectedVersion: 0,
 	})

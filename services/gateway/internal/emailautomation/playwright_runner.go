@@ -28,10 +28,22 @@ func NewPlaywrightRunner(controller PlaywrightController) *PlaywrightRunner {
 	}
 }
 
+// scriptWaitGrace covers the controller's profile reservation wait and the
+// response round trip on top of a script's own budget.
+const scriptWaitGrace = 60 * time.Second
+
+// scriptContext bounds a controller call by the script's declared budget so a
+// wedged controller cannot pin the request and the per-process profile mutex.
+func scriptContext(ctx context.Context, script Script) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, script.Timeout+scriptWaitGrace)
+}
+
 func (r *PlaywrightRunner) OpenLogin(ctx context.Context, provider Provider) error {
 	if r == nil || r.controller == nil || strings.TrimSpace(provider.ID) == "" {
 		return codedError(CodeProviderUnavailable, "Email browser automation is unavailable")
 	}
+	ctx, cancel := context.WithTimeout(ctx, scriptWaitGrace)
+	defer cancel()
 	_, err := r.controller.OpenProviderLogin(ctx, browsercontrol.OpenProviderLoginRequest{
 		TaskID:   app.NewID("email_login"),
 		Provider: provider.ID,
@@ -59,6 +71,8 @@ func (r *PlaywrightRunner) Probe(
 		Provider      string `json:"provider"`
 		Account       string `json:"account"`
 	}{1, "probe", invocationID, provider.ID, app.EmailAccountDefault}
+	ctx, cancel := scriptContext(ctx, provider.Probe)
+	defer cancel()
 	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{
 		TaskID: invocationID, CredentialGeneration: generation,
 		Provider: provider.ID, Operation: "probe", ScriptID: provider.Probe.ID,
@@ -128,6 +142,8 @@ func (r *PlaywrightRunner) Send(
 	input.Message.Subject = request.Subject
 	input.Message.Body.Format = "text"
 	input.Message.Body.Content = request.Body
+	ctx, cancel := scriptContext(ctx, provider.Send)
+	defer cancel()
 	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{
 		TaskID: request.InvocationID, CredentialGeneration: generation,
 		Provider: provider.ID, Operation: "send", ScriptID: provider.Send.ID,

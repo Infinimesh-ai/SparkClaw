@@ -190,9 +190,6 @@ func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.Runt
 				"connect_timeout_ms": cfg.BrowserAutomation.PlaywrightExtension.ConnectTimeoutMS,
 			},
 		},
-		"emailAutomation": map[string]any{
-			"script_dir": cfg.EmailAutomation.ScriptDir,
-		},
 		"documentOCR": map[string]any{
 			"configured_enabled":    ocrReadiness.ConfiguredEnabled,
 			"adapter_ready":         ocrReadiness.AdapterReady,

@@ -8,7 +8,7 @@ import (
 )
 
 func TestRegistryMatchesProviderNamesWithoutASCIISubstringCollisions(t *testing.T) {
-	registry := DefaultRegistry(t.TempDir())
+	registry := DefaultRegistry()
 	for _, test := range []struct {
 		request string
 		want    []string
@@ -35,7 +35,7 @@ func TestRegistryMatchesProviderNamesWithoutASCIISubstringCollisions(t *testing.
 
 func TestRegistryRejectsAmbiguousAliasesAndClonesRegistrations(t *testing.T) {
 	script := func(id string) Script {
-		return Script{ID: id, Revision: 1, Command: []string{"node", id + ".mjs"}, Timeout: time.Second}
+		return Script{ID: id, Revision: 1, Timeout: time.Second}
 	}
 	providers := []Provider{
 		{ID: app.EmailProviderGmail, DisplayName: "Gmail", LoginURL: "https://mail.google.com/", Aliases: []string{"shared"}, Probe: script("gmail-probe"), Send: script("gmail-send")},

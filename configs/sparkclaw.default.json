@@ -194,9 +194,6 @@
         "connectTimeoutMs": 20000
       }
     },
-    "emailAutomation": {
-      "scriptDir": "./scripts/email"
-    },
     "documentOCR": {
       "enabled": false,
       "provider": "openai-http",

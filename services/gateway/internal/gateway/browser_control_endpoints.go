@@ -151,6 +151,12 @@ func writeBrowserControlStatus(w http.ResponseWriter, statusCode int, status bro
 	if status.Versions.BrowserChannel != "" {
 		versions["browser_channel"] = status.Versions.BrowserChannel
 	}
+	if status.Versions.CLI != "" {
+		versions["cli"] = status.Versions.CLI
+	}
+	if status.Versions.CLIVersion != "" {
+		versions["cli_version"] = status.Versions.CLIVersion
+	}
 	output := map[string]any{
 		"configured":            status.Configured,
 		"state":                 status.State,

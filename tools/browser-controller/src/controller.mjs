@@ -21,7 +21,6 @@ const GENERIC_OPERATIONS = new Set([
   "page.info",
   "page.navigate",
   "page.read",
-  "page.reload",
   "page.screenshot",
   "page.select",
   "page.snapshot",
@@ -31,19 +30,16 @@ const GENERIC_OPERATIONS = new Set([
   "tabs.handoff",
   "tabs.list",
   "tabs.new",
-  "tabs.select",
 ]);
 const PAGE_MUTATING_OPERATIONS = new Set([
   "page.click",
   "page.fill",
   "page.navigate",
-  "page.reload",
   "page.select",
   "page.type",
   "tabs.close",
   "tabs.handoff",
   "tabs.new",
-  "tabs.select",
 ]);
 const SCRIPT_OPERATIONS = new Set(["probe", "send"]);
 

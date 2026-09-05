@@ -91,7 +91,6 @@ func (h *ToolHub) OpenManagedBrowserWindow(ctx context.Context, ownerID, windowI
 	defer registry.unpin(entry)
 
 	args["url"] = targetURL
-	args["require_visible_environment"] = true
 	entry.operationMu.Lock()
 	defer entry.operationMu.Unlock()
 

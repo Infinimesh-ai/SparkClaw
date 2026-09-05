@@ -118,8 +118,8 @@ test("execute binds operations to the active session generations", async () => {
   );
 
   const current = { ...lease, page_generation: created.page_generation };
-  const selected = await controller.execute(executeInput(current, "tabs.select", { page_id: "page_1" }));
-  assert.equal(selected.page_generation, current.page_generation + 1);
+  const selected = await controller.execute(executeInput(current, "page.info", { page_id: "page_1" }));
+  assert.equal(selected.page_generation, current.page_generation);
   const latest = { ...current, page_generation: selected.page_generation };
   const handedOff = await controller.execute(executeInput(latest, "tabs.handoff", { page_id: "page_1" }));
   assert.equal(handedOff.page_generation, latest.page_generation + 1);
@@ -159,13 +159,11 @@ test("execute advances page generation for every ref-invalidating operation", as
     "page.click",
     "page.fill",
     "page.navigate",
-    "page.reload",
     "page.select",
     "page.type",
     "tabs.close",
     "tabs.handoff",
     "tabs.new",
-    "tabs.select",
   ]) {
     const result = await controller.execute(executeInput(lease, operation, {}));
     assert.equal(result.page_generation, lease.page_generation + 1, operation);

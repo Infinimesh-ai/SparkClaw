@@ -221,8 +221,9 @@ func TestPlaywrightExtensionAdapterKeepsSessionAfterToolContextEnds(t *testing.T
 const fakePlaywrightPageText = "Account owner@example.com has a usable application page with navigation, profile, settings, and recent messages."
 
 type fakePlaywrightController struct {
-	mu       sync.Mutex
-	sessions []*fakePlaywrightSession
+	mu          sync.Mutex
+	sessions    []*fakePlaywrightSession
+	acquireWait time.Duration
 }
 
 func newFakePlaywrightController() *fakePlaywrightController {
@@ -236,10 +237,11 @@ func (c *fakePlaywrightController) Status(context.Context) browsercontrol.Status
 	}
 }
 
-func (c *fakePlaywrightController) AcquireSession(ctx context.Context, _ string, _, _ time.Duration) (browsercontrol.Session, error) {
+func (c *fakePlaywrightController) AcquireSession(ctx context.Context, _ string, waitTimeout, _ time.Duration) (browsercontrol.Session, error) {
 	c.mu.Lock()
 	session := newFakePlaywrightSession(len(c.sessions) + 1)
 	c.sessions = append(c.sessions, session)
+	c.acquireWait = waitTimeout
 	c.mu.Unlock()
 	go func() {
 		<-ctx.Done()
@@ -475,6 +477,21 @@ func (s *fakePlaywrightSession) snapshotLocked() []any {
 		return s.snapshot
 	}
 	return fakePlaywrightSnapshot()
+}
+
+func TestPlaywrightExtensionAdapterAcquiresWithTheConfiguredStartupTimeout(t *testing.T) {
+	controller := newFakePlaywrightController()
+	cfg := playwrightAdapterTestConfig()
+	cfg.Adapters.BrowserAutomation.StartupTimeoutMS = 7500
+	adapter := NewPlaywrightExtensionAdapter(cfg, controller).(*PlaywrightExtensionAdapter)
+	if _, err := adapter.Call(context.Background(), "browser.list_tabs", map[string]any{"owner_id": "owner-startup"}); err != nil {
+		t.Fatalf("list tabs: %v", err)
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if controller.acquireWait != 7500*time.Millisecond {
+		t.Fatalf("acquire wait = %s, want the configured startup timeout", controller.acquireWait)
+	}
 }
 
 func TestPlaywrightExtensionAdapterSettleStopsPollingOnceTheSessionIsStale(t *testing.T) {

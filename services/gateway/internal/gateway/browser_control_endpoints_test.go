@@ -60,6 +60,7 @@ func TestBrowserControlAPIIsAuthenticatedAndRedacted(t *testing.T) {
 		Versions: browsercontrol.Versions{
 			Client: "playwright-mcp", ClientVersion: "0.0.80",
 			PlaywrightVersion: "1.63.0-alpha-2026-08-31", BrowserChannel: "chrome",
+			CLI: "playwright-cli", CLIVersion: "0.1.19",
 		},
 	}}
 	server := newBrowserControlEndpointTestServer(t, controller, true)
@@ -111,6 +112,10 @@ func TestBrowserControlAPIIsAuthenticatedAndRedacted(t *testing.T) {
 	}
 	if _, exists := status["controller_socket"]; exists {
 		t.Fatalf("controller socket leaked: %#v", status)
+	}
+	versions, _ := status["versions"].(map[string]any)
+	if versions["client_version"] != "0.0.80" || versions["cli"] != "playwright-cli" || versions["cli_version"] != "0.1.19" {
+		t.Fatalf("public status omitted the pinned client versions: %#v", versions)
 	}
 }
 

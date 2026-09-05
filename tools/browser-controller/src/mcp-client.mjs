@@ -28,8 +28,9 @@ const SESSION_OUTPUT_PATTERN = /^session-[0-9a-f]{24}$/u;
 const BRIDGE_REJECTION_MARKER = "browser_extension_rejected";
 const BRIDGE_CONNECT_URL_PREFIX = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html?";
 const RELAY_DEBUG_NAMESPACE = "pw:mcp:relay";
+// Every upstream tool the client calls; clicks go through browser_evaluate so
+// the background click never focuses the task tab.
 const REQUIRED_TOOLS = new Set([
-  "browser_click",
   "browser_evaluate",
   "browser_navigate",
   "browser_select_option",
@@ -200,10 +201,6 @@ export class PlaywrightMCPClient {
       case "tabs.new":
         exactArgs(args, [], ["url"]);
         return this.#newTaskPage(optionalURL(args.url, { allowBlank: true }));
-      case "tabs.select":
-        exactArgs(args, ["page_id"]);
-        await this.#selectPage(requiredPageID(args.page_id));
-        return this.#pageInfo(args.page_id);
       case "tabs.handoff":
         exactArgs(args, ["page_id"]);
         return this.#handoff(requiredPageID(args.page_id));
@@ -219,9 +216,6 @@ export class PlaywrightMCPClient {
       case "page.navigate":
         exactArgs(args, ["url"], ["page_id"]);
         return this.#navigate(optionalPageID(args.page_id), requiredURL(args.url));
-      case "page.reload":
-        exactArgs(args, [], ["page_id"]);
-        return this.#reload(optionalPageID(args.page_id));
       case "page.snapshot":
         exactArgs(args, [], ["page_id", "depth", "boxes"]);
         return this.#snapshot(optionalPageID(args.page_id), args);
@@ -365,15 +359,6 @@ export class PlaywrightMCPClient {
 
   async #navigate(candidate, url) {
     const page = await this.#selectPage(candidate);
-    await this.#callJSONTool("browser_navigate", { url });
-    this.#invalidateSnapshots();
-    return this.#pageInfo(page.pageID);
-  }
-
-  async #reload(candidate) {
-    const page = await this.#selectPage(candidate);
-    const info = normalizePageInfo(await this.#evaluate(PAGE_INFO_FUNCTION));
-    const url = observedURL(info.url);
     await this.#callJSONTool("browser_navigate", { url });
     this.#invalidateSnapshots();
     return this.#pageInfo(page.pageID);

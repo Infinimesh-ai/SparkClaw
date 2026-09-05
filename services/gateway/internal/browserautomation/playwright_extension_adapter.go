@@ -199,7 +199,8 @@ func (a *PlaywrightExtensionAdapter) acquireSessionLocked(ctx context.Context, a
 	a.nextTaskID++
 	taskID := playwrightTaskID(scope, a.nextTaskID)
 	sessionCtx, sessionCancel := context.WithCancel(context.WithoutCancel(ctx))
-	session, err := a.controller.AcquireSession(sessionCtx, taskID, 0, playwrightExtensionSessionTTL)
+	acquireWait := time.Duration(a.cfg.Adapters.BrowserAutomation.StartupTimeoutMS) * time.Millisecond
+	session, err := a.controller.AcquireSession(sessionCtx, taskID, acquireWait, playwrightExtensionSessionTTL)
 	if err != nil {
 		sessionCancel()
 		return nil, err

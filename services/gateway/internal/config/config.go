@@ -202,6 +202,10 @@ type WebSearchToolConfig struct {
 	Provider string `json:"provider"`
 }
 
+// BrowserAutomationProvider is the only browser automation backend; the
+// provider field exists for configuration compatibility and must name it.
+const BrowserAutomationProvider = "playwright-extension"
+
 type BrowserAutomationToolConfig struct {
 	Enabled  bool   `json:"enabled"`
 	Provider string `json:"provider"`
@@ -558,6 +562,17 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Adapters.BrowserAutomation.StartupTimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.StartupTimeoutMS = 10000
+	}
+	if cfg.Tools.BrowserAutomation.Provider == "" {
+		cfg.Tools.BrowserAutomation.Provider = BrowserAutomationProvider
+	}
+	if cfg.Tools.BrowserAutomation.Provider != BrowserAutomationProvider {
+		return Config{}, fmt.Errorf("tools.browserAutomation.provider must be %q", BrowserAutomationProvider)
+	}
+	// The startup timeout bounds browser session acquisition, which the
+	// controller caps at 30 seconds of waiting.
+	if cfg.Adapters.BrowserAutomation.StartupTimeoutMS < 500 || cfg.Adapters.BrowserAutomation.StartupTimeoutMS > 30000 {
+		return Config{}, errors.New("adapters.browserAutomation.startupTimeoutMs must be between 500 and 30000")
 	}
 	if cfg.Adapters.BrowserAutomation.SettleTimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.SettleTimeoutMS = 15000

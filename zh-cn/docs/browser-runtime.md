@@ -86,7 +86,8 @@ Generation 的 Session 失效，但不会修改浏览器认证状态。
 
 ## 配置
 
-唯一生产 Provider 是 `playwright-extension`：
+唯一生产 Provider 是 `playwright-extension`，配置加载会拒绝其他 `provider` 值。
+`startupTimeoutMs` 限定任务向 Controller 获取浏览器 Session 的等待时长（500 到 30000 毫秒）：
 
 ```json
 {

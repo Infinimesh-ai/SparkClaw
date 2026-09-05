@@ -833,6 +833,33 @@ func TestLoadAppliesBrowserAutomationEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidBrowserAutomationKnobs(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "retired provider", key: "SPARKCLAW_BROWSER_AUTOMATION_PROVIDER", value: "host-cdp", want: `tools.browserAutomation.provider must be "playwright-extension"`},
+		{name: "startup timeout too small", key: "SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", value: "100", want: "startupTimeoutMs must be between 500 and 30000"},
+		{name: "startup timeout beyond controller wait", key: "SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", value: "45000", want: "startupTimeoutMs must be between 500 and 30000"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid browser automation configuration was accepted: %v", err)
+			}
+		})
+	}
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.BrowserAutomation.Provider != BrowserAutomationProvider {
+		t.Fatalf("provider default = %q", cfg.Tools.BrowserAutomation.Provider)
+	}
+}
+
 func TestLoadPlaywrightExtensionDefaultsAndEnvironment(t *testing.T) {
 	cfg, err := Load("")
 	if err != nil {

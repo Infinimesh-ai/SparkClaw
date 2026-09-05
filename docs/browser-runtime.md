@@ -103,7 +103,9 @@ state.
 
 ## Configuration
 
-The sole production provider is `playwright-extension`:
+The sole production provider is `playwright-extension`; configuration loading
+rejects any other `provider` value. `startupTimeoutMs` bounds how long a task
+waits to acquire the browser session from the Controller (500 to 30000 ms):
 
 ```json
 {

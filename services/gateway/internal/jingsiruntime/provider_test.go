@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ type fakeExecutor struct {
 	calls   int
 	started chan struct{}
 	block   bool
+	state   string
 }
 
 func (f *fakeExecutor) Execute(ctx context.Context, input ExecutionInput) (ExecutionOutput, error) {
@@ -38,8 +40,12 @@ func (f *fakeExecutor) Execute(ctx context.Context, input ExecutionInput) (Execu
 		<-ctx.Done()
 		return ExecutionOutput{}, ctx.Err()
 	}
+	state := f.state
+	if state == "" {
+		state = "succeeded"
+	}
 	return ExecutionOutput{
-		State: "succeeded", Summary: "bounded result",
+		State: state, Summary: "bounded result",
 		TraceRef: OpaqueRef{ID: "trace:test", Version: "v1"},
 	}, nil
 }
@@ -485,4 +491,152 @@ func TestProviderLogsOperationalEventsWithoutSecrets(t *testing.T) {
 			t.Fatalf("log output leaked %q: %s", secret, everything)
 		}
 	}
+}
+
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
+}
+
+func newRetentionProvider(t *testing.T, stateDir string, clock *fakeClock, executor Executor) *Provider {
+	t.Helper()
+	provider, err := New(Config{
+		StateDir: stateDir, BearerToken: testBearer, CallerID: "jingsi-service-v1", MaxConcurrent: 2,
+		Retention: 30 * 24 * time.Hour, Now: clock.Now,
+	}, executor)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return provider
+}
+
+func TestProviderRetentionSweepDeletesOnlyExpiredTerminalRecordsAndFences(t *testing.T) {
+	stateDir := t.TempDir()
+	clock := &fakeClock{now: time.Date(2026, 9, 6, 8, 0, 0, 0, time.UTC)}
+	provider := newRetentionProvider(t, stateDir, clock, &fakeExecutor{})
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	submitKey := func(requestID, key string) string {
+		t.Helper()
+		request := submitRequest(requestID, "Age out after retention.")
+		request.Payload.RequestKey = key
+		response := callRuntime(t, server.URL+"/v1/executions:submit", request, key)
+		if response.StatusCode != http.StatusAccepted {
+			t.Fatalf("submit %s = %d %s", key, response.StatusCode, response.Raw)
+		}
+		return nestedString(t, response.Body, "payload", "execution", "execution_id")
+	}
+	fenceKey := func(requestID, key string) string {
+		t.Helper()
+		request := lookupRequest(requestID)
+		request.Payload.RequestKey = key
+		response := callRuntime(t, server.URL+"/v1/executions:lookup", request, "")
+		if nestedString(t, response.Body, "payload", "outcome") != "not_started" {
+			t.Fatalf("lookup %s = %d %s", key, response.StatusCode, response.Raw)
+		}
+		return nestedString(t, response.Body, "payload", "negative_fence", "committed_at")
+	}
+
+	oldExecution := submitKey("request_old", "task_demo:old")
+	waitForState(t, server.URL, oldExecution, "succeeded")
+	fenceKey("request_old_fence", "task_demo:old-fence")
+	clock.advance(10 * 24 * time.Hour)
+	youngExecution := submitKey("request_young", "task_demo:young")
+	waitForState(t, server.URL, youngExecution, "succeeded")
+	youngFenceAt := fenceKey("request_young_fence", "task_demo:young-fence")
+	if entries := stateFiles(t, stateDir); entries != 4 {
+		t.Fatalf("state files before sweep = %d, want 4", entries)
+	}
+
+	clock.advance(21 * 24 * time.Hour)
+	provider.sweepRetention()
+	if entries := stateFiles(t, stateDir); entries != 2 {
+		t.Fatalf("state files after sweep = %d, want 2", entries)
+	}
+	provider.store.mu.Lock()
+	_, oldKeyKept := provider.store.byKey[provider.store.key("jingsi-service-v1", "task_demo:old")]
+	_, oldExecutionKept := provider.store.byExecution[oldExecution]
+	_, youngKeyKept := provider.store.byKey[provider.store.key("jingsi-service-v1", "task_demo:young")]
+	_, youngExecutionKept := provider.store.byExecution[youngExecution]
+	provider.store.mu.Unlock()
+	if oldKeyKept || oldExecutionKept || !youngKeyKept || !youngExecutionKept {
+		t.Fatalf("indexes inconsistent after sweep: old key=%v exec=%v young key=%v exec=%v", oldKeyKept, oldExecutionKept, youngKeyKept, youngExecutionKept)
+	}
+	status := callRuntime(t, server.URL+"/v1/executions:status", executionStatusRequest(oldExecution), "")
+	if status.StatusCode != http.StatusNotFound {
+		t.Fatalf("expired execution still served: %d %s", status.StatusCode, status.Raw)
+	}
+	youngLookup := lookupRequest("request_young_relookup")
+	youngLookup.Payload.RequestKey = "task_demo:young-fence"
+	relooked := callRuntime(t, server.URL+"/v1/executions:lookup", youngLookup, "")
+	if nestedString(t, relooked.Body, "payload", "negative_fence", "committed_at") != youngFenceAt {
+		t.Fatalf("fence inside retention was replaced: %s", relooked.Raw)
+	}
+}
+
+func TestProviderRetentionKeepsNonterminalWorkAndSweepsOnStart(t *testing.T) {
+	stateDir := t.TempDir()
+	clock := &fakeClock{now: time.Date(2026, 9, 6, 8, 0, 0, 0, time.UTC)}
+	provider := newRetentionProvider(t, stateDir, clock, &fakeExecutor{state: "approval_required"})
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	server := httptest.NewServer(provider)
+	stopped := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_stopped", "Wait for approval."), "task_demo:runtime-submit")
+	executionID := nestedString(t, stopped.Body, "payload", "execution", "execution_id")
+	waitForState(t, server.URL, executionID, "approval_required")
+	fence := lookupRequest("request_fence")
+	fence.Payload.RequestKey = "task_demo:fence"
+	callRuntime(t, server.URL+"/v1/executions:lookup", fence, "")
+	server.Close()
+	stopProvider(t, provider, cancel)
+
+	clock.advance(40 * 24 * time.Hour)
+	restarted := newRetentionProvider(t, stateDir, clock, &fakeExecutor{})
+	restartCtx, restartCancel := context.WithCancel(t.Context())
+	restarted.Start(restartCtx)
+	defer stopProvider(t, restarted, restartCancel)
+	deadline := time.Now().Add(3 * time.Second)
+	for stateFiles(t, stateDir) != 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if entries := stateFiles(t, stateDir); entries != 1 {
+		t.Fatalf("state files after Start sweep = %d, want only the approval_required record", entries)
+	}
+	restartedServer := httptest.NewServer(restarted)
+	defer restartedServer.Close()
+	status := callRuntime(t, restartedServer.URL+"/v1/executions:status", executionStatusRequest(executionID), "")
+	if status.StatusCode != http.StatusOK || nestedString(t, status.Body, "payload", "execution", "state") != "approval_required" {
+		t.Fatalf("nonterminal work was swept: %d %s", status.StatusCode, status.Raw)
+	}
+}
+
+func stateFiles(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			count++
+		}
+	}
+	return count
 }

@@ -26,7 +26,10 @@ and must have no group/other permissions. The token is secret-only: it is not
 serialized into public configuration, responses, records, or errors.
 
 `SPARKCLAW_JINGSI_RUNTIME_V1_MAX_CONCURRENT` bounds active Runtime v1 work to
-1–64 executions (default 4). The five POST actions use media type
+1–64 executions (default 4). `SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`
+(`jingsi_runtime_v1.retention_days`, default 30, 0 keeps records forever, at most
+3650) bounds how long terminal records and negative fences stay in the state
+directory; see "Operational bounds" below. The five POST actions use media type
 `application/vnd.infinimesh.sparkclaw-runtime.v1+json`:
 
 - `/v1/executions:submit`
@@ -88,6 +91,21 @@ The provider serves nothing until the Gateway has bound its lifecycle: every
 authenticated action before `Start` receives the retryable `runtime_unavailable`
 Problem with `side_effects=none`, so no execution can run under an uncancellable
 context or escape shutdown.
+
+The state directory is bounded by retention. An hourly sweep bound to the
+provider lifecycle (the first run happens at `Start`) deletes bound records whose
+terminal outcome completed, and negative fences that were committed, more than
+`retention_days` ago; each sweep removes at most 5000 records so a backlog drains
+over several sweeps. Nonterminal work (accepted, queued, running,
+approval_required) is never swept. Deleting a record forgets its key: a later
+Lookup of a swept key commits a fresh `not_started` fence with the same
+deterministic fence ID, and a later Submit is treated as a first request. The
+contract itself puts no time bound on reconciliation, but JingSi only resolves an
+unknown Submit through Lookup, keeps it blocked until a `bound` or `not_started`
+outcome arrives, and binds accepted executions atomically. The window therefore
+only has to exceed the longest outage during which JingSi could still be holding
+an unreconciled key; 30 days covers that with a wide margin, and operators who
+must honor the fence indefinitely set the knob to 0 and accept unbounded growth.
 
 Operational lines go to the process `slog` logger. Bearer rejections log a running
 failure count and the remote address, never the presented credential; idempotency

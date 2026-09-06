@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -34,6 +35,7 @@ func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, reposito
 	return jingsiruntime.New(jingsiruntime.Config{
 		StateDir: cfg.JingSiRuntime.StateDir, BearerToken: cfg.JingSiRuntime.BearerToken,
 		CallerID: "jingsi-service-v1", MaxConcurrent: cfg.JingSiRuntime.MaxConcurrent,
+		Retention: time.Duration(cfg.JingSiRuntime.RetentionDays) * 24 * time.Hour,
 	}, jingSiAgentExecutor{runtime: runtime, repository: repository})
 }
 

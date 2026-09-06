@@ -59,11 +59,17 @@ type JingSiLANConfig struct {
 // JingSiRuntimeConfig owns the accepted JingSi→SparkClaw Runtime v1 surface.
 // The bearer itself is secret-only and can only enter through the environment
 // or an owner-only file; it is never serialized back into public config.
+//
+// RetentionDays bounds the state directory: terminal execution records and
+// negative fences older than this are deleted by an hourly sweep. Zero keeps
+// every record forever. The window must exceed the longest reconciliation
+// delay JingSi may need, because a forgotten key can be bound again.
 type JingSiRuntimeConfig struct {
 	Enabled         bool   `json:"enabled"`
 	StateDir        string `json:"state_dir"`
 	BearerTokenFile string `json:"bearer_token_file,omitempty"`
 	MaxConcurrent   int    `json:"max_concurrent"`
+	RetentionDays   int    `json:"retention_days"`
 	BearerToken     string `json:"-"`
 }
 

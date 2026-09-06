@@ -40,7 +40,11 @@ type Config struct {
 	BearerToken   string
 	CallerID      string
 	MaxConcurrent int
-	Now           func() time.Time
+	// Retention is how long terminal execution records and negative fences
+	// stay on disk after they completed or were committed; an hourly sweep
+	// bound to Start's lifecycle deletes older ones. Zero keeps every record.
+	Retention time.Duration
+	Now       func() time.Time
 	// Logger receives the provider's operational lines: bearer rejections
 	// (a running count, never the presented credential), idempotency
 	// conflicts, persist failures and terminal outcomes. Lines never carry
@@ -54,6 +58,7 @@ type Provider struct {
 	token         []byte
 	callerID      string
 	maxConcurrent int
+	retention     time.Duration
 	now           func() time.Time
 	logger        *slog.Logger
 	authFailures  atomic.Uint64
@@ -86,6 +91,9 @@ func New(config Config, executor Executor) (*Provider, error) {
 	if config.MaxConcurrent <= 0 || config.MaxConcurrent > 64 {
 		return nil, errors.New("JingSi Runtime max concurrency must be between 1 and 64")
 	}
+	if config.Retention < 0 {
+		return nil, errors.New("JingSi Runtime retention must not be negative")
+	}
 	if config.Now == nil {
 		config.Now = func() time.Time { return time.Now().UTC() }
 	}
@@ -98,7 +106,7 @@ func New(config Config, executor Executor) (*Provider, error) {
 	}
 	return &Provider{
 		store: store, executor: executor, token: []byte(config.BearerToken), callerID: config.CallerID,
-		maxConcurrent: config.MaxConcurrent, now: config.Now, logger: config.Logger,
+		maxConcurrent: config.MaxConcurrent, retention: config.Retention, now: config.Now, logger: config.Logger,
 		sem: make(chan struct{}, config.MaxConcurrent), cancels: map[string]context.CancelFunc{},
 	}, nil
 }
@@ -128,8 +136,102 @@ func (p *Provider) Start(ctx context.Context) {
 		for _, executionID := range pending {
 			p.enqueue(executionID)
 		}
-		p.logger.Info("jingsi runtime started", "resumed_executions", len(pending))
+		if p.retention > 0 {
+			p.wg.Add(1)
+			go p.sweepLoop(ctx)
+		}
+		p.logger.Info("jingsi runtime started", "resumed_executions", len(pending), "retention", p.retention)
 	})
+}
+
+// retentionSweepInterval paces the retention coordinator. Retention is
+// day-granularity, so hourly sweeps keep expiry latency negligible; the
+// first sweep runs immediately so short-lived processes still age data out.
+const retentionSweepInterval = time.Hour
+
+// retentionSweepLimit bounds the records one sweep deletes so a backlog after
+// a long outage drains over several sweeps instead of holding the store lock
+// and the directory for one long burst.
+const retentionSweepLimit = 5000
+
+func (p *Provider) sweepLoop(ctx context.Context) {
+	defer p.wg.Done()
+	ticker := time.NewTicker(retentionSweepInterval)
+	defer ticker.Stop()
+	p.sweepRetention()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.sweepRetention()
+		}
+	}
+}
+
+// sweepRetention deletes terminal execution records and negative fences
+// whose completion or fence time is older than the retention window. It
+// snapshots the candidates under the store lock, then removes each one under
+// a short lock hold so request handlers interleave; a record that changed in
+// between is skipped and reconsidered on the next sweep.
+func (p *Provider) sweepRetention() {
+	cutoff := p.now().UTC().Add(-p.retention)
+	p.store.mu.Lock()
+	candidates := make([]string, 0)
+	for key, value := range p.store.byKey {
+		if retentionExpired(value, cutoff) {
+			candidates = append(candidates, key)
+			if len(candidates) == retentionSweepLimit {
+				break
+			}
+		}
+	}
+	p.store.mu.Unlock()
+	slices.Sort(candidates)
+	var executions, fences, failures int
+	for _, key := range candidates {
+		p.store.mu.Lock()
+		value := p.store.byKey[key]
+		if value == nil || !retentionExpired(value, cutoff) {
+			p.store.mu.Unlock()
+			continue
+		}
+		err := p.store.removeLocked(value)
+		p.store.mu.Unlock()
+		if err != nil {
+			failures++
+			p.logger.Error("jingsi runtime record delete failed", "kind", value.Kind, "record_id", retentionRecordID(value), "error", err)
+			continue
+		}
+		if value.Kind == recordFenced {
+			fences++
+		} else {
+			executions++
+		}
+	}
+	if executions+fences+failures > 0 {
+		p.logger.Info("jingsi runtime retention sweep", "deleted_executions", executions, "deleted_fences", fences, "failed", failures, "cutoff", cutoff)
+	}
+}
+
+// retentionExpired reports whether a record is old enough to delete: a bound
+// record only once terminal and completed before the cutoff, a negative
+// fence once committed before the cutoff. Nonterminal work is never touched.
+func retentionExpired(value *record, cutoff time.Time) bool {
+	switch value.Kind {
+	case recordBound:
+		return isTerminal(value.State) && value.CompletedAt != nil && value.CompletedAt.Before(cutoff)
+	case recordFenced:
+		return value.FenceCommittedAt != nil && value.FenceCommittedAt.Before(cutoff)
+	}
+	return false
+}
+
+func retentionRecordID(value *record) string {
+	if value.Kind == recordFenced {
+		return value.FenceID
+	}
+	return value.ExecutionID
 }
 
 func (p *Provider) Wait(ctx context.Context) error {

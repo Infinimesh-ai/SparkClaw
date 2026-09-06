@@ -42,6 +42,11 @@ Guard, Embedding, and Fast image-understanding requests. A model-backed adapter
 outside Model Router, such as OCR, may consume the same selected capacity
 catalog while retaining its own transport and media limits.
 
+Speech recognition (ASR) is outside this contract. It is not a Model Router
+lane, its input is bounded by audio duration and upload size rather than by
+context tokens, and its vLLM `--max-model-len` is fixed by the ASR service's
+own `SPARKCLAW_ASR_MAX_MODEL_LEN` setting instead of by a capacity-catalog lane.
+
 This design does not:
 
 - dynamically increase the 8-message, 6-tool, 4-episode, or 3-image selection;

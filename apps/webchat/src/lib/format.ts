@@ -24,7 +24,7 @@ export function profileLabel(profile: PublicConfig["model"]["fast"], text: Copy)
     .map(([name, budget]) => `${name}=${budget.toLocaleString()}`)
     .join(", ");
   const output = outputBudgets ? ` · ${text.units.output}: ${outputBudgets}` : "";
-  return `${profile.name} · ${model}${physicalModel} · ${profile.context_tokens.toLocaleString()} ${text.units.ctx}${output}${profile.mtp ? " · MTP" : ""}`;
+  return `${profile.name} · ${model}${physicalModel} · ${profile.context_tokens.toLocaleString()} ${text.units.ctx}${output}`;
 }
 
 export function rateLimitLabel(limit: { enabled: boolean; requests_per_minute: number; burst: number } | undefined, text: Copy) {

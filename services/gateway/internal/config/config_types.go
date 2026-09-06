@@ -112,7 +112,6 @@ type ModelProfile struct {
 	Name                  string                                  `json:"name"`
 	BaseURL               string                                  `json:"base_url"`
 	Model                 string                                  `json:"model"`
-	MTP                   bool                                    `json:"mtp"`
 	CapacityPhysicalModel string                                  `json:"-"`
 	ContextTokens         int                                     `json:"-"`
 	OutputBudgets         map[modelcapacity.OutputBudgetClass]int `json:"-"`

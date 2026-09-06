@@ -28,26 +28,22 @@
     "fast": {
       "name": "sparkclaw-fast",
       "base_url": "",
-      "model": "sparkclaw-fast",
-      "mtp": false
+      "model": "sparkclaw-fast"
     },
     "deep": {
       "name": "sparkclaw-deep",
       "base_url": "",
-      "model": "sparkclaw-deep",
-      "mtp": false
+      "model": "sparkclaw-deep"
     },
     "embedding": {
       "name": "sparkclaw-embedding",
       "base_url": "",
-      "model": "sparkclaw-embedding",
-      "mtp": false
+      "model": "sparkclaw-embedding"
     },
     "guard": {
       "name": "sparkclaw-guard",
       "base_url": "http://127.0.0.1:8005/v1",
-      "model": "Qwen/Qwen3Guard-Gen-0.6B",
-      "mtp": false
+      "model": "Qwen/Qwen3Guard-Gen-0.6B"
     }
   },
   "speech": {

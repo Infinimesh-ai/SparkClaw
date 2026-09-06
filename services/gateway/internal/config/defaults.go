@@ -37,13 +37,11 @@ func Default() Config {
 				Name:    "sparkclaw-fast",
 				BaseURL: "http://127.0.0.1:8001/v1",
 				Model:   "nvidia/Qwen3.6-35B-A3B-NVFP4",
-				MTP:     false,
 			},
 			Deep: ModelProfile{
 				Name:    "sparkclaw-deep",
 				BaseURL: "http://127.0.0.1:8002/v1",
 				Model:   "nvidia/Qwen3.6-35B-A3B-NVFP4",
-				MTP:     false,
 			},
 			Embedding: ModelProfile{
 				Name:    "sparkclaw-embedding",

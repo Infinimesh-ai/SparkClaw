@@ -577,7 +577,7 @@ func (s *pptxVisualQAService) ensureFastImageReady(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve Fast profile for PPTX visual QA: %w", err)
 	}
-	key := strings.Join([]string{profile.Name, profile.BaseURL, profile.Model, fmt.Sprintf("%t", profile.MTP)}, "\x00")
+	key := strings.Join([]string{profile.Name, profile.BaseURL, profile.Model}, "\x00")
 	now := time.Now()
 	s.readyMu.Lock()
 	if s.readyKey == key && now.Before(s.readyUntil) {

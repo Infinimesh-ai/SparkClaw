@@ -11,7 +11,6 @@ describe("model profile formatting", () => {
       capacity_physical_model: "hosted-fast",
       context_tokens: 262144,
       output_budgets: { answer: 8192, compact_structured: 2048 },
-      mtp: false,
     }, en)).toBe("fast · sparkclaw-fast · hosted-fast · 262,144 ctx · output: answer=8,192, compact_structured=2,048");
   });
 });

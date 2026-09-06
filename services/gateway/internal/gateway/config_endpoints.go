@@ -135,7 +135,6 @@ func publicModelProfile(profile config.ModelProfile) map[string]any {
 		"capacity_physical_model": profile.CapacityPhysicalModel,
 		"context_tokens":          profile.ContextTokens,
 		"output_budgets":          profile.OutputBudgets,
-		"mtp":                     profile.MTP,
 	}
 }
 

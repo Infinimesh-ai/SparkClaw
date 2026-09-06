@@ -635,7 +635,6 @@ export type PublicModelProfile = {
   capacity_physical_model: string;
   context_tokens: number;
   output_budgets: Record<string, number>;
-  mtp: boolean;
 };
 
 export type PublicConfig = {
@@ -888,8 +887,6 @@ export type RunTrace = {
     model: string;
     content: string;
     mock: boolean;
-    fallback?: boolean;
-    error_note?: string;
   };
   model_calls?: ModelCall[];
   messages: Message[];

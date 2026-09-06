@@ -195,11 +195,11 @@ func TestDefaultChatProfilesMatchVLLMManagedNVFP4Checkpoint(t *testing.T) {
 	}
 
 	if cfg.Model.Fast.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
-		cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP {
+		cfg.Model.Fast.ContextTokens != 32768 {
 		t.Fatalf("fast profile does not match the vLLM-managed NVFP4 checkpoint default: %#v", cfg.Model.Fast)
 	}
 	if cfg.Model.Deep.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
-		cfg.Model.Deep.ContextTokens != 65536 || cfg.Model.Deep.MTP {
+		cfg.Model.Deep.ContextTokens != 65536 {
 		t.Fatalf("deep profile does not match the vLLM-managed NVFP4 checkpoint default: %#v", cfg.Model.Deep)
 	}
 }
@@ -527,8 +527,8 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 	if !cfg.Model.Mock {
 		t.Fatal("repository default config should use mock models")
 	}
-	if cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP ||
-		cfg.Model.Deep.ContextTokens != 32768 || cfg.Model.Deep.MTP {
+	if cfg.Model.Fast.ContextTokens != 32768 ||
+		cfg.Model.Deep.ContextTokens != 32768 {
 		t.Fatalf("repository chat profiles do not match the vLLM-managed NVFP4 checkpoint: %#v", cfg.Model)
 	}
 	for name, profile := range map[string]ModelProfile{

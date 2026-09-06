@@ -353,3 +353,32 @@ func nestedSlice(t *testing.T, value any, path ...string) []any {
 	}
 	return result
 }
+
+func TestProviderRejectsEveryActionUntilStart(t *testing.T) {
+	executor := &fakeExecutor{}
+	provider := newTestProvider(t, t.TempDir(), executor)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	early := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_early", "Must wait for Start."), "task_demo:runtime-submit")
+	if early.StatusCode != http.StatusServiceUnavailable || nestedString(t, early.Body, "payload", "code") != "runtime_unavailable" ||
+		!nestedBool(t, early.Body, "payload", "retryable") || nestedValue(t, early.Body, "payload", "retry_after_ms") == nil {
+		t.Fatalf("submit before Start = %d %s", early.StatusCode, early.Raw)
+	}
+	lookup := callRuntime(t, server.URL+"/v1/executions:lookup", lookupRequest("request_early_lookup"), "")
+	if lookup.StatusCode != http.StatusServiceUnavailable || nestedString(t, lookup.Body, "payload", "code") != "runtime_unavailable" {
+		t.Fatalf("lookup before Start = %d %s", lookup.StatusCode, lookup.Raw)
+	}
+	if executor.callCount() != 0 || len(provider.store.byKey) != 0 {
+		t.Fatalf("pre-Start request had side effects: calls=%d records=%d", executor.callCount(), len(provider.store.byKey))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	accepted := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_after", "Must wait for Start."), "task_demo:runtime-submit")
+	if accepted.StatusCode != http.StatusAccepted {
+		t.Fatalf("submit after Start = %d %s", accepted.StatusCode, accepted.Raw)
+	}
+	waitForState(t, server.URL, nestedString(t, accepted.Body, "payload", "execution", "execution_id"), "succeeded")
+}

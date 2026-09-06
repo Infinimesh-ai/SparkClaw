@@ -86,11 +86,15 @@ func New(config Config, executor Executor) (*Provider, error) {
 	}
 	return &Provider{
 		store: store, executor: executor, token: []byte(config.BearerToken), callerID: config.CallerID,
-		maxConcurrent: config.MaxConcurrent, now: config.Now, lifecycle: context.Background(),
+		maxConcurrent: config.MaxConcurrent, now: config.Now,
 		sem: make(chan struct{}, config.MaxConcurrent), cancels: map[string]context.CancelFunc{},
 	}, nil
 }
 
+// Start binds the lifecycle every execution context derives from and resumes
+// durable nonterminal work. It is mandatory: until it runs, ServeHTTP answers
+// every action with the contract's retryable runtime_unavailable Problem, so
+// no execution can start under an uncancellable background context.
 func (p *Provider) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -137,6 +141,10 @@ func (p *Provider) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	presented := bearerCredential(request.Header.Get("Authorization"))
 	if presented == "" || subtle.ConstantTimeCompare([]byte(presented), p.token) != 1 {
 		writeProblem(w, http.StatusUnauthorized, "request_unauthenticated", "unauthenticated", false, 0)
+		return
+	}
+	if !p.isStarted() {
+		writeProblem(w, http.StatusServiceUnavailable, "request_runtime_not_started", "runtime_unavailable", true, 1000)
 		return
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
@@ -385,6 +393,12 @@ func (p *Provider) cancel(w http.ResponseWriter, request *http.Request) {
 		"protocol": Protocol, "kind": "execution.cancel.result", "request_id": value.RequestID,
 		"payload": map[string]any{"execution_id": value.Payload.ExecutionID, "state": state, "idempotent": true, "updated_at": updatedAt},
 	})
+}
+
+func (p *Provider) isStarted() bool {
+	p.lifecycleMu.RLock()
+	defer p.lifecycleMu.RUnlock()
+	return p.started
 }
 
 func (p *Provider) authorizedExecutionLocked(executionID string, authorization Authorization) (*record, string) {

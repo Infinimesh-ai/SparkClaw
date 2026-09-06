@@ -91,6 +91,13 @@ execution 暴露该工具。未声明任何 effect 的工具（`memory.*`、`she
 Context；它不映射到任何工具 effect，提供方只要收到 `memory_context` 就会包含 Memory，
 不参考该 token。
 
+该 effect 词汇表尚未进入已接受的契约（InfiniCenter 决策 0034 提案中），而当前 JingSi
+consumer 只授予 `memory.context`。在该决策被接受之前，
+`jingsi_runtime_v1.enforce_effect_scopes`（`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`，
+默认 `false`）让网关自行授予完整的 effect 词汇表：run 持久化的 scope 会在 JingSi 的 token 之外
+带上全部映射 token，因此仍由 `tool_scope` 单独决定暴露，审计记录也能看出各方授予了什么。
+设为 `true` 则只投影 JingSi 授予的 token。
+
 只有 JingSi 提供了有界 v1 `memory_context` 时才会包含 Memory。goal 仍是 risk、guard、
 语义路由、消息控制和能力准入唯一的 owner intent 输入。Memory summary 保存在独立的
 task-context 字段中，用于确定性恢复；只有在路由和授权边界冻结后，才会在明确的

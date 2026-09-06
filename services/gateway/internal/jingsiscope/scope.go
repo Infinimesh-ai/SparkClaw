@@ -219,6 +219,43 @@ func EffectRequirement(effect app.ToolEffect) (family ScopeFamily, token string,
 // that declares no effect, or an effect the mapping does not know, is hidden:
 // the contract lets SparkClaw only narrow these scopes, so an effect it
 // cannot classify is never exposed.
+// EffectTokens returns the complete data_scope and network_scope vocabulary
+// the effect mapping can consume, sorted. It is the grant SparkClaw issues on
+// JingSi's behalf while the vocabulary is not yet part of the contract.
+func EffectTokens() (data, network []string) {
+	for effect, family := range effectRequirements {
+		switch family {
+		case ScopeFamilyData:
+			data = append(data, string(effect))
+		case ScopeFamilyNetwork:
+			network = append(network, string(effect))
+		}
+	}
+	slices.Sort(data)
+	slices.Sort(network)
+	return data, network
+}
+
+// WithDefaultEffectScopes widens the grant to every mapped effect token in
+// addition to what JingSi granted, deduplicated and sorted.
+func (g Grant) WithDefaultEffectScopes() Grant {
+	data, network := EffectTokens()
+	g.DataScope = mergeTokens(g.DataScope, data)
+	g.NetworkScope = mergeTokens(g.NetworkScope, network)
+	return g
+}
+
+func mergeTokens(granted, defaults []string) []string {
+	out := append([]string(nil), granted...)
+	for _, token := range defaults {
+		if !slices.Contains(out, token) {
+			out = append(out, token)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 func (g Grant) AllowsTool(definition app.ToolDefinition) bool {
 	if !slices.Contains(g.Tools, definition.Name) || g.MaxToolCalls == 0 {
 		return false

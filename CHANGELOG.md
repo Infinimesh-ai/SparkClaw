@@ -54,6 +54,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- JingSi Runtime v1 tool exposure now understands `data_scope`/`network_scope`
+  as tool-effect tokens, but enforcement waits for InfiniCenter decision 0034:
+  `jingsi_runtime_v1.enforce_effect_scopes`
+  (`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `false`) keeps
+  the gateway granting the full effect vocabulary itself, so today's consumer,
+  which grants only `memory.context`, keeps every tool named in `tool_scope`.
 - JingSi Runtime v1 operational bounds: the state directory is swept hourly
   under a new `jingsi_runtime_v1.retention_days` knob
   (`SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`, default 30, `0` keeps every

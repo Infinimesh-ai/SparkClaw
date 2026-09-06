@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,27 @@ func gatewayRuntimeCall(t *testing.T, endpoint string, body any, idempotencyKey 
 		t.Fatalf("decode response: %v body=%s", err, responseRaw)
 	}
 	return gatewayRuntimeResponse{StatusCode: response.StatusCode, Payload: decoded.Payload, Raw: string(responseRaw)}
+}
+
+func TestDefaultEffectScopesWidenOnlyDataAndNetworkTokens(t *testing.T) {
+	grant := jingsiscope.Grant{Tools: []string{"files.read"}, ApprovalPolicy: "ask", MaxToolCalls: 3,
+		DataScope: []string{"memory.context"}, NetworkScope: []string{}, Purpose: "task.execute", GrantID: "grant:demo/1", GrantVersion: "v1"}
+	widened := grant.WithDefaultEffectScopes()
+	data, network := jingsiscope.EffectTokens()
+	if len(widened.DataScope) != len(data)+1 || len(widened.NetworkScope) != len(network) || !slices.Contains(widened.DataScope, "memory.context") {
+		t.Fatalf("default effect scopes = data %v network %v", widened.DataScope, widened.NetworkScope)
+	}
+	if !reflect.DeepEqual(widened.Tools, grant.Tools) || widened.ApprovalPolicy != grant.ApprovalPolicy || widened.MaxToolCalls != grant.MaxToolCalls {
+		t.Fatalf("default effect scopes touched more than the scope lists: %#v", widened)
+	}
+	// The JingSi fixtures grant tool_scope with no effect tokens; without the
+	// default grant every tool would be hidden until decision 0034 lands.
+	if !widened.AllowsTool(app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}) {
+		t.Fatal("default effect scopes did not restore tool_scope exposure")
+	}
+	if grant.AllowsTool(app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}) {
+		t.Fatal("enforced grant exposed an effect JingSi never granted")
+	}
 }
 
 func TestJingSiGrantProjectionRoundTrips(t *testing.T) {

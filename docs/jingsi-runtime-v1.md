@@ -109,6 +109,16 @@ Memory Context JingSi supplies in the submit payload; it maps to no tool effect,
 and the provider includes Memory whenever `memory_context` is present without
 consulting that token.
 
+The effect vocabulary is not yet part of the accepted contract (InfiniCenter
+decision 0034 proposes it), and today's JingSi consumer grants only
+`memory.context`. Until that decision is accepted,
+`jingsi_runtime_v1.enforce_effect_scopes`
+(`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `false`) keeps the
+gateway granting the full effect vocabulary itself: the run's persisted scopes
+then carry every mapped token in addition to JingSi's, so `tool_scope` alone
+keeps governing exposure and the audit trail shows which side granted what.
+Setting it to `true` projects only the tokens JingSi granted.
+
 Memory is included only when JingSi supplied the bounded v1 `memory_context`.
 The goal remains the sole owner-intent input for risk, guard, semantic routing,
 message control, and capability admission. Memory summary is persisted in a

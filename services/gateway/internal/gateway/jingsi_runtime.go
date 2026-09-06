@@ -22,6 +22,10 @@ type jingSiAgentExecutor struct {
 		store.SessionRepository
 		store.RunRepository
 	}
+	// enforceEffectScopes projects only the data/network tokens JingSi
+	// granted. While false (pending InfiniCenter decision 0034) the gateway
+	// adds the full effect vocabulary so tool_scope alone keeps governing.
+	enforceEffectScopes bool
 }
 
 func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, repository interface {
@@ -38,7 +42,7 @@ func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, reposito
 		StateDir: cfg.JingSiRuntime.StateDir, BearerToken: cfg.JingSiRuntime.BearerToken,
 		CallerID: "jingsi-service-v1", MaxConcurrent: cfg.JingSiRuntime.MaxConcurrent,
 		Retention: time.Duration(cfg.JingSiRuntime.RetentionDays) * 24 * time.Hour,
-	}, jingSiAgentExecutor{runtime: runtime, repository: repository})
+	}, jingSiAgentExecutor{runtime: runtime, repository: repository, enforceEffectScopes: cfg.JingSiRuntime.EnforceEffectScopes})
 }
 
 func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.ExecutionInput) (jingsiruntime.ExecutionOutput, error) {
@@ -46,7 +50,11 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	if input.Memory != nil {
 		authorizedContext = input.Memory.Summary
 	}
-	scopes := jingSiGrant(input).Scopes()
+	grant := jingSiGrant(input)
+	if !e.enforceEffectScopes {
+		grant = grant.WithDefaultEffectScopes()
+	}
+	scopes := grant.Scopes()
 	sessionID := ""
 	if run, found, err := e.repository.GetRun(ctx, input.ExecutionID); err != nil {
 		return jingsiruntime.ExecutionOutput{}, err

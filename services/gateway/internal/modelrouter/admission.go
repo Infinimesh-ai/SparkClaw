@@ -263,9 +263,7 @@ func (r Router) tokenize(ctx context.Context, profile config.ModelProfile, body 
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
+	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return 0, err

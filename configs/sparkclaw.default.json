@@ -23,7 +23,6 @@
   "model": {
     "capacity_profile": "mock",
     "capacity_catalog": "model.profiles.json",
-    "mock": true,
     "http_timeout_seconds": 300,
     "disable_thinking": true,
     "fast": {

@@ -222,7 +222,6 @@ jobs:
           with open("/tmp/sparkclaw-compose.json", encoding="utf-8") as source:
               config = json.load(source)
           environment = config["services"]["gateway"]["environment"]
-          assert environment["SPARKCLAW_MODEL_MODE"] == "external"
           assert environment["SPARKCLAW_STATE_BACKEND"] == "postgres"
           assert environment["SPARKCLAW_SPEECH_ENABLED"] == "true"
           assert environment["SPARKCLAW_OCR_ENABLED"] == "true"

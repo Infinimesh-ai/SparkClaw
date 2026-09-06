@@ -16,7 +16,6 @@ if [ -z "$SPARKCLAW_ROOT" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-export SPARKCLAW_MODEL_MODE="${SPARKCLAW_MODEL_MODE:-mock}"
 export SPARKCLAW_MODEL_DISABLE_THINKING="${SPARKCLAW_MODEL_DISABLE_THINKING:-true}"
 export SPARKCLAW_FAST_BASE_URL="${SPARKCLAW_FAST_BASE_URL:-}"
 export SPARKCLAW_FAST_MODEL="${SPARKCLAW_FAST_MODEL:-sparkclaw-fast}"
@@ -89,4 +88,4 @@ echo "SparkClaw development tools are on PATH."
 echo "node: $(node -v)"
 echo "npm:  $(npm -v)"
 echo "go:   $(go version)"
-echo "models: $SPARKCLAW_MODEL_MODE"
+echo "model capacity profile: ${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock (from configs/sparkclaw.default.json)}"

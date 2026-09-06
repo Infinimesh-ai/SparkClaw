@@ -7,7 +7,6 @@ services:
       dockerfile: docker/images/gateway.Dockerfile
     environment:
       SPARKCLAW_BIND: 0.0.0.0
-      SPARKCLAW_MODEL_MODE: mock
     volumes:
       - ../configs:/app/configs:ro
       - ../data/workspaces:/var/lib/sparkclaw/workspaces

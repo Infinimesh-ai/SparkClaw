@@ -616,7 +616,7 @@ ready 检查不包含该端口。
 重要环境变量：
 
 - `SPARKCLAW_MODEL_CAPACITY_PROFILE`（两个产品模式固定为 `sparkclaw-product-v1`；定向 benchmark helper 可选择另一个已测 profile）
-- `SPARKCLAW_MODEL_CAPACITY_CATALOG`（高级 host script/catalog 路径 override；产品容器使用已挂载的版本化 catalog）
+- `SPARKCLAW_MODEL_CAPACITY_CATALOG`（高级 host script/catalog 路径 override；产品容器使用已挂载的版本化 catalog。未设置时，`model.capacity_catalog` 相对配置文件解析，内置默认值 `configs/model.profiles.json` 相对工作目录解析；gateway 二进制不再内置任何路径）
 - `SPARKCLAW_VLLM_IMAGE`（embedding、guard 与 ASR 的基础 image）
 - `SPARKCLAW_CHAT_VLLM_IMAGE`（Fast/Deep chat image；NVFP4 默认使用 vLLM 0.24.0）
 - `SPARKCLAW_FORCE_MODEL_RECREATE`（默认 `false`；一次显式完整模型组刷新时设为 `true`）
@@ -801,7 +801,6 @@ python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.
 
 ```bash
 SPARKCLAW_EXPECT_REAL_MODELS=1 \
-SPARKCLAW_MODEL_MODE=external \
 BROWSER_FIXTURE_URL=http://host.docker.internal:18791 \
 BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh

@@ -29,7 +29,7 @@ const validCapacityCatalog = `{
 }`
 
 func TestRepositoryModelCapacityCatalogIsValid(t *testing.T) {
-	if err := ValidateModelCapacityCatalog(defaultModelCapacityCatalogPath()); err != nil {
+	if err := ValidateModelCapacityCatalog(repositoryCapacityCatalog()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -60,10 +60,10 @@ func TestLoadReturnsMissingModelCapacityCatalogError(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultResolvesCapacityWithoutEnvironment(t *testing.T) {
+func TestResolveDefaultIgnoresEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_MODEL_CAPACITY_CATALOG", filepath.Join(t.TempDir(), "missing.json"))
 
-	cfg, err := LoadDefault()
+	cfg, err := ResolveDefault(repositoryCapacityCatalog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +73,8 @@ func TestLoadDefaultResolvesCapacityWithoutEnvironment(t *testing.T) {
 }
 
 func TestLoadResolvesCapacityCatalogRelativeToMainConfig(t *testing.T) {
+	// Clear the package-wide catalog override so the JSON path is what resolves.
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_CATALOG", "")
 	directory := t.TempDir()
 	catalogPath := filepath.Join(directory, defaultModelCapacityCatalog)
 	if err := os.MkdirAll(filepath.Dir(catalogPath), 0o700); err != nil {
@@ -138,10 +140,23 @@ func TestLoadRejectsLegacyCapacityJSONAndNonExecutableProfile(t *testing.T) {
 	}
 
 	profilePath := filepath.Join(t.TempDir(), "profile.json")
-	if err := os.WriteFile(profilePath, []byte(`{"model":{"capacity_profile":"external-model","capacity_catalog":"`+defaultModelCapacityCatalogPath()+`"}}`), 0o600); err != nil {
+	if err := os.WriteFile(profilePath, []byte(`{"model":{"capacity_profile":"external-model","capacity_catalog":"`+repositoryCapacityCatalog()+`"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(profilePath); err == nil || !strings.Contains(err.Error(), "is not executable") {
 		t.Fatalf("non-executable profile error = %v", err)
+	}
+}
+
+func TestLoadWithoutCatalogOverrideResolvesDefaultRelativeToWorkingDirectory(t *testing.T) {
+	t.Setenv("SPARKCLAW_MODEL_CAPACITY_CATALOG", "")
+
+	_, err := Load("")
+	expected, _ := filepath.Abs(defaultModelCapacityCatalog)
+	if err == nil || !strings.Contains(err.Error(), expected) {
+		t.Fatalf("Load without a catalog override should fail on the working-directory default %s, got %v", expected, err)
+	}
+	if _, err := ResolveDefault(""); err == nil {
+		t.Fatal("ResolveDefault should require an explicit catalog path")
 	}
 }

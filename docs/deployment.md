@@ -718,7 +718,7 @@ startup and is not part of the current single-Fast readiness check.
 Important environment variables:
 
 - `SPARKCLAW_MODEL_CAPACITY_PROFILE` (fixed to `sparkclaw-product-v1` by both product modes; targeted benchmark helpers may select a separate measured profile)
-- `SPARKCLAW_MODEL_CAPACITY_CATALOG` (advanced host-script/catalog path override; product containers use the mounted versioned catalog)
+- `SPARKCLAW_MODEL_CAPACITY_CATALOG` (advanced host-script/catalog path override; product containers use the mounted versioned catalog. Without it, `model.capacity_catalog` resolves relative to the config file, and the built-in `configs/model.profiles.json` default resolves relative to the working directory; the gateway binary carries no baked-in path)
 - `SPARKCLAW_VLLM_IMAGE` (embedding, guard, and ASR base image)
 - `SPARKCLAW_CHAT_VLLM_IMAGE` (Fast/Deep chat image; defaults to vLLM 0.24.0 for NVFP4)
 - `SPARKCLAW_FORCE_MODEL_RECREATE` (`false` by default; set `true` for one explicit full model-group refresh)
@@ -920,7 +920,6 @@ Run real-model golden eval:
 
 ```bash
 SPARKCLAW_EXPECT_REAL_MODELS=1 \
-SPARKCLAW_MODEL_MODE=external \
 BROWSER_FIXTURE_URL=http://host.docker.internal:18791 \
 BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh

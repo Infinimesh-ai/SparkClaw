@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -447,9 +446,7 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 		return "", "", tokenUsage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
+	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return "", "", tokenUsage{}, err
@@ -542,9 +539,7 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 		return "", "", tokenUsage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
+	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return "", "", tokenUsage{}, err
@@ -632,9 +627,7 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
+	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return "", "", tokenUsage{}, err
@@ -816,9 +809,7 @@ func (r Router) embeddingBatch(ctx context.Context, profile config.ModelProfile,
 		return nil, tokenUsage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
+	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return nil, tokenUsage{}, err
@@ -1024,7 +1015,9 @@ func estimateTokens(value string) int {
 	return words
 }
 
-func getenv(key string) string {
-	// Wrapped for tests and to keep all external model access in this package.
-	return os.Getenv(key)
+// authorize attaches the configured model server bearer token, if any.
+func (r Router) authorize(req *http.Request) {
+	if r.cfg.Model.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+r.cfg.Model.APIKey)
+	}
 }

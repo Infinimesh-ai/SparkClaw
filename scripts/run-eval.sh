@@ -7,9 +7,10 @@ cd "$ROOT"
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
 SPARKCLAW_EXPECT_REAL_MODELS="${SPARKCLAW_EXPECT_REAL_MODELS:-}"
 if [[ -z "$SPARKCLAW_EXPECT_REAL_MODELS" ]]; then
-  case "${SPARKCLAW_MODEL_MODE:-mock}" in
-    external|external-model|real|local|dgx-spark-local) SPARKCLAW_EXPECT_REAL_MODELS=1 ;;
-    *) SPARKCLAW_EXPECT_REAL_MODELS=0 ;;
+  # The capacity profile decides mock routing; only the "mock" profile is fake.
+  case "${SPARKCLAW_MODEL_CAPACITY_PROFILE:-mock}" in
+    mock) SPARKCLAW_EXPECT_REAL_MODELS=0 ;;
+    *) SPARKCLAW_EXPECT_REAL_MODELS=1 ;;
   esac
 fi
 BROWSER_FIXTURE_PORT="${BROWSER_FIXTURE_PORT:-18791}"

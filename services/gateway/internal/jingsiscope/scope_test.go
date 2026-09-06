@@ -11,8 +11,8 @@ import (
 func sampleGrant() Grant {
 	return Grant{
 		Tools: []string{"browser.read", "files.read"}, ApprovalPolicy: ApprovalAsk,
-		MaxToolCalls: 8, MaxOutputBytes: 4096,
-		DataScope: []string{"memory.context", "workspace.read"}, NetworkScope: []string{"external.read"},
+		MaxToolCalls: 8,
+		DataScope:    []string{"memory.context", "workspace.read"}, NetworkScope: []string{"external.read"},
 		Purpose: "task.execute", GrantID: "grant:space/demo", GrantVersion: "v1",
 	}
 }
@@ -61,7 +61,7 @@ func TestParseFailsClosedOnMalformedProjection(t *testing.T) {
 		"empty tool":             append(append([]string{}, base...), PrefixTool),
 		"non-integer budget":     replace(PrefixMaxToolCalls, "many"),
 		"negative budget":        replace(PrefixMaxToolCalls, "-1"),
-		"non-integer output":     replace(PrefixMaxOutputBytes, "1k"),
+		"retired output budget":  append(append([]string{}, base...), "sparkclaw.budget.max_output_bytes:4096"),
 		"unknown approval":       replace(PrefixApproval, "allow"),
 		"missing approval":       replace(PrefixApproval, ""),
 		"missing budget":         replace(PrefixMaxToolCalls, ""),

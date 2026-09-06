@@ -57,8 +57,10 @@ execution，Status、events 和 cancel 会统一返回 `not_found`。Agent 入�
 身份，以及排序后的 tool/data/network/approval/grant 投影。Runtime 工具暴露要求
 `tool_scope` 精确匹配；`approval_policy=deny` 会移除需要 Approval 的工具；`data_scope`
 与 `network_scope` 必须覆盖工具声明的每一个 effect（见下文）。每个请求的
-deadline、最大运行时间、最大工具调用次数和最大输出字节数只能收紧现有的全局 Runtime
-策略。契约接受最高 1 MiB 的 `budget.max_output_bytes`，但每个响应上限为 131072 字节，因此结果摘要无论请求多少都钳制在 64 KiB。
+deadline、最大运行时间和最大工具调用次数只能收紧现有的全局 Runtime 策略。
+`budget.max_output_bytes` 只由提供方施加于结果摘要；它不会投影进 run，因为 run 内部没有
+任何消费者。契约接受最高 1 MiB 的该预算，但每个响应上限为 131072 字节，因此结果摘要无论
+请求多少都钳制在 64 KiB。
 
 ### 数据与网络 scope
 

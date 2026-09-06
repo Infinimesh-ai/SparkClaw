@@ -90,15 +90,15 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	}, err
 }
 
-// jingSiGrant projects the verified authorization envelope and submit budget
-// into the typed grant the Agent Runtime consumes. The provider validated the
-// envelope before Execute is called; nothing here may widen it.
+// jingSiGrant projects the verified authorization envelope and the tool-call
+// budget into the typed grant the Agent Runtime consumes. The provider
+// validated the envelope before Execute is called; nothing here may widen it.
+// max_output_bytes stays with the provider, which bounds the result summary.
 func jingSiGrant(input jingsiruntime.ExecutionInput) jingsiscope.Grant {
 	return jingsiscope.Grant{
 		Tools:          append([]string(nil), input.Authorization.ToolScope...),
 		ApprovalPolicy: input.Authorization.ApprovalPolicy,
 		MaxToolCalls:   input.Budget.MaxToolCalls,
-		MaxOutputBytes: input.Budget.MaxOutputBytes,
 		DataScope:      append([]string(nil), input.Authorization.DataScope...),
 		NetworkScope:   append([]string(nil), input.Authorization.NetworkScope...),
 		Purpose:        input.Authorization.Purpose.Name,

@@ -68,11 +68,12 @@ identity and sorted tool/data/network/approval/grant projection. Runtime tool
 exposure requires an exact `tool_scope` match; `approval_policy=deny` removes
 approval-requiring tools; `data_scope` and `network_scope` must cover every
 effect the tool declares (see below). Per-request deadline, maximum runtime,
-maximum tool-call count, and maximum output bytes only narrow the existing
-global Runtime policy.
-The contract accepts `budget.max_output_bytes` up to 1 MiB but caps every
-response at 131072 bytes, so result summaries are held to 64 KiB regardless of
-the requested budget.
+and maximum tool-call count only narrow the existing global Runtime policy.
+`budget.max_output_bytes` is applied by the provider alone, to the result
+summary; it is not projected into the run because nothing inside the run
+consumes it. The contract accepts it up to 1 MiB but caps every response at
+131072 bytes, so result summaries are held to 64 KiB regardless of the
+requested budget.
 
 ### Data and network scope
 

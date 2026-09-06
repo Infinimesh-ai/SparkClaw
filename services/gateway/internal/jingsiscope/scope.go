@@ -25,14 +25,13 @@ const AdapterID = "jingsi-runtime-v1"
 // Scope prefixes. Every scope string in a JingSi run is one of these prefixes
 // followed by the value; the projection is sorted so it is order-independent.
 const (
-	PrefixTool           = "sparkclaw.tool:"
-	PrefixApproval       = "sparkclaw.approval:"
-	PrefixMaxToolCalls   = "sparkclaw.budget.max_tool_calls:"
-	PrefixMaxOutputBytes = "sparkclaw.budget.max_output_bytes:"
-	PrefixData           = "sparkclaw.data:"
-	PrefixNetwork        = "sparkclaw.network:"
-	PrefixPurpose        = "sparkclaw.purpose:"
-	PrefixGrant          = "sparkclaw.grant:"
+	PrefixTool         = "sparkclaw.tool:"
+	PrefixApproval     = "sparkclaw.approval:"
+	PrefixMaxToolCalls = "sparkclaw.budget.max_tool_calls:"
+	PrefixData         = "sparkclaw.data:"
+	PrefixNetwork      = "sparkclaw.network:"
+	PrefixPurpose      = "sparkclaw.purpose:"
+	PrefixGrant        = "sparkclaw.grant:"
 )
 
 // Approval policies frozen by the contract's authorization.approval_policy enum.
@@ -46,12 +45,13 @@ var approvalPolicies = []string{ApprovalDeny, ApprovalAsk, ApprovalAllowWithinSc
 
 // Grant is the typed authorization a JingSi Runtime v1 execution carries into
 // the Agent Runtime. It is the minimal projection of the verified task
-// authorization plus the submit budget; SparkClaw may only narrow it.
+// authorization plus the tool-call budget; SparkClaw may only narrow it. The
+// output-byte budget is not projected: the provider applies it to the result
+// summary itself and nothing inside the run consumes it.
 type Grant struct {
 	Tools          []string
 	ApprovalPolicy string
 	MaxToolCalls   int
-	MaxOutputBytes int
 	DataScope      []string
 	NetworkScope   []string
 	Purpose        string
@@ -67,7 +67,7 @@ func Closed() Grant {
 
 // Scopes projects the grant into the sorted scope strings persisted on the run.
 func (g Grant) Scopes() []string {
-	scopes := make([]string, 0, len(g.Tools)+len(g.DataScope)+len(g.NetworkScope)+5)
+	scopes := make([]string, 0, len(g.Tools)+len(g.DataScope)+len(g.NetworkScope)+4)
 	for _, value := range g.Tools {
 		scopes = append(scopes, PrefixTool+value)
 	}
@@ -80,7 +80,6 @@ func (g Grant) Scopes() []string {
 	scopes = append(scopes,
 		PrefixApproval+g.ApprovalPolicy,
 		PrefixMaxToolCalls+strconv.Itoa(g.MaxToolCalls),
-		PrefixMaxOutputBytes+strconv.Itoa(g.MaxOutputBytes),
 		PrefixPurpose+g.Purpose,
 		PrefixGrant+g.GrantID+"@"+g.GrantVersion,
 	)
@@ -91,7 +90,7 @@ func (g Grant) Scopes() []string {
 // Parse inverts Scopes. It fails on any scope that is not a known prefix, on a
 // malformed or negative budget, on an unknown approval policy, on a grant
 // without exactly one id@version separator, and on a missing or repeated
-// singleton (approval, budgets, purpose, grant). Callers must treat an error
+// singleton (approval, budget, purpose, grant). Callers must treat an error
 // as Closed; nothing in a malformed projection may widen authority.
 func Parse(scopes []string) (Grant, error) {
 	grant := Grant{}
@@ -135,15 +134,6 @@ func Parse(scopes []string) (Grant, error) {
 				return Grant{}, fmt.Errorf("jingsi max_tool_calls budget: %w", err)
 			}
 			grant.MaxToolCalls = count
-		case PrefixMaxOutputBytes:
-			if err := singleton(prefix); err != nil {
-				return Grant{}, err
-			}
-			count, err := parseBudget(value)
-			if err != nil {
-				return Grant{}, fmt.Errorf("jingsi max_output_bytes budget: %w", err)
-			}
-			grant.MaxOutputBytes = count
 		case PrefixPurpose:
 			if err := singleton(prefix); err != nil {
 				return Grant{}, err
@@ -160,7 +150,7 @@ func Parse(scopes []string) (Grant, error) {
 			grant.GrantID, grant.GrantVersion = id, version
 		}
 	}
-	for _, prefix := range []string{PrefixApproval, PrefixMaxToolCalls, PrefixMaxOutputBytes, PrefixPurpose, PrefixGrant} {
+	for _, prefix := range []string{PrefixApproval, PrefixMaxToolCalls, PrefixPurpose, PrefixGrant} {
 		if !seen[prefix] {
 			return Grant{}, fmt.Errorf("jingsi scope %q is missing", strings.TrimSuffix(prefix, ":"))
 		}
@@ -260,7 +250,7 @@ func (g Grant) AllowsTool(definition app.ToolDefinition) bool {
 
 func splitScope(scope string) (prefix, value string, ok bool) {
 	for _, candidate := range []string{
-		PrefixTool, PrefixApproval, PrefixMaxToolCalls, PrefixMaxOutputBytes,
+		PrefixTool, PrefixApproval, PrefixMaxToolCalls,
 		PrefixData, PrefixNetwork, PrefixPurpose, PrefixGrant,
 	} {
 		if strings.HasPrefix(scope, candidate) {

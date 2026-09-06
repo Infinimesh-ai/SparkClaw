@@ -188,7 +188,18 @@ HTTP under the binding's method, path, media type and request-key header, and
 maps each central assertion name to a concrete check (an unmapped name fails
 the gate). It resolves the manifest from `SPARKCLAW_JINGSI_CONTRACT_MANIFEST`
 first and otherwise from a sibling `InfiniCenter` checkout; when neither is
-present (a fresh clone, CI) the gate skips instead of failing `go test ./...`.
+present on a fresh clone, the gate skips instead of failing `go test ./...`.
+
+CI uses an InfiniCenter read-only SSH deploy key: register the public key under
+InfiniCenter's Deploy keys without write access, and store its private key in
+SparkClaw's Actions secret `INFINICENTER_SSH_KEY`. The hub checkout uses
+`ssh-key` with `persist-credentials: false`; only a presence flag, not the private
+key, enters the job environment. Main pushes and same-repository pull requests
+fail if the key is absent. Fork pull requests have no repository secrets and skip
+the central gate. A separate `Run the central JingSi contract gate` step runs
+`go test -count=1 -v ./internal/contracttest`, so CI records every central case
+without relying on a cached package result. This replaces the previous
+`INFINICENTER_TOKEN` checkout; a personal access token is no longer required.
 
 Provider tests cover exact replay/drift, durable negative fences across restart,
 lost-response lookup, monotonic event pages, uniform authorization, idempotent

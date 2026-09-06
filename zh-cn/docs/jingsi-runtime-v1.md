@@ -68,7 +68,9 @@ data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题
 
 ## 证据与剩余边界
 
-`internal/contracttest` 校验中央 conformance manifest、HTTP binding 和 fixtures。它优先从
+`internal/contracttest` 校验中央 conformance manifest、HTTP binding 和 fixtures，然后按 binding
+的 method、path、media type 与 request-key header，把每条 fixture 消息经 HTTP 驱动真实 provider，
+并把每个中央 assertion 名称映射为具体检查（无法映射的名称会让门禁失败）。它优先从
 `SPARKCLAW_JINGSI_CONTRACT_MANIFEST` 解析 manifest，否则查找同级的 `InfiniCenter` 检出；两者都
 不存在时（全新克隆、CI），该门禁会跳过而不是让 `go test ./...` 失败。
 

@@ -85,7 +85,10 @@ internal paths and store identifiers do not cross this surface.
 ## Evidence and remaining boundary
 
 `internal/contracttest` checks the central conformance manifest, HTTP binding,
-and fixtures. It resolves the manifest from `SPARKCLAW_JINGSI_CONTRACT_MANIFEST`
+and fixtures, then drives every fixture message through a real provider over
+HTTP under the binding's method, path, media type and request-key header, and
+maps each central assertion name to a concrete check (an unmapped name fails
+the gate). It resolves the manifest from `SPARKCLAW_JINGSI_CONTRACT_MANIFEST`
 first and otherwise from a sibling `InfiniCenter` checkout; when neither is
 present (a fresh clone, CI) the gate skips instead of failing `go test ./...`.
 

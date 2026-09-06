@@ -164,6 +164,7 @@ describe("ApprovalPanel email approvals", () => {
       external_context: undefined,
       tool: "email.send",
       summary: "Approve email.send",
+      arguments_immutable: true,
       arguments: {
         provider: "gmail",
         recipient: "alice@example.com",

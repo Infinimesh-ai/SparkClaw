@@ -2,15 +2,24 @@ package toolhub
 
 import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 
+func emailProviderEnum() []any {
+	ids := app.EmailProviderIDs()
+	values := make([]any, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, id)
+	}
+	return values
+}
+
 func emailSendDefinition() app.ToolDefinition {
 	return app.ToolDefinition{
-		Name:        "email.send",
+		Name:        app.ToolEmailSend,
 		Description: "Send exactly one approved plain-text email through the Runtime-selected browser provider and account.",
 		InputSchema: strictObjectSchema([]string{
 			"provider", "account", "account_hint", "recipient", "body", "setting_version", "browser_credential_generation",
 			"probe_revision", "send_script_revision", "validated_at", "invocation_id",
 		}, map[string]any{
-			"provider":                      map[string]any{"type": "string", "enum": []any{app.EmailProviderQQMail, app.EmailProviderOutlook, app.EmailProviderGmail}},
+			"provider":                      map[string]any{"type": "string", "enum": emailProviderEnum()},
 			"account":                       map[string]any{"type": "string", "enum": []any{app.EmailAccountDefault}},
 			"account_hint":                  map[string]any{"type": "string", "maxLength": 64},
 			"recipient":                     map[string]any{"type": "string", "minLength": 3, "maxLength": 320},
@@ -31,7 +40,7 @@ func emailSendDefinition() app.ToolDefinition {
 			"browser_credential_generation": integerSchema(),
 			"script_revision":               integerSchema(),
 		}),
-		Risk: app.RiskDangerous, RequiresApproval: true, Idempotent: false,
+		Risk: app.RiskDangerous, RequiresApproval: true, ArgumentsImmutable: true, Idempotent: false,
 		TimeoutMS: 90000, Sandbox: "forbidden", Audit: "always",
 	}
 }

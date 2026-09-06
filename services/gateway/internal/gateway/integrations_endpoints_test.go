@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -68,7 +69,7 @@ func (c *integrationEndpointController) Delete(_ context.Context, integrationID,
 func TestInfoCredentialAPIResponseIsRedacted(t *testing.T) {
 	controller := &integrationEndpointController{status: integrationconfig.Status{
 		ID: integrationconfig.InfoID, Category: "connections", Credentials: []integrationconfig.CredentialSummary{{
-			ID: "info_cred_1", Label: "Family Info", ValidatedAt: time.Now().UTC(), State: integrationconfig.StateReady,
+			ID: "info_cred_1", Label: "Family Info", ValidatedAt: time.Now().UTC(), State: app.IntegrationStateReady,
 		}},
 	}}
 	server := newIntegrationEndpointTestServer(t, controller)

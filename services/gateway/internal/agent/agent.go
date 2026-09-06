@@ -1612,20 +1612,21 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			approvalSummary += " " + pptxVisualWarning
 		}
 		approval := app.Approval{
-			ID:            app.NewID("ap"),
-			Source:        app.ApprovalSourceTool,
-			SessionID:     sessionID,
-			RunID:         runID,
-			ToolCallID:    call.ID,
-			Tool:          plan.Name,
-			Risk:          def.Risk,
-			Status:        app.ApprovalStatusPending,
-			Summary:       approvalSummary,
-			Reason:        decision.Reason,
-			Resources:     decision.Resources,
-			Arguments:     plan.Args,
-			CreatedAt:     time.Now().UTC(),
-			PolicyContext: persistedPolicyExecutionContext(executionContext),
+			ID:                 app.NewID("ap"),
+			Source:             app.ApprovalSourceTool,
+			SessionID:          sessionID,
+			RunID:              runID,
+			ToolCallID:         call.ID,
+			Tool:               plan.Name,
+			Risk:               def.Risk,
+			Status:             app.ApprovalStatusPending,
+			Summary:            approvalSummary,
+			Reason:             decision.Reason,
+			Resources:          decision.Resources,
+			Arguments:          plan.Args,
+			ArgumentsImmutable: def.ArgumentsImmutable,
+			CreatedAt:          time.Now().UTC(),
+			PolicyContext:      persistedPolicyExecutionContext(executionContext),
 		}
 		call.Status = app.ToolCallStatusApprovalPending
 		call.ApprovalID = approval.ID
@@ -1962,15 +1963,10 @@ func approvalSummary(name string, args map[string]any) string {
 		return "Move file to SparkClaw trash: " + stringValue(args["path"])
 	case "memory.write_sensitive":
 		return "Write sensitive memory after owner approval"
-	case "email.send":
+	case app.ToolEmailSend:
 		provider := strings.TrimSpace(stringValue(args["provider"]))
-		switch provider {
-		case app.EmailProviderQQMail:
-			provider = "QQ Mail"
-		case app.EmailProviderOutlook:
-			provider = "Outlook"
-		case app.EmailProviderGmail:
-			provider = "Gmail"
+		if displayName := app.EmailProviderDisplayName(provider); displayName != "" {
+			provider = displayName
 		}
 		return fmt.Sprintf(
 			"Send one email via %s account %q. Recipient: %q. Subject: %q. Full body: %q",

@@ -18,15 +18,6 @@ func emailProviderKey(ownerID, provider string) string {
 	return normalizeConnectorOwner(ownerID) + "\x00" + strings.ToLower(strings.TrimSpace(provider))
 }
 
-func supportedEmailProvider(provider string) bool {
-	switch provider {
-	case app.EmailProviderQQMail, app.EmailProviderOutlook, app.EmailProviderGmail:
-		return true
-	default:
-		return false
-	}
-}
-
 func supportedEmailState(state string) bool {
 	switch state {
 	case app.EmailStateNotConfigured, app.EmailStateLoginRequired, app.EmailStateReady,
@@ -67,7 +58,7 @@ func normalizeEmailProviderCandidate(setting app.EmailProviderSetting, expectedV
 }
 
 func validateEmailProviderBusinessFields(setting app.EmailProviderSetting) error {
-	if !supportedEmailProvider(setting.Provider) {
+	if !app.KnownEmailProvider(setting.Provider) {
 		return errors.New("email provider is not registered")
 	}
 	if setting.Account != app.EmailAccountDefault {

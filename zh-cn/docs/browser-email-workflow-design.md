@@ -53,7 +53,11 @@ Provider Selection 是确定性的：
 
 Provider ID、Alias、Login URL、Allowed Origin、Handler Path、Source Closure Hash、Revision、
 Deadline、Result Verifier 和 Send-effect Selector 位于 Controller Provider Registry。Runtime
-只映射这些固定 Handler；Caller 不能提供 Script Path 或 Selector。
+只映射这些固定 Handler；Caller 不能提供 Script Path 或 Selector。Gateway 通过生成的投影
+`services/gateway/internal/emailautomation/provider_scripts.json` 绑定该 Registry，其中
+只包含每个 Provider 的 Probe/Send Script ID、Revision 和预算。
+`npm run sync:provider-contract --prefix tools/browser-controller` 重新生成该文件，
+Controller 测试套件在两者漂移时失败；Gateway 不再重复声明 Login URL 或 Origin。
 
 QQ 邮箱不是 Generic Browser Destination。只要求打开 QQ 邮箱的请求不会获得 Email-send
 Authority。
@@ -143,7 +147,8 @@ Tool。Workflow 不包含 Login、Probe、Re-login 或 Generic Browser Node。
 `email.send` 是 Dangerous、Non-idempotent、Approval-required，并受 90 秒 Tool Deadline
 限制。Approval 展示 Provider、Masked Account Hint、Recipient、Subject 和完整 Body，绑定
 包含全部 Runtime-owned Admission Fact 的完整 Argument Object。Approval 后任何变化都会
-阻断执行。
+阻断执行。Tool Definition 声明 `arguments_immutable`，Approval Payload 携带同一标志，
+Modify 端点对此类 Approval 返回 `409`，WebChat 依据该标志而非 Tool 名称隐藏参数编辑。
 
 调用 Script 前，Runtime 再次检查 Provider 仍 Enabled/Ready，且 Account、Setting Version
 和 Browser Control Credential Generation 与 Approval 相同。发生 Drift 时必须重新请求和

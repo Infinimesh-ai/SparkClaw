@@ -47,13 +47,13 @@ type ScriptRunner interface {
 
 func validateMessage(recipient, subject, body string) error {
 	if len(recipient) == 0 || len(recipient) > maxRecipientBytes || strings.ContainsAny(recipient, "\r\n\x00") || !recipientPattern.MatchString(recipient) {
-		return codedError(CodeInvalidInput, "Recipient must be one valid email address")
+		return codedError(app.ToolErrorEmailInvalidInput, "Recipient must be one valid email address")
 	}
 	if !utf8.ValidString(subject) || utf8.RuneCountInString(subject) > maxSubjectRunes || strings.ContainsAny(subject, "\r\n\x00") {
-		return codedError(CodeInvalidInput, "Email subject must be one bounded line")
+		return codedError(app.ToolErrorEmailInvalidInput, "Email subject must be one bounded line")
 	}
 	if !utf8.ValidString(body) || strings.TrimSpace(body) == "" || len(body) > maxBodyBytes || strings.ContainsRune(body, '\x00') {
-		return codedError(CodeInvalidInput, "Email body must be non-empty bounded UTF-8 text")
+		return codedError(app.ToolErrorEmailInvalidInput, "Email body must be non-empty bounded UTF-8 text")
 	}
 	return nil
 }
@@ -101,51 +101,82 @@ func decodeStrictJSON(raw []byte, output any) error {
 	return nil
 }
 
-func normalizeScriptErrorCode(code string) string {
-	switch code {
-	case CodeNotConfigured, CodeLoginRequired, CodeAccountAmbiguous, CodeProviderUnavailable,
-		CodePageContractChanged, CodeInvalidInput, CodeDraftConflict, CodeDraftVerifyFailed,
-		CodeSendControlUnverified, CodeSendOutcomeUnknown, CodeScriptTimeout, CodeScriptInvalidOutput:
-		return code
-	case "invalid_request", "invalid_input", "invalid_json", "invalid_message", "email_probe_invalid_input", "email_send_invalid_input", "invalid_recipient", "invalid_subject", "invalid_body":
-		return CodeInvalidInput
-	case "page_contract_changed", "email_login_evidence_conflict", "login_evidence_conflict", "provider_origin_mismatch",
-		"email_provider_origin_invalid", "outlook_origin_not_allowed", "outlook_evidence_conflict", "outlook_page_contract_changed":
-		return CodePageContractChanged
-	case "draft_verification_failed", "field_verification_failed", "email_send_precondition_failed", "send_precondition_failed", "send_preparation_failed":
-		return CodeDraftVerifyFailed
-	case "send_control_not_ready", "send_unavailable":
-		return CodeSendControlUnverified
-	case "send_outcome_unknown":
-		return CodeSendOutcomeUnknown
-	case "login_probe_timeout", "email_probe_timeout", "email_send_timeout", "browser_script_timeout":
-		return CodeScriptTimeout
-	case "login_probe_invalid_output", "send_browser_output_invalid", "browser_output_invalid", "email_browser_output_invalid":
-		return CodeScriptInvalidOutput
-	default:
-		return CodeProviderUnavailable
-	}
+// scriptErrorCodes maps every provider-specific failure code the fixed email
+// scripts emit onto the bounded email vocabulary. Canonical app.ToolErrorEmail*
+// codes pass through unchanged; anything unmapped is reported as a provider
+// outage. TestScriptErrorCodesCoverEveryEmittedCode keeps this table and the
+// scripts under scripts/email in step.
+var scriptErrorCodes = map[string]app.ToolErrorCode{
+	"invalid_request":           app.ToolErrorEmailInvalidInput,
+	"invalid_input":             app.ToolErrorEmailInvalidInput,
+	"invalid_message":           app.ToolErrorEmailInvalidInput,
+	"email_probe_invalid_input": app.ToolErrorEmailInvalidInput,
+	"email_send_invalid_input":  app.ToolErrorEmailInvalidInput,
+	"invalid_recipient":         app.ToolErrorEmailInvalidInput,
+	"invalid_subject":           app.ToolErrorEmailInvalidInput,
+	"invalid_body":              app.ToolErrorEmailInvalidInput,
+	"body_too_large":            app.ToolErrorEmailInvalidInput,
+
+	"page_contract_changed":         app.ToolErrorEmailPageContractChanged,
+	"email_login_evidence_conflict": app.ToolErrorEmailPageContractChanged,
+	"login_evidence_conflict":       app.ToolErrorEmailPageContractChanged,
+	"provider_origin_mismatch":      app.ToolErrorEmailPageContractChanged,
+	"email_provider_origin_invalid": app.ToolErrorEmailPageContractChanged,
+	"outlook_origin_not_allowed":    app.ToolErrorEmailPageContractChanged,
+	"outlook_evidence_conflict":     app.ToolErrorEmailPageContractChanged,
+	"outlook_page_contract_changed": app.ToolErrorEmailPageContractChanged,
+
+	"draft_verification_failed":      app.ToolErrorEmailDraftVerificationFailed,
+	"field_verification_failed":      app.ToolErrorEmailDraftVerificationFailed,
+	"email_send_precondition_failed": app.ToolErrorEmailDraftVerificationFailed,
+	"send_precondition_failed":       app.ToolErrorEmailDraftVerificationFailed,
+	"send_preparation_failed":        app.ToolErrorEmailDraftVerificationFailed,
+
+	"send_control_not_ready": app.ToolErrorEmailSendControlUnverified,
+	"send_unavailable":       app.ToolErrorEmailSendControlUnverified,
+
+	"send_outcome_unknown": app.ToolErrorEmailSendOutcomeUnknown,
+
+	"login_probe_timeout": app.ToolErrorEmailScriptTimeout,
+
+	"login_probe_invalid_output":  app.ToolErrorEmailScriptInvalidOutput,
+	"send_browser_output_invalid": app.ToolErrorEmailScriptInvalidOutput,
+	"browser_output_invalid":      app.ToolErrorEmailScriptInvalidOutput,
 }
 
-func publicScriptErrorMessage(code string) string {
+func normalizeScriptErrorCode(code string) app.ToolErrorCode {
+	switch app.ToolErrorCode(code) {
+	case app.ToolErrorEmailNotConfigured, app.ToolErrorEmailLoginRequired, app.ToolErrorEmailAccountAmbiguous,
+		app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailInvalidInput,
+		app.ToolErrorEmailDraftConflict, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified,
+		app.ToolErrorEmailSendOutcomeUnknown, app.ToolErrorEmailScriptTimeout, app.ToolErrorEmailScriptInvalidOutput:
+		return app.ToolErrorCode(code)
+	}
+	if mapped, ok := scriptErrorCodes[code]; ok {
+		return mapped
+	}
+	return app.ToolErrorEmailProviderUnavailable
+}
+
+func publicScriptErrorMessage(code app.ToolErrorCode) string {
 	switch code {
-	case CodeLoginRequired:
+	case app.ToolErrorEmailLoginRequired:
 		return "Email login is required"
-	case CodeInvalidInput:
+	case app.ToolErrorEmailInvalidInput:
 		return "Email request is invalid"
-	case CodePageContractChanged:
+	case app.ToolErrorEmailPageContractChanged:
 		return "Email provider page contract changed"
-	case CodeDraftConflict:
+	case app.ToolErrorEmailDraftConflict:
 		return "An existing email draft prevents this send"
-	case CodeDraftVerifyFailed:
+	case app.ToolErrorEmailDraftVerificationFailed:
 		return "Email draft verification failed; Send was not clicked"
-	case CodeSendControlUnverified:
+	case app.ToolErrorEmailSendControlUnverified:
 		return "Email Send control could not be verified; Send was not clicked"
-	case CodeSendOutcomeUnknown:
+	case app.ToolErrorEmailSendOutcomeUnknown:
 		return "Email send outcome is unknown and must not be retried"
-	case CodeScriptTimeout:
+	case app.ToolErrorEmailScriptTimeout:
 		return "Email provider script timed out"
-	case CodeScriptInvalidOutput:
+	case app.ToolErrorEmailScriptInvalidOutput:
 		return "Email provider script returned invalid output"
 	default:
 		return "Email provider is unavailable"

@@ -47,6 +47,18 @@
   `CountVisibleRuns`、`ModelCallStats`、`CountToolCalls`、
   `CountEpisodeSummaries`，memory、file 与 PostgreSQL 三个后端均已实现），
   不再在每次抓取时列出全部记录。导出的指标名称与数值保持不变。
+- Approval 携带 `arguments_immutable`，由新的 `ToolDefinition.ArgumentsImmutable`
+  标志（`email.send` 置位）投影而来；执行器指纹校验、`POST /api/approvals/{id}/modify`
+  的 `409`，以及 WebChat 的编辑入口都读取该标志而不再匹配工具名。Postgres 迁移
+  `0010` 新增该列；升级前已持久化的 Approval 报告为 `false`，服务端仍拒绝修改。
+- 邮件自动化：Gateway 的提供方注册表由 Controller 注册表生成（`provider_scripts.json`，
+  用 `npm run sync:provider-contract --prefix tools/browser-controller` 重新生成）；
+  Go 侧从未使用且已漂移的登录 URL 与允许 Origin 副本已删除。提供方脚本失败通过共享的
+  `app.ToolErrorEmail*` 代码分类；QQ 邮箱的 `body_too_large` 现报告为 `email_invalid_input`
+  而非 `email_provider_unavailable`。
+- 集成设置：凭据检查 API 从未返回文档中的 `checking` 状态（在任何响应前即被覆盖），
+  状态表已删除该行；WebChat 继续自行渲染进行中的标签。Browser control 在校验进行时
+  仍上报 `checking`。
 - 部署：`docker compose` 现在要求显式提供 `SPARKCLAW_MODEL_CAPACITY_PROFILE`
   （此前默认 `mock` 会在绕过部署脚本时把所有模型调用静默路由到 mock 路由器），
   vLLM 容量入口拒绝标记为 `mock` 的 profile，compose 中 `SPARKCLAW_PAIRING_REQUIRED`

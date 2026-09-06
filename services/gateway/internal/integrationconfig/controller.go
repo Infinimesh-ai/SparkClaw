@@ -30,14 +30,6 @@ const (
 	infoBundleKind   = "infinimesh-info-credential-bundle-v1"
 	localBundleKind  = "localmind-credential-bundle-v1"
 
-	StateNotConfigured          = "not_configured"
-	StateConfigured             = "configured"
-	StateChecking               = "checking"
-	StateReady                  = "ready"
-	StateNeedsAttention         = "needs_attention"
-	StateTemporarilyUnavailable = "temporarily_unavailable"
-	StateVaultUnavailable       = "vault_unavailable"
-
 	SourceHousehold = "household"
 	SourceOperator  = "operator"
 	SourceNone      = "none"
@@ -202,7 +194,7 @@ func newController(cfg config.Config, vault BindingVault, audits AuditRepository
 		cfg: cfg, vault: vault, audits: audits, tools: tools, localMind: localMind,
 		bundles: map[string]credentialBundle{InfoID: {Version: 1}, LocalMindID: {Version: 1}},
 		runtime: map[string]runtimeState{
-			InfoID: {state: StateNotConfigured}, LocalMindID: {state: StateNotConfigured},
+			InfoID: {state: app.IntegrationStateNotConfigured}, LocalMindID: {state: app.IntegrationStateNotConfigured},
 		},
 	}
 }
@@ -216,7 +208,7 @@ func (c *Controller) Initialize(ctx context.Context) {
 			bundle = credentialBundle{Version: 1}
 			c.bundles[id] = bundle
 			c.clearRuntime(id)
-			c.runtime[id] = runtimeState{state: StateVaultUnavailable, errorCode: "vault_unavailable"}
+			c.runtime[id] = runtimeState{state: app.IntegrationStateVaultUnavailable, errorCode: "vault_unavailable"}
 			continue
 		}
 		c.bundles[id] = bundle
@@ -282,13 +274,13 @@ func (c *Controller) AddInfoCredential(ctx context.Context, input AddInfoCredent
 	bundle := c.bundles[InfoID]
 	bundle.Credentials = append(bundle.Credentials, storedCredential{
 		ID: app.NewID("info_cred"), Label: label, ValidatedAt: now, LastCheckedAt: now,
-		State: StateReady, Payload: raw,
+		State: app.IntegrationStateReady, Payload: raw,
 	})
 	if err := c.writeBundle(ctx, InfoID, bundle); err != nil {
 		return Status{}, err
 	}
 	c.bundles[InfoID] = bundle
-	c.audit(ctx, InfoID, "credential_saved", "", StateReady, "")
+	c.audit(ctx, InfoID, "credential_saved", "", app.IntegrationStateReady, "")
 	return c.statusLocked(InfoID), nil
 }
 
@@ -311,13 +303,13 @@ func (c *Controller) AddLocalMindCredential(ctx context.Context, input AddLocalM
 	bundle := c.bundles[LocalMindID]
 	bundle.Credentials = append(bundle.Credentials, storedCredential{
 		ID: app.NewID("localmind_cred"), Label: label, ValidatedAt: now, LastCheckedAt: now,
-		State: StateReady, Payload: raw,
+		State: app.IntegrationStateReady, Payload: raw,
 	})
 	if err := c.writeBundle(ctx, LocalMindID, bundle); err != nil {
 		return Status{}, err
 	}
 	c.bundles[LocalMindID] = bundle
-	c.audit(ctx, LocalMindID, "credential_saved", "", StateReady, "")
+	c.audit(ctx, LocalMindID, "credential_saved", "", app.IntegrationStateReady, "")
 	return c.statusLocked(LocalMindID), nil
 }
 
@@ -360,7 +352,7 @@ func (c *Controller) Activate(ctx context.Context, id, credentialID string, useO
 
 func (c *Controller) activationHealthyLocked(id string) bool {
 	switch c.runtime[id].state {
-	case StateReady, StateConfigured:
+	case app.IntegrationStateReady, app.IntegrationStateConfigured:
 		return true
 	default:
 		return false
@@ -382,7 +374,6 @@ func (c *Controller) Check(ctx context.Context, id, credentialID string) (Status
 		return Status{}, newError("credential_not_found", false, nil)
 	}
 	bundle.Credentials[index].LastCheckedAt = time.Now().UTC()
-	bundle.Credentials[index].State = StateChecking
 	bundle.Credentials[index].ErrorCode = ""
 	var checkErr error
 	if id == InfoID {
@@ -402,7 +393,7 @@ func (c *Controller) Check(ctx context.Context, id, credentialID string) (Status
 	}
 	if checkErr == nil {
 		bundle.Credentials[index].ValidatedAt = bundle.Credentials[index].LastCheckedAt
-		bundle.Credentials[index].State = StateReady
+		bundle.Credentials[index].State = app.IntegrationStateReady
 	} else {
 		bundle.Credentials[index].State = stateForError(checkErr)
 		bundle.Credentials[index].ErrorCode = ErrorCode(checkErr)
@@ -466,7 +457,7 @@ func (c *Controller) activateLoaded(ctx context.Context, id string, bundle crede
 
 func (c *Controller) activateInfo(_ context.Context, bundle credentialBundle) {
 	if c.tools == nil {
-		c.runtime[InfoID] = runtimeState{state: StateNeedsAttention, errorCode: "runtime_unavailable"}
+		c.runtime[InfoID] = runtimeState{state: app.IntegrationStateNeedsAttention, errorCode: "runtime_unavailable"}
 		return
 	}
 	if bundle.ActiveCredentialID == "" {
@@ -477,30 +468,30 @@ func (c *Controller) activateInfo(_ context.Context, bundle credentialBundle) {
 			})
 			if err == nil {
 				c.tools.ReplaceInfoAdapters(search, weather)
-				c.runtime[InfoID] = runtimeState{state: StateConfigured}
+				c.runtime[InfoID] = runtimeState{state: app.IntegrationStateConfigured}
 				return
 			}
 		}
 		c.tools.ReplaceInfoAdapters(nil, nil)
-		c.runtime[InfoID] = runtimeState{state: StateNotConfigured}
+		c.runtime[InfoID] = runtimeState{state: app.IntegrationStateNotConfigured}
 		return
 	}
 	index, found := findCredential(bundle, bundle.ActiveCredentialID)
 	if !found {
 		c.tools.ReplaceInfoAdapters(nil, nil)
-		c.runtime[InfoID] = runtimeState{state: StateNeedsAttention, errorCode: "credential_not_found"}
+		c.runtime[InfoID] = runtimeState{state: app.IntegrationStateNeedsAttention, errorCode: "credential_not_found"}
 		return
 	}
 	var payload infoPayload
 	if json.Unmarshal(bundle.Credentials[index].Payload, &payload) != nil {
 		c.tools.ReplaceInfoAdapters(nil, nil)
-		c.runtime[InfoID] = runtimeState{state: StateNeedsAttention, errorCode: "credential_invalid"}
+		c.runtime[InfoID] = runtimeState{state: app.IntegrationStateNeedsAttention, errorCode: "credential_invalid"}
 		return
 	}
 	search, weather, err := c.buildInfoAdapters(payload)
 	if err != nil {
 		c.tools.ReplaceInfoAdapters(nil, nil)
-		c.runtime[InfoID] = runtimeState{state: StateNeedsAttention, errorCode: "credential_invalid"}
+		c.runtime[InfoID] = runtimeState{state: app.IntegrationStateNeedsAttention, errorCode: "credential_invalid"}
 		return
 	}
 	c.tools.ReplaceInfoAdapters(search, weather)
@@ -512,13 +503,13 @@ func (c *Controller) activateInfo(_ context.Context, bundle credentialBundle) {
 
 func (c *Controller) activateLocalMind(ctx context.Context, bundle credentialBundle) {
 	if c.localMind == nil {
-		c.runtime[LocalMindID] = runtimeState{state: StateNotConfigured}
+		c.runtime[LocalMindID] = runtimeState{state: app.IntegrationStateNotConfigured}
 		return
 	}
 	if bundle.ActiveCredentialID == "" {
 		if !c.localMind.OperatorConfigured() {
 			_ = c.localMind.ClearRuntime()
-			c.runtime[LocalMindID] = runtimeState{state: StateNotConfigured}
+			c.runtime[LocalMindID] = runtimeState{state: app.IntegrationStateNotConfigured}
 			return
 		}
 		snapshot, err := c.localMind.ActivateOperator(ctx)
@@ -528,13 +519,13 @@ func (c *Controller) activateLocalMind(ctx context.Context, bundle credentialBun
 	index, found := findCredential(bundle, bundle.ActiveCredentialID)
 	if !found {
 		_ = c.localMind.ClearRuntime()
-		c.runtime[LocalMindID] = runtimeState{state: StateNeedsAttention, errorCode: "credential_not_found"}
+		c.runtime[LocalMindID] = runtimeState{state: app.IntegrationStateNeedsAttention, errorCode: "credential_not_found"}
 		return
 	}
 	var payload localMindPayload
 	if json.Unmarshal(bundle.Credentials[index].Payload, &payload) != nil {
 		_ = c.localMind.ClearRuntime()
-		c.runtime[LocalMindID] = runtimeState{state: StateNeedsAttention, errorCode: "credential_invalid"}
+		c.runtime[LocalMindID] = runtimeState{state: app.IntegrationStateNeedsAttention, errorCode: "credential_invalid"}
 		return
 	}
 	snapshot, err := c.localMind.ActivateCredentials(ctx, localmind.Credentials{Endpoint: payload.Endpoint, BearerToken: payload.BearerToken})
@@ -543,7 +534,7 @@ func (c *Controller) activateLocalMind(ctx context.Context, bundle credentialBun
 
 func (c *Controller) setLocalMindRuntime(snapshot localmind.Snapshot, err error) {
 	if err == nil {
-		c.runtime[LocalMindID] = runtimeState{state: StateReady, lastCheckedAt: snapshot.RefreshedAt}
+		c.runtime[LocalMindID] = runtimeState{state: app.IntegrationStateReady, lastCheckedAt: snapshot.RefreshedAt}
 		return
 	}
 	mapped := classifyLocalMindCheck(err)
@@ -613,7 +604,7 @@ func (c *Controller) statusLocked(id string) Status {
 	} else {
 		status.Category = "outbound_mcp"
 	}
-	if runtime.state == StateVaultUnavailable {
+	if runtime.state == app.IntegrationStateVaultUnavailable {
 		status.Source = SourceNone
 		status.Configured = false
 	} else if bundle.ActiveCredentialID != "" {
@@ -745,9 +736,9 @@ func classifyLocalMindCheck(err error) error {
 
 func stateForError(err error) string {
 	if ErrorRetryable(err) {
-		return StateTemporarilyUnavailable
+		return app.IntegrationStateTemporarilyUnavailable
 	}
-	return StateNeedsAttention
+	return app.IntegrationStateNeedsAttention
 }
 
 func newError(code string, retryable bool, cause error) error {

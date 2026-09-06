@@ -77,7 +77,7 @@ describe("Browser email settings", () => {
   });
 
   it("refreshes persisted provider state after an action failure", async () => {
-    const failed = { ...gmail, state: "needs_attention", error_code: "email_page_contract_changed", version: 4 };
+    const failed: EmailProviderStatus = { ...gmail, state: "needs_attention", error_code: "email_page_contract_changed", version: 4 };
     vi.spyOn(api, "emailProviders")
       .mockResolvedValueOnce({ providers: [gmail, outlook, qq] })
       .mockResolvedValueOnce({ providers: [failed, outlook, qq] });

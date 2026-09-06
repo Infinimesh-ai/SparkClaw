@@ -135,6 +135,29 @@ function outlookSignedOutURL(rawURL) {
   }
 }
 
+// PROVIDER_SCRIPT_CONTRACT_PATH is the Gateway-embedded projection of this
+// registry: the script identity, revision, and budget the Go side binds each
+// probe and send call to. Regenerate it with `npm run sync:provider-contract`;
+// test/provider-script-contract.test.mjs fails when it drifts.
+export const PROVIDER_SCRIPT_CONTRACT_PATH = "services/gateway/internal/emailautomation/provider_scripts.json";
+
+export function providerScriptContract(entries = registrations) {
+  const scripts = entries
+    .map((entry) => ({
+      provider: entry.provider,
+      operation: entry.operation,
+      script_id: entry.scriptID,
+      revision: entry.revision,
+      timeout_ms: entry.timeoutMS,
+    }))
+    .sort((a, b) => a.provider.localeCompare(b.provider) || a.operation.localeCompare(b.operation));
+  return { schema_version: 1, scripts };
+}
+
+export function renderProviderScriptContract(entries = registrations) {
+  return `${JSON.stringify(providerScriptContract(entries), null, 2)}\n`;
+}
+
 export class ProviderScriptRegistry {
   constructor(entries = registrations) {
     this.entries = new Map(entries.map((entry) => {

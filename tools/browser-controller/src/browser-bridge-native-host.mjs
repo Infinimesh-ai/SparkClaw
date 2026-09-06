@@ -16,6 +16,7 @@ import {
   parseNativeClientRequest,
   readyStatus,
 } from "./bridge-native-protocol.mjs";
+import { listenOwnerOnlyUnixSocket } from "./unix-socket.mjs";
 
 const expectedOrigin = `chrome-extension://${BRIDGE_EXTENSION_ID}/`;
 if (process.argv[2] !== expectedOrigin) process.exit(1);
@@ -30,9 +31,7 @@ let bridgeReady = null;
 await prepareSocket(socketPath);
 const server = net.createServer((client) => handleClient(client));
 server.on("error", () => shutdown(1));
-server.listen(socketPath, async () => {
-  await fs.chmod(socketPath, 0o600).catch(() => shutdown(1));
-});
+await listenOwnerOnlyUnixSocket(server, socketPath).catch(() => shutdown(1));
 
 process.stdin.on("data", (chunk) => {
   try {

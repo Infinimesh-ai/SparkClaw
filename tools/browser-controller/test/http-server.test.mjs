@@ -107,10 +107,12 @@ test("Unix socket is owner-only and removed on shutdown", async () => {
     profileID: "default",
     clientFactory: new FakeFactory(),
   });
+  const umaskBefore = process.umask();
   const runtime = await startUnixServer({ socketPath, controller });
 
   assert.equal((await fs.stat(path.dirname(socketPath))).mode & 0o777, 0o700);
   assert.equal((await fs.stat(socketPath)).mode & 0o777, 0o600);
+  assert.equal(process.umask(), umaskBefore, "listening must not leave the umask narrowed");
   await runtime.close();
   await assert.rejects(fs.stat(socketPath), (error) => error.code === "ENOENT");
 });

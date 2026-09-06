@@ -38,11 +38,13 @@ serialized into public configuration, responses, records, or errors.
 ## Durable reconciliation
 
 Before any Agent Runtime work starts, Submit atomically persists the authenticated
-caller/space/request-key binding, canonical semantic digest, stable execution ID,
+caller/request-key binding, canonical semantic digest, stable execution ID,
 authorization, bounded input, and initial accepted/queued events. Exact replay
 returns that execution; drift conflicts without creating work. Lookup of a key
 that has never been bound commits an irreversible `not_started` negative fence,
-so a later Submit cannot revive the key.
+so a later Submit cannot revive the key. The contract forbids reusing a request
+key across callers or spaces, so the key is bound to the authenticated caller and
+a replay of the same key from another space conflicts instead of creating work.
 
 Records are owner-only JSON files written by file-sync, atomic rename, and
 directory-sync. They contain the bounded goal and Memory Context needed to resume
@@ -66,6 +68,9 @@ identity and sorted tool/data/network/approval/grant projection. Runtime tool
 exposure requires an exact `tool_scope` match; `approval_policy=deny` removes
 approval-requiring tools. Per-request deadline, maximum runtime, maximum tool-call
 count, and maximum output bytes only narrow the existing global Runtime policy.
+The contract accepts `budget.max_output_bytes` up to 1 MiB but caps every
+response at 131072 bytes, so result summaries are held to 64 KiB regardless of
+the requested budget.
 
 Memory is included only when JingSi supplied the bounded v1 `memory_context`.
 The goal remains the sole owner-intent input for risk, guard, semantic routing,

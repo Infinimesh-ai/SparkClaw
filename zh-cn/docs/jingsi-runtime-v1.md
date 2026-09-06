@@ -35,10 +35,10 @@ export SPARKCLAW_JINGSI_RUNTIME_V1_STATE_DIR='/var/lib/sparkclaw/jingsi-runtime-
 ## 持久化对账
 
 在任何 Agent Runtime 工作开始前，Submit 会以原子方式持久化已认证的
-caller/space/request-key 绑定、规范化语义摘要、稳定 execution ID、授权、有界输入，
+caller/request-key 绑定、规范化语义摘要、稳定 execution ID、授权、有界输入，
 以及初始 accepted/queued 事件。完全一致的重放会返回该 execution；发生漂移时返回冲突，
 且不会创建工作。查询从未绑定的 key 会提交一个不可逆的 `not_started` negative fence，
-因此后续 Submit 无法重新激活该 key。
+因此后续 Submit 无法重新激活该 key。契约禁止跨 caller/space 复用 request key，因此 key 绑定到已认证 caller；同一 key 从另一个 space 重放会冲突，不会创建新工作。
 
 记录是仅 owner 可访问的 JSON 文件，通过文件同步、原子重命名和目录同步写入。记录包含
 进程重启后恢复已接受 execution 所需的有界 goal 和 Memory Context，因此状态目录属于个人
@@ -57,7 +57,7 @@ execution，Status、events 和 cancel 会统一返回 `not_found`。Agent 入�
 身份，以及排序后的 tool/data/network/approval/grant 投影。Runtime 工具暴露要求
 `tool_scope` 精确匹配；`approval_policy=deny` 会移除需要 Approval 的工具。每个请求的
 deadline、最大运行时间、最大工具调用次数和最大输出字节数只能收紧现有的全局 Runtime
-策略。
+策略。契约接受最高 1 MiB 的 `budget.max_output_bytes`，但每个响应上限为 131072 字节，因此结果摘要无论请求多少都钳制在 64 KiB。
 
 只有 JingSi 提供了有界 v1 `memory_context` 时才会包含 Memory。goal 仍是 risk、guard、
 语义路由、消息控制和能力准入唯一的 owner intent 输入。Memory summary 保存在独立的

@@ -80,7 +80,7 @@ func newFileStore(dir string) (*fileStore, error) {
 		if err != nil {
 			return nil, err
 		}
-		key := recordMapKey(value.CallerID, value.Authorization.SpaceID, value.RequestKey)
+		key := recordMapKey(value.CallerID, value.RequestKey)
 		if _, exists := store.byKey[key]; exists {
 			return nil, errors.New("duplicate durable runtime request key")
 		}
@@ -140,17 +140,21 @@ func validateRecord(value *record) error {
 	return nil
 }
 
-func (s *fileStore) key(callerID, spaceID, requestKey string) string {
-	return recordMapKey(callerID, spaceID, requestKey)
+func (s *fileStore) key(callerID, requestKey string) string {
+	return recordMapKey(callerID, requestKey)
 }
 
-func recordMapKey(callerID, spaceID, requestKey string) string {
-	_ = spaceID
+// recordMapKey binds a request key to the authenticated caller only. The
+// SparkClaw--JingSi v1 contract forbids reusing a request key across
+// authenticated callers or spaces, so a replay from another space of the same
+// caller must surface as idempotency_conflict rather than start a second
+// execution; the space therefore deliberately does not widen the key.
+func recordMapKey(callerID, requestKey string) string {
 	return callerID + "\x00" + requestKey
 }
 
 func (s *fileStore) path(value *record) string {
-	digest := sha256.Sum256([]byte(recordMapKey(value.CallerID, value.Authorization.SpaceID, value.RequestKey)))
+	digest := sha256.Sum256([]byte(recordMapKey(value.CallerID, value.RequestKey)))
 	return filepath.Join(s.dir, hex.EncodeToString(digest[:])+".json")
 }
 

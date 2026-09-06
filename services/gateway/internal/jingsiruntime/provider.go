@@ -184,7 +184,7 @@ func (p *Provider) submit(w http.ResponseWriter, request *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, value.RequestID, "internal_error", true, 0)
 		return
 	}
-	key := p.store.key(p.callerID, value.Authorization.SpaceID, value.Payload.RequestKey)
+	key := p.store.key(p.callerID, value.Payload.RequestKey)
 	p.store.mu.Lock()
 	existing := p.store.byKey[key]
 	if existing != nil {
@@ -239,7 +239,7 @@ func (p *Provider) lookup(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	authorizationHash, _ := canonicalAuthorizationHash(value.Authorization)
-	key := p.store.key(p.callerID, value.Authorization.SpaceID, value.Payload.RequestKey)
+	key := p.store.key(p.callerID, value.Payload.RequestKey)
 	p.store.mu.Lock()
 	existing := p.store.byKey[key]
 	if existing != nil {
@@ -724,12 +724,18 @@ func problemStatus(code string) int {
 	return http.StatusNotFound
 }
 
+// maxResultSummaryBytes caps a result summary regardless of the requested
+// budget. The contract lets a caller request up to 1 MiB of output but also
+// caps every response at 131072 bytes; the provider may only narrow scopes,
+// so the summary is held well inside the response bound.
+const maxResultSummaryBytes = 65536
+
 func boundedSummary(value string, maximumBytes int) string {
 	if !utf8.ValidString(value) {
 		return ""
 	}
-	if maximumBytes <= 0 || maximumBytes > 65536 {
-		maximumBytes = 65536
+	if maximumBytes <= 0 || maximumBytes > maxResultSummaryBytes {
+		maximumBytes = maxResultSummaryBytes
 	}
 	if len(value) <= maximumBytes {
 		return value

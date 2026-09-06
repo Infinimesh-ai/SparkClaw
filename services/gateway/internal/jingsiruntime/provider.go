@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 )
 
 const maxResponseBytes = 131072
@@ -26,7 +28,7 @@ var (
 	tokenPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 	terminalStates   = []string{"succeeded", "failed", "canceled", "timed_out"}
 	executionStates  = []string{"accepted", "queued", "running", "approval_required", "succeeded", "failed", "canceled", "timed_out"}
-	approvalPolicies = []string{"deny", "ask", "allow_within_scope"}
+	approvalPolicies = []string{jingsiscope.ApprovalDeny, jingsiscope.ApprovalAsk, jingsiscope.ApprovalAllowWithinScope}
 )
 
 type Executor interface {

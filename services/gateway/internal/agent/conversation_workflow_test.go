@@ -10,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
@@ -244,7 +245,7 @@ func TestAuthorizedTaskContextIsDataOnlyForRoutingAndPersistsForExecution(t *tes
 	result, err := runtime.HandleMessageWithIngressAndContext(
 		t.Context(), session.ID, "message_task_context", "run_task_context", goal, nil,
 		app.MessageIngressContext{
-			Source:  app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "jingsi-runtime-v1"},
+			Source:  app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: jingsiscope.AdapterID},
 			OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID},
 			ReturnRoute: app.ReturnRoute{Mode: app.ReturnNowhere},
 		},

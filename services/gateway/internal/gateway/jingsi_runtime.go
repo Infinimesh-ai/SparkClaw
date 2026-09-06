@@ -3,13 +3,13 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -42,24 +42,7 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	if input.Memory != nil {
 		authorizedContext = input.Memory.Summary
 	}
-	scopes := make([]string, 0, len(input.Authorization.ToolScope)+len(input.Authorization.DataScope)+len(input.Authorization.NetworkScope)+3)
-	for _, value := range input.Authorization.ToolScope {
-		scopes = append(scopes, "sparkclaw.tool:"+value)
-	}
-	for _, value := range input.Authorization.DataScope {
-		scopes = append(scopes, "sparkclaw.data:"+value)
-	}
-	for _, value := range input.Authorization.NetworkScope {
-		scopes = append(scopes, "sparkclaw.network:"+value)
-	}
-	scopes = append(scopes,
-		"sparkclaw.approval:"+input.Authorization.ApprovalPolicy,
-		fmt.Sprintf("sparkclaw.budget.max_tool_calls:%d", input.Budget.MaxToolCalls),
-		fmt.Sprintf("sparkclaw.budget.max_output_bytes:%d", input.Budget.MaxOutputBytes),
-		"sparkclaw.purpose:"+input.Authorization.Purpose.Name,
-		"sparkclaw.grant:"+input.Authorization.Grant.ID+"@"+input.Authorization.Grant.Version,
-	)
-	slices.Sort(scopes)
+	scopes := jingSiGrant(input).Scopes()
 	sessionID := ""
 	if run, found, err := e.repository.GetRun(ctx, input.ExecutionID); err != nil {
 		return jingsiruntime.ExecutionOutput{}, err
@@ -68,7 +51,7 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	}
 	if sessionID == "" {
 		session, err := e.repository.CreateSessionWithScope(
-			ctx, "JingSi task "+input.Authorization.TaskID, app.DefaultOwnerID, "", "jingsi-runtime-v1", true,
+			ctx, "JingSi task "+input.Authorization.TaskID, app.DefaultOwnerID, "", jingsiscope.AdapterID, true,
 		)
 		if err != nil {
 			return jingsiruntime.ExecutionOutput{}, err
@@ -84,7 +67,7 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 		nil,
 		app.MessageIngressContext{
 			Source: app.MessageSourceContext{
-				Kind: app.MessageSourceThirdPartyDevice, Adapter: "jingsi-runtime-v1",
+				Kind: app.MessageSourceThirdPartyDevice, Adapter: jingsiscope.AdapterID,
 				NativeMessageID: input.ExecutionID,
 			},
 			OwnerID: app.DefaultOwnerID,
@@ -105,6 +88,23 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 		State: state, Summary: summary,
 		TraceRef: jingsiruntime.OpaqueRef{ID: "trace:" + input.ExecutionID, Version: "v1"},
 	}, err
+}
+
+// jingSiGrant projects the verified authorization envelope and submit budget
+// into the typed grant the Agent Runtime consumes. The provider validated the
+// envelope before Execute is called; nothing here may widen it.
+func jingSiGrant(input jingsiruntime.ExecutionInput) jingsiscope.Grant {
+	return jingsiscope.Grant{
+		Tools:          append([]string(nil), input.Authorization.ToolScope...),
+		ApprovalPolicy: input.Authorization.ApprovalPolicy,
+		MaxToolCalls:   input.Budget.MaxToolCalls,
+		MaxOutputBytes: input.Budget.MaxOutputBytes,
+		DataScope:      append([]string(nil), input.Authorization.DataScope...),
+		NetworkScope:   append([]string(nil), input.Authorization.NetworkScope...),
+		Purpose:        input.Authorization.Purpose.Name,
+		GrantID:        input.Authorization.Grant.ID,
+		GrantVersion:   input.Authorization.Grant.Version,
+	}
 }
 
 func mapAgentState(value string) string {

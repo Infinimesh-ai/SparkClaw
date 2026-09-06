@@ -9,11 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -234,28 +234,14 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 	return out
 }
 
+// jingsiRuntimeToolAuthorized applies the JingSi Runtime v1 grant at the
+// exposure boundary. Runs from any other ingress are unaffected.
 func jingsiRuntimeToolAuthorized(run app.AgentRun, definition app.ToolDefinition) bool {
-	if run.MessageContext == nil || run.MessageContext.Source.Adapter != "jingsi-runtime-v1" {
+	grant, scoped := jingsiscope.ForRun(run)
+	if !scoped {
 		return true
 	}
-	allowed := false
-	approvalPolicy := ""
-	maxToolCalls := -1
-	for _, scope := range run.MessageContext.Authorization.Scope {
-		if strings.HasPrefix(scope, "sparkclaw.tool:") && strings.TrimPrefix(scope, "sparkclaw.tool:") == definition.Name {
-			allowed = true
-		}
-		if strings.HasPrefix(scope, "sparkclaw.approval:") {
-			approvalPolicy = strings.TrimPrefix(scope, "sparkclaw.approval:")
-		}
-		if strings.HasPrefix(scope, "sparkclaw.budget.max_tool_calls:") {
-			maxToolCalls, _ = strconv.Atoi(strings.TrimPrefix(scope, "sparkclaw.budget.max_tool_calls:"))
-		}
-	}
-	if !allowed || maxToolCalls == 0 {
-		return false
-	}
-	return approvalPolicy != "deny" || !definition.RequiresApproval
+	return grant.AllowsTool(definition)
 }
 
 func (e *toolExposureEngine) activeNode(ctx context.Context, runID string, workflowID app.WorkflowID, nodeID app.WorkflowNodeID, scopeRevision int) (app.AgentRun, app.WorkflowNode, app.WorkflowNodeState, error) {

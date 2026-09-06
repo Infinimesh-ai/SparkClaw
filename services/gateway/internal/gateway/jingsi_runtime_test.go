@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -72,7 +74,7 @@ func TestJingSiRuntimeRouteUsesDedicatedAuthAndExecutesAgentRuntime(t *testing.T
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if run, found, err := st.GetRun(t.Context(), executionID); err == nil && found && run.ID == executionID && run.MessageContext != nil {
-			if run.MessageContext.Source.Adapter != "jingsi-runtime-v1" || run.MessageContext.Authorization.PrincipalID != "jingsi:space_demo:task_demo" {
+			if run.MessageContext.Source.Adapter != jingsiscope.AdapterID || run.MessageContext.Authorization.PrincipalID != "jingsi:space_demo:task_demo" {
 				t.Fatalf("runtime lost authenticated ingress context: %#v", run.MessageContext)
 			}
 			if run.MessageContext.ReturnRoute.Mode != app.ReturnNowhere {
@@ -120,4 +122,29 @@ func gatewayRuntimeCall(t *testing.T, endpoint string, body any, idempotencyKey 
 		t.Fatalf("decode response: %v body=%s", err, responseRaw)
 	}
 	return gatewayRuntimeResponse{StatusCode: response.StatusCode, Payload: decoded.Payload, Raw: string(responseRaw)}
+}
+
+func TestJingSiGrantProjectionRoundTrips(t *testing.T) {
+	input := jingsiruntime.ExecutionInput{
+		ExecutionID: "execution_demo",
+		Authorization: jingsiruntime.Authorization{
+			SpaceID: "space_demo", TaskID: "task_demo", Purpose: jingsiruntime.Purpose{Name: "task.execute"},
+			Grant: jingsiruntime.OpaqueRef{ID: "grant:demo/1", Version: "v1"}, ToolScope: []string{"files.read", "browser.read"},
+			DataScope: []string{"memory.context"}, NetworkScope: []string{"external.read"}, ApprovalPolicy: "ask",
+		},
+		Budget: jingsiruntime.Budget{MaxRuntimeMS: 30000, MaxToolCalls: 3, MaxOutputBytes: 4096},
+	}
+	want := jingSiGrant(input)
+	got, err := jingsiscope.Parse(want.Scopes())
+	if err != nil {
+		t.Fatalf("Parse(projection) error = %v", err)
+	}
+	want.Tools = []string{"browser.read", "files.read"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parsed grant = %#v, want %#v", got, want)
+	}
+	if got.MaxToolCalls != input.Budget.MaxToolCalls || got.ApprovalPolicy != input.Authorization.ApprovalPolicy ||
+		got.GrantID != input.Authorization.Grant.ID || got.GrantVersion != input.Authorization.Grant.Version {
+		t.Fatalf("projection lost authorization fields: %#v", got)
+	}
 }

@@ -45,8 +45,6 @@ type ChatResult struct {
 	Content        string `json:"content"`
 	FinishReason   string `json:"finish_reason"`
 	Mock           bool   `json:"mock"`
-	Fallback       bool   `json:"fallback,omitempty"`
-	ErrorNote      string `json:"error_note,omitempty"`
 	PromptTokens   int    `json:"prompt_tokens,omitempty"`
 	ResponseTokens int    `json:"response_tokens,omitempty"`
 	TotalTokens    int    `json:"total_tokens,omitempty"`

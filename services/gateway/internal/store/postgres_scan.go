@@ -259,7 +259,6 @@ func scanModelCall(row scanner) (app.ModelCall, error) {
 		&call.Model,
 		&call.Operation,
 		&call.Mock,
-		&call.Fallback,
 		&call.Status,
 		&call.PromptTokens,
 		&call.ResponseTokens,

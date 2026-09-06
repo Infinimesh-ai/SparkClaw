@@ -92,7 +92,6 @@ func (w *Writer) redactedTrace(in RunTrace) RunTrace {
 	out := in
 	out.Run.Summary = redactString(out.Run.Summary, w.redactPatterns)
 	out.Model.Content = redactString(out.Model.Content, w.redactPatterns)
-	out.Model.ErrorNote = redactString(out.Model.ErrorNote, w.redactPatterns)
 	out.ModelCalls = make([]app.ModelCall, len(in.ModelCalls))
 	for i, call := range in.ModelCalls {
 		out.ModelCalls[i] = call

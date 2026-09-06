@@ -372,7 +372,7 @@ func TestChatWithProfileUsesRequestedLaneWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Lane != "deep" || result.Fallback || requestedModel != "Qwen/Deep" {
+	if result.Lane != "deep" || requestedModel != "Qwen/Deep" {
 		t.Fatalf("unexpected manual profile result=%#v requested=%q", result, requestedModel)
 	}
 }

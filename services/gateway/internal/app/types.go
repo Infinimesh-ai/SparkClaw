@@ -674,7 +674,6 @@ type ModelCall struct {
 	Model          string     `json:"model"`
 	Operation      string     `json:"operation"`
 	Mock           bool       `json:"mock"`
-	Fallback       bool       `json:"fallback,omitempty"`
 	Status         string     `json:"status"`
 	PromptTokens   int        `json:"prompt_tokens"`
 	ResponseTokens int        `json:"response_tokens"`

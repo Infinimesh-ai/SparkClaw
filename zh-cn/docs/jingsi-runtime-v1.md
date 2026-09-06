@@ -74,6 +74,12 @@ data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题
 可重试的 `runtime_unavailable` Problem（`side_effects=none`），因此不会有 execution 在
 不可取消的 context 下运行或逃脱进程关闭。
 
+等待并发槽位的已接受工作同样有界。已接受但尚未运行的 execution 最多为 4 ×
+`max_concurrent`（默认 4 时为 16）；超出后的首次 Submit 会收到可重试的
+`runtime_unavailable` Problem（`retry_after_ms=5000`、`side_effects=none`），因此不会
+持久化任何记录、不会挂起 goroutine，JingSi 之后可以用同一 key 重试。已接受 key 的精确重放
+仍返回该 execution；`Start` 时恢复的持久化工作不受该上限限制，因为它已由之前的进程接受。
+
 状态目录受保留期限约束。绑定到提供方生命周期的每小时清理（首次在 `Start` 时运行）会删除
 终态完成时间超过 `retention_days` 的 bound 记录，以及提交时间超过该期限的 negative fence；
 每次清理最多删除 5000 条记录，积压会分多次清理完成。非终态工作（accepted、queued、

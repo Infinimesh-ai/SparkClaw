@@ -92,6 +92,15 @@ authenticated action before `Start` receives the retryable `runtime_unavailable`
 Problem with `side_effects=none`, so no execution can run under an uncancellable
 context or escape shutdown.
 
+Accepted work waiting for a concurrency slot is bounded too. At most 4 ×
+`max_concurrent` executions may be accepted-but-not-running (16 with the default
+of 4); a first Submit beyond that receives the retryable `runtime_unavailable`
+Problem with `retry_after_ms=5000` and `side_effects=none`, so nothing is
+persisted, no goroutine is parked, and JingSi may retry the same key later.
+Exact replays of an already accepted key still return that execution, and
+durable work resumed at `Start` is admitted regardless of the bound because it
+was accepted by an earlier process.
+
 The state directory is bounded by retention. An hourly sweep bound to the
 provider lifecycle (the first run happens at `Start`) deletes bound records whose
 terminal outcome completed, and negative fences that were committed, more than

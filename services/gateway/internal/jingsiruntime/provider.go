@@ -68,6 +68,9 @@ type Provider struct {
 	started     bool
 	startOnce   sync.Once
 	sem         chan struct{}
+	queueMu     sync.Mutex
+	queued      int
+	maxQueued   int
 	cancelMu    sync.Mutex
 	cancels     map[string]context.CancelFunc
 	wg          sync.WaitGroup
@@ -107,8 +110,39 @@ func New(config Config, executor Executor) (*Provider, error) {
 	return &Provider{
 		store: store, executor: executor, token: []byte(config.BearerToken), callerID: config.CallerID,
 		maxConcurrent: config.MaxConcurrent, retention: config.Retention, now: config.Now, logger: config.Logger,
-		sem: make(chan struct{}, config.MaxConcurrent), cancels: map[string]context.CancelFunc{},
+		sem: make(chan struct{}, config.MaxConcurrent), maxQueued: queueDepthFactor * config.MaxConcurrent,
+		cancels: map[string]context.CancelFunc{},
 	}, nil
+}
+
+// queueDepthFactor sets how many accepted-but-not-running executions may wait
+// for a concurrency slot, as a multiple of MaxConcurrent. Beyond that Submit
+// answers runtime_unavailable with retry_after_ms instead of parking another
+// goroutine, so the number of parked goroutines is bounded by 4x
+// MaxConcurrent plus the durable work resumed at Start.
+const queueDepthFactor = 4
+
+// queueRetryAfterMS is the retry hint for a full queue: a slot frees when a
+// running execution ends, which takes seconds rather than milliseconds.
+const queueRetryAfterMS = 5000
+
+// reserveQueueSlot admits one more accepted-but-not-running execution. Durable
+// work resumed at Start is admitted unconditionally (force): it was accepted
+// by an earlier process and must not be lost to the bound.
+func (p *Provider) reserveQueueSlot(force bool) bool {
+	p.queueMu.Lock()
+	defer p.queueMu.Unlock()
+	if !force && p.queued >= p.maxQueued {
+		return false
+	}
+	p.queued++
+	return true
+}
+
+func (p *Provider) releaseQueueSlot() {
+	p.queueMu.Lock()
+	p.queued--
+	p.queueMu.Unlock()
 }
 
 // Start binds the lifecycle every execution context derives from and resumes
@@ -134,6 +168,7 @@ func (p *Provider) Start(ctx context.Context) {
 		p.store.mu.Unlock()
 		slices.Sort(pending)
 		for _, executionID := range pending {
+			p.reserveQueueSlot(true)
 			p.enqueue(executionID)
 		}
 		if p.retention > 0 {
@@ -347,8 +382,15 @@ func (p *Provider) submit(w http.ResponseWriter, request *http.Request) {
 		},
 	}
 	recordValue.UpdatedAt = recordValue.Events[1].At
+	if !p.reserveQueueSlot(false) {
+		p.store.mu.Unlock()
+		p.logger.Warn("jingsi runtime submit rejected by queue bound", "request_id", value.RequestID, "queued", p.maxQueued)
+		writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, queueRetryAfterMS)
+		return
+	}
 	if err := p.store.persistLocked(recordValue); err != nil {
 		p.store.mu.Unlock()
+		p.releaseQueueSlot()
 		p.logPersistFailure("submit", executionID, err)
 		writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, 1000)
 		return
@@ -540,6 +582,9 @@ func (p *Provider) authorizedExecutionLocked(executionID string, authorization A
 	return value, ""
 }
 
+// enqueue parks a goroutine for an execution whose queue slot was already
+// reserved and releases the slot as soon as the execution stops waiting,
+// whether it acquired a concurrency slot or the lifecycle ended.
 func (p *Provider) enqueue(executionID string) {
 	p.lifecycleMu.RLock()
 	ctx := p.lifecycle
@@ -549,8 +594,10 @@ func (p *Provider) enqueue(executionID string) {
 		defer p.wg.Done()
 		select {
 		case p.sem <- struct{}{}:
+			p.releaseQueueSlot()
 			defer func() { <-p.sem }()
 		case <-ctx.Done():
+			p.releaseQueueSlot()
 			return
 		}
 		p.execute(ctx, executionID)

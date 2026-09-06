@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -639,4 +640,77 @@ func stateFiles(t *testing.T, dir string) int {
 		}
 	}
 	return count
+}
+
+func TestProviderBoundsAcceptedButNotRunningSubmits(t *testing.T) {
+	capture := &logCapture{}
+	logger := slog.New(slog.NewJSONHandler(capture, nil))
+	executor := &fakeExecutor{started: make(chan struct{}), block: true}
+	provider, err := New(Config{
+		StateDir: t.TempDir(), BearerToken: testBearer, CallerID: "jingsi-service-v1", MaxConcurrent: 1, Logger: logger,
+	}, executor)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	submitKey := func(key string) runtimeResponse {
+		t.Helper()
+		request := submitRequest("request_"+strings.ReplaceAll(key, ":", "_"), "Hold a slot.")
+		request.Payload.RequestKey = key
+		return callRuntime(t, server.URL+"/v1/executions:submit", request, key)
+	}
+	running := submitKey("task_demo:running")
+	if running.StatusCode != http.StatusAccepted {
+		t.Fatalf("first submit = %d %s", running.StatusCode, running.Raw)
+	}
+	select {
+	case <-executor.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not start")
+	}
+	for i := 0; i < queueDepthFactor; i++ {
+		if response := submitKey(fmt.Sprintf("task_demo:queued-%d", i)); response.StatusCode != http.StatusAccepted {
+			t.Fatalf("queued submit %d = %d %s", i, response.StatusCode, response.Raw)
+		}
+	}
+	rejected := submitKey("task_demo:overflow")
+	if rejected.StatusCode != http.StatusServiceUnavailable || nestedString(t, rejected.Body, "payload", "code") != "runtime_unavailable" ||
+		!nestedBool(t, rejected.Body, "payload", "retryable") || nestedValue(t, rejected.Body, "payload", "retry_after_ms") != float64(queueRetryAfterMS) {
+		t.Fatalf("overflow submit = %d %s", rejected.StatusCode, rejected.Raw)
+	}
+	provider.store.mu.Lock()
+	_, overflowStored := provider.store.byKey[provider.store.key("jingsi-service-v1", "task_demo:overflow")]
+	provider.store.mu.Unlock()
+	if overflowStored {
+		t.Fatal("rejected submit left a record behind")
+	}
+	if replay := submitKey("task_demo:queued-0"); replay.StatusCode != http.StatusAccepted {
+		t.Fatalf("exact replay was rejected by the queue bound: %d %s", replay.StatusCode, replay.Raw)
+	}
+	if line := capture.find(t, "jingsi runtime submit rejected by queue bound"); line["queued"] != float64(queueDepthFactor) {
+		t.Fatalf("queue rejection line = %v", line)
+	}
+
+	runningID := nestedString(t, running.Body, "payload", "execution", "execution_id")
+	if response := callRuntime(t, server.URL+"/v1/executions:cancel", cancelRequest(runningID), ""); response.StatusCode != http.StatusOK {
+		t.Fatalf("cancel = %d %s", response.StatusCode, response.Raw)
+	}
+	waitForState(t, server.URL, runningID, "canceled")
+	deadline := time.Now().Add(3 * time.Second)
+	var admitted runtimeResponse
+	for time.Now().Before(deadline) {
+		admitted = submitKey("task_demo:overflow")
+		if admitted.StatusCode == http.StatusAccepted {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if admitted.StatusCode != http.StatusAccepted {
+		t.Fatalf("queue slot was not released after a running execution ended: %d %s", admitted.StatusCode, admitted.Raw)
+	}
 }

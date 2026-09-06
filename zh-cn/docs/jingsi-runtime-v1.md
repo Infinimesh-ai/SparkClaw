@@ -94,12 +94,13 @@ Context；它不映射到任何工具 effect，提供方只要收到 `memory_con
 `local.compute` 是登记在案的纯计算例外：这类工具不需要 data/network token，但仍受
 `tool_scope`、approval policy 与工具调用预算约束。声明了混合 effect 的工具必须逐项满足。
 
-该 effect 词汇表尚未进入已接受的契约（InfiniCenter 决策 0034 提案中）。因此 SparkClaw 以两种
+该 effect 词汇表已由 InfiniCenter 决策 0034 接受，JingSi 已完成真实 provider 的 allow/deny
+与重启回证。SparkClaw 以两种
 暴露规则之一准入每个 execution，并把该规则记录在 run 上：
 `sparkclaw.admission:effect_scopes_legacy` 或 `sparkclaw.admission:effect_scopes_enforced`。
 两种规则下 JingSi 的 grant 都原样持久化，绝不代 JingSi 补加任何 token，因此持久化 scope 不会
 声称 JingSi 未发送的授权。`jingsi_runtime_v1.enforce_effect_scopes`
-（`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`，默认 `false`）选择新准入 execution 的
+（`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`，默认 `true`）选择新准入 execution 的
 规则：legacy 准入只按 `tool_scope` 暴露工具、不参考 `data_scope`/`network_scope`；enforced 准入
 额外要求上表的 effect token。execution 在重启重新进入时保持准入时的规则，不会按当前配置重新
 推导；投影缺失或损坏准入记录的 run 失败关闭。切换由决策 0034 协同：JingSi 只把新授权任务

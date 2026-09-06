@@ -67,3 +67,13 @@ func TestJingSiRuntimeConfigRetentionDaysDefaultsAndValidates(t *testing.T) {
 		}
 	}
 }
+
+func TestJingSiRuntimeEffectScopesDefaultToEnforced(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.JingSiRuntime.EnforceEffectScopes {
+		t.Fatal("new executions must default to enforced admission")
+	}
+}

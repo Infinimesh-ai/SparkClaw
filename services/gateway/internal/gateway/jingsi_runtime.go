@@ -24,8 +24,8 @@ type jingSiAgentExecutor struct {
 	}
 	// enforceEffectScopes selects the admission rule recorded on every run
 	// this provider accepts: enforced (declared tool effects must be covered
-	// by data_scope/network_scope) or legacy (tool_scope only). Pending
-	// InfiniCenter decision 0034 the default is legacy; the grant JingSi sent
+	// by data_scope/network_scope) or legacy (tool_scope only). After
+	// InfiniCenter decision 0034 acceptance the default is enforced; the grant JingSi sent
 	// is persisted verbatim either way.
 	enforceEffectScopes bool
 }

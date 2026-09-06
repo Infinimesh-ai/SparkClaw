@@ -74,7 +74,7 @@ type JingSiRuntimeConfig struct {
 	// requires every declared tool effect to be covered by JingSi's
 	// data_scope/network_scope, false keeps the legacy tool_scope-only rule.
 	// The rule is recorded on each run and never widens JingSi's grant.
-	// Pending InfiniCenter decision 0034 the default is false.
+	// Accepted InfiniCenter decision 0034: default true after consumer proof.
 	EnforceEffectScopes bool   `json:"enforce_effect_scopes"`
 	BearerToken         string `json:"-"`
 }

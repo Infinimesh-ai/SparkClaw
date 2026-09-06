@@ -114,15 +114,15 @@ data or network token but remains bound by `tool_scope`, the approval policy,
 and the tool-call budget. A tool with mixed effects must satisfy every one of
 them.
 
-The effect vocabulary is not yet part of the accepted contract (InfiniCenter
-decision 0034 proposes it). SparkClaw therefore admits each execution under one
+InfiniCenter decision 0034 accepts the effect vocabulary after JingSi real
+provider allow/deny and restart proof. SparkClaw admits each execution under one
 of two exposure rules and records that rule on the run as
 `sparkclaw.admission:effect_scopes_legacy` or
 `sparkclaw.admission:effect_scopes_enforced`. JingSi's grant is persisted
 exactly as received under both rules; nothing is ever added to it on JingSi's
 behalf, so the persisted scopes never claim an authorization JingSi did not
 send. `jingsi_runtime_v1.enforce_effect_scopes`
-(`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `false`) selects
+(`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `true`) selects
 the rule for newly admitted executions: legacy admission exposes the tools named
 in `tool_scope` without consulting `data_scope`/`network_scope`; enforced
 admission additionally requires the effect tokens above. An execution keeps the

@@ -59,8 +59,8 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   exception). Each execution records the admission rule it was accepted under
   (`sparkclaw.admission:effect_scopes_legacy|effect_scopes_enforced`); JingSi's
   grant is persisted verbatim and never widened. `jingsi_runtime_v1.enforce_effect_scopes`
-  (`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `false` pending
-  InfiniCenter decision 0034) selects the rule for new executions; a run keeps
+  (`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `true` after
+  InfiniCenter decision 0034 acceptance and real consumer proof) selects the rule for new executions; a run keeps
   its admission across restart re-entry.
 - JingSi Runtime v1 operational bounds: the state directory is swept hourly
   under a new `jingsi_runtime_v1.retention_days` knob

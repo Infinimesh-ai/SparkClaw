@@ -32,6 +32,18 @@ const (
 	PrefixNetwork      = "sparkclaw.network:"
 	PrefixPurpose      = "sparkclaw.purpose:"
 	PrefixGrant        = "sparkclaw.grant:"
+	// PrefixAdmission records the exposure rule the execution was admitted
+	// under. It is SparkClaw's own admission fact, never a JingSi grant: it
+	// widens nothing and a run keeps its admission across re-entry.
+	PrefixAdmission = "sparkclaw.admission:"
+)
+
+// Admission values. Legacy is the pre-decision-0034 rule (tool_scope,
+// approval policy and budget only); enforced additionally requires every
+// declared tool effect to be covered by the granted data_scope/network_scope.
+const (
+	AdmissionEffectScopesEnforced = "effect_scopes_enforced"
+	AdmissionEffectScopesLegacy   = "effect_scopes_legacy"
 )
 
 // Approval policies frozen by the contract's authorization.approval_policy enum.
@@ -57,17 +69,29 @@ type Grant struct {
 	Purpose        string
 	GrantID        string
 	GrantVersion   string
+	// EffectScopesEnforced is the admission rule, not part of JingSi's grant:
+	// true means declared tool effects must be covered by data_scope /
+	// network_scope; false means the legacy tool_scope-only rule applies.
+	EffectScopesEnforced bool
 }
 
 // Closed is the grant every consumer falls back to when a run's projection
-// cannot be trusted: no tools, no tool calls, approval denied, no scopes.
+// cannot be trusted: no tools, no tool calls, approval denied, no scopes,
+// effects enforced.
 func Closed() Grant {
-	return Grant{ApprovalPolicy: ApprovalDeny}
+	return Grant{ApprovalPolicy: ApprovalDeny, EffectScopesEnforced: true}
+}
+
+func (g Grant) admission() string {
+	if g.EffectScopesEnforced {
+		return AdmissionEffectScopesEnforced
+	}
+	return AdmissionEffectScopesLegacy
 }
 
 // Scopes projects the grant into the sorted scope strings persisted on the run.
 func (g Grant) Scopes() []string {
-	scopes := make([]string, 0, len(g.Tools)+len(g.DataScope)+len(g.NetworkScope)+4)
+	scopes := make([]string, 0, len(g.Tools)+len(g.DataScope)+len(g.NetworkScope)+5)
 	for _, value := range g.Tools {
 		scopes = append(scopes, PrefixTool+value)
 	}
@@ -82,6 +106,7 @@ func (g Grant) Scopes() []string {
 		PrefixMaxToolCalls+strconv.Itoa(g.MaxToolCalls),
 		PrefixPurpose+g.Purpose,
 		PrefixGrant+g.GrantID+"@"+g.GrantVersion,
+		PrefixAdmission+g.admission(),
 	)
 	slices.Sort(scopes)
 	return scopes
@@ -90,7 +115,7 @@ func (g Grant) Scopes() []string {
 // Parse inverts Scopes. It fails on any scope that is not a known prefix, on a
 // malformed or negative budget, on an unknown approval policy, on a grant
 // without exactly one id@version separator, and on a missing or repeated
-// singleton (approval, budget, purpose, grant). Callers must treat an error
+// singleton (approval, budget, purpose, grant, admission). Callers must treat an error
 // as Closed; nothing in a malformed projection may widen authority.
 func Parse(scopes []string) (Grant, error) {
 	grant := Grant{}
@@ -148,9 +173,21 @@ func Parse(scopes []string) (Grant, error) {
 				return Grant{}, fmt.Errorf("jingsi grant %q is not id@version", value)
 			}
 			grant.GrantID, grant.GrantVersion = id, version
+		case PrefixAdmission:
+			if err := singleton(prefix); err != nil {
+				return Grant{}, err
+			}
+			switch value {
+			case AdmissionEffectScopesEnforced:
+				grant.EffectScopesEnforced = true
+			case AdmissionEffectScopesLegacy:
+				grant.EffectScopesEnforced = false
+			default:
+				return Grant{}, fmt.Errorf("jingsi admission %q is unknown", value)
+			}
 		}
 	}
-	for _, prefix := range []string{PrefixApproval, PrefixMaxToolCalls, PrefixPurpose, PrefixGrant} {
+	for _, prefix := range []string{PrefixApproval, PrefixMaxToolCalls, PrefixPurpose, PrefixGrant, PrefixAdmission} {
 		if !seen[prefix] {
 			return Grant{}, fmt.Errorf("jingsi scope %q is missing", strings.TrimSuffix(prefix, ":"))
 		}
@@ -213,55 +250,25 @@ func EffectRequirement(effect app.ToolEffect) (family ScopeFamily, token string,
 }
 
 // AllowsTool reports whether the grant exposes one tool definition: the exact
-// name must be in tool_scope, the tool-call budget must not be exhausted,
-// approval_policy=deny hides tools that require approval, and every declared
-// effect must be covered by the granted data_scope or network_scope. A tool
-// that declares no effect, or an effect the mapping does not know, is hidden:
-// the contract lets SparkClaw only narrow these scopes, so an effect it
-// cannot classify is never exposed.
-// EffectTokens returns the complete data_scope and network_scope vocabulary
-// the effect mapping can consume, sorted. It is the grant SparkClaw issues on
-// JingSi's behalf while the vocabulary is not yet part of the contract.
-func EffectTokens() (data, network []string) {
-	for effect, family := range effectRequirements {
-		switch family {
-		case ScopeFamilyData:
-			data = append(data, string(effect))
-		case ScopeFamilyNetwork:
-			network = append(network, string(effect))
-		}
-	}
-	slices.Sort(data)
-	slices.Sort(network)
-	return data, network
-}
-
-// WithDefaultEffectScopes widens the grant to every mapped effect token in
-// addition to what JingSi granted, deduplicated and sorted.
-func (g Grant) WithDefaultEffectScopes() Grant {
-	data, network := EffectTokens()
-	g.DataScope = mergeTokens(g.DataScope, data)
-	g.NetworkScope = mergeTokens(g.NetworkScope, network)
-	return g
-}
-
-func mergeTokens(granted, defaults []string) []string {
-	out := append([]string(nil), granted...)
-	for _, token := range defaults {
-		if !slices.Contains(out, token) {
-			out = append(out, token)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
+// name must be in tool_scope, the tool-call budget must not be exhausted, and
+// approval_policy=deny hides tools that require approval. Under enforced
+// admission every declared effect must additionally be covered by the granted
+// data_scope or network_scope; local.compute is the registered pure-compute
+// exception that needs no token, while a tool that declares no effect, or an
+// effect the mapping does not know, is hidden: the contract lets SparkClaw only
+// narrow these scopes, so an effect it cannot classify is never exposed.
 func (g Grant) AllowsTool(definition app.ToolDefinition) bool {
 	if !slices.Contains(g.Tools, definition.Name) || g.MaxToolCalls == 0 {
 		return false
 	}
 	if g.ApprovalPolicy == ApprovalDeny && definition.RequiresApproval {
 		return false
+	}
+	if !g.EffectScopesEnforced {
+		// Legacy admission (pre decision 0034): tool_scope, approval policy
+		// and budget govern exposure; data/network scopes are recorded but
+		// not consulted, and nothing is added to JingSi's grant.
+		return true
 	}
 	if len(definition.Directory.Effects) == 0 {
 		return false
@@ -288,7 +295,7 @@ func (g Grant) AllowsTool(definition app.ToolDefinition) bool {
 func splitScope(scope string) (prefix, value string, ok bool) {
 	for _, candidate := range []string{
 		PrefixTool, PrefixApproval, PrefixMaxToolCalls,
-		PrefixData, PrefixNetwork, PrefixPurpose, PrefixGrant,
+		PrefixData, PrefixNetwork, PrefixPurpose, PrefixGrant, PrefixAdmission,
 	} {
 		if strings.HasPrefix(scope, candidate) {
 			return candidate, strings.TrimPrefix(scope, candidate), true

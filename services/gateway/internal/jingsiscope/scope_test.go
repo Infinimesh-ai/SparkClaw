@@ -2,6 +2,7 @@ package jingsiscope
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,7 +11,8 @@ import (
 
 func sampleGrant() Grant {
 	return Grant{
-		Tools: []string{"browser.read", "files.read"}, ApprovalPolicy: ApprovalAsk,
+		EffectScopesEnforced: true,
+		Tools:                []string{"browser.read", "files.read"}, ApprovalPolicy: ApprovalAsk,
 		MaxToolCalls: 8,
 		DataScope:    []string{"memory.context", "workspace.read"}, NetworkScope: []string{"external.read"},
 		Purpose: "task.execute", GrantID: "grant:space/demo", GrantVersion: "v1",
@@ -56,6 +58,8 @@ func TestParseFailsClosedOnMalformedProjection(t *testing.T) {
 		return out
 	}
 	cases := map[string][]string{
+		"missing admission":      replace(PrefixAdmission, ""),
+		"unknown admission":      replace(PrefixAdmission, "trust_me"),
 		"unknown prefix":         append(append([]string{}, base...), "sparkclaw.unknown:value"),
 		"foreign scope":          append(append([]string{}, base...), "read:files"),
 		"empty tool":             append(append([]string{}, base...), PrefixTool),
@@ -204,4 +208,36 @@ func isSorted(values []string) bool {
 		}
 	}
 	return true
+}
+
+func TestLegacyAdmissionKeepsTheToolScopeRuleWithoutWideningTheGrant(t *testing.T) {
+	grant := sampleGrant()
+	grant.EffectScopesEnforced = false
+	grant.Tools = []string{"files.write", "memory.search", "browser.assess_goal"}
+	definition := func(name string, effects ...app.ToolEffect) app.ToolDefinition {
+		return app.ToolDefinition{Name: name, Directory: app.ToolDirectoryMetadata{Effects: effects}}
+	}
+	// tool_scope, approval and budget still govern; effects are not consulted.
+	if !grant.AllowsTool(definition("files.write", app.ToolEffectWorkspaceWrite)) || !grant.AllowsTool(definition("memory.search")) {
+		t.Fatal("legacy admission hid a tool named in tool_scope")
+	}
+	if grant.AllowsTool(definition("files.read", app.ToolEffectWorkspaceRead)) {
+		t.Fatal("legacy admission exposed a tool outside tool_scope")
+	}
+	grant.ApprovalPolicy = ApprovalDeny
+	if grant.AllowsTool(app.ToolDefinition{Name: "files.write", RequiresApproval: true}) {
+		t.Fatal("legacy admission ignored approval_policy=deny")
+	}
+	// The projection records the admission and nothing else changes.
+	scopes := grant.Scopes()
+	if !slices.Contains(scopes, PrefixAdmission+AdmissionEffectScopesLegacy) {
+		t.Fatalf("legacy admission not recorded: %v", scopes)
+	}
+	parsed, err := Parse(scopes)
+	if err != nil || parsed.EffectScopesEnforced || !reflect.DeepEqual(parsed.DataScope, grant.DataScope) {
+		t.Fatalf("legacy projection = %#v, %v", parsed, err)
+	}
+	if !Closed().EffectScopesEnforced {
+		t.Fatal("Closed() must be enforced")
+	}
 }

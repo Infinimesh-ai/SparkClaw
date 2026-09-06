@@ -22,9 +22,11 @@ type jingSiAgentExecutor struct {
 		store.SessionRepository
 		store.RunRepository
 	}
-	// enforceEffectScopes projects only the data/network tokens JingSi
-	// granted. While false (pending InfiniCenter decision 0034) the gateway
-	// adds the full effect vocabulary so tool_scope alone keeps governing.
+	// enforceEffectScopes selects the admission rule recorded on every run
+	// this provider accepts: enforced (declared tool effects must be covered
+	// by data_scope/network_scope) or legacy (tool_scope only). Pending
+	// InfiniCenter decision 0034 the default is legacy; the grant JingSi sent
+	// is persisted verbatim either way.
 	enforceEffectScopes bool
 }
 
@@ -50,10 +52,10 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	if input.Memory != nil {
 		authorizedContext = input.Memory.Summary
 	}
+	// The run records the exposure rule it was admitted under; JingSi's grant
+	// is projected exactly as received and never widened.
 	grant := jingSiGrant(input)
-	if !e.enforceEffectScopes {
-		grant = grant.WithDefaultEffectScopes()
-	}
+	grant.EffectScopesEnforced = e.enforceEffectScopes
 	scopes := grant.Scopes()
 	sessionID := ""
 	if run, found, err := e.repository.GetRun(ctx, input.ExecutionID); err != nil {

@@ -42,10 +42,11 @@
 
 ### Changed
 
-- JingSi Runtime v1 的工具暴露现在把 `data_scope`/`network_scope` 理解为工具 effect token，但强制
-  执行等待 InfiniCenter 决策 0034：`jingsi_runtime_v1.enforce_effect_scopes`
-  （`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`，默认 `false`）让网关自行授予完整 effect
-  词汇表，因此当前只授予 `memory.context` 的 consumer 仍保留 `tool_scope` 中命名的全部工具。
+- JingSi Runtime v1 的工具暴露现在把 `data_scope`/`network_scope` 理解为工具 effect token
+  （`local.compute` 为登记的纯计算例外）。每个 execution 记录其准入规则
+  （`sparkclaw.admission:effect_scopes_legacy|effect_scopes_enforced`）；JingSi 的 grant 原样持久化，
+  绝不补权。`jingsi_runtime_v1.enforce_effect_scopes`（`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`，
+  在 InfiniCenter 决策 0034 接受前默认 `false`）选择新 execution 的规则；run 在重启重新进入时保持准入时的规则。
 - JingSi Runtime v1 运行边界：新增 `jingsi_runtime_v1.retention_days`
   （`SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`，默认 30，`0` 表示永久保留，加载时校验），
   每小时清理超过保留期的终态 execution 记录与 negative fence，非终态工作永不清理；已接受但

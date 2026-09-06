@@ -171,6 +171,7 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Warnings = append(cfg.Warnings, modelConfigWarnings(cfg.Model)...)
+	cfg.Warnings = append(cfg.Warnings, gatewayAuthWarnings(cfg.Gateway)...)
 	if err := normalizeNotificationChannels(&cfg.Tools.Notifications); err != nil {
 		return Config{}, err
 	}

@@ -188,6 +188,24 @@ func modelConfigWarnings(model ModelConfig) []string {
 	return warnings
 }
 
+// gatewayAuthWarnings reports a gateway that listens beyond loopback with
+// neither pairing nor an API token. It is a warning, not an error, because a
+// container legitimately binds 0.0.0.0 and relies on port publishing for
+// exposure; the product deployment validator is the hard gate.
+func gatewayAuthWarnings(gateway GatewayConfig) []string {
+	if gateway.PairingRequired || strings.TrimSpace(gateway.APIToken) != "" {
+		return nil
+	}
+	bind := strings.TrimSpace(gateway.Bind)
+	if bind == "" || strings.EqualFold(bind, "localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(strings.Trim(bind, "[]")); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return []string{fmt.Sprintf("gateway.bind %s accepts non-loopback clients while pairing_required is false and api_token is empty; every client is trusted", bind)}
+}
+
 // normalizeRuntimeLimits backfills non-positive workflow budgets with the
 // defaults so a partial runtime section in JSON cannot silently disable the
 // stage or run stop conditions.

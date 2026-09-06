@@ -450,7 +450,10 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 	}
 	p.store.mu.Unlock()
 
-	executionCtx, cancel := context.WithDeadline(lifecycle, deadline)
+	// The deadline is enforced relative to the provider clock, the same clock
+	// that admitted the authorization at submit, so an injected clock governs
+	// admission and enforcement consistently.
+	executionCtx, cancel := context.WithTimeout(lifecycle, deadline.Sub(p.now().UTC()))
 	p.cancelMu.Lock()
 	p.cancels[executionID] = cancel
 	p.cancelMu.Unlock()

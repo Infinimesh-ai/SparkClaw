@@ -491,11 +491,43 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 	if traceRef.ID == "" {
 		traceRef = OpaqueRef{ID: "trace:" + value.ExecutionID, Version: "v1"}
 	}
+	artifactRefs := boundedArtifactRefs(output.ArtifactRefs)
+	for _, ref := range artifactRefs {
+		value.UpdatedAt = nextTime(value.UpdatedAt)
+		p.appendArtifactEventLocked(value, ref)
+	}
 	value.Result = &ExecutionResult{
 		Outcome: state, CompletedAt: nextTime(value.UpdatedAt), Summary: boundedSummary(output.Summary, value.Submit.Budget.MaxOutputBytes),
-		ArtifactRefs: append([]ArtifactRef(nil), output.ArtifactRefs...), TraceRef: traceRef,
+		ArtifactRefs: artifactRefs, TraceRef: traceRef,
 	}
 	p.finishLocked(value, state, output.Summary)
+}
+
+// maxArtifactRefs is the contract's artifact_refs maxItems.
+const maxArtifactRefs = 32
+
+// boundedArtifactRefs keeps the executor's references inside the wire shape:
+// every id, version and kind must be a valid token, media_type is dropped
+// when it exceeds the schema length, and at most 32 references survive. A
+// reference that fails the shape is omitted rather than failing the
+// execution, so the provider only ever narrows what crosses the surface.
+func boundedArtifactRefs(refs []ArtifactRef) []ArtifactRef {
+	out := make([]ArtifactRef, 0, min(len(refs), maxArtifactRefs))
+	for _, ref := range refs {
+		if len(out) == maxArtifactRefs {
+			break
+		}
+		if validateToken("artifact id", ref.ID, 256) != nil ||
+			validateToken("artifact version", ref.Version, 128) != nil ||
+			validateToken("artifact kind", ref.Kind, 128) != nil {
+			continue
+		}
+		if len(ref.MediaType) > 128 {
+			ref.MediaType = ""
+		}
+		out = append(out, ref)
+	}
+	return out
 }
 
 func (p *Provider) finishLocked(value *record, state, summary string) {
@@ -524,15 +556,29 @@ func (p *Provider) finishLocked(value *record, state, summary string) {
 }
 
 func (p *Provider) appendEventLocked(value *record, eventType, state, summaryCode string) {
-	sequence := uint64(len(value.Events) + 1)
-	event := ExecutionEvent{
-		Sequence: sequence, EventID: fmt.Sprintf("%s:event:%d", value.ExecutionID, sequence),
-		At: value.UpdatedAt, Type: eventType, State: state, SummaryCode: summaryCode,
-	}
+	event := nextEventLocked(value, eventType)
+	event.State, event.SummaryCode = state, summaryCode
 	if isTerminal(state) {
 		event.TraceRef = &OpaqueRef{ID: "trace:" + value.ExecutionID, Version: "v1"}
 	}
 	value.Events = append(value.Events, event)
+}
+
+// appendArtifactEventLocked records one artifact.available event. Artifact
+// events precede the terminal event so a consumer that stops at terminal has
+// already seen every reference the result will carry.
+func (p *Provider) appendArtifactEventLocked(value *record, ref ArtifactRef) {
+	event := nextEventLocked(value, "artifact.available")
+	event.ArtifactRef = &ref
+	value.Events = append(value.Events, event)
+}
+
+func nextEventLocked(value *record, eventType string) ExecutionEvent {
+	sequence := uint64(len(value.Events) + 1)
+	return ExecutionEvent{
+		Sequence: sequence, EventID: fmt.Sprintf("%s:event:%d", value.ExecutionID, sequence),
+		At: value.UpdatedAt, Type: eventType,
+	}
 }
 
 func decodeRequest(request *http.Request, target any) error {

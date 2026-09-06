@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -86,8 +88,44 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	}
 	return jingsiruntime.ExecutionOutput{
 		State: state, Summary: summary,
-		TraceRef: jingsiruntime.OpaqueRef{ID: "trace:" + input.ExecutionID, Version: "v1"},
+		ArtifactRefs: jingSiArtifactRefs(input.ExecutionID, result.Message.Attachments),
+		TraceRef:     jingsiruntime.OpaqueRef{ID: "trace:" + input.ExecutionID, Version: "v1"},
 	}, err
+}
+
+// jingSiArtifactRefs projects the attachments the run delivered with its
+// assistant message into opaque versioned references. The id is a digest of
+// the execution and the artifact object identity, so a replay or a restart
+// re-entry yields the same reference while no store id, path or URI crosses
+// the surface. Attachments without a registered artifact object have no
+// stable identity and are not projected.
+func jingSiArtifactRefs(executionID string, attachments []app.MessageAttachment) []jingsiruntime.ArtifactRef {
+	refs := make([]jingsiruntime.ArtifactRef, 0, len(attachments))
+	seen := map[string]bool{}
+	for _, attachment := range attachments {
+		objectID := strings.TrimSpace(attachment.ArtifactID)
+		if objectID == "" || seen[objectID] {
+			continue
+		}
+		seen[objectID] = true
+		sum := sha256.Sum256([]byte(executionID + "\x00" + objectID))
+		refs = append(refs, jingsiruntime.ArtifactRef{
+			ID: "artifact:" + hex.EncodeToString(sum[:16]), Version: "v1",
+			Kind: jingSiArtifactKind(attachment.ContentType), MediaType: strings.TrimSpace(attachment.ContentType),
+		})
+	}
+	return refs
+}
+
+func jingSiArtifactKind(contentType string) string {
+	switch {
+	case strings.HasPrefix(contentType, "image/"):
+		return "image"
+	case strings.HasPrefix(contentType, "audio/"):
+		return "audio"
+	default:
+		return "file"
+	}
 }
 
 // jingSiGrant projects the verified authorization envelope and the tool-call

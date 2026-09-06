@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,5 +147,91 @@ func TestJingSiGrantProjectionRoundTrips(t *testing.T) {
 	if got.MaxToolCalls != input.Budget.MaxToolCalls || got.ApprovalPolicy != input.Authorization.ApprovalPolicy ||
 		got.GrantID != input.Authorization.Grant.ID || got.GrantVersion != input.Authorization.Grant.Version {
 		t.Fatalf("projection lost authorization fields: %#v", got)
+	}
+}
+
+func TestJingSiExecutorProjectsDeliveredAttachmentsAsOpaqueArtifactRefs(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	executor := jingSiAgentExecutor{runtime: runtime, repository: st}
+
+	session, err := st.CreateSessionWithScope(t.Context(), "JingSi task task_demo", app.DefaultOwnerID, "", jingsiscope.AdapterID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionID := "execution_artifacts"
+	completed := time.Now().UTC()
+	if _, err := st.SaveRun(t.Context(), app.AgentRun{
+		ID: executionID, SessionID: session.ID, State: "completed", Summary: "The card was rendered.",
+		StartedAt: completed.Add(-time.Second), CompletedAt: &completed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddMessage(t.Context(), app.Message{
+		ID: executionID + ":assistant", SessionID: session.ID, RunID: executionID, Role: "assistant",
+		Content: "The card was rendered.", CreatedAt: completed,
+		Attachments: []app.MessageAttachment{
+			{ArtifactID: "obj_0123456789abcdef", Name: "weather.png", RelPath: "out/weather.png", URI: "workspace://out/weather.png", ContentType: "image/png", Bytes: 12},
+			{ArtifactID: "obj_0123456789abcdef", Name: "weather.png", RelPath: "out/weather.png", URI: "workspace://out/weather.png", ContentType: "image/png", Bytes: 12},
+			{ArtifactID: "obj_fedcba9876543210", Name: "notes.txt", RelPath: "out/notes.txt", URI: "workspace://out/notes.txt", ContentType: "text/plain", Bytes: 3},
+			{Name: "unregistered.bin", RelPath: "out/unregistered.bin", ContentType: "application/octet-stream"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input := jingsiruntime.ExecutionInput{
+		ExecutionID: executionID,
+		Authorization: jingsiruntime.Authorization{
+			SpaceID: "space_demo", TaskID: "task_demo", Purpose: jingsiruntime.Purpose{Name: "task.execute"},
+			Grant: jingsiruntime.OpaqueRef{ID: "grant_demo", Version: "v1"}, ApprovalPolicy: "deny",
+			DeadlineAt: time.Now().UTC().Add(time.Minute),
+		},
+		Goal: "Render the weather card.", Budget: jingsiruntime.Budget{MaxRuntimeMS: 30000, MaxToolCalls: 0, MaxOutputBytes: 4096},
+	}
+	output, err := executor.Execute(t.Context(), input)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if output.State != "succeeded" || output.Summary != "The card was rendered." {
+		t.Fatalf("existing run was not projected: %#v", output)
+	}
+	if len(output.ArtifactRefs) != 2 {
+		t.Fatalf("artifact refs = %#v, want the two registered attachments once each", output.ArtifactRefs)
+	}
+	image, file := output.ArtifactRefs[0], output.ArtifactRefs[1]
+	if image.Kind != "image" || image.MediaType != "image/png" || file.Kind != "file" || file.MediaType != "text/plain" {
+		t.Fatalf("artifact kinds = %#v", output.ArtifactRefs)
+	}
+	for _, ref := range output.ArtifactRefs {
+		if ref.Version != "v1" || !strings.HasPrefix(ref.ID, "artifact:") ||
+			strings.Contains(ref.ID, "obj_") || strings.Contains(ref.ID, "weather") || strings.Contains(ref.ID, "notes") || strings.Contains(ref.ID, "/") {
+			t.Fatalf("artifact ref leaks internal identity or is unversioned: %#v", ref)
+		}
+	}
+	if image.ID == file.ID {
+		t.Fatal("distinct artifacts share one reference")
+	}
+	again, err := executor.Execute(t.Context(), input)
+	if err != nil || !reflect.DeepEqual(again.ArtifactRefs, output.ArtifactRefs) {
+		t.Fatalf("replay changed artifact refs: %#v vs %#v (%v)", again.ArtifactRefs, output.ArtifactRefs, err)
+	}
+	other := input
+	other.ExecutionID = "execution_other"
+	if _, err := st.SaveRun(t.Context(), app.AgentRun{ID: other.ExecutionID, SessionID: session.ID, State: "completed", StartedAt: completed}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddMessage(t.Context(), app.Message{
+		ID: other.ExecutionID + ":assistant", SessionID: session.ID, RunID: other.ExecutionID, Role: "assistant", Content: "again", CreatedAt: completed,
+		Attachments: []app.MessageAttachment{{ArtifactID: "obj_0123456789abcdef", Name: "weather.png", RelPath: "out/weather.png", ContentType: "image/png"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	otherOutput, err := executor.Execute(t.Context(), other)
+	if err != nil || len(otherOutput.ArtifactRefs) != 1 || otherOutput.ArtifactRefs[0].ID == image.ID {
+		t.Fatalf("artifact ref is not bound to the execution: %#v (%v)", otherOutput.ArtifactRefs, err)
 	}
 }

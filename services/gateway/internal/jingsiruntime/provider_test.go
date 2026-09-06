@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,10 +17,11 @@ import (
 const testBearer = "test-runtime-bearer-credential"
 
 type fakeExecutor struct {
-	mu      sync.Mutex
-	calls   int
-	started chan struct{}
-	block   bool
+	mu        sync.Mutex
+	calls     int
+	started   chan struct{}
+	block     bool
+	artifacts []ArtifactRef
 }
 
 func (f *fakeExecutor) Execute(ctx context.Context, input ExecutionInput) (ExecutionOutput, error) {
@@ -37,7 +40,7 @@ func (f *fakeExecutor) Execute(ctx context.Context, input ExecutionInput) (Execu
 		return ExecutionOutput{}, ctx.Err()
 	}
 	return ExecutionOutput{
-		State: "succeeded", Summary: "bounded result",
+		State: "succeeded", Summary: "bounded result", ArtifactRefs: f.artifacts,
 		TraceRef: OpaqueRef{ID: "trace:test", Version: "v1"},
 	}, nil
 }
@@ -50,7 +53,8 @@ func (f *fakeExecutor) callCount() int {
 
 func TestProviderSubmitReplayStatusEventsAndRestart(t *testing.T) {
 	stateDir := t.TempDir()
-	executor := &fakeExecutor{}
+	artifact := ArtifactRef{ID: "artifact:demo", Version: "v1", Kind: "image", MediaType: "image/png"}
+	executor := &fakeExecutor{artifacts: []ArtifactRef{artifact}}
 	provider := newTestProvider(t, stateDir, executor)
 	ctx, cancel := context.WithCancel(t.Context())
 	provider.Start(ctx)
@@ -80,14 +84,30 @@ func TestProviderSubmitReplayStatusEventsAndRestart(t *testing.T) {
 		t.Fatalf("events response = %d %s", events.StatusCode, events.Raw)
 	}
 	page := nestedSlice(t, events.Body, "payload", "events")
-	if len(page) != 4 {
-		t.Fatalf("event count = %d, want accepted/queued/running/succeeded", len(page))
+	if len(page) != 5 {
+		t.Fatalf("event count = %d, want accepted/queued/running/artifact.available/succeeded", len(page))
 	}
 	for index, raw := range page {
 		event := raw.(map[string]any)
 		if uint64(event["sequence"].(float64)) != uint64(index+1) {
 			t.Fatalf("event sequence at %d = %#v", index, event)
 		}
+	}
+	artifactEvent := page[3].(map[string]any)
+	if artifactEvent["type"] != "artifact.available" || nestedString(t, artifactEvent, "artifact_ref", "id") != artifact.ID ||
+		nestedString(t, artifactEvent, "artifact_ref", "kind") != artifact.Kind || nestedString(t, artifactEvent, "artifact_ref", "media_type") != artifact.MediaType {
+		t.Fatalf("artifact event = %#v", artifactEvent)
+	}
+	if _, hasState := artifactEvent["state"]; hasState {
+		t.Fatalf("artifact event carried an execution state: %#v", artifactEvent)
+	}
+	if page[4].(map[string]any)["type"] != "execution.succeeded" {
+		t.Fatalf("terminal event did not follow the artifact event: %#v", page[4])
+	}
+	status := callRuntime(t, server.URL+"/v1/executions:status", executionStatusRequest(executionID), "")
+	resultRefs := nestedSlice(t, status.Body, "payload", "result", "artifact_refs")
+	if len(resultRefs) != 1 || nestedString(t, resultRefs[0], "id") != artifact.ID || nestedString(t, resultRefs[0], "version") != artifact.Version {
+		t.Fatalf("result artifact refs = %#v", resultRefs)
 	}
 
 	cancel()
@@ -352,4 +372,27 @@ func nestedSlice(t *testing.T, value any, path ...string) []any {
 		t.Fatalf("path %v is not array", path)
 	}
 	return result
+}
+
+func TestBoundedArtifactRefsKeepsOnlyWireShapedReferences(t *testing.T) {
+	refs := []ArtifactRef{
+		{ID: "artifact:ok", Version: "v1", Kind: "file", MediaType: "text/plain"},
+		{ID: "", Version: "v1", Kind: "file"},
+		{ID: "artifact:no-version", Kind: "file"},
+		{ID: "artifact:bad kind", Version: "v1", Kind: "with space"},
+		{ID: "artifact:long-media", Version: "v1", Kind: "file", MediaType: strings.Repeat("x", 129)},
+	}
+	for index := 0; index < 40; index++ {
+		refs = append(refs, ArtifactRef{ID: fmt.Sprintf("artifact:extra-%d", index), Version: "v1", Kind: "file"})
+	}
+	bounded := boundedArtifactRefs(refs)
+	if len(bounded) != maxArtifactRefs {
+		t.Fatalf("bounded count = %d, want %d", len(bounded), maxArtifactRefs)
+	}
+	if bounded[0].ID != "artifact:ok" || bounded[1].ID != "artifact:long-media" || bounded[1].MediaType != "" {
+		t.Fatalf("bounded refs = %#v", bounded[:2])
+	}
+	if got := boundedArtifactRefs(nil); len(got) != 0 {
+		t.Fatalf("nil refs bounded to %#v", got)
+	}
 }

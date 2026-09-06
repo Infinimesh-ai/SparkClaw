@@ -96,6 +96,14 @@ data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题
 无法选择能力、添加返回端点或扩大工具权限。结果只暴露粗粒度状态、有界 summary 和不透明的
 版本化 trace/artifact 引用；内部路径和 store 标识符不会越过该接口边界。
 
+artifact 引用即 run 随其 assistant 消息交付的附件，也就是 owner 本会收到的 workflow 输出
+（文件、图片）。每个引用 id 是 execution id 与 artifact 对象身份的摘要，因此重放或重启后
+重新进入会得到相同引用，且不会暴露任何 store id、路径或 URI；`version` 为 `v1`，`kind`
+由媒体类型推导（`image`、`audio`、`file`），`media_type` 携带附件的内容类型。没有已登记
+artifact 对象的附件不会被投影。提供方在终态事件之前为每个引用发出一条 `artifact.available`
+事件，并在 `result.artifact_refs` 中重复同一列表，上限为契约规定的 32 条。契约没有定义读取
+操作，因此 JingSi 只持有这些引用用于展示与对账。
+
 ## 证据与剩余边界
 
 `internal/contracttest` 校验中央 conformance manifest、HTTP binding 和 fixtures。它优先从
@@ -104,7 +112,7 @@ data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题
 
 提供方测试覆盖完全一致的重放与漂移、跨重启持久化的 negative fence、响应丢失后的查询、
 单调事件分页、统一授权、幂等取消、专用 bearer 路由、`return_nowhere`、data-only
-Memory Context，以及分发到现有 Agent Runtime。JingSi 还负责一个开发门禁：独立启动
+Memory Context、不透明 artifact 引用投影，以及分发到现有 Agent Runtime。JingSi 还负责一个开发门禁：独立启动
 PostgreSQL 18、IMMS、SparkClaw、JingSi 和真实 JingSi-Node 进程，然后证明成功的 Task
 结果对账、Observation 回写以及来源通知/ACK。该证据不能证明生产凭据配置、断电恢复、真实
 网络或 GB10 实机验收；这些仍是跨仓库退出门禁。

@@ -42,6 +42,14 @@
 
 ### Changed
 
+- JingSi Runtime v1 授权投影：scope 前缀、adapter 身份与 approval policy 枚举统一放在一个叶子包
+  （`internal/jingsiscope`），由工具暴露与 run 预算共用同一个 fail-closed 解析器；无法解析的投影
+  会关闭该 run（无工具、无工具调用）。`data_scope` 与 `network_scope` 现在在工具暴露边界强制执行：
+  把工具声明的每个 effect 映射到 JingSi 必须授予的 token（`external.*` 对应 `network_scope`，
+  `workspace.*`/`local.read`/`local.write` 对应 `data_scope`）；无 effect 或 effect 未映射的工具对
+  所有 JingSi execution 隐藏，映射表记录在 `docs/jingsi-runtime-v1.md`。`budget.max_output_bytes`
+  不再投影进 run（只由提供方限制结果摘要）。execution 现在把交付的附件报告为不透明的版本化
+  `artifact_refs`，并在终态事件前为每个引用发出一条 `artifact.available` 事件。
 - 第六轮评审的裁决落地：打开邮件提供方登录浏览器前必须先启用该提供方（登录不再改动启用开关，
   WebChat 登录按钮跟随开关）；上一进程遗留为 `executing` 的 run 在 Gateway 启动时标记为
   `failed` 并记录 audit `run.interrupted_by_restart`，不再永久显示执行中，LocalMind 任务设计

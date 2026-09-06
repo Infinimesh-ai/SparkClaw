@@ -116,6 +116,18 @@ select a capability, add a return endpoint, or widen tool authority. Results exp
 only coarse state, bounded summary, and opaque versioned trace/artifact references;
 internal paths and store identifiers do not cross this surface.
 
+Artifact references are the attachments the run delivered with its assistant
+message, that is, the workflow outputs (files, images) the owner would have
+received. Each reference id is a digest of the execution id and the artifact
+object identity, so a replay or a restart re-entry yields the same reference
+and no store id, path or URI is exposed; `version` is `v1`, `kind` is derived
+from the media type (`image`, `audio`, `file`), and `media_type` carries the
+attachment content type. Attachments without a registered artifact object are
+not projected. The provider emits one `artifact.available` event per reference
+before the terminal event and repeats the same list in `result.artifact_refs`,
+bounded to the contract's 32 entries. The contract defines no fetch operation,
+so JingSi holds these references for display and reconciliation only.
+
 ## Evidence and remaining boundary
 
 `internal/contracttest` checks the central conformance manifest, HTTP binding,
@@ -125,8 +137,9 @@ present (a fresh clone, CI) the gate skips instead of failing `go test ./...`.
 
 Provider tests cover exact replay/drift, durable negative fences across restart,
 lost-response lookup, monotonic event pages, uniform authorization, idempotent
-cancel, dedicated bearer routing, `return_nowhere`, data-only Memory Context, and
-dispatch into the existing Agent Runtime. JingSi additionally owns a development
+cancel, dedicated bearer routing, `return_nowhere`, data-only Memory Context,
+opaque artifact reference projection, and dispatch into the existing Agent
+Runtime. JingSi additionally owns a development
 gate that starts PostgreSQL 18, IMMS, SparkClaw, JingSi and a real JingSi-Node
 process independently, then proves successful Task result reconciliation,
 Observation writeback and origin notification/ACK. This evidence does not prove

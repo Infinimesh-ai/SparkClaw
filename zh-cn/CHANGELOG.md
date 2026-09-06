@@ -42,6 +42,15 @@
 
 ### Changed
 
+- 第六轮评审的裁决落地：打开邮件提供方登录浏览器前必须先启用该提供方（登录不再改动启用开关，
+  WebChat 登录按钮跟随开关）；上一进程遗留为 `executing` 的 run 在 Gateway 启动时标记为
+  `failed` 并记录 audit `run.interrupted_by_restart`，不再永久显示执行中，LocalMind 任务设计
+  不再声称轮询可跨重启恢复；非 loopback 的 `gateway.bind` 在既无 pairing 又无 API token 时打印
+  启动警告；移除失效的 `model.fast.mtp`/`model.deep.mtp` 字段、从未产生的
+  `ModelCall.fallback`/`error_note` 字段（Postgres 迁移 `0011` 删除该列）及其 WebChat 类型；
+  JingSi Runtime 的 request key 文档化为绑定到已认证 caller（契约禁止跨 space 复用），结果摘要
+  在契约 131072 字节响应上限内钳制为 64 KiB；ASR 文档化为不在模型容量契约范围内。CI 在
+  `INFINICENTER_TOKEN` secret 授予中枢只读权限时运行中央 JingSi 契约门禁。
 - Store 与 Gateway 遥测：`GET /metrics` 的消息、运行、模型调用、工具调用与
   情节摘要总数现在来自有界的 Store 聚合读取（`CountVisibleMessages`、
   `CountVisibleRuns`、`ModelCallStats`、`CountToolCalls`、

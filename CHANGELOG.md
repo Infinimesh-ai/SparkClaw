@@ -54,6 +54,21 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Decisions closed from the sixth review: opening an email provider's login
+  browser now requires the provider to be enabled first (login no longer flips
+  the enable switch, and the WebChat login button follows the toggle); runs a
+  previous Gateway process left in `executing` are marked `failed` at startup
+  with audit `run.interrupted_by_restart` instead of reporting executing
+  forever, and the LocalMind task design no longer claims polling resumes
+  across restarts; a non-loopback `gateway.bind` without pairing or an API
+  token logs a startup warning; the inert `model.fast.mtp`/`model.deep.mtp`
+  fields, the never-produced `ModelCall.fallback`/`error_note` fields (Postgres
+  migration `0011` drops the column) and their WebChat types were removed; the
+  JingSi Runtime request key is documented as bound to the authenticated caller
+  (the contract forbids cross-space reuse) and result summaries as capped at
+  64 KiB inside the contract's 131072-byte response bound; ASR is documented as
+  outside the model capacity contract. CI runs the central JingSi contract gate
+  when an `INFINICENTER_TOKEN` secret grants read access to the hub.
 - Store and Gateway telemetry: `GET /metrics` now derives its message, run,
   model call, tool call and episode summary totals from bounded Store
   aggregate reads (`CountVisibleMessages`, `CountVisibleRuns`,

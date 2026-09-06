@@ -88,3 +88,28 @@ func TestJingSiRuntimeExposureAndBudgetShareOneGrant(t *testing.T) {
 		t.Fatal("malformed projection exposed a tool the budget parser rejected")
 	}
 }
+
+func TestJingSiDocumentPreflightRequiresAuthorizedReader(t *testing.T) {
+	runtime, _, _, closeRuntime := newDocumentDispatchRuntime(t, t.TempDir())
+	defer closeRuntime()
+	for _, tc := range []struct {
+		name   string
+		change func(*jingsiscope.Grant)
+		allow  bool
+	}{
+		{"read", func(g *jingsiscope.Grant) {}, true},
+		{"missing_effect", func(g *jingsiscope.Grant) { g.DataScope = nil }, false},
+		{"wrong_family", func(g *jingsiscope.Grant) { g.DataScope = nil; g.NetworkScope = []string{"workspace.read"} }, false},
+		{"write_only", func(g *jingsiscope.Grant) { g.DataScope = []string{"workspace.write"} }, false},
+		{"missing_tool", func(g *jingsiscope.Grant) { g.Tools = nil }, false},
+		{"zero_budget", func(g *jingsiscope.Grant) { g.MaxToolCalls = 0 }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			grant := jingsiTestGrant()
+			tc.change(&grant)
+			if got := runtime.jingSiDocumentPreflightAuthorized(jingsiScopedRun(grant), "private.txt"); got != tc.allow {
+				t.Fatalf("preflight allowed=%v want=%v", got, tc.allow)
+			}
+		})
+	}
+}

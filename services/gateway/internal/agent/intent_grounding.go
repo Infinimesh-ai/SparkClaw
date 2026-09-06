@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 )
 
@@ -24,6 +25,7 @@ type intentGroundingProjection struct {
 	WorkspaceRoot       string
 	SessionID           string
 	RunID               string
+	Run                 app.AgentRun
 	ExternalMCP         bool
 	HasUnsupportedMedia bool
 }
@@ -40,8 +42,11 @@ func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, c
 		}
 		if run, ok, err := r.store.GetRun(ctx, runID); err != nil {
 			return intentGroundingProjection{}, fmt.Errorf("resolve intent run: %w", err)
-		} else if ok && run.MessageContext != nil {
-			projection.ExternalMCP = isExternalMCPInvocation(run.MessageContext.MCP)
+		} else if ok {
+			projection.Run = run
+			if run.MessageContext != nil {
+				projection.ExternalMCP = isExternalMCPInvocation(run.MessageContext.MCP)
+			}
 		}
 	}
 	if strings.TrimSpace(projection.WorkspaceRoot) == "" && r.tools != nil {
@@ -173,6 +178,13 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 		}
 		target := compatible[0]
 		if target.Kind == "workspace_path" {
+			// Format sniffing and document registration read file bytes too. Apply
+			// the same grant as tool exposure before either preflight side effect.
+			if !r.jingSiDocumentPreflightAuthorized(grounding.Run, target.Ref) {
+				base.Status, base.Slots, base.Facts = app.RouteBlocked, app.RouteSlots{}, nil
+				base.Reason = "document_preflight_not_authorized"
+				return base, nil
+			}
 			edit := candidate.Route.Operation == app.RouteOperationEdit || candidate.Route.Operation == app.RouteOperationTransform
 			var preflight documentPreflight
 			var err error
@@ -246,4 +258,33 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 		return app.RouteDecision{}, err
 	}
 	return base, nil
+}
+
+func (r Runtime) jingSiDocumentPreflightAuthorized(run app.AgentRun, ref string) bool {
+	grant, scoped := jingsiscope.ForRun(run)
+	if !scoped {
+		return true
+	}
+	if r.tools == nil {
+		return false
+	}
+	format := documentFormatFromMetadata(ref, "")
+	if format == "" {
+		return false
+	}
+	requirements := []app.CapabilityRequirement{{
+		Name:       app.ToolCapabilityDocumentRead,
+		Qualifiers: map[string]string{app.CapabilityQualifierFormat: format},
+	}}
+	for _, definition := range r.tools.Definitions() {
+		if definition.RequiresApproval || !grant.AllowsTool(definition) || !r.policy.MayExpose(definition).Allowed {
+			continue
+		}
+		for _, capability := range definition.Capabilities {
+			if matchesAnyRequirement(capability, requirements) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -203,6 +203,26 @@ func (s *MemoryStore) ListModelCalls(ctx context.Context, sessionID, runID strin
 	return out, nil
 }
 
+func (s *MemoryStore) LatestModelCallsByLane(ctx context.Context) (map[string]app.ModelCall, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallLatestByLane, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallLatestByLane, ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationModelCallLatestByLane, ctx); err != nil {
+		return nil, err
+	}
+	latest := map[string]app.ModelCall{}
+	for _, call := range s.modelCalls {
+		if current, ok := latest[call.Lane]; !ok || modelCallIsLater(call, current) {
+			latest[call.Lane] = call
+		}
+	}
+	return latest, nil
+}
+
 func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
 	ctx, cancel := operationContext(ctx, OperationToolCallSave, s.operationTimeouts)
 	defer cancel()

@@ -144,6 +144,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   one documentation index; removed 29 completed or superseded document pairs.
 - Excluded runtime skill packages from the bilingual documentation mirror because skills evolve independently.
 
+- `GET /readyz` resident-service status now reads only the newest model call
+  per lane through the new bounded `RunRepository.LatestModelCallsByLane`
+  (Postgres `DISTINCT ON` plus schema migration `0009`, which adds a
+  `(lane, started_at DESC, id DESC)` index on `model_calls`) instead of
+  loading every persisted model call on each five-second WebChat poll.
+
 ### Validated
 
 - Qwen3-ASR candidate cold readiness and first-request warm-up, batch output

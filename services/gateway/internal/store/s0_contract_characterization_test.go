@@ -82,7 +82,7 @@ var s0RepositoryMethods = map[string][]string{
 		"MarkAllPassiveNotificationsRead", "MarkPassiveNotificationRead", "PassiveNotificationRevision", "PrunePassiveNotifications",
 	},
 	"RunRepository": {
-		"GetRun", "GetToolCall", "ListEpisodeSummaries", "ListRecentEpisodeSummaries", "ListModelCalls", "ListRunFeedback", "ListRuns", "ListToolCalls", "ListRecentToolCalls",
+		"GetRun", "GetToolCall", "LatestModelCallsByLane", "ListEpisodeSummaries", "ListRecentEpisodeSummaries", "ListModelCalls", "ListRunFeedback", "ListRuns", "ListToolCalls", "ListRecentToolCalls",
 		"SaveEpisodeSummary", "SaveModelCall", "SaveRun", "SaveRunFeedback", "SaveToolCall",
 	},
 	"ScheduleRepository": {
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 146 {
-		t.Fatalf("repository method count = %d, want migrated baseline 146", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 147 {
+		t.Fatalf("repository method count = %d, want migrated baseline 147", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

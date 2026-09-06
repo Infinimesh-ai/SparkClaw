@@ -34,7 +34,7 @@ var migratedFileAdmissions = map[string]string{
 	"MessageEventHead": "admitMigrated", "MessageEventsAfter": "admitMigrated",
 	"SaveRunFeedback": "admitMigrated", "ListRunFeedback": "admitMigrated",
 	"SaveRun": "admitMigrated", "GetRun": "admitMigrated", "ListRuns": "admitMigrated",
-	"SaveModelCall": "admitMigrated", "ListModelCalls": "admitMigrated",
+	"SaveModelCall": "admitMigrated", "ListModelCalls": "admitMigrated", "LatestModelCallsByLane": "admitMigrated",
 	"SaveToolCall": "admitMigrated", "GetToolCall": "admitMigrated", "ListToolCalls": "admitMigrated", "ListRecentToolCalls": "admitMigrated",
 	"SaveEpisodeSummary": "admitMigrated", "ListEpisodeSummaries": "admitMigrated", "ListRecentEpisodeSummaries": "admitMigrated",
 	"SaveDocumentRecord": "admitMigrated", "GetDocumentRecord": "admitMigrated", "ListDocumentRecords": "admitMigrated",
@@ -86,8 +86,8 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			accepted[method] = struct{}{}
 		}
 	}
-	if len(accepted) != 146 {
-		t.Fatalf("accepted FileStore method count = %d, want 146", len(accepted))
+	if len(accepted) != 147 {
+		t.Fatalf("accepted FileStore method count = %d, want 147", len(accepted))
 	}
 	for method := range migratedFileAdmissions {
 		if _, exists := accepted[method]; !exists {

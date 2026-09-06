@@ -19,11 +19,10 @@ type residentServiceStatus struct {
 }
 
 func (s *Server) residentServiceStatuses(ctx context.Context, speechStatus speech.Status) ([]residentServiceStatus, error) {
-	calls, err := s.store.ListModelCalls(ctx, "", "")
+	latest, err := s.store.LatestModelCallsByLane(ctx)
 	if err != nil {
 		return nil, err
 	}
-	latest := latestResidentServiceCalls(calls)
 	ocr := s.tools.DocumentOCRReadiness()
 	services := []residentServiceStatus{
 		modelResidentService(modelcapacity.LaneFast, s.cfg.Model.Fast, s.cfg.Model, latest),
@@ -56,25 +55,6 @@ func modelResidentService(lane modelcapacity.Lane, profile config.ModelProfile, 
 		Lane: string(lane), Backend: backend, Model: strings.TrimSpace(profile.Model), Readiness: readiness,
 		LastCallStatus: latestCallStatus(latest, string(lane)),
 	}
-}
-
-var residentServiceLanes = map[modelcapacity.Lane]bool{
-	modelcapacity.LaneFast: true, modelcapacity.LaneDeep: true, modelcapacity.LaneEmbedding: true,
-	modelcapacity.LaneGuard: true, modelcapacity.LaneASR: true, modelcapacity.LaneOCR: true,
-}
-
-func latestResidentServiceCalls(calls []app.ModelCall) map[string]app.ModelCall {
-	latest := map[string]app.ModelCall{}
-	for _, call := range calls {
-		if !residentServiceLanes[modelcapacity.Lane(call.Lane)] {
-			continue
-		}
-		previous, ok := latest[call.Lane]
-		if !ok || call.StartedAt.After(previous.StartedAt) || (call.StartedAt.Equal(previous.StartedAt) && call.ID > previous.ID) {
-			latest[call.Lane] = call
-		}
-	}
-	return latest
 }
 
 func latestCallStatus(latest map[string]app.ModelCall, lane string) string {

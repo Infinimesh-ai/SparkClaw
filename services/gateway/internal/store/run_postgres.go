@@ -242,6 +242,36 @@ func (s *PostgresStore) ListModelCalls(ctx context.Context, sessionID, runID str
 	return out, nil
 }
 
+func (s *PostgresStore) LatestModelCallsByLane(ctx context.Context) (map[string]app.ModelCall, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallLatestByLane, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallLatestByLane, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.runPostgres.Query(ctx, `
+		SELECT DISTINCT ON (lane) id, coalesce(session_id, ''), coalesce(run_id, ''), lane, profile, model, operation, mock, fallback,
+			status, prompt_tokens, response_tokens, total_tokens, latency_ms, coalesce(error, ''), started_at, completed_at
+		FROM model_calls
+		ORDER BY lane, started_at DESC, id DESC
+	`)
+	if err != nil {
+		return nil, classifyRunPostgresReadError(OperationModelCallLatestByLane, ctx, err)
+	}
+	defer rows.Close()
+	latest := map[string]app.ModelCall{}
+	for rows.Next() {
+		call, err := scanModelCall(rows)
+		if err != nil {
+			return nil, classifyRunPostgresReadError(OperationModelCallLatestByLane, ctx, err)
+		}
+		latest[call.Lane] = call
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyRunPostgresReadError(OperationModelCallLatestByLane, ctx, err)
+	}
+	return latest, nil
+}
+
 func (s *PostgresStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
 	call, err := prepareToolCall(call, time.Now().UTC())
 	if err != nil {

@@ -70,11 +70,11 @@ type JingSiRuntimeConfig struct {
 	BearerTokenFile string `json:"bearer_token_file,omitempty"`
 	MaxConcurrent   int    `json:"max_concurrent"`
 	RetentionDays   int    `json:"retention_days"`
-	// EnforceEffectScopes makes tool exposure require JingSi to grant every
-	// declared tool effect through data_scope/network_scope. Until
-	// InfiniCenter decision 0034 fixes that vocabulary in the contract, the
-	// gateway grants the full effect vocabulary itself so an execution keeps the
-	// tools named in tool_scope; the persisted run scopes record which it was.
+	// EnforceEffectScopes selects the admission rule for new executions: true
+	// requires every declared tool effect to be covered by JingSi's
+	// data_scope/network_scope, false keeps the legacy tool_scope-only rule.
+	// The rule is recorded on each run and never widens JingSi's grant.
+	// Pending InfiniCenter decision 0034 the default is false.
 	EnforceEffectScopes bool   `json:"enforce_effect_scopes"`
 	BearerToken         string `json:"-"`
 }

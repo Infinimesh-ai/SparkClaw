@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -126,24 +125,45 @@ func gatewayRuntimeCall(t *testing.T, endpoint string, body any, idempotencyKey 
 	return gatewayRuntimeResponse{StatusCode: response.StatusCode, Payload: decoded.Payload, Raw: string(responseRaw)}
 }
 
-func TestDefaultEffectScopesWidenOnlyDataAndNetworkTokens(t *testing.T) {
-	grant := jingsiscope.Grant{Tools: []string{"files.read"}, ApprovalPolicy: "ask", MaxToolCalls: 3,
-		DataScope: []string{"memory.context"}, NetworkScope: []string{}, Purpose: "task.execute", GrantID: "grant:demo/1", GrantVersion: "v1"}
-	widened := grant.WithDefaultEffectScopes()
-	data, network := jingsiscope.EffectTokens()
-	if len(widened.DataScope) != len(data)+1 || len(widened.NetworkScope) != len(network) || !slices.Contains(widened.DataScope, "memory.context") {
-		t.Fatalf("default effect scopes = data %v network %v", widened.DataScope, widened.NetworkScope)
+func TestAdmissionRuleIsRecordedOnTheRunAndNeverWidensTheGrant(t *testing.T) {
+	input := jingsiruntime.ExecutionInput{
+		ExecutionID: "execution_admission",
+		Authorization: jingsiruntime.Authorization{
+			SpaceID: "space_demo", TaskID: "task_demo", Purpose: jingsiruntime.Purpose{Name: "task.execute"},
+			Grant: jingsiruntime.OpaqueRef{ID: "grant:demo/1", Version: "v1"}, ToolScope: []string{"files.read"},
+			DataScope: []string{"memory.context"}, NetworkScope: []string{}, ApprovalPolicy: "ask",
+		},
+		Budget: jingsiruntime.Budget{MaxRuntimeMS: 30000, MaxToolCalls: 3, MaxOutputBytes: 4096},
 	}
-	if !reflect.DeepEqual(widened.Tools, grant.Tools) || widened.ApprovalPolicy != grant.ApprovalPolicy || widened.MaxToolCalls != grant.MaxToolCalls {
-		t.Fatalf("default effect scopes touched more than the scope lists: %#v", widened)
+	read := app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}
+	for _, enforce := range []bool{false, true} {
+		grant := jingSiGrant(input)
+		grant.EffectScopesEnforced = enforce
+		persisted, err := jingsiscope.Parse(grant.Scopes())
+		if err != nil {
+			t.Fatalf("Parse(projection) error = %v", err)
+		}
+		// The persisted scopes carry exactly what JingSi granted plus the
+		// admission fact; no effect token is added on JingSi's behalf.
+		if !reflect.DeepEqual(persisted.DataScope, []string{"memory.context"}) || len(persisted.NetworkScope) != 0 || persisted.EffectScopesEnforced != enforce {
+			t.Fatalf("enforce=%v persisted grant = %#v", enforce, persisted)
+		}
+		// Legacy admission keeps the tool_scope rule; enforced admission
+		// hides a tool whose effect JingSi did not grant.
+		if got := persisted.AllowsTool(read); got != !enforce {
+			t.Fatalf("enforce=%v AllowsTool(files.read) = %v", enforce, got)
+		}
 	}
-	// The JingSi fixtures grant tool_scope with no effect tokens; without the
-	// default grant every tool would be hidden until decision 0034 lands.
-	if !widened.AllowsTool(app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}) {
-		t.Fatal("default effect scopes did not restore tool_scope exposure")
-	}
-	if grant.AllowsTool(app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}) {
-		t.Fatal("enforced grant exposed an effect JingSi never granted")
+	// A run admitted under the legacy rule keeps it on re-entry even when the
+	// provider is now strict: the admission travels with the run, the grant is
+	// never re-derived from current configuration.
+	legacy := jingSiGrant(input)
+	run := app.AgentRun{MessageContext: &app.MessageRunContext{
+		Source:        app.MessageSourceContext{Adapter: jingsiscope.AdapterID},
+		Authorization: app.MessageAuthorization{Scope: legacy.Scopes()},
+	}}
+	if grant, scoped := jingsiscope.ForRun(run); !scoped || grant.EffectScopesEnforced || !grant.AllowsTool(read) {
+		t.Fatalf("legacy-admitted run lost its admission on re-entry: %#v", grant)
 	}
 }
 

@@ -109,15 +109,29 @@ Memory Context JingSi supplies in the submit payload; it maps to no tool effect,
 and the provider includes Memory whenever `memory_context` is present without
 consulting that token.
 
+`local.compute` is the registered pure-compute exception: such a tool needs no
+data or network token but remains bound by `tool_scope`, the approval policy,
+and the tool-call budget. A tool with mixed effects must satisfy every one of
+them.
+
 The effect vocabulary is not yet part of the accepted contract (InfiniCenter
-decision 0034 proposes it), and today's JingSi consumer grants only
-`memory.context`. Until that decision is accepted,
-`jingsi_runtime_v1.enforce_effect_scopes`
-(`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `false`) keeps the
-gateway granting the full effect vocabulary itself: the run's persisted scopes
-then carry every mapped token in addition to JingSi's, so `tool_scope` alone
-keeps governing exposure and the audit trail shows which side granted what.
-Setting it to `true` projects only the tokens JingSi granted.
+decision 0034 proposes it). SparkClaw therefore admits each execution under one
+of two exposure rules and records that rule on the run as
+`sparkclaw.admission:effect_scopes_legacy` or
+`sparkclaw.admission:effect_scopes_enforced`. JingSi's grant is persisted
+exactly as received under both rules; nothing is ever added to it on JingSi's
+behalf, so the persisted scopes never claim an authorization JingSi did not
+send. `jingsi_runtime_v1.enforce_effect_scopes`
+(`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `false`) selects
+the rule for newly admitted executions: legacy admission exposes the tools named
+in `tool_scope` without consulting `data_scope`/`network_scope`; enforced
+admission additionally requires the effect tokens above. An execution keeps the
+admission it was accepted under across restart re-entry; it is never re-derived
+from the current setting, and a run whose projection lacks or corrupts the
+admission fails closed. The switch-over is coordinated in decision 0034: JingSi
+routes newly authorized tasks only to a provider running enforced admission,
+existing tasks reconcile on their original grant and request key, and the
+setting is retired once that switch-over is verified.
 
 Memory is included only when JingSi supplied the bounded v1 `memory_context`.
 The goal remains the sole owner-intent input for risk, guard, semantic routing,

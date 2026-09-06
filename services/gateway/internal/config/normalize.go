@@ -34,6 +34,9 @@ func normalizeJingSiRuntimeConfig(cfg *Config) error {
 	if value.MaxConcurrent < 1 || value.MaxConcurrent > 64 {
 		return errors.New("jingsi_runtime_v1.max_concurrent must be between 1 and 64")
 	}
+	if value.RetentionDays < 0 || value.RetentionDays > 3650 {
+		return errors.New("jingsi_runtime_v1.retention_days must be between 0 (keep forever) and 3650")
+	}
 	if value.BearerToken != "" && value.BearerTokenFile != "" {
 		return errors.New("JingSi Runtime bearer token must use exactly one of environment or file")
 	}

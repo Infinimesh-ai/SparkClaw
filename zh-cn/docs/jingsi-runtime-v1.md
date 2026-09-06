@@ -23,7 +23,9 @@ export SPARKCLAW_JINGSI_RUNTIME_V1_STATE_DIR='/var/lib/sparkclaw/jingsi-runtime-
 响应、记录或错误中。
 
 `SPARKCLAW_JINGSI_RUNTIME_V1_MAX_CONCURRENT` 将活跃 Runtime v1 工作限制为
-1–64 个并发执行（默认 4）。五个 POST 操作使用媒体类型
+1–64 个并发执行（默认 4）。`SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`
+（`jingsi_runtime_v1.retention_days`，默认 30，0 表示永久保留，最大 3650）限制终态记录和
+negative fence 在状态目录中的保留时长；见下文"运行边界"。五个 POST 操作使用媒体类型
 `application/vnd.infinimesh.sparkclaw-runtime.v1+json`：
 
 - `/v1/executions:submit`
@@ -65,6 +67,34 @@ task-context 字段中，用于确定性恢复；只有在路由和授权边界�
 data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题的 Memory Context
 无法选择能力、添加返回端点或扩大工具权限。结果只暴露粗粒度状态、有界 summary 和不透明的
 版本化 trace/artifact 引用；内部路径和 store 标识符不会越过该接口边界。
+
+## 运行边界与日志
+
+在 Gateway 绑定生命周期之前，提供方不提供任何服务：`Start` 之前的每个已认证操作都会收到
+可重试的 `runtime_unavailable` Problem（`side_effects=none`），因此不会有 execution 在
+不可取消的 context 下运行或逃脱进程关闭。
+
+等待并发槽位的已接受工作同样有界。已接受但尚未运行的 execution 最多为 4 ×
+`max_concurrent`（默认 4 时为 16）；超出后的首次 Submit 会收到可重试的
+`runtime_unavailable` Problem（`retry_after_ms=5000`、`side_effects=none`），因此不会
+持久化任何记录、不会挂起 goroutine，JingSi 之后可以用同一 key 重试。已接受 key 的精确重放
+仍返回该 execution；`Start` 时恢复的持久化工作不受该上限限制，因为它已由之前的进程接受。
+
+状态目录受保留期限约束。绑定到提供方生命周期的每小时清理（首次在 `Start` 时运行）会删除
+终态完成时间超过 `retention_days` 的 bound 记录，以及提交时间超过该期限的 negative fence；
+每次清理最多删除 5000 条记录，积压会分多次清理完成。非终态工作（accepted、queued、
+running、approval_required）永远不会被清理。删除记录意味着遗忘该 key：之后再 Lookup 已清理
+的 key 会提交一个新的 `not_started` fence（fence ID 按确定性规则保持相同），之后的 Submit 会
+被视为首次请求。契约本身没有对对账设置时间上限，但 JingSi 只通过 Lookup 解决 unknown
+Submit，在得到 `bound` 或 `not_started` 之前保持阻塞，并原子绑定已接受的 execution。因此该
+窗口只需超过 JingSi 可能仍持有未对账 key 的最长中断时长；30 天留有充分余量，必须无限期
+遵守 fence 的运营者可以将该值设为 0 并接受无界增长。
+
+运行日志写入进程的 `slog` logger。bearer 被拒绝时记录累计失败次数与远端地址，绝不记录
+所提交的凭据；幂等冲突记录 request ID、request key 和原因码（`negative_fence`、
+`authorization_drift`、`semantic_drift`）；持久化记录写入失败记录操作名和不透明的记录 ID；
+每个终态记录 execution ID、结果与事件数。按契约对日志的要求，任何一行都不包含 goal、
+Memory Context、结果摘要或 bearer。
 
 ## 证据与剩余边界
 

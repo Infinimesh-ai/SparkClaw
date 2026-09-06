@@ -54,6 +54,19 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- JingSi Runtime v1 operational bounds: the state directory is swept hourly
+  under a new `jingsi_runtime_v1.retention_days` knob
+  (`SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`, default 30, `0` keeps every
+  record, validated at load) that deletes terminal execution records and
+  negative fences older than the window while never touching nonterminal
+  work; Submit answers the retryable `runtime_unavailable` Problem
+  (`retry_after_ms=5000`, no side effects) once more than 4 × `max_concurrent`
+  executions are accepted but not running, so parked goroutines are bounded;
+  every action answers `runtime_unavailable` until the Gateway has bound the
+  provider lifecycle, so no execution runs under an uncancellable context;
+  and the provider now logs bearer rejections (count only), idempotency
+  conflicts, persist failures, queue rejections and terminal outcomes through
+  `slog` without the goal, Memory Context, summary or bearer.
 - Decisions closed from the sixth review: opening an email provider's login
   browser now requires the provider to be enabled first (login no longer flips
   the enable switch, and the WebChat login button follows the toggle); runs a

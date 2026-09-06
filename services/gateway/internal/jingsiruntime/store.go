@@ -208,6 +208,21 @@ func (s *fileStore) persistLocked(value *record) error {
 	return nil
 }
 
+// removeLocked deletes a record's file and drops it from both indexes. An
+// already-missing file counts as removed so a crash between unlink and the
+// next sweep cannot wedge the record; any other failure leaves the indexes
+// untouched so memory and disk stay consistent for the next attempt.
+func (s *fileStore) removeLocked(value *record) error {
+	if err := os.Remove(s.path(value)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove runtime record: %w", err)
+	}
+	delete(s.byKey, recordMapKey(value.CallerID, value.RequestKey))
+	if value.ExecutionID != "" {
+		delete(s.byExecution, value.ExecutionID)
+	}
+	return nil
+}
+
 func canonicalAuthorizationHash(value Authorization) (string, error) {
 	value.ToolScope = sortedStrings(value.ToolScope)
 	value.DataScope = sortedStrings(value.DataScope)

@@ -18,7 +18,8 @@
   "jingsi_runtime_v1": {
     "enabled": false,
     "state_dir": "./data/jingsi-runtime-v1",
-    "max_concurrent": 4
+    "max_concurrent": 4,
+    "retention_days": 30
   },
   "model": {
     "capacity_profile": "mock",

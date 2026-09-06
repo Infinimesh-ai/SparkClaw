@@ -42,6 +42,14 @@
 
 ### Changed
 
+- JingSi Runtime v1 运行边界：新增 `jingsi_runtime_v1.retention_days`
+  （`SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`，默认 30，`0` 表示永久保留，加载时校验），
+  每小时清理超过保留期的终态 execution 记录与 negative fence，非终态工作永不清理；已接受但
+  尚未运行的 execution 超过 4 × `max_concurrent` 后，Submit 返回可重试的 `runtime_unavailable`
+  Problem（`retry_after_ms=5000`、无副作用），挂起的 goroutine 因而有界；在 Gateway 绑定
+  提供方生命周期之前所有操作返回 `runtime_unavailable`，不会有 execution 在不可取消的
+  context 下运行；提供方通过 `slog` 记录 bearer 拒绝（仅计数）、幂等冲突、持久化失败、
+  队列拒绝与终态结果，日志不含 goal、Memory Context、摘要或 bearer。
 - 第六轮评审的裁决落地：打开邮件提供方登录浏览器前必须先启用该提供方（登录不再改动启用开关，
   WebChat 登录按钮跟随开关）；上一进程遗留为 `executing` 的 run 在 Gateway 启动时标记为
   `failed` 并记录 audit `run.interrupted_by_restart`，不再永久显示执行中，LocalMind 任务设计

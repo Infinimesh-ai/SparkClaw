@@ -185,14 +185,77 @@ func ForRun(run app.AgentRun) (Grant, bool) {
 	return grant, true
 }
 
+// ScopeFamily names the authorization list a declared tool effect draws on.
+type ScopeFamily string
+
+const (
+	ScopeFamilyNone    ScopeFamily = "none"
+	ScopeFamilyData    ScopeFamily = "data"
+	ScopeFamilyNetwork ScopeFamily = "network"
+)
+
+// effectRequirements is the single mapping from a tool's declared effect to
+// the data_scope or network_scope token JingSi must have granted. The token
+// is the effect name itself, so the vocabulary JingSi grants is exactly the
+// effect vocabulary the tool registry declares. An effect missing here is
+// unmapped and fails closed in AllowsTool.
+var effectRequirements = map[app.ToolEffect]ScopeFamily{
+	app.ToolEffectExternalRead:     ScopeFamilyNetwork,
+	app.ToolEffectExternalInteract: ScopeFamilyNetwork,
+	app.ToolEffectWorkspaceRead:    ScopeFamilyData,
+	app.ToolEffectWorkspaceWrite:   ScopeFamilyData,
+	app.ToolEffectLocalRead:        ScopeFamilyData,
+	app.ToolEffectLocalWrite:       ScopeFamilyData,
+	app.ToolEffectLocalCompute:     ScopeFamilyNone,
+}
+
+// EffectRequirement reports which scope family and token one declared effect
+// needs. known is false for an effect the mapping does not cover.
+func EffectRequirement(effect app.ToolEffect) (family ScopeFamily, token string, known bool) {
+	family, known = effectRequirements[effect]
+	if !known {
+		return "", "", false
+	}
+	if family == ScopeFamilyNone {
+		return family, "", true
+	}
+	return family, string(effect), true
+}
+
 // AllowsTool reports whether the grant exposes one tool definition: the exact
-// name must be in tool_scope, the tool-call budget must not be exhausted, and
-// approval_policy=deny hides tools that require approval.
+// name must be in tool_scope, the tool-call budget must not be exhausted,
+// approval_policy=deny hides tools that require approval, and every declared
+// effect must be covered by the granted data_scope or network_scope. A tool
+// that declares no effect, or an effect the mapping does not know, is hidden:
+// the contract lets SparkClaw only narrow these scopes, so an effect it
+// cannot classify is never exposed.
 func (g Grant) AllowsTool(definition app.ToolDefinition) bool {
 	if !slices.Contains(g.Tools, definition.Name) || g.MaxToolCalls == 0 {
 		return false
 	}
-	return g.ApprovalPolicy != ApprovalDeny || !definition.RequiresApproval
+	if g.ApprovalPolicy == ApprovalDeny && definition.RequiresApproval {
+		return false
+	}
+	if len(definition.Directory.Effects) == 0 {
+		return false
+	}
+	for _, effect := range definition.Directory.Effects {
+		family, token, known := EffectRequirement(effect)
+		if !known {
+			return false
+		}
+		switch family {
+		case ScopeFamilyData:
+			if !slices.Contains(g.DataScope, token) {
+				return false
+			}
+		case ScopeFamilyNetwork:
+			if !slices.Contains(g.NetworkScope, token) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func splitScope(scope string) (prefix, value string, ok bool) {

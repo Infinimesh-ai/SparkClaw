@@ -55,9 +55,37 @@ runtime 数据，必须与其他 SparkClaw 状态处于相同的加密备份和�
 提供方会在每个操作中验证并持久化完整的 v1 授权信封。对于未知 execution 或授权不匹配的
 execution，Status、events 和 cancel 会统一返回 `not_found`。Agent 入口接收精确的 task
 身份，以及排序后的 tool/data/network/approval/grant 投影。Runtime 工具暴露要求
-`tool_scope` 精确匹配；`approval_policy=deny` 会移除需要 Approval 的工具。每个请求的
+`tool_scope` 精确匹配；`approval_policy=deny` 会移除需要 Approval 的工具；`data_scope`
+与 `network_scope` 必须覆盖工具声明的每一个 effect（见下文）。每个请求的
 deadline、最大运行时间、最大工具调用次数和最大输出字节数只能收紧现有的全局 Runtime
 策略。契约接受最高 1 MiB 的 `budget.max_output_bytes`，但每个响应上限为 131072 字节，因此结果摘要无论请求多少都钳制在 64 KiB。
+
+### 数据与网络 scope
+
+契约规定 SparkClaw 只能缩小 `data_scope` 与 `network_scope`，但没有枚举二者的词汇表。
+因此 SparkClaw 对任何无法归类的内容一律不授予。每个工具在工具注册表中声明自己的
+effect（`ToolDirectoryMetadata.Effects`），暴露边界把每个已声明 effect 映射到 JingSi 必须
+授予的 token。token 就是 effect 名，所以 JingSi 能授予的词汇表恰好等于注册表声明的 effect
+词汇表。映射只存在于一处 `jingsiscope.EffectRequirement`，并由注册表测试证明每个可暴露的
+静态工具只声明已映射的 effect。
+
+| 工具声明的 effect | 所需 scope 列表 | 所需 token | 工具示例 |
+|---|---|---|---|
+| `external.read` | `network_scope` | `external.read` | `web.search`、`browser.open`、`browser.read`、`weather.lookup`、只读 MCP 与 LocalMind 状态工具 |
+| `external.interact` | `network_scope` | `external.interact` | `email.send`、`browser.click`、`browser.type`、`browser.close`、可变更的 MCP 与 LocalMind delegate/cancel 工具 |
+| `workspace.read` | `data_scope` | `workspace.read` | `files.read`、`files.search`、`images.inspect`、`pdf.extract_text` |
+| `workspace.write` | `data_scope` | `workspace.write` | `files.write_draft`、`file.delete`、`docx.*`、`xlsx.*`、`pptx.*`、`pdf.transform` |
+| `local.read` | `data_scope` | `local.read` | `reminders.list`、`observation.read` |
+| `local.write` | `data_scope` | `local.write` | `reminders.create`、`reminders.update`、`reminders.cancel` |
+| `local.compute` | 无 | 无 | `browser.validate_transition`、`browser.assess_goal`、`browser.identify_public_target` |
+
+只有当工具出现在 `tool_scope` 中且其声明的每一个 effect 都被覆盖时，才会向 JingSi
+execution 暴露该工具。未声明任何 effect 的工具（`memory.*`、`shell.exec_sandboxed`、
+`notify.ask_approval`）或声明了表外 effect 的工具对所有 JingSi execution 隐藏；它们完全
+无法通过 `data_scope` 或 `network_scope` 授予。任一列表中的未知 token 不会扩大任何权限。
+中央夹具使用的 token `memory.context` 指 JingSi 在 submit payload 中提供的 Memory
+Context；它不映射到任何工具 effect，提供方只要收到 `memory_context` 就会包含 Memory，
+不参考该 token。
 
 只有 JingSi 提供了有界 v1 `memory_context` 时才会包含 Memory。goal 仍是 risk、guard、
 语义路由、消息控制和能力准入唯一的 owner intent 输入。Memory summary 保存在独立的

@@ -110,22 +110,90 @@ func TestForRunClosesMalformedJingSiRunsAndIgnoresOthers(t *testing.T) {
 
 func TestAllowsToolRequiresExactNameBudgetAndApproval(t *testing.T) {
 	grant := sampleGrant()
-	if !grant.AllowsTool(app.ToolDefinition{Name: "files.read", RequiresApproval: true}) {
+	read := app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}
+	if !grant.AllowsTool(read) {
+		t.Fatal("scoped read tool was hidden")
+	}
+	approval := read
+	approval.RequiresApproval = true
+	if !grant.AllowsTool(approval) {
 		t.Fatal("ask policy hid an approval-requiring tool in scope")
 	}
-	if grant.AllowsTool(app.ToolDefinition{Name: "files.write"}) {
+	other := read
+	other.Name = "files.write"
+	if grant.AllowsTool(other) {
 		t.Fatal("tool outside tool_scope was exposed")
 	}
 	grant.ApprovalPolicy = ApprovalDeny
-	if grant.AllowsTool(app.ToolDefinition{Name: "files.read", RequiresApproval: true}) {
+	if grant.AllowsTool(approval) {
 		t.Fatal("deny policy exposed an approval-requiring tool")
 	}
-	if !grant.AllowsTool(app.ToolDefinition{Name: "files.read"}) {
+	if !grant.AllowsTool(read) {
 		t.Fatal("deny policy hid a tool that needs no approval")
 	}
 	grant.MaxToolCalls = 0
-	if grant.AllowsTool(app.ToolDefinition{Name: "files.read"}) {
+	if grant.AllowsTool(read) {
 		t.Fatal("zero tool-call budget exposed a tool")
+	}
+}
+
+func TestAllowsToolNarrowsToGrantedDataAndNetworkScope(t *testing.T) {
+	grant := sampleGrant() // data: memory.context, workspace.read; network: external.read
+	grant.Tools = []string{"browser.read", "email.send", "files.write", "files.read", "reminders.list", "browser.assess_goal", "memory.search", "odd.tool"}
+	definition := func(name string, effects ...app.ToolEffect) app.ToolDefinition {
+		return app.ToolDefinition{Name: name, Directory: app.ToolDirectoryMetadata{Effects: effects}}
+	}
+	cases := []struct {
+		name string
+		def  app.ToolDefinition
+		want bool
+	}{
+		{"external read within network scope", definition("browser.read", app.ToolEffectExternalRead), true},
+		{"external interact outside network scope", definition("email.send", app.ToolEffectExternalInteract), false},
+		{"workspace write outside data scope", definition("files.write", app.ToolEffectWorkspaceWrite), false},
+		{"workspace read within data scope", definition("files.read", app.ToolEffectWorkspaceRead), true},
+		{"local read outside data scope", definition("reminders.list", app.ToolEffectLocalRead), false},
+		{"pure compute needs no scope", definition("browser.assess_goal", app.ToolEffectLocalCompute), true},
+		{"no declared effect fails closed", definition("memory.search"), false},
+		{"unknown effect fails closed", definition("odd.tool", app.ToolEffect("cloud.sync")), false},
+		{"every effect must be covered", definition("files.read", app.ToolEffectWorkspaceRead, app.ToolEffectExternalInteract), false},
+	}
+	for _, tc := range cases {
+		if got := grant.AllowsTool(tc.def); got != tc.want {
+			t.Errorf("%s: AllowsTool = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// An unknown token in the granted lists widens nothing.
+	grant.NetworkScope = []string{"anywhere"}
+	if grant.AllowsTool(definition("email.send", app.ToolEffectExternalInteract)) {
+		t.Fatal("unrecognized network token exposed an interacting tool")
+	}
+	if grant.AllowsTool(definition("browser.read", app.ToolEffectExternalRead)) {
+		t.Fatal("unrecognized network token stood in for external.read")
+	}
+}
+
+func TestEffectRequirementCoversEveryDeclaredEffect(t *testing.T) {
+	want := map[app.ToolEffect]struct {
+		family ScopeFamily
+		token  string
+	}{
+		app.ToolEffectExternalRead:     {ScopeFamilyNetwork, "external.read"},
+		app.ToolEffectExternalInteract: {ScopeFamilyNetwork, "external.interact"},
+		app.ToolEffectWorkspaceRead:    {ScopeFamilyData, "workspace.read"},
+		app.ToolEffectWorkspaceWrite:   {ScopeFamilyData, "workspace.write"},
+		app.ToolEffectLocalRead:        {ScopeFamilyData, "local.read"},
+		app.ToolEffectLocalWrite:       {ScopeFamilyData, "local.write"},
+		app.ToolEffectLocalCompute:     {ScopeFamilyNone, ""},
+	}
+	for effect, expected := range want {
+		family, token, known := EffectRequirement(effect)
+		if !known || family != expected.family || token != expected.token {
+			t.Errorf("EffectRequirement(%q) = %q, %q, %v; want %q, %q", effect, family, token, known, expected.family, expected.token)
+		}
+	}
+	if _, _, known := EffectRequirement(app.ToolEffect("remote.exec")); known {
+		t.Fatal("unknown effect was mapped")
 	}
 }
 

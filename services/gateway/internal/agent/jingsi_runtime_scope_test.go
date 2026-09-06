@@ -17,28 +17,53 @@ func jingsiScopedRun(grant jingsiscope.Grant) app.AgentRun {
 func jingsiTestGrant() jingsiscope.Grant {
 	return jingsiscope.Grant{
 		Tools: []string{"files.read"}, ApprovalPolicy: jingsiscope.ApprovalDeny, MaxToolCalls: 4, MaxOutputBytes: 4096,
-		Purpose: "task.execute", GrantID: "grant_demo", GrantVersion: "v1",
+		DataScope: []string{string(app.ToolEffectWorkspaceRead)},
+		Purpose:   "task.execute", GrantID: "grant_demo", GrantVersion: "v1",
+	}
+}
+
+func workspaceReadTool(name string, requiresApproval bool) app.ToolDefinition {
+	return app.ToolDefinition{
+		Name: name, RequiresApproval: requiresApproval,
+		Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}},
 	}
 }
 
 func TestJingSiRuntimeToolExposureRequiresExactToolAndApprovalScope(t *testing.T) {
 	grant := jingsiTestGrant()
 	run := jingsiScopedRun(grant)
-	if !jingsiRuntimeToolAuthorized(run, app.ToolDefinition{Name: "files.read", RequiresApproval: false}) {
+	if !jingsiRuntimeToolAuthorized(run, workspaceReadTool("files.read", false)) {
 		t.Fatal("exact allowed read tool was rejected")
 	}
-	if jingsiRuntimeToolAuthorized(run, app.ToolDefinition{Name: "files.write", RequiresApproval: false}) {
+	if jingsiRuntimeToolAuthorized(run, workspaceReadTool("files.write", false)) {
 		t.Fatal("unscoped tool was exposed")
 	}
-	if jingsiRuntimeToolAuthorized(run, app.ToolDefinition{Name: "files.read", RequiresApproval: true}) {
+	if jingsiRuntimeToolAuthorized(run, workspaceReadTool("files.read", true)) {
 		t.Fatal("deny approval policy exposed an approval-requiring tool")
 	}
 	grant.MaxToolCalls = 0
-	if jingsiRuntimeToolAuthorized(jingsiScopedRun(grant), app.ToolDefinition{Name: "files.read", RequiresApproval: false}) {
+	if jingsiRuntimeToolAuthorized(jingsiScopedRun(grant), workspaceReadTool("files.read", false)) {
 		t.Fatal("zero tool-call budget exposed a tool")
 	}
 	if !jingsiRuntimeToolAuthorized(app.AgentRun{}, app.ToolDefinition{Name: "files.write"}) {
 		t.Fatal("non-JingSi run was scoped")
+	}
+}
+
+func TestJingSiRuntimeToolExposureNarrowsToDataAndNetworkScope(t *testing.T) {
+	grant := jingsiTestGrant()
+	grant.Tools = []string{"files.read", "web.search"}
+	webSearch := app.ToolDefinition{Name: "web.search", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectExternalRead}}}
+	if jingsiRuntimeToolAuthorized(jingsiScopedRun(grant), webSearch) {
+		t.Fatal("network tool was exposed without network_scope")
+	}
+	grant.NetworkScope = []string{string(app.ToolEffectExternalRead)}
+	if !jingsiRuntimeToolAuthorized(jingsiScopedRun(grant), webSearch) {
+		t.Fatal("network tool stayed hidden after external.read was granted")
+	}
+	grant.DataScope = nil
+	if jingsiRuntimeToolAuthorized(jingsiScopedRun(grant), workspaceReadTool("files.read", false)) {
+		t.Fatal("workspace tool was exposed without data_scope")
 	}
 }
 
@@ -59,7 +84,7 @@ func TestJingSiRuntimeExposureAndBudgetShareOneGrant(t *testing.T) {
 	if !ok || calls != 0 {
 		t.Fatalf("malformed budget granted %d calls", calls)
 	}
-	if jingsiRuntimeToolAuthorized(run, app.ToolDefinition{Name: "files.write"}) {
+	if jingsiRuntimeToolAuthorized(run, workspaceReadTool("files.write", false)) {
 		t.Fatal("malformed projection exposed a tool the budget parser rejected")
 	}
 }

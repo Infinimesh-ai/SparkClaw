@@ -207,6 +207,47 @@ func TestClassifyPPTXVisualRepairAuthorityIsConservative(t *testing.T) {
 	}
 }
 
+// Mixed authority is the documented middle ground: issues are selected as for
+// exact requests (a current-run change must participate), but the repair may
+// adjust the unchanged participant of that conflict, while text rewrite stays
+// reserved for outcome requests.
+func TestMixedAuthoritySelectsLikeExactButMayAdjustTheUnchangedParticipant(t *testing.T) {
+	sha := strings.Repeat("ab", 32)
+	page := pptxVisualQAPageResult{
+		SlideIndex: 1,
+		Structure: pptxVisualRepairContext{SlideIndex: 1, Shapes: []map[string]any{
+			{"shape_ref": "slide:1:shape:1", "changed": false, "edit_capabilities": []any{"set_geometry", "rewrite_text"}},
+			{"shape_ref": "slide:1:shape:2", "changed": true, "edit_capabilities": []any{"set_geometry", "rewrite_text"}},
+			{"shape_ref": "slide:1:shape:3", "changed": false, "edit_capabilities": []any{"set_geometry"}},
+		}},
+		Targets: map[string]string{"slide:1:shape:1": sha, "slide:1:shape:2": sha, "slide:1:shape:3": sha},
+	}
+	overlap := PPTXVisualRuntimeIssue{SlideIndex: 1, Class: "content_obscured", EvidenceSource: app.PPTXVisualEvidenceObjective, EvidenceID: "diag-overlap", RepairQualified: true, ShapeRefs: []string{"slide:1:shape:1", "slide:1:shape:2"}}
+	untouched := PPTXVisualRuntimeIssue{SlideIndex: 1, Class: "content_obscured", EvidenceSource: app.PPTXVisualEvidenceObjective, EvidenceID: "diag-untouched", RepairQualified: true, ShapeRefs: []string{"slide:1:shape:3"}}
+	mixed := pptxVisualRepairAuthority{Class: "mixed"}
+
+	selected := filterPPTXRepairIssues([]PPTXVisualRuntimeIssue{overlap, untouched}, page, mixed)
+	if len(selected) != 1 || selected[0].EvidenceID != "diag-overlap" {
+		t.Fatalf("mixed authority selected issues without a current-run participant: %#v", selected)
+	}
+	request := pptxVisualRepairRequest{Attempt: 1, Operation: "update_slide", Authority: mixed, Page: page, Issues: selected}
+	plan := func(op pptxVisualRepairOperation) pptxVisualRepairPlan {
+		return pptxVisualRepairPlan{SchemaVersion: pptxVisualRepairPlanSchema, Attempt: 1, SlideIndex: 1, ResolvesDiagnosticIDs: []string{"diag-overlap"}, ResolvesVisualIssueIDs: []string{}, Operations: []pptxVisualRepairOperation{op}}
+	}
+	qualified := []string{"set_geometry", "rewrite_text"}
+	if err := validatePPTXVisualRepairPlan(plan(pptxVisualRepairOperation{Op: "set_geometry", ShapeRef: "slide:1:shape:1", RegionMilli: []int{100, 100, 400, 300}}), request, qualified); err != nil {
+		t.Fatalf("mixed authority refused to move the unchanged participant of the conflict: %v", err)
+	}
+	if err := validatePPTXVisualRepairPlan(plan(pptxVisualRepairOperation{Op: "rewrite_text", ShapeRef: "slide:1:shape:2", Text: "shorter"}), request, qualified); err == nil {
+		t.Fatal("mixed authority accepted a text rewrite, which only outcome requests may do")
+	}
+	exact := request
+	exact.Authority = pptxVisualRepairAuthority{Class: "exact"}
+	if err := validatePPTXVisualRepairPlan(plan(pptxVisualRepairOperation{Op: "set_geometry", ShapeRef: "slide:1:shape:1", RegionMilli: []int{100, 100, 400, 300}}), exact, qualified); err == nil {
+		t.Fatal("exact authority moved a shape the current run never changed")
+	}
+}
+
 func TestPPTXVisualPolicyQualificationCorpusEnforcesClassAndOperationCeilings(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "pptx_visual_policy_qualification_v1.json"))
 	if err != nil {

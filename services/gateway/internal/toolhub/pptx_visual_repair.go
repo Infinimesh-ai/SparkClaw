@@ -476,8 +476,12 @@ func containsAnyPPTXMarker(value string, markers []string) bool {
 
 func filterPPTXRepairIssues(issues []PPTXVisualRuntimeIssue, page pptxVisualQAPageResult, authority pptxVisualRepairAuthority) []PPTXVisualRuntimeIssue {
 	if authority.Class == "mixed" {
-		// Mixed requests may receive objective/local layout correction, while
-		// style and content autonomy stays frozen behind explicit constraints.
+		// Mixed requests select issues like exact requests: objective classes
+		// only, and only conflicts a current-run change participates in. The
+		// plan validator keeps the mixed class, so a repair may still adjust the
+		// unchanged participant of such a conflict (as the design allows for
+		// outcome-oriented repair) while text rewrite and shape creation stay
+		// reserved for pure outcome requests.
 		authority.Class = "exact"
 	}
 	shapes := pptxVisualShapeRecords(page.Structure)

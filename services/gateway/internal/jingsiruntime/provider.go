@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"mime"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -39,6 +41,11 @@ type Config struct {
 	CallerID      string
 	MaxConcurrent int
 	Now           func() time.Time
+	// Logger receives the provider's operational lines: bearer rejections
+	// (a running count, never the presented credential), idempotency
+	// conflicts, persist failures and terminal outcomes. Lines never carry
+	// the goal, the Memory Context or the bearer. Nil selects slog.Default.
+	Logger *slog.Logger
 }
 
 type Provider struct {
@@ -48,6 +55,8 @@ type Provider struct {
 	callerID      string
 	maxConcurrent int
 	now           func() time.Time
+	logger        *slog.Logger
+	authFailures  atomic.Uint64
 
 	lifecycleMu sync.RWMutex
 	lifecycle   context.Context
@@ -80,13 +89,16 @@ func New(config Config, executor Executor) (*Provider, error) {
 	if config.Now == nil {
 		config.Now = func() time.Time { return time.Now().UTC() }
 	}
+	if config.Logger == nil {
+		config.Logger = slog.Default()
+	}
 	store, err := newFileStore(config.StateDir)
 	if err != nil {
 		return nil, err
 	}
 	return &Provider{
 		store: store, executor: executor, token: []byte(config.BearerToken), callerID: config.CallerID,
-		maxConcurrent: config.MaxConcurrent, now: config.Now,
+		maxConcurrent: config.MaxConcurrent, now: config.Now, logger: config.Logger,
 		sem: make(chan struct{}, config.MaxConcurrent), cancels: map[string]context.CancelFunc{},
 	}, nil
 }
@@ -116,6 +128,7 @@ func (p *Provider) Start(ctx context.Context) {
 		for _, executionID := range pending {
 			p.enqueue(executionID)
 		}
+		p.logger.Info("jingsi runtime started", "resumed_executions", len(pending))
 	})
 }
 
@@ -140,10 +153,12 @@ func (p *Provider) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	}
 	presented := bearerCredential(request.Header.Get("Authorization"))
 	if presented == "" || subtle.ConstantTimeCompare([]byte(presented), p.token) != 1 {
+		p.logger.Warn("jingsi runtime bearer rejected", "failures", p.authFailures.Add(1), "remote", request.RemoteAddr)
 		writeProblem(w, http.StatusUnauthorized, "request_unauthenticated", "unauthenticated", false, 0)
 		return
 	}
 	if !p.isStarted() {
+		p.logger.Warn("jingsi runtime request before Start", "path", request.URL.Path)
 		writeProblem(w, http.StatusServiceUnavailable, "request_runtime_not_started", "runtime_unavailable", true, 1000)
 		return
 	}
@@ -197,7 +212,14 @@ func (p *Provider) submit(w http.ResponseWriter, request *http.Request) {
 	existing := p.store.byKey[key]
 	if existing != nil {
 		if existing.Kind != recordBound || existing.AuthorizationHash != authorizationHash || existing.SemanticHash != semanticHash {
+			reason := "semantic_drift"
+			if existing.Kind != recordBound {
+				reason = "negative_fence"
+			} else if existing.AuthorizationHash != authorizationHash {
+				reason = "authorization_drift"
+			}
 			p.store.mu.Unlock()
+			p.logger.Warn("jingsi runtime idempotency conflict", "request_id", value.RequestID, "request_key", value.Payload.RequestKey, "reason", reason)
 			writeProblem(w, http.StatusConflict, value.RequestID, "idempotency_conflict", false, 0)
 			return
 		}
@@ -225,6 +247,7 @@ func (p *Provider) submit(w http.ResponseWriter, request *http.Request) {
 	recordValue.UpdatedAt = recordValue.Events[1].At
 	if err := p.store.persistLocked(recordValue); err != nil {
 		p.store.mu.Unlock()
+		p.logPersistFailure("submit", executionID, err)
 		writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, 1000)
 		return
 	}
@@ -279,6 +302,7 @@ func (p *Provider) lookup(w http.ResponseWriter, request *http.Request) {
 	}
 	if err := p.store.persistLocked(fenced); err != nil {
 		p.store.mu.Unlock()
+		p.logPersistFailure("lookup", fenceID, err)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"protocol": Protocol, "kind": "execution.lookup.result", "request_id": value.RequestID,
 			"payload": map[string]any{"request_key": value.Payload.RequestKey, "outcome": "unresolved", "retry_after_ms": 1000},
@@ -373,6 +397,7 @@ func (p *Provider) cancel(w http.ResponseWriter, request *http.Request) {
 		} else {
 			if err := p.store.persistLocked(recordValue); err != nil {
 				p.store.mu.Unlock()
+				p.logPersistFailure("cancel", recordValue.ExecutionID, err)
 				writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, 1000)
 				return
 			}
@@ -448,6 +473,7 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 	if err := p.store.persistLocked(value); err != nil {
 		// The in-memory record already says running; without a terminal
 		// outcome status polls would report it as running forever.
+		p.logPersistFailure("execute", executionID, err)
 		p.finishLocked(value, "failed", "runtime state could not be persisted")
 		p.store.mu.Unlock()
 		return
@@ -496,7 +522,9 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 		value.State = state
 		value.UpdatedAt = nextTime(value.UpdatedAt)
 		p.appendEventLocked(value, "execution.approval_required", state, "approval_required")
-		_ = p.store.persistLocked(value)
+		if err := p.store.persistLocked(value); err != nil {
+			p.logPersistFailure("approval_required", value.ExecutionID, err)
+		}
 		return
 	}
 	traceRef := output.TraceRef
@@ -532,7 +560,18 @@ func (p *Provider) finishLocked(value *record, state, summary string) {
 		}
 	}
 	p.appendEventLocked(value, "execution."+state, state, "")
-	_ = p.store.persistLocked(value)
+	if err := p.store.persistLocked(value); err != nil {
+		p.logPersistFailure("finish", value.ExecutionID, err)
+	}
+	p.logger.Info("jingsi runtime execution finished", "execution_id", value.ExecutionID, "outcome", state,
+		"cancel_requested", value.CancelRequested, "events", len(value.Events))
+}
+
+// logPersistFailure reports a durable-record write that failed. The record
+// identity is an opaque execution or fence ID; the goal, Memory Context and
+// bearer never reach the log.
+func (p *Provider) logPersistFailure(operation, recordID string, err error) {
+	p.logger.Error("jingsi runtime record persist failed", "operation", operation, "record_id", recordID, "error", err)
 }
 
 func (p *Provider) appendEventLocked(value *record, eventType, state, summaryCode string) {

@@ -66,6 +66,18 @@ data-only 标记下加入 workflow prompt。因此，恶意或仅仅偏离主题
 无法选择能力、添加返回端点或扩大工具权限。结果只暴露粗粒度状态、有界 summary 和不透明的
 版本化 trace/artifact 引用；内部路径和 store 标识符不会越过该接口边界。
 
+## 运行边界与日志
+
+在 Gateway 绑定生命周期之前，提供方不提供任何服务：`Start` 之前的每个已认证操作都会收到
+可重试的 `runtime_unavailable` Problem（`side_effects=none`），因此不会有 execution 在
+不可取消的 context 下运行或逃脱进程关闭。
+
+运行日志写入进程的 `slog` logger。bearer 被拒绝时记录累计失败次数与远端地址，绝不记录
+所提交的凭据；幂等冲突记录 request ID、request key 和原因码（`negative_fence`、
+`authorization_drift`、`semantic_drift`）；持久化记录写入失败记录操作名和不透明的记录 ID；
+每个终态记录 execution ID、结果与事件数。按契约对日志的要求，任何一行都不包含 goal、
+Memory Context、结果摘要或 bearer。
+
 ## 证据与剩余边界
 
 `internal/contracttest` 校验中央 conformance manifest、HTTP binding 和 fixtures。它优先从

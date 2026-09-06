@@ -82,6 +82,21 @@ select a capability, add a return endpoint, or widen tool authority. Results exp
 only coarse state, bounded summary, and opaque versioned trace/artifact references;
 internal paths and store identifiers do not cross this surface.
 
+## Operational bounds and logging
+
+The provider serves nothing until the Gateway has bound its lifecycle: every
+authenticated action before `Start` receives the retryable `runtime_unavailable`
+Problem with `side_effects=none`, so no execution can run under an uncancellable
+context or escape shutdown.
+
+Operational lines go to the process `slog` logger. Bearer rejections log a running
+failure count and the remote address, never the presented credential; idempotency
+conflicts log the request ID, request key and a reason code (`negative_fence`,
+`authorization_drift`, `semantic_drift`); durable-record persist failures log the
+operation and the opaque record ID; each terminal outcome logs the execution ID,
+outcome and event count. No line carries the goal, the Memory Context, a result
+summary or the bearer, as the contract requires of logs.
+
 ## Evidence and remaining boundary
 
 `internal/contracttest` checks the central conformance manifest, HTTP binding,

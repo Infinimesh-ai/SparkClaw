@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -381,4 +383,106 @@ func TestProviderRejectsEveryActionUntilStart(t *testing.T) {
 		t.Fatalf("submit after Start = %d %s", accepted.StatusCode, accepted.Raw)
 	}
 	waitForState(t, server.URL, nestedString(t, accepted.Body, "payload", "execution", "execution_id"), "succeeded")
+}
+
+// logCapture collects JSON slog lines from provider goroutines.
+type logCapture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *logCapture) Write(raw []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(raw)
+}
+
+func (c *logCapture) lines(t *testing.T) []map[string]any {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(c.buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(line), &decoded); err != nil {
+			t.Fatalf("log line is not JSON: %q", line)
+		}
+		out = append(out, decoded)
+	}
+	return out
+}
+
+func (c *logCapture) find(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	for _, line := range c.lines(t) {
+		if line["msg"] == msg {
+			return line
+		}
+	}
+	t.Fatalf("no log line %q in %s", msg, c.buf.String())
+	return nil
+}
+
+func TestProviderLogsOperationalEventsWithoutSecrets(t *testing.T) {
+	capture := &logCapture{}
+	logger := slog.New(slog.NewJSONHandler(capture, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	provider, err := New(Config{
+		StateDir: t.TempDir(), BearerToken: testBearer, CallerID: "jingsi-service-v1", MaxConcurrent: 2, Logger: logger,
+	}, &fakeExecutor{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	const wrongBearer = "wrong-bearer-credential-value"
+	raw, _ := json.Marshal(submitRequest("request_unauth", "Secret goal text must not be logged."))
+	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/v1/executions:submit", bytes.NewReader(raw))
+	request.Header.Set("Authorization", "Bearer "+wrongBearer)
+	request.Header.Set("Content-Type", MediaType)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("http.Do() error = %v", err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong bearer status = %d", response.StatusCode)
+	}
+	rejected := capture.find(t, "jingsi runtime bearer rejected")
+	if rejected["failures"] != float64(1) {
+		t.Fatalf("bearer rejection did not count: %v", rejected)
+	}
+
+	const goal = "Secret goal text must not be logged."
+	accepted := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_submit", goal), "task_demo:runtime-submit")
+	executionID := nestedString(t, accepted.Body, "payload", "execution", "execution_id")
+	waitForState(t, server.URL, executionID, "succeeded")
+	finished := capture.find(t, "jingsi runtime execution finished")
+	if finished["execution_id"] != executionID || finished["outcome"] != "succeeded" {
+		t.Fatalf("terminal outcome line = %v", finished)
+	}
+
+	drift := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_drift", "Different secret goal."), "task_demo:runtime-submit")
+	if drift.StatusCode != http.StatusConflict {
+		t.Fatalf("drift status = %d %s", drift.StatusCode, drift.Raw)
+	}
+	conflict := capture.find(t, "jingsi runtime idempotency conflict")
+	if conflict["reason"] != "semantic_drift" || conflict["request_key"] != "task_demo:runtime-submit" {
+		t.Fatalf("conflict line = %v", conflict)
+	}
+
+	capture.mu.Lock()
+	everything := capture.buf.String()
+	capture.mu.Unlock()
+	for _, secret := range []string{testBearer, wrongBearer, goal, "Different secret goal", "bounded result"} {
+		if strings.Contains(everything, secret) {
+			t.Fatalf("log output leaked %q: %s", secret, everything)
+		}
+	}
 }

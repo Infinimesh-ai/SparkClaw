@@ -140,7 +140,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
                     text.settings.browserEmailLoginOpened,
                     text.settings.browserEmailLoginOpenedDetail
                   )}
-                  disabled={Boolean(busy)}
+                  disabled={Boolean(busy) || !provider.enabled}
                   title={text.settings.browserEmailOpenLogin}
                   aria-label={text.settings.browserEmailOpenLogin}
                 >

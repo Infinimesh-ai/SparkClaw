@@ -35,6 +35,8 @@ describe("Browser email settings", () => {
     await act(async () => resolveProviders({ providers: [gmail, outlook, qq] }));
     expect(container.textContent).toContain("a***@gmail.com");
 
+    // Login is gated on the owner's enable toggle, like the login check.
+    expect(loginButton(providerRow(container, "QQ Mail")).disabled).toBe(true);
     const row = providerRow(container, "Outlook");
     await act(async () => loginButton(row).click());
     expect(openLogin).toHaveBeenCalledWith("outlook");

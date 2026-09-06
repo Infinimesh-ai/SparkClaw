@@ -50,18 +50,27 @@ func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) 
 	}}
 	controller := NewController(st, DefaultRegistry(), browser, runner)
 
+	// Login never enables a provider on the owner's behalf: a never-enabled
+	// provider is refused and no browser window is opened.
+	if _, err := controller.OpenLoginBrowser(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail); ErrorCode(err) != app.ToolErrorEmailNotConfigured || len(browser.loginProviders) != 0 {
+		t.Fatalf("login on a disabled provider was not refused: err=%v browser=%#v", err, browser)
+	}
+	enabled, err := controller.Update(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail, UpdateProviderInput{Enabled: boolPointer(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	opened, err := controller.OpenLoginBrowser(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opened.Enabled || opened.State != app.EmailStateLoginRequired || len(browser.loginProviders) != 1 || browser.loginProviders[0] != app.EmailProviderGmail {
+	if !opened.Enabled || opened.State != app.EmailStateLoginRequired || opened.Version <= enabled.Version || len(browser.loginProviders) != 1 || browser.loginProviders[0] != app.EmailProviderGmail {
 		t.Fatalf("opened status = %#v browser=%#v", opened, browser)
 	}
 	checked, err := controller.Check(t.Context(), "owner-email", "owner-email", app.EmailProviderGmail)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checked.State != app.EmailStateReady || checked.AccountHint != "a***@gmail.com" || checked.Version != 2 || checked.LastCheckedAt == nil {
+	if checked.State != app.EmailStateReady || checked.AccountHint != "a***@gmail.com" || checked.Version <= opened.Version || checked.LastCheckedAt == nil {
 		t.Fatalf("checked status = %#v", checked)
 	}
 

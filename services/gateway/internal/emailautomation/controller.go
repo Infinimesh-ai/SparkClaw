@@ -119,17 +119,19 @@ func (c *Controller) OpenLoginBrowser(ctx context.Context, ownerID, actorID, pro
 	if c.browser == nil {
 		return ProviderStatus{}, codedError(app.ToolErrorEmailProviderUnavailable, "SparkClaw browser is unavailable")
 	}
-	if err := c.browser.OpenLogin(ctx, provider); err != nil {
-		return ProviderStatus{}, err
-	}
+	// Enabling a provider is the owner's explicit decision (the enable toggle);
+	// opening its login page must not flip that switch for a provider the owner
+	// never enabled or deliberately disabled.
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
 	if err != nil {
 		return ProviderStatus{}, err
 	}
-	if !exists {
-		setting = emptySetting(ownerID, provider.ID)
+	if !exists || !setting.Enabled {
+		return ProviderStatus{}, codedError(app.ToolErrorEmailNotConfigured, "Enable the email provider before opening its login")
 	}
-	setting.Enabled = true
+	if err := c.browser.OpenLogin(ctx, provider); err != nil {
+		return ProviderStatus{}, err
+	}
 	setting.State = app.EmailStateLoginRequired
 	setting.AccountHint = ""
 	setting.LastCheckedAt = nil

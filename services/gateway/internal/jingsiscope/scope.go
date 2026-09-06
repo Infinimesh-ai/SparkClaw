@@ -38,13 +38,9 @@ const (
 	PrefixAdmission = "sparkclaw.admission:"
 )
 
-// Admission values. Legacy is the pre-decision-0034 rule (tool_scope,
-// approval policy and budget only); enforced additionally requires every
-// declared tool effect to be covered by the granted data_scope/network_scope.
-const (
-	AdmissionEffectScopesEnforced = "effect_scopes_enforced"
-	AdmissionEffectScopesLegacy   = "effect_scopes_legacy"
-)
+// AdmissionEffectScopesEnforced is the only executable admission after
+// decision 0034 retirement. Legacy records remain historical, never executable.
+const AdmissionEffectScopesEnforced = "effect_scopes_enforced"
 
 // Approval policies frozen by the contract's authorization.approval_policy enum.
 const (
@@ -69,24 +65,13 @@ type Grant struct {
 	Purpose        string
 	GrantID        string
 	GrantVersion   string
-	// EffectScopesEnforced is the admission rule, not part of JingSi's grant:
-	// true means declared tool effects must be covered by data_scope /
-	// network_scope; false means the legacy tool_scope-only rule applies.
-	EffectScopesEnforced bool
 }
 
 // Closed is the grant every consumer falls back to when a run's projection
 // cannot be trusted: no tools, no tool calls, approval denied, no scopes,
 // effects enforced.
 func Closed() Grant {
-	return Grant{ApprovalPolicy: ApprovalDeny, EffectScopesEnforced: true}
-}
-
-func (g Grant) admission() string {
-	if g.EffectScopesEnforced {
-		return AdmissionEffectScopesEnforced
-	}
-	return AdmissionEffectScopesLegacy
+	return Grant{ApprovalPolicy: ApprovalDeny}
 }
 
 // Scopes projects the grant into the sorted scope strings persisted on the run.
@@ -106,7 +91,7 @@ func (g Grant) Scopes() []string {
 		PrefixMaxToolCalls+strconv.Itoa(g.MaxToolCalls),
 		PrefixPurpose+g.Purpose,
 		PrefixGrant+g.GrantID+"@"+g.GrantVersion,
-		PrefixAdmission+g.admission(),
+		PrefixAdmission+AdmissionEffectScopesEnforced,
 	)
 	slices.Sort(scopes)
 	return scopes
@@ -177,13 +162,8 @@ func Parse(scopes []string) (Grant, error) {
 			if err := singleton(prefix); err != nil {
 				return Grant{}, err
 			}
-			switch value {
-			case AdmissionEffectScopesEnforced:
-				grant.EffectScopesEnforced = true
-			case AdmissionEffectScopesLegacy:
-				grant.EffectScopesEnforced = false
-			default:
-				return Grant{}, fmt.Errorf("jingsi admission %q is unknown", value)
+			if value != AdmissionEffectScopesEnforced {
+				return Grant{}, fmt.Errorf("jingsi admission %q is unknown or retired", value)
 			}
 		}
 	}
@@ -263,12 +243,6 @@ func (g Grant) AllowsTool(definition app.ToolDefinition) bool {
 	}
 	if g.ApprovalPolicy == ApprovalDeny && definition.RequiresApproval {
 		return false
-	}
-	if !g.EffectScopesEnforced {
-		// Legacy admission (pre decision 0034): tool_scope, approval policy
-		// and budget govern exposure; data/network scopes are recorded but
-		// not consulted, and nothing is added to JingSi's grant.
-		return true
 	}
 	if len(definition.Directory.Effects) == 0 {
 		return false

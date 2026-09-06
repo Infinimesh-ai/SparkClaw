@@ -22,12 +22,6 @@ type jingSiAgentExecutor struct {
 		store.SessionRepository
 		store.RunRepository
 	}
-	// enforceEffectScopes selects the admission rule recorded on every run
-	// this provider accepts: enforced (declared tool effects must be covered
-	// by data_scope/network_scope) or legacy (tool_scope only). Pending
-	// InfiniCenter decision 0034 the default is legacy; the grant JingSi sent
-	// is persisted verbatim either way.
-	enforceEffectScopes bool
 }
 
 func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, repository interface {
@@ -44,7 +38,7 @@ func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, reposito
 		StateDir: cfg.JingSiRuntime.StateDir, BearerToken: cfg.JingSiRuntime.BearerToken,
 		CallerID: "jingsi-service-v1", MaxConcurrent: cfg.JingSiRuntime.MaxConcurrent,
 		Retention: time.Duration(cfg.JingSiRuntime.RetentionDays) * 24 * time.Hour,
-	}, jingSiAgentExecutor{runtime: runtime, repository: repository, enforceEffectScopes: cfg.JingSiRuntime.EnforceEffectScopes})
+	}, jingSiAgentExecutor{runtime: runtime, repository: repository})
 }
 
 func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.ExecutionInput) (jingsiruntime.ExecutionOutput, error) {
@@ -55,7 +49,6 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	// The run records the exposure rule it was admitted under; JingSi's grant
 	// is projected exactly as received and never widened.
 	grant := jingSiGrant(input)
-	grant.EffectScopesEnforced = e.enforceEffectScopes
 	scopes := grant.Scopes()
 	sessionID := ""
 	if run, found, err := e.repository.GetRun(ctx, input.ExecutionID); err != nil {

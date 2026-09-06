@@ -59,6 +59,12 @@
 - 集成设置：凭据检查 API 从未返回文档中的 `checking` 状态（在任何响应前即被覆盖），
   状态表已删除该行；WebChat 继续自行渲染进行中的标签。Browser control 在校验进行时
   仍上报 `checking`。
+- 密封的 PPTX 候选不再在制品存储中无限堆积。审批通过的发布在完成状态落盘后立即
+  删除候选字节与清单（审计事件 `document.pptx.candidate_discarded`）；每小时的
+  保留协调器按有界分页清理 `pptx/sealed/` 下超过 24 小时审批 TTL 的对象（审计事件
+  `document.pptx.candidate_expired`）。制品存储接口新增有界的
+  `List(prefix, startAfter, limit)`：文件系统与 S3 后端已实现，未实现的后端返回
+  显式错误，清理任务记录告警并跳过，而不是静默不做。
 - 部署：`docker compose` 现在要求显式提供 `SPARKCLAW_MODEL_CAPACITY_PROFILE`
   （此前默认 `mock` 会在绕过部署脚本时把所有模型调用静默路由到 mock 路由器），
   vLLM 容量入口拒绝标记为 `mock` 的 profile，compose 中 `SPARKCLAW_PAIRING_REQUIRED`

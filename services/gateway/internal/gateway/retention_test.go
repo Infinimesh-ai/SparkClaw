@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -130,5 +132,91 @@ func TestStartRetentionSweepsRunsImmediatelyAndStopsWithContext(t *testing.T) {
 	defer cancelWait()
 	if err := server.WaitForBackgroundWork(waitCtx); err != nil {
 		t.Fatalf("retention coordinator did not stop with lifecycle context: %v", err)
+	}
+}
+
+func TestRetentionSweepRemovesExpiredSealedPPTXCandidatesWithinBound(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	files, ok := server.artifacts.(artifact.FileStore)
+	if !ok {
+		t.Fatalf("expected file-backed artifacts, got %T", server.artifacts)
+	}
+
+	// One sweep-bound plus a partial page of expired objects, and one fresh
+	// candidate pair that must survive every sweep.
+	expired := time.Now().Add(-25 * time.Hour)
+	expiredKeys := make([]string, 0, pptxSealedSweepLimit+50)
+	for index := 0; index < pptxSealedSweepLimit+50; index++ {
+		key := fmt.Sprintf("pptx/sealed/rejected%03d/%s.json", index/2, []string{"candidate", "manifest"}[index%2])
+		if _, err := server.artifacts.Put(t.Context(), key, "application/json", []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(filepath.Join(files.Root, files.Bucket, filepath.FromSlash(key)), expired, expired); err != nil {
+			t.Fatal(err)
+		}
+		expiredKeys = append(expiredKeys, key)
+	}
+	for _, key := range []string{"pptx/sealed/zfresh/candidate.pptx", "pptx/sealed/zfresh/manifest.json"} {
+		if _, err := server.artifacts.Put(t.Context(), key, "application/octet-stream", []byte("fresh")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	countSealed := func() int {
+		objects, err := server.artifacts.List(t.Context(), "pptx/sealed/", "", 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(objects)
+	}
+
+	server.runRetentionSweep(t.Context())
+	if remaining := countSealed(); remaining != len(expiredKeys)+2-pptxSealedSweepLimit {
+		t.Fatalf("first sweep left %d sealed objects, want exactly the bound removed", remaining)
+	}
+	if server.pptxSealedSweepCursor == "" {
+		t.Fatal("full sweep page did not record a resume cursor")
+	}
+	server.runRetentionSweep(t.Context())
+	if remaining := countSealed(); remaining != 2 {
+		t.Fatalf("second sweep left %d sealed objects, want only the fresh pair", remaining)
+	}
+	if server.pptxSealedSweepCursor != "" {
+		t.Fatalf("exhausted sweep kept a cursor: %q", server.pptxSealedSweepCursor)
+	}
+	server.runRetentionSweep(t.Context())
+	if remaining := countSealed(); remaining != 2 {
+		t.Fatalf("idle sweep touched the fresh candidate pair: %d objects remain", remaining)
+	}
+	events, err := st.ListAudit(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audited := 0
+	for _, event := range events {
+		if event.Type == "document.pptx.candidate_expired" {
+			audited++
+		}
+	}
+	if audited != 2 {
+		t.Fatalf("expected one expiry audit per sweep that deleted, got %d", audited)
+	}
+}
+
+func TestRetentionSweepSurvivesArtifactBackendWithoutListing(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st).WithArtifactStore(artifact.NotImplementedStore{Backend: "gcs"})
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	server.pptxSealedSweepCursor = "pptx/sealed/stale"
+	server.runRetentionSweep(t.Context())
+	if server.pptxSealedSweepCursor != "" {
+		t.Fatalf("failed listing kept a stale cursor: %q", server.pptxSealedSweepCursor)
 	}
 }

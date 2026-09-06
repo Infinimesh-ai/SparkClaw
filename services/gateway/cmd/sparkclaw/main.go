@@ -78,6 +78,11 @@ func main() {
 		os.Exit(1)
 	}
 	storeRuntime.StartRecovery(serverCtx)
+	if failed, err := runtime.FailInterruptedRuns(serverCtx); err != nil {
+		slog.Warn("could not fail runs interrupted by the previous process", "error", err)
+	} else if failed > 0 {
+		slog.Info("failed runs interrupted by the previous process", "count", failed)
+	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

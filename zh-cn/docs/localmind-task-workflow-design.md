@@ -121,9 +121,11 @@ endpoint/contract identity。malformed result、MCP `isError`、认证失败、t
 只有成功的 completed 终态才能把 LocalMind 结果作为成功交付；failed 和 cancelled 必须
 按其真实终态投影。
 
-每次尝试后都持久化最新 query-node state，因此 Gateway 重启后可以使用同一个冻结
-task 和 return route 恢复 `query_current_task`。Runtime 不能保留无界 goroutine
-或开放的 MCP 调用。总体等待期限从 LocalMind 成功接受 delegation 起计算 10 分钟；
+每次尝试后都持久化最新 query-node state，因此 task 引用、冻结的 route 与最后校验状态在
+Gateway 重启后仍然保留。轮询本身不会跨重启恢复：Workflow 在进程内执行，Gateway 启动时会把
+所有仍记录为 executing 的 run 标记为 `failed` 并给出明确的重启结果（audit
+`run.interrupted_by_restart`），所有者重新查询 LocalMind 任务时，持久化的 task 引用会把它
+解析为最近任务。Runtime 不能保留无界 goroutine 或开放的 MCP 调用。总体等待期限从 LocalMind 成功接受 delegation 起计算 10 分钟；
 达到上限后返回包含 task ID 和最新已校验状态的明确 timeout，绝不报告成功。
 
 ## 上下文任务引用
@@ -213,8 +215,8 @@ r1 只提供意图驱动的聊天界面，不增加 query/cancel 按钮、task l
 4. delegation 只发送当前文字，省略 `documentIds`，并且只调用一次委派工具。
 5. 每个非终态 delegation 都进入内部 `query_current_task` 节点，通过有界的
    `get_localmind_task` long poll 查询到终态。
-6. query-node 等待从成功 delegation 起最多 10 分钟，并且持久、可跨重启恢复，
-   同时绑定原始 task、Workflow 和 return route。
+6. query-node 等待从成功 delegation 起最多 10 分钟，并绑定原始 task、Workflow 和
+   return route；其状态持久化，重启会以明确的 failed 结果终止等待，而不是静默恢复。
 7. query/cancel 从精确 ID 或同 session 最近任务上下文解析，不新增 task repository，
    也不允许模型发明 ID。
 8. 只有 `status=completed` 才作为成功交付；failed、cancelled、malformed、

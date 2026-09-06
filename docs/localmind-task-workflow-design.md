@@ -135,9 +135,14 @@ complete the Workflow. `terminal=true` alone ends polling, but it does not imply
 success: only a successful completed outcome delivers the LocalMind result as
 success; failed and cancelled outcomes are projected as such.
 
-The latest query-node state is persisted after every attempt so Gateway restart
-resumes `query_current_task` with the same frozen task and return route. Runtime
-must not keep an unbounded goroutine or open MCP call. The overall wait deadline
+The latest query-node state is persisted after every attempt so the task
+reference, frozen route, and last validated state survive a Gateway restart.
+Polling itself is not resumed across a restart: Workflows execute in-process,
+so at startup the Gateway marks every run still recorded as executing as
+`failed` with an explicit restart outcome (audit `run.interrupted_by_restart`),
+and the owner re-queries the LocalMind task, which the persisted task reference
+resolves as the recent task. Runtime must not keep an unbounded goroutine or
+open MCP call. The overall wait deadline
 is 10 minutes from successful delegation acceptance. Reaching it returns an
 explicit timeout with the task ID and latest validated state, never success.
 
@@ -240,9 +245,10 @@ later natural-language query/cancel requests can reference them.
    one delegation tool.
 5. Every non-terminal delegation enters the internal `query_current_task` node,
    which makes bounded `get_localmind_task` long polls until a terminal result.
-6. Query-node waiting is bounded to 10 minutes from successful delegation,
-   durable, restart-safe, and bound to the original task, Workflow, and return
-   route.
+6. Query-node waiting is bounded to 10 minutes from successful delegation and
+   bound to the original task, Workflow, and return route; its state is durable,
+   and a restart terminates the wait with an explicit failed outcome rather than
+   resuming it silently.
 7. Query/cancel resolve exact or same-session recent task context without a new
    task repository or model-invented IDs.
 8. Only `status=completed` is delivered as success; failed, cancelled,

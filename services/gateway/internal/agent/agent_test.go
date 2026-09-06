@@ -1786,10 +1786,10 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 		Risk:        app.RiskRead,
 	}}
 	snapshot := agentContextSnapshot{Messages: []app.Message{{Role: "user", Content: "请继续读取这份文档"}}}
-	admission, err := workflowStepContextBuilderForTimezone(
+	admission, err := admitWithEstimatedTokens(workflowStepContextBuilderForTimezone(
 		"请读取文档", 2, workflowObservationsFromText([]string{observation}), stageContext, visibleTools,
 		provisionedWorkflowEvidence{}, snapshot, "",
-	).Admit(100000)
+	), 100000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2124,19 +2124,16 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 	if err != nil || route.Status == app.RouteMatched {
 		t.Fatalf("missing follow-up file must not bypass deterministic preflight: route=%#v err=%v", route, err)
 	}
-	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, "run_current")
-	if err != nil {
-		t.Fatal(err)
+	admission := mustTreeRoutingPromptAdmission(t, runtime, session.ID, "run_current", "把张三的学号改为6", nil)
+	toolContext, ok := admission.SelectedVariants["session_tool_results"]
+	if !ok {
+		t.Fatalf("Tree routing prompt omitted the recent tool result section:\n%s", admission.User)
 	}
-	contextText, contextErr := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget)
-	if contextErr != nil {
-		t.Fatal(contextErr)
-	}
-	if !strings.Contains(contextText, "Recent tool results") ||
-		!strings.Contains(contextText, "张三") ||
-		!strings.Contains(contextText, "document_pipeline={status=succeeded") ||
-		strings.Contains(contextText, "example.xlsx") || strings.Contains(contextText, "strategy.strategy") || strings.Contains(contextText, "index.index_status") {
-		t.Fatalf("recent tool result context missing document evidence:\n%s", contextText)
+	if !strings.Contains(toolContext.Text, "Recent tool results") ||
+		!strings.Contains(toolContext.Text, "张三") ||
+		!strings.Contains(toolContext.Text, "document_pipeline={status=succeeded") ||
+		strings.Contains(toolContext.Text, "example.xlsx") || strings.Contains(toolContext.Text, "strategy.strategy") || strings.Contains(toolContext.Text, "index.index_status") {
+		t.Fatalf("recent tool result context missing document evidence:\n%s", toolContext.Text)
 	}
 }
 
@@ -3311,10 +3308,10 @@ func TestAgentContextSnapshotIncludesEpisodeSummaries(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 		}},
 	}
-	context, contextErr := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget)
-	if contextErr != nil {
-		t.Fatal(contextErr)
-	}
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	context := mustAdmitTreePrompt(t, runtime, "查一下今年的高考人数", newTreeRoutingPromptContext(nil, snapshot, documentContextResolution{})).User
 	if !strings.Contains(context, "Recent episode summaries") ||
 		!strings.Contains(context, "2026年全国高考报名人数") {
 		t.Fatalf("agent context should include episode summaries:\n%s", context)
@@ -3463,10 +3460,10 @@ func TestTemporalContextAndFreshSearchDateUseClientTimezone(t *testing.T) {
 	if got := currentSearchDateForTimezone(now, "Asia/Tokyo"); got != "2026-01-01" {
 		t.Fatalf("Tokyo fresh-search date = %q; want 2026-01-01", got)
 	}
-	admission, err := workflowStepContextBuilderForTimezone(
+	admission, err := admitWithEstimatedTokens(workflowStepContextBuilderForTimezone(
 		"What time is it?", 1, nil, workflowStageContext{}, nil,
 		provisionedWorkflowEvidence{}, agentContextSnapshot{}, "America/New_York",
-	).Admit(100000)
+	), 100000)
 	if err != nil {
 		t.Fatal(err)
 	}

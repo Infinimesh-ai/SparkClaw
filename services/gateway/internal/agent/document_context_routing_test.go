@@ -163,7 +163,7 @@ func TestRecentAttachedDocumentRoutesFollowUpWithoutPriorToolCall(t *testing.T) 
 	current := "对于23级的选课有什么注意事项"
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
-	routingContext := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
+	routingContext := mustTreeRoutingPromptAdmission(t, runtime, session.ID, "run_current", current, nil).User
 	if !strings.Contains(routingContext, "student-notice.docx") ||
 		!strings.Contains(routingContext, "关于通识选修课模块的特别提醒.docx") {
 		t.Fatalf("routing context omitted the recent governed document:\n%s", routingContext)
@@ -196,10 +196,10 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 	current := "作为23级学生要注意什么"
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
-	context := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
+	context := mustTreeRoutingPromptAdmission(t, runtime, session.ID, "run_current", current, nil).User
 	if !strings.Contains(context, "student-notice.docx") || !strings.Contains(context, "已读取说明文档") ||
-		strings.Contains(context, current) {
-		t.Fatalf("Fast routing context did not preserve prior evidence or exclude the duplicated current message:\n%s", context)
+		strings.Count(context, current) != 1 || !strings.Contains(context, "Owner semantic query:\n"+current) {
+		t.Fatalf("Tree routing prompt did not preserve prior evidence or repeated the current owner turn as history:\n%s", context)
 	}
 
 	routing := mustRouteIntentOutput(t, runtime, session.ID, current, nil, app.MessageSourceWeb)

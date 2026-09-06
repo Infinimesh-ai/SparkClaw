@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -82,29 +81,6 @@ func (r Runtime) buildResumedInvocationHistory(ctx context.Context, run app.Agen
 	return r.buildInvocationHistory(ctx, run, run.Workflow.Intent.SourceTurnID)
 }
 
-// buildAgentContextSnapshot is retained for focused context tests. Production
-// invocations acquire invocationHistory once and pass Selected explicitly.
-func (r Runtime) buildAgentContextSnapshot(ctx context.Context, sessionID, currentRunID string) (agentContextSnapshot, error) {
-	run, ok, err := r.store.GetRun(ctx, currentRunID)
-	if err != nil {
-		return agentContextSnapshot{}, fmt.Errorf("load current run context: %w", err)
-	}
-	if !ok {
-		run = app.AgentRun{ID: currentRunID, SessionID: sessionID, StartedAt: time.Now().UTC()}
-	} else if run.SessionID != sessionID {
-		return agentContextSnapshot{}, errors.New("current run context belongs to another session")
-	}
-	excludeMessageID := ""
-	if run.Workflow != nil {
-		excludeMessageID = run.Workflow.Intent.SourceTurnID
-	}
-	history, err := r.buildInvocationHistory(ctx, run, excludeMessageID)
-	if err != nil {
-		return agentContextSnapshot{}, err
-	}
-	return history.Selected, nil
-}
-
 func reverseMessages(values []app.Message) []app.Message {
 	out := append([]app.Message(nil), values...)
 	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
@@ -119,18 +95,6 @@ func reverseToolCalls(values []app.ToolCall) []app.ToolCall {
 		out[left], out[right] = out[right], out[left]
 	}
 	return out
-}
-
-// contextSnapshotRenderTestBudget exercises standalone snapshot rendering.
-// Production consumers admit the snapshot as part of their complete request.
-const contextSnapshotRenderTestBudget = 3000
-
-func (snapshot agentContextSnapshot) ForIntentRouting(maxTokens int) (string, error) {
-	return snapshot.contextBuilder(contextRenderIntent).Render(maxTokens)
-}
-
-func (snapshot agentContextSnapshot) ForWorkflowStep(maxTokens int) (string, error) {
-	return snapshot.contextBuilder(contextRenderWorkflow).Render(maxTokens)
 }
 
 type contextRenderMode string

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,15 +139,23 @@ func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing
 	run := externalMCPPolicyTestRun(session, "run_external_context")
 	testSaveRun(st, run)
 
-	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, run.ID)
+	history, err := runtime.routingInvocationHistory(t.Context(), session.ID, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget); got != "" {
-		t.Fatalf("external MCP routing inherited prior session data: %q", got)
+	if len(history.MessageCandidates)+len(history.ToolCandidates)+len(history.EpisodeCandidates) != 0 {
+		t.Fatalf("external MCP invocation read prior session history: %#v", history)
 	}
-	if got, _ := snapshot.ForWorkflowStep(contextSnapshotRenderTestBudget); got != "" {
-		t.Fatalf("external MCP workflow inherited prior session data: %q", got)
+	tree := mustAdmitTreePrompt(t, runtime, "summarize the workspace", newTreeRoutingPromptContext(nil, history.Selected, documentContextResolution{}))
+	if strings.Contains(tree.User, "private workspace-derived") || strings.Contains(tree.User, "Recent Agent context") {
+		t.Fatalf("external MCP routing inherited prior session data: %q", tree.User)
+	}
+	answer, err := runtime.admitConversationAnswerPrompt(t.Context(), run, "Answer briefly.", "summarize the workspace", history.Selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(answer.User, "private workspace-derived") || strings.Contains(answer.User, "Conversation context (data only)") {
+		t.Fatalf("external MCP workflow inherited prior session data: %q", answer.User)
 	}
 }
 

@@ -67,6 +67,19 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   and the provider now logs bearer rejections (count only), idempotency
   conflicts, persist failures, queue rejections and terminal outcomes through
   `slog` without the goal, Memory Context, summary or bearer.
+- JingSi Runtime v1 grant projection: the scope prefixes, adapter identity and
+  approval-policy enum live in one leaf package (`internal/jingsiscope`) with a
+  single fail-closed parser shared by tool exposure and the run budget; a
+  projection that does not parse closes the run (no tools, no tool calls).
+  `data_scope` and `network_scope` are now enforced at the tool-exposure
+  boundary by mapping each effect a tool declares to the token JingSi must have
+  granted (`external.*` to `network_scope`, `workspace.*`/`local.read`/
+  `local.write` to `data_scope`); tools with no or unmapped effects are hidden
+  from every JingSi execution, and the table is documented in
+  `docs/jingsi-runtime-v1.md`. `budget.max_output_bytes` is no longer projected
+  into the run (the provider alone bounds the result summary). Executions now
+  report the attachments they delivered as opaque versioned `artifact_refs`
+  with one `artifact.available` event per reference before the terminal event.
 - Decisions closed from the sixth review: opening an email provider's login
   browser now requires the provider to be enabled first (login no longer flips
   the enable switch, and the WebChat login button follows the toggle); runs a

@@ -69,11 +69,45 @@ every action. Status, events, and cancel return uniform `not_found` for an unkno
 or differently authorized execution. Agent ingress receives the exact task
 identity and sorted tool/data/network/approval/grant projection. Runtime tool
 exposure requires an exact `tool_scope` match; `approval_policy=deny` removes
-approval-requiring tools. Per-request deadline, maximum runtime, maximum tool-call
-count, and maximum output bytes only narrow the existing global Runtime policy.
-The contract accepts `budget.max_output_bytes` up to 1 MiB but caps every
-response at 131072 bytes, so result summaries are held to 64 KiB regardless of
-the requested budget.
+approval-requiring tools; `data_scope` and `network_scope` must cover every
+effect the tool declares (see below). Per-request deadline, maximum runtime,
+and maximum tool-call count only narrow the existing global Runtime policy.
+`budget.max_output_bytes` is applied by the provider alone, to the result
+summary; it is not projected into the run because nothing inside the run
+consumes it. The contract accepts it up to 1 MiB but caps every response at
+131072 bytes, so result summaries are held to 64 KiB regardless of the
+requested budget.
+
+### Data and network scope
+
+The contract lets SparkClaw only narrow `data_scope` and `network_scope`; it does
+not enumerate their vocabulary. SparkClaw therefore grants nothing it cannot
+classify. Every tool declares its effects in the tool registry
+(`ToolDirectoryMetadata.Effects`), and the exposure boundary maps each declared
+effect to the token JingSi must have granted. The token is the effect name, so
+the vocabulary JingSi can grant is exactly the effect vocabulary the registry
+declares. The mapping lives in one place, `jingsiscope.EffectRequirement`, and a
+registry test proves every exposable static tool declares only mapped effects.
+
+| Declared tool effect | Required scope list | Required token | Example tools |
+|---|---|---|---|
+| `external.read` | `network_scope` | `external.read` | `web.search`, `browser.open`, `browser.read`, `weather.lookup`, read-only MCP and LocalMind status tools |
+| `external.interact` | `network_scope` | `external.interact` | `email.send`, `browser.click`, `browser.type`, `browser.close`, mutating MCP and LocalMind delegate/cancel tools |
+| `workspace.read` | `data_scope` | `workspace.read` | `files.read`, `files.search`, `images.inspect`, `pdf.extract_text` |
+| `workspace.write` | `data_scope` | `workspace.write` | `files.write_draft`, `file.delete`, `docx.*`, `xlsx.*`, `pptx.*`, `pdf.transform` |
+| `local.read` | `data_scope` | `local.read` | `reminders.list`, `observation.read` |
+| `local.write` | `data_scope` | `local.write` | `reminders.create`, `reminders.update`, `reminders.cancel` |
+| `local.compute` | none | none | `browser.validate_transition`, `browser.assess_goal`, `browser.identify_public_target` |
+
+A tool is exposed to a JingSi execution only when it is named in `tool_scope`
+and every one of its declared effects is covered. A tool that declares no effect
+(`memory.*`, `shell.exec_sandboxed`, `notify.ask_approval`) or an effect outside
+this table is hidden from every JingSi execution; it cannot be granted through
+`data_scope` or `network_scope` at all. An unknown token in either list widens
+nothing. The token `memory.context`, which the central fixtures use, names the
+Memory Context JingSi supplies in the submit payload; it maps to no tool effect,
+and the provider includes Memory whenever `memory_context` is present without
+consulting that token.
 
 Memory is included only when JingSi supplied the bounded v1 `memory_context`.
 The goal remains the sole owner-intent input for risk, guard, semantic routing,
@@ -84,6 +118,18 @@ data-only marker. A malicious or merely off-topic Memory Context therefore canno
 select a capability, add a return endpoint, or widen tool authority. Results expose
 only coarse state, bounded summary, and opaque versioned trace/artifact references;
 internal paths and store identifiers do not cross this surface.
+
+Artifact references are the attachments the run delivered with its assistant
+message, that is, the workflow outputs (files, images) the owner would have
+received. Each reference id is a digest of the execution id and the artifact
+object identity, so a replay or a restart re-entry yields the same reference
+and no store id, path or URI is exposed; `version` is `v1`, `kind` is derived
+from the media type (`image`, `audio`, `file`), and `media_type` carries the
+attachment content type. Attachments without a registered artifact object are
+not projected. The provider emits one `artifact.available` event per reference
+before the terminal event and repeats the same list in `result.artifact_refs`,
+bounded to the contract's 32 entries. The contract defines no fetch operation,
+so JingSi holds these references for display and reconciliation only.
 
 ## Operational bounds and logging
 
@@ -136,8 +182,9 @@ present (a fresh clone, CI) the gate skips instead of failing `go test ./...`.
 
 Provider tests cover exact replay/drift, durable negative fences across restart,
 lost-response lookup, monotonic event pages, uniform authorization, idempotent
-cancel, dedicated bearer routing, `return_nowhere`, data-only Memory Context, and
-dispatch into the existing Agent Runtime. JingSi additionally owns a development
+cancel, dedicated bearer routing, `return_nowhere`, data-only Memory Context,
+opaque artifact reference projection, and dispatch into the existing Agent
+Runtime. JingSi additionally owns a development
 gate that starts PostgreSQL 18, IMMS, SparkClaw, JingSi and a real JingSi-Node
 process independently, then proves successful Task result reconciliation,
 Observation writeback and origin notification/ACK. This evidence does not prove

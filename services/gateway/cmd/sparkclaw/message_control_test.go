@@ -7,6 +7,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -84,7 +85,7 @@ func TestEndpointMessageControlRouterRejectsMismatchedSourceRoute(t *testing.T) 
 
 func TestFrozenSourceEndpointAllowsReturnNowhereWithoutSyntheticEndpoint(t *testing.T) {
 	endpoint, err := frozenSourceEndpoint(agent.MessageControlRouteRequest{
-		Source:      app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "jingsi-runtime-v1"},
+		Source:      app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: jingsiscope.AdapterID},
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnNowhere},
 	})
 	if err != nil || endpoint != "" {

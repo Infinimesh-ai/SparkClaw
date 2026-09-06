@@ -20,7 +20,17 @@ const (
 	pptxVisualRepairPlanSchema   = "sparkclaw.pptx_visual_repair_plan.v1"
 	pptxVisualRepairResultSchema = "sparkclaw.pptx_visual_repair_result.v1"
 	pptxVisualRepairMaxOps       = 8
+
+	// Field bounds shared by the plan JSON schema and plan validation; the
+	// repair script enforces the same limits before mutating the candidate.
+	pptxVisualRepairFontSizeMinPT  = 8
+	pptxVisualRepairFontSizeMaxPT  = 72
+	pptxVisualRepairMarginMaxMilli = 100
+	pptxVisualRepairTextMaxChars   = 1200
+	pptxVisualRepairColorPattern   = "^#[0-9A-Fa-f]{6}$"
 )
+
+var pptxVisualRepairAlignments = []string{"left", "center", "right", "justify"}
 
 type pptxVisualRepairAuthority struct {
 	Class   string `json:"class"`
@@ -150,13 +160,13 @@ func pptxVisualRepairPlanJSONSchema(attempt, slideIndex int, diagnosticIDs, visu
 					"properties": map[string]any{
 						"op": stringEnum(operations), "shape_ref": stringEnum(shapeRefs), "relative_shape_ref": stringEnum(shapeRefs),
 						"region_milli":  map[string]any{"type": "array", "minItems": 4, "maxItems": 4, "items": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000}},
-						"font_size_pt":  map[string]any{"type": "number", "minimum": 8, "maximum": 72},
-						"alignment":     map[string]any{"type": "string", "enum": []string{"left", "center", "right", "justify"}},
+						"font_size_pt":  map[string]any{"type": "number", "minimum": pptxVisualRepairFontSizeMinPT, "maximum": pptxVisualRepairFontSizeMaxPT},
+						"alignment":     map[string]any{"type": "string", "enum": pptxVisualRepairAlignments},
 						"word_wrap":     map[string]any{"type": "boolean"},
-						"margins_milli": map[string]any{"type": "array", "minItems": 4, "maxItems": 4, "items": map[string]any{"type": "integer", "minimum": 0, "maximum": 100}},
-						"fill_color":    map[string]any{"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
-						"line_color":    map[string]any{"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
-						"text":          map[string]any{"type": "string", "minLength": 1, "maxLength": 1200},
+						"margins_milli": map[string]any{"type": "array", "minItems": 4, "maxItems": 4, "items": map[string]any{"type": "integer", "minimum": 0, "maximum": pptxVisualRepairMarginMaxMilli}},
+						"fill_color":    map[string]any{"type": "string", "pattern": pptxVisualRepairColorPattern},
+						"line_color":    map[string]any{"type": "string", "pattern": pptxVisualRepairColorPattern},
+						"text":          map[string]any{"type": "string", "minLength": 1, "maxLength": pptxVisualRepairTextMaxChars},
 						"generated":     map[string]any{"type": "boolean", "const": true},
 					},
 				},
@@ -175,8 +185,8 @@ func validatePPTXVisualRepairPlan(plan pptxVisualRepairPlan, request pptxVisualR
 	}
 	resolvedIssues := make([]PPTXVisualRuntimeIssue, 0, len(request.Issues))
 	for _, issue := range request.Issues {
-		if (issue.EvidenceSource == "objective" && slices.Contains(plan.ResolvesDiagnosticIDs, issue.EvidenceID)) ||
-			(issue.EvidenceSource == "subjective" && slices.Contains(plan.ResolvesVisualIssueIDs, issue.EvidenceID)) {
+		if (issue.EvidenceSource == app.PPTXVisualEvidenceObjective && slices.Contains(plan.ResolvesDiagnosticIDs, issue.EvidenceID)) ||
+			(issue.EvidenceSource == app.PPTXVisualEvidenceSubjective && slices.Contains(plan.ResolvesVisualIssueIDs, issue.EvidenceID)) {
 			resolvedIssues = append(resolvedIssues, issue)
 		}
 	}
@@ -211,46 +221,46 @@ func validatePPTXVisualRepairPlan(plan pptxVisualRepairPlan, request pptxVisualR
 }
 
 func validatePPTXVisualRepairOperationFields(operation pptxVisualRepairOperation, record map[string]any, request pptxVisualRepairRequest) error {
-	switch operation.Op {
-	case "set_geometry":
+	switch app.PPTXVisualRepairOperation(operation.Op) {
+	case app.PPTXVisualRepairSetGeometry:
 		if !validPPTXRegion(operation.RegionMilli, 5) || operation.RelativeShapeRef != "" || operation.FontSizePT != nil || operation.WordWrap != nil || len(operation.MarginsMilli) > 0 || operation.FillColor != "" || operation.LineColor != "" || operation.Text != "" || operation.Generated != nil {
 			return errors.New("set_geometry contains invalid fields")
 		}
-	case "set_text_style":
+	case app.PPTXVisualRepairSetTextStyle:
 		if !boolPPTXShapeField(record, "editable") || (operation.FontSizePT == nil && operation.Alignment == "" && operation.WordWrap == nil && len(operation.MarginsMilli) == 0) || operation.RelativeShapeRef != "" || len(operation.RegionMilli) > 0 || operation.FillColor != "" || operation.LineColor != "" || operation.Text != "" || operation.Generated != nil {
 			return errors.New("set_text_style contains invalid fields")
 		}
-		if operation.FontSizePT != nil && (*operation.FontSizePT < 8 || *operation.FontSizePT > 72) {
+		if operation.FontSizePT != nil && (*operation.FontSizePT < pptxVisualRepairFontSizeMinPT || *operation.FontSizePT > pptxVisualRepairFontSizeMaxPT) {
 			return errors.New("set_text_style font size is outside the allowed range")
 		}
-		if operation.Alignment != "" && !slices.Contains([]string{"left", "center", "right", "justify"}, operation.Alignment) {
+		if operation.Alignment != "" && !slices.Contains(pptxVisualRepairAlignments, operation.Alignment) {
 			return errors.New("set_text_style alignment is invalid")
 		}
-		if len(operation.MarginsMilli) > 0 && !validPPTXBoundedInts(operation.MarginsMilli, 4, 0, 100) {
+		if len(operation.MarginsMilli) > 0 && !validPPTXBoundedInts(operation.MarginsMilli, 4, 0, pptxVisualRepairMarginMaxMilli) {
 			return errors.New("set_text_style margins are invalid")
 		}
-	case "set_shape_style":
+	case app.PPTXVisualRepairSetShapeStyle:
 		if operation.FillColor == "" && operation.LineColor == "" {
 			return errors.New("set_shape_style has no style change")
 		}
 		if request.Authority.Class != "outcome" || operation.RelativeShapeRef != "" || len(operation.RegionMilli) > 0 || operation.FontSizePT != nil || operation.Alignment != "" || operation.WordWrap != nil || len(operation.MarginsMilli) > 0 || operation.Text != "" || operation.Generated != nil {
 			return errors.New("set_shape_style is limited to outcome-oriented repairs")
 		}
-	case "place_above", "place_below":
+	case app.PPTXVisualRepairPlaceAbove, app.PPTXVisualRepairPlaceBelow:
 		if operation.RelativeShapeRef == "" || operation.RelativeShapeRef == operation.ShapeRef || !validPPTXSHA256(request.Page.Targets[operation.RelativeShapeRef]) {
 			return errors.New("PPTX visual ordering repair has an invalid peer")
 		}
 		if len(operation.RegionMilli) > 0 || operation.FontSizePT != nil || operation.Alignment != "" || operation.WordWrap != nil || len(operation.MarginsMilli) > 0 || operation.FillColor != "" || operation.LineColor != "" || operation.Text != "" || operation.Generated != nil {
 			return errors.New("PPTX visual ordering repair contains invalid fields")
 		}
-	case "rewrite_text":
-		if request.Authority.Class != "outcome" || !boolPPTXShapeField(record, "changed") || strings.TrimSpace(operation.Text) == "" || len([]rune(operation.Text)) > 1200 {
+	case app.PPTXVisualRepairRewriteText:
+		if request.Authority.Class != "outcome" || !boolPPTXShapeField(record, "changed") || strings.TrimSpace(operation.Text) == "" || len([]rune(operation.Text)) > pptxVisualRepairTextMaxChars {
 			return errors.New("rewrite_text is limited to current-run text in outcome-oriented repairs")
 		}
 		if operation.RelativeShapeRef != "" || len(operation.RegionMilli) > 0 || operation.FontSizePT != nil || operation.Alignment != "" || operation.WordWrap != nil || len(operation.MarginsMilli) > 0 || operation.FillColor != "" || operation.LineColor != "" || operation.Generated != nil {
 			return errors.New("rewrite_text contains invalid fields")
 		}
-	case "delete_generated_shape":
+	case app.PPTXVisualRepairDeleteGeneratedShape:
 		if request.Authority.Class != "outcome" || !boolPPTXShapeField(record, "created") || operation.Generated == nil || !*operation.Generated {
 			return errors.New("delete_generated_shape requires a current-run generated shape in outcome authority")
 		}
@@ -279,7 +289,7 @@ func applyPPTXVisualRepair(ctx context.Context, inputPath, outputPath, candidate
 	if err := json.Unmarshal(operationsRaw, &operations); err != nil {
 		return pptxVisualRepairResult{}, err
 	}
-	out, err := runPythonAdapter(ctx, pptxVisualRepairAdapterScript, map[string]any{
+	out, err := runPythonPackageModuleAdapter(ctx, pptxSlideAdapterPackage, pptxSlideAdapterPackageRoot, pptxSlideAdapterPackageName, pptxVisualRepairAdapterModule, map[string]any{
 		"path": inputPath, "output_path": outputPath, "candidate_sha256": candidateSHA,
 		"slide_index": plan.SlideIndex, "target_hashes": targets, "operations": operations,
 	})
@@ -325,10 +335,10 @@ func pptxRepairEvidenceIDs(issues []PPTXVisualRuntimeIssue) ([]string, []string)
 	diagnosticIDs := []string{}
 	visualIDs := []string{}
 	for _, issue := range issues {
-		if issue.EvidenceSource == "objective" && !slices.Contains(diagnosticIDs, issue.EvidenceID) {
+		if issue.EvidenceSource == app.PPTXVisualEvidenceObjective && !slices.Contains(diagnosticIDs, issue.EvidenceID) {
 			diagnosticIDs = append(diagnosticIDs, issue.EvidenceID)
 		}
-		if issue.EvidenceSource == "subjective" && !slices.Contains(visualIDs, issue.EvidenceID) {
+		if issue.EvidenceSource == app.PPTXVisualEvidenceSubjective && !slices.Contains(visualIDs, issue.EvidenceID) {
 			visualIDs = append(visualIDs, issue.EvidenceID)
 		}
 	}
@@ -395,29 +405,17 @@ func validPPTXBoundedInts(values []int, length, minimum, maximum int) bool {
 	return true
 }
 
+// pptxVisualOperationAllowedForIssues reports whether at least one supplied
+// issue's class ceiling admits the operation. Outcome-only classes admit
+// nothing unless the request granted outcome authority.
 func pptxVisualOperationAllowedForIssues(operation string, issues []PPTXVisualRuntimeIssue, authority string) bool {
 	for _, issue := range issues {
-		switch issue.Class {
-		case "text_clipped":
-			if slices.Contains([]string{"set_geometry", "set_text_style", "rewrite_text"}, operation) {
-				return true
-			}
-		case "content_obscured", "element_off_canvas", "broken_layout", "overcrowded", "misaligned":
-			if slices.Contains([]string{"set_geometry", "place_above", "place_below", "delete_generated_shape"}, operation) {
-				return true
-			}
-		case "missing_glyph", "text_too_small":
-			if operation == "set_text_style" {
-				return true
-			}
-		case "low_contrast", "inconsistent_style":
-			if slices.Contains([]string{"set_text_style", "set_shape_style"}, operation) {
-				return true
-			}
-		case "weak_hierarchy", "poor_whitespace", "unclear_focus":
-			if authority == "outcome" && slices.Contains([]string{"set_geometry", "set_text_style", "set_shape_style", "place_above", "place_below", "delete_generated_shape"}, operation) {
-				return true
-			}
+		spec, ok := app.PPTXVisualIssueClass(issue.Class)
+		if !ok || (spec.OutcomeOnly && authority != "outcome") {
+			continue
+		}
+		if spec.AllowsOperation(app.PPTXVisualRepairOperation(operation)) {
+			return true
 		}
 	}
 	return false
@@ -488,7 +486,7 @@ func filterPPTXRepairIssues(issues []PPTXVisualRuntimeIssue, page pptxVisualQAPa
 		if issue.SlideIndex != page.SlideIndex || !issue.RepairQualified {
 			continue
 		}
-		if slices.Contains([]string{"weak_hierarchy", "poor_whitespace", "unclear_focus"}, issue.Class) && authority.Class != "outcome" {
+		if spec, ok := app.PPTXVisualIssueClass(issue.Class); ok && spec.OutcomeOnly && authority.Class != "outcome" {
 			continue
 		}
 		if authority.Class == "exact" {

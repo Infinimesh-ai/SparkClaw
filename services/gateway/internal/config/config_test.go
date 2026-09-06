@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -229,6 +230,9 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	}
 	if visual.TimeoutSeconds != 120 || visual.MaxInputBytes != 64<<20 || visual.MaxPDFBytes != 64<<20 || visual.MaxPages != 100 || visual.MaxChangedPages != 20 || visual.RasterScale != 1.5 || visual.MaxPagePixels != 20_000_000 || visual.MaxPNGBytes != 12<<20 || visual.DiagnosticToleranceMilli != 2 || visual.ReadinessTTLSeconds != 300 {
 		t.Fatalf("PPTX visual QA limits missing: %#v", visual)
+	}
+	if visual.GotenbergVersion != "8.36.0" || visual.LibreOfficeVersion != "26.2.5.2" || visual.PDFiumVersion != "5.12.1" {
+		t.Fatalf("PPTX visual QA renderer pins missing: %#v", visual)
 	}
 	if cfg.Tools.Web.Search.Enabled {
 		t.Fatalf("Infinimesh web search should be disabled by default: %#v", cfg.Tools.Web.Search)
@@ -588,12 +592,18 @@ func TestLoadAppliesPPTXVisualQAEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES", "8388608")
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI", "3")
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS", "600")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION", " 8.37.1 ")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION", "26.8.0.1")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION", "5.13.0")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	visual := cfg.Adapters.PPTXVisualQA
+	if visual.GotenbergVersion != "8.37.1" || visual.LibreOfficeVersion != "26.8.0.1" || visual.PDFiumVersion != "5.13.0" {
+		t.Fatalf("PPTX visual QA renderer pin environment did not apply: %#v", visual)
+	}
 	if visual.Phase != "shadow" || !slices.Equal(visual.RepairQualifiedClasses, []string{"missing_glyph", "text_clipped"}) || !slices.Equal(visual.RepairQualifiedOperations, []string{"set_geometry", "set_text_style"}) || !slices.Equal(visual.BlockingQualifiedClasses, []string{"text_clipped"}) || visual.MaxRepairAttempts != 1 || visual.BaseURL != "http://gotenberg:3000" || len(visual.AllowedHosts) != 1 || visual.AllowedHosts[0] != "gotenberg" || visual.TimeoutSeconds != 90 || visual.MaxInputBytes != 33554432 || visual.MaxPDFBytes != 50331648 || visual.MaxPages != 40 || visual.MaxChangedPages != 12 || visual.RasterScale != 2 || visual.MaxPagePixels != 16000000 || visual.MaxPNGBytes != 8388608 || visual.DiagnosticToleranceMilli != 3 || visual.ReadinessTTLSeconds != 600 {
 		t.Fatalf("PPTX visual QA environment did not apply: %#v", visual)
 	}
@@ -617,6 +627,51 @@ func TestLoadRejectsUnsafePPTXVisualQAEndpointAndUnsupportedPhase(t *testing.T) 
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "render.example.test")
 	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "unsupported PPTX visual QA phase") {
 		t.Fatalf("unimplemented PPTX visual QA phase was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "disabled")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION", "latest")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "gotenbergVersion") {
+		t.Fatalf("non-numeric Gotenberg pin was accepted: %v", err)
+	}
+}
+
+// The shipped renderer pins live in the Compose file, the document runtime
+// requirements, and the design decision; the config defaults must not drift
+// from them, or sealed manifests would attest to a stack that was never
+// deployed.
+func TestDefaultPPTXVisualQARendererPinsMatchRepositoryPins(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..", "..")
+	read := func(rel string) string {
+		raw, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(raw)
+	}
+	pin := func(source, pattern string) string {
+		match := regexp.MustCompile(pattern).FindStringSubmatch(source)
+		if match == nil {
+			t.Fatalf("pattern %q not found", pattern)
+		}
+		return match[1]
+	}
+	defaults := Default().Adapters.PPTXVisualQA
+	if got := pin(read("docker/compose.yaml"), `image: gotenberg/gotenberg:([0-9.]+)@sha256:`); got != defaults.GotenbergVersion {
+		t.Fatalf("compose pins Gotenberg %s, config default is %s", got, defaults.GotenbergVersion)
+	}
+	if got := pin(read("tools/document-runtime/requirements.txt"), `(?m)^pypdfium2==([0-9.]+)\s*$`); got != defaults.PDFiumVersion {
+		t.Fatalf("document runtime pins pypdfium2 %s, config default is %s", got, defaults.PDFiumVersion)
+	}
+	design := read("docs/pptx-final-render-visual-qa-design.md")
+	if got := pin(design, "Gotenberg `([0-9.]+)` with LibreOffice"); got != defaults.GotenbergVersion {
+		t.Fatalf("design decision pins Gotenberg %s, config default is %s", got, defaults.GotenbergVersion)
+	}
+	if got := pin(design, "with LibreOffice `([0-9.]+)`"); got != defaults.LibreOfficeVersion {
+		t.Fatalf("design decision pins LibreOffice %s, config default is %s", got, defaults.LibreOfficeVersion)
+	}
+	if got := pin(design, "pypdfium2 `([0-9.]+)`"); got != defaults.PDFiumVersion {
+		t.Fatalf("design decision pins pypdfium2 %s, config default is %s", got, defaults.PDFiumVersion)
 	}
 }
 

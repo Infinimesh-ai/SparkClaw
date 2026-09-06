@@ -42,6 +42,9 @@ const (
 	ToolErrorPPTXRenderPreservationViolation ToolErrorCode = "pptx_render_preservation_violation"
 	ToolErrorPPTXRenderSourceStale           ToolErrorCode = "pptx_render_source_stale"
 	ToolErrorPPTXRenderCancelled             ToolErrorCode = "pptx_render_cancelled"
+	// ToolErrorPPTXRenderStackMismatch: the running Gotenberg or pypdfium2
+	// version differs from the configured pin the sealed manifest attests to.
+	ToolErrorPPTXRenderStackMismatch         ToolErrorCode = "pptx_render_stack_mismatch"
 	ToolErrorPublicTargetNotFound            ToolErrorCode = "public_target_not_found"
 	ToolErrorPublicTargetUnsafe              ToolErrorCode = "public_target_unsafe"
 	ToolErrorPublicTargetProviderUnavailable ToolErrorCode = "public_target_provider_unavailable"

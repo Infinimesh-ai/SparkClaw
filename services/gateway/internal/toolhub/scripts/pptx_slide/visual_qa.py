@@ -1,4 +1,5 @@
 import hashlib
+import importlib.metadata
 import json
 import math
 import os
@@ -10,9 +11,10 @@ from io import BytesIO
 try:
     import pypdfium2 as pdfium
     from PIL import Image
-    from lxml import etree
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    from .identity import shape_target_hash
 except Exception as exc:
     print(json.dumps({"error": "PPTX visual QA requires python-pptx, lxml, Pillow, and pypdfium2: %s" % exc, "error_code": "pptx_visual_qa_unavailable"}))
     sys.exit(0)
@@ -224,7 +226,7 @@ def collect_shapes(slide, slide_index, changed_indexes, changed_all, operation, 
         if len(records) >= MAX_SHAPES_PER_PAGE:
             truncated = True
             return False
-        original_target_hash = shape_target_hash("", shape_ref, shape)
+        original_target_hash = shape_target_hash(shape_ref, shape)
         full_text = normalize_text(shape.text) if getattr(shape, "has_text_frame", False) else ""
         polygon = rotated_rectangle(x, y, width, height, rotation)
         is_created = bool(operation == "add_slide" and changed_all and not parent_ref)
@@ -292,12 +294,6 @@ def collect_shapes(slide, slide_index, changed_indexes, changed_all, operation, 
 
 def public_shape(record):
     return {key: value for key, value in record.items() if key not in ("polygon", "_full_text", "_target_hash")}
-
-
-def shape_target_hash(candidate_sha256, shape_ref, shape):
-    canonical = etree.tostring(shape._element, method="c14n", exclusive=True, with_comments=False)
-    payload = shape_ref.encode("utf-8") + b"\0" + canonical
-    return hashlib.sha256(payload).hexdigest()
 
 
 def glyph_bounds_milli(text_page, pdf_width, pdf_height, shape_region):
@@ -598,6 +594,7 @@ try:
     print(json.dumps({
         "schema_version": ANALYSIS_SCHEMA,
         "candidate_sha256": candidate_sha256,
+        "rasterizer_version": importlib.metadata.version("pypdfium2"),
         "slide_count": slide_count,
         "slide_width": slide_width,
         "slide_height": slide_height,

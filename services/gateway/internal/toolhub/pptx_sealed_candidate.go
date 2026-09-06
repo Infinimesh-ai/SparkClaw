@@ -260,7 +260,7 @@ func (h *ToolHub) PreparePPTXCandidate(ctx context.Context, name string, args ma
 		CandidateKey: candidateKey, CandidateSHA256: candidateSHA, CandidateBytes: len(candidate), MutationOutput: sealedOutput,
 		VisualReport: visualReport, VisualReportSHA256: pptxBytesSHA256(visualRaw), Attempts: visualPreparation.Attempts,
 		RolloutPhase: strings.ToLower(strings.TrimSpace(scoped.cfg.Adapters.PPTXVisualQA.Phase)), PolicyVersion: pptxVisualQAPolicyVersion, PolicyConfigSHA256: policyConfigSHA,
-		GotenbergVersion: "8.36.0", LibreOfficeVersion: "26.2.5.2", PDFiumVersion: "5.12.1",
+		GotenbergVersion: scoped.cfg.Adapters.PPTXVisualQA.GotenbergVersion, LibreOfficeVersion: scoped.cfg.Adapters.PPTXVisualQA.LibreOfficeVersion, PDFiumVersion: scoped.cfg.Adapters.PPTXVisualQA.PDFiumVersion,
 		CreatedAt: createdAt, ExpiresAt: expiresAt,
 	}
 	manifestRaw, err := json.Marshal(manifest)

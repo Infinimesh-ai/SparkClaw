@@ -640,9 +640,14 @@ class 分别通过资格测试。模型不能改变 rollout state、threshold、
 | `SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS` | accepted plan 中允许的 internal repair operation，逗号分隔 | 空 |
 | `SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES` | 允许 blocking 的严重 class，逗号分隔 | 空 |
 | `SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS` | 初始 candidate 之后的 repair attempt 数，限制为 `0..2` | `2` |
+| `SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION` | 部署所固定的 Gotenberg 版本；每个转换窗口前通过 `GET /version` 校验，并记录进 sealed manifest | `8.36.0` |
+| `SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION` | 该 Gotenberg 镜像内置的 LibreOffice 版本；记录进 sealed manifest | `26.2.5.2` |
+| `SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION` | 文档运行时固定的 pypdfium2 版本；与分析脚本上报的版本校验，并记录进 sealed manifest | `5.12.1` |
 
-加载时会拒绝未知或重复的 class/operation、未同时 repair-qualified 的 blocking class，以及
-超出 `0..2` 的 attempt 限制。Policy digest 绑定 phase、三个 qualification 集合、attempt
+加载时会拒绝未知或重复的 class/operation、未同时 repair-qualified 的 blocking class、
+超出 `0..2` 的 attempt 限制，以及不是点分数字版本号的渲染器 pin。运行中的 Gotenberg 或
+pypdfium2 版本与配置 pin 不一致属于 integrity 失败：candidate 不会被密封，否则 manifest
+会声明一个并未实际使用的渲染器栈。Policy digest 绑定 phase、三个 qualification 集合、attempt
 budget 与 diagnostic tolerance。Approval 等待期间任一配置变化都会使密封 candidate stale，
 必须重新准备。
 
@@ -730,6 +735,7 @@ binding、policy version、candidate hash、expiry 与 artifact integrity，再�
 |---|---|---|
 | `pptx_render_invalid_input` | Candidate 不是有效、有界 OOXML package | 终止准备失败 |
 | `pptx_render_backend_unavailable` | 固定 Gotenberg 服务不可用 | 可重试失败；无 approval |
+| `pptx_render_stack_mismatch` | 运行中的 Gotenberg 或 pypdfium2 版本与配置 pin 不一致 | 终止准备失败；修正部署或 pin |
 | `pptx_render_timeout` | 必需 render 阶段超过 deadline | 可重试失败；无 approval |
 | `pptx_render_invalid_pdf` | Output malformed、不安全、过大或不可解析 | 终止准备失败 |
 | `pptx_render_page_mismatch` | PDF page count、page size 或 orientation 与 candidate 不一致 | 终止准备失败 |

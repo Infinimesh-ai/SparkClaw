@@ -762,10 +762,16 @@ The versioned configuration surface is intentionally explicit:
 | `SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS` | Comma-separated internal repair operations permitted in accepted plans | Empty |
 | `SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES` | Comma-separated severe classes allowed to block | Empty |
 | `SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS` | Repair attempts after the initial candidate, bounded to `0..2` | `2` |
+| `SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION` | Gotenberg release the deployment pins; verified against `GET /version` before each conversion window and recorded in the sealed manifest | `8.36.0` |
+| `SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION` | LibreOffice bundled in that Gotenberg image; recorded in the sealed manifest | `26.2.5.2` |
+| `SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION` | pypdfium2 release the document runtime pins; verified against the analysis script's reported version and recorded in the sealed manifest | `5.12.1` |
 
 Load-time validation rejects unknown or duplicate classes/operations, a
-blocking class that is not also repair-qualified, and an attempt limit outside
-`0..2`. The policy digest includes phase, all three qualification sets, attempt
+blocking class that is not also repair-qualified, an attempt limit outside
+`0..2`, and a renderer pin that is not a dotted numeric version. A running
+Gotenberg or pypdfium2 whose version differs from the configured pin is an
+integrity failure: the candidate is not sealed, because the manifest would
+otherwise attest to a renderer stack that was not used. The policy digest includes phase, all three qualification sets, attempt
 budget, and diagnostic tolerance. Any change while approval is pending makes
 the sealed candidate stale and requires a new preparation.
 
@@ -864,6 +870,7 @@ PPTX bytes. It does not rerun mutation, conversion, rasterization, or Fast.
 |---|---|---|
 | `pptx_render_invalid_input` | Candidate is not a valid bounded OOXML package | Terminal preparation failure |
 | `pptx_render_backend_unavailable` | Pinned Gotenberg service is unavailable | Retryable failure; no approval |
+| `pptx_render_stack_mismatch` | Running Gotenberg or pypdfium2 version differs from the configured pin | Terminal preparation failure; fix the deployment or the pin |
 | `pptx_render_timeout` | A required render stage exceeded its deadline | Retryable failure; no approval |
 | `pptx_render_invalid_pdf` | Output is malformed, unsafe, oversized, or unparsable | Terminal preparation failure |
 | `pptx_render_page_mismatch` | PDF page count, page size, or orientation mismatches the candidate | Terminal preparation failure |

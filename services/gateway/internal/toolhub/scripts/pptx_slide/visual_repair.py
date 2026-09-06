@@ -11,6 +11,8 @@ try:
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
     from pptx.util import Pt
+
+    from .identity import shape_target_hash
 except Exception as exc:
     print(json.dumps({"error": "PPTX visual repair requires python-pptx and lxml: %s" % exc, "error_code": "pptx_visual_repair_unavailable"}))
     sys.exit(0)
@@ -34,12 +36,6 @@ def file_sha256(path):
         for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def target_hash(candidate_sha256, shape_ref, shape):
-    canonical = etree.tostring(shape._element, method="c14n", exclusive=True, with_comments=False)
-    payload = shape_ref.encode("utf-8") + b"\0" + canonical
-    return hashlib.sha256(payload).hexdigest()
 
 
 def canonical_part(name, raw):
@@ -201,7 +197,7 @@ try:
         shape_index = parse_shape_ref(shape_ref, slide_index)
         shape = require_shape(slide, shape_index)
         expected = str(bindings.get(shape_ref) or "").lower()
-        actual = target_hash(expected_candidate_sha256, shape_ref, shape)
+        actual = shape_target_hash(shape_ref, shape)
         if SHA256.fullmatch(expected) is None or actual != expected:
             fail("repair shape binding is stale for %s (expected %s, actual %s)" % (shape_ref, expected, actual), "pptx_visual_repair_stale")
 

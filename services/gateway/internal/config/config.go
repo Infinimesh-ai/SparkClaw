@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -354,6 +355,13 @@ type PPTXVisualQAAdapterConfig struct {
 	MaxPNGBytes               int      `json:"maxPNGBytes"`
 	DiagnosticToleranceMilli  int      `json:"diagnosticToleranceMilli"`
 	ReadinessTTLSeconds       int      `json:"readinessTTLSeconds"`
+	// GotenbergVersion, LibreOfficeVersion, and PDFiumVersion are the pinned
+	// renderer stack the sealed candidate manifest attests to. Gotenberg and
+	// pypdfium2 are verified against the running services; LibreOffice is
+	// bundled inside the pinned Gotenberg image and is recorded as configured.
+	GotenbergVersion   string `json:"gotenbergVersion"`
+	LibreOfficeVersion string `json:"libreOfficeVersion"`
+	PDFiumVersion      string `json:"pdfiumVersion"`
 }
 
 type WorkspaceConfig struct {
@@ -1344,28 +1352,39 @@ func normalizePPTXVisualQAConfig(visual *PPTXVisualQAAdapterConfig) error {
 	if visual.ReadinessTTLSeconds <= 0 {
 		visual.ReadinessTTLSeconds = defaults.ReadinessTTLSeconds
 	}
+	for _, version := range []struct {
+		field string
+		value *string
+		fall  string
+	}{
+		{"gotenbergVersion", &visual.GotenbergVersion, defaults.GotenbergVersion},
+		{"libreOfficeVersion", &visual.LibreOfficeVersion, defaults.LibreOfficeVersion},
+		{"pdfiumVersion", &visual.PDFiumVersion, defaults.PDFiumVersion},
+	} {
+		*version.value = strings.TrimSpace(*version.value)
+		if *version.value == "" {
+			*version.value = version.fall
+		}
+		if !pptxVisualQAVersionPattern.MatchString(*version.value) {
+			return fmt.Errorf("PPTX visual QA %s %q must be a dotted numeric version", version.field, *version.value)
+		}
+	}
 	if !slices.Contains([]string{"disabled", "shadow", "warning", "qualified_blocking", "default_on"}, visual.Phase) {
 		return fmt.Errorf("unsupported PPTX visual QA phase %q", visual.Phase)
 	}
 	if visual.MaxRepairAttempts < 0 || visual.MaxRepairAttempts > 2 {
 		return errors.New("PPTX visual QA maxRepairAttempts must be between 0 and 2")
 	}
-	repairable := []string{
-		"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph", "broken_layout", "low_contrast",
-		"text_too_small", "overcrowded", "misaligned", "weak_hierarchy", "poor_whitespace", "unclear_focus", "inconsistent_style",
-	}
-	blocking := []string{"text_clipped", "content_obscured", "element_off_canvas", "missing_glyph"}
-	repairOperations := []string{"rewrite_text", "set_geometry", "set_text_style", "set_shape_style", "place_above", "place_below", "delete_generated_shape"}
 	var qualificationErr error
-	visual.RepairQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedClasses, repairable, "repairQualifiedClasses")
+	visual.RepairQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedClasses, app.PPTXVisualIssueClasses(), "repairQualifiedClasses")
 	if qualificationErr != nil {
 		return qualificationErr
 	}
-	visual.RepairQualifiedOperations, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedOperations, repairOperations, "repairQualifiedOperations")
+	visual.RepairQualifiedOperations, qualificationErr = normalizePPTXVisualQAClasses(visual.RepairQualifiedOperations, app.PPTXVisualRepairOperationNames(), "repairQualifiedOperations")
 	if qualificationErr != nil {
 		return qualificationErr
 	}
-	visual.BlockingQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.BlockingQualifiedClasses, blocking, "blockingQualifiedClasses")
+	visual.BlockingQualifiedClasses, qualificationErr = normalizePPTXVisualQAClasses(visual.BlockingQualifiedClasses, app.PPTXVisualBlockingEligibleClasses(), "blockingQualifiedClasses")
 	if qualificationErr != nil {
 		return qualificationErr
 	}
@@ -1409,6 +1428,10 @@ func normalizePPTXVisualQAConfig(visual *PPTXVisualQAAdapterConfig) error {
 	visual.BaseURL = strings.TrimRight(parsed.String(), "/")
 	return nil
 }
+
+// pptxVisualQAVersionPattern accepts the release-style versions Gotenberg,
+// LibreOffice, and pypdfium2 publish (two to four dotted numeric parts).
+var pptxVisualQAVersionPattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
 
 func normalizePPTXVisualQAClasses(values, allowed []string, field string) ([]string, error) {
 	out := make([]string, 0, len(values))
@@ -1659,6 +1682,9 @@ func Default() Config {
 				MaxPNGBytes:               12 << 20,
 				DiagnosticToleranceMilli:  2,
 				ReadinessTTLSeconds:       300,
+				GotenbergVersion:          "8.36.0",
+				LibreOfficeVersion:        "26.2.5.2",
+				PDFiumVersion:             "5.12.1",
 			},
 		},
 		Memory: MemoryConfig{
@@ -2183,6 +2209,15 @@ func applyEnv(cfg *Config) error {
 		if seconds, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.PPTXVisualQA.ReadinessTTLSeconds = seconds
 		}
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION"); v != "" {
+		cfg.Adapters.PPTXVisualQA.GotenbergVersion = v
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION"); v != "" {
+		cfg.Adapters.PPTXVisualQA.LibreOfficeVersion = v
+	}
+	if v := os.Getenv("SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION"); v != "" {
+		cfg.Adapters.PPTXVisualQA.PDFiumVersion = v
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {
 		cfg.Tools.Reminders.Enabled = parseBool(v)

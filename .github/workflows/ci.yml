@@ -103,8 +103,24 @@ jobs:
     name: Gateway
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      INFINICENTER_TOKEN: ${{ secrets.INFINICENTER_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      # internal/contracttest gates the JingSi Runtime v1 provider against the
+      # central SparkClaw--JingSi conformance fixtures, which live in the private
+      # InfiniCenter hub and are deliberately not vendored. With a read token the
+      # gate runs; without one it skips exactly as on a fresh clone.
+      - name: Check out the InfiniCenter contract hub
+        if: ${{ env.INFINICENTER_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: Infinimesh-ai/InfiniCenter
+          token: ${{ secrets.INFINICENTER_TOKEN }}
+          path: InfiniCenter
+      - name: Point the contract gate at the hub checkout
+        if: ${{ env.INFINICENTER_TOKEN != '' }}
+        run: echo "SPARKCLAW_JINGSI_CONTRACT_MANIFEST=$GITHUB_WORKSPACE/InfiniCenter/clusters/ProjectGroup-2/contracts/SparkClaw--JingSi/conformance/v1/manifest.json" >> "$GITHUB_ENV"
       - name: Install CJK weather-card font
         run: |
           sudo apt-get update

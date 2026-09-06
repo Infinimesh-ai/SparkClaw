@@ -229,11 +229,15 @@ revision fields are intentionally not part of this household API.
 |---|---|
 | `not_configured` | No source is selected and no operator source is available |
 | `configured` | A source is selected and locally usable; no fresh live success is claimed |
-| `checking` | An explicit online check is in progress |
 | `ready` | The required query or handshake succeeded |
 | `needs_attention` | Authentication, identity, contract, or permanent validation failed |
 | `temporarily_unavailable` | A bounded retryable external check failed |
 | `vault_unavailable` | The encrypted bundle cannot be read or changed safely |
+
+The vocabulary is the shared `app.IntegrationState*` set that Browser control
+also reports. An explicit check is synchronous: the API never returns an
+intermediate state, and WebChat renders its own `checking` label only while a
+check request is in flight.
 
 Operator configuration is exposed only as an availability flag and a virtual
 selectable row. Its values and source locations remain private.

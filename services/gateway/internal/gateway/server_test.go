@@ -2824,6 +2824,51 @@ func TestPairingIssuesClientToken(t *testing.T) {
 	}
 }
 
+func TestPairingStartTrustsOnlyLoopbackOrAuthenticatedWebChatProxy(t *testing.T) {
+	const proxyToken = "test_webchat_proxy_token_0123456789abcdefghijkl"
+	root := t.TempDir()
+	cfg := testConfig(root)
+	cfg.Gateway.PairingRequired = true
+	cfg.Gateway.WebChatProxyToken = proxyToken
+
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	t.Cleanup(func() { _ = tools.Close() })
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	invoke := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/api/pairing/start", bytes.NewBufferString(`{}`))
+		request.RemoteAddr = "192.0.2.10:44000"
+		if token != "" {
+			request.Header.Set(webChatProxyTokenHeader, token)
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response
+	}
+
+	for _, token := range []string{"", "wrong_webchat_proxy_token_0123456789abcdefghijk"} {
+		response := invoke(token)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("untrusted pairing bootstrap returned %d: %s", response.Code, response.Body.String())
+		}
+	}
+	if response := invoke(proxyToken); response.Code != http.StatusCreated {
+		t.Fatalf("trusted WebChat proxy pairing bootstrap returned %d: %s", response.Code, response.Body.String())
+	}
+
+	ownerRequest := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	ownerRequest.RemoteAddr = "192.0.2.10:44000"
+	ownerRequest.Header.Set(webChatProxyTokenHeader, proxyToken)
+	ownerResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(ownerResponse, ownerRequest)
+	if ownerResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("WebChat proxy token opened the owner API: %d %s", ownerResponse.Code, ownerResponse.Body.String())
+	}
+}
+
 func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)

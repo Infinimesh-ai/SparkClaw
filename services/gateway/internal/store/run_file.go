@@ -76,6 +76,15 @@ func (s *FileStore) ListModelCalls(ctx context.Context, sessionID, runID string)
 	return s.inner.ListModelCalls(ctx, sessionID, runID)
 }
 
+func (s *FileStore) LatestModelCallsByLane(ctx context.Context) (map[string]app.ModelCall, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationModelCallLatestByLane, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.LatestModelCallsByLane(ctx)
+}
+
 func (s *FileStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationToolCallSave, fileAdmissionCapacity)
 	if err != nil {
@@ -141,4 +150,40 @@ func (s *FileStore) ListRecentEpisodeSummaries(ctx context.Context, sessionID st
 	}
 	defer release()
 	return s.inner.ListRecentEpisodeSummaries(ctx, sessionID, cutoff, scanLimit)
+}
+
+func (s *FileStore) CountVisibleRuns(ctx context.Context) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationRunCountVisible, 1)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return s.inner.CountVisibleRuns(ctx)
+}
+
+func (s *FileStore) ModelCallStats(ctx context.Context) (app.ModelCallStats, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationModelCallStats, 1)
+	if err != nil {
+		return app.ModelCallStats{}, err
+	}
+	defer release()
+	return s.inner.ModelCallStats(ctx)
+}
+
+func (s *FileStore) CountToolCalls(ctx context.Context) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationToolCallCount, 1)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return s.inner.CountToolCalls(ctx)
+}
+
+func (s *FileStore) CountEpisodeSummaries(ctx context.Context) (int, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationEpisodeSummaryCount, 1)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	return s.inner.CountEpisodeSummaries(ctx)
 }

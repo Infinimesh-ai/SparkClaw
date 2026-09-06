@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -83,7 +84,7 @@ func TestInitializeFailsClosedWhenCredentialVaultIsUnavailable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status.State != StateVaultUnavailable || status.Source != SourceNone || status.Configured || !status.OperatorAvailable {
+		if status.State != app.IntegrationStateVaultUnavailable || status.Source != SourceNone || status.Configured || !status.OperatorAvailable {
 			t.Fatalf("%s did not fail closed: %#v", id, status)
 		}
 	}
@@ -150,7 +151,7 @@ func TestInfoCredentialsAreValidatedRetainedAndExplicitlyActivated(t *testing.T)
 	}
 	info.reject.Store(true)
 	status, err = controller.Check(t.Context(), InfoID, activeID)
-	if ErrorCode(err) != "credential_auth_failed" || status.ActiveCredentialID != activeID || status.Source != SourceHousehold || status.State != StateNeedsAttention {
+	if ErrorCode(err) != "credential_auth_failed" || status.ActiveCredentialID != activeID || status.Source != SourceHousehold || status.State != app.IntegrationStateNeedsAttention {
 		t.Fatalf("failed active check fell back: status=%#v err=%v", status, err)
 	}
 	if _, err := controller.Delete(t.Context(), InfoID, activeID); ErrorCode(err) != "active_credential_replacement_required" {

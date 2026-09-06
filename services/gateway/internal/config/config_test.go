@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,6 +59,24 @@ func TestLoadAppliesRateLimitEnvironment(t *testing.T) {
 	}
 	if cfg.Gateway.RateLimit.Enabled || cfg.Gateway.RateLimit.RequestsPerMinute != 42 || cfg.Gateway.RateLimit.Burst != 7 {
 		t.Fatalf("rate limit env did not apply: %#v", cfg.Gateway.RateLimit)
+	}
+}
+
+func TestLoadAppliesAndValidatesWebChatProxyTokenEnvironment(t *testing.T) {
+	const token = "test_webchat_proxy_token_0123456789abcdefghijkl"
+	t.Setenv("SPARKCLAW_WEBCHAT_PROXY_TOKEN", token)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Gateway.WebChatProxyToken != token {
+		t.Fatalf("WebChat proxy token environment did not apply")
+	}
+
+	t.Setenv("SPARKCLAW_WEBCHAT_PROXY_TOKEN", "too-short")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "WebChat proxy token") {
+		t.Fatalf("invalid WebChat proxy token was accepted: %v", err)
 	}
 }
 
@@ -170,17 +189,17 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 }
 
 func TestDefaultChatProfilesMatchVLLMManagedNVFP4Checkpoint(t *testing.T) {
-	cfg, err := LoadDefault()
+	cfg, err := ResolveDefault(repositoryCapacityCatalog())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if cfg.Model.Fast.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
-		cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP {
+		cfg.Model.Fast.ContextTokens != 32768 {
 		t.Fatalf("fast profile does not match the vLLM-managed NVFP4 checkpoint default: %#v", cfg.Model.Fast)
 	}
 	if cfg.Model.Deep.Model != "nvidia/Qwen3.6-35B-A3B-NVFP4" ||
-		cfg.Model.Deep.ContextTokens != 65536 || cfg.Model.Deep.MTP {
+		cfg.Model.Deep.ContextTokens != 65536 {
 		t.Fatalf("deep profile does not match the vLLM-managed NVFP4 checkpoint default: %#v", cfg.Model.Deep)
 	}
 }
@@ -212,6 +231,9 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if visual.TimeoutSeconds != 120 || visual.MaxInputBytes != 64<<20 || visual.MaxPDFBytes != 64<<20 || visual.MaxPages != 100 || visual.MaxChangedPages != 20 || visual.RasterScale != 1.5 || visual.MaxPagePixels != 20_000_000 || visual.MaxPNGBytes != 12<<20 || visual.DiagnosticToleranceMilli != 2 || visual.ReadinessTTLSeconds != 300 {
 		t.Fatalf("PPTX visual QA limits missing: %#v", visual)
 	}
+	if visual.GotenbergVersion != "8.36.0" || visual.LibreOfficeVersion != "26.2.5.2" || visual.PDFiumVersion != "5.12.1" {
+		t.Fatalf("PPTX visual QA renderer pins missing: %#v", visual)
+	}
 	if cfg.Tools.Web.Search.Enabled {
 		t.Fatalf("Infinimesh web search should be disabled by default: %#v", cfg.Tools.Web.Search)
 	}
@@ -238,7 +260,7 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 func TestLoadMCPAccessLocalDomain(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":" local-domain "}}`
+	raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":" local-domain "}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +273,7 @@ func TestLoadMCPAccessLocalDomain(t *testing.T) {
 	}
 
 	path = filepath.Join(root, "missing-domain.json")
-	if err := os.WriteFile(path, []byte(`{"model":{"mock":true},"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"local_domain_id":""}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"local_domain_id":""}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "local_domain_id") {
@@ -262,7 +284,7 @@ func TestLoadMCPAccessLocalDomain(t *testing.T) {
 func TestLoadMCPAllowedOrigins(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[" HTTPS://Panel.Example.COM "," https://panel.example.com/","","http://192.168.1.20:8443"]}}`
+	raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[" HTTPS://Panel.Example.COM "," https://panel.example.com/","","http://192.168.1.20:8443"]}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +310,7 @@ func TestLoadMCPAllowedOrigins(t *testing.T) {
 		"null origin":    `"null"`,
 	} {
 		path := filepath.Join(root, "invalid-origin.json")
-		invalid := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[` + entry + `]}}`
+		invalid := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[` + entry + `]}}`
 		if err := os.WriteFile(path, []byte(invalid), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -301,7 +323,7 @@ func TestLoadMCPAllowedOrigins(t *testing.T) {
 func TestLoadNormalizesEnabledISCPPairing(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,"domain_id":" domain-a ","authority_url":"http://127.0.0.1:8090/v1/pairing/","token_env":"ISCP_TEST_TOKEN"}}`
+	raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,"domain_id":" domain-a ","authority_url":"http://127.0.0.1:8090/v1/pairing/","token_env":"ISCP_TEST_TOKEN"}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +346,7 @@ func TestLoadRejectsUnsafeISCPPairing(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "sparkclaw.json")
-			raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,` + test.config + `}}`
+			raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,` + test.config + `}}`
 			if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -339,7 +361,6 @@ func TestLoadNormalizesLocalMindMCPServer(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{
-  "model": {"mock": true},
   "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
   "mcp_servers": {
     "localmind": {
@@ -391,7 +412,7 @@ func TestLoadRejectsInvalidLocalMindMCPServer(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "sparkclaw.json")
-			raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":{` + test.server + `}}`
+			raw := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":{` + test.server + `}}`
 			if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -406,7 +427,6 @@ func TestLoadNormalizesMixedMCPServerKinds(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{
-  "model": {"mock": true},
   "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
   "mcp_servers": {
     "localmind": {
@@ -438,7 +458,6 @@ func TestLoadNormalizesGenericMCPSafeguards(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{
-  "model": {"mock": true},
   "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
   "mcp_servers": {
     "happy-tasks": {
@@ -465,7 +484,7 @@ func TestLoadNormalizesGenericMCPSafeguards(t *testing.T) {
 func TestLoadDefaultsGenericMCPMutationsOffAndRejectsFilterConflict(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "sparkclaw.json")
-	base := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":%s}`
+	base := `{"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":%s}`
 	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(base, `{"happy":{"url":"https://happy.example.test/mcp"}}`)), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +506,6 @@ func TestLoadDefaultsGenericMCPMutationsOffAndRejectsFilterConflict(t *testing.T
 
 func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T) {
 	for _, name := range []string{
-		"SPARKCLAW_MODEL_MODE",
 		"SPARKCLAW_FAST_BASE_URL",
 		"SPARKCLAW_DEEP_BASE_URL",
 		"SPARKCLAW_EMBEDDING_BASE_URL",
@@ -509,8 +527,8 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 	if !cfg.Model.Mock {
 		t.Fatal("repository default config should use mock models")
 	}
-	if cfg.Model.Fast.ContextTokens != 32768 || cfg.Model.Fast.MTP ||
-		cfg.Model.Deep.ContextTokens != 32768 || cfg.Model.Deep.MTP {
+	if cfg.Model.Fast.ContextTokens != 32768 ||
+		cfg.Model.Deep.ContextTokens != 32768 {
 		t.Fatalf("repository chat profiles do not match the vLLM-managed NVFP4 checkpoint: %#v", cfg.Model)
 	}
 	for name, profile := range map[string]ModelProfile{
@@ -570,12 +588,18 @@ func TestLoadAppliesPPTXVisualQAEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_MAX_PNG_BYTES", "8388608")
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_DIAGNOSTIC_TOLERANCE_MILLI", "3")
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_READINESS_TTL_SECONDS", "600")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION", " 8.37.1 ")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION", "26.8.0.1")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION", "5.13.0")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	visual := cfg.Adapters.PPTXVisualQA
+	if visual.GotenbergVersion != "8.37.1" || visual.LibreOfficeVersion != "26.8.0.1" || visual.PDFiumVersion != "5.13.0" {
+		t.Fatalf("PPTX visual QA renderer pin environment did not apply: %#v", visual)
+	}
 	if visual.Phase != "shadow" || !slices.Equal(visual.RepairQualifiedClasses, []string{"missing_glyph", "text_clipped"}) || !slices.Equal(visual.RepairQualifiedOperations, []string{"set_geometry", "set_text_style"}) || !slices.Equal(visual.BlockingQualifiedClasses, []string{"text_clipped"}) || visual.MaxRepairAttempts != 1 || visual.BaseURL != "http://gotenberg:3000" || len(visual.AllowedHosts) != 1 || visual.AllowedHosts[0] != "gotenberg" || visual.TimeoutSeconds != 90 || visual.MaxInputBytes != 33554432 || visual.MaxPDFBytes != 50331648 || visual.MaxPages != 40 || visual.MaxChangedPages != 12 || visual.RasterScale != 2 || visual.MaxPagePixels != 16000000 || visual.MaxPNGBytes != 8388608 || visual.DiagnosticToleranceMilli != 3 || visual.ReadinessTTLSeconds != 600 {
 		t.Fatalf("PPTX visual QA environment did not apply: %#v", visual)
 	}
@@ -599,6 +623,51 @@ func TestLoadRejectsUnsafePPTXVisualQAEndpointAndUnsupportedPhase(t *testing.T) 
 	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_ALLOWED_HOSTS", "render.example.test")
 	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "unsupported PPTX visual QA phase") {
 		t.Fatalf("unimplemented PPTX visual QA phase was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_PHASE", "disabled")
+	t.Setenv("SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION", "latest")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "gotenbergVersion") {
+		t.Fatalf("non-numeric Gotenberg pin was accepted: %v", err)
+	}
+}
+
+// The shipped renderer pins live in the Compose file, the document runtime
+// requirements, and the design decision; the config defaults must not drift
+// from them, or sealed manifests would attest to a stack that was never
+// deployed.
+func TestDefaultPPTXVisualQARendererPinsMatchRepositoryPins(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..", "..")
+	read := func(rel string) string {
+		raw, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(raw)
+	}
+	pin := func(source, pattern string) string {
+		match := regexp.MustCompile(pattern).FindStringSubmatch(source)
+		if match == nil {
+			t.Fatalf("pattern %q not found", pattern)
+		}
+		return match[1]
+	}
+	defaults := Default().Adapters.PPTXVisualQA
+	if got := pin(read("docker/compose.yaml"), `image: gotenberg/gotenberg:([0-9.]+)@sha256:`); got != defaults.GotenbergVersion {
+		t.Fatalf("compose pins Gotenberg %s, config default is %s", got, defaults.GotenbergVersion)
+	}
+	if got := pin(read("tools/document-runtime/requirements.txt"), `(?m)^pypdfium2==([0-9.]+)\s*$`); got != defaults.PDFiumVersion {
+		t.Fatalf("document runtime pins pypdfium2 %s, config default is %s", got, defaults.PDFiumVersion)
+	}
+	design := read("docs/pptx-final-render-visual-qa-design.md")
+	if got := pin(design, "Gotenberg `([0-9.]+)` with LibreOffice"); got != defaults.GotenbergVersion {
+		t.Fatalf("design decision pins Gotenberg %s, config default is %s", got, defaults.GotenbergVersion)
+	}
+	if got := pin(design, "with LibreOffice `([0-9.]+)`"); got != defaults.LibreOfficeVersion {
+		t.Fatalf("design decision pins LibreOffice %s, config default is %s", got, defaults.LibreOfficeVersion)
+	}
+	if got := pin(design, "pypdfium2 `([0-9.]+)`"); got != defaults.PDFiumVersion {
+		t.Fatalf("design decision pins pypdfium2 %s, config default is %s", got, defaults.PDFiumVersion)
 	}
 }
 
@@ -801,60 +870,131 @@ func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
-	profileDir := filepath.Join(t.TempDir(), "browser-profile")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND", "/opt/test/agent-browser")
+func TestLoadAppliesBrowserAutomationEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS", "31000")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", "11000")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1210000")
-	t.Setenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE", "/opt/test/chromium")
-	t.Setenv("SPARKCLAW_BROWSER_PROFILE_DIR", profileDir)
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Adapters.BrowserAutomation.ChromiumExecutable != "/opt/test/chromium" {
-		t.Fatalf("shared Chromium env did not apply: %#v", cfg.Adapters.BrowserAutomation)
-	}
-	if cfg.Adapters.BrowserAutomation.Command != "/opt/test/agent-browser" ||
-		cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
-		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 ||
-		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS != 1210000 {
-		t.Fatalf("agent-browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
-	}
-	if cfg.Adapters.BrowserAutomation.ProfileDir != profileDir || !filepath.IsAbs(cfg.Adapters.BrowserAutomation.ProfileDir) {
-		t.Fatalf("browser profile directory was not normalized: %#v", cfg.Adapters.BrowserAutomation)
+	if cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
+		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 {
+		t.Fatalf("browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
 	}
 }
 
-func TestLoadRejectsBrowserDaemonIdleTimeoutShorterThanWorkflowGap(t *testing.T) {
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED", "true")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
-
-	_, err := Load("")
-	if err == nil || !strings.Contains(err.Error(), "daemonIdleTimeoutMs must be at least") {
-		t.Fatalf("short browser daemon idle timeout error = %v", err)
+func TestLoadRejectsInvalidBrowserAutomationKnobs(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "retired provider", key: "SPARKCLAW_BROWSER_AUTOMATION_PROVIDER", value: "host-cdp", want: `tools.browserAutomation.provider must be "playwright-extension"`},
+		{name: "startup timeout too small", key: "SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", value: "100", want: "startupTimeoutMs must be between 500 and 30000"},
+		{name: "startup timeout beyond controller wait", key: "SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", value: "45000", want: "startupTimeoutMs must be between 500 and 30000"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid browser automation configuration was accepted: %v", err)
+			}
+		})
+	}
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.BrowserAutomation.Provider != BrowserAutomationProvider {
+		t.Fatalf("provider default = %q", cfg.Tools.BrowserAutomation.Provider)
 	}
 }
 
-func TestLoadAllowsShortBrowserDaemonIdleTimeoutWhenDisabled(t *testing.T) {
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
+func TestLoadPlaywrightExtensionDefaultsAndEnvironment(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	extension := cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	if extension.ControllerSocket != "/run/sparkclaw/browser-controller/controller.sock" ||
+		extension.ProfileID != "default" || extension.ConnectTimeoutMS != 20000 {
+		t.Fatalf("Playwright Extension defaults = %#v", extension)
+	}
 
-	if _, err := Load(""); err != nil {
-		t.Fatalf("disabled browser automation must not gate boot on the idle-timeout floor: %v", err)
+	socketPath := filepath.Join(t.TempDir(), "controller.sock")
+	t.Setenv("SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET", socketPath)
+	t.Setenv("SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID", "default")
+	t.Setenv("SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", "27000")
+	cfg, err = Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	extension = cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	if extension.ControllerSocket != socketPath || extension.ProfileID != "default" || extension.ConnectTimeoutMS != 27000 {
+		t.Fatalf("Playwright Extension env did not apply: %#v", extension)
 	}
 }
 
-func TestLoadRejectsBrowserDaemonIdleTimeoutCalculationOverflow(t *testing.T) {
-	maxInt := int(^uint(0) >> 1)
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED", "true")
-	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", strconv.Itoa(maxInt))
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", strconv.Itoa(maxInt))
+func TestLoadRejectsInvalidPlaywrightExtensionConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		env   string
+		value string
+		want  string
+	}{
+		{name: "relative socket", env: "SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET", value: "controller.sock", want: "controllerSocket must be absolute"},
+		{name: "unexpected profile", env: "SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID", value: "personal", want: "profileID must be default"},
+		{name: "short timeout", env: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", value: "999", want: "connectTimeoutMs must be between"},
+		{name: "long timeout", env: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", value: "120001", want: "connectTimeoutMs must be between"},
+		{name: "non-numeric timeout", env: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", value: "slow", want: "must be an integer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.env, test.value)
+			_, err := Load("")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid Playwright Extension config error = %v", err)
+			}
+		})
+	}
+}
 
-	_, err := Load("")
-	if err == nil || !strings.Contains(err.Error(), "timeouts exceed the supported browser daemon idle timeout range") {
-		t.Fatalf("browser daemon idle timeout overflow error = %v", err)
+func TestLoadRejectsRetiredBrowserEnvironment(t *testing.T) {
+	for _, name := range []string{
+		"SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE",
+		"SPARKCLAW_BROWSER_PROFILE_DIR",
+		"SPARKCLAW_BROWSER_DISPLAY",
+		"SPARKCLAW_BROWSER_XAUTHORITY",
+		"SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS",
+		"SPARKCLAW_BROWSER_AUTOMATION_COMMAND",
+		"SPARKCLAW_BROWSER_AUTOMATION_TRANSPORT",
+		"SPARKCLAW_BROWSER_CDP_RUNTIME_DIR_HOST",
+		"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE",
+		"SPARKCLAW_BROWSER_CDP_ENDPOINT_FILE_HOST",
+		"SPARKCLAW_BROWSER_CDP_PROFILE_ID",
+		"SPARKCLAW_BROWSER_CDP_CONNECT_TIMEOUT_MS",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "retired")
+			_, err := Load("")
+			if err == nil || !strings.Contains(err.Error(), "is retired") {
+				t.Fatalf("retired browser env %s error = %v", name, err)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsRetiredBrowserJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sparkclaw.json")
+	if err := os.WriteFile(path, []byte(`{
+  "adapters": {"browserAutomation": {"chromiumExecutable": "/usr/bin/chromium"}}
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "chromiumExecutable is retired") ||
+		!strings.Contains(err.Error(), "playwrightExtension controller-socket configuration") {
+		t.Fatalf("retired browser JSON error = %v", err)
 	}
 }
 
@@ -1020,10 +1160,10 @@ func TestLoadAllowsWeixinNotificationToBeExplicitlyEnabled(t *testing.T) {
 }
 
 func TestLoadRejectsExternalModelModeWithoutBaseURLs(t *testing.T) {
-	// Mirrors the shipped sparkclaw.default.json after 7d0653f: mock mode
-	// with the fast/deep endpoints blanked out.
+	// Mirrors the shipped sparkclaw.default.json with the fast/deep
+	// endpoints blanked out under a non-mock capacity profile.
 	path := filepath.Join(t.TempDir(), "config.json")
-	raw := `{"model":{"mock":false,"fast":{"base_url":""},"deep":{"base_url":""}}}`
+	raw := `{"model":{"fast":{"base_url":""},"deep":{"base_url":""}}}`
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1058,7 +1198,6 @@ func TestLoadKeepsWebSearchDisabledWhenExplicitlyDisabled(t *testing.T) {
 }
 
 func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
-	t.Setenv("SPARKCLAW_MODEL_MODE", "external-model")
 	t.Setenv("SPARKCLAW_MODEL_CAPACITY_PROFILE", "dgx-spark-dual-light-v1")
 	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://fast.example.test/v1")
 	t.Setenv("SPARKCLAW_FAST_MODEL", "sparkclaw-fast")
@@ -1068,14 +1207,13 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1600000")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Model.Mock {
-		t.Fatal("external-model mode should disable mock routing")
+		t.Fatal("a non-mock capacity profile should disable mock routing")
 	}
 	if cfg.Model.Fast.BaseURL != "http://fast.example.test/v1" || cfg.Model.Fast.Model != "sparkclaw-fast" || cfg.Model.Fast.Name != "fast-lane" {
 		t.Fatalf("fast model env did not apply: %#v", cfg.Model.Fast)
@@ -1423,7 +1561,7 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Default()
-			cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
+			cfg.Model.CapacityCatalog = repositoryCapacityCatalog()
 			test.mutate(&cfg)
 			path := filepath.Join(t.TempDir(), "config.json")
 			raw, err := json.Marshal(cfg)
@@ -1443,7 +1581,7 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 func TestLoadNormalizesMCPServersWithoutResolvingSecrets(t *testing.T) {
 	t.Setenv("HAPPY_TEAM_MCP_TOKEN", "not-read-by-config")
 	cfg := Default()
-	cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
+	cfg.Model.CapacityCatalog = repositoryCapacityCatalog()
 	cfg.MCPServers = map[string]MCPServerConfig{
 		"happy-tasks": {
 			URL: "https://happy.example.com/v1/team/mcp", TokenEnv: "HAPPY_TEAM_MCP_TOKEN", ExpectedServerName: "happy-team-tasks",
@@ -1486,7 +1624,7 @@ func TestLoadRejectsInvalidMCPServerConfiguration(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Default()
-			cfg.Model.CapacityCatalog = defaultModelCapacityCatalogPath()
+			cfg.Model.CapacityCatalog = repositoryCapacityCatalog()
 			cfg.MCPServers = map[string]MCPServerConfig{"fixture": test.server}
 			path := filepath.Join(t.TempDir(), "config.json")
 			raw, err := json.Marshal(cfg)

@@ -39,20 +39,26 @@ const (
 	OperationConversationListRecent      StoreOperation = "conversation.list_recent_messages"
 	OperationConversationMessageHead     StoreOperation = "conversation.message_event_head"
 	OperationConversationMessagesAfter   StoreOperation = "conversation.message_events_after"
+	OperationConversationCountVisible    StoreOperation = "conversation.count_visible_messages"
 	OperationRunFeedbackSave             StoreOperation = "run_feedback.save"
 	OperationRunFeedbackList             StoreOperation = "run_feedback.list"
 	OperationRunSave                     StoreOperation = "run.save"
 	OperationRunGet                      StoreOperation = "run.get"
 	OperationRunList                     StoreOperation = "run.list"
+	OperationRunCountVisible             StoreOperation = "run.count_visible"
 	OperationModelCallSave               StoreOperation = "model_call.save"
 	OperationModelCallList               StoreOperation = "model_call.list"
+	OperationModelCallLatestByLane       StoreOperation = "model_call.latest_by_lane"
+	OperationModelCallStats              StoreOperation = "model_call.stats"
 	OperationToolCallSave                StoreOperation = "tool_call.save"
 	OperationToolCallGet                 StoreOperation = "tool_call.get"
 	OperationToolCallList                StoreOperation = "tool_call.list"
 	OperationToolCallListRecent          StoreOperation = "tool_call.list_recent"
+	OperationToolCallCount               StoreOperation = "tool_call.count"
 	OperationEpisodeSummarySave          StoreOperation = "episode_summary.save"
 	OperationEpisodeSummaryList          StoreOperation = "episode_summary.list"
 	OperationEpisodeSummaryListRecent    StoreOperation = "episode_summary.list_recent"
+	OperationEpisodeSummaryCount         StoreOperation = "episode_summary.count"
 	OperationDocumentRecordSave          StoreOperation = "document_record.save"
 	OperationDocumentRecordGet           StoreOperation = "document_record.get"
 	OperationDocumentRecordList          StoreOperation = "document_record.list"
@@ -164,6 +170,9 @@ const (
 	OperationConnectorSettingList        StoreOperation = "connector_setting.list"
 	OperationConnectorSettingListAll     StoreOperation = "connector_setting.list_all"
 	OperationConnectorSettingUpdate      StoreOperation = "connector_setting.update"
+	OperationEmailProviderSettingGet     StoreOperation = "email_provider_setting.get"
+	OperationEmailProviderSettingList    StoreOperation = "email_provider_setting.list"
+	OperationEmailProviderSettingUpdate  StoreOperation = "email_provider_setting.update"
 	OperationNotificationBindingCreate   StoreOperation = "notification_binding.create"
 	OperationNotificationBindingGet      StoreOperation = "notification_binding.get"
 	OperationNotificationBindingList     StoreOperation = "notification_binding.list"
@@ -291,6 +300,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
 		Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationConversationCountVisible: {
+		ID: OperationConversationCountVisible, Repository: "ConversationRepository",
+		Method: "CountVisibleMessages", Mode: operationRead, Timeout: timeoutRead,
+	},
 	OperationRunFeedbackSave: {
 		ID: OperationRunFeedbackSave, Repository: "RunRepository",
 		Method: "SaveRunFeedback", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -311,6 +324,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationRunList, Repository: "RunRepository",
 		Method: "ListRuns", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationRunCountVisible: {
+		ID: OperationRunCountVisible, Repository: "RunRepository",
+		Method: "CountVisibleRuns", Mode: operationRead, Timeout: timeoutRead,
+	},
 	OperationModelCallSave: {
 		ID: OperationModelCallSave, Repository: "RunRepository",
 		Method: "SaveModelCall", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -318,6 +335,14 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationModelCallList: {
 		ID: OperationModelCallList, Repository: "RunRepository",
 		Method: "ListModelCalls", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationModelCallLatestByLane: {
+		ID: OperationModelCallLatestByLane, Repository: "RunRepository",
+		Method: "LatestModelCallsByLane", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationModelCallStats: {
+		ID: OperationModelCallStats, Repository: "RunRepository",
+		Method: "ModelCallStats", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationToolCallSave: {
 		ID: OperationToolCallSave, Repository: "RunRepository",
@@ -335,6 +360,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationToolCallListRecent, Repository: "RunRepository",
 		Method: "ListRecentToolCalls", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationToolCallCount: {
+		ID: OperationToolCallCount, Repository: "RunRepository",
+		Method: "CountToolCalls", Mode: operationRead, Timeout: timeoutRead,
+	},
 	OperationEpisodeSummarySave: {
 		ID: OperationEpisodeSummarySave, Repository: "RunRepository",
 		Method: "SaveEpisodeSummary", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -346,6 +375,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationEpisodeSummaryListRecent: {
 		ID: OperationEpisodeSummaryListRecent, Repository: "RunRepository",
 		Method: "ListRecentEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEpisodeSummaryCount: {
+		ID: OperationEpisodeSummaryCount, Repository: "RunRepository",
+		Method: "CountEpisodeSummaries", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationDocumentRecordSave: {
 		ID: OperationDocumentRecordSave, Repository: "DocumentRepository",
@@ -678,6 +711,18 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationConnectorSettingUpdate: {
 		ID: OperationConnectorSettingUpdate, Repository: "ConnectorRepository",
 		Method: "UpdateConnectorSetting", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationEmailProviderSettingGet: {
+		ID: OperationEmailProviderSettingGet, Repository: "ConnectorRepository",
+		Method: "GetEmailProviderSetting", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEmailProviderSettingList: {
+		ID: OperationEmailProviderSettingList, Repository: "ConnectorRepository",
+		Method: "ListEmailProviderSettings", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationEmailProviderSettingUpdate: {
+		ID: OperationEmailProviderSettingUpdate, Repository: "ConnectorRepository",
+		Method: "UpdateEmailProviderSetting", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationNotificationBindingCreate: {
 		ID: OperationNotificationBindingCreate, Repository: "ConnectorRepository",

@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
@@ -143,20 +143,15 @@ func (r Runtime) newWorkflowRunBudgetForRun(run app.AgentRun, seedCalls []app.To
 	return budget
 }
 
+// jingsiRuntimeMaxToolCalls narrows the run budget to the JingSi grant. A
+// malformed projection parses as the closed grant, so it yields zero calls
+// rather than an unbounded run.
 func jingsiRuntimeMaxToolCalls(run app.AgentRun) (int, bool) {
-	if run.MessageContext == nil || run.MessageContext.Source.Adapter != "jingsi-runtime-v1" {
+	grant, scoped := jingsiscope.ForRun(run)
+	if !scoped {
 		return 0, false
 	}
-	for _, scope := range run.MessageContext.Authorization.Scope {
-		if !strings.HasPrefix(scope, "sparkclaw.budget.max_tool_calls:") {
-			continue
-		}
-		value, err := strconv.Atoi(strings.TrimPrefix(scope, "sparkclaw.budget.max_tool_calls:"))
-		if err == nil && value >= 0 {
-			return value, true
-		}
-	}
-	return 0, false
+	return grant.MaxToolCalls, true
 }
 
 // observeToolCall accounts one executed tool call against the run budget.

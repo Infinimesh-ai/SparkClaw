@@ -2,14 +2,17 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"slices"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -19,6 +22,10 @@ type jingSiAgentExecutor struct {
 		store.SessionRepository
 		store.RunRepository
 	}
+	// enforceEffectScopes projects only the data/network tokens JingSi
+	// granted. While false (pending InfiniCenter decision 0034) the gateway
+	// adds the full effect vocabulary so tool_scope alone keeps governing.
+	enforceEffectScopes bool
 }
 
 func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, repository interface {
@@ -34,7 +41,8 @@ func NewJingSiRuntimeProvider(cfg config.Config, runtime agent.Runtime, reposito
 	return jingsiruntime.New(jingsiruntime.Config{
 		StateDir: cfg.JingSiRuntime.StateDir, BearerToken: cfg.JingSiRuntime.BearerToken,
 		CallerID: "jingsi-service-v1", MaxConcurrent: cfg.JingSiRuntime.MaxConcurrent,
-	}, jingSiAgentExecutor{runtime: runtime, repository: repository})
+		Retention: time.Duration(cfg.JingSiRuntime.RetentionDays) * 24 * time.Hour,
+	}, jingSiAgentExecutor{runtime: runtime, repository: repository, enforceEffectScopes: cfg.JingSiRuntime.EnforceEffectScopes})
 }
 
 func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.ExecutionInput) (jingsiruntime.ExecutionOutput, error) {
@@ -42,24 +50,11 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	if input.Memory != nil {
 		authorizedContext = input.Memory.Summary
 	}
-	scopes := make([]string, 0, len(input.Authorization.ToolScope)+len(input.Authorization.DataScope)+len(input.Authorization.NetworkScope)+3)
-	for _, value := range input.Authorization.ToolScope {
-		scopes = append(scopes, "sparkclaw.tool:"+value)
+	grant := jingSiGrant(input)
+	if !e.enforceEffectScopes {
+		grant = grant.WithDefaultEffectScopes()
 	}
-	for _, value := range input.Authorization.DataScope {
-		scopes = append(scopes, "sparkclaw.data:"+value)
-	}
-	for _, value := range input.Authorization.NetworkScope {
-		scopes = append(scopes, "sparkclaw.network:"+value)
-	}
-	scopes = append(scopes,
-		"sparkclaw.approval:"+input.Authorization.ApprovalPolicy,
-		fmt.Sprintf("sparkclaw.budget.max_tool_calls:%d", input.Budget.MaxToolCalls),
-		fmt.Sprintf("sparkclaw.budget.max_output_bytes:%d", input.Budget.MaxOutputBytes),
-		"sparkclaw.purpose:"+input.Authorization.Purpose.Name,
-		"sparkclaw.grant:"+input.Authorization.Grant.ID+"@"+input.Authorization.Grant.Version,
-	)
-	slices.Sort(scopes)
+	scopes := grant.Scopes()
 	sessionID := ""
 	if run, found, err := e.repository.GetRun(ctx, input.ExecutionID); err != nil {
 		return jingsiruntime.ExecutionOutput{}, err
@@ -68,7 +63,7 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	}
 	if sessionID == "" {
 		session, err := e.repository.CreateSessionWithScope(
-			ctx, "JingSi task "+input.Authorization.TaskID, app.DefaultOwnerID, "", "jingsi-runtime-v1", true,
+			ctx, "JingSi task "+input.Authorization.TaskID, app.DefaultOwnerID, "", jingsiscope.AdapterID, true,
 		)
 		if err != nil {
 			return jingsiruntime.ExecutionOutput{}, err
@@ -84,7 +79,7 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 		nil,
 		app.MessageIngressContext{
 			Source: app.MessageSourceContext{
-				Kind: app.MessageSourceThirdPartyDevice, Adapter: "jingsi-runtime-v1",
+				Kind: app.MessageSourceThirdPartyDevice, Adapter: jingsiscope.AdapterID,
 				NativeMessageID: input.ExecutionID,
 			},
 			OwnerID: app.DefaultOwnerID,
@@ -103,8 +98,61 @@ func (e jingSiAgentExecutor) Execute(ctx context.Context, input jingsiruntime.Ex
 	}
 	return jingsiruntime.ExecutionOutput{
 		State: state, Summary: summary,
-		TraceRef: jingsiruntime.OpaqueRef{ID: "trace:" + input.ExecutionID, Version: "v1"},
+		ArtifactRefs: jingSiArtifactRefs(input.ExecutionID, result.Message.Attachments),
+		TraceRef:     jingsiruntime.OpaqueRef{ID: "trace:" + input.ExecutionID, Version: "v1"},
 	}, err
+}
+
+// jingSiArtifactRefs projects the attachments the run delivered with its
+// assistant message into opaque versioned references. The id is a digest of
+// the execution and the artifact object identity, so a replay or a restart
+// re-entry yields the same reference while no store id, path or URI crosses
+// the surface. Attachments without a registered artifact object have no
+// stable identity and are not projected.
+func jingSiArtifactRefs(executionID string, attachments []app.MessageAttachment) []jingsiruntime.ArtifactRef {
+	refs := make([]jingsiruntime.ArtifactRef, 0, len(attachments))
+	seen := map[string]bool{}
+	for _, attachment := range attachments {
+		objectID := strings.TrimSpace(attachment.ArtifactID)
+		if objectID == "" || seen[objectID] {
+			continue
+		}
+		seen[objectID] = true
+		sum := sha256.Sum256([]byte(executionID + "\x00" + objectID))
+		refs = append(refs, jingsiruntime.ArtifactRef{
+			ID: "artifact:" + hex.EncodeToString(sum[:16]), Version: "v1",
+			Kind: jingSiArtifactKind(attachment.ContentType), MediaType: strings.TrimSpace(attachment.ContentType),
+		})
+	}
+	return refs
+}
+
+func jingSiArtifactKind(contentType string) string {
+	switch {
+	case strings.HasPrefix(contentType, "image/"):
+		return "image"
+	case strings.HasPrefix(contentType, "audio/"):
+		return "audio"
+	default:
+		return "file"
+	}
+}
+
+// jingSiGrant projects the verified authorization envelope and the tool-call
+// budget into the typed grant the Agent Runtime consumes. The provider
+// validated the envelope before Execute is called; nothing here may widen it.
+// max_output_bytes stays with the provider, which bounds the result summary.
+func jingSiGrant(input jingsiruntime.ExecutionInput) jingsiscope.Grant {
+	return jingsiscope.Grant{
+		Tools:          append([]string(nil), input.Authorization.ToolScope...),
+		ApprovalPolicy: input.Authorization.ApprovalPolicy,
+		MaxToolCalls:   input.Budget.MaxToolCalls,
+		DataScope:      append([]string(nil), input.Authorization.DataScope...),
+		NetworkScope:   append([]string(nil), input.Authorization.NetworkScope...),
+		Purpose:        input.Authorization.Purpose.Name,
+		GrantID:        input.Authorization.Grant.ID,
+		GrantVersion:   input.Authorization.Grant.Version,
+	}
 }
 
 func mapAgentState(value string) string {

@@ -122,14 +122,18 @@ export function IntegrationCredentialSettings({
     });
   }
 
+  // A selection whose last activation failed may be retried; only a healthy
+  // active selection is a no-op.
+  const activationHealthy = Boolean(status && (status.state === "ready" || status.state === "configured"));
+
   function activateCredential(credentialId: string) {
-    if (!status || status.active_credential_id === credentialId) return;
+    if (!status || (status.active_credential_id === credentialId && activationHealthy)) return;
     if (status.configured && !window.confirm(text.settings.switchCredentialConfirm)) return;
     void run(`activate:${credentialId}`, () => api.activateIntegrationCredential(id, credentialId));
   }
 
   function activateOperator() {
-    if (!status || status.source === "operator") return;
+    if (!status || (status.source === "operator" && activationHealthy)) return;
     if (status.configured && !window.confirm(text.settings.switchCredentialConfirm)) return;
     void run("activate:operator", () => api.activateIntegrationOperator(id));
   }
@@ -173,7 +177,7 @@ export function IntegrationCredentialSettings({
               className="miniIconButton"
               type="button"
               onClick={activateOperator}
-              disabled={Boolean(busy) || status.source === "operator"}
+              disabled={Boolean(busy) || (status.source === "operator" && activationHealthy)}
               title={text.settings.useCredential}
             >
               {status.source === "operator" ? <CheckCircle2 size={15} /> : <Power size={15} />}
@@ -208,7 +212,7 @@ export function IntegrationCredentialSettings({
                 className="miniIconButton"
                 type="button"
                 onClick={() => activateCredential(credential.id)}
-                disabled={Boolean(busy) || credential.active}
+                disabled={Boolean(busy) || (credential.active && activationHealthy)}
                 title={text.settings.useCredential}
               >
                 {credential.active ? <CheckCircle2 size={14} /> : <Power size={14} />}

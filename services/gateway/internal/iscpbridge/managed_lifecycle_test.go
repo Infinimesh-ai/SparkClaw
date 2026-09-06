@@ -195,3 +195,154 @@ func asLifecycleError(err error, target **lifecycleHTTPError) bool {
 	}
 	return false
 }
+
+// TestAutoRenewGrantRejectsWidenedPermissions pins the renewal bound that
+// trust.VerifyGrant cannot enforce on its own: it only checks that the grant
+// CONTAINS the requested permission, so a renewal carrying extra permissions
+// verifies fine. Silent renewal extends a pairing's lifetime; widening its
+// authority requires a human-approved re-pairing.
+func TestAutoRenewGrantRejectsWidenedPermissions(t *testing.T) {
+	h := newManagedHarness(t)
+	ctx := context.Background()
+	trustSigner := h.trustSigner
+
+	h.lifecycleHandler = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/v2/relay/devices/auto-renew-grant" {
+			return false
+		}
+		now := time.Now().UTC()
+		widened, _ := trust.SignGrant(h.provider, trustSigner, trust.Grant{
+			GrantID:                "grant_widened",
+			SubjectDeviceID:        h.grant.SubjectDeviceID,
+			Audience:               h.grant.Audience,
+			ConfirmationThumbprint: h.grant.ConfirmationThumbprint,
+			// Keeps the original permission and quietly adds a new one.
+			Permissions:      append(append([]string{}, h.grant.Permissions...), "filesystem"),
+			RelayConstraints: h.grant.RelayConstraints,
+			NotBefore:        now.Add(-time.Second),
+			ExpiresAt:        now.Add(2 * time.Hour),
+		})
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":  map[string]any{"device_id": h.bridge.Identity.DeviceID, "domain_id": "dom_test"},
+			"grant": widened,
+		})
+		return true
+	}
+
+	peer := h.service.managedPeerFor(h.phone.Identity.DeviceID)
+	originalID := h.grant.GrantID
+	err := h.service.autoRenewGrant(ctx, &http.Client{Timeout: 5 * time.Second}, peer)
+	if err == nil || !strings.Contains(err.Error(), "widens the authorized permissions") {
+		t.Fatalf("widened renewal must fail closed, got %v", err)
+	}
+	// Fails closed: neither the in-memory peer nor the persisted bundle rotate.
+	peer.mu.Lock()
+	currentID := peer.grant.GrantID
+	peer.mu.Unlock()
+	if currentID != originalID {
+		t.Fatalf("peer grant rotated to a widened grant: %q", currentID)
+	}
+	if h.service.relay.Enrollment().Peers[0].OutboundGrant.GrantID != originalID {
+		t.Fatal("widened grant was persisted into the enrollment bundle")
+	}
+}
+
+// TestAutoRenewGrantReplaysKeyAfterUnknownOutcome pins the idempotency
+// contract. Previously every attempt minted a fresh key, so a request that
+// timed out or 5xx'd AFTER the Cloud had committed would be retried under a
+// new key and mint a second grant — the exact duplicate the mandatory
+// Idempotency-Key exists to prevent.
+func TestAutoRenewGrantReplaysKeyAfterUnknownOutcome(t *testing.T) {
+	h := newManagedHarness(t)
+	ctx := context.Background()
+	trustSigner := h.trustSigner
+
+	var keys []string
+	var attempts atomic.Int32
+	h.lifecycleHandler = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/v2/relay/devices/auto-renew-grant" {
+			return false
+		}
+		keys = append(keys, r.Header.Get("Idempotency-Key"))
+		switch attempts.Add(1) {
+		case 1:
+			// Committed server-side, but the client never learns the outcome.
+			w.WriteHeader(http.StatusBadGateway)
+			return true
+		case 2:
+			// Still unknown: a transport-level failure.
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return true
+		}
+		now := time.Now().UTC()
+		renewed, _ := trust.SignGrant(h.provider, trustSigner, trust.Grant{
+			GrantID:                "grant_renewed_dedup",
+			SubjectDeviceID:        h.grant.SubjectDeviceID,
+			Audience:               h.grant.Audience,
+			ConfirmationThumbprint: h.grant.ConfirmationThumbprint,
+			Permissions:            h.grant.Permissions,
+			RelayConstraints:       h.grant.RelayConstraints,
+			NotBefore:              now.Add(-time.Second),
+			ExpiresAt:              now.Add(2 * time.Hour),
+		})
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":  map[string]any{"device_id": h.bridge.Identity.DeviceID, "domain_id": "dom_test"},
+			"grant": renewed,
+		})
+		return true
+	}
+
+	peer := h.service.managedPeerFor(h.phone.Identity.DeviceID)
+	client := &http.Client{Timeout: 5 * time.Second}
+	for attempt := range 3 {
+		err := h.service.autoRenewGrant(ctx, client, peer)
+		if attempt < 2 && err == nil {
+			t.Fatalf("attempt %d should have failed", attempt)
+		}
+		if attempt == 2 && err != nil {
+			t.Fatalf("final attempt: %v", err)
+		}
+	}
+	if len(keys) != 3 {
+		t.Fatalf("expected 3 attempts, got %d", len(keys))
+	}
+	// All three carried the SAME key: the outcome was never known until the
+	// last one, so the Cloud can dedupe them.
+	if keys[0] == "" || keys[0] != keys[1] || keys[1] != keys[2] {
+		t.Fatalf("idempotency keys diverged across unknown outcomes: %q", keys)
+	}
+	// The settled outcome retires the key, so the next renewal starts fresh.
+	peer.mu.Lock()
+	pending := peer.pendingRenewKey
+	peer.mu.Unlock()
+	if pending != "" {
+		t.Fatalf("key not retired after a known outcome: %q", pending)
+	}
+}
+
+// TestAutoRenewGrantRetiresKeyOnDefinitiveRejection: a 4xx is an answer, so
+// the key has done its job and must not be replayed forever.
+func TestAutoRenewGrantRetiresKeyOnDefinitiveRejection(t *testing.T) {
+	h := newManagedHarness(t)
+	var keys []string
+	h.lifecycleHandler = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/v2/relay/devices/auto-renew-grant" {
+			return false
+		}
+		keys = append(keys, r.Header.Get("Idempotency-Key"))
+		w.WriteHeader(http.StatusForbidden)
+		return true
+	}
+	peer := h.service.managedPeerFor(h.phone.Identity.DeviceID)
+	client := &http.Client{Timeout: 5 * time.Second}
+	for range 2 {
+		if err := h.service.autoRenewGrant(context.Background(), client, peer); err == nil {
+			t.Fatal("403 must surface as an error")
+		}
+	}
+	if len(keys) != 2 || keys[0] == keys[1] {
+		t.Fatalf("a definitive rejection must retire the key, got %q", keys)
+	}
+}

@@ -58,6 +58,22 @@ func prepareModelCall(call app.ModelCall, now time.Time) (app.ModelCall, error) 
 	return call, nil
 }
 
+// modelCallIsLater reports whether candidate sorts after current in the
+// model-call recency order shared by every backend: later started_at first,
+// then the larger ID as a deterministic tie-break.
+func modelCallIsLater(candidate, current app.ModelCall) bool {
+	if order := candidate.StartedAt.Compare(current.StartedAt); order != 0 {
+		return order > 0
+	}
+	return candidate.ID > current.ID
+}
+
+// modelCallFailed reports whether a persisted model call ended in failure;
+// every backend counts model call errors with this one rule.
+func modelCallFailed(call app.ModelCall) bool {
+	return call.Status == app.ModelCallStatusFailed
+}
+
 func prepareToolCall(call app.ToolCall, now time.Time) (app.ToolCall, error) {
 	if strings.TrimSpace(call.ID) == "" {
 		return app.ToolCall{}, errors.New("tool call ID is required")

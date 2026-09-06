@@ -134,7 +134,7 @@ else
   fail "installation path exists and is not a SparkClaw Git checkout: $INSTALL_DIR"
 fi
 
-deploy_script="$INSTALL_DIR/scripts/deploy.sh"
+deploy_script="$INSTALL_DIR/scripts/deploy_local.sh"
 [[ -f "$deploy_script" ]] || fail "deployment entrypoint not found after checkout: $deploy_script"
 log "repository ready at $(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
 

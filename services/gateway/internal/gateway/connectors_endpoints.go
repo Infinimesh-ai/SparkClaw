@@ -22,7 +22,7 @@ func (s *Server) startPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("pairing is not required"))
 		return
 	}
-	if !isLocalRequest(r) {
+	if !s.isTrustedPairingBootstrap(r) {
 		writeError(w, http.StatusForbidden, errors.New("pairing can only be started locally"))
 		return
 	}

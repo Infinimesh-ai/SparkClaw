@@ -45,8 +45,22 @@ The Bridge advertises only capabilities implemented by the current Gateway:
 - `agent.conversation` v1;
 - `agent.streaming` v1;
 - `agent.activities` v1;
+- `agent.snapshot` v1;
 - `agent.approvals` v1;
 - `agent.notifications` v1.
+
+`agent.activity.list.v1` and `agent.snapshot.get.v1` are read-only
+projections over state the Gateway already stores (pending approvals, agent
+runs, unread passive notifications). They create no store entity, ingress, or
+result path of their own. Both are scoped to the principal's own non-hidden
+sessions. `agent.activity.list.v1` takes an optional UTC `date`
+(`YYYY-MM-DD`, default today) and `limit` (default 50, max 200); pending
+approvals are always included regardless of day because they stay actionable
+until resolved. Run activity `kind` is an open vocabulary — currently
+`approval_pending`, `run_running`, `run_completed`, `run_failed` — and
+consumers must tolerate unknown kinds. Run buckets are derived from the same
+normalizer that backs `agent.operation.status.v1`, so the two surfaces always
+agree about a given run.
 
 `agent.notification.deliver.v1` accepts only a structured LocalMind
 `document_mention` or `comment_mention`, a bounded deep link, and its occurrence
@@ -88,6 +102,56 @@ versioned JSON Schema is
   window, endpoint binding, and envelope sequence.
 
 ## Enrollment
+
+Two enrollment contracts exist. **Managed** (ISCP v0.2, below) is the path for
+JingSi Cloud deployments. The **legacy** externally-issued bundle documented
+after it stays in place for LocalMind only.
+
+### Managed Enrollment (ISCP v0.2 Pairing Ticket v3)
+
+The phone's App issues an `iscp.pairing_ticket.v3` that the Bridge redeems in
+one registration call, receiving its official device id, Relay credentials,
+and a pre-authorized outbound Trust Grant (subject = Bridge, audience =
+inviting phone):
+
+```bash
+go run ./cmd/iscp-bridge enroll-ticket \
+  -config ../../configs/iscp-bridge.json \
+  -ticket "<QR / deep-link / copy string from the App>" \
+  -relay-url https://iscp.infinimesh.cloud \
+  -relay-ws-url wss://iscp.infinimesh.cloud/v2/relay/connect \
+  -display-name "Living room GB10"
+```
+
+The command prints a six-digit device confirmation code. **Compare it on the
+phone before approving the invitation** — it is derived from the Bridge's
+identity key and is the out-of-band check that binds this device to the
+invitation. The command refuses payloads that carry only a v2 ticket, and it
+fails the grant role invariants before the one-time ticket is consumed
+server-side, so a rejected attempt does not burn the ticket.
+
+Managed bundles are written with `mode: "managed"` and differ from the legacy
+contract in three ways:
+
+- the session direction flips — the Bridge holds the Trust Grant and
+  **initiates** toward the responder-only phone, which answers with an empty
+  `grant_id`;
+- a single outbound grant per peer replaces the dual-grant pair, so no
+  inbound grant binding is required;
+- the Trust Root is a managed multi-tenant root that signs from its own
+  platform Domain, so it is not required to share the device's Domain.
+
+While running in managed mode the Bridge keeps its own credentials alive:
+Trust Grants auto-renew inside their eligibility window
+(`min(24h, ttl/5)` before expiry) and Relay credentials are recovered before
+the refresh TTL lapses. Both are optional Relay surface, feature-detected per
+pass through the Relay descriptor's capability metadata, so a deployment that
+does not advertise them is never probed. A renewal that would widen the
+pairing — different audience, subject, confirmation thumbprint, or any added
+permission — is rejected and the stored grant is left untouched; widening
+authority requires a fresh human-approved pairing.
+
+### Legacy Enrollment
 
 For LocalMind, the following procedure documents legacy operation only. Its
 generated request and externally returned bundle must not be accepted by the

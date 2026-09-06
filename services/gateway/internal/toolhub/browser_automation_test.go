@@ -87,7 +87,7 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		t.Fatal("browser.click should require uid")
 	}
 	if err := hub.Validate("browser.focus", map[string]any{"page_id": 1}); err != nil {
-		t.Fatalf("browser.focus should accept numeric page ids from agent-browser output: %v", err)
+		t.Fatalf("browser.focus should accept numeric page ids from browser output: %v", err)
 	}
 	click, _ := hub.Definition("browser.click")
 	if click.RequiresApproval {
@@ -117,6 +117,27 @@ func TestBrowserListTabsPreservesEmptyPagesArray(t *testing.T) {
 	out, ok := result.Output.(browserautomation.Result)
 	if !ok || out.Pages == nil || len(out.Pages) != 0 {
 		t.Fatalf("zero-tab result must preserve pages as an empty array: %#v", result.Output)
+	}
+}
+
+func TestWithBrowserAutomationAdapterClosesReplacedAdapter(t *testing.T) {
+	cfg := config.Default()
+	first := &managedBrowserAdapter{}
+	second := &managedBrowserAdapter{}
+	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(first)
+
+	hub.WithBrowserAutomationAdapter(second)
+	if first.closeCalls != 1 {
+		t.Fatalf("replaced adapter close count = %d, want 1", first.closeCalls)
+	}
+	if second.closeCalls != 0 {
+		t.Fatalf("active adapter closed before ToolHub shutdown: %d", second.closeCalls)
+	}
+	if err := hub.Close(); err != nil {
+		t.Fatalf("close ToolHub: %v", err)
+	}
+	if second.closeCalls != 1 {
+		t.Fatalf("active adapter close count = %d, want 1", second.closeCalls)
 	}
 }
 

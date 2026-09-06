@@ -35,6 +35,10 @@
 conversation/final answer、direct chat、Guard、Embedding 和 Fast 图片理解调用。不经过 Model Router
 的模型适配器（例如 OCR）可以消费同一所选容量 catalog，但保留自己的 transport 与媒体限制。
 
+语音识别（ASR）不在本契约范围内：它不是 Model Router lane，其输入由音频时长与上传大小而非
+上下文 token 约束，vLLM 的 `--max-model-len` 由 ASR 服务自己的 `SPARKCLAW_ASR_MAX_MODEL_LEN`
+设置固定，而不是由容量 catalog 的 lane 决定。
+
 本文不做以下事项：
 
 - 不随窗口扩大而增加 8 条消息、6 条工具结果、4 条 episode 或 3 张图片的选择数量；

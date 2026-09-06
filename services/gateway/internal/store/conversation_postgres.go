@@ -207,3 +207,21 @@ func classifyConversationPostgresError(operation StoreOperation, ctx context.Con
 	}
 	return storeError(ctx, operation, StoreErrorUnavailable, cause)
 }
+
+func (s *PostgresStore) CountVisibleMessages(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationCountVisible, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.conversationPostgres, `
+		SELECT count(*)
+		FROM messages m
+		JOIN sessions s ON s.id = m.session_id
+		WHERE s.hidden = false
+	`)
+	if err != nil {
+		return 0, classifyConversationPostgresError(OperationConversationCountVisible, ctx, err)
+	}
+	return count, nil
+}

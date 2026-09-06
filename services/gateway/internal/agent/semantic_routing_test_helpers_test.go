@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -154,4 +155,34 @@ func TestRuntimeStartupFailsWhenSemanticEmbeddingIndexCannotBuild(t *testing.T) 
 	if !failedStartupCall {
 		t.Fatalf("failed startup embedding call was not recorded: %#v", testListModelCalls(st, "", ""))
 	}
+}
+
+// mustTreeRoutingPromptAdmission assembles the Tree routing prompt the way
+// routeIntentWithHistory does for one owner turn: bounded history acquisition,
+// current-owner exclusion, governed document resolution, then capacity
+// admission of the complete request.
+func mustTreeRoutingPromptAdmission(t testing.TB, runtime Runtime, sessionID, runID, content string, resources []app.MessagePart) contextAdmission {
+	t.Helper()
+	history, err := runtime.routingInvocationHistory(t.Context(), sessionID, runID)
+	if err != nil {
+		t.Fatalf("acquire routing history: %v", err)
+	}
+	history.Selected.Messages = withoutCurrentOwnerMessage(history.Selected.Messages, content)
+	documents, err := runtime.resolveDocumentContextWithHistory(t.Context(), sessionID, content, resources, history)
+	if err != nil {
+		t.Fatalf("resolve document context: %v", err)
+	}
+	return mustAdmitTreePrompt(t, runtime, content, newTreeRoutingPromptContext(resources, history.Selected, documents))
+}
+
+func mustAdmitTreePrompt(t testing.TB, runtime Runtime, question string, treeContext treeRoutingPromptContext) contextAdmission {
+	t.Helper()
+	admission, err := runtime.admitTreePrompt(t.Context(), modelcapacity.OperationIntentTreeScore,
+		"Score candidates.", question, app.MessageSourceWeb,
+		`[{"candidate_id":"conversation.answer#answer"}]`, treeContext, "", "", modelrouter.ChatOptions{},
+	)
+	if err != nil {
+		t.Fatalf("admit Tree routing prompt: %v", err)
+	}
+	return admission
 }

@@ -61,29 +61,6 @@ type contextBuilder struct {
 	UserJoiner   string
 }
 
-// Render admits the sections under maxTokens and joins the result. It fails
-// closed: when even the fixed sections exceed the budget the caller gets the
-// error instead of a silently unbounded prompt.
-func (builder contextBuilder) Render(maxTokens int) (string, error) {
-	admission, err := builder.Admit(maxTokens)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(admission.System) == "" {
-		return admission.User, nil
-	}
-	if strings.TrimSpace(admission.User) == "" {
-		return admission.System, nil
-	}
-	return admission.System + builder.joiner(contextChannelSystem) + admission.User, nil
-}
-
-func (builder contextBuilder) Admit(maxTokens int) (contextAdmission, error) {
-	return builder.AdmitWithCounter(maxTokens, func(system, user string) (int, error) {
-		return estimatePromptTokens(system, user), nil
-	})
-}
-
 func (builder contextBuilder) AdmitWithCounter(maxTokens int, counter contextTokenCounter) (contextAdmission, error) {
 	if counter == nil {
 		return contextAdmission{}, errors.New("context token counter is required")

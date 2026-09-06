@@ -1,0 +1,2 @@
+ALTER TABLE approvals
+  ADD COLUMN IF NOT EXISTS arguments_immutable BOOLEAN NOT NULL DEFAULT false;

@@ -118,10 +118,22 @@ func groundedSummaryWithStrategy(goal, fallback string, calls []app.ToolCall) (s
 	return fallback, strategyGroundedResult
 }
 
+func isLocalMindWorkflow(id app.WorkflowID) bool {
+	switch id {
+	case app.WorkflowLocalMindRead, app.WorkflowLocalMindWrite, app.WorkflowLocalMindQuery, app.WorkflowLocalMindCancel:
+		return true
+	default:
+		return false
+	}
+}
+
+// groundedLocalMindTaskSummary replaces the model answer only for runs that
+// executed one of the explicit LocalMind task workflows; a LocalMind tool
+// observed inside any other workflow keeps that workflow's own grounding.
 func groundedLocalMindTaskSummary(calls []app.ToolCall) (string, bool) {
 	for index := len(calls) - 1; index >= 0; index-- {
 		call := calls[index]
-		if !toolCallCompleted(call) || !isLocalMindTaskToolCall(call) {
+		if !toolCallCompleted(call) || !isLocalMindTaskToolCall(call) || !isLocalMindWorkflow(call.WorkflowID) {
 			continue
 		}
 		output, ok := anyMap(call.Result)

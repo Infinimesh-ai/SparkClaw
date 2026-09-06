@@ -15,14 +15,7 @@ type browserDestination struct {
 
 // registeredBrowserDestinations is the allowlist for named browser targets.
 // A matched name resolves to this frozen URL; the model never supplies one.
-var registeredBrowserDestinations = []browserDestination{
-	{
-		ID:      "qq_mail",
-		Name:    "QQ 邮箱",
-		URL:     "https://mail.qq.com/",
-		Aliases: []string{"QQ 邮箱", "QQ邮箱", "QQ Mail", "QQMail", "腾讯邮箱"},
-	},
-}
+var registeredBrowserDestinations = []browserDestination{}
 
 type browserDestinationMatch struct {
 	Destination browserDestination

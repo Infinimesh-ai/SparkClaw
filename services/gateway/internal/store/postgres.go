@@ -39,6 +39,7 @@ type PostgresStore struct {
 	connectorPostgres                 ownerPostgresOps
 	connectorCommandGate              *semaphore.Weighted
 	connectorSettingWriteHighWater    map[string]time.Time
+	emailProviderWriteHighWater       map[string]time.Time
 	notificationBindingWriteHighWater map[string]time.Time
 	connectorNow                      func() time.Time
 	conversationPostgres              ownerPostgresOps
@@ -125,6 +126,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		connectorPostgres:                 pgxOwnerPostgresOps{pool: pool},
 		connectorCommandGate:              semaphore.NewWeighted(1),
 		connectorSettingWriteHighWater:    map[string]time.Time{},
+		emailProviderWriteHighWater:       map[string]time.Time{},
 		notificationBindingWriteHighWater: map[string]time.Time{},
 		connectorNow:                      time.Now,
 		conversationPostgres:              pgxOwnerPostgresOps{pool: pool},
@@ -161,6 +163,10 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		return nil, err
 	}
 	if err := st.validateConnectorState(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.validateEmailProviderState(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -282,4 +288,13 @@ func zeroTimeToNil(t time.Time) any {
 		return nil
 	}
 	return t
+}
+
+// queryPostgresCount runs one aggregate COUNT statement and returns its value.
+func queryPostgresCount(ctx context.Context, ops ownerPostgresOps, sql string, args ...any) (int, error) {
+	var count int64
+	if err := ops.QueryRow(ctx, sql, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return int(count), nil
 }

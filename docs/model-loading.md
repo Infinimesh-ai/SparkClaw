@@ -8,8 +8,11 @@ The short version: the current single-machine product runtime loads `nvidia/Qwen
 
 ## Current NVFP4 Baseline
 
-The current GB10 configuration uses vLLM 0.24.0, 32K context, an 8 GiB KV
-cache, four sequences, and no MTP. SparkClaw selects the NVIDIA checkpoint and
+The last qualified GB10 residency baseline used vLLM 0.24.0, 32K context, an
+8 GiB KV cache, four sequences, and no MTP. The current product contract now
+requires 262K context to match Remote; local physical-model qualification and
+resource adjustment remain follow-up work, with no automatic 32K fallback.
+SparkClaw selects the NVIDIA checkpoint and
 sets operational capacity only. It does not override checkpoint quantization
 metadata, activation scales, linear kernels, MoE kernels, attention backends,
 or KV-cache dtype. vLLM reads the checkpoint's ModelOpt configuration and owns
@@ -50,7 +53,8 @@ The failed dual-residency attempt was close only because it failed during an inc
 
 ## Single-Machine Policy
 
-Default single-machine operation uses the `single-fast-v1` profile:
+Default single-machine operation uses the Local topology with the shared
+`sparkclaw-product-v1` capacity profile:
 
 - Run one Fast chat endpoint for all Workflow model calls.
 - Preserve the logical fast/deep profile choice in traces, but configure both profiles with `SPARKCLAW_DEEP_BASE_URL=http://sparkclaw-fast:8001/v1` and `SPARKCLAW_DEEP_MODEL=sparkclaw-fast`.
@@ -72,20 +76,23 @@ Single-machine performance features are intentionally conservative:
 - Treat acceleration features as second-order tuning after the residency plan is stable.
 - Re-run endpoint benchmarks and the golden eval after any change to context, KV budget, MTP, serving image or model checkpoint.
 
-## Active Single-Fast Profile
+## Active Product Capacity Profile
 
-The current profile is implemented as `dgx-spark-single-fast-v1`:
+Both Local and Remote use the `sparkclaw-product-v1` capacity contract:
 
-- Environment: `docker/env/sparkclaw.single-fast.env`
-- Compose resource override: `docker/compose.dual-light.yaml`
+- Shared product contract: `docker/env/sparkclaw.product.env`
+- Local model wiring and resources: `docker/env/sparkclaw.local.env`
+- Local model services: `docker/compose.models.local.yaml`
 - Profile metadata: `configs/model.profiles.json`
-- Startup shortcut: `scripts/serve_models_compose.sh single-fast`
+- Local model startup helper: `scripts/serve_models_compose.sh single-fast`
 
 The shortcut first stops a previously running Deep container, then starts Fast,
-embedding, guard, ASR, and OCR in one Compose operation. Run
-`scripts/restart_runtime_compose.sh local` afterward to select the matching local
-chat profile plus the ASR and OCR environments. The independent `online` profile
-does not consume the resident Fast endpoint. Before changing the selected group, startup verifies
+embedding, guard, ASR, and OCR in one Compose operation. The normal product
+entrypoint is `npm run start:local`, which performs this model reconciliation
+and then starts PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat from
+the common product Compose. Remote starts the same application services and
+changes only model transport, so it does not consume the resident Fast endpoint.
+Before changing the selected group, startup verifies
 that every container exists, is running and healthy, and carries the current
 Compose configuration hash. A healthy/current group is retained. If any member
 is absent, stopped, unhealthy, or drifted, the complete selected group is
@@ -97,9 +104,12 @@ Model checkpoints and Hugging Face metadata remain durable under `data/models`.
 vLLM/TorchInductor AOT artifacts, Triton kernels, FlashInfer caches, and NVIDIA
 runtime injection stay in the disposable container instance. Recreating the
 group discards those process-local caches and refreshes GPU device injection
-without redownloading the checkpoint. The current NVFP4 Fast capacity
-remains at the exercised 32K context and 8 GiB KV cache rather than
-claiming an unmeasured capacity increase from the memory freed by Deep. Model
+without redownloading the checkpoint. The product contract gives both logical
+chat lanes a 262,144-token context and the Remote output-class budgets;
+embedding, guard, and OCR use 8K, 8K, and 32K contracts. The local model
+entrypoint receives that same profile and must satisfy it. Historical 32K/64K
+dual-residency measurements remain benchmark evidence and are not a silent
+fallback. Local KV cache and residency values remain infrastructure settings. Model
 startup waits for Docker health. Fast health includes one production-shaped
 chat completion per model process: the current synthetic input is about 3.4K
 tokens on Qwen3.6 and forces a 480-token decode, covering the Tree-routing cold
@@ -115,8 +125,8 @@ the exact process is warm and its marker is stored. Embedding keeps the fixed
 2 GiB KV budget but admits up to 128 short sequences so the 110-entry semantic
 corpus can be embedded as one startup request within the 20-second index bound.
 
-Qwen3-ASR is a speech adapter, not a Model Router lane. The `single-fast`
-product profile loads `Qwen/Qwen3-ASR-0.6B` through `docker/compose.asr.yaml` on
+Qwen3-ASR is a speech adapter, not a Model Router lane. The Local model group
+loads `Qwen/Qwen3-ASR-0.6B` through `docker/compose.models.local.yaml` on
 port `8006`; the derivative vLLM image adds bounded audio dependencies, while
 the model itself uses the shared Hugging Face cache. The service assigns a
 fixed 2 GiB KV cache: utilization-only allocation calculated `-10.24 GiB`
@@ -127,11 +137,10 @@ environment. With the fixed cache, vLLM reported 44.55 GiB initially free,
 in 92 seconds during the complete five-service force-recreate, and a one-second
 WAV transcription smoke request completed successfully.
 
-OvisOCR2 is likewise a document adapter rather than a Model Router lane. The `single-fast`
-product profile loads `ATH-MaaS/OvisOCR2` with Fast, embedding, guard, and ASR through
-`docker/compose.ocr.yaml` on port `8007`. The older `single-fast-with-ocr`
-command remains an alias for the same five-service startup. That
-overlay pins the model's documented vLLM `0.22.1` runtime, disables thinking,
+OvisOCR2 is likewise a document adapter rather than a Model Router lane. The Local
+model group loads `ATH-MaaS/OvisOCR2` with Fast, embedding, guard, and ASR through
+`docker/compose.models.local.yaml` on port `8007`. The service definition pins
+the model's documented vLLM `0.22.1` runtime, disables thinking,
 uses deterministic generation, assigns a fixed 2 GiB KV cache, and keeps
 response-byte, concurrency, and queue limits in Gateway. Its generative token
 budget comes from the profile's `ocr_document` output class. On the GB10, combined
@@ -156,7 +165,7 @@ SparkClaw also accepts IMMS ADR 0019 proposal
 `c073202cff039dee23211ec6785464ef093d13992cfeee16840547cfa7001165/10006`,
 with these exact limits:
 
-- E2 is an evidence-only replica profile, not part of `single-fast-v1` and not
+- E2 is an evidence-only replica profile, not part of `sparkclaw-product-v1` and not
   a production user-data processor. Only synthetic evaluation inputs may use
   its public route. Real Source or Memory content must remain on the future
   GB10-local loopback service.
@@ -186,7 +195,7 @@ with these exact limits:
   exposes a resolvable immutable deployment revision.
 - The reranker lane was removed from the current product profile on 2026-07-24.
   A hosted reranker route or the proposed 4B evidence profile therefore must
-  not be represented as a current `single-fast-v1` dependency. Its differences
+  not be represented as a current `sparkclaw-product-v1` dependency. Its differences
   from the eventual E3 GB10 profile are currently unknown and must be measured
   or explicitly retained as unknown before E3 admission.
 
@@ -244,7 +253,7 @@ model, calibration, or held-out request.
 The accepted review boundary is strict:
 
 - The future provider must be a standalone evidence-only profile. It must not
-  join `single-fast-v1`, reuse its chat-string readiness probe, or become a
+  join `sparkclaw-product-v1`, reuse its chat-string readiness probe, or become a
   product Runtime/Gateway dependency.
 - An operator must derive every real deployment value from the actual service:
   the closed model/tokenizer file catalog with per-path SHA-256 and size, exact
@@ -372,7 +381,7 @@ build, deployment revision, exact launch arguments, pooling/Qwen overrides,
 template, truncation behavior, score transform, cache state, content-logging
 shutdown, update mechanism, served name, and both live identity headers.
 SparkClaw tooling may verify those facts but must not invent them. The v2 lane
-must remain synthetic-only and isolated from `single-fast-v1`, Gateway,
+must remain synthetic-only and isolated from `sparkclaw-product-v1`, Gateway,
 JingSi Runtime, Source, Memory, and the embedding route, with zero retry,
 fallback, redirect, automatic batching, or private route adaptation.
 

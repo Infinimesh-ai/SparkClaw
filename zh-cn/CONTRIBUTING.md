@@ -9,7 +9,7 @@
 - 阅读 [README.md](README.md)、[docs/architecture.md](docs/architecture.md) 和 [docs/development.md](docs/development.md)。
 - 大改动请先开 issue 讨论。
 - 保持变更范围清晰，避免无关重构。
-- 不要提交 `.env`、模型权重、traces、本地 state、密钥或下载数据。
+- 不要提交 `.env.local`、`.env.remote`、模型权重、traces、本地 state、密钥或下载数据。
 
 ## 开发设置
 
@@ -29,7 +29,13 @@ npm --workspace @sparkclaw/webchat run dev
 npm --workspace @sparkclaw/webchat run build
 go test ./services/gateway/...
 bash scripts/doctor.sh
-docker compose --env-file .env -f docker/compose.yaml config --quiet
+docker compose --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.local.env \
+  -f docker/compose.yaml -f docker/compose.models.local.yaml \
+  --profile product --profile models-local config --quiet
+docker compose --env-file docker/env/sparkclaw.product.env \
+  --env-file docker/env/sparkclaw.remote.env \
+  -f docker/compose.yaml --profile product config --quiet
 ```
 
 如果修改 runtime、tool、policy、trace、model routing 或 approval 行为，还要运行：

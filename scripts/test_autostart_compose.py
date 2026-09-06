@@ -55,7 +55,7 @@ class AutostartComposeTest(unittest.TestCase):
     def run_autostart(self, dotenv, extra_env=None):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            env_path = temp_path / ".env"
+            env_path = temp_path / ".env.local"
             env_path.write_text(dotenv, encoding="utf-8")
             log_path = temp_path / "commands.jsonl"
             command_paths = {}
@@ -103,7 +103,7 @@ class AutostartComposeTest(unittest.TestCase):
         self.assertTrue(
             any(
                 call[0] == "bash"
-                and call[1].endswith("/scripts/start_compose.sh")
+                and call[1].endswith("/scripts/start_local_compose.sh")
                 for call in calls
             )
         )
@@ -126,7 +126,7 @@ class AutostartComposeTest(unittest.TestCase):
         self.assertTrue(
             any(
                 call[0] == "bash"
-                and call[1].endswith("/scripts/start_compose.sh")
+                and call[1].endswith("/scripts/start_local_compose.sh")
                 for call in calls
             )
         )

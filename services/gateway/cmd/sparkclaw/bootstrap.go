@@ -2,11 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/happyapproval"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
@@ -28,6 +34,8 @@ type gatewayServices struct {
 	mcpManager        *mcpintegration.Manager
 	happyApprovals    *happyapproval.Service
 	integrations      *integrationconfig.Controller
+	browserControl    *browsercontrol.Service
+	browserClient     *browsercontrol.HTTPControllerClient
 }
 
 func newGatewayServices(
@@ -42,10 +50,39 @@ func newGatewayServices(
 	integrationRuns := integrationrun.New()
 	tools.WithIntegrationRuns(integrationRuns)
 	runtime = runtime.WithIntegrationRuns(integrationRuns)
+	vault := credential.New(st, credential.Options{
+		Key:        cfg.State.CredentialKey,
+		KeyFile:    cfg.State.CredentialKeyFile,
+		AutoCreate: true,
+	})
+	// Runtime connector control can enable a credential-backed channel after
+	// startup, so the shared vault is checked even when all channels start off.
+	if err := vault.Ready(); err != nil {
+		slog.Warn("credential vault is unavailable", "code", credential.ErrorCode(err))
+	}
+	extensionConfig := cfg.Adapters.BrowserAutomation.PlaywrightExtension
+	browserClient, err := browsercontrol.NewHTTPControllerClient(
+		extensionConfig.ControllerSocket,
+		time.Duration(extensionConfig.ConnectTimeoutMS)*time.Millisecond,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("assemble browser extension controller: %w", err)
+	}
+	browserControl := browsercontrol.New(vault, browserClient, extensionConfig.ProfileID)
+	emailRegistry := emailautomation.DefaultRegistry()
+	emailRunner := emailautomation.NewPlaywrightRunner(browserControl)
+	emailController := emailautomation.NewController(
+		st,
+		emailRegistry,
+		emailRunner,
+		emailRunner,
+	)
+	tools.WithEmailSender(emailController)
+	runtime = runtime.WithEmailAdmission(emailController)
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
 	transcriber = speech.WithModelCallRecording(transcriber, st, cfg.Speech)
-	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber, endpoints)
+	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber, endpoints, vault)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +93,7 @@ func newGatewayServices(
 	// Schedule admission through reminder tools must honor the owner's
 	// connector opt-out; without this gate third-party routes fail closed.
 	tools.WithConnectorGate(connectors.registry.Enabled)
+	tools.WithBrowserAutomationAdapter(browserautomation.NewPlaywrightExtensionAdapter(cfg, browserControl))
 
 	var reminderScheduler *reminder.Scheduler
 	if cfg.Tools.Reminders.Enabled {
@@ -96,6 +134,8 @@ func newGatewayServices(
 			gateway.WithConnectorController(connectors.registry),
 			gateway.WithMCPController(mcpManager),
 			gateway.WithIntegrationController(integrations),
+			gateway.WithEmailController(emailController),
+			gateway.WithBrowserControlController(browserControl),
 			gateway.WithISCPPairing(iscpPairing),
 			gateway.WithExternalApprovalResolver(happyApprovals),
 			gateway.WithManagedBrowserWindows(tools),
@@ -108,6 +148,8 @@ func newGatewayServices(
 		mcpManager:        mcpManager,
 		happyApprovals:    happyApprovals,
 		integrations:      integrations,
+		browserControl:    browserControl,
+		browserClient:     browserClient,
 	}, nil
 }
 
@@ -138,6 +180,7 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 	s.server.StartRetentionSweeps(ctx)
 	s.connectors.credentials.BindLifecycle(ctx)
 	s.integrations.Initialize(ctx)
+	s.browserControl.Initialize(ctx)
 	if err := s.connectors.registry.Start(ctx); err != nil {
 		return err
 	}
@@ -152,4 +195,15 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 	}
 	go s.integrations.Run(ctx)
 	return nil
+}
+
+func (s *gatewayServices) Close() {
+	if s.browserControl != nil {
+		if err := s.browserControl.Close(); err != nil {
+			slog.Warn("browser control shutdown failed", "error", err)
+		}
+	}
+	if s.browserClient != nil {
+		s.browserClient.Close()
+	}
 }

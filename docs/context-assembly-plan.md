@@ -62,8 +62,9 @@ window only lets the same selected information retain richer legal variants.
 
 ### Implemented behavior retained
 
-- `buildAgentContextSnapshot` selects fixed 8/6/4/3 session context and exposes
-  Workflow and routing render paths.
+- `buildInvocationHistory` selects fixed 8/6/4/3 session context once per
+  invocation; Tree routing and Workflow prompts render that selection through
+  their own capacity-admitted builders.
 - Observations have one model-visible copy per step rather than appearing in
   both system and user prompts.
 - `adaptToolResult` produces a uniform summary/structured/evidence envelope;

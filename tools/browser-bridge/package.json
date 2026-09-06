@@ -1,0 +1,10 @@
+{
+  "name": "@sparkclaw/browser-bridge",
+  "version": "1.0.18",
+  "private": true,
+  "type": "module",
+  "description": "SparkClaw-owned Playwright extension bridge with task-tab isolation.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

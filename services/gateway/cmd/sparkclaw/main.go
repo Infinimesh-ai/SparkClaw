@@ -31,6 +31,9 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	for _, warning := range cfg.Warnings {
+		slog.Warn("config warning", "warning", warning)
+	}
 	storeStartupCtx, cancelStoreStartup := context.WithTimeout(
 		context.Background(),
 		time.Duration(cfg.State.StartupTimeoutSeconds)*time.Second,
@@ -65,6 +68,7 @@ func main() {
 		slog.Error("failed to initialize gateway services", "error", err)
 		os.Exit(1)
 	}
+	defer services.Close()
 	server := services.server
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
@@ -74,6 +78,11 @@ func main() {
 		os.Exit(1)
 	}
 	storeRuntime.StartRecovery(serverCtx)
+	if failed, err := runtime.FailInterruptedRuns(serverCtx); err != nil {
+		slog.Warn("could not fail runs interrupted by the previous process", "error", err)
+	} else if failed > 0 {
+		slog.Info("failed runs interrupted by the previous process", "count", failed)
+	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

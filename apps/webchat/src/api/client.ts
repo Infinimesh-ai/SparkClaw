@@ -4,10 +4,12 @@ import type {
   AuditEvent,
   Approval,
   ApprovalResolution,
+  BrowserExtensionStatus,
   Client,
   ConnectorStatus,
   DocumentUploadResult,
   DeliveryEndpoint,
+  EmailProviderStatus,
   EpisodeSummary,
   EvalRun,
   Memory,
@@ -47,6 +49,7 @@ import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from
 import { clientTimezone } from "../lib/timezone";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
+const PAIRING_API_BASE = import.meta.env.VITE_SPARKCLAW_PAIRING_API_BASE ?? "http://127.0.0.1:18795";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
 
 export class APIError extends Error {
@@ -76,7 +79,7 @@ export function clearAPIToken() {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, base = API_BASE): Promise<T> {
   const headers: Record<string, string> = {
     ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
     ...((init?.headers as Record<string, string> | undefined) ?? {})
@@ -84,7 +87,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!(init?.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${base}${path}`, {
     ...init,
     headers
   });
@@ -333,6 +336,37 @@ export const api = {
     request<{ updated: number; unread_count: number }>("/api/notifications/read-all", { method: "POST", body: "{}" }),
   connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
   integrations: () => request<{ integrations: IntegrationStatus[] }>("/api/integrations"),
+  emailProviders: () => request<{ providers: EmailProviderStatus[] }>("/api/email/providers"),
+  browserExtension: () => request<BrowserExtensionStatus>("/api/browser/extension"),
+  saveBrowserExtensionToken: (token: string) => request<BrowserExtensionStatus>("/api/browser/extension/token", {
+    method: "PUT",
+    body: JSON.stringify({ token })
+  }),
+  checkBrowserExtension: () => request<BrowserExtensionStatus>("/api/browser/extension/check", {
+    method: "POST",
+    body: "{}"
+  }),
+  removeBrowserExtensionToken: () => request<BrowserExtensionStatus>("/api/browser/extension/token", {
+    method: "DELETE"
+  }),
+  updateEmailProvider: (
+    provider: EmailProviderStatus["provider"],
+    expectedVersion: number,
+    changes: { enabled?: boolean; default?: boolean }
+  ) => request<EmailProviderStatus>(`/api/email/providers/${encodeURIComponent(provider)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ ...changes, expected_version: expectedVersion })
+  }),
+  openEmailLoginBrowser: (provider: EmailProviderStatus["provider"]) =>
+    request<EmailProviderStatus>(`/api/email/providers/${encodeURIComponent(provider)}/login-browser`, {
+      method: "POST",
+      body: "{}"
+    }),
+  checkEmailProvider: (provider: EmailProviderStatus["provider"]) =>
+    request<EmailProviderStatus>(`/api/email/providers/${encodeURIComponent(provider)}/check`, {
+      method: "POST",
+      body: "{}"
+    }),
   integration: (id: IntegrationID) => request<IntegrationStatus>(`/api/integrations/${encodeURIComponent(id)}`),
   addInfoCredential: (label: string, licenseId: string, licenseKey: string) =>
     request<IntegrationStatus>("/api/integrations/infinimesh-info/credentials", {
@@ -422,12 +456,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ deny, approval_required: approvalRequired })
     }),
-  startPairing: () => request<{ pairing_id: string; code: string; expires_at: string }>("/api/pairing/start", { method: "POST", body: "{}" }),
+  startPairing: () => request<{ pairing_id: string; code: string; expires_at: string }>("/api/pairing/start", { method: "POST", body: "{}" }, PAIRING_API_BASE),
   claimPairing: (pairingId: string, code: string, clientName = "WebChat") =>
     request<{ client: { id: string; name: string; created_at: string }; token: string }>("/api/pairing/claim", {
       method: "POST",
       body: JSON.stringify({ pairing_id: pairingId, code, client_name: clientName })
-    }),
+    }, PAIRING_API_BASE),
   sessions: () => request<{ sessions: Session[] }>("/api/sessions"),
   createSession: (title = "") =>
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify({ title }) }),

@@ -63,7 +63,7 @@ deletion of durable records and not expansion of model-visible history.
 ## 3. Scope And Non-Goals
 
 This design covers historical inputs currently used by
-`buildAgentContextSnapshot` and recent-document fallback:
+`buildInvocationHistory` and recent-document fallback:
 
 - prior same-session owner and assistant messages;
 - image attachments derived from those messages;

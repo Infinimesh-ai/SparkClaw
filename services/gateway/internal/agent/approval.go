@@ -117,6 +117,18 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
 	}
+	if def.ArgumentsImmutable && compactToolArgsFingerprint(call.Arguments) != compactToolArgsFingerprint(approval.Arguments) {
+		now := time.Now().UTC()
+		call.Status = app.ToolCallStatusFailedAfterApproval
+		call.CompletedAt = &now
+		call.Error = "approved argument set no longer matches the original request"
+		call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: fmt.Errorf("%s", call.Error), MaxBytes: r.observationSummaryLimit()})
+		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+			return app.ToolCall{}, fmt.Errorf("persist modified email approval: %w", saveErr)
+		}
+		return call, nil
+	}
 	if call.PolicyContext != nil && !workspaceDataApproval {
 		if err := r.validateContextBoundToolApproval(ctx, executionCall, executionApproval, def); err != nil {
 			now := time.Now().UTC()
@@ -182,6 +194,14 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 	if _, err := r.saveToolCall(ctx, call); err != nil {
 		return app.ToolCall{}, fmt.Errorf("persist completed approved tool call: %w", err)
+	}
+	if pptxMutation {
+		// The sealed candidate is only disposable once the completed status
+		// is durable: a crash between publish and that write leaves the
+		// call running_after_approval with its manifest intact, so nothing
+		// that might still need the sealed bytes is ever orphaned. Cleanup
+		// failures are logged by the hub and collected by the expiry sweep.
+		_ = r.tools.DiscardSealedPPTXCandidate(context.WithoutCancel(ctx), call.Tool, call.Arguments, call.SessionID, call.RunID)
 	}
 	if err := r.recordDocumentToolActivity(execCtx, call); err != nil {
 		return call, err

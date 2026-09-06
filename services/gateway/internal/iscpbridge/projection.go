@@ -3,6 +3,16 @@
 // notifications) into the JingSi home-screen shapes. Deliberately a
 // projection, not a new store entity — no second ingress, result path, or
 // message store (docs/jingsi-lan-connection-design.md invariants).
+//
+// Scaling, deliberately deferred: both handlers scan every run of every
+// visible session per request and filter in Go, because Store.ListRuns takes
+// only a session id. That is the right trade at a household's scale (tens of
+// sessions), and the honest alternative is a time-bounded store query, which
+// means an interface change across all three backends plus the operationSpecs
+// guards. Half-measures — capping sessions scanned, or stopping early — would
+// silently skew a feed that claims to be newest-first, which is worse than a
+// linear scan. Revisit when a deployment's run count makes the scan visible,
+// and do it in the store, not here.
 package iscpbridge
 
 import (
@@ -16,9 +26,6 @@ import (
 )
 
 const (
-	TypeActivityList = "agent.activity.list.v1"
-	TypeSnapshotGet  = "agent.snapshot.get.v1"
-
 	activityListMaxLimit     = 200
 	activityListDefaultLimit = 50
 )
@@ -54,6 +61,26 @@ type SnapshotCard struct {
 	Summary  string `json:"summary"`
 	Detail   string `json:"detail,omitempty"`
 	Priority int    `json:"priority"`
+}
+
+// activityKindForRun buckets a run for the phone feed. The run-state
+// vocabulary is NOT restated here: it is derived from operationStateForRun,
+// the package's single normalizer for app.AgentRun.State (adapter.go), which
+// already lowercases, trims, and covers every state the runtime writes
+// (received/routing/executing/workflow_step/approval_pending/blocked/
+// browser_login_blocked/clarification_required/...). Bucketing on raw
+// run.State instead silently dropped every in-flight run, because the
+// runtime never writes "running" or "pending" at all.
+func activityKindForRun(run app.AgentRun) string {
+	switch operationStateForRun(run) {
+	case "completed":
+		return ActivityKindRunCompleted
+	case "failed", "cancelled":
+		return ActivityKindRunFailed
+	default:
+		// running + approval_required: still in flight from the phone's view.
+		return ActivityKindRunRunning
+	}
 }
 
 // visibleSessionIDs returns the principal's visible session ids, the scope
@@ -135,24 +162,13 @@ func (a *GatewayAdapter) listActivities(ctx context.Context, req Request, princi
 			if occurred.Before(day) || !occurred.Before(dayEnd) {
 				continue
 			}
-			kind := ""
-			switch run.State {
-			case "running", "pending", "approval_required":
-				kind = ActivityKindRunRunning
-			case "completed":
-				kind = ActivityKindRunCompleted
-			case "failed", "cancelled":
-				kind = ActivityKindRunFailed
-			default:
-				continue
-			}
 			title := run.Summary
 			if strings.TrimSpace(title) == "" {
 				title = "Agent run " + run.ID
 			}
 			activities = append(activities, ActivityView{
 				ID:         "run-" + run.ID,
-				Kind:       kind,
+				Kind:       activityKindForRun(run),
 				Title:      title,
 				SessionID:  run.SessionID,
 				RunID:      run.ID,
@@ -219,17 +235,17 @@ func (a *GatewayAdapter) snapshot(ctx context.Context, req Request, principal Pr
 			continue
 		}
 		for _, run := range runs {
-			switch run.State {
-			case "running", "pending", "approval_required":
+			switch activityKindForRun(run) {
+			case ActivityKindRunRunning:
 				running++
 				if latestRunning == "" && strings.TrimSpace(run.Summary) != "" {
 					latestRunning = run.Summary
 				}
-			case "completed":
+			case ActivityKindRunCompleted:
 				if run.CompletedAt != nil && !run.CompletedAt.UTC().Before(day) {
 					completed++
 				}
-			case "failed", "cancelled":
+			case ActivityKindRunFailed:
 				if run.CompletedAt != nil && !run.CompletedAt.UTC().Before(day) {
 					failed++
 				}

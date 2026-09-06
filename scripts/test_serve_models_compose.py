@@ -20,6 +20,7 @@ PRODUCT_SERVICES = (
     "sparkclaw-asr",
     "sparkclaw-ocr",
 )
+TEST_WEBCHAT_PROXY_TOKEN = "A" * 43
 
 
 FAKE_DOCKER = r"""#!/usr/bin/env python3
@@ -93,6 +94,7 @@ class ServeModelsComposeTest(unittest.TestCase):
         *,
         state: dict[str, dict[str, str]] | None = None,
         extra_env: dict[str, str] | None = None,
+        private_text: str = "",
         check: bool = True,
     ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -100,6 +102,12 @@ class ServeModelsComposeTest(unittest.TestCase):
             fake_docker = temp_path / "docker"
             fake_docker.write_text(textwrap.dedent(FAKE_DOCKER), encoding="utf-8")
             fake_docker.chmod(0o755)
+            private_env = temp_path / ".env.local"
+            private_env.write_text(
+                f"SPARKCLAW_WEBCHAT_PROXY_TOKEN={TEST_WEBCHAT_PROXY_TOKEN}\n"
+                + private_text,
+                encoding="utf-8",
+            )
             log_path = temp_path / "docker.jsonl"
             env = os.environ.copy()
             env.pop("SPARKCLAW_FORCE_MODEL_RECREATE", None)
@@ -108,7 +116,7 @@ class ServeModelsComposeTest(unittest.TestCase):
                     "DOCKER_BIN": str(fake_docker),
                     "FAKE_DOCKER_LOG": str(log_path),
                     "FAKE_DOCKER_STATE": json.dumps(state or healthy_state()),
-                    "SPARKCLAW_FORCE_MODEL_RECREATE": "false",
+                    "SPARKCLAW_LOCAL_ENV_FILE": str(private_env),
                     "SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS": "17",
                     "SPARKCLAW_MODEL_LOADING_PROFILE": "single-fast",
                 }
@@ -163,8 +171,10 @@ class ServeModelsComposeTest(unittest.TestCase):
         self.assertIn("--build", up_call)
         deep_stop = next(call for call in calls if "stop" in call)
         self.assertIn("sparkclaw-deep", deep_stop)
-        self.assertIn("docker/env/sparkclaw.asr.env", up_call)
-        self.assertIn("docker/compose.asr.yaml", up_call)
+        self.assertTrue(any("sparkclaw-local-model-env." in argument for argument in up_call))
+        self.assertIn("docker/compose.models.local.yaml", up_call)
+        self.assertNotIn("compose.asr.yaml", " ".join(up_call))
+        self.assertNotIn("compose.ocr.yaml", " ".join(up_call))
 
     def test_missing_asr_recreates_the_whole_product_group(self) -> None:
         state = healthy_state()
@@ -226,7 +236,7 @@ class ServeModelsComposeTest(unittest.TestCase):
     def test_explicit_force_recreates_a_healthy_group(self) -> None:
         result, calls = self.run_script(
             "single-fast",
-            extra_env={"SPARKCLAW_FORCE_MODEL_RECREATE": "true"},
+            private_text="SPARKCLAW_FORCE_MODEL_RECREATE=true\n",
         )
 
         self.assertIn("requested by SPARKCLAW_FORCE_MODEL_RECREATE", result.stdout)
@@ -257,13 +267,27 @@ class ServeModelsComposeTest(unittest.TestCase):
     def test_invalid_force_setting_fails_before_docker_access(self) -> None:
         result, calls = self.run_script(
             "guard",
-            extra_env={"SPARKCLAW_FORCE_MODEL_RECREATE": "sometimes"},
+            private_text="SPARKCLAW_FORCE_MODEL_RECREATE=sometimes\n",
             check=False,
         )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must be true or false", result.stderr)
         self.assertEqual(calls, [])
+
+    def test_retired_aliases_are_rejected(self) -> None:
+        for alias in (
+            "fast-only",
+            "single-fast-with-ocr",
+            "light-dual",
+            "light-dual-asr",
+            "light-dual-chat",
+        ):
+            with self.subTest(alias=alias):
+                result, calls = self.run_script(alias, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unknown lane", result.stderr)
+                self.assertFalse(any("up" in call for call in calls))
 
 
 if __name__ == "__main__":

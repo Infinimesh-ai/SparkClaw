@@ -269,7 +269,6 @@ func modelCallFromChat(sessionID, runID, operation string, chat modelrouter.Chat
 		Model:          chat.Model,
 		Operation:      operation,
 		Mock:           chat.Mock,
-		Fallback:       chat.Fallback,
 		Status:         status,
 		PromptTokens:   chat.PromptTokens,
 		ResponseTokens: chat.ResponseTokens,

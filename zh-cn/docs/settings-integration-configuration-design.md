@@ -207,11 +207,13 @@ integration ID、operation、source、state 和有界错误码。本家庭 API �
 |---|---|
 | `not_configured` | 未选择来源，且没有可用 operator 来源 |
 | `configured` | 已选择并可在本地使用，但不声明刚完成实时检查 |
-| `checking` | 正在执行显式在线检查 |
 | `ready` | 所需查询或握手已成功 |
 | `needs_attention` | 认证、身份、契约或永久校验失败 |
 | `temporarily_unavailable` | 有界、可重试的外部检查失败 |
 | `vault_unavailable` | 无法安全读取或修改加密 bundle |
+
+该词汇即 Browser control 同样上报的共享 `app.IntegrationState*` 集合。显式检查是
+同步的：API 不会返回中间状态，WebChat 仅在检查请求进行中自行渲染 `checking` 标签。
 
 Operator 配置仅以 availability flag 和虚拟可选择行呈现，其具体值和来源位置
 保持私密。

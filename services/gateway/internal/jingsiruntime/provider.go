@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"mime"
 	"net/http"
@@ -16,8 +17,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 )
 
 const maxResponseBytes = 131072
@@ -26,7 +30,7 @@ var (
 	tokenPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 	terminalStates   = []string{"succeeded", "failed", "canceled", "timed_out"}
 	executionStates  = []string{"accepted", "queued", "running", "approval_required", "succeeded", "failed", "canceled", "timed_out"}
-	approvalPolicies = []string{"deny", "ask", "allow_within_scope"}
+	approvalPolicies = []string{jingsiscope.ApprovalDeny, jingsiscope.ApprovalAsk, jingsiscope.ApprovalAllowWithinScope}
 )
 
 type Executor interface {
@@ -38,7 +42,16 @@ type Config struct {
 	BearerToken   string
 	CallerID      string
 	MaxConcurrent int
-	Now           func() time.Time
+	// Retention is how long terminal execution records and negative fences
+	// stay on disk after they completed or were committed; an hourly sweep
+	// bound to Start's lifecycle deletes older ones. Zero keeps every record.
+	Retention time.Duration
+	Now       func() time.Time
+	// Logger receives the provider's operational lines: bearer rejections
+	// (a running count, never the presented credential), idempotency
+	// conflicts, persist failures and terminal outcomes. Lines never carry
+	// the goal, the Memory Context or the bearer. Nil selects slog.Default.
+	Logger *slog.Logger
 }
 
 type Provider struct {
@@ -47,13 +60,19 @@ type Provider struct {
 	token         []byte
 	callerID      string
 	maxConcurrent int
+	retention     time.Duration
 	now           func() time.Time
+	logger        *slog.Logger
+	authFailures  atomic.Uint64
 
 	lifecycleMu sync.RWMutex
 	lifecycle   context.Context
 	started     bool
 	startOnce   sync.Once
 	sem         chan struct{}
+	queueMu     sync.Mutex
+	queued      int
+	maxQueued   int
 	cancelMu    sync.Mutex
 	cancels     map[string]context.CancelFunc
 	wg          sync.WaitGroup
@@ -77,8 +96,14 @@ func New(config Config, executor Executor) (*Provider, error) {
 	if config.MaxConcurrent <= 0 || config.MaxConcurrent > 64 {
 		return nil, errors.New("JingSi Runtime max concurrency must be between 1 and 64")
 	}
+	if config.Retention < 0 {
+		return nil, errors.New("JingSi Runtime retention must not be negative")
+	}
 	if config.Now == nil {
 		config.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if config.Logger == nil {
+		config.Logger = slog.Default()
 	}
 	store, err := newFileStore(config.StateDir)
 	if err != nil {
@@ -86,11 +111,46 @@ func New(config Config, executor Executor) (*Provider, error) {
 	}
 	return &Provider{
 		store: store, executor: executor, token: []byte(config.BearerToken), callerID: config.CallerID,
-		maxConcurrent: config.MaxConcurrent, now: config.Now, lifecycle: context.Background(),
-		sem: make(chan struct{}, config.MaxConcurrent), cancels: map[string]context.CancelFunc{},
+		maxConcurrent: config.MaxConcurrent, retention: config.Retention, now: config.Now, logger: config.Logger,
+		sem: make(chan struct{}, config.MaxConcurrent), maxQueued: queueDepthFactor * config.MaxConcurrent,
+		cancels: map[string]context.CancelFunc{},
 	}, nil
 }
 
+// queueDepthFactor sets how many accepted-but-not-running executions may wait
+// for a concurrency slot, as a multiple of MaxConcurrent. Beyond that Submit
+// answers runtime_unavailable with retry_after_ms instead of parking another
+// goroutine, so the number of parked goroutines is bounded by 4x
+// MaxConcurrent plus the durable work resumed at Start.
+const queueDepthFactor = 4
+
+// queueRetryAfterMS is the retry hint for a full queue: a slot frees when a
+// running execution ends, which takes seconds rather than milliseconds.
+const queueRetryAfterMS = 5000
+
+// reserveQueueSlot admits one more accepted-but-not-running execution. Durable
+// work resumed at Start is admitted unconditionally (force): it was accepted
+// by an earlier process and must not be lost to the bound.
+func (p *Provider) reserveQueueSlot(force bool) bool {
+	p.queueMu.Lock()
+	defer p.queueMu.Unlock()
+	if !force && p.queued >= p.maxQueued {
+		return false
+	}
+	p.queued++
+	return true
+}
+
+func (p *Provider) releaseQueueSlot() {
+	p.queueMu.Lock()
+	p.queued--
+	p.queueMu.Unlock()
+}
+
+// Start binds the lifecycle every execution context derives from and resumes
+// durable nonterminal work. It is mandatory: until it runs, ServeHTTP answers
+// every action with the contract's retryable runtime_unavailable Problem, so
+// no execution can start under an uncancellable background context.
 func (p *Provider) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -110,9 +170,105 @@ func (p *Provider) Start(ctx context.Context) {
 		p.store.mu.Unlock()
 		slices.Sort(pending)
 		for _, executionID := range pending {
+			p.reserveQueueSlot(true)
 			p.enqueue(executionID)
 		}
+		if p.retention > 0 {
+			p.wg.Add(1)
+			go p.sweepLoop(ctx)
+		}
+		p.logger.Info("jingsi runtime started", "resumed_executions", len(pending), "retention", p.retention)
 	})
+}
+
+// retentionSweepInterval paces the retention coordinator. Retention is
+// day-granularity, so hourly sweeps keep expiry latency negligible; the
+// first sweep runs immediately so short-lived processes still age data out.
+const retentionSweepInterval = time.Hour
+
+// retentionSweepLimit bounds the records one sweep deletes so a backlog after
+// a long outage drains over several sweeps instead of holding the store lock
+// and the directory for one long burst.
+const retentionSweepLimit = 5000
+
+func (p *Provider) sweepLoop(ctx context.Context) {
+	defer p.wg.Done()
+	ticker := time.NewTicker(retentionSweepInterval)
+	defer ticker.Stop()
+	p.sweepRetention()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.sweepRetention()
+		}
+	}
+}
+
+// sweepRetention deletes terminal execution records and negative fences
+// whose completion or fence time is older than the retention window. It
+// snapshots the candidates under the store lock, then removes each one under
+// a short lock hold so request handlers interleave; a record that changed in
+// between is skipped and reconsidered on the next sweep.
+func (p *Provider) sweepRetention() {
+	cutoff := p.now().UTC().Add(-p.retention)
+	p.store.mu.Lock()
+	candidates := make([]string, 0)
+	for key, value := range p.store.byKey {
+		if retentionExpired(value, cutoff) {
+			candidates = append(candidates, key)
+			if len(candidates) == retentionSweepLimit {
+				break
+			}
+		}
+	}
+	p.store.mu.Unlock()
+	slices.Sort(candidates)
+	var executions, fences, failures int
+	for _, key := range candidates {
+		p.store.mu.Lock()
+		value := p.store.byKey[key]
+		if value == nil || !retentionExpired(value, cutoff) {
+			p.store.mu.Unlock()
+			continue
+		}
+		err := p.store.removeLocked(value)
+		p.store.mu.Unlock()
+		if err != nil {
+			failures++
+			p.logger.Error("jingsi runtime record delete failed", "kind", value.Kind, "record_id", retentionRecordID(value), "error", err)
+			continue
+		}
+		if value.Kind == recordFenced {
+			fences++
+		} else {
+			executions++
+		}
+	}
+	if executions+fences+failures > 0 {
+		p.logger.Info("jingsi runtime retention sweep", "deleted_executions", executions, "deleted_fences", fences, "failed", failures, "cutoff", cutoff)
+	}
+}
+
+// retentionExpired reports whether a record is old enough to delete: a bound
+// record only once terminal and completed before the cutoff, a negative
+// fence once committed before the cutoff. Nonterminal work is never touched.
+func retentionExpired(value *record, cutoff time.Time) bool {
+	switch value.Kind {
+	case recordBound:
+		return isTerminal(value.State) && value.CompletedAt != nil && value.CompletedAt.Before(cutoff)
+	case recordFenced:
+		return value.FenceCommittedAt != nil && value.FenceCommittedAt.Before(cutoff)
+	}
+	return false
+}
+
+func retentionRecordID(value *record) string {
+	if value.Kind == recordFenced {
+		return value.FenceID
+	}
+	return value.ExecutionID
 }
 
 func (p *Provider) Wait(ctx context.Context) error {
@@ -136,7 +292,13 @@ func (p *Provider) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	}
 	presented := bearerCredential(request.Header.Get("Authorization"))
 	if presented == "" || subtle.ConstantTimeCompare([]byte(presented), p.token) != 1 {
+		p.logger.Warn("jingsi runtime bearer rejected", "failures", p.authFailures.Add(1), "remote", request.RemoteAddr)
 		writeProblem(w, http.StatusUnauthorized, "request_unauthenticated", "unauthenticated", false, 0)
+		return
+	}
+	if !p.isStarted() {
+		p.logger.Warn("jingsi runtime request before Start", "path", request.URL.Path)
+		writeProblem(w, http.StatusServiceUnavailable, "request_runtime_not_started", "runtime_unavailable", true, 1000)
 		return
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
@@ -184,12 +346,19 @@ func (p *Provider) submit(w http.ResponseWriter, request *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, value.RequestID, "internal_error", true, 0)
 		return
 	}
-	key := p.store.key(p.callerID, value.Authorization.SpaceID, value.Payload.RequestKey)
+	key := p.store.key(p.callerID, value.Payload.RequestKey)
 	p.store.mu.Lock()
 	existing := p.store.byKey[key]
 	if existing != nil {
 		if existing.Kind != recordBound || existing.AuthorizationHash != authorizationHash || existing.SemanticHash != semanticHash {
+			reason := "semantic_drift"
+			if existing.Kind != recordBound {
+				reason = "negative_fence"
+			} else if existing.AuthorizationHash != authorizationHash {
+				reason = "authorization_drift"
+			}
 			p.store.mu.Unlock()
+			p.logger.Warn("jingsi runtime idempotency conflict", "request_id", value.RequestID, "request_key", value.Payload.RequestKey, "reason", reason)
 			writeProblem(w, http.StatusConflict, value.RequestID, "idempotency_conflict", false, 0)
 			return
 		}
@@ -215,8 +384,16 @@ func (p *Provider) submit(w http.ResponseWriter, request *http.Request) {
 		},
 	}
 	recordValue.UpdatedAt = recordValue.Events[1].At
+	if !p.reserveQueueSlot(false) {
+		p.store.mu.Unlock()
+		p.logger.Warn("jingsi runtime submit rejected by queue bound", "request_id", value.RequestID, "queued", p.maxQueued)
+		writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, queueRetryAfterMS)
+		return
+	}
 	if err := p.store.persistLocked(recordValue); err != nil {
 		p.store.mu.Unlock()
+		p.releaseQueueSlot()
+		p.logPersistFailure("submit", executionID, err)
 		writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, 1000)
 		return
 	}
@@ -239,7 +416,7 @@ func (p *Provider) lookup(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	authorizationHash, _ := canonicalAuthorizationHash(value.Authorization)
-	key := p.store.key(p.callerID, value.Authorization.SpaceID, value.Payload.RequestKey)
+	key := p.store.key(p.callerID, value.Payload.RequestKey)
 	p.store.mu.Lock()
 	existing := p.store.byKey[key]
 	if existing != nil {
@@ -271,6 +448,7 @@ func (p *Provider) lookup(w http.ResponseWriter, request *http.Request) {
 	}
 	if err := p.store.persistLocked(fenced); err != nil {
 		p.store.mu.Unlock()
+		p.logPersistFailure("lookup", fenceID, err)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"protocol": Protocol, "kind": "execution.lookup.result", "request_id": value.RequestID,
 			"payload": map[string]any{"request_key": value.Payload.RequestKey, "outcome": "unresolved", "retry_after_ms": 1000},
@@ -365,6 +543,7 @@ func (p *Provider) cancel(w http.ResponseWriter, request *http.Request) {
 		} else {
 			if err := p.store.persistLocked(recordValue); err != nil {
 				p.store.mu.Unlock()
+				p.logPersistFailure("cancel", recordValue.ExecutionID, err)
 				writeProblem(w, http.StatusServiceUnavailable, value.RequestID, "runtime_unavailable", true, 1000)
 				return
 			}
@@ -387,6 +566,12 @@ func (p *Provider) cancel(w http.ResponseWriter, request *http.Request) {
 	})
 }
 
+func (p *Provider) isStarted() bool {
+	p.lifecycleMu.RLock()
+	defer p.lifecycleMu.RUnlock()
+	return p.started
+}
+
 func (p *Provider) authorizedExecutionLocked(executionID string, authorization Authorization) (*record, string) {
 	value := p.store.byExecution[executionID]
 	if value == nil {
@@ -399,6 +584,9 @@ func (p *Provider) authorizedExecutionLocked(executionID string, authorization A
 	return value, ""
 }
 
+// enqueue parks a goroutine for an execution whose queue slot was already
+// reserved and releases the slot as soon as the execution stops waiting,
+// whether it acquired a concurrency slot or the lifecycle ended.
 func (p *Provider) enqueue(executionID string) {
 	p.lifecycleMu.RLock()
 	ctx := p.lifecycle
@@ -408,8 +596,10 @@ func (p *Provider) enqueue(executionID string) {
 		defer p.wg.Done()
 		select {
 		case p.sem <- struct{}{}:
+			p.releaseQueueSlot()
 			defer func() { <-p.sem }()
 		case <-ctx.Done():
+			p.releaseQueueSlot()
 			return
 		}
 		p.execute(ctx, executionID)
@@ -432,6 +622,10 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 	value.UpdatedAt = nextTime(value.UpdatedAt)
 	p.appendEventLocked(value, "execution.running", "running", "")
 	if err := p.store.persistLocked(value); err != nil {
+		// The in-memory record already says running; without a terminal
+		// outcome status polls would report it as running forever.
+		p.logPersistFailure("execute", executionID, err)
+		p.finishLocked(value, "failed", "runtime state could not be persisted")
 		p.store.mu.Unlock()
 		return
 	}
@@ -447,7 +641,10 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 	}
 	p.store.mu.Unlock()
 
-	executionCtx, cancel := context.WithDeadline(lifecycle, deadline)
+	// The deadline is enforced relative to the provider clock, the same clock
+	// that admitted the authorization at submit, so an injected clock governs
+	// admission and enforcement consistently.
+	executionCtx, cancel := context.WithTimeout(lifecycle, deadline.Sub(p.now().UTC()))
 	p.cancelMu.Lock()
 	p.cancels[executionID] = cancel
 	p.cancelMu.Unlock()
@@ -479,18 +676,52 @@ func (p *Provider) execute(lifecycle context.Context, executionID string) {
 		value.State = state
 		value.UpdatedAt = nextTime(value.UpdatedAt)
 		p.appendEventLocked(value, "execution.approval_required", state, "approval_required")
-		_ = p.store.persistLocked(value)
+		if err := p.store.persistLocked(value); err != nil {
+			p.logPersistFailure("approval_required", value.ExecutionID, err)
+		}
 		return
 	}
 	traceRef := output.TraceRef
 	if traceRef.ID == "" {
 		traceRef = OpaqueRef{ID: "trace:" + value.ExecutionID, Version: "v1"}
 	}
+	artifactRefs := boundedArtifactRefs(output.ArtifactRefs)
+	for _, ref := range artifactRefs {
+		value.UpdatedAt = nextTime(value.UpdatedAt)
+		p.appendArtifactEventLocked(value, ref)
+	}
 	value.Result = &ExecutionResult{
 		Outcome: state, CompletedAt: nextTime(value.UpdatedAt), Summary: boundedSummary(output.Summary, value.Submit.Budget.MaxOutputBytes),
-		ArtifactRefs: append([]ArtifactRef(nil), output.ArtifactRefs...), TraceRef: traceRef,
+		ArtifactRefs: artifactRefs, TraceRef: traceRef,
 	}
 	p.finishLocked(value, state, output.Summary)
+}
+
+// maxArtifactRefs is the contract's artifact_refs maxItems.
+const maxArtifactRefs = 32
+
+// boundedArtifactRefs keeps the executor's references inside the wire shape:
+// every id, version and kind must be a valid token, media_type is dropped
+// when it exceeds the schema length, and at most 32 references survive. A
+// reference that fails the shape is omitted rather than failing the
+// execution, so the provider only ever narrows what crosses the surface.
+func boundedArtifactRefs(refs []ArtifactRef) []ArtifactRef {
+	out := make([]ArtifactRef, 0, min(len(refs), maxArtifactRefs))
+	for _, ref := range refs {
+		if len(out) == maxArtifactRefs {
+			break
+		}
+		if validateToken("artifact id", ref.ID, 256) != nil ||
+			validateToken("artifact version", ref.Version, 128) != nil ||
+			validateToken("artifact kind", ref.Kind, 128) != nil {
+			continue
+		}
+		if len(ref.MediaType) > 128 {
+			ref.MediaType = ""
+		}
+		out = append(out, ref)
+	}
+	return out
 }
 
 func (p *Provider) finishLocked(value *record, state, summary string) {
@@ -515,19 +746,44 @@ func (p *Provider) finishLocked(value *record, state, summary string) {
 		}
 	}
 	p.appendEventLocked(value, "execution."+state, state, "")
-	_ = p.store.persistLocked(value)
+	if err := p.store.persistLocked(value); err != nil {
+		p.logPersistFailure("finish", value.ExecutionID, err)
+	}
+	p.logger.Info("jingsi runtime execution finished", "execution_id", value.ExecutionID, "outcome", state,
+		"cancel_requested", value.CancelRequested, "events", len(value.Events))
+}
+
+// logPersistFailure reports a durable-record write that failed. The record
+// identity is an opaque execution or fence ID; the goal, Memory Context and
+// bearer never reach the log.
+func (p *Provider) logPersistFailure(operation, recordID string, err error) {
+	p.logger.Error("jingsi runtime record persist failed", "operation", operation, "record_id", recordID, "error", err)
 }
 
 func (p *Provider) appendEventLocked(value *record, eventType, state, summaryCode string) {
-	sequence := uint64(len(value.Events) + 1)
-	event := ExecutionEvent{
-		Sequence: sequence, EventID: fmt.Sprintf("%s:event:%d", value.ExecutionID, sequence),
-		At: value.UpdatedAt, Type: eventType, State: state, SummaryCode: summaryCode,
-	}
+	event := nextEventLocked(value, eventType)
+	event.State, event.SummaryCode = state, summaryCode
 	if isTerminal(state) {
 		event.TraceRef = &OpaqueRef{ID: "trace:" + value.ExecutionID, Version: "v1"}
 	}
 	value.Events = append(value.Events, event)
+}
+
+// appendArtifactEventLocked records one artifact.available event. Artifact
+// events precede the terminal event so a consumer that stops at terminal has
+// already seen every reference the result will carry.
+func (p *Provider) appendArtifactEventLocked(value *record, ref ArtifactRef) {
+	event := nextEventLocked(value, "artifact.available")
+	event.ArtifactRef = &ref
+	value.Events = append(value.Events, event)
+}
+
+func nextEventLocked(value *record, eventType string) ExecutionEvent {
+	sequence := uint64(len(value.Events) + 1)
+	return ExecutionEvent{
+		Sequence: sequence, EventID: fmt.Sprintf("%s:event:%d", value.ExecutionID, sequence),
+		At: value.UpdatedAt, Type: eventType,
+	}
 }
 
 func decodeRequest(request *http.Request, target any) error {
@@ -721,12 +977,18 @@ func problemStatus(code string) int {
 	return http.StatusNotFound
 }
 
+// maxResultSummaryBytes caps a result summary regardless of the requested
+// budget. The contract lets a caller request up to 1 MiB of output but also
+// caps every response at 131072 bytes; the provider may only narrow scopes,
+// so the summary is held well inside the response bound.
+const maxResultSummaryBytes = 65536
+
 func boundedSummary(value string, maximumBytes int) string {
 	if !utf8.ValidString(value) {
 		return ""
 	}
-	if maximumBytes <= 0 || maximumBytes > 65536 {
-		maximumBytes = 65536
+	if maximumBytes <= 0 || maximumBytes > maxResultSummaryBytes {
+		maximumBytes = maxResultSummaryBytes
 	}
 	if len(value) <= maximumBytes {
 		return value

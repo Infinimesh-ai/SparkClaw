@@ -8,8 +8,10 @@
 
 ## 当前 NVFP4 基线
 
-当前 GB10 配置使用 vLLM 0.24.0、32K context、8 GiB KV cache、4 条 sequence，并关闭
-MTP。SparkClaw 只选择 NVIDIA checkpoint 并设置运行容量；项目不覆盖 checkpoint
+上一次通过资格验证的 GB10 residency 基线使用 vLLM 0.24.0、32K context、8 GiB KV cache、
+4 条 sequence，并关闭 MTP。当前产品契约已经要求 262K context 与 Remote 对齐；本地物理模型
+资格验证和资源调整仍是后续工作，不存在自动回退到 32K 的路径。SparkClaw 只选择 NVIDIA
+checkpoint 并设置运行容量；项目不覆盖 checkpoint
 quantization metadata、activation scale、linear/MoE kernel、attention backend 或 KV-cache
 dtype。vLLM 读取 checkpoint 的 ModelOpt 配置，并完整负责权重与激活的 dispatch。
 
@@ -43,7 +45,7 @@ image 无法加载官方 NVFP4 checkpoint。Embedding、guard、ASR 与 OCR 继�
 
 ## 单机策略
 
-单机默认使用 `single-fast-v1` profile：
+单机默认使用 Local 拓扑与共享的 `sparkclaw-product-v1` 容量 profile：
 
 - 所有 Workflow 模型调用只运行一个 Fast chat endpoint。
 - trace 保留逻辑 fast/deep profile 选择，但两个 profiles 都通过 `SPARKCLAW_DEEP_BASE_URL=http://sparkclaw-fast:8001/v1` 与 `SPARKCLAW_DEEP_MODEL=sparkclaw-fast` 指向 Fast。
@@ -64,18 +66,20 @@ image 无法加载官方 NVFP4 checkpoint。Embedding、guard、ASR 与 OCR 继�
 - 加速项放在 residency 稳定之后再评估。
 - 每次修改 context、KV budget、MTP、serving image 或 model checkpoint 后，都重新跑 endpoint benchmark 和 golden eval。
 
-## 当前单 Fast Profile
+## 当前产品容量 Profile
 
-当前 profile 实现为 `dgx-spark-single-fast-v1`：
+Local 与 Remote 统一使用 `sparkclaw-product-v1` 容量契约：
 
-- 环境变量：`docker/env/sparkclaw.single-fast.env`
-- Compose 资源 override：`docker/compose.dual-light.yaml`
+- 共享产品契约：`docker/env/sparkclaw.product.env`
+- Local 模型连接与资源：`docker/env/sparkclaw.local.env`
+- Local 模型服务：`docker/compose.models.local.yaml`
 - Profile 元数据：`configs/model.profiles.json`
-- 启动快捷方式：`scripts/serve_models_compose.sh single-fast`
+- Local 模型启动 helper：`scripts/serve_models_compose.sh single-fast`
 
 快捷方式会先停止此前运行的 Deep 容器，再通过一次 Compose 操作同时启动 Fast、embedding、
-guard、ASR 和 OCR。随后运行 `scripts/restart_runtime_compose.sh local`，明确选择匹配的本地
-chat profile，并叠加 ASR 与 OCR 环境。独立的 `online` profile 不会使用常驻 Fast endpoint。
+guard、ASR 和 OCR。正常产品入口是 `npm run start:local`，它会完成该模型组 reconcile，
+再从共同产品 Compose 启动 PostgreSQL、Sandbox Runner、Gotenberg、Gateway 与 WebChat。
+Remote 启动相同应用服务，只切换模型传输，因此不使用常驻 Fast endpoint。
 修改目标组之前，启动脚本会验证每个容器存在、running、healthy，并使用当前 Compose
 configuration hash。healthy/current 模型组会被保留；任一成员缺失、停止、不健康或配置漂移
 时，完整目标组会先停止再 force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对
@@ -85,9 +89,10 @@ configuration hash。healthy/current 模型组会被保留；任一成员缺失�
 模型 checkpoint 与 Hugging Face 元数据继续持久化在 `data/models`。GPU 进程缓存与其分离：
 vLLM/TorchInductor AOT 产物、Triton kernel、FlashInfer cache 与 NVIDIA runtime 注入都
 留在可丢弃的容器实例中。整体重建会清除这些进程内缓存并刷新 GPU device 注入，但不会重新
-下载 checkpoint。当前 NVFP4 Fast
-容量仍保持在已实际运行过的 32K context 与 8 GiB KV cache，不把 Deep 释放的内存
-直接当作未经测量的容量提升。模型启动会等待 Docker health。Fast health 会为每个模型进程
+下载 checkpoint。产品契约给两个逻辑 chat lane 统一提供 262,144-token context 与 Remote
+output-class budget；embedding、guard、OCR 分别使用 8K、8K、32K 契约。本地模型 entrypoint
+接收同一 profile 并必须满足它。历史 32K/64K 双常驻测量只保留为 benchmark 证据，不构成
+静默 fallback；本地 KV cache 与 residency 数值仍属于基础设施配置。模型启动会等待 Docker health。Fast health 会为每个模型进程
 执行一次贴近生产负载的 chat completion：当前合成输入在 Qwen3.6 上约为 3.4K token，并强制
 解码 480 token，在接收用户流量前覆盖 Tree routing 的冷路径。Guard health 保留较小的有界
 chat completion。readiness helper 被复制进配置的 vLLM 镜像派生出的本地镜像，因此
@@ -98,8 +103,8 @@ healthcheck 不依赖 checkout source file 的 bind mount。两个 probe 都把�
 2 GiB KV budget，但允许最多 128 条短 sequence，使 110 项语义语料能够通过一次启动请求在
 20 秒索引时限内完成 embedding。
 
-Qwen3-ASR 是 speech adapter，不是 Model Router lane。`single-fast` 产品 profile 通过
-`docker/compose.asr.yaml` 在端口 `8006` 加载 `Qwen/Qwen3-ASR-0.6B`；派生 vLLM 镜像补充
+Qwen3-ASR 是 speech adapter，不是 Model Router lane。Local 模型组通过
+`docker/compose.models.local.yaml` 在端口 `8006` 加载 `Qwen/Qwen3-ASR-0.6B`；派生 vLLM 镜像补充
 有界音频依赖，模型使用共享 Hugging Face cache。服务分配显式 2 GiB KV cache：
 五服务冷启动的 encoder profiling 后，仅依赖 utilization 的分配算出
 `-10.24 GiB` 可用 cache。Gateway 通过匹配的 ASR 环境启用 OpenAI-compatible
@@ -107,9 +112,9 @@ transcription adapter。使用固定 cache 后，vLLM 报告初始空闲 44.55 G
 18,720 cached tokens，8K 下预计并发 2.29x；整个五服务 force-recreate 中
 ASR 在 92 秒后 healthy，1 秒 WAV 转写冒烟请求也成功完成。
 
-OvisOCR2 同样是 document adapter，而不是 Model Router lane。`single-fast` 产品 profile
-会通过 `docker/compose.ocr.yaml` 在端口 `8007` 将 `ATH-MaaS/OvisOCR2` 与 Fast、embedding、
-guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一五服务启动的兼容别名。该 overlay 固定使用
+OvisOCR2 同样是 document adapter，而不是 Model Router lane。Local 模型组
+会通过 `docker/compose.models.local.yaml` 在端口 `8007` 将 `ATH-MaaS/OvisOCR2` 与 Fast、embedding、
+guard、ASR 一起加载。该服务定义固定使用
 模型文档要求的 vLLM `0.22.1`，关闭 thinking、使用确定性生成，并由 Gateway 限制响应 byte、
 并发和队列；生成 token budget 来自 profile 的 `ocr_document` output class，同时给 OCR 分配
 固定 2 GiB KV cache。在 GB10 上，只有先停止已常驻的模型服务，
@@ -129,7 +134,7 @@ IMMS ADR 0019 proposal `ac9a33d3c55f3c9d55af21e91586902f530aa39f`，exact docume
 `c073202cff039dee23211ec6785464ef093d13992cfeee16840547cfa7001165/10006`，但只限于
 以下精确范围：
 
-- E2 是 evidence-only 复刻 profile，不属于 `single-fast-v1`，也不是生产个人数据处理方。
+- E2 是 evidence-only 复刻 profile，不属于 `sparkclaw-product-v1`，也不是生产个人数据处理方。
   公网路由只允许合成评测输入；真实 Source/Memory 内容必须保留在未来 GB10 本地
   loopback 服务内。
 - 唯一接受目标是
@@ -151,7 +156,7 @@ IMMS ADR 0019 proposal `ac9a33d3c55f3c9d55af21e91586902f530aa39f`，exact docume
   status/inbox 通知 IMMS。若独立托管路由是自动或未知更新机制，在它提供可解析
   immutable deployment revision 之前不具备 E2 admission 资格。
 - reranker lane 已于 2026-07-24 从当前 product profile 移除。因此，托管 reranker 路由或
-  proposed 4B evidence profile 都不得被表述为当前 `single-fast-v1` 依赖。它与未来
+  proposed 4B evidence profile 都不得被表述为当前 `sparkclaw-product-v1` 依赖。它与未来
   E3 GB10 profile 的差异当前未知，E3 admission 前必须实测，或明确保留为未知。
 
 本评审本身不产生部署，也不产生 SLA、可用性、专用配额、Gateway wire 或 runtime integration
@@ -200,7 +205,7 @@ model、calibration 或 held-out request。
 
 本次接受的评审边界是严格的：
 
-- 未来 provider 必须是独立 evidence-only profile，不得并入 `single-fast-v1`、复用其
+- 未来 provider 必须是独立 evidence-only profile，不得并入 `sparkclaw-product-v1`、复用其
   chat-string readiness probe，也不得成为产品 Runtime/Gateway 依赖。
 - operator 必须从真实服务导出每一个真实部署值：闭包完整且逐 path 记录 SHA-256/size 的
   model/tokenizer file catalog、exact model revision、immutable OCI image digest、vLLM
@@ -303,7 +308,7 @@ operator 仍须提供真实的闭包 model/tokenizer catalog、model 与 tokeniz
 digest、vLLM/CUDA/driver 与 service build、deployment revision、exact launch arguments、
 pooling/Qwen overrides、template、truncation behavior、score transform、cache state、content logging
 关闭、update mechanism、served name 与两个 live identity headers。SparkClaw tooling 只能验证这些
-事实，不能编造。v2 lane 必须保持 synthetic-only，并与 `single-fast-v1`、Gateway、JingSi Runtime、
+事实，不能编造。v2 lane 必须保持 synthetic-only，并与 `sparkclaw-product-v1`、Gateway、JingSi Runtime、
 Source、Memory 及 embedding route 隔离，同时保持 retry、fallback、redirect、automatic batching
 与 private route adaptation 全部为零。
 

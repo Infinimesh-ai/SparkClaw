@@ -26,6 +26,23 @@ func TestToolRegistryMatchesDefinitions(t *testing.T) {
 	}
 }
 
+func TestOnlyEmailSendDeclaresImmutableArguments(t *testing.T) {
+	immutable := []string{}
+	for _, definition := range defaultDefinitions() {
+		if definition.ArgumentsImmutable {
+			immutable = append(immutable, definition.Name)
+		}
+	}
+	if len(immutable) != 1 || immutable[0] != app.ToolEmailSend {
+		t.Fatalf("tools with immutable arguments = %v, want only %s", immutable, app.ToolEmailSend)
+	}
+	hub := New(config.Default(), store.NewMemoryStore())
+	definition, ok := hub.Definition(app.ToolEmailSend)
+	if !ok || !definition.RequiresApproval || definition.Risk != app.RiskDangerous {
+		t.Fatalf("email send definition = %#v", definition)
+	}
+}
+
 func TestRetiredPatchToolIsNotRegistered(t *testing.T) {
 	hub := New(config.Default(), store.NewMemoryStore())
 	if _, ok := hub.Definition("code.apply_patch"); ok {

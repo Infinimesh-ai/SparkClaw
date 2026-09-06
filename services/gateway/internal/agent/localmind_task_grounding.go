@@ -12,14 +12,67 @@ import (
 
 var localMindTaskIDLabelPattern = regexp.MustCompile(`(?i)\btask[_ ]?id\s*[:=：]\s*([a-z0-9][a-z0-9._:-]{0,511})`)
 
-func (r Runtime) resolveLocalMindTaskTargets(ctx context.Context, sessionID, content string) ([]groundedTarget, error) {
+// resolveLocalMindTaskTargets grounds task references against the bounded
+// recent tool calls the routing pass already loaded. Only when the owner names
+// a task that is not in that window (or asks for the most recent task and the
+// window holds no delegation) does it consult the complete session history.
+func (r Runtime) resolveLocalMindTaskTargets(ctx context.Context, sessionID, content string, recent []app.ToolCall) ([]groundedTarget, error) {
 	if r.store == nil {
 		return localMindLabelledTaskTargets(content), nil
 	}
-	calls, err := r.store.ListToolCalls(ctx, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("resolve LocalMind task context: %w", err)
+	labelled := localMindLabelledTaskTargets(content)
+	wantsRecent := localMindRecentTaskReference(content)
+	if len(labelled) == 0 && !wantsRecent && !strings.Contains(strings.ToLower(content), "localmind") {
+		return nil, nil
 	}
+	calls := recent
+	if calls == nil {
+		full, err := r.store.ListToolCalls(ctx, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve LocalMind task context: %w", err)
+		}
+		calls = full
+	}
+	known, latestDelegate := localMindKnownTargets(calls)
+	if recent != nil && localMindNeedsFullHistory(known, latestDelegate, labelled, wantsRecent) {
+		full, err := r.store.ListToolCalls(ctx, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve LocalMind task context: %w", err)
+		}
+		known, latestDelegate = localMindKnownTargets(full)
+	}
+
+	targets := []groundedTarget{}
+	for taskID, target := range known {
+		if strings.Contains(content, taskID) {
+			targets = append(targets, target)
+		}
+	}
+	for _, target := range labelled {
+		if knownTarget, ok := known[target.Ref]; ok {
+			target = knownTarget
+		}
+		targets = append(targets, target)
+	}
+	if wantsRecent && latestDelegate.Ref != "" {
+		targets = append(targets, latestDelegate)
+	}
+	return dedupeGroundedTargets(targets), nil
+}
+
+func localMindNeedsFullHistory(known map[string]groundedTarget, latestDelegate groundedTarget, labelled []groundedTarget, wantsRecent bool) bool {
+	if wantsRecent && latestDelegate.Ref == "" {
+		return true
+	}
+	for _, target := range labelled {
+		if _, ok := known[target.Ref]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func localMindKnownTargets(calls []app.ToolCall) (map[string]groundedTarget, groundedTarget) {
 	known := map[string]groundedTarget{}
 	latestDelegate := groundedTarget{}
 	latestDelegateAt := time.Time{}
@@ -48,23 +101,7 @@ func (r Runtime) resolveLocalMindTaskTargets(ctx context.Context, sessionID, con
 			}
 		}
 	}
-
-	targets := []groundedTarget{}
-	for taskID, target := range known {
-		if strings.Contains(content, taskID) {
-			targets = append(targets, target)
-		}
-	}
-	for _, target := range localMindLabelledTaskTargets(content) {
-		if knownTarget, ok := known[target.Ref]; ok {
-			target = knownTarget
-		}
-		targets = append(targets, target)
-	}
-	if localMindRecentTaskReference(content) && latestDelegate.Ref != "" {
-		targets = append(targets, latestDelegate)
-	}
-	return dedupeGroundedTargets(targets), nil
+	return known, latestDelegate
 }
 
 func localMindLabelledTaskTargets(content string) []groundedTarget {

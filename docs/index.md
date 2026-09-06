@@ -29,7 +29,10 @@ documentation tree.
 | [Tree same-session context consistency design](tree-session-context-parity-design.md) | Accepted shared selected-history source and whole-prompt admission, plus implemented strict Tree scoring JSON structure hardening |
 | [Model input and output capacity contract](model-capacity-contract-design.md) | Accepted physical-window and output-capability-class contract, oversized-question rejection, final admission, completion handling, and fail-fast profile authority |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
-| [Browser runtime](browser-runtime.md) | agent-browser transport, managed Chromium profiles, browser Workflow boundaries, and security |
+| [Browser runtime](browser-runtime.md) | Current persistent Chromium, SparkClaw Browser Bridge, owner-scoped Controller, task-tab ownership, login handoff, deployment, and security |
+| [Host-CDP browser design](host-cdp-browser-design.md) | Historical record of the retired browserd/Host-CDP implementation that preceded the Playwright cutover |
+| [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |
+| [Browser email Workflow design](browser-email-workflow-design.md) | Current send-only Playwright provider handlers, deterministic admission, exact-content approval, and unknown-outcome invariants |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |
@@ -63,7 +66,7 @@ documentation tree.
 | [PPTX final-render visual quality gate](pptx-final-render-visual-qa-design.md) | Phase 1 shadow implementation of pinned LibreOffice/pypdfium2/configured-Fast changed-page review; automatic repair and sealed publication remain gated |
 | [DOCX editing](docx-editing-optimization.md) | Current DOCX style verification, evidence binding, run preservation, coverage, target-aware decision projection, and eval contracts |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
-| [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |
+| [Deferred capabilities](deferred-email-calendar-knowledge.md) | Retired generic email prototypes, deferred email expansion, calendar, and workspace knowledge, plus reintroduction gates |
 
 Repository process is documented in [Contributing](../CONTRIBUTING.md),
 [Security](../SECURITY.md), [Support](../SUPPORT.md), and

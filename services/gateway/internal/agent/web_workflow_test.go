@@ -1125,10 +1125,10 @@ func (a *fakeInteractionBrowserAdapter) Health(context.Context, map[string]any) 
 	return browserautomation.Result{
 		Tool: "browser.status",
 		Output: map[string]any{
-			"ok": true, "status": "ok", "provider": "agent-browser",
+			"ok": true, "status": "ok", "provider": "playwright-extension",
 			"visible_environment_ready": true, "session_generation": 1,
 		},
-		SessionGeneration: 1, Presentation: "hidden", Untrusted: true, Provider: "agent-browser-headless",
+		SessionGeneration: 1, Presentation: "hidden", Untrusted: true, Provider: "playwright-extension",
 	}, nil
 }
 

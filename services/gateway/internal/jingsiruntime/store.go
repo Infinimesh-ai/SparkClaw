@@ -80,7 +80,7 @@ func newFileStore(dir string) (*fileStore, error) {
 		if err != nil {
 			return nil, err
 		}
-		key := recordMapKey(value.CallerID, value.Authorization.SpaceID, value.RequestKey)
+		key := recordMapKey(value.CallerID, value.RequestKey)
 		if _, exists := store.byKey[key]; exists {
 			return nil, errors.New("duplicate durable runtime request key")
 		}
@@ -140,17 +140,21 @@ func validateRecord(value *record) error {
 	return nil
 }
 
-func (s *fileStore) key(callerID, spaceID, requestKey string) string {
-	return recordMapKey(callerID, spaceID, requestKey)
+func (s *fileStore) key(callerID, requestKey string) string {
+	return recordMapKey(callerID, requestKey)
 }
 
-func recordMapKey(callerID, spaceID, requestKey string) string {
-	_ = spaceID
+// recordMapKey binds a request key to the authenticated caller only. The
+// SparkClaw--JingSi v1 contract forbids reusing a request key across
+// authenticated callers or spaces, so a replay from another space of the same
+// caller must surface as idempotency_conflict rather than start a second
+// execution; the space therefore deliberately does not widen the key.
+func recordMapKey(callerID, requestKey string) string {
 	return callerID + "\x00" + requestKey
 }
 
 func (s *fileStore) path(value *record) string {
-	digest := sha256.Sum256([]byte(recordMapKey(value.CallerID, value.Authorization.SpaceID, value.RequestKey)))
+	digest := sha256.Sum256([]byte(recordMapKey(value.CallerID, value.RequestKey)))
 	return filepath.Join(s.dir, hex.EncodeToString(digest[:])+".json")
 }
 
@@ -200,6 +204,21 @@ func (s *fileStore) persistLocked(value *record) error {
 	}
 	if closeErr != nil {
 		return fmt.Errorf("close runtime state directory: %w", closeErr)
+	}
+	return nil
+}
+
+// removeLocked deletes a record's file and drops it from both indexes. An
+// already-missing file counts as removed so a crash between unlink and the
+// next sweep cannot wedge the record; any other failure leaves the indexes
+// untouched so memory and disk stay consistent for the next attempt.
+func (s *fileStore) removeLocked(value *record) error {
+	if err := os.Remove(s.path(value)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove runtime record: %w", err)
+	}
+	delete(s.byKey, recordMapKey(value.CallerID, value.RequestKey))
+	if value.ExecutionID != "" {
+		delete(s.byExecution, value.ExecutionID)
 	}
 	return nil
 }

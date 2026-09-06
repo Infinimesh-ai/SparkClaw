@@ -10,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 )
 
 type ModelCallRecorder interface {
@@ -95,7 +96,7 @@ func (t *modelCallRecordingTranscriber) record(ctx context.Context, sessionID, o
 	if _, err := t.recorder.SaveModelCall(ctx, app.ModelCall{
 		ID:          app.NewID("mcall"),
 		SessionID:   strings.TrimSpace(sessionID),
-		Lane:        "asr",
+		Lane:        string(modelcapacity.LaneASR),
 		Profile:     t.backend,
 		Model:       model,
 		Operation:   operation,

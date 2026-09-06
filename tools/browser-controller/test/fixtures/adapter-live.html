@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Playwright Extension Adapter Live Fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>playwright-extension-adapter-live-fixture</h1>
+      <label>Name <input aria-label="Name" autocomplete="off"></label>
+      <label>
+        Country
+        <select aria-label="Country">
+          <option value="CN">China</option>
+          <option value="US">United States</option>
+        </select>
+      </label>
+      <button type="button">Advance</button>
+      <output>ready</output>
+    </main>
+    <script>
+      const nameInput = document.querySelector('input[aria-label="Name"]');
+      const countrySelect = document.querySelector('select[aria-label="Country"]');
+      const output = document.querySelector("output");
+      document.querySelector("button").addEventListener("click", () => {
+        output.textContent = `advanced:${nameInput.value}:${countrySelect.value}`;
+        document.title = "Playwright Extension Adapter Advanced";
+      });
+    </script>
+  </body>
+</html>

@@ -25,9 +25,7 @@
     "apps/webchat",
     "tools/document-runtime"
   ],
-  "dependencies": {
-    "agent-browser": "0.32.3"
-  },
+  "dependencies": {},
   "overrides": {
     "postcss": "^8.5.23",
     "exceljs": {
@@ -37,36 +35,30 @@
     }
   },
   "scripts": {
-    "deploy": "bash scripts/deploy.sh",
-    "start": "bash scripts/start_compose.sh",
+    "deploy:local": "bash scripts/deploy_local.sh",
+    "start:local": "bash scripts/start_local_compose.sh",
+    "deploy:remote": "bash scripts/deploy_remote.sh",
+    "start:remote": "bash scripts/start_remote_compose.sh",
     "autostart:install": "bash scripts/install_autostart_systemd.sh",
-    "dev": "npm run runtime:restart:online",
-    "dev:gateway": "npm run dev:gateway:online",
-    "dev:gateway:online": "bash scripts/restart_runtime_compose.sh online gateway",
-    "dev:gateway:local": "bash scripts/restart_runtime_compose.sh local gateway",
-    "dev:webchat": "npm run dev:webchat:online",
-    "dev:webchat:online": "bash scripts/restart_runtime_compose.sh online webchat",
-    "dev:webchat:local": "bash scripts/restart_runtime_compose.sh local webchat",
     "dev:gateway:host": "go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json",
     "dev:webchat:host": "npm --workspace @sparkclaw/webchat run dev",
     "build:webchat": "npm --workspace @sparkclaw/webchat run build",
     "test:webchat": "npm --workspace @sparkclaw/webchat run test",
+    "test:email-scripts": "node --test tools/browser-controller/test/provider-runtime.test.mjs",
     "setup:browser": "bash scripts/setup-browser.sh",
+    "setup:browser-controller": "bash scripts/setup-browser-controller.sh",
+    "check:browser-controller": "bash scripts/setup-browser-controller.sh --check",
+    "open:browser": "bash scripts/open-browser.sh",
+    "qualify:playwright-email": "bash scripts/qualify-playwright-email.sh",
     "setup:host": "npm run setup:document-tools && npm run setup:browser",
     "test:gateway": "go test ./services/gateway/...",
     "doctor": "bash scripts/doctor.sh",
     "setup:document-tools": "bash scripts/setup-document-tools.sh",
     "eval": "bash scripts/run-eval.sh",
-    "runtime:restart": "npm run runtime:restart:online",
-    "runtime:restart:online": "bash scripts/restart_runtime_compose.sh online",
-    "runtime:restart:local": "bash scripts/restart_runtime_compose.sh local",
     "build": "npm run build:webchat && npm run test:gateway"
   },
   "engines": {
     "node": ">=26 <27",
     "npm": ">=11 <12"
-  },
-  "allowScripts": {
-    "agent-browser@0.32.3": true
   }
 }

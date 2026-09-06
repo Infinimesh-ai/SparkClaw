@@ -192,16 +192,16 @@ func (s *PostgresStore) SaveModelCall(ctx context.Context, call app.ModelCall) (
 	}
 	return runPostgresWrite(s, ctx, OperationModelCallSave, "model_call", call.ID, call, func(transaction onboardingPostgresTx, commandCtx context.Context) error {
 		if _, err := transaction.Exec(commandCtx, `
-			INSERT INTO model_calls (id, session_id, run_id, lane, profile, model, operation, mock, fallback, status,
+			INSERT INTO model_calls (id, session_id, run_id, lane, profile, model, operation, mock, status,
 				prompt_tokens, response_tokens, total_tokens, latency_ms, error, started_at, completed_at)
-			VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, nullif($15, ''), $16, $17)
+			VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, nullif($14, ''), $15, $16)
 			ON CONFLICT (id) DO UPDATE SET session_id=EXCLUDED.session_id, run_id=EXCLUDED.run_id,
 				lane=EXCLUDED.lane, profile=EXCLUDED.profile, model=EXCLUDED.model, operation=EXCLUDED.operation,
-				mock=EXCLUDED.mock, fallback=EXCLUDED.fallback, status=EXCLUDED.status,
+				mock=EXCLUDED.mock, status=EXCLUDED.status,
 				prompt_tokens=EXCLUDED.prompt_tokens, response_tokens=EXCLUDED.response_tokens,
 				total_tokens=EXCLUDED.total_tokens, latency_ms=EXCLUDED.latency_ms, error=EXCLUDED.error,
 				started_at=EXCLUDED.started_at, completed_at=EXCLUDED.completed_at
-		`, call.ID, call.SessionID, call.RunID, call.Lane, call.Profile, call.Model, call.Operation, call.Mock, call.Fallback, call.Status,
+		`, call.ID, call.SessionID, call.RunID, call.Lane, call.Profile, call.Model, call.Operation, call.Mock, call.Status,
 			call.PromptTokens, call.ResponseTokens, call.TotalTokens, call.LatencyMS, call.Error, call.StartedAt, call.CompletedAt); err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (s *PostgresStore) ListModelCalls(ctx context.Context, sessionID, runID str
 		return nil, err
 	}
 	rows, err := s.runPostgres.Query(ctx, `
-		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), lane, profile, model, operation, mock, fallback,
+		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), lane, profile, model, operation, mock,
 			status, prompt_tokens, response_tokens, total_tokens, latency_ms, coalesce(error, ''), started_at, completed_at
 		FROM model_calls
 		WHERE ($1 = '' OR session_id = $1) AND ($2 = '' OR run_id = $2)
@@ -240,6 +240,36 @@ func (s *PostgresStore) ListModelCalls(ctx context.Context, sessionID, runID str
 		return nil, classifyRunPostgresReadError(OperationModelCallList, ctx, err)
 	}
 	return out, nil
+}
+
+func (s *PostgresStore) LatestModelCallsByLane(ctx context.Context) (map[string]app.ModelCall, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallLatestByLane, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallLatestByLane, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.runPostgres.Query(ctx, `
+		SELECT DISTINCT ON (lane) id, coalesce(session_id, ''), coalesce(run_id, ''), lane, profile, model, operation, mock,
+			status, prompt_tokens, response_tokens, total_tokens, latency_ms, coalesce(error, ''), started_at, completed_at
+		FROM model_calls
+		ORDER BY lane, started_at DESC, id DESC
+	`)
+	if err != nil {
+		return nil, classifyRunPostgresReadError(OperationModelCallLatestByLane, ctx, err)
+	}
+	defer rows.Close()
+	latest := map[string]app.ModelCall{}
+	for rows.Next() {
+		call, err := scanModelCall(rows)
+		if err != nil {
+			return nil, classifyRunPostgresReadError(OperationModelCallLatestByLane, ctx, err)
+		}
+		latest[call.Lane] = call
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyRunPostgresReadError(OperationModelCallLatestByLane, ctx, err)
+	}
+	return latest, nil
 }
 
 func (s *PostgresStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
@@ -543,4 +573,65 @@ func (s *PostgresStore) ListRecentEpisodeSummaries(ctx context.Context, sessionI
 		return nil, classifyRunPostgresReadError(OperationEpisodeSummaryListRecent, ctx, err)
 	}
 	return out, nil
+}
+
+func (s *PostgresStore) CountVisibleRuns(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationRunCountVisible, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.runPostgres, `
+		SELECT count(*)
+		FROM agent_runs r
+		JOIN sessions s ON s.id = r.session_id
+		WHERE s.hidden = false
+	`)
+	if err != nil {
+		return 0, classifyRunPostgresReadError(OperationRunCountVisible, ctx, err)
+	}
+	return count, nil
+}
+
+func (s *PostgresStore) ModelCallStats(ctx context.Context) (app.ModelCallStats, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallStats, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallStats, ctx); err != nil {
+		return app.ModelCallStats{}, err
+	}
+	var count, failed, latency, tokens int64
+	if err := s.runPostgres.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE status = $1),
+			coalesce(sum(latency_ms), 0)::bigint, coalesce(sum(total_tokens), 0)::bigint
+		FROM model_calls
+	`, app.ModelCallStatusFailed).Scan(&count, &failed, &latency, &tokens); err != nil {
+		return app.ModelCallStats{}, classifyRunPostgresReadError(OperationModelCallStats, ctx, err)
+	}
+	return app.ModelCallStats{Count: int(count), FailedCount: int(failed), LatencyMSTotal: latency, TotalTokens: int(tokens)}, nil
+}
+
+func (s *PostgresStore) CountToolCalls(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallCount, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.runPostgres, `SELECT count(*) FROM tool_calls`)
+	if err != nil {
+		return 0, classifyRunPostgresReadError(OperationToolCallCount, ctx, err)
+	}
+	return count, nil
+}
+
+func (s *PostgresStore) CountEpisodeSummaries(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummaryCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummaryCount, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.runPostgres, `SELECT count(*) FROM episode_summaries`)
+	if err != nil {
+		return 0, classifyRunPostgresReadError(OperationEpisodeSummaryCount, ctx, err)
+	}
+	return count, nil
 }

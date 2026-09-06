@@ -14,6 +14,8 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - local files, structured documents, and approval-gated output-copy edits;
 - public search, direct weather cards, managed browser open/focus and page
   reading, bounded verified clicks, and approval-gated reversible form drafts;
+- approval-gated send-only browser email for a freshly validated configured QQ
+  Mail, Outlook, or Gmail account;
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
 - optional WebChat speech transcription, Telegram/Weixin messaging, and
@@ -26,8 +28,9 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - traces, artifacts, evals, policy, approval, auth, and durable state.
 
 The exact executable leaf set is listed in
-[Workflow capabilities](workflow-capabilities.md). Email, calendar, and
-built-in workspace knowledge/RAG are not active capabilities; see
+[Workflow capabilities](workflow-capabilities.md). Browser email sending is an
+active bounded capability. Email reading and expansion, calendar, and built-in
+workspace knowledge/RAG remain deferred; see
 [Deferred capabilities](deferred-email-calendar-knowledge.md).
 
 SparkClaw is not an unrestricted autonomous agent or a public multi-tenant SaaS.
@@ -245,7 +248,7 @@ The current model lanes are:
 | `mock` | Deterministic local development/eval behavior |
 
 Gateway selects logical lanes. Model output never chooses its own lane. In the
-current `single-fast-v1` deployment, both logical chat profiles resolve to the
+current Local deployment with `sparkclaw-product-v1`, both logical chat profiles resolve to the
 Fast endpoint, so no Deep model process is loaded; the lane labels remain in
 traces for Workflow compatibility. `configs/model.profiles.json` is the only
 capacity source: it maps each lane to a physical model window and positive
@@ -289,11 +292,13 @@ Store boundary. See [Per-owner connector activation](connector-owner-runtime-des
 
 ### Browser, Documents, And Integrations
 
-Browser execution uses pinned agent-browser with a SparkClaw-owned Chromium
-profile and no alternate browser backend. The existing destination registry is
-the candidate-independent named-target fast path; after its miss and browser
-leaf selection, the Workflow may use Info's ordered structured URLs without
-another semantic classifier.
+Browser execution uses the checksum-pinned SparkClaw Browser Bridge and an
+owner-scoped Playwright Controller with one persistent SparkClaw Chromium
+profile and no alternate backend. Each client is confined to a task-owned tab;
+background work does not focus owner tabs, while explicit handoff can foreground
+the task tab. The existing destination registry is the candidate-independent
+named-target fast path; after its miss and browser leaf selection, the Workflow
+may use Info's ordered structured URLs without another semantic classifier.
 
 Info search responses enter ToolHub as one versioned aggregate rather than
 parallel answer copies. The `websearch` owner validates the source graph once
@@ -596,6 +601,7 @@ projections. They must not maintain competing literal maps or duplicate stores.
 |---|---|
 | Gateway | `gateway:18789` (Docker internal, no host publication) |
 | WebChat | `0.0.0.0:18790` |
+| WebChat pairing bootstrap | `127.0.0.1:18795` (exact routes only) |
 | JingSi LAN presentation | `<selected RFC1918 host>:18793` (optional overlay only) |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

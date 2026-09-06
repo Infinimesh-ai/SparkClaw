@@ -12,6 +12,7 @@ import (
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
 var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no longer available")
 var ErrConnectorSettingConflict = errors.New("connector setting changed")
+var ErrEmailProviderSettingConflict = errors.New("email provider setting changed")
 
 func connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, currentLANAccessEnabled bool, setting app.ConnectorSetting) string {
 	if !exists || currentEnabled != setting.Enabled {
@@ -85,6 +86,9 @@ type ConnectorRepository interface {
 	ListConnectorSettings(context.Context, string) ([]app.ConnectorSetting, error)
 	ListAllConnectorSettings(context.Context) ([]app.ConnectorSetting, error)
 	UpdateConnectorSetting(context.Context, app.ConnectorSetting, int64) (app.ConnectorSetting, error)
+	GetEmailProviderSetting(context.Context, string, string) (app.EmailProviderSetting, bool, error)
+	ListEmailProviderSettings(context.Context, string) ([]app.EmailProviderSetting, error)
+	UpdateEmailProviderSetting(context.Context, app.EmailProviderSetting, int64) (app.EmailProviderSetting, error)
 	CreateNotificationBinding(context.Context, app.NotificationBinding) (app.NotificationBinding, error)
 	GetNotificationBinding(context.Context, string) (app.NotificationBinding, bool, error)
 	ListNotificationBindings(context.Context, string, string) ([]app.NotificationBinding, error)
@@ -106,6 +110,9 @@ type ConversationRepository interface {
 	ListRecentMessages(context.Context, string, time.Time, string, int) ([]app.Message, error)
 	MessageEventHead(context.Context, string) (string, error)
 	MessageEventsAfter(context.Context, string, string, int) (MessageEventPage, error)
+	// CountVisibleMessages counts the messages of every session that
+	// ListSessions returns (hidden sessions excluded) without loading them.
+	CountVisibleMessages(context.Context) (int, error)
 }
 
 type RunRepository interface {
@@ -114,15 +121,26 @@ type RunRepository interface {
 	SaveRun(context.Context, app.AgentRun) (app.AgentRun, error)
 	GetRun(context.Context, string) (app.AgentRun, bool, error)
 	ListRuns(context.Context, string) ([]app.AgentRun, error)
+	// CountVisibleRuns counts the runs of every session that ListSessions
+	// returns (hidden sessions excluded) without loading them.
+	CountVisibleRuns(context.Context) (int, error)
 	SaveModelCall(context.Context, app.ModelCall) (app.ModelCall, error)
 	ListModelCalls(context.Context, string, string) ([]app.ModelCall, error)
+	LatestModelCallsByLane(context.Context) (map[string]app.ModelCall, error)
+	// ModelCallStats aggregates every persisted model call without loading it.
+	ModelCallStats(context.Context) (app.ModelCallStats, error)
 	SaveToolCall(context.Context, app.ToolCall) (app.ToolCall, error)
 	GetToolCall(context.Context, string) (app.ToolCall, bool, error)
 	ListToolCalls(context.Context, string) ([]app.ToolCall, error)
 	ListRecentToolCalls(context.Context, string, time.Time, string, int) ([]app.ToolCall, error)
+	// CountToolCalls counts every persisted tool call without loading it.
+	CountToolCalls(context.Context) (int, error)
 	SaveEpisodeSummary(context.Context, app.EpisodeSummary) (app.EpisodeSummary, error)
 	ListEpisodeSummaries(context.Context, string) ([]app.EpisodeSummary, error)
 	ListRecentEpisodeSummaries(context.Context, string, time.Time, int) ([]app.EpisodeSummary, error)
+	// CountEpisodeSummaries counts every persisted episode summary without
+	// loading it.
+	CountEpisodeSummaries(context.Context) (int, error)
 }
 
 type DocumentRepository interface {

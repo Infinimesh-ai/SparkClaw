@@ -46,3 +46,24 @@ func TestJingSiRuntimeConfigRequiresOwnerOnlyTokenFile(t *testing.T) {
 		t.Fatal("owner-only token file was not loaded")
 	}
 }
+
+func TestJingSiRuntimeConfigRetentionDaysDefaultsAndValidates(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.JingSiRuntime.RetentionDays != 30 {
+		t.Fatalf("retention_days default = %d, want 30", cfg.JingSiRuntime.RetentionDays)
+	}
+	t.Setenv("SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS", "0")
+	cfg, err = Load("")
+	if err != nil || cfg.JingSiRuntime.RetentionDays != 0 {
+		t.Fatalf("explicit zero (keep forever) rejected: %v %d", err, cfg.JingSiRuntime.RetentionDays)
+	}
+	for _, invalid := range []string{"-1", "3651"} {
+		t.Setenv("SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS", invalid)
+		if _, err := Load(""); err == nil {
+			t.Fatalf("retention_days=%s was accepted", invalid)
+		}
+	}
+}

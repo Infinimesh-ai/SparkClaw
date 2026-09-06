@@ -23,12 +23,10 @@ var docxAdapterScript string
 //go:embed scripts/pptx_edit.py
 var pptxAdapterScript string
 
-//go:embed scripts/pptx_visual_qa.py
-var pptxVisualQAAdapterScript string
-
-//go:embed scripts/pptx_visual_repair.py
-var pptxVisualRepairAdapterScript string
-
+// pptxSlideAdapterPackage carries the slide mutation entrypoint (__main__)
+// plus the visual_qa and visual_repair modules, which share the package's
+// shape identity helpers and run through runPythonPackageModuleAdapter.
+//
 //go:embed scripts/pptx_slide/*.py
 var pptxSlideAdapterPackage embed.FS
 

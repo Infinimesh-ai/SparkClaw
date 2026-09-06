@@ -29,7 +29,7 @@ func TestFileSnapshotJSONShapeRemainsStable(t *testing.T) {
 		"sessions", "clients", "owner_profile", "owner_profiles", "pairing_codes", "iscp_onboardings",
 		"mcp_access_tickets", "mcp_bindings", "mcp_operations", "messages", "run_feedback", "runs",
 		"model_calls", "tool_calls", "document_records", "approvals", "reminders", "reminder_delivery",
-		"connector_settings", "notification_bindings", "passive_notifications", "external_chat_sessions",
+		"connector_settings", "email_provider_settings", "notification_bindings", "passive_notifications", "external_chat_sessions",
 		"external_chat_messages", "message_receives", "message_deliveries", "channel_inbox_updates",
 		"weixin_chat_sessions", "weixin_chat_messages", "credential_secrets", "browser_auth_records",
 		"browser_login_blocks", "memories", "memory_candidates", "audit_events", "events", "eval_runs",

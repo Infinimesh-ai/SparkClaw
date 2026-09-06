@@ -50,22 +50,9 @@ func TestFinalAnswerLanguageUsesOwnerRequest(t *testing.T) {
 
 func TestSemanticChannelInputsKeepEmbeddingQuestionContextFree(t *testing.T) {
 	question := "作为23级学生要注意什么"
-	context := strings.Join([]string{
-		"Resolved governed document context:",
-		`- document_id="doc_notice" name="通识选修课提醒.docx" format="docx" source="attachment" recent_activity="read"`,
-		"Recent Agent context:",
-		"- assistant: 已读取说明文档",
-	}, "\n")
-	inputs := newSemanticChannelInputs(question, context)
+	inputs := newSemanticChannelInputs("  " + question + "  ")
 	if inputs.EmbeddingQuery != question || inputs.TreeQuery != question {
 		t.Fatalf("dual channels did not receive the same owner question: %#v", inputs)
-	}
-	if strings.Contains(inputs.EmbeddingQuery, "doc_notice") || strings.Contains(inputs.EmbeddingQuery, "docx") ||
-		strings.Contains(inputs.EmbeddingQuery, "已读取") {
-		t.Fatalf("Embedding input leaked Fast-only context: %q", inputs.EmbeddingQuery)
-	}
-	if !strings.Contains(inputs.TreeContext, "doc_notice") || !strings.Contains(inputs.TreeContext, "recent_activity") {
-		t.Fatalf("Fast input omitted typed document context: %q", inputs.TreeContext)
 	}
 }
 
@@ -176,7 +163,7 @@ func TestRecentAttachedDocumentRoutesFollowUpWithoutPriorToolCall(t *testing.T) 
 	current := "对于23级的选课有什么注意事项"
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
-	routingContext := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
+	routingContext := mustTreeRoutingPromptAdmission(t, runtime, session.ID, "run_current", current, nil).User
 	if !strings.Contains(routingContext, "student-notice.docx") ||
 		!strings.Contains(routingContext, "关于通识选修课模块的特别提醒.docx") {
 		t.Fatalf("routing context omitted the recent governed document:\n%s", routingContext)
@@ -209,10 +196,10 @@ func TestRecentDocumentToolContextRoutesFollowUpQuestion(t *testing.T) {
 	current := "作为23级学生要注意什么"
 	storetest.MustAddMessage(t, st, app.Message{SessionID: session.ID, Role: "user", Content: current})
 
-	context := mustSemanticRoutingContext(t, runtime, session.ID, "run_current", current, nil)
+	context := mustTreeRoutingPromptAdmission(t, runtime, session.ID, "run_current", current, nil).User
 	if !strings.Contains(context, "student-notice.docx") || !strings.Contains(context, "已读取说明文档") ||
-		strings.Contains(context, current) {
-		t.Fatalf("Fast routing context did not preserve prior evidence or exclude the duplicated current message:\n%s", context)
+		strings.Count(context, current) != 1 || !strings.Contains(context, "Owner semantic query:\n"+current) {
+		t.Fatalf("Tree routing prompt did not preserve prior evidence or repeated the current owner turn as history:\n%s", context)
 	}
 
 	routing := mustRouteIntentOutput(t, runtime, session.ID, current, nil, app.MessageSourceWeb)

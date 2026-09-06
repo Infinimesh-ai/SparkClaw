@@ -56,14 +56,6 @@ type SubmitPayload struct {
 	Budget        Budget         `json:"budget"`
 }
 
-type RequestEnvelope struct {
-	Protocol      string        `json:"protocol"`
-	Kind          string        `json:"kind"`
-	RequestID     string        `json:"request_id"`
-	Authorization Authorization `json:"authorization"`
-	Payload       any           `json:"payload"`
-}
-
 type SubmitRequest struct {
 	Protocol      string        `json:"protocol"`
 	Kind          string        `json:"kind"`

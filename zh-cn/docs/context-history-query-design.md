@@ -53,7 +53,7 @@ Session 越长，PostgreSQL 的排序和结果传输越大；内存 backend 会�
 
 ## 3. 范围与非目标
 
-本文覆盖 `buildAgentContextSnapshot` 和 recent-document fallback 当前使用的历史输入：
+本文覆盖 `buildInvocationHistory` 和 recent-document fallback 当前使用的历史输入：
 
 - 同 session 的先前 owner/assistant message；
 - 从这些 message 派生的图片附件；

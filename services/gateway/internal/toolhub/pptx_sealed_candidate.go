@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,6 +28,13 @@ const (
 	pptxSealedCandidateManifestSchema = "sparkclaw.pptx_sealed_candidate_manifest.v1"
 	pptxSealedCandidateTTL            = 24 * time.Hour
 	pptxVisualQAPolicyVersion         = "sparkclaw.pptx_visual_qa_policy.v1"
+
+	// pptxSealedCandidateNamespace is the artifact-store key prefix that holds
+	// every sealed candidate and manifest; the expiry sweep scans exactly it.
+	pptxSealedCandidateNamespace = "pptx/sealed"
+	// defaultPPTXSealedSweepLimit bounds one expiry sweep so the hourly
+	// retention coordinator never lists or deletes an unbounded key set.
+	defaultPPTXSealedSweepLimit = 200
 )
 
 type PPTXSealedCandidateBinding struct {
@@ -234,8 +243,11 @@ func (h *ToolHub) PreparePPTXCandidate(ctx context.Context, name string, args ma
 		return PPTXSealedCandidateBinding{}, fmt.Errorf("encode PPTX visual policy configuration: %w", err)
 	}
 	scopeKey := pptxBytesSHA256([]byte(ownerID + "\x00" + sessionID + "\x00" + runID))[:24]
-	candidateKey := filepath.ToSlash(filepath.Join("pptx", "sealed", scopeKey, candidateSHA+".pptx"))
-	sealedOutput := clonePPTXMap(mutationOutput)
+	candidateKey := pptxSealedCandidateKey(scopeKey, candidateSHA)
+	sealedOutput, err := clonePPTXMap(mutationOutput)
+	if err != nil {
+		return PPTXSealedCandidateBinding{}, err
+	}
 	sealedOutput["output_path"] = strings.TrimSpace(stringArg(publicArgs, "output_path", ""))
 	if _, ok := sealedOutput["outputs"]; ok {
 		sealedOutput["outputs"] = []string{strings.TrimSpace(stringArg(publicArgs, "output_path", ""))}
@@ -248,7 +260,7 @@ func (h *ToolHub) PreparePPTXCandidate(ctx context.Context, name string, args ma
 		CandidateKey: candidateKey, CandidateSHA256: candidateSHA, CandidateBytes: len(candidate), MutationOutput: sealedOutput,
 		VisualReport: visualReport, VisualReportSHA256: pptxBytesSHA256(visualRaw), Attempts: visualPreparation.Attempts,
 		RolloutPhase: strings.ToLower(strings.TrimSpace(scoped.cfg.Adapters.PPTXVisualQA.Phase)), PolicyVersion: pptxVisualQAPolicyVersion, PolicyConfigSHA256: policyConfigSHA,
-		GotenbergVersion: "8.36.0", LibreOfficeVersion: "26.2.5.2", PDFiumVersion: "5.12.1",
+		GotenbergVersion: scoped.cfg.Adapters.PPTXVisualQA.GotenbergVersion, LibreOfficeVersion: scoped.cfg.Adapters.PPTXVisualQA.LibreOfficeVersion, PDFiumVersion: scoped.cfg.Adapters.PPTXVisualQA.PDFiumVersion,
 		CreatedAt: createdAt, ExpiresAt: expiresAt,
 	}
 	manifestRaw, err := json.Marshal(manifest)
@@ -256,7 +268,7 @@ func (h *ToolHub) PreparePPTXCandidate(ctx context.Context, name string, args ma
 		return PPTXSealedCandidateBinding{}, fmt.Errorf("encode PPTX sealed candidate manifest: %w", err)
 	}
 	manifestSHA := pptxBytesSHA256(manifestRaw)
-	manifestKey := filepath.ToSlash(filepath.Join("pptx", "sealed", scopeKey, manifestSHA+".json"))
+	manifestKey := path.Join(pptxSealedCandidateNamespace, scopeKey, manifestSHA+".json")
 	if _, err := scoped.artifacts.Put(preflightCtx, candidateKey, "application/vnd.openxmlformats-officedocument.presentationml.presentation", candidate); err != nil {
 		return PPTXSealedCandidateBinding{}, fmt.Errorf("seal PPTX candidate: %w", err)
 	}
@@ -349,7 +361,10 @@ func (h *ToolHub) PublishSealedPPTXCandidate(ctx context.Context, name string, a
 	if err := publishPPTXBytesAtomically(ctx, outputPath, candidate, manifest.CandidateSHA256); err != nil {
 		return Result{}, err
 	}
-	output := clonePPTXMap(manifest.MutationOutput)
+	output, err := clonePPTXMap(manifest.MutationOutput)
+	if err != nil {
+		return Result{}, err
+	}
 	output["output_path"] = outputPath
 	output["bytes"] = len(candidate)
 	if _, ok := output["outputs"]; ok {
@@ -364,6 +379,108 @@ func (h *ToolHub) PublishSealedPPTXCandidate(ctx context.Context, name string, a
 		},
 	})
 	return Result{Output: output}, nil
+}
+
+func pptxSealedCandidateKey(scopeKey, candidateSHA string) string {
+	return path.Join(pptxSealedCandidateNamespace, scopeKey, candidateSHA+".pptx")
+}
+
+// DiscardSealedPPTXCandidate removes the sealed candidate bytes and manifest
+// behind an approval whose publication has already been recorded. It is
+// best-effort: the caller must only invoke it after the tool-call outcome is
+// persisted, because nothing can re-publish once the manifest is gone, and a
+// failed delete is logged rather than surfaced since the expiry sweep will
+// collect the leftovers.
+func (h *ToolHub) DiscardSealedPPTXCandidate(ctx context.Context, name string, args map[string]any, sessionID, runID string) error {
+	binding, sealed, err := PPTXSealedCandidateFromArguments(args)
+	if err != nil || !sealed {
+		if err == nil {
+			err = errors.New("PPTX mutation has no sealed candidate to discard")
+		}
+		return err
+	}
+	if h == nil || h.artifacts == nil {
+		return errors.New("PPTX sealed candidate artifact store is unavailable")
+	}
+	ctx = context.WithoutCancel(ctx)
+	manifestKey := binding.ManifestKey
+	candidateKey := pptxSealedCandidateKey(path.Base(path.Dir(manifestKey)), binding.CandidateSHA256)
+	var deleteErr error
+	for _, key := range []string{candidateKey, manifestKey} {
+		if err := h.artifacts.Delete(ctx, key); err != nil {
+			slog.Warn("PPTX sealed candidate cleanup failed; expiry sweep will retry", "key", key, "error", err)
+			deleteErr = errors.Join(deleteErr, fmt.Errorf("discard %s: %w", key, err))
+		}
+	}
+	if deleteErr != nil {
+		return deleteErr
+	}
+	h.addAudit(ctx, app.AuditEvent{
+		ID: app.NewID("audit"), Time: time.Now().UTC(), SessionID: sessionID, RunID: runID, Actor: "toolhub",
+		Type: "document.pptx.candidate_discarded", Summary: "Discarded the sealed PPTX candidate after its publication was recorded",
+		Fields: map[string]any{
+			"tool": name, "reason": "published", "candidate_sha256": binding.CandidateSHA256,
+			"manifest_sha256": binding.ManifestSHA256, "candidate_key": candidateKey, "manifest_key": manifestKey,
+		},
+	})
+	return nil
+}
+
+// PPTXSealedSweepResult reports one bounded expiry sweep. NextCursor is the
+// last key examined when the page was full and more keys may follow; it is
+// empty once the namespace has been scanned to its end.
+type PPTXSealedSweepResult struct {
+	Scanned    int
+	Deleted    int
+	NextCursor string
+}
+
+// SweepExpiredPPTXSealedCandidates deletes sealed candidates and manifests
+// older than the candidate TTL. Age is the object's stored modification time,
+// which is never earlier than the manifest's created_at, so anything the
+// sweep removes was already unpublishable. It examines at most limit keys
+// after startAfter so a large backlog drains across successive sweeps
+// instead of pinning one; it is the only cleanup path for rejected,
+// abandoned and never-approved candidates.
+func (h *ToolHub) SweepExpiredPPTXSealedCandidates(ctx context.Context, startAfter string, limit int) (PPTXSealedSweepResult, error) {
+	if h == nil || h.artifacts == nil {
+		return PPTXSealedSweepResult{}, errors.New("PPTX sealed candidate artifact store is unavailable")
+	}
+	if limit <= 0 {
+		limit = defaultPPTXSealedSweepLimit
+	}
+	objects, err := h.artifacts.List(ctx, pptxSealedCandidateNamespace+"/", startAfter, limit)
+	if err != nil {
+		return PPTXSealedSweepResult{}, fmt.Errorf("list sealed PPTX candidates: %w", err)
+	}
+	result := PPTXSealedSweepResult{Scanned: len(objects)}
+	if len(objects) >= limit {
+		result.NextCursor = objects[len(objects)-1].Key
+	}
+	now := time.Now().UTC()
+	deleted := make([]string, 0, len(objects))
+	var sweepErr error
+	for _, object := range objects {
+		if object.ModifiedAt.IsZero() || now.Sub(object.ModifiedAt) <= pptxSealedCandidateTTL {
+			continue
+		}
+		if err := h.artifacts.Delete(ctx, object.Key); err != nil {
+			sweepErr = errors.Join(sweepErr, fmt.Errorf("delete expired sealed PPTX object %s: %w", object.Key, err))
+			continue
+		}
+		deleted = append(deleted, object.Key)
+	}
+	result.Deleted = len(deleted)
+	if len(deleted) > 0 {
+		h.addAudit(ctx, app.AuditEvent{
+			ID: app.NewID("audit"), Time: now, Actor: "toolhub",
+			Type: "document.pptx.candidate_expired", Summary: "Swept sealed PPTX candidates past their approval TTL",
+			Fields: map[string]any{
+				"ttl": pptxSealedCandidateTTL.String(), "scanned": len(objects), "deleted": len(deleted), "deleted_keys": deleted,
+			},
+		})
+	}
+	return result, sweepErr
 }
 
 func (h *ToolHub) validatePPTXSealedManifest(ctx context.Context, manifest pptxSealedCandidateManifest, binding PPTXSealedCandidateBinding, name, operation string, args map[string]any, sessionID, runID string) error {
@@ -543,16 +660,16 @@ func validPPTXSHA256(value string) bool {
 	return err == nil
 }
 
-func clonePPTXMap(input map[string]any) map[string]any {
+func clonePPTXMap(input map[string]any) (map[string]any, error) {
 	raw, err := json.Marshal(input)
 	if err != nil {
-		return map[string]any{}
+		return nil, fmt.Errorf("encode PPTX mutation output: %w", err)
 	}
 	out := map[string]any{}
-	if json.Unmarshal(raw, &out) != nil {
-		return map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode PPTX mutation output: %w", err)
 	}
-	return out
+	return out, nil
 }
 
 func publishPPTXBytesAtomically(ctx context.Context, outputPath string, raw []byte, expectedSHA string) error {

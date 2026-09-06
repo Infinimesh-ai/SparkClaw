@@ -30,13 +30,13 @@ var migratedFileAdmissions = map[string]string{
 	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated",
 	"ListSessions": "admitMigrated", "GetSession": "admitMigrated",
 	"UpdateSessionTitle": "admitMigrated", "DeleteSession": "admitMigrated",
-	"AddMessage": "admitMigrated", "ListMessages": "admitMigrated", "ListRecentMessages": "admitMigrated",
+	"AddMessage": "admitMigrated", "ListMessages": "admitMigrated", "ListRecentMessages": "admitMigrated", "CountVisibleMessages": "admitMigrated",
 	"MessageEventHead": "admitMigrated", "MessageEventsAfter": "admitMigrated",
 	"SaveRunFeedback": "admitMigrated", "ListRunFeedback": "admitMigrated",
-	"SaveRun": "admitMigrated", "GetRun": "admitMigrated", "ListRuns": "admitMigrated",
-	"SaveModelCall": "admitMigrated", "ListModelCalls": "admitMigrated",
-	"SaveToolCall": "admitMigrated", "GetToolCall": "admitMigrated", "ListToolCalls": "admitMigrated", "ListRecentToolCalls": "admitMigrated",
-	"SaveEpisodeSummary": "admitMigrated", "ListEpisodeSummaries": "admitMigrated", "ListRecentEpisodeSummaries": "admitMigrated",
+	"SaveRun": "admitMigrated", "GetRun": "admitMigrated", "ListRuns": "admitMigrated", "CountVisibleRuns": "admitMigrated",
+	"SaveModelCall": "admitMigrated", "ListModelCalls": "admitMigrated", "LatestModelCallsByLane": "admitMigrated", "ModelCallStats": "admitMigrated",
+	"SaveToolCall": "admitMigrated", "GetToolCall": "admitMigrated", "ListToolCalls": "admitMigrated", "ListRecentToolCalls": "admitMigrated", "CountToolCalls": "admitMigrated",
+	"SaveEpisodeSummary": "admitMigrated", "ListEpisodeSummaries": "admitMigrated", "ListRecentEpisodeSummaries": "admitMigrated", "CountEpisodeSummaries": "admitMigrated",
 	"SaveDocumentRecord": "admitMigrated", "GetDocumentRecord": "admitMigrated", "ListDocumentRecords": "admitMigrated",
 	"SaveApproval": "admitMigrated", "GetApproval": "admitMigrated", "FindApprovalByExternalRef": "admitMigrated",
 	"UpdatePendingApproval": "admitMigrated", "ResolveApproval": "admitMigrated", "ListApprovals": "admitMigrated",
@@ -73,6 +73,7 @@ var migratedFileAdmissions = map[string]string{
 	"RevokeMCPBinding": "admitMigrated", "DeleteMCPBinding": "admitMigrated", "DeleteMCPAccessRecords": "admitMigrated",
 	"TouchMCPBinding": "admitMigrated", "CreateMCPOperation": "admitMigrated", "GetMCPOperation": "admitMigrated",
 	"FindMCPOperationByIdempotency": "admitMigrated", "ListMCPOperations": "admitMigrated", "UpdateMCPOperation": "admitMigrated",
+	"GetEmailProviderSetting": "admitMigrated", "ListEmailProviderSettings": "admitMigrated", "UpdateEmailProviderSetting": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
@@ -85,8 +86,8 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			accepted[method] = struct{}{}
 		}
 	}
-	if len(accepted) != 143 {
-		t.Fatalf("accepted FileStore method count = %d, want 143", len(accepted))
+	if len(accepted) != 152 {
+		t.Fatalf("accepted FileStore method count = %d, want 152", len(accepted))
 	}
 	for method := range migratedFileAdmissions {
 		if _, exists := accepted[method]; !exists {

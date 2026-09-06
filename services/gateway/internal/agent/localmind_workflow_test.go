@@ -141,7 +141,7 @@ func TestLocalMindTaskGroundingResolvesExactAndSameSessionRecent(t *testing.T) {
 	})
 	runtime := Runtime{store: st}
 
-	exact, err := runtime.resolveLocalMindTaskTargets(t.Context(), session.ID, "查询 LocalMind taskId: task-explicit-7 的状态")
+	exact, err := runtime.resolveLocalMindTaskTargets(t.Context(), session.ID, "查询 LocalMind taskId: task-explicit-7 的状态", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestLocalMindTaskGroundingResolvesExactAndSameSessionRecent(t *testing.T) {
 		t.Fatalf("explicit task ID was not grounded from current text: %#v", exact)
 	}
 
-	recent, err := runtime.resolveLocalMindTaskTargets(t.Context(), session.ID, "查询 LocalMind 刚才那个任务的状态")
+	recent, err := runtime.resolveLocalMindTaskTargets(t.Context(), session.ID, "查询 LocalMind 刚才那个任务的状态", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

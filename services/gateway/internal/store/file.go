@@ -38,44 +38,45 @@ type FileStoreOptions struct {
 }
 
 type Snapshot struct {
-	Sessions             map[string]app.Session               `json:"sessions"`
-	Clients              map[string]app.Client                `json:"clients"`
-	OwnerProfile         app.OwnerProfile                     `json:"owner_profile"`
-	OwnerProfiles        map[string]app.OwnerProfile          `json:"owner_profiles,omitempty"`
-	PairingCodes         map[string]app.PairingCode           `json:"pairing_codes"`
-	ISCPOnboardings      map[string]app.ISCPOnboarding        `json:"iscp_onboardings,omitempty"`
-	MCPAccessTickets     map[string]app.MCPAccessTicket       `json:"mcp_access_tickets,omitempty"`
-	MCPBindings          map[string]app.MCPBinding            `json:"mcp_bindings,omitempty"`
-	MCPOperations        map[string]app.MCPOperation          `json:"mcp_operations,omitempty"`
-	Messages             map[string][]app.Message             `json:"messages"`
-	RunFeedback          map[string][]app.RunFeedback         `json:"run_feedback"`
-	Runs                 map[string]app.AgentRun              `json:"runs"`
-	ModelCalls           map[string]app.ModelCall             `json:"model_calls"`
-	ToolCalls            map[string]app.ToolCall              `json:"tool_calls"`
-	DocumentRecords      map[string]app.DocumentRecord        `json:"document_records,omitempty"`
-	Approvals            map[string]app.Approval              `json:"approvals"`
-	Reminders            map[string]app.Reminder              `json:"reminders"`
-	ReminderDelivery     map[string]app.ReminderDelivery      `json:"reminder_delivery"`
-	ConnectorSettings    map[string]app.ConnectorSetting      `json:"connector_settings,omitempty"`
-	NotificationBindings map[string]app.NotificationBinding   `json:"notification_bindings"`
-	PassiveNotifications map[string]app.PassiveNotification   `json:"passive_notifications,omitempty"`
-	ExternalChatSessions map[string]app.ExternalChatSession   `json:"external_chat_sessions,omitempty"`
-	ExternalChatMessages map[string]app.ExternalChatMessage   `json:"external_chat_messages,omitempty"`
-	MessageReceives      map[string]app.MessageReceiveRecord  `json:"message_receives,omitempty"`
-	MessageDeliveries    map[string]app.MessageDeliveryRecord `json:"message_deliveries,omitempty"`
-	ChannelInboxUpdates  map[string]app.ChannelInboxUpdate    `json:"channel_inbox_updates,omitempty"`
-	WeixinChatSessions   map[string]app.WeixinChatSession     `json:"weixin_chat_sessions,omitempty"`
-	WeixinChatMessages   map[string]app.WeixinChatMessage     `json:"weixin_chat_messages,omitempty"`
-	CredentialSecrets    map[string]app.CredentialSecret      `json:"credential_secrets"`
-	BrowserAuthRecords   map[string]app.BrowserAuthRecord     `json:"browser_auth_records,omitempty"`
-	BrowserLoginBlocks   map[string]app.BrowserLoginBlock     `json:"browser_login_blocks,omitempty"`
-	Memories             map[string]app.Memory                `json:"memories"`
-	MemoryCandidates     map[string]app.MemoryCandidate       `json:"memory_candidates"`
-	AuditEvents          []app.AuditEvent                     `json:"audit_events"`
-	Events               []app.Event                          `json:"events"`
-	EvalRuns             map[string]app.EvalRun               `json:"eval_runs"`
-	ArtifactObjects      map[string]app.ArtifactObject        `json:"artifact_objects"`
-	EpisodeSummaries     map[string]app.EpisodeSummary        `json:"episode_summaries"`
+	Sessions              map[string]app.Session               `json:"sessions"`
+	Clients               map[string]app.Client                `json:"clients"`
+	OwnerProfile          app.OwnerProfile                     `json:"owner_profile"`
+	OwnerProfiles         map[string]app.OwnerProfile          `json:"owner_profiles,omitempty"`
+	PairingCodes          map[string]app.PairingCode           `json:"pairing_codes"`
+	ISCPOnboardings       map[string]app.ISCPOnboarding        `json:"iscp_onboardings,omitempty"`
+	MCPAccessTickets      map[string]app.MCPAccessTicket       `json:"mcp_access_tickets,omitempty"`
+	MCPBindings           map[string]app.MCPBinding            `json:"mcp_bindings,omitempty"`
+	MCPOperations         map[string]app.MCPOperation          `json:"mcp_operations,omitempty"`
+	Messages              map[string][]app.Message             `json:"messages"`
+	RunFeedback           map[string][]app.RunFeedback         `json:"run_feedback"`
+	Runs                  map[string]app.AgentRun              `json:"runs"`
+	ModelCalls            map[string]app.ModelCall             `json:"model_calls"`
+	ToolCalls             map[string]app.ToolCall              `json:"tool_calls"`
+	DocumentRecords       map[string]app.DocumentRecord        `json:"document_records,omitempty"`
+	Approvals             map[string]app.Approval              `json:"approvals"`
+	Reminders             map[string]app.Reminder              `json:"reminders"`
+	ReminderDelivery      map[string]app.ReminderDelivery      `json:"reminder_delivery"`
+	ConnectorSettings     map[string]app.ConnectorSetting      `json:"connector_settings,omitempty"`
+	EmailProviderSettings map[string]app.EmailProviderSetting  `json:"email_provider_settings,omitempty"`
+	NotificationBindings  map[string]app.NotificationBinding   `json:"notification_bindings"`
+	PassiveNotifications  map[string]app.PassiveNotification   `json:"passive_notifications,omitempty"`
+	ExternalChatSessions  map[string]app.ExternalChatSession   `json:"external_chat_sessions,omitempty"`
+	ExternalChatMessages  map[string]app.ExternalChatMessage   `json:"external_chat_messages,omitempty"`
+	MessageReceives       map[string]app.MessageReceiveRecord  `json:"message_receives,omitempty"`
+	MessageDeliveries     map[string]app.MessageDeliveryRecord `json:"message_deliveries,omitempty"`
+	ChannelInboxUpdates   map[string]app.ChannelInboxUpdate    `json:"channel_inbox_updates,omitempty"`
+	WeixinChatSessions    map[string]app.WeixinChatSession     `json:"weixin_chat_sessions,omitempty"`
+	WeixinChatMessages    map[string]app.WeixinChatMessage     `json:"weixin_chat_messages,omitempty"`
+	CredentialSecrets     map[string]app.CredentialSecret      `json:"credential_secrets"`
+	BrowserAuthRecords    map[string]app.BrowserAuthRecord     `json:"browser_auth_records,omitempty"`
+	BrowserLoginBlocks    map[string]app.BrowserLoginBlock     `json:"browser_login_blocks,omitempty"`
+	Memories              map[string]app.Memory                `json:"memories"`
+	MemoryCandidates      map[string]app.MemoryCandidate       `json:"memory_candidates"`
+	AuditEvents           []app.AuditEvent                     `json:"audit_events"`
+	Events                []app.Event                          `json:"events"`
+	EvalRuns              map[string]app.EvalRun               `json:"eval_runs"`
+	ArtifactObjects       map[string]app.ArtifactObject        `json:"artifact_objects"`
+	EpisodeSummaries      map[string]app.EpisodeSummary        `json:"episode_summaries"`
 }
 
 type snapshotClient struct {
@@ -227,9 +228,13 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 			return nil, fmt.Errorf("validate credential state: %w", err)
 		}
 		snapshot.ConnectorSettings = ensureMap(snapshot.ConnectorSettings)
+		snapshot.EmailProviderSettings = ensureMap(snapshot.EmailProviderSettings)
 		snapshot.NotificationBindings = ensureMap(snapshot.NotificationBindings)
 		if err := normalizeAndValidatePersistedConnectorState(snapshot.ConnectorSettings, snapshot.NotificationBindings); err != nil {
 			return nil, fmt.Errorf("validate connector state: %w", err)
+		}
+		if err := normalizeAndValidatePersistedEmailProviderState(snapshot.EmailProviderSettings); err != nil {
+			return nil, fmt.Errorf("validate email provider state: %w", err)
 		}
 		inner.loadSnapshot(snapshot)
 		if err := inner.validateSessionState(); err != nil {

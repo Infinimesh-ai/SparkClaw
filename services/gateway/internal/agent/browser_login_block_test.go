@@ -17,6 +17,9 @@ import (
 )
 
 func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
+	useRegisteredBrowserDestination(t, browserDestination{
+		ID: "example_app", Name: "Example App", URL: "https://example.com/", Aliases: []string{"example app"},
+	})
 	root := t.TempDir()
 	cfg := agentTestConfig()
 	cfg.Tools.BrowserAutomation.Enabled = true
@@ -34,12 +37,12 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	t.Cleanup(func() { _ = tools.Close() })
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
-	first, err := runtime.HandleMessage(context.Background(), session.ID, "Use browser automation to open https://mail.qq.com/")
+	first, err := runtime.HandleMessage(context.Background(), session.ID, "Use browser automation to open https://example.com/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Run.State != "browser_login_blocked" || first.Run.Workflow == nil {
-		t.Fatalf("QQ Mail login challenge did not pause its Workflow: %#v", first.Run)
+		t.Fatalf("browser login challenge did not pause its Workflow: %#v", first.Run)
 	}
 	stored, ok := testGetRun(st, first.Run.ID)
 	if !ok || stored.Workflow == nil {
@@ -49,32 +52,32 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 	if stored.Workflow.Route.Facts == nil {
 		stored.Workflow.Route.Facts = map[string]string{}
 	}
-	stored.Workflow.Route.Facts["browser_destination"] = "qq_mail"
+	stored.Workflow.Route.Facts["browser_destination"] = "example_app"
 	stored.Workflow.Browser.Target.TargetKind = app.BrowserTargetRegisteredDestination
-	stored.Workflow.Browser.Target.DestinationID = "qq_mail"
+	stored.Workflow.Browser.Target.DestinationID = "example_app"
 	stored.Workflow.Browser.Target.QueryProvenance = app.BrowserQueryDestinationStatic
 	testSaveRun(st, stored)
 	first.Run = stored
 	frozenTarget := stored.Workflow.Route.Slots.TargetRef
 
-	adapter.selectedTabURL = "https://wx.mail.qq.com/home/index?sid=redacted#/list/1/1"
+	adapter.selectedTabURL = "https://workspace.example.com/home?session=redacted"
 	second, err := runtime.HandleMessage(context.Background(), session.ID, "登陆成功‘")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if second.Run.ID != first.Run.ID || second.Run.State != "completed" {
 		node := second.Run.Workflow.Nodes["browser_result"]
-		t.Fatalf("validated QQ Mail page did not resume the original run: run=%#v node=%#v calls=%#v", second.Run, node, workflowCallDebug(toolCallsForRun(testListToolCalls(st, session.ID), first.Run.ID)))
+		t.Fatalf("validated registered page did not resume the original run: run=%#v node=%#v calls=%#v", second.Run, node, workflowCallDebug(toolCallsForRun(testListToolCalls(st, session.ID), first.Run.ID)))
 	}
 	if second.Run.Workflow == nil || second.Run.Workflow.Route.Slots.TargetRef != frozenTarget ||
-		frozenTarget != "https://mail.qq.com/" {
+		frozenTarget != "https://example.com/" {
 		t.Fatalf("login resume changed the frozen Workflow target: %#v", second.Run.Workflow)
 	}
 	if adapter.readCalls != 0 || adapter.lastSnapshotArgs["presentation"] != "visible" ||
 		adapter.lastSnapshotArgs["page_id"] != "page_2" {
 		t.Fatalf("authentication validation did not use a visible current-page snapshot: %#v", adapter)
 	}
-	if adapter.lastOpenArgs["url"] != "https://wx.mail.qq.com/home/index#/list/1/1" ||
+	if adapter.lastOpenArgs["url"] != "https://workspace.example.com/home" ||
 		adapter.lastOpenArgs["browser_mode"] != "collaborative" ||
 		adapter.lastOpenArgs["presentation"] != "visible" ||
 		!boolValue(adapter.lastOpenArgs["surface_visible"]) ||
@@ -85,11 +88,11 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 		t.Fatalf("successful browser completion closed %d production tabs", adapter.closeCalls)
 	}
 	if !hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "browser_login_block.post_login_target_validated",
-		"post_login_url", "https://wx.mail.qq.com/home/index#/list/1/1") {
+		"post_login_url", "https://workspace.example.com/home") {
 		t.Fatalf("validated post-login target was not audited: %#v", mustAgentListAudit(t, st, session.ID))
 	}
 	blocks := storetest.MustListBrowserLoginBlocks(t, st, session.ID, app.BrowserHandoffStatusResolved)
-	if len(blocks) != 1 || strings.Contains(blocks[0].LoginHandoffURL, "sid=") ||
+	if len(blocks) != 1 || strings.Contains(blocks[0].LoginHandoffURL, "session=") ||
 		blocks[0].VisibleEvidence == nil || blocks[0].VisibleEvidence.VisibleSession.Generation != 2 {
 		t.Fatalf("resolved handoff persisted volatile query data or lost visible evidence: %#v", blocks)
 	}
@@ -109,7 +112,7 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(raw), "sid=") {
+		if strings.Contains(string(raw), "session=") {
 			t.Fatalf("%s persisted provider query material: %s", label, raw)
 		}
 	}

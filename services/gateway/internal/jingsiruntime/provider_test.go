@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,10 +19,12 @@ import (
 const testBearer = "test-runtime-bearer-credential"
 
 type fakeExecutor struct {
-	mu      sync.Mutex
-	calls   int
-	started chan struct{}
-	block   bool
+	mu        sync.Mutex
+	calls     int
+	started   chan struct{}
+	block     bool
+	state     string
+	artifacts []ArtifactRef
 }
 
 func (f *fakeExecutor) Execute(ctx context.Context, input ExecutionInput) (ExecutionOutput, error) {
@@ -36,8 +42,12 @@ func (f *fakeExecutor) Execute(ctx context.Context, input ExecutionInput) (Execu
 		<-ctx.Done()
 		return ExecutionOutput{}, ctx.Err()
 	}
+	state := f.state
+	if state == "" {
+		state = "succeeded"
+	}
 	return ExecutionOutput{
-		State: "succeeded", Summary: "bounded result",
+		State: state, Summary: "bounded result", ArtifactRefs: f.artifacts,
 		TraceRef: OpaqueRef{ID: "trace:test", Version: "v1"},
 	}, nil
 }
@@ -50,7 +60,8 @@ func (f *fakeExecutor) callCount() int {
 
 func TestProviderSubmitReplayStatusEventsAndRestart(t *testing.T) {
 	stateDir := t.TempDir()
-	executor := &fakeExecutor{}
+	artifact := ArtifactRef{ID: "artifact:demo", Version: "v1", Kind: "image", MediaType: "image/png"}
+	executor := &fakeExecutor{artifacts: []ArtifactRef{artifact}}
 	provider := newTestProvider(t, stateDir, executor)
 	ctx, cancel := context.WithCancel(t.Context())
 	provider.Start(ctx)
@@ -80,14 +91,30 @@ func TestProviderSubmitReplayStatusEventsAndRestart(t *testing.T) {
 		t.Fatalf("events response = %d %s", events.StatusCode, events.Raw)
 	}
 	page := nestedSlice(t, events.Body, "payload", "events")
-	if len(page) != 4 {
-		t.Fatalf("event count = %d, want accepted/queued/running/succeeded", len(page))
+	if len(page) != 5 {
+		t.Fatalf("event count = %d, want accepted/queued/running/artifact.available/succeeded", len(page))
 	}
 	for index, raw := range page {
 		event := raw.(map[string]any)
 		if uint64(event["sequence"].(float64)) != uint64(index+1) {
 			t.Fatalf("event sequence at %d = %#v", index, event)
 		}
+	}
+	artifactEvent := page[3].(map[string]any)
+	if artifactEvent["type"] != "artifact.available" || nestedString(t, artifactEvent, "artifact_ref", "id") != artifact.ID ||
+		nestedString(t, artifactEvent, "artifact_ref", "kind") != artifact.Kind || nestedString(t, artifactEvent, "artifact_ref", "media_type") != artifact.MediaType {
+		t.Fatalf("artifact event = %#v", artifactEvent)
+	}
+	if _, hasState := artifactEvent["state"]; hasState {
+		t.Fatalf("artifact event carried an execution state: %#v", artifactEvent)
+	}
+	if page[4].(map[string]any)["type"] != "execution.succeeded" {
+		t.Fatalf("terminal event did not follow the artifact event: %#v", page[4])
+	}
+	status := callRuntime(t, server.URL+"/v1/executions:status", executionStatusRequest(executionID), "")
+	resultRefs := nestedSlice(t, status.Body, "payload", "result", "artifact_refs")
+	if len(resultRefs) != 1 || nestedString(t, resultRefs[0], "id") != artifact.ID || nestedString(t, resultRefs[0], "version") != artifact.Version {
+		t.Fatalf("result artifact refs = %#v", resultRefs)
 	}
 
 	cancel()
@@ -352,4 +379,379 @@ func nestedSlice(t *testing.T, value any, path ...string) []any {
 		t.Fatalf("path %v is not array", path)
 	}
 	return result
+}
+
+func TestProviderRejectsEveryActionUntilStart(t *testing.T) {
+	executor := &fakeExecutor{}
+	provider := newTestProvider(t, t.TempDir(), executor)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	early := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_early", "Must wait for Start."), "task_demo:runtime-submit")
+	if early.StatusCode != http.StatusServiceUnavailable || nestedString(t, early.Body, "payload", "code") != "runtime_unavailable" ||
+		!nestedBool(t, early.Body, "payload", "retryable") || nestedValue(t, early.Body, "payload", "retry_after_ms") == nil {
+		t.Fatalf("submit before Start = %d %s", early.StatusCode, early.Raw)
+	}
+	lookup := callRuntime(t, server.URL+"/v1/executions:lookup", lookupRequest("request_early_lookup"), "")
+	if lookup.StatusCode != http.StatusServiceUnavailable || nestedString(t, lookup.Body, "payload", "code") != "runtime_unavailable" {
+		t.Fatalf("lookup before Start = %d %s", lookup.StatusCode, lookup.Raw)
+	}
+	if executor.callCount() != 0 || len(provider.store.byKey) != 0 {
+		t.Fatalf("pre-Start request had side effects: calls=%d records=%d", executor.callCount(), len(provider.store.byKey))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	accepted := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_after", "Must wait for Start."), "task_demo:runtime-submit")
+	if accepted.StatusCode != http.StatusAccepted {
+		t.Fatalf("submit after Start = %d %s", accepted.StatusCode, accepted.Raw)
+	}
+	waitForState(t, server.URL, nestedString(t, accepted.Body, "payload", "execution", "execution_id"), "succeeded")
+}
+
+// logCapture collects JSON slog lines from provider goroutines.
+type logCapture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *logCapture) Write(raw []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(raw)
+}
+
+func (c *logCapture) lines(t *testing.T) []map[string]any {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(c.buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(line), &decoded); err != nil {
+			t.Fatalf("log line is not JSON: %q", line)
+		}
+		out = append(out, decoded)
+	}
+	return out
+}
+
+func (c *logCapture) find(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	for _, line := range c.lines(t) {
+		if line["msg"] == msg {
+			return line
+		}
+	}
+	t.Fatalf("no log line %q in %s", msg, c.buf.String())
+	return nil
+}
+
+func TestProviderLogsOperationalEventsWithoutSecrets(t *testing.T) {
+	capture := &logCapture{}
+	logger := slog.New(slog.NewJSONHandler(capture, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	provider, err := New(Config{
+		StateDir: t.TempDir(), BearerToken: testBearer, CallerID: "jingsi-service-v1", MaxConcurrent: 2, Logger: logger,
+	}, &fakeExecutor{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	const wrongBearer = "wrong-bearer-credential-value"
+	raw, _ := json.Marshal(submitRequest("request_unauth", "Secret goal text must not be logged."))
+	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/v1/executions:submit", bytes.NewReader(raw))
+	request.Header.Set("Authorization", "Bearer "+wrongBearer)
+	request.Header.Set("Content-Type", MediaType)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("http.Do() error = %v", err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong bearer status = %d", response.StatusCode)
+	}
+	rejected := capture.find(t, "jingsi runtime bearer rejected")
+	if rejected["failures"] != float64(1) {
+		t.Fatalf("bearer rejection did not count: %v", rejected)
+	}
+
+	const goal = "Secret goal text must not be logged."
+	accepted := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_submit", goal), "task_demo:runtime-submit")
+	executionID := nestedString(t, accepted.Body, "payload", "execution", "execution_id")
+	waitForState(t, server.URL, executionID, "succeeded")
+	finished := capture.find(t, "jingsi runtime execution finished")
+	if finished["execution_id"] != executionID || finished["outcome"] != "succeeded" {
+		t.Fatalf("terminal outcome line = %v", finished)
+	}
+
+	drift := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_drift", "Different secret goal."), "task_demo:runtime-submit")
+	if drift.StatusCode != http.StatusConflict {
+		t.Fatalf("drift status = %d %s", drift.StatusCode, drift.Raw)
+	}
+	conflict := capture.find(t, "jingsi runtime idempotency conflict")
+	if conflict["reason"] != "semantic_drift" || conflict["request_key"] != "task_demo:runtime-submit" {
+		t.Fatalf("conflict line = %v", conflict)
+	}
+
+	capture.mu.Lock()
+	everything := capture.buf.String()
+	capture.mu.Unlock()
+	for _, secret := range []string{testBearer, wrongBearer, goal, "Different secret goal", "bounded result"} {
+		if strings.Contains(everything, secret) {
+			t.Fatalf("log output leaked %q: %s", secret, everything)
+		}
+	}
+}
+
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
+}
+
+func newRetentionProvider(t *testing.T, stateDir string, clock *fakeClock, executor Executor) *Provider {
+	t.Helper()
+	provider, err := New(Config{
+		StateDir: stateDir, BearerToken: testBearer, CallerID: "jingsi-service-v1", MaxConcurrent: 2,
+		Retention: 30 * 24 * time.Hour, Now: clock.Now,
+	}, executor)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return provider
+}
+
+func TestProviderRetentionSweepDeletesOnlyExpiredTerminalRecordsAndFences(t *testing.T) {
+	stateDir := t.TempDir()
+	clock := &fakeClock{now: time.Date(2026, 9, 6, 8, 0, 0, 0, time.UTC)}
+	provider := newRetentionProvider(t, stateDir, clock, &fakeExecutor{})
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	submitKey := func(requestID, key string) string {
+		t.Helper()
+		request := submitRequest(requestID, "Age out after retention.")
+		request.Payload.RequestKey = key
+		response := callRuntime(t, server.URL+"/v1/executions:submit", request, key)
+		if response.StatusCode != http.StatusAccepted {
+			t.Fatalf("submit %s = %d %s", key, response.StatusCode, response.Raw)
+		}
+		return nestedString(t, response.Body, "payload", "execution", "execution_id")
+	}
+	fenceKey := func(requestID, key string) string {
+		t.Helper()
+		request := lookupRequest(requestID)
+		request.Payload.RequestKey = key
+		response := callRuntime(t, server.URL+"/v1/executions:lookup", request, "")
+		if nestedString(t, response.Body, "payload", "outcome") != "not_started" {
+			t.Fatalf("lookup %s = %d %s", key, response.StatusCode, response.Raw)
+		}
+		return nestedString(t, response.Body, "payload", "negative_fence", "committed_at")
+	}
+
+	oldExecution := submitKey("request_old", "task_demo:old")
+	waitForState(t, server.URL, oldExecution, "succeeded")
+	fenceKey("request_old_fence", "task_demo:old-fence")
+	clock.advance(10 * 24 * time.Hour)
+	youngExecution := submitKey("request_young", "task_demo:young")
+	waitForState(t, server.URL, youngExecution, "succeeded")
+	youngFenceAt := fenceKey("request_young_fence", "task_demo:young-fence")
+	if entries := stateFiles(t, stateDir); entries != 4 {
+		t.Fatalf("state files before sweep = %d, want 4", entries)
+	}
+
+	clock.advance(21 * 24 * time.Hour)
+	provider.sweepRetention()
+	if entries := stateFiles(t, stateDir); entries != 2 {
+		t.Fatalf("state files after sweep = %d, want 2", entries)
+	}
+	provider.store.mu.Lock()
+	_, oldKeyKept := provider.store.byKey[provider.store.key("jingsi-service-v1", "task_demo:old")]
+	_, oldExecutionKept := provider.store.byExecution[oldExecution]
+	_, youngKeyKept := provider.store.byKey[provider.store.key("jingsi-service-v1", "task_demo:young")]
+	_, youngExecutionKept := provider.store.byExecution[youngExecution]
+	provider.store.mu.Unlock()
+	if oldKeyKept || oldExecutionKept || !youngKeyKept || !youngExecutionKept {
+		t.Fatalf("indexes inconsistent after sweep: old key=%v exec=%v young key=%v exec=%v", oldKeyKept, oldExecutionKept, youngKeyKept, youngExecutionKept)
+	}
+	status := callRuntime(t, server.URL+"/v1/executions:status", executionStatusRequest(oldExecution), "")
+	if status.StatusCode != http.StatusNotFound {
+		t.Fatalf("expired execution still served: %d %s", status.StatusCode, status.Raw)
+	}
+	youngLookup := lookupRequest("request_young_relookup")
+	youngLookup.Payload.RequestKey = "task_demo:young-fence"
+	relooked := callRuntime(t, server.URL+"/v1/executions:lookup", youngLookup, "")
+	if nestedString(t, relooked.Body, "payload", "negative_fence", "committed_at") != youngFenceAt {
+		t.Fatalf("fence inside retention was replaced: %s", relooked.Raw)
+	}
+}
+
+func TestProviderRetentionKeepsNonterminalWorkAndSweepsOnStart(t *testing.T) {
+	stateDir := t.TempDir()
+	clock := &fakeClock{now: time.Date(2026, 9, 6, 8, 0, 0, 0, time.UTC)}
+	provider := newRetentionProvider(t, stateDir, clock, &fakeExecutor{state: "approval_required"})
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	server := httptest.NewServer(provider)
+	stopped := callRuntime(t, server.URL+"/v1/executions:submit", submitRequest("request_stopped", "Wait for approval."), "task_demo:runtime-submit")
+	executionID := nestedString(t, stopped.Body, "payload", "execution", "execution_id")
+	waitForState(t, server.URL, executionID, "approval_required")
+	fence := lookupRequest("request_fence")
+	fence.Payload.RequestKey = "task_demo:fence"
+	callRuntime(t, server.URL+"/v1/executions:lookup", fence, "")
+	server.Close()
+	stopProvider(t, provider, cancel)
+
+	clock.advance(40 * 24 * time.Hour)
+	restarted := newRetentionProvider(t, stateDir, clock, &fakeExecutor{})
+	restartCtx, restartCancel := context.WithCancel(t.Context())
+	restarted.Start(restartCtx)
+	defer stopProvider(t, restarted, restartCancel)
+	deadline := time.Now().Add(3 * time.Second)
+	for stateFiles(t, stateDir) != 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if entries := stateFiles(t, stateDir); entries != 1 {
+		t.Fatalf("state files after Start sweep = %d, want only the approval_required record", entries)
+	}
+	restartedServer := httptest.NewServer(restarted)
+	defer restartedServer.Close()
+	status := callRuntime(t, restartedServer.URL+"/v1/executions:status", executionStatusRequest(executionID), "")
+	if status.StatusCode != http.StatusOK || nestedString(t, status.Body, "payload", "execution", "state") != "approval_required" {
+		t.Fatalf("nonterminal work was swept: %d %s", status.StatusCode, status.Raw)
+	}
+}
+
+func stateFiles(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			count++
+		}
+	}
+	return count
+}
+
+func TestProviderBoundsAcceptedButNotRunningSubmits(t *testing.T) {
+	capture := &logCapture{}
+	logger := slog.New(slog.NewJSONHandler(capture, nil))
+	executor := &fakeExecutor{started: make(chan struct{}), block: true}
+	provider, err := New(Config{
+		StateDir: t.TempDir(), BearerToken: testBearer, CallerID: "jingsi-service-v1", MaxConcurrent: 1, Logger: logger,
+	}, executor)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	provider.Start(ctx)
+	defer stopProvider(t, provider, cancel)
+	server := httptest.NewServer(provider)
+	defer server.Close()
+
+	submitKey := func(key string) runtimeResponse {
+		t.Helper()
+		request := submitRequest("request_"+strings.ReplaceAll(key, ":", "_"), "Hold a slot.")
+		request.Payload.RequestKey = key
+		return callRuntime(t, server.URL+"/v1/executions:submit", request, key)
+	}
+	running := submitKey("task_demo:running")
+	if running.StatusCode != http.StatusAccepted {
+		t.Fatalf("first submit = %d %s", running.StatusCode, running.Raw)
+	}
+	select {
+	case <-executor.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not start")
+	}
+	for i := 0; i < queueDepthFactor; i++ {
+		if response := submitKey(fmt.Sprintf("task_demo:queued-%d", i)); response.StatusCode != http.StatusAccepted {
+			t.Fatalf("queued submit %d = %d %s", i, response.StatusCode, response.Raw)
+		}
+	}
+	rejected := submitKey("task_demo:overflow")
+	if rejected.StatusCode != http.StatusServiceUnavailable || nestedString(t, rejected.Body, "payload", "code") != "runtime_unavailable" ||
+		!nestedBool(t, rejected.Body, "payload", "retryable") || nestedValue(t, rejected.Body, "payload", "retry_after_ms") != float64(queueRetryAfterMS) {
+		t.Fatalf("overflow submit = %d %s", rejected.StatusCode, rejected.Raw)
+	}
+	provider.store.mu.Lock()
+	_, overflowStored := provider.store.byKey[provider.store.key("jingsi-service-v1", "task_demo:overflow")]
+	provider.store.mu.Unlock()
+	if overflowStored {
+		t.Fatal("rejected submit left a record behind")
+	}
+	if replay := submitKey("task_demo:queued-0"); replay.StatusCode != http.StatusAccepted {
+		t.Fatalf("exact replay was rejected by the queue bound: %d %s", replay.StatusCode, replay.Raw)
+	}
+	if line := capture.find(t, "jingsi runtime submit rejected by queue bound"); line["queued"] != float64(queueDepthFactor) {
+		t.Fatalf("queue rejection line = %v", line)
+	}
+
+	runningID := nestedString(t, running.Body, "payload", "execution", "execution_id")
+	if response := callRuntime(t, server.URL+"/v1/executions:cancel", cancelRequest(runningID), ""); response.StatusCode != http.StatusOK {
+		t.Fatalf("cancel = %d %s", response.StatusCode, response.Raw)
+	}
+	waitForState(t, server.URL, runningID, "canceled")
+	deadline := time.Now().Add(3 * time.Second)
+	var admitted runtimeResponse
+	for time.Now().Before(deadline) {
+		admitted = submitKey("task_demo:overflow")
+		if admitted.StatusCode == http.StatusAccepted {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if admitted.StatusCode != http.StatusAccepted {
+		t.Fatalf("queue slot was not released after a running execution ended: %d %s", admitted.StatusCode, admitted.Raw)
+	}
+}
+
+func TestBoundedArtifactRefsKeepsOnlyWireShapedReferences(t *testing.T) {
+	refs := []ArtifactRef{
+		{ID: "artifact:ok", Version: "v1", Kind: "file", MediaType: "text/plain"},
+		{ID: "", Version: "v1", Kind: "file"},
+		{ID: "artifact:no-version", Kind: "file"},
+		{ID: "artifact:bad kind", Version: "v1", Kind: "with space"},
+		{ID: "artifact:long-media", Version: "v1", Kind: "file", MediaType: strings.Repeat("x", 129)},
+	}
+	for index := 0; index < 40; index++ {
+		refs = append(refs, ArtifactRef{ID: fmt.Sprintf("artifact:extra-%d", index), Version: "v1", Kind: "file"})
+	}
+	bounded := boundedArtifactRefs(refs)
+	if len(bounded) != maxArtifactRefs {
+		t.Fatalf("bounded count = %d, want %d", len(bounded), maxArtifactRefs)
+	}
+	if bounded[0].ID != "artifact:ok" || bounded[1].ID != "artifact:long-media" || bounded[1].MediaType != "" {
+		t.Fatalf("bounded refs = %#v", bounded[:2])
+	}
+	if got := boundedArtifactRefs(nil); len(got) != 0 {
+		t.Fatalf("nil refs bounded to %#v", got)
+	}
 }

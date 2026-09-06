@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SparkClaw Browser Bridge</title>
+  <link rel="stylesheet" href="ui.css">
+  <script type="module" src="src/status.mjs"></script>
+</head>
+<body>
+  <main>
+    <h1>SparkClaw Browser Bridge</h1>
+    <section>
+      <h2>Browser control token</h2>
+      <div class="token-row">
+        <code id="token"></code>
+        <button id="copy" type="button">Copy</button>
+        <button id="rotate" type="button">Rotate</button>
+      </div>
+      <p id="token-status" role="status"></p>
+    </section>
+    <section>
+      <h2>Active task connections</h2>
+      <div id="connections">None</div>
+    </section>
+  </main>
+</body>
+</html>

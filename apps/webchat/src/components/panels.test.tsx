@@ -12,10 +12,10 @@ const settingsConfig = {
   model: {
     capacity_profile: "mock",
     mock: true,
-    fast: { name: "fast", model: "fast", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {}, mtp: false },
-    deep: { name: "deep", model: "deep", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {}, mtp: false },
-    embedding: { name: "embedding", model: "embedding", base_url: "", capacity_physical_model: "mock-embedding", context_tokens: 8192, output_budgets: {}, mtp: false },
-    guard: { name: "guard", model: "guard", base_url: "", capacity_physical_model: "mock-guard", context_tokens: 8192, output_budgets: {}, mtp: false }
+    fast: { name: "fast", model: "fast", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {} },
+    deep: { name: "deep", model: "deep", base_url: "", capacity_physical_model: "mock-chat", context_tokens: 8192, output_budgets: {} },
+    embedding: { name: "embedding", model: "embedding", base_url: "", capacity_physical_model: "mock-embedding", context_tokens: 8192, output_budgets: {} },
+    guard: { name: "guard", model: "guard", base_url: "", capacity_physical_model: "mock-guard", context_tokens: 8192, output_budgets: {} }
   },
   gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
   workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
@@ -152,6 +152,33 @@ describe("ApprovalPanel context-bound approvals", () => {
     );
     expect(markup.match(/disabled/g)?.length).toBe(2);
     expect(markup).toContain('class="lucide lucide-refresh-cw spin"');
+  });
+});
+
+describe("ApprovalPanel email approvals", () => {
+  it("shows the complete message but does not offer argument editing", () => {
+    const approval: Approval = {
+      ...happyApproval("available"),
+      id: "ap-email",
+      source: "tool",
+      external_context: undefined,
+      tool: "email.send",
+      summary: "Approve email.send",
+      arguments_immutable: true,
+      arguments: {
+        provider: "gmail",
+        recipient: "alice@example.com",
+        subject: "Status",
+        body: "The deployment is ready."
+      }
+    };
+    const markup = renderToStaticMarkup(
+      <ApprovalPanel approvals={[approval]} text={dictionaries.en} onResolve={() => {}} onModify={() => {}} onModifyPlan={() => {}} />
+    );
+    expect(markup).toContain("alice@example.com");
+    expect(markup).toContain("Status");
+    expect(markup).toContain("The deployment is ready.");
+    expect(markup).not.toContain(dictionaries.en.approval.editArguments);
   });
 });
 

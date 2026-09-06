@@ -111,6 +111,9 @@ export type Approval = {
   reason: string;
   resources: string[];
   arguments: Record<string, unknown>;
+  // Projected from the tool definition: the approval can only be accepted or
+  // rejected as requested, never edited.
+  arguments_immutable?: boolean;
   policy_context?: Record<string, unknown>;
   presentation?: ApprovalPresentation;
   created_at: string;
@@ -552,12 +555,60 @@ export type MCPAccessRecordDeletion = {
 
 export type IntegrationID = "infinimesh-info" | "localmind";
 
+// Mirrors the Go app.IntegrationState* vocabulary shared by Browser control and
+// the credential-backed integrations. "checking" is reported live only by
+// Browser control; the integration panel synthesises it client-side while a
+// check request is in flight.
+export type IntegrationState =
+  | "not_configured"
+  | "configured"
+  | "checking"
+  | "ready"
+  | "needs_attention"
+  | "temporarily_unavailable"
+  | "vault_unavailable";
+
+// Mirrors the Go app.EmailState* vocabulary.
+export type EmailProviderState = "not_configured" | "login_required" | "ready" | "needs_attention" | "temporarily_unavailable";
+
+export type EmailProviderStatus = {
+  provider: "qq_mail" | "outlook" | "gmail";
+  display_name: string;
+  enabled: boolean;
+  default: boolean;
+  account: "default";
+  account_hint?: string;
+  state: EmailProviderState;
+  last_checked_at?: string;
+  error_code?: string;
+  version: number;
+  updated_at?: string;
+};
+
+export type BrowserExtensionStatus = {
+  configured: boolean;
+  state: IntegrationState;
+  profile_id: "default" | string;
+  credential_generation: number;
+  controller_generation?: number;
+  session_generation?: number;
+  page_generation?: number;
+  last_validated_at?: string;
+  error_code?: string;
+  versions: {
+    client?: string;
+    client_version?: string;
+    playwright_version?: string;
+    browser_channel?: string;
+  };
+};
+
 export type IntegrationCredential = {
   id: string;
   label: string;
   validated_at: string;
   last_checked_at?: string;
-  state: string;
+  state: IntegrationState;
   error_code?: string;
   active: boolean;
 };
@@ -567,7 +618,7 @@ export type IntegrationStatus = {
   category: "data_provider" | "outbound_mcp";
   configured: boolean;
   source: "household" | "operator" | "none";
-  state: string;
+  state: IntegrationState;
   editable: boolean;
   checkable: boolean;
   operator_available: boolean;
@@ -584,7 +635,6 @@ export type PublicModelProfile = {
   capacity_physical_model: string;
   context_tokens: number;
   output_budgets: Record<string, number>;
-  mtp: boolean;
 };
 
 export type PublicConfig = {
@@ -837,8 +887,6 @@ export type RunTrace = {
     model: string;
     content: string;
     mock: boolean;
-    fallback?: boolean;
-    error_note?: string;
   };
   model_calls?: ModelCall[];
   messages: Message[];

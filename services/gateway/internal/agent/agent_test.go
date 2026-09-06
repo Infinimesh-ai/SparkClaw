@@ -744,7 +744,7 @@ func TestBrowserSelectedTabTargetReadsNormalizedAgentBrowserPage(t *testing.T) {
 	}
 	target, ok := browserSelectedTabTarget(call)
 	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "page_2" {
-		t.Fatalf("selected normalized agent-browser page was not read: %#v ok=%v", target, ok)
+		t.Fatalf("selected normalized Playwright page was not read: %#v ok=%v", target, ok)
 	}
 }
 
@@ -1551,7 +1551,7 @@ func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.
 	call := app.ToolCall{ID: "tc_rich_snapshot", Tool: "browser.snapshot", Status: app.ToolCallStatusCompleted}
 	output := map[string]any{
 		"browser_mode": "autonomous", "presentation": "hidden", "surface_visible": false,
-		"provider": "agent-browser-headless", "owner_id": "owner", "page_id": "page_7",
+		"provider": "playwright-extension", "owner_id": "owner", "page_id": "page_7",
 		"snapshot_id": "snapshot_7", "digest": strings.Repeat("a", 64),
 		"browser_page_auth_signals": []string{strings.Repeat("bounded-auth-metadata", 50)},
 		"snapshot": map[string]any{
@@ -1786,10 +1786,10 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 		Risk:        app.RiskRead,
 	}}
 	snapshot := agentContextSnapshot{Messages: []app.Message{{Role: "user", Content: "请继续读取这份文档"}}}
-	admission, err := workflowStepContextBuilderForTimezone(
+	admission, err := admitWithEstimatedTokens(workflowStepContextBuilderForTimezone(
 		"请读取文档", 2, workflowObservationsFromText([]string{observation}), stageContext, visibleTools,
 		provisionedWorkflowEvidence{}, snapshot, "",
-	).Admit(100000)
+	), 100000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2124,19 +2124,16 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 	if err != nil || route.Status == app.RouteMatched {
 		t.Fatalf("missing follow-up file must not bypass deterministic preflight: route=%#v err=%v", route, err)
 	}
-	snapshot, err := runtime.buildAgentContextSnapshot(t.Context(), session.ID, "run_current")
-	if err != nil {
-		t.Fatal(err)
+	admission := mustTreeRoutingPromptAdmission(t, runtime, session.ID, "run_current", "把张三的学号改为6", nil)
+	toolContext, ok := admission.SelectedVariants["session_tool_results"]
+	if !ok {
+		t.Fatalf("Tree routing prompt omitted the recent tool result section:\n%s", admission.User)
 	}
-	contextText, contextErr := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget)
-	if contextErr != nil {
-		t.Fatal(contextErr)
-	}
-	if !strings.Contains(contextText, "Recent tool results") ||
-		!strings.Contains(contextText, "张三") ||
-		!strings.Contains(contextText, "document_pipeline={status=succeeded") ||
-		strings.Contains(contextText, "example.xlsx") || strings.Contains(contextText, "strategy.strategy") || strings.Contains(contextText, "index.index_status") {
-		t.Fatalf("recent tool result context missing document evidence:\n%s", contextText)
+	if !strings.Contains(toolContext.Text, "Recent tool results") ||
+		!strings.Contains(toolContext.Text, "张三") ||
+		!strings.Contains(toolContext.Text, "document_pipeline={status=succeeded") ||
+		strings.Contains(toolContext.Text, "example.xlsx") || strings.Contains(toolContext.Text, "strategy.strategy") || strings.Contains(toolContext.Text, "index.index_status") {
+		t.Fatalf("recent tool result context missing document evidence:\n%s", toolContext.Text)
 	}
 }
 
@@ -3215,21 +3212,23 @@ func TestIntentRoutingClassifiesURLClickAsBrowserInteraction(t *testing.T) {
 	}
 }
 
-func TestIntentRoutingResolvesRegisteredQQMailDestination(t *testing.T) {
+func TestIntentRoutingDoesNotRegisterQQMailAsBrowserDestination(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "请在 Chromium 中打开 QQ 邮箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation ||
-		route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
-		t.Fatalf("registered QQ Mail destination did not enter browser.automation: %#v", route)
+		route.Slots.TargetKind != string(app.TargetKindPublicNamedTarget) || route.Slots.TargetRef != "请在 Chromium 中打开 QQ 邮箱" ||
+		route.Facts["browser_destination"] != "" {
+		t.Fatalf("QQ Mail was still frozen as a registered browser destination: %#v", route)
 	}
 }
 
-func TestIntentRoutingRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
+func TestIntentRoutingKeepsQQMailSubgoalAsUnresolvedNamedTarget(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开 QQ 邮箱的草稿箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
-		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
-		t.Fatalf("registered QQ Mail subgoal did not enter browser.interaction: %#v", route)
+		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetKind != string(app.TargetKindPublicNamedTarget) ||
+		route.Slots.TargetRef != "打开 QQ 邮箱的草稿箱" || route.Facts["browser_destination"] != "" {
+		t.Fatalf("QQ Mail interaction was still frozen as a registered browser destination: %#v", route)
 	}
 }
 
@@ -3309,10 +3308,10 @@ func TestAgentContextSnapshotIncludesEpisodeSummaries(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 		}},
 	}
-	context, contextErr := snapshot.ForIntentRouting(contextSnapshotRenderTestBudget)
-	if contextErr != nil {
-		t.Fatal(contextErr)
-	}
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	context := mustAdmitTreePrompt(t, runtime, "查一下今年的高考人数", newTreeRoutingPromptContext(nil, snapshot, documentContextResolution{})).User
 	if !strings.Contains(context, "Recent episode summaries") ||
 		!strings.Contains(context, "2026年全国高考报名人数") {
 		t.Fatalf("agent context should include episode summaries:\n%s", context)
@@ -3461,10 +3460,10 @@ func TestTemporalContextAndFreshSearchDateUseClientTimezone(t *testing.T) {
 	if got := currentSearchDateForTimezone(now, "Asia/Tokyo"); got != "2026-01-01" {
 		t.Fatalf("Tokyo fresh-search date = %q; want 2026-01-01", got)
 	}
-	admission, err := workflowStepContextBuilderForTimezone(
+	admission, err := admitWithEstimatedTokens(workflowStepContextBuilderForTimezone(
 		"What time is it?", 1, nil, workflowStageContext{}, nil,
 		provisionedWorkflowEvidence{}, agentContextSnapshot{}, "America/New_York",
-	).Admit(100000)
+	), 100000)
 	if err != nil {
 		t.Fatal(err)
 	}

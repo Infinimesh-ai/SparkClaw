@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -788,6 +789,12 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil || fmt.Sprintf("%x", sha256.Sum256(published)) != sealedBinding.CandidateSHA256 {
 		t.Fatalf("approved PPTX output differs from the pre-approval sealed candidate: err=%v", err)
 	}
+	if leftover, err := runtime.tools.ArtifactStore().List(t.Context(), "pptx/sealed/", "", 10); err != nil || len(leftover) != 0 {
+		t.Fatalf("published sealed candidate was not discarded from the artifact store: %#v err=%v", leftover, err)
+	}
+	if !hasAgentAuditType(mustListAgentPPTXAudit(t, st), "document.pptx.candidate_discarded") {
+		t.Fatal("sealed candidate discard after publication was not audited")
+	}
 	after, err := os.ReadFile(inputPath)
 	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
 		t.Fatalf("approved PPTX edit modified its source: %v", err)
@@ -831,6 +838,67 @@ func TestApprovedPPTXMutationRejectsPersistedSealedBindingMismatch(t *testing.T)
 	}
 	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); !os.IsNotExist(err) {
 		t.Fatalf("mismatched sealed approval published an output: %v", err)
+	}
+}
+
+type toolCallOutcomeWriteFailure struct {
+	Repository
+	failStatus app.ToolCallStatus
+	err        error
+}
+
+func (r toolCallOutcomeWriteFailure) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
+	if call.Status == r.failStatus {
+		return app.ToolCall{}, r.err
+	}
+	return r.Repository.SaveToolCall(ctx, call)
+}
+
+func mustListAgentPPTXAudit(t *testing.T, st *store.MemoryStore) []app.AuditEvent {
+	t.Helper()
+	events, err := st.ListAudit(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+// A crash or store failure between publishing the bytes and recording the
+// completed outcome must leave the sealed candidate in place: the call is
+// still running_after_approval and nothing may throw away the manifest an
+// operator would need to reconcile it.
+func TestApprovedPPTXMutationKeepsSealedCandidateWhenOutcomeWriteFails(t *testing.T) {
+	runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
+	defer closeRuntime()
+	call, approval, _, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+		Name:       "pptx.update_slide",
+		Args:       map[string]any{"slide_index": 3, "updates": []any{map[string]any{"shape_index": 1, "text": "Approved replacement"}}},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
+	})
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending {
+		t.Fatalf("PPTX edit did not wait for approval: call=%#v approval=%#v", call, approval)
+	}
+	resolved, err := st.ResolveApproval(t.Context(), approval.ID, app.ApprovalStatusApproved, "approve before outcome write fails")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.store = toolCallOutcomeWriteFailure{Repository: st, failStatus: app.ToolCallStatusCompletedAfterApproval, err: errors.New("store unavailable")}
+	if _, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved); err == nil || !strings.Contains(err.Error(), "persist completed approved tool call") {
+		t.Fatalf("failed outcome write was not surfaced: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "deck-2.pptx")); err != nil {
+		t.Fatalf("publication did not happen before the outcome write: %v", err)
+	}
+	persisted, ok, err := st.GetToolCall(t.Context(), call.ID)
+	if err != nil || !ok || persisted.Status != app.ToolCallStatusRunningAfterApproval {
+		t.Fatalf("tool call did not stay running_after_approval: call=%#v ok=%t err=%v", persisted, ok, err)
+	}
+	sealed, err := runtime.tools.ArtifactStore().List(t.Context(), "pptx/sealed/", "", 10)
+	if err != nil || len(sealed) != 2 {
+		t.Fatalf("sealed candidate was discarded before its outcome was durable: %#v err=%v", sealed, err)
+	}
+	if hasAgentAuditType(mustListAgentPPTXAudit(t, st), "document.pptx.candidate_discarded") {
+		t.Fatal("discard was audited even though the outcome write failed")
 	}
 }
 

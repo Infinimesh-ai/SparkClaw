@@ -135,7 +135,6 @@ func publicModelProfile(profile config.ModelProfile) map[string]any {
 		"capacity_physical_model": profile.CapacityPhysicalModel,
 		"context_tokens":          profile.ContextTokens,
 		"output_budgets":          profile.OutputBudgets,
-		"mtp":                     profile.MTP,
 	}
 }
 
@@ -183,10 +182,12 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.RuntimeReadiness) map[string]any {
 	return map[string]any{
 		"browserAutomation": map[string]any{
-			"command":                cfg.BrowserAutomation.Command,
-			"timeout_ms":             cfg.BrowserAutomation.TimeoutMS,
-			"startup_timeout_ms":     cfg.BrowserAutomation.StartupTimeoutMS,
-			"daemon_idle_timeout_ms": cfg.BrowserAutomation.DaemonIdleTimeoutMS,
+			"timeout_ms":         cfg.BrowserAutomation.TimeoutMS,
+			"startup_timeout_ms": cfg.BrowserAutomation.StartupTimeoutMS,
+			"browser_bridge": map[string]any{
+				"profile_id":         cfg.BrowserAutomation.PlaywrightExtension.ProfileID,
+				"connect_timeout_ms": cfg.BrowserAutomation.PlaywrightExtension.ConnectTimeoutMS,
+			},
 		},
 		"documentOCR": map[string]any{
 			"configured_enabled":    ocrReadiness.ConfiguredEnabled,

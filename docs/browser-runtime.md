@@ -2,352 +2,222 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-runtime.md)
 
-This document is the current browser implementation and operating guide. It
-replaces the Playwright migration, agent-browser migration, browser-mode,
-profile, login, perception, interaction, and weather migration records.
+This document describes the current production browser implementation. SparkClaw
+uses one persistent owner-session Chromium profile, the checksum-pinned
+SparkClaw Browser Bridge, and an owner-scoped Playwright Controller. The old
+browserd, Host-CDP, and `agent-browser` paths were removed in the Phase 6
+cutover.
 
-## Current Architecture
-
-SparkClaw uses pinned `agent-browser` with a resolved system Chromium as its
-only browser execution backend. ToolHub and Workflow contracts remain
-provider-neutral; `internal/browserautomation` owns process transport, protocol
-validation, profile locking, deadlines, and conversion to typed observations.
+## Runtime Topology
 
 ```text
-Workflow leaf
-  -> stage-scoped browser ToolHub capability
-  -> browserautomation adapter
-  -> private agent-browser MCP process
-  -> SparkClaw-owned Chromium profile
+Browser or email Workflow
+  -> Gateway browserautomation / emailautomation
+  -> owner-only Controller Unix socket
+  -> fixed Playwright MCP or CLI client
+  -> SparkClaw Browser Bridge native connection
+  -> task-owned tab in persistent SparkClaw Chromium
 ```
 
-There is no Playwright fallback, Chrome DevTools MCP fallback, personal Chrome
-attachment, cookie export, or second DOM perception engine.
+Chromium and the Controller are systemd user services. Gateway mounts only the
+Controller runtime directory at `/run/sparkclaw/browser-controller` as read-only.
+It does not receive the browser profile, native-host manifest, display socket,
+or browser executable. The Gateway image contains no Chromium, Xvfb, or browser
+automation engine.
 
-## User-Visible Capabilities
-
-| Capability | Current revision boundary |
+| Component | Location |
 |---|---|
-| `browser.internet_search` r2 | Search public current information through `web.search`; it does not open source pages |
-| `browser.weather` r2 | Query typed metric data through Infinimesh Info `POST /v1/info/weather` and render one card for one explicit location |
-| `browser.automation` r3 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and validate it in visible Chromium |
-| `browser.page_read` r1 | Run a fixed hidden health -> open -> session-required read chain and return bounded content from one explicit or Info-identified URL |
-| `browser.interaction` r3 | Use the managed acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
-| `browser.form_draft` r2 | Discover and assess ordinary reversible fields in hidden Chromium, then type or select at most five independently approved, exact owner-supplied values in one visible session and verify the uncommitted draft in place |
+| Browser service | `sparkclaw-browser.service` |
+| Controller service | `sparkclaw-browser-controller.service` |
+| Browser config | `~/.config/sparkclaw/browser.json` |
+| Persistent profile | `~/.local/share/sparkclaw/browser/default/user-data` |
+| Controller runtime | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller` |
+| Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
+| Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-`browser.interaction` r3 remains click-only. `browser.form_draft` r2 exposes only
-type and select during its action stage and never exposes click, submit, send,
-publish, upload, download, credential, captcha/2FA, payment/purchase, or page
-script actions. Login and human verification are explicit owner handoffs.
-Low-level browser tools do not expand the supported Workflow surface;
-[Workflow capabilities](workflow-capabilities.md) is authoritative. Browser r1
-profiles and their post-completion presentation compatibility path are retired.
+The pinned compatibility set is Browser Bridge `1.0.18`, Playwright MCP
+`0.0.80`, Playwright CLI `0.1.19`, Playwright Library
+`1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. The Bridge source
+closure is recorded in `configs/browser-bridge-artifacts.json`; installation
+rejects changed or extra files.
 
-## Page, Draft, And Visual Evidence
+## Browser Process
 
-Browser evidence uses separate contracts:
+`sparkclaw-browser.service` is the sole long-lived owner of the default profile.
+It starts a normal headed Chromium process with the fixed user-data directory
+and unpacked Bridge. Its command line intentionally contains no remote-debugging,
+automation, or headless flag.
 
-- `browser.read` extracts bounded rendered text and typed page metadata. The
-  `browser.page_read` Profile calls it only after hidden health and open stages,
-  with `require_browser_session=true` and `reuse_active_page=true`; a managed
-  session failure is explicit and never falls back to direct HTTP.
-- `browser.wait` settles navigation or interaction against bounded observable
-  readiness signals. A timeout, renderer failure, or caller cancellation fails
-  the current stage explicitly.
-- `browser.snapshot` creates a structured accessibility projection with
-  executable wrapped refs, page identity, presentation mode, session generation,
-  and page generation for the selected page state. Snapshot IDs include the
-  session generation, while navigation and successful interaction advance the
-  page generation and invalidate older action and visual evidence.
-- Runtime keeps that complete identity-bearing snapshot for freshness and
-  execution binding. Goal/control model calls receive a separate projection
-  containing only bounded title/count/omission state and candidate-local role,
-  label, state, nearby context, options, and a current-snapshot short `ref`.
-  Runtime expands that ref before validation. Page/snapshot IDs, URLs, digests,
-  fingerprints, generations, and ordinals are omitted.
-- Goal-assessment citations are constrained to the short refs returned by the
-  current snapshot; tool-call IDs and artifact URIs are not browser evidence.
-- `browser.click` accepts only a persisted ref from that snapshot.
-- `browser.type` and `browser.select` are usable as page mutations only inside
-  `browser.form_draft`. Runtime checks the active Profile, latest snapshot,
-  page/ref identity, session and page generations, ordinary-field allowlist,
-  forbidden control metadata, and exact owner-supplied value both before
-  approval and again when the approved call executes. Each action gets its own
-  approval; public summaries and persisted browser projections redact values.
-  Model-visible type/select schemas keep the bounded current `uid` enum and
-  semantic value field, while Runtime removes and later restores page ID,
-  snapshot ID, and session/page generation arguments.
-- Workflow-only `browser.visual_inspect` validates the latest structured
-  snapshot, captures a screenshot, reuses Fast image inspection, then captures
-  another structured snapshot. Any change in session/page generation, page ID,
-  URL, or snapshot digest returns `visual_evidence_stale`. Its bounded untrusted
-  output contains no coordinates or executable refs. Current Profiles expose
-  this stage only when the owner explicitly asks for a screenshot or visual
-  confirmation.
-- `browser.validate_transition` compares the persisted before/after snapshots.
-  After a click, `browser.assess_goal` receives one transition-centric
-  projection containing the semantic action label/role, explicit deterministic
-  transition assertions, and bounded relevant after-state controls. Runtime
-  requires each asserted transition boolean to be explicitly true and keeps
-  full refs, URLs, digests, and generations out of the model contract.
-- Every navigation and click is followed by settle and a fresh snapshot. A
-  stale generation, stale ref, repeated state, repeated validated semantic
-  action, route divergence, or missing semantic evidence fails closed with a
-  typed outcome.
-
-Settle and snapshots share one `content_digest` over the rendered title and
-body. The URL is validated separately and is intentionally excluded from this
-digest, so a hash-route or address-bar-only change cannot prove a new page
-state. Goal assessment likewise treats a matching clickable control as an
-available next action, not completion; before any validated click, evidence
-made only of actionable refs is returned as `progress/action_required`.
-
-Agent-browser's accessibility snapshot and native refs are the provider-owned
-interaction truth. SparkClaw adds bounded model projection, relevance checks,
-page identity, semantic fingerprints, repeated-state detection, and explicit
-failure codes. Page text remains untrusted evidence and never becomes an
-instruction source.
-
-## Registered And Dynamic Public Targets
-
-The existing destination registry and its matching behavior are unchanged and
-remain the first named-target lookup. A registry hit keeps its existing
-descriptor, host scope, route hints, and authentication handling. Adding a site
-to this registry is data maintenance; it adds neither a Catalog leaf nor a
-semantic candidate, so it does not increase Top-2 intent-selection cost.
-
-After a managed-browser leaf is selected, an unregistered named public target
-runs one bounded Info-backed `web.search`. Runtime consumes only the persisted
-ordered `results[].url` fields and selects the first URL that passes mandatory
-safety checks. It does not parse answer prose or snippets, call Fast or
-embeddings, rescore relevance, reorder results, or write the result into the
-registry. Identification latency is one Info round trip plus bounded DNS and
-redirect checks; explicit URLs, current tabs, and registry hits bypass it.
-
-Every dynamic target must use HTTPS without userinfo. Its hostname, every
-resolved address, each redirect, and the final URL must remain on public
-networks; loopback, private, link-local, multicast, and unspecified addresses
-are rejected. Provider absence, no usable ordered result, and unsafe results
-produce distinct typed failures instead of a guessed URL.
-
-## Managed Chromium Profile
-
-Normal execution is headless. Human-only verification may temporarily open a
-visible Chromium process using the same SparkClaw-owned profile, but hidden and
-visible processes must never own that profile concurrently. Authentication
-state remains inside Chromium. SparkClaw does not copy credentials into another
-process or attach to the owner's daily browser profile.
-
-On the Linux ARM64 Compose runtime, a visible session uses the owner's real
-X11/XWayland desktop. The desktop bridge is an opt-in Compose overlay,
-`docker/compose.visible-browser.yaml`; the base `docker/compose.yaml` mounts no
-X socket and passes no display environment into Gateway. `npm run dev` probes
-local display sockets with the available Xauthority files, skips sockets that
-cannot open an X11 connection, and applies the overlay with the lowest-numbered
-usable display. On a headless host it starts the same stack without the overlay
-and only hidden automation is available. The
-adapter disables agent-browser's Xvfb fallback for visible sessions: a missing
-or inaccessible desktop now fails explicitly instead of reporting success for
-a browser that can only be seen inside a virtual display. Headless automation
-does not require this desktop bridge. The Gateway image provides a UTF-8 locale
-and Noto CJK/emoji fonts so Chromium can render Chinese applications such as QQ
-Mail without missing-glyph boxes.
-
-The default profile root is `./data/browser-profiles`. Each session holds an
-exclusive OS file lock for the full process lifetime; contention fails instead
-of launching a second owner. Profile access also requires bounded startup,
-bounded command execution, and cleanup of owned child processes. The Compose
-Gateway uses an init process to reap Chromium descendants after a browser
-session exits. A visible handoff stops hidden ownership before acquiring the
-same profile; transfer back to hidden follows the same ordering.
-
-Hidden Chromium uses a 20-minute daemon idle window by default. Configuration
-loading requires that window to cover the two consecutive model-owned stages
-that can occur between a snapshot and its bound click, including the configured
-model request and Workflow step limits. This prevents slow model reasoning from
-closing and relaunching Chromium underneath a still-current snapshot. Visible
-sessions use a separate six-times-longer finite idle bound, two hours with the
-default configuration, so abandoned presentation processes cannot live forever.
-
-Binding-scoped Weixin QR-login windows have a stricter ToolHub lifecycle. Each
-successful open or navigation receives a fixed 10-minute sliding lease capped by
-an earlier binding expiry. A 30-second janitor sweep releases expired sessions;
-it does not poll tabs merely to detect a manually closed window. The registry
-uses one operation lock per `(owner_id, binding_id)`, so unrelated QR opens do
-not serialize behind browser round trips. Poll-observed terminal state and
-revocation still release immediately. Graceful ToolHub shutdown stops the
-janitor and drains every tracked window before closing the adapter; an
-ungraceful exit relies on deterministic leaked-profile recovery at the next
-acquisition.
-
-After acquiring the exclusive profile lock, session startup validates Chromium's
-native `SingletonLock`, `SingletonSocket`, and `SingletonCookie`. A live
-same-host PID or reachable Unix socket remains busy. Only stale symbolic links
-with no live owner are removed; malformed entries, regular files, and
-indeterminate ownership fail closed. This lets a recreated Gateway reclaim a
-profile left by a terminated container without stealing it from a live browser.
-
-Browser automation and interaction acquire, navigate, settle, snapshot, and
-act in hidden Chromium before their required visible result presentation. Form
-draft uses hidden Chromium only to acquire the target, capture the initial
-structured controls, and assess what remains. Runtime then opens the target in
-visible Chromium before any approved `browser.type` or `browser.select`; every
-approved mutation, settle, higher-generation snapshot, and subsequent goal
-assessment stays in that same visible session. It verifies the final unsubmitted
-state in place instead of reopening the target and losing the draft.
-
-Visible presentation is a required node in each applicable frozen Workflow:
-Runtime settles the result, captures a visible snapshot, and revalidates the
-frozen route. For interaction, matching owner/profile identity, route, and
-rendered-content digest produce a typed presentation-equivalence assertion and
-reuse the already verified hidden goal verdict without another model call. A
-materially different visible result still receives an independent bounded goal
-assessment. Form draft continues to verify its mutated visible state in place.
-The run cannot succeed without visible evidence or the corresponding
-equivalence assertion. `browser.page_read` is
-intentionally different: its entire health/open/read path is hidden and
-successful reads do not create a visible result window. A fresh visible session
-navigates directly to the target instead of first exposing its startup
-`about:blank` tab; an already initialized reusable profile is never replaced
-with a blank login prompt. Verified visible results remain open after Workflow
-completion, subject to the longer visible-session idle bound, and production
-completion does not call `browser.close`.
-
-Safe result descriptors persist origin, path, route-shaped fragments
-(`#/...` in-page routes; value-carrying fragments such as OAuth
-`#access_token=...` are dropped), and query provenance
-rather than provider session tokens. For applications such as QQ Mail, a new
-process may replace a volatile `sid`; Runtime preserves the new session query,
-reapplies only the verified same-origin hash route, and removes provider-injected
-tokens from artifacts, audit records, episodes, and API responses. Owner-supplied
-query parameters remain part of the frozen target. When a fresh visible process
-must reapply such a route, Runtime performs one native reload and requires the
-rendered content digest to change and settle before presentation can continue.
-
-When a browser tool detects a login or human-verification gate, the Runtime
-persists a handoff and asks the owner to complete it in visible Chromium.
-Ambiguous replies cause zero browser calls. Explicit cancellation leaves the
-visible page open; an explicit wrong-page reply reopens the frozen target. Only
-an explicit completion confirmation enters validation.
-
-Validation lists visible tabs, selects the handoff page, settles it, captures a
-fresh visible snapshot, and independently checks both authentication evidence
-and whether the current page still satisfies the frozen task. An explicit URL
-must still match exactly; a registered destination may use only its bounded
-host/subdomain rule. A missing, unauthenticated, or unrelated page keeps the
-Workflow paused and reports the mismatch without starting hidden automation.
-After visible validation succeeds, Runtime transfers the profile to hidden,
-reacquires the selected page, settles it, and captures another fresh snapshot.
-Loss of profile continuity returns to `waiting_owner` instead of guessing.
-Pre-login refs are discarded while the completed-click budget is preserved.
-
-Handoff transitions are persisted as `waiting_owner`, `reopening_visible`,
-`validating_visible`, `transferring_profile`, `validating_hidden`, and
-`resuming_workflow`, then `resolved`, `canceled`, or `failed`. Store
-compare-and-swap plus a transition owner and bounded lease make retries and
-Gateway restart recovery single-owner and idempotent across memory, file, and
-PostgreSQL backends. Login completion is a Runtime-owned user-confirmation gate,
-not a model-visible tool.
-
-## Network And Safety Boundary
-
-- Explicit targets must use normalized HTTP(S) URLs. Registered destinations
-  resolve to frozen runtime URLs and bounded host/subdomain rules. Dynamic Info
-  targets require public HTTPS and preserve their result-order provenance.
-- URL fetch paths reject loopback, private, link-local, and otherwise forbidden
-  literal hosts by default. Local fixtures require an explicit allowlist.
-- Redirects and final page identity are revalidated.
-- Existing unrelated tabs are not reused. The final result page remains open
-  after successful open or interaction; tab closing is limited to test cleanup.
-- `browser.status` is passive: it validates the pinned provider, system Chromium
-  version and AArch64 ELF, profile lock availability, UTF-8/CJK support, and,
-  when required, the DISPLAY socket and Xauthority file without starting
-  Chromium or creating `about:blank`.
-- Unsafe or consequential controls are blocked even if they appear in a
-  snapshot. Model output cannot bypass ref ownership or Policy.
-- Screenshots, raw responses, and rendered text are artifacts/evidence, never
-  trusted instructions.
-- The base Compose file exposes no X11 socket or Xauthority to Gateway. The
-  `docker/compose.visible-browser.yaml` overlay mounts both read-only, which
-  still grants Gateway access to the owner's desktop display. Apply the overlay
-  only on the trusted, single-owner local runtime.
-
-## Configuration And Setup
-
-Install and verify the pinned runtime:
+Use **SparkClaw Browser** from the desktop launcher, or run:
 
 ```bash
-npm install
+npm run open:browser
+```
+
+The explicit open command brings the browser forward for owner work such as
+login or human verification. Background acquisition and task actions do not
+focus the browser or replace the active owner tab. An explicit owner handoff is
+the only automation operation allowed to focus a task tab.
+
+Authentication remains inside the persistent profile. SparkClaw never copies
+cookies, exports storage state, mounts the profile into a container, or attaches
+to another browser profile.
+
+## Bridge And Controller
+
+The Browser Bridge is independently packaged from a qualified upstream
+Playwright Extension source. SparkClaw adds attachment-time task-tab
+allowlisting, native Controller version handshake, stale-session cleanup, and
+background-without-focus behavior. The extension ID and complete file hashes
+are pinned.
+
+The Controller owns the private Unix socket and supervises bounded MCP and CLI
+processes. Each acquisition creates one task page and binds it to controller,
+session, page, and credential generations. Every observation and action is
+checked against that ownership before execution. Owner tabs are never selected,
+read, changed, or closed.
+
+MCP serves the generic browser adapter. CLI runs only six registered provider
+handlers: probe and send revision 1 for QQ Mail, Outlook, and Gmail. Callers
+cannot supply Playwright code, selectors, JavaScript, commands, storage access,
+network interception, or arbitrary file paths.
+
+MCP and CLI sessions detach without closing Chromium. Cancellation, replacement,
+credential removal, browser restart, Controller restart, Gateway shutdown, and
+normal completion invalidate their bounded identities and reap subprocesses and
+private output. A stale identity is never rebound silently.
+
+## Credential Boundary
+
+Browser control uses the `playwright-extension-token-v1` credential. The owner
+enters it under `Settings > Connections > Browser control`; Gateway validates a
+fresh Bridge handshake before persisting encrypted Vault ciphertext. The form
+never returns or prefills the token and clears the input after every save
+attempt.
+
+The raw token is not stored in Compose files, repository configuration, logs,
+traces, artifacts, command arguments, or model context. The Controller service
+does not retain it. Replacing or deleting the credential invalidates sessions
+from the previous credential generation without changing browser authentication
+state.
+
+## Configuration
+
+The sole production provider is `playwright-extension`; configuration loading
+rejects any other `provider` value. `startupTimeoutMs` bounds how long a task
+waits to acquire the browser session from the Controller (500 to 30000 ms):
+
+```json
+{
+  "tools": {
+    "browserAutomation": {
+      "enabled": true,
+      "provider": "playwright-extension",
+      "profile": "default"
+    }
+  },
+  "adapters": {
+    "browserAutomation": {
+      "timeoutMs": 30000,
+      "startupTimeoutMs": 10000,
+      "settleTimeoutMs": 15000,
+      "settleQuietPeriodMs": 500,
+      "settlePollIntervalMs": 100,
+      "routeRebindLimit": 2,
+      "playwrightExtension": {
+        "controllerSocket": "/run/sparkclaw/browser-controller/controller.sock",
+        "profileID": "default",
+        "connectTimeoutMs": 20000
+      }
+    }
+  }
+}
+```
+
+Deployment may set these machine-specific values in the selected mode-`0600`
+environment file:
+
+| Variable | Purpose |
+|---|---|
+| `SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST` | Host Controller runtime directory mounted read-only into Gateway |
+| `SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET` | Controller socket path inside Gateway |
+| `SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST` | Direct host socket used by setup, doctor, and qualification |
+| `SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID` | Fixed profile identity; must be `default` |
+| `SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS` | Bounded acquisition/handshake timeout |
+
+Retired browser automation command, transport selector, and CDP variables are
+rejected by configuration loading. There is no runtime fallback.
+
+## Installation And Operations
+
+Local and Remote deployment both call the same browser setup before Compose:
+
+```bash
 npm run setup:browser
+npm run check:browser-controller
+systemctl --user status sparkclaw-browser.service
+systemctl --user status sparkclaw-browser-controller.service
 ```
 
-The Linux setup check also requires fontconfig and an installed Chinese font.
-Debian and Ubuntu hosts can provide them with the `fontconfig` and
-`fonts-noto-cjk` packages.
+`setup:browser` verifies or installs the pinned Chromium and Bridge, writes the
+browser service and desktop launcher, installs Controller dependencies with
+browser downloads disabled, writes the native-host manifest, starts both user
+services, verifies the loaded Bridge version, and checks the private socket.
+The Local and Remote startup paths repeat the check and run
+`browser_controller_smoke.mjs` from Gateway after readiness.
 
-Important settings are defined in `configs/sparkclaw.default.json` and mirrored
-by `docker/env/sparkclaw.example.env`:
-
-| Setting | Purpose |
-|---|---|
-| `adapters.browserAutomation.command` | Pinned `agent-browser` executable |
-| `adapters.browserAutomation.chromiumExecutable` | Optional explicit system Chromium path |
-| `adapters.browserAutomation.profileDir` | SparkClaw-owned persistent profile root |
-| `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | Bounded lifecycle; hidden idle covers the configured model/Workflow reasoning gap |
-| `security.browser_read_allow_hosts` | Explicit private-host exceptions, primarily test fixtures |
-| `SPARKCLAW_BROWSER_DISPLAY` | Visible-browser overlay only: Linux host display, such as `:1` |
-| `SPARKCLAW_BROWSER_XAUTHORITY` | Visible-browser overlay only: readable host Xauthority file (no default) |
-
-Environment overrides use `SPARKCLAW_BROWSER_AUTOMATION_*`,
-`SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`,
-`SPARKCLAW_BROWSER_PROFILE_DIR`, and
-`SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`. See [Deployment](deployment.md) for the
-normal host and Compose commands.
-
-`npm run dev` and `scripts/start_cloud_compose.sh` resolve the two desktop
-values and apply the `docker/compose.visible-browser.yaml` overlay
-automatically. Multiple usable displays do not require operator selection; the
-resolver chooses the lowest display number unless `SPARKCLAW_BROWSER_DISPLAY`
-overrides it. The cloud script retains hidden-only operation when no local
-display is available. For a direct Compose invocation, export the values and
-stack the overlay explicitly:
-
-```bash
-mapfile -t browser_display < <(scripts/resolve-browser-display.sh)
-export SPARKCLAW_BROWSER_DISPLAY="${browser_display[0]}"
-export SPARKCLAW_BROWSER_XAUTHORITY="${browser_display[1]}"
-docker compose --env-file .env -f docker/compose.yaml \
-  -f docker/compose.visible-browser.yaml --profile models-local up -d gateway
-```
-
-Without the overlay the same command starts a fully headless Gateway with no
-access to the host desktop.
+To complete or refresh browser logins, open the persistent browser and use the
+provider login action in WebChat. Login state persists across Gateway,
+Controller, and Chromium restarts because the same owner-only profile remains
+in place.
 
 ## Verification
 
-Browser changes should cover:
+```bash
+python3 -m unittest scripts/test_browser_bridge.py
+npm test --prefix tools/browser-bridge
+npm test --prefix tools/browser-controller
+npm run test:email-scripts
+cd services/gateway && go test ./internal/browserautomation ./internal/browsercontrol ./internal/emailautomation ./internal/gateway ./internal/toolhub
+```
 
-- adapter protocol, timeout, process ownership, and profile locking tests;
-- managed QR-window lease renewal/expiry, per-key locking, janitor retry,
-  stale-generation, and shutdown ordering/race tests;
-- passive Linux ARM64 environment preflight and reason-code tests;
-- settle timeout/cancellation, snapshot normalization, and untrusted-evidence tests;
-- explicit URL, registered destination, tab focus, and redirect cases;
-- stale generations/refs, repeated state, unsafe controls, and attempt limits;
-- fixed hidden page-read ordering, active-page reuse, no required-session HTTP
-  fallback, final-URL validation, bounded raw-content fallback, and login resume;
-- ordered Info-result consumption, unsafe-result skipping, structured-URL-only
-  binding, provider failures, DNS/IP/redirect safety, and registry fast paths;
-- form-draft hidden discovery followed by same-session visible mutations, exact
-  values, separate approvals, public redaction, forbidden fields, five-action
-  bound, no click exposure, pre/post-approval freshness, and in-place final
-  verification without reopening the form;
-- fresh and stale visual inspection with generation/digest binding and no
-  coordinate or executable-ref projection;
-- visible/hidden transfer, owner reply classification, restart recovery, CAS
-  conflicts, and matching/non-matching post-login pages;
-- UTF-8/CJK and QQ Mail Chinese snapshot/ref/auth-evidence round trips;
-- private-host rejection and explicit fixture allowlisting;
-- Workflow routing and stage-scoped tool exposure;
-- `npm run setup:browser`, Gateway tests, WebChat tests/build, and the golden
-  browser eval when the local fixture is available.
+The Controller and Gateway parsers for Playwright tab lists, snapshots, and
+CLI error output are pinned to
+`tools/browser-controller/test/fixtures/playwright-golden.json`, a recording of
+the pinned MCP and CLI packages. The offline fakes replay those shapes. After
+changing a Playwright pin, re-record it against a local headless browser and
+review the diff:
+
+```bash
+node tools/browser-controller/test/fixtures/record-playwright-golden.mjs
+```
+
+Live acceptance additionally checks startup and restart, Bridge pairing and
+detach, profile persistence, no-handoff focus isolation, explicit handoff,
+generic adapter interaction, all three signed-in provider probes, process
+cleanup, and the absence of forbidden browser flags. Provider qualification is
+probe-only:
+
+```bash
+npm run qualify:playwright-email -- --profile remote
+```
+
+Never use qualification to send a real message. Email send retains exact-content
+approval, one-attempt execution, and terminal unknown-outcome handling.
+
+## Security Invariants
+
+- Treat the Bridge as browser-wide privileged code even though SparkClaw limits
+  every client to task-owned tabs.
+- Keep the browser profile, native host, runtime directories, socket, and Vault
+  credential owner-only.
+- Keep provider origins and Controller operations allowlisted.
+- Reject arbitrary code, selectors, commands, storage export, file URLs, and
+  network interception.
+- Redact page evidence and diagnostics before they reach traces or model input.
+- Do not introduce container Chromium, profile copying, permanent CDP, or a
+  compatibility backend.
+
+See [Playwright Extension browser design](playwright-extension-browser-design.md)
+for the migration decisions and [Browser email Workflow](browser-email-workflow-design.md)
+for provider and approval semantics.

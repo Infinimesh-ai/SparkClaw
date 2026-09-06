@@ -19,6 +19,19 @@ func (readyProjectionAuthority) IssuePairingTicket(context.Context, iscppairing.
 	return iscppairing.AuthorityResult{}, nil
 }
 
+func TestPublicAdapterConfigProjectsBrowserBridgeWithoutTransportSelector(t *testing.T) {
+	cfg := config.Default().Adapters
+	projected := publicAdapterConfig(cfg, documentocr.RuntimeReadiness{})
+	browser := projected["browserAutomation"].(map[string]any)
+	bridge := browser["browser_bridge"].(map[string]any)
+	if bridge["profile_id"] != "default" || bridge["connect_timeout_ms"] != 20000 {
+		t.Fatalf("public Browser Bridge config = %#v", bridge)
+	}
+	if _, ok := browser["transport"]; ok {
+		t.Fatalf("retired browser transport was projected: %#v", browser)
+	}
+}
+
 func TestPublicAdapterConfigDoesNotExposeDocumentOCRDestination(t *testing.T) {
 	cfg := config.Default().Adapters
 	cfg.DocumentOCR.Enabled = true

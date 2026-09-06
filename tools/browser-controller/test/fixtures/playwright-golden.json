@@ -1,0 +1,411 @@
+{
+  "recorded": {
+    "playwright_mcp": "0.0.80",
+    "playwright_cli": "0.1.19",
+    "playwright_core": "1.63.0-alpha-2026-08-31",
+    "browser_channel": "chrome",
+    "fixture_url": "http://127.0.0.1:48765/fixture",
+    "note": "Recorded by record-playwright-golden.mjs against a local headless browser; screenshot bytes are elided."
+  },
+  "mcp": {
+    "tools": [
+      "browser_close",
+      "browser_resize",
+      "browser_console_messages",
+      "browser_handle_dialog",
+      "browser_evaluate",
+      "browser_file_upload",
+      "browser_drop",
+      "browser_find",
+      "browser_fill_form",
+      "browser_press_key",
+      "browser_type",
+      "browser_navigate",
+      "browser_navigate_back",
+      "browser_network_requests",
+      "browser_network_request",
+      "browser_run_code_unsafe",
+      "browser_take_screenshot",
+      "browser_snapshot",
+      "browser_click",
+      "browser_drag",
+      "browser_hover",
+      "browser_select_option",
+      "browser_tabs",
+      "browser_wait_for"
+    ],
+    "tabs_list_initial": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: (current) [](about:blank)\"\n}"
+        }
+      ]
+    },
+    "snapshot_about_blank": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"snapshot\": []\n}"
+        }
+      ]
+    },
+    "navigate": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{}"
+        }
+      ]
+    },
+    "tabs_list_one": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: (current) [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\"\n}"
+        }
+      ]
+    },
+    "snapshot": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"snapshot\": [\n    {\n      \"role\": \"main\",\n      \"ref\": \"e2\",\n      \"children\": [\n        {\n          \"role\": \"heading\",\n          \"name\": \"playwright-extension-adapter-live-fixture\",\n          \"level\": 1,\n          \"ref\": \"e3\"\n        },\n        {\n          \"role\": \"generic\",\n          \"ref\": \"e4\",\n          \"children\": [\n            \"Name\",\n            {\n              \"role\": \"textbox\",\n              \"name\": \"Name\",\n              \"ref\": \"e5\"\n            }\n          ]\n        },\n        {\n          \"role\": \"generic\",\n          \"ref\": \"e6\",\n          \"children\": [\n            \"Country\",\n            {\n              \"role\": \"combobox\",\n              \"name\": \"Country\",\n              \"ref\": \"e7\",\n              \"children\": [\n                {\n                  \"role\": \"option\",\n                  \"name\": \"China\",\n                  \"selected\": true\n                },\n                {\n                  \"role\": \"option\",\n                  \"name\": \"United States\"\n                }\n              ]\n            }\n          ]\n        },\n        {\n          \"role\": \"button\",\n          \"name\": \"Advance\",\n          \"ref\": \"e8\"\n        },\n        {\n          \"role\": \"status\",\n          \"ref\": \"e9\",\n          \"text\": \"ready\"\n        }\n      ]\n    }\n  ]\n}"
+        }
+      ]
+    },
+    "snapshot_depth1": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"snapshot\": [\n    {\n      \"role\": \"main\",\n      \"ref\": \"e2\",\n      \"children\": [\n        {\n          \"role\": \"heading\",\n          \"name\": \"playwright-extension-adapter-live-fixture\",\n          \"level\": 1,\n          \"ref\": \"e3\"\n        },\n        {\n          \"role\": \"generic\",\n          \"ref\": \"e4\"\n        },\n        {\n          \"role\": \"generic\",\n          \"ref\": \"e6\"\n        },\n        {\n          \"role\": \"button\",\n          \"name\": \"Advance\",\n          \"ref\": \"e8\"\n        },\n        {\n          \"role\": \"status\",\n          \"ref\": \"e9\",\n          \"text\": \"ready\"\n        }\n      ]\n    }\n  ]\n}"
+        }
+      ]
+    },
+    "snapshot_text_mode": {
+      "content": [
+        {
+          "type": "text",
+          "text": "### Page\n- Page URL: http://127.0.0.1:48765/fixture\n- Page Title: Playwright Extension Adapter Live Fixture\n### Snapshot\n```yaml\n- main [ref=e2]:\n  - heading \"playwright-extension-adapter-live-fixture\" [level=1] [ref=e3]\n  - generic [ref=e4]:\n    - text: Name\n    - textbox \"Name\" [ref=e5]\n  - generic [ref=e6]:\n    - text: Country\n    - combobox \"Country\" [ref=e7]:\n      - option \"China\" [selected]\n      - option \"United States\"\n  - button \"Advance\" [ref=e8]\n  - status [ref=e9]: ready\n```"
+        }
+      ]
+    },
+    "tabs_new": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\\n- 1: (current) [](about:blank)\"\n}"
+        }
+      ]
+    },
+    "tabs_new_url": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\\n- 1: [](about:blank)\\n- 2: (current) [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\"\n}"
+        }
+      ]
+    },
+    "tabs_list_three": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\\n- 1: [](about:blank)\\n- 2: (current) [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\"\n}"
+        }
+      ]
+    },
+    "tabs_select": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: (current) [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\\n- 1: [](about:blank)\\n- 2: [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\"\n}"
+        }
+      ]
+    },
+    "evaluate": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"{\\n  \\\"url\\\": \\\"http://127.0.0.1:48765/fixture\\\",\\n  \\\"title\\\": \\\"Playwright Extension Adapter Live Fixture\\\",\\n  \\\"ready_state\\\": \\\"complete\\\"\\n}\"\n}"
+        }
+      ]
+    },
+    "type_focus_without_focus": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"isError\": true,\n  \"error\": \"Error: \\\":focus\\\" does not match any elements.\"\n}"
+        }
+      ],
+      "isError": true
+    },
+    "wait_for": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"Waited for 0.1\"\n}"
+        }
+      ]
+    },
+    "screenshot": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- [Screenshot of viewport](<output-dir>/page-<timestamp>.png)\"\n}"
+        },
+        {
+          "type": "image",
+          "data": "<18022 bytes elided>",
+          "mimeType": "image/png"
+        }
+      ]
+    },
+    "error_unknown_ref": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"isError\": true,\n  \"error\": \"Error: Ref e999 not found in the current page snapshot. Try capturing new snapshot.\"\n}"
+        }
+      ],
+      "isError": true
+    },
+    "tabs_close_index": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: (current) [Playwright Extension Adapter Live Fixture](http://127.0.0.1:48765/fixture)\\n- 1: [](about:blank)\"\n}"
+        }
+      ]
+    },
+    "tabs_close_current": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"- 0: (current) [](about:blank)\"\n}"
+        }
+      ]
+    },
+    "tabs_close_last": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"result\": \"No open tabs. Navigate to a URL to create one.\"\n}"
+        }
+      ]
+    }
+  },
+  "cli": {
+    "tab_list_not_open_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-list"
+      ],
+      "exit_code": 1,
+      "stdout": "The browser 'sparkclaw-golden' is not open, please run open first\n\n  playwright-cli -s=sparkclaw-golden open [params]\n",
+      "stderr": ""
+    },
+    "tab_list_not_open_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "tab-list"
+      ],
+      "exit_code": 1,
+      "stdout": "{\n  \"isError\": true,\n  \"error\": \"The browser 'sparkclaw-golden' is not open, please run open first\"\n}\n",
+      "stderr": ""
+    },
+    "open_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "open",
+        "--browser",
+        "chrome"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"session\": \"sparkclaw-golden\",\n  \"pid\": 0,\n  \"result\": {\n    \"snapshot\": {\n      \"file\": \".playwright-cli/page-<timestamp>.yml\"\n    }\n  }\n}\n",
+      "stderr": ""
+    },
+    "tab_list_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-list"
+      ],
+      "exit_code": 0,
+      "stdout": "- 0: (current) [](about:blank)\n",
+      "stderr": ""
+    },
+    "tab_list_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "tab-list"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"result\": \"- 0: (current) [](about:blank)\"\n}\n",
+      "stderr": ""
+    },
+    "tab_list_default": {
+      "args": [
+        "-s=sparkclaw-golden",
+        "tab-list"
+      ],
+      "exit_code": 0,
+      "stdout": "### Result\n- 0: (current) [](about:blank)\n",
+      "stderr": ""
+    },
+    "tab_new_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-new"
+      ],
+      "exit_code": 0,
+      "stdout": "- 0: [](about:blank)\n- 1: (current) [](about:blank)\n",
+      "stderr": ""
+    },
+    "tab_new_url_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-new",
+        "data:text/html,<title>Second tab</title>second"
+      ],
+      "exit_code": 0,
+      "stdout": "- 0: [](about:blank)\n- 1: [](about:blank)\n- 2: (current) [Second tab](data:text/html,<title>Second tab</title>second)\n- [Snapshot](.playwright-cli/page-<timestamp>.yml)\n",
+      "stderr": ""
+    },
+    "tab_select_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "tab-select",
+        "0"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"result\": \"- 0: (current) [](about:blank)\\n- 1: [](about:blank)\\n- 2: [Second tab](data:text/html,<title>Second tab</title>second)\"\n}\n",
+      "stderr": ""
+    },
+    "tab_close_missing_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-close",
+        "99"
+      ],
+      "exit_code": 1,
+      "stdout": "### Error\nError: Tab 99 not found\n",
+      "stderr": ""
+    },
+    "tab_close_missing_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "tab-close",
+        "99"
+      ],
+      "exit_code": 1,
+      "stdout": "{\n  \"isError\": true,\n  \"error\": \"Error: Tab 99 not found\"\n}\n",
+      "stderr": ""
+    },
+    "eval_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "eval",
+        "() => location.href"
+      ],
+      "exit_code": 0,
+      "stdout": "\"about:blank\"\n",
+      "stderr": ""
+    },
+    "eval_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "eval",
+        "() => location.href"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"result\": \"\\\"about:blank\\\"\"\n}\n",
+      "stderr": ""
+    },
+    "click_unknown_ref_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "click",
+        "e999"
+      ],
+      "exit_code": 1,
+      "stdout": "{\n  \"isError\": true,\n  \"error\": \"Error: Ref e999 not found in the current page snapshot. Try capturing new snapshot.\"\n}\n",
+      "stderr": ""
+    },
+    "tab_close_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-close",
+        "2"
+      ],
+      "exit_code": 0,
+      "stdout": "- 0: (current) [](about:blank)\n- 1: [](about:blank)\n",
+      "stderr": ""
+    },
+    "tab_close_last_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-close",
+        "0"
+      ],
+      "exit_code": 0,
+      "stdout": "No open tabs. Navigate to a URL to create one.\n",
+      "stderr": ""
+    },
+    "unknown_option_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-list",
+        "--bogus"
+      ],
+      "exit_code": 1,
+      "stdout": "\nplaywright-cli tab-list \n\nList all tabs\n\n",
+      "stderr": "Unknown option: --bogus\n"
+    },
+    "too_many_arguments_raw": {
+      "args": [
+        "--raw",
+        "-s=sparkclaw-golden",
+        "tab-list",
+        "extra"
+      ],
+      "exit_code": 1,
+      "stdout": "\nplaywright-cli tab-list \n\nList all tabs\n\n",
+      "stderr": "error: too many arguments: expected 0, received 1\n"
+    },
+    "close_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "close"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"session\": \"sparkclaw-golden\",\n  \"status\": \"closed\"\n}\n",
+      "stderr": ""
+    },
+    "close_not_open_json": {
+      "args": [
+        "--json",
+        "-s=sparkclaw-golden",
+        "close"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"session\": \"sparkclaw-golden\",\n  \"status\": \"not-open\"\n}\n",
+      "stderr": ""
+    }
+  }
+}

@@ -31,10 +31,11 @@ type pptxVisualCandidatePreparation struct {
 }
 
 type pptxVisualRollbackState struct {
-	CandidatePath string
-	Report        PPTXVisualReport
-	Decision      pptxVisualPolicyDecision
-	PixelHashes   map[int]string
+	CandidatePath  string
+	Report         PPTXVisualReport
+	Decision       pptxVisualPolicyDecision
+	PixelHashes    map[int]string
+	RepairedSlides []int
 }
 
 func (h *ToolHub) preparePPTXVisualCandidate(
@@ -113,7 +114,7 @@ func (h *ToolHub) preparePPTXVisualCandidate(
 
 		pixelHashes := pptxVisualPixelHashes(visualResult)
 		if rollback != nil {
-			if !pptxVisualPixelsChanged(rollback.PixelHashes, pixelHashes, request.SlideIndexes) {
+			if !pptxVisualPixelsChanged(rollback.PixelHashes, pixelHashes, rollback.RepairedSlides) {
 				attempts[len(attempts)-1].FailureCode = app.ToolErrorPPTXRenderRepairInvalid
 				attempts[len(attempts)-1].StopReason = "repair_pixels_unchanged"
 				if len(rollback.Decision.Blocking) == 0 || phase == "warning" {
@@ -143,6 +144,9 @@ func (h *ToolHub) preparePPTXVisualCandidate(
 				attempts[len(attempts)-1].FailureCode = app.ToolErrorPPTXRenderVisualBlocked
 				return pptxVisualCandidatePreparation{}, &app.CodedToolError{Code: app.ToolErrorPPTXRenderVisualBlocked, Err: errors.New("qualified PPTX visual issue remains after the repair budget")}
 			}
+			// Actionable findings remain but nothing blocks: seal the last
+			// acceptable candidate and record why repair stopped.
+			attempts[len(attempts)-1].FailureCode = app.ToolErrorPPTXRenderRepairExhausted
 			return pptxVisualCandidatePreparation{CandidatePath: currentPath, Report: report, Attempts: attempts}, nil
 		}
 
@@ -201,7 +205,7 @@ func (h *ToolHub) preparePPTXVisualCandidate(
 			return pptxVisualCandidatePreparation{}, planErr
 		}
 
-		rollback = &pptxVisualRollbackState{CandidatePath: currentPath, Report: report, Decision: decision, PixelHashes: pixelHashes}
+		rollback = &pptxVisualRollbackState{CandidatePath: currentPath, Report: report, Decision: decision, PixelHashes: pixelHashes, RepairedSlides: slideIndexes}
 		nextChangedShapes := map[int][]int{}
 		nextPath := currentPath
 		currentSHA := report.CandidateSHA256
@@ -223,11 +227,22 @@ func (h *ToolHub) preparePPTXVisualCandidate(
 		inputCandidateSHA = report.CandidateSHA256
 		pendingPlanHashes = planHashes
 		currentPath = nextPath
+		// Re-review the whole authorized selection, not only the repaired
+		// slides: a blocking issue on a slide that had no actionable repair
+		// must stay in the decision, or the next attempt would seal it away.
 		request = pptxVisualQARequest{
-			CandidatePath: currentPath, Operation: operation, SlideIndexes: slideIndexes,
-			ChangedShapeIndexes: nextChangedShapes, ChangedAllSlides: []int{},
+			CandidatePath: currentPath, Operation: operation, SlideIndexes: slices.Clone(selectedSlides),
+			ChangedShapeIndexes: mergePPTXChangedShapes(request.ChangedShapeIndexes, nextChangedShapes), ChangedAllSlides: slices.Clone(changedAllSlides),
 		}
 	}
+}
+
+func mergePPTXChangedShapes(base, additions map[int][]int) map[int][]int {
+	out := clonePPTXChangedShapes(base)
+	for slideIndex, indexes := range additions {
+		out[slideIndex] = appendUniquePPTXInts(out[slideIndex], indexes...)
+	}
+	return out
 }
 
 func pptxVisualAttemptRecord(attempt int, inputSHA string, planHashes []string, report PPTXVisualReport) pptxSealedCandidateAttempt {

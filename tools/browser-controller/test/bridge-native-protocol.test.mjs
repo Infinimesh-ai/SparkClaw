@@ -115,18 +115,23 @@ test("native host entrypoint publishes loaded Bridge readiness", async (t) => {
   assert.equal(code, 0, stderr);
 });
 
+// The host is only ready once the socket exists with its final owner-only
+// mode; a bare existence check could observe the node before the host has
+// settled it and would make the mode assertion below racy.
 async function waitForSocket(socketPath, child, stderr) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + 5000;
+  let observed = "missing";
+  while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`native host exited early: ${stderr()}`);
-    try {
-      await fs.stat(socketPath);
-      return;
-    } catch (error) {
+    const stat = await fs.stat(socketPath).catch((error) => {
       if (error.code !== "ENOENT") throw error;
-    }
+      return null;
+    });
+    if (stat?.isSocket() && (stat.mode & 0o777) === 0o600) return;
+    observed = stat ? `mode ${(stat.mode & 0o777).toString(8)}` : "missing";
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`native host socket was not created: ${stderr()}`);
+  throw new Error(`native host socket was not ready (${observed}): ${stderr()}`);
 }
 
 function requestStatus(socketPath) {

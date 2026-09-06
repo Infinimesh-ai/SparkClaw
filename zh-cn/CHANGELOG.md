@@ -66,6 +66,8 @@
   step loop 中改为失败关闭，与工具暴露层一致。
 - 浏览器控制器：显式映射 `browser_lane_unavailable` 与 `browser_controller_stopping`，
   无 deadline 的控制器调用获得 5 分钟兜底，CI 现在运行 browser bridge 测试套件。
+  Bridge native host 与 Controller 的 Unix socket 现在从创建起即仅所有者可访问
+  （在 `0077` umask 下绑定并在就绪前设为 `0600`），不再在监听器已接受连接后才收紧。
 - 实验性 JingSi LAN presentation route 统一移至 `/api/jingsi/v0/` 前缀
   （`POST /api/jingsi/v0/messages/stream`、`GET /api/jingsi/v0/client-events{,/head,/stream}`，
   面向手机的 readiness 探测改为 `GET /api/jingsi/v0/readyz`）。Gateway 自身现在会在这些

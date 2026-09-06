@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { asControllerError, invalidRequest, publicError } from "./errors.mjs";
 import { MAX_REQUEST_BYTES, MAX_SCRIPT_REQUEST_BYTES } from "./protocol.mjs";
+import { listenOwnerOnlyUnixSocket } from "./unix-socket.mjs";
 
 export function createRequestHandler(controller) {
   return async function requestHandler(request, response) {
@@ -61,15 +62,7 @@ export async function startUnixServer({ socketPath, controller }) {
   await removeStaleSocket(socketPath);
 
   const server = http.createServer(createRequestHandler(controller));
-  await new Promise((resolve, reject) => {
-    const onError = (error) => reject(error);
-    server.once("error", onError);
-    server.listen(socketPath, () => {
-      server.off("error", onError);
-      resolve();
-    });
-  });
-  await fs.chmod(socketPath, 0o600);
+  await listenOwnerOnlyUnixSocket(server, socketPath);
 
   return {
     server,

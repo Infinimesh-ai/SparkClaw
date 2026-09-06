@@ -89,7 +89,10 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 - Browser controller: `browser_lane_unavailable` and
   `browser_controller_stopping` are mapped explicitly, deadline-less
   controller calls get a five-minute backstop, and CI now runs the browser
-  bridge test suite.
+  bridge test suite. The Bridge native host and the Controller Unix sockets
+  are now created owner-only (bound under a `0077` umask and set to `0600`
+  before readiness) instead of being tightened after the listener was already
+  accepting connections.
 - The experimental JingSi LAN presentation routes moved under one
   `/api/jingsi/v0/` prefix (`POST /api/jingsi/v0/messages/stream`,
   `GET /api/jingsi/v0/client-events{,/head,/stream}`, and the phone-facing

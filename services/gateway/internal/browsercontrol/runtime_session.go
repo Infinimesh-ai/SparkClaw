@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ const (
 	defaultRuntimeSessionTTL = 2 * time.Minute
 	maxRuntimeSessionTTL     = 10 * time.Minute
 	maxRuntimeWaitTimeout    = 30 * time.Second
+	deferredReleaseTimeout   = 5 * time.Second
 )
 
 type Session interface {
@@ -23,9 +25,16 @@ type Session interface {
 	Release(context.Context) error
 }
 
+// RuntimeSession serializes controller operations through ops, a one-slot
+// channel, instead of holding a mutex across the controller round trip. That
+// lets Release honor its context while an Execute is still in flight: the
+// caller gets a fast, typed failure and the controller release runs as soon
+// as the in-flight operation returns.
 type RuntimeSession struct {
 	service *Service
 	client  ControllerClient
+
+	ops chan struct{}
 
 	mu       sync.Mutex
 	lease    SessionLease
@@ -86,7 +95,10 @@ func (s *Service) AcquireSession(
 	if err != nil {
 		return nil, err
 	}
-	runtime := &RuntimeSession{service: s, client: s.client, lease: lease, done: make(chan struct{})}
+	runtime := &RuntimeSession{
+		service: s, client: s.client, lease: lease,
+		ops: make(chan struct{}, 1), done: make(chan struct{}),
+	}
 	s.mu.Lock()
 	s.active = runtime
 	s.state.ControllerGeneration = lease.ControllerGeneration
@@ -97,7 +109,7 @@ func (s *Service) AcquireSession(
 	go func() {
 		select {
 		case <-ctx.Done():
-			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			releaseCtx, cancel := context.WithTimeout(context.Background(), deferredReleaseTimeout)
 			defer cancel()
 			_ = runtime.Release(releaseCtx)
 		case <-runtime.done:
@@ -113,16 +125,24 @@ func (s *RuntimeSession) Lease() SessionLease {
 }
 
 func (s *RuntimeSession) Execute(ctx context.Context, operation string, arguments map[string]any) (map[string]any, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.released {
-		return nil, newError(CodeSessionStale, false, errors.New("browser session is released"))
+	if s.isReleased() {
+		return nil, releasedError()
 	}
+	if err := s.acquireOp(ctx); err != nil {
+		return nil, err
+	}
+	defer s.releaseOp()
+	if s.isReleased() {
+		return nil, releasedError()
+	}
+	s.mu.Lock()
+	lease := s.lease
+	s.mu.Unlock()
 	operation = strings.TrimSpace(operation)
 	if operation == "" || arguments == nil {
 		return nil, newError(CodeInvalidRequest, false, errors.New("browser operation input is invalid"))
 	}
-	result, err := s.client.Execute(ctx, ExecuteRequest{Lease: s.lease, Operation: operation, Arguments: arguments})
+	result, err := s.client.Execute(ctx, ExecuteRequest{Lease: lease, Operation: operation, Arguments: arguments})
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +156,9 @@ func (s *RuntimeSession) Execute(ctx context.Context, operation string, argument
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return nil, invalidControllerResponse()
 	}
+	s.mu.Lock()
 	s.lease.PageGeneration = result.PageGeneration
+	s.mu.Unlock()
 	if s.service != nil {
 		s.service.mu.Lock()
 		if s.service.active == s {
@@ -147,18 +169,41 @@ func (s *RuntimeSession) Execute(ctx context.Context, operation string, argument
 	return output, nil
 }
 
+// Release marks the session released at once, so no further Execute is
+// admitted, and then releases the controller session. If ctx expires while an
+// operation is still in flight, Release returns a retryable busy error and the
+// controller release runs in the background once that operation returns.
 func (s *RuntimeSession) Release(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.released {
+		s.mu.Unlock()
 		return nil
 	}
 	s.released = true
+	s.mu.Unlock()
+	if err := s.acquireOp(ctx); err != nil {
+		go func() {
+			s.ops <- struct{}{}
+			defer s.releaseOp()
+			releaseCtx, cancel := context.WithTimeout(context.Background(), deferredReleaseTimeout)
+			defer cancel()
+			s.releaseControllerSession(releaseCtx)
+		}()
+		return newError(CodeBusy, true, fmt.Errorf("browser session release deferred behind an in-flight operation: %w", err))
+	}
+	defer s.releaseOp()
+	return s.releaseControllerSession(ctx)
+}
+
+func (s *RuntimeSession) releaseControllerSession(ctx context.Context) error {
+	s.mu.Lock()
+	lease := s.lease
+	s.mu.Unlock()
 	_, err := s.client.Release(ctx, ReleaseRequest{
-		ProfileID:            s.lease.ProfileID,
-		SessionID:            s.lease.SessionID,
-		ControllerGeneration: s.lease.ControllerGeneration,
-		SessionGeneration:    s.lease.SessionGeneration,
+		ProfileID:            lease.ProfileID,
+		SessionID:            lease.SessionID,
+		ControllerGeneration: lease.ControllerGeneration,
+		SessionGeneration:    lease.SessionGeneration,
 	})
 	if s.service != nil {
 		s.service.mu.Lock()
@@ -173,10 +218,53 @@ func (s *RuntimeSession) Release(ctx context.Context) error {
 	return err
 }
 
+func (s *RuntimeSession) isReleased() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.released
+}
+
+func releasedError() error {
+	return newError(CodeSessionStale, false, errors.New("browser session is released"))
+}
+
+func (s *RuntimeSession) acquireOp(ctx context.Context) error {
+	select {
+	case s.ops <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return newError(CodeBusy, true, fmt.Errorf("browser session operation slot is busy: %w", ctx.Err()))
+	}
+}
+
+func (s *RuntimeSession) releaseOp() {
+	<-s.ops
+}
+
+// Close releases the active runtime session within closeTimeout. It never
+// waits behind an in-flight acquisition or operation longer than that budget:
+// the operation lock is polled with TryLock and the session release is
+// context-bounded, so gateway shutdown cannot be pinned by a controller call
+// that is still running against its own, longer deadline.
 func (s *Service) Close() error {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), s.closeTimeout)
 	defer cancel()
+	if !s.tryLockOps(ctx) {
+		return newError(CodeBusy, true, errors.New("browser control shutdown timed out behind an in-flight controller operation"))
+	}
+	defer s.opMu.Unlock()
 	return s.releaseActiveLocked(ctx)
+}
+
+func (s *Service) tryLockOps(ctx context.Context) bool {
+	for {
+		if s.opMu.TryLock() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }

@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 
 import { ControllerError } from "./errors.mjs";
+import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
 import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
+import { parseTabsMarkdown, renderTabLine } from "./playwright-output.mjs";
 import {
   MAX_CLI_OUTPUT_BYTES,
   clientContractError,
@@ -12,7 +14,6 @@ import {
   scrubPlaywrightEnvironment,
 } from "./cli-runtime.mjs";
 
-const EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
 const EXTENSION_CONNECT_URL = "sparkclaw-internal://extension-connect";
 const RELAY_PATH_PATTERN = /^\/extension\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const TRANSIENT_EVALUATION_ATTEMPTS = 4;
@@ -541,13 +542,8 @@ export function createProviderRuntime(client, registration) {
 }
 
 export function parseTabs(raw) {
-  if (raw === "No open tabs. Navigate to a URL to create one.") return [];
-  const tabs = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    tabs.push(parseTabLine(line, tabs.length));
-  }
-  if (tabs.length === 0) throw clientContractError();
+  const tabs = parseTabsMarkdown(raw);
+  if (tabs === undefined) throw clientContractError();
   return tabs;
 }
 
@@ -585,13 +581,12 @@ function sanitizeAttachOutput(raw, expectedSession, expectedEndpoint) {
 }
 
 function sanitizeTabListOutput(raw, token) {
-  const normalized = raw.trim();
-  if (normalized === "No open tabs. Navigate to a URL to create one.") return normalized;
+  const tabs = parseTabsMarkdown(raw);
+  if (tabs === undefined) throw clientContractError();
+  if (tabs.length === 0) return raw.trim();
   let connectPages = 0;
   const sanitized = [];
-  for (const line of normalized.split("\n")) {
-    if (!line.trim()) continue;
-    const tab = parseTabLine(line, sanitized.length);
+  for (const tab of tabs) {
     if (isExtensionConnectURL(tab.url, token)) {
       tab.url = EXTENSION_CONNECT_URL;
       connectPages += 1;
@@ -611,7 +606,7 @@ function isExtensionConnectURL(rawURL, token) {
   }
   if (
     parsed.protocol !== "chrome-extension:" ||
-    parsed.hostname !== EXTENSION_ID ||
+    parsed.hostname !== BRIDGE_EXTENSION_ID ||
     parsed.pathname !== "/connect.html" ||
     parsed.username ||
     parsed.password ||
@@ -650,24 +645,6 @@ function isExtensionConnectURL(rawURL, token) {
     !relay.hash &&
     RELAY_PATH_PATTERN.test(relay.pathname)
   );
-}
-
-function parseTabLine(line, expectedIndex) {
-  const match = /^- ([0-9]+):( \(current\))? \[(.*)\]\((.*)\)( \[crashed\])?$/u.exec(line);
-  if (!match || Number(match[1]) !== expectedIndex) throw clientContractError();
-  return {
-    index: Number(match[1]),
-    current: Boolean(match[2]),
-    title: match[3],
-    url: match[4],
-    crashed: Boolean(match[5]),
-  };
-}
-
-function renderTabLine(tab) {
-  const current = tab.current ? " (current)" : "";
-  const crashed = tab.crashed ? " [crashed]" : "";
-  return `- ${tab.index}:${current} [${tab.title}](${tab.url})${crashed}`;
 }
 
 function assertExpectedOrigin(rawURL, expectedOrigin, allowedOrigins) {

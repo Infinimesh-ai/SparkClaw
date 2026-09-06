@@ -18,6 +18,8 @@ const GROUP_TITLE_PREFIX = "SparkClaw task";
 const GROUP_COLORS = ["green", "blue", "cyan", "yellow", "purple", "orange"];
 const MAX_OWNER_TAB_HISTORY = 16;
 const PENDING_CONNECTION_TTL_MS = 6500;
+const RELAY_CONNECT_TIMEOUT_MS = 5000;
+const OWNED_GROUP_IDS_KEY = "sparkclawTaskGroupIDs";
 
 export class SparkClawBrowserBridge {
   constructor({
@@ -39,6 +41,7 @@ export class SparkClawBrowserBridge {
     this.nativePort = null;
     this.nativeReconnectTimer = null;
     this.focus = new FocusTracker(chromeAPI);
+    this.ownedGroups = new OwnedGroupRegistry(chromeAPI);
     this.chrome.runtime.onMessage.addListener((message, sender, respond) =>
       this.#onMessage(message, sender, respond));
     this.chrome.action.onClicked.addListener(() => {
@@ -103,7 +106,7 @@ export class SparkClawBrowserBridge {
             connectedTabIds: group.connectedTabIds(),
           })),
         });
-        void cleanupStaleTaskTabs(this.chrome, this.focus, this.#protectedTaskTabIDs());
+        void cleanupStaleTaskTabs(this.chrome, this.focus, this.ownedGroups, this.#protectedTaskTabIDs());
         return false;
       case "disconnect":
         if (!this.#isBridgePage(sender, "status.html")) {
@@ -151,7 +154,7 @@ export class SparkClawBrowserBridge {
     if (!this.#isConnectTab(selectorTab)) throw new Error("Task connection page is invalid");
     const pending = this.pending.get(selectorTab.id);
     if (!pending) throw new Error("Pending client connection closed");
-    const webSocket = await openRelayConnection(this.WebSocketClass, pending.relayURL);
+    const webSocket = await openRelayConnection(this.WebSocketClass, pending.relayURL, this);
     if (!this.#clearPending(selectorTab.id, pending)) {
       webSocket.close(1000, "Pending client connection closed");
       throw new Error("Pending client connection closed");
@@ -173,6 +176,7 @@ export class SparkClawBrowserBridge {
       clientName: boundedClientName(message.clientName),
       style: uniqueGroupStyle(message.clientName, [...this.connections.values()]),
       focus: this.focus,
+      ownedGroups: this.ownedGroups,
     });
     relay.onhandoff = (tabId) => {
       group.beginHandoff(tabId);
@@ -212,7 +216,7 @@ export class SparkClawBrowserBridge {
 
   #scheduleStaleTaskCleanup(delayMS) {
     this.setTimeout(() => {
-      void cleanupStaleTaskTabs(this.chrome, this.focus, this.#protectedTaskTabIDs());
+      void cleanupStaleTaskTabs(this.chrome, this.focus, this.ownedGroups, this.#protectedTaskTabIDs());
     }, delayMS);
   }
 
@@ -292,13 +296,15 @@ export class SparkClawBrowserBridge {
 }
 
 export class TaskTabGroup {
-  constructor({ chromeAPI, relay, initialTab, clientName, style, focus }) {
+  constructor({ chromeAPI, relay, initialTab, clientName, style, focus, ownedGroups = new OwnedGroupRegistry(chromeAPI) }) {
     this.chrome = chromeAPI;
     this.relay = relay;
     this.clientName = clientName;
     this.style = style;
     this.focus = focus;
+    this.ownedGroups = ownedGroups;
     this.groupID = null;
+    this.createdGroupIDs = new Set();
     this.ownedTabs = new Set([initialTab.id]);
     this.handoffTabs = new Set();
     this.onclose = null;
@@ -351,6 +357,8 @@ export class TaskTabGroup {
     try {
       if (this.groupID === null || createGroup) {
         this.groupID = await this.chrome.tabs.group({ tabIds: [tabId] });
+        this.createdGroupIDs.add(this.groupID);
+        await this.ownedGroups.add(this.groupID);
         await this.chrome.tabGroups.update(this.groupID, this.style);
       } else {
         await this.chrome.tabs.group({ groupId: this.groupID, tabIds: [tabId] });
@@ -374,10 +382,59 @@ export class TaskTabGroup {
     this.chrome.tabs.onUpdated.removeListener(this.onUpdated);
     this.chrome.tabs.onRemoved.removeListener(this.onRemoved);
     const tabs = [...this.ownedTabs];
+    const groupIDs = [...this.createdGroupIDs];
     this.ownedTabs.clear();
     this.handoffTabs.clear();
-    if (tabs.length) void this.focus.closeTaskTabs(tabs);
+    this.createdGroupIDs.clear();
+    if (tabs.length) void this.focus.closeTaskTabs(tabs).then(() => this.ownedGroups.remove(groupIDs));
+    else void this.ownedGroups.remove(groupIDs);
     this.onclose?.();
+  }
+}
+
+// Records the tab-group IDs this Bridge created so stale cleanup after a
+// Service Worker restart closes only SparkClaw-owned groups, never an owner
+// group that merely shares the "SparkClaw task" title. chrome.storage.session
+// survives worker restarts and is cleared with the browser session, matching
+// the lifetime of tab-group IDs.
+export class OwnedGroupRegistry {
+  constructor(chromeAPI) {
+    this.storage = chromeAPI.storage?.session ?? null;
+    this.queue = Promise.resolve();
+  }
+
+  list() {
+    return this.#serialized(async () => this.#read());
+  }
+
+  add(groupID) {
+    return this.#update((ids) => ids.add(groupID));
+  }
+
+  remove(groupIDs) {
+    return this.#update((ids) => { for (const groupID of groupIDs) ids.delete(groupID); });
+  }
+
+  #update(mutate) {
+    return this.#serialized(async () => {
+      const ids = await this.#read();
+      mutate(ids);
+      if (this.storage) await this.storage.set({ [OWNED_GROUP_IDS_KEY]: [...ids] }).catch(() => {});
+      return ids;
+    });
+  }
+
+  #serialized(operation) {
+    const result = this.queue.then(operation);
+    this.queue = result.catch(() => {});
+    return result;
+  }
+
+  async #read() {
+    if (!this.storage) return new Set();
+    const stored = await this.storage.get(OWNED_GROUP_IDS_KEY).catch(() => ({}));
+    const ids = stored?.[OWNED_GROUP_IDS_KEY];
+    return new Set(Array.isArray(ids) ? ids.filter(Number.isInteger) : []);
   }
 }
 
@@ -570,29 +627,45 @@ export class FocusTracker {
   }
 }
 
-async function openRelayConnection(WebSocketClass, relayURL) {
+// Opens the relay WebSocket and settles once it is open. A socket that times
+// out or errors is closed here so a failed attempt never leaves a half-open
+// connection behind; the timers come from the Bridge so tests can drive them.
+async function openRelayConnection(WebSocketClass, relayURL, timers) {
   const socket = new WebSocketClass(relayURL);
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Relay connection timeout")), 5000);
+    const fail = (message) => {
+      timers.clearTimeout(timer);
+      socket.onopen = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000, message);
+      } catch {
+        // A socket that already failed may refuse close(); nothing is left open.
+      }
+      reject(new Error(message));
+    };
+    const timer = timers.setTimeout(() => fail("Relay connection timeout"), RELAY_CONNECT_TIMEOUT_MS);
     socket.onopen = () => {
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       resolve();
     };
-    socket.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error("Relay connection failed"));
-    };
+    socket.onerror = () => fail("Relay connection failed");
   });
   return socket;
 }
 
-export async function cleanupStaleTaskTabs(chromeAPI, focus, protectedTabIDs = new Set()) {
+export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protectedTabIDs = new Set()) {
   const staleTabIDs = new Set();
+  const ownedGroupIDs = await ownedGroups.list();
   const groups = await chromeAPI.tabGroups.query({}).catch(() => []);
-  const stale = groups.filter((group) => group.title === GROUP_TITLE_PREFIX || group.title?.startsWith(`${GROUP_TITLE_PREFIX} · `));
-  for (const group of stale) {
+  const staleGroupIDs = [];
+  for (const group of groups) {
+    if (!ownedGroupIDs.has(group.id)) continue;
     const tabs = await chromeAPI.tabs.query({ groupId: group.id }).catch(() => []);
-    for (const tab of tabs) if (Number.isInteger(tab.id)) staleTabIDs.add(tab.id);
+    const tabIDs = tabs.map((tab) => tab.id).filter(Number.isInteger);
+    if (tabIDs.some((tabId) => protectedTabIDs.has(tabId))) continue;
+    for (const tabId of tabIDs) staleTabIDs.add(tabId);
+    staleGroupIDs.push(group.id);
   }
   const tabs = await chromeAPI.tabs.query({}).catch(() => []);
   const connectionPrefix = `chrome-extension://${chromeAPI.runtime.id}/connect.html?`;
@@ -603,6 +676,8 @@ export async function cleanupStaleTaskTabs(chromeAPI, focus, protectedTabIDs = n
   }
   for (const tabId of protectedTabIDs) staleTabIDs.delete(tabId);
   await focus.closeTaskTabs([...staleTabIDs]);
+  const liveGroupIDs = new Set(groups.map((group) => group.id));
+  await ownedGroups.remove([...ownedGroupIDs].filter((groupID) => staleGroupIDs.includes(groupID) || !liveGroupIDs.has(groupID)));
 }
 
 async function ungroupTabs(chromeAPI, tabIds) {

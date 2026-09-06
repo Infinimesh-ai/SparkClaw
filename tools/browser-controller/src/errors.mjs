@@ -1,3 +1,10 @@
+import errorCodeTable from "./controller-error-codes.json" with { type: "json" };
+
+// The Controller-to-Gateway error contract. Gateway's browsercontrol package
+// projects each code through the same table, so an unknown code here is a
+// programming error rather than something to surface to a client.
+export const CONTROLLER_ERROR_CODES = Object.freeze(errorCodeTable.codes);
+
 export class ControllerError extends Error {
   constructor(
     code,
@@ -10,6 +17,9 @@ export class ControllerError extends Error {
       diagnosticContext,
     } = {},
   ) {
+    if (!Object.hasOwn(CONTROLLER_ERROR_CODES, code)) {
+      throw new TypeError(`ControllerError code is not in controller-error-codes.json: ${code}`);
+    }
     super(message, { cause });
     this.name = "ControllerError";
     this.code = code;

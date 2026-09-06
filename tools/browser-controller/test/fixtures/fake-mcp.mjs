@@ -1,21 +1,20 @@
 #!/usr/bin/env node
+// Fake @playwright/mcp stdio server. Response shapes follow playwright-golden.json,
+// which was recorded from the pinned real package under `_meta.json`: tab lists
+// arrive as markdown in `result`, snapshots as the ARIA JSON array, navigation
+// and input actions as `{}`, and no response carries a `page` block.
 
 import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 
 const logPath = process.env.FAKE_MCP_LOG;
-const calls = [];
-const tools = [
-  "browser_click",
-  "browser_evaluate",
-  "browser_navigate",
-  "browser_select_option",
-  "browser_snapshot",
-  "browser_tabs",
-  "browser_take_screenshot",
-  "browser_type",
-  "browser_wait_for",
-];
+const golden = JSON.parse(fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "playwright-golden.json"),
+  "utf8",
+));
+const tools = golden.mcp.tools;
 const tabs = [
   {
     title: "Owner page",
@@ -51,7 +50,6 @@ input.on("line", (line) => {
     return;
   }
   if (message.method === "tools/call") {
-    calls.push(message.params);
     writeLog({ event: "tool", name: message.params.name, arguments: message.params.arguments });
     respond(message.id, callTool(message.params.name, message.params.arguments));
     return;
@@ -72,7 +70,7 @@ function callTool(name, args) {
       const tab = currentTab();
       tab.url = args.url;
       tab.title = "Navigated page";
-      return jsonResult({ page: pageMarkdown(tab), snapshot: snapshot() });
+      return jsonResult({});
     }
     case "browser_evaluate": {
       const tab = currentTab();
@@ -90,22 +88,23 @@ function callTool(name, args) {
         title: tab.title,
         ready_state: "complete",
       };
-      return jsonResult({ result: JSON.stringify(value, null, 2), page: pageMarkdown(tab) });
+      return jsonResult({ result: JSON.stringify(value, null, 2) });
     }
     case "browser_snapshot":
-      return jsonResult({ page: pageMarkdown(currentTab()), snapshot: snapshot() });
+      return jsonResult(currentTab().url === "about:blank" ? goldenPayload("snapshot_about_blank") : goldenPayload("snapshot"));
     case "browser_click":
     case "browser_type":
     case "browser_select_option":
+      return jsonResult({});
     case "browser_wait_for":
-      return jsonResult({ page: pageMarkdown(currentTab()), snapshot: snapshot() });
+      return jsonResult(goldenPayload("wait_for"));
     case "browser_take_screenshot":
       return jsonResult(
-        { page: pageMarkdown(currentTab()), result: "screenshot captured" },
+        goldenPayload("screenshot"),
         [{ type: "image", mimeType: `image/${args.type || "png"}`, data: "c2NyZWVuc2hvdA==" }],
       );
     default:
-      return { content: [{ type: "text", text: JSON.stringify({ isError: true, error: "unknown tool" }) }], isError: true };
+      return { content: [{ type: "text", text: JSON.stringify({ isError: true, error: `Tool "${name}" not found` }) }], isError: true };
   }
 }
 
@@ -129,31 +128,24 @@ function callTabs(args) {
     default:
       return { content: [{ type: "text", text: JSON.stringify({ isError: true, error: "bad tab action" }) }], isError: true };
   }
-  return jsonResult({ result: tabsMarkdown(), page: tabs.length ? pageMarkdown(currentTab()) : undefined });
+  return jsonResult({ result: tabsMarkdown() });
 }
 
 function jsonResult(payload, extra = []) {
   return { content: [{ type: "text", text: JSON.stringify(payload) }, ...extra] };
 }
 
-function tabsMarkdown() {
-  if (tabs.length === 0) return "No open tabs. Navigate to a URL to create one.";
-  return tabs.map((tab, index) => `- ${index}:${tab.current ? " (current)" : ""} [${tab.title}](${tab.url})${tab.crashed ? " [crashed]" : ""}`).join("\n");
+function goldenPayload(key) {
+  return JSON.parse(golden.mcp[key].content[0].text);
 }
 
-function pageMarkdown(tab) {
-  return [`- Page URL: ${tab.url}`, ...(tab.title ? [`- Page Title: ${tab.title}`] : [])].join("\n");
+function tabsMarkdown() {
+  if (tabs.length === 0) return JSON.parse(golden.mcp.tabs_close_last.content[0].text).result;
+  return tabs.map((tab, index) => `- ${index}:${tab.current ? " (current)" : ""} [${tab.title}](${tab.url})${tab.crashed ? " [crashed]" : ""}`).join("\n");
 }
 
 function currentTab() {
   return tabs.find((tab) => tab.current) || tabs[0];
-}
-
-function snapshot() {
-  return [
-    { role: "button", name: "Submit", ref: "e7" },
-    { role: "textbox", name: "Email", ref: "e8" },
-  ];
 }
 
 function writeLog(record) {

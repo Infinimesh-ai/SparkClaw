@@ -213,27 +213,32 @@ func validationResult(controller, session, page int64) ValidationResult {
 }
 
 type fakeControllerClient struct {
-	result       ValidationResult
-	err          error
-	calls        int
-	acquireErr   error
-	executeErr   error
-	releaseErr   error
-	acquireCalls int
-	executeCalls int
-	releaseCalls int
-	lastAcquire  AcquireRequest
-	lastExecute  ExecuteRequest
-	lease        SessionLease
-	scriptResult ScriptExecutionResult
-	scriptErr    error
-	scriptCalls  int
-	lastScript   RunScriptRequest
-	scriptToken  []byte
-	loginResult  OpenProviderLoginResult
-	loginErr     error
-	loginCalls   int
-	lastLogin    OpenProviderLoginRequest
+	result     ValidationResult
+	err        error
+	calls      int
+	acquireErr error
+	executeErr error
+	// executeGate blocks Execute until closed; executeStarted and releaseDone
+	// let a test synchronize with those calls without polling shared counters.
+	executeGate    chan struct{}
+	executeStarted chan struct{}
+	releaseDone    chan struct{}
+	releaseErr     error
+	acquireCalls   int
+	executeCalls   int
+	releaseCalls   int
+	lastAcquire    AcquireRequest
+	lastExecute    ExecuteRequest
+	lease          SessionLease
+	scriptResult   ScriptExecutionResult
+	scriptErr      error
+	scriptCalls    int
+	lastScript     RunScriptRequest
+	scriptToken    []byte
+	loginResult    OpenProviderLoginResult
+	loginErr       error
+	loginCalls     int
+	lastLogin      OpenProviderLoginRequest
 }
 
 func (f *fakeControllerClient) ValidateToken(_ context.Context, profileID string, token []byte) (ValidationResult, error) {
@@ -264,9 +269,19 @@ func (f *fakeControllerClient) Acquire(_ context.Context, input AcquireRequest, 
 	return f.lease, nil
 }
 
-func (f *fakeControllerClient) Execute(_ context.Context, input ExecuteRequest) (ExecutionResult, error) {
+func (f *fakeControllerClient) Execute(ctx context.Context, input ExecuteRequest) (ExecutionResult, error) {
 	f.executeCalls++
 	f.lastExecute = input
+	if f.executeStarted != nil {
+		f.executeStarted <- struct{}{}
+	}
+	if f.executeGate != nil {
+		select {
+		case <-f.executeGate:
+		case <-ctx.Done():
+			return ExecutionResult{}, ctx.Err()
+		}
+	}
 	if f.executeErr != nil {
 		return ExecutionResult{}, f.executeErr
 	}
@@ -281,6 +296,9 @@ func (f *fakeControllerClient) Execute(_ context.Context, input ExecuteRequest) 
 
 func (f *fakeControllerClient) Release(_ context.Context, input ReleaseRequest) (ReleaseResult, error) {
 	f.releaseCalls++
+	if f.releaseDone != nil {
+		defer func() { f.releaseDone <- struct{}{} }()
+	}
 	if f.releaseErr != nil {
 		return ReleaseResult{}, f.releaseErr
 	}

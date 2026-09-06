@@ -370,42 +370,43 @@ func (c *HTTPControllerClient) Close() {
 	}
 }
 
+type controllerCodeProjection struct {
+	code      string
+	retryable bool
+	message   string
+}
+
+// controllerCodeProjections mirrors tools/browser-controller/src/controller-error-codes.json,
+// the single table both sides of the Controller contract are held to;
+// TestControllerErrorCodesMatchTheSharedTable fails when the two drift.
+var controllerCodeProjections = map[string]controllerCodeProjection{
+	"browser_busy":                   {CodeBusy, true, "controller reported a busy profile"},
+	"browser_controller_stale":       {CodeControllerStale, false, "controller generation changed"},
+	"browser_controller_stopping":    {CodeControllerUnavailable, true, "controller is stopping"},
+	"browser_controller_unavailable": {CodeControllerUnavailable, true, "controller is temporarily unavailable"},
+	"browser_extension_rejected":     {CodeExtensionRejected, false, "controller rejected the extension credential"},
+	"browser_extension_unavailable":  {CodeExtensionUnavailable, true, "controller could not reach the browser extension"},
+	"browser_lane_unavailable":       {CodeOperationUnavailable, false, "controller lane is unavailable"},
+	"browser_operation_unavailable":  {CodeOperationUnavailable, false, "controller operation is unavailable"},
+	"browser_page_stale":             {CodePageStale, false, "controller page generation is stale"},
+	"browser_script_timeout":         {CodeScriptTimeout, true, "controller provider script timed out"},
+	"browser_script_unavailable":     {CodeScriptUnavailable, false, "controller provider script is unavailable"},
+	"browser_session_invalid":        {CodeSessionStale, false, "controller session is stale"},
+	"browser_session_not_found":      {CodeSessionNotFound, false, "controller session was not found"},
+	"browser_session_stale":          {CodeSessionStale, false, "controller session is stale"},
+	"invalid_request":                {CodeInvalidRequest, false, "controller rejected the request contract"},
+}
+
 func mapControllerFailure(status int, body []byte) error {
 	var projected struct {
 		Code      string `json:"code"`
 		Retryable bool   `json:"retryable"`
 	}
 	_ = json.Unmarshal(body, &projected)
-	switch projected.Code {
-	case "browser_busy":
-		return newError(CodeBusy, true, errors.New("controller reported a busy profile"))
-	case "invalid_request":
-		return newError(CodeInvalidRequest, false, errors.New("controller rejected the request contract"))
-	case "browser_extension_rejected":
-		return newError(CodeExtensionRejected, false, errors.New("controller rejected the extension credential"))
-	case "browser_extension_unavailable":
-		return newError(CodeExtensionUnavailable, true, errors.New("controller could not reach the browser extension"))
-	case "browser_controller_stale":
-		return newError(CodeControllerStale, false, errors.New("controller generation changed"))
-	case "browser_session_not_found":
-		return newError(CodeSessionNotFound, false, errors.New("controller session was not found"))
-	case "browser_session_stale", "browser_session_invalid":
-		return newError(CodeSessionStale, false, errors.New("controller session is stale"))
-	case "browser_page_stale":
-		return newError(CodePageStale, false, errors.New("controller page generation is stale"))
-	case "browser_operation_unavailable":
-		return newError(CodeOperationUnavailable, false, errors.New("controller operation is unavailable"))
-	case "browser_script_unavailable":
-		return newError(CodeScriptUnavailable, false, errors.New("controller provider script is unavailable"))
-	case "browser_script_timeout":
-		return newError(CodeScriptTimeout, true, errors.New("controller provider script timed out"))
-	case "browser_lane_unavailable":
-		return newError(CodeOperationUnavailable, false, errors.New("controller lane is unavailable"))
-	case "browser_controller_stopping":
-		return newError(CodeControllerUnavailable, true, errors.New("controller is stopping"))
-	default:
-		return newError(CodeControllerUnavailable, status >= 500 || projected.Retryable, fmt.Errorf("browser controller returned status %d", status))
+	if projection, ok := controllerCodeProjections[projected.Code]; ok {
+		return newError(projection.code, projection.retryable, errors.New(projection.message))
 	}
+	return newError(CodeControllerUnavailable, status >= 500 || projected.Retryable, fmt.Errorf("browser controller returned status %d", status))
 }
 
 var sourceChecksumPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)

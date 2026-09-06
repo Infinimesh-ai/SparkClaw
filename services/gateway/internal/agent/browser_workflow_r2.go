@@ -441,8 +441,6 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 			args["query"] = state.Route.Slots.TargetRef
 			args["max_results"] = 5
 		}
-	case browserStageHealthCheck:
-		args["require_visible_environment"] = true
 	case browserStageSettleHidden, browserStageSettleVisible, browserStageSettleAfterAction:
 		args["mode"] = "stable_state"
 		args["require_url_stable"] = true

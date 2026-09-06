@@ -50,8 +50,6 @@ func (browserPageReadProfile) DirectStageArguments(state *app.WorkflowState) map
 	case browserPageReadStageDiscover:
 		args["query"] = state.Route.Slots.TargetRef
 		args["max_results"] = 5
-	case browserPageReadStageHealth:
-		args["require_visible_environment"] = false
 	case browserPageReadStageRead:
 		args["require_browser_session"] = true
 		args["reuse_active_page"] = true

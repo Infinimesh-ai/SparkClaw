@@ -101,6 +101,17 @@
   无 deadline 的控制器调用获得 5 分钟兜底，CI 现在运行 browser bridge 测试套件。
   Bridge native host 与 Controller 的 Unix socket 现在从创建起即仅所有者可访问
   （在 `0077` umask 下绑定并在就绪前设为 `0600`），不再在监听器已接受连接后才收紧。
+- 浏览器运行时（第七轮）：Playwright Tab List 与 Snapshot 解析以从固定版本 MCP/CLI
+  包录制的 Golden 为准（此前 Fake 的形态是臆造的）；Bridge 在 `chrome.storage.session`
+  中记录自己创建的标签组，Stale Cleanup 只关闭这些组（此前名为"SparkClaw task"的
+  所有者标签组会被清空），因此新增 `storage` 权限并更新制品校验和；Relay 握手失败时
+  关闭其 Socket；Gateway 关停与 Session 释放不再等待进行中的控制器调用（被挡在进行中
+  操作之后的释放返回 `browser_busy` 并在后台完成）；`tools.browserAutomation.provider`
+  必须为 `playwright-extension`，`adapters.browserAutomation.startupTimeoutMs`
+  （现为获取 Session 的等待上限，500 到 30000 毫秒）会被校验；删除了无人读取的
+  `require_visible_environment` 参数、从未发出的 `tabs.select` / `page.reload`
+  控制器操作以及 `browser_click` 要求；浏览器控制状态上报 `cli` / `cli_version`；
+  Controller 到 Gateway 的错误码只在一张共享表中定义。
 - 实验性 JingSi LAN presentation route 统一移至 `/api/jingsi/v0/` 前缀
   （`POST /api/jingsi/v0/messages/stream`、`GET /api/jingsi/v0/client-events{,/head,/stream}`，
   面向手机的 readiness 探测改为 `GET /api/jingsi/v0/readyz`）。Gateway 自身现在会在这些

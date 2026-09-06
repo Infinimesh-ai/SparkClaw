@@ -86,7 +86,8 @@ Generation 的 Session 失效，但不会修改浏览器认证状态。
 
 ## 配置
 
-唯一生产 Provider 是 `playwright-extension`：
+唯一生产 Provider 是 `playwright-extension`，配置加载会拒绝其他 `provider` 值。
+`startupTimeoutMs` 限定任务向 Controller 获取浏览器 Session 的等待时长（500 到 30000 毫秒）：
 
 ```json
 {
@@ -157,6 +158,15 @@ npm test --prefix tools/browser-bridge
 npm test --prefix tools/browser-controller
 npm run test:email-scripts
 cd services/gateway && go test ./internal/browserautomation ./internal/browsercontrol ./internal/emailautomation ./internal/gateway ./internal/toolhub
+```
+
+Controller 与 Gateway 解析 Playwright Tab List、Snapshot 和 CLI 错误输出的代码都以
+`tools/browser-controller/test/fixtures/playwright-golden.json` 为准，该文件是从固定
+版本的 MCP 与 CLI 包录制的真实输出，离线 Fake 也回放同样的形态。修改 Playwright 版本
+Pin 后，用本机 Headless 浏览器重新录制并审阅差异：
+
+```bash
+node tools/browser-controller/test/fixtures/record-playwright-golden.mjs
 ```
 
 Live Acceptance 还会检查 Startup/Restart、Bridge Pairing/Detach、Profile Persistence、

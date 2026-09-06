@@ -1,30 +1,59 @@
 import { spawn } from "node:child_process";
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ControllerError, invalidRequest } from "./errors.mjs";
+import { collectSnapshotRefs, comparePlaywrightRefs } from "./playwright-output.mjs";
 import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
-import { parseID, requireExactObject } from "./protocol.mjs";
+import { clientError, pageStale, clientContractError } from "./mcp-errors.mjs";
+import { MAX_MCP_RESPONSE_BYTES, StdioJSONRPC, waitForExit } from "./mcp-stdio-rpc.mjs";
+import {
+  createSessionOutputDir,
+  validateOutputRoot,
+  prepareOutputRoot,
+  removeSessionOutputDir,
+} from "./mcp-session-output.mjs";
+import {
+  exactArgs,
+  requiredPageID,
+  optionalPageID,
+  requiredRef,
+  requiredText,
+  optionalText,
+  optionalBoolean,
+  optionalInteger,
+  optionalMaximum,
+  optionalEnum,
+  optionalStringArray,
+  requiredURL,
+  optionalURL,
+  selectValues,
+  normalizePageInfo,
+  normalizePageRead,
+  parseJSONResult,
+} from "./mcp-arguments.mjs";
+import {
+  tabsFromPayload,
+  tabFingerprint,
+  isBridgeConnectionPage,
+  sameFingerprintList,
+  findCurrentInsertion,
+  sameTabsAfterRemoval,
+  currentOwnedPageID,
+} from "./mcp-tabs.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_MCP_ENTRY = path.join(PACKAGE_ROOT, "node_modules", "@playwright", "mcp", "cli.js");
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const PROCESS_EXIT_GRACE_MS = 1500;
-const MAX_MCP_RESPONSE_BYTES = 8 << 20;
 const MAX_MCP_OUTPUT_BYTES = 8 << 20;
-const MAX_PAGE_TEXT_CHARS = 120_000;
-const MAX_INPUT_TEXT_BYTES = 24 << 10;
 const MAX_TASK_PAGES = 16;
-const PLAYWRIGHT_REF_PATTERN = /^e[1-9][0-9]*$/u;
-const SESSION_OUTPUT_PATTERN = /^session-[0-9a-f]{24}$/u;
-const BRIDGE_REJECTION_MARKER = "browser_extension_rejected";
-const BRIDGE_CONNECT_URL_PREFIX = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html?";
 const RELAY_DEBUG_NAMESPACE = "pw:mcp:relay";
+
+// Every upstream tool the client calls; clicks go through browser_evaluate so
+// the background click never focuses the task tab.
 const REQUIRED_TOOLS = new Set([
-  "browser_click",
   "browser_evaluate",
   "browser_navigate",
   "browser_select_option",
@@ -34,6 +63,7 @@ const REQUIRED_TOOLS = new Set([
   "browser_type",
   "browser_wait_for",
 ]);
+
 const PAGE_INFO_FUNCTION = "() => ({ url: location.href, title: document.title, ready_state: document.readyState })";
 const PAGE_READ_FUNCTION = "() => ({ url: location.href, title: document.title, ready_state: document.readyState, lang: document.documentElement?.lang || '', text: (document.body?.innerText || document.documentElement?.innerText || '').slice(0, 120000), html: (document.documentElement?.outerHTML || '').slice(0, 120000), scroll_height: document.documentElement?.scrollHeight || 0 })";
 const BRIDGE_HANDOFF_FUNCTION = "() => \"sparkclaw-browser-bridge-handoff-v1\"";
@@ -195,10 +225,6 @@ export class PlaywrightMCPClient {
       case "tabs.new":
         exactArgs(args, [], ["url"]);
         return this.#newTaskPage(optionalURL(args.url, { allowBlank: true }));
-      case "tabs.select":
-        exactArgs(args, ["page_id"]);
-        await this.#selectPage(requiredPageID(args.page_id));
-        return this.#pageInfo(args.page_id);
       case "tabs.handoff":
         exactArgs(args, ["page_id"]);
         return this.#handoff(requiredPageID(args.page_id));
@@ -214,9 +240,6 @@ export class PlaywrightMCPClient {
       case "page.navigate":
         exactArgs(args, ["url"], ["page_id"]);
         return this.#navigate(optionalPageID(args.page_id), requiredURL(args.url));
-      case "page.reload":
-        exactArgs(args, [], ["page_id"]);
-        return this.#reload(optionalPageID(args.page_id));
       case "page.snapshot":
         exactArgs(args, [], ["page_id", "depth", "boxes"]);
         return this.#snapshot(optionalPageID(args.page_id), args);
@@ -365,15 +388,6 @@ export class PlaywrightMCPClient {
     return this.#pageInfo(page.pageID);
   }
 
-  async #reload(candidate) {
-    const page = await this.#selectPage(candidate);
-    const info = normalizePageInfo(await this.#evaluate(PAGE_INFO_FUNCTION));
-    const url = observedURL(info.url);
-    await this.#callJSONTool("browser_navigate", { url });
-    this.#invalidateSnapshots();
-    return this.#pageInfo(page.pageID);
-  }
-
   async #snapshot(candidate, args) {
     const page = await this.#selectPage(candidate);
     const depth = optionalInteger(args.depth, "depth", 1, 64);
@@ -382,12 +396,14 @@ export class PlaywrightMCPClient {
       ...(depth === undefined ? {} : { depth }),
       ...(boxes === undefined ? {} : { boxes }),
     });
+    // Under `_meta.json` the pinned MCP returns only `{ snapshot }`; page URL and
+    // title are observed separately through page.info / page.read.
     const snapshot = result.payload.snapshot;
-    if (snapshot === undefined) throw clientContractError();
+    if (!Array.isArray(snapshot)) throw clientContractError();
     const refs = collectSnapshotRefs(snapshot);
     page.refs = refs;
     return {
-      page: { page_id: page.pageID, ...pageInfoFromPayload(result.payload) },
+      page: { page_id: page.pageID },
       snapshot,
       refs: [...refs].sort(comparePlaywrightRefs),
     };
@@ -459,7 +475,7 @@ export class PlaywrightMCPClient {
     const image = result.images[0];
     if (!image || image.mimeType !== `image/${type}`) throw clientContractError();
     return {
-      page: { page_id: page.pageID, ...pageInfoFromPayload(result.payload) },
+      page: { page_id: page.pageID },
       screenshot: { mime_type: image.mimeType, data_base64: image.data },
     };
   }
@@ -580,424 +596,9 @@ export class PlaywrightMCPClient {
   }
 }
 
-function parseJSONResult(value) {
-  if (typeof value !== "string") throw clientContractError();
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw clientContractError();
-  }
-}
-
-class StdioJSONRPC {
-  constructor(child, requestTimeoutMS) {
-    this.child = child;
-    this.requestTimeoutMS = requestTimeoutMS;
-    this.nextID = 1;
-    this.pending = new Map();
-    this.buffer = "";
-    this.failure = null;
-    this.closed = new Promise((resolve) => {
-      child.once("exit", (code, signal) => {
-        this.#failAll(new Error(`MCP process exited: ${code ?? signal ?? "unknown"}`));
-        resolve({ code, signal });
-      });
-    });
-    child.once("error", (error) => this.#failAll(error));
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => this.#onData(chunk));
-    const rejectionDetector = new StreamingMarkerDetector(BRIDGE_REJECTION_MARKER);
-    child.stderr.on("data", (chunk) => {
-      if (rejectionDetector.push(chunk)) this.#failAll(extensionRejected());
-    });
-  }
-
-  request(method, params) {
-    if (this.failure) return Promise.reject(this.failure);
-    const id = this.nextID++;
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`MCP request timed out: ${method}`));
-      }, this.requestTimeoutMS);
-      timeout.unref?.();
-      this.pending.set(id, { resolve, reject, timeout });
-      this.#write({ jsonrpc: "2.0", id, method, params });
-    });
-  }
-
-  notify(method, params) {
-    if (this.failure) return;
-    this.#write({ jsonrpc: "2.0", method, params });
-  }
-
-  closeInput() {
-    if (!this.child.stdin.destroyed) this.child.stdin.end();
-  }
-
-  #write(message) {
-    try {
-      this.child.stdin.write(`${JSON.stringify(message)}\n`);
-    } catch (error) {
-      this.#failAll(error);
-    }
-  }
-
-  #onData(chunk) {
-    this.buffer += chunk;
-    if (Buffer.byteLength(this.buffer, "utf8") > MAX_MCP_RESPONSE_BYTES) {
-      this.#failAll(new Error("MCP response exceeded the size limit"));
-      return;
-    }
-    let newline = this.buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = this.buffer.slice(0, newline).trim();
-      this.buffer = this.buffer.slice(newline + 1);
-      if (line) this.#onLine(line);
-      newline = this.buffer.indexOf("\n");
-    }
-  }
-
-  #onLine(line) {
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      this.#failAll(new Error("MCP stdout was not valid JSON"));
-      return;
-    }
-    if (!Number.isSafeInteger(message.id)) return;
-    const pending = this.pending.get(message.id);
-    if (!pending) return;
-    this.pending.delete(message.id);
-    clearTimeout(pending.timeout);
-    if (message.error) pending.reject(new Error("MCP request failed"));
-    else pending.resolve(message.result);
-  }
-
-  #failAll(error) {
-    if (this.failure) return;
-    this.failure = error;
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(error);
-    }
-    this.pending.clear();
-  }
-}
-
 function scrubPlaywrightEnvironment(env) {
   for (const key of Object.keys(env)) {
     if (key.startsWith("PLAYWRIGHT_MCP_")) delete env[key];
   }
   return env;
-}
-
-async function createSessionOutputDir(outputRoot, sessionID) {
-  const normalized = parseID(sessionID, "session_id");
-  const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 24);
-  await fs.mkdir(outputRoot, { recursive: true, mode: 0o700 });
-  await fs.chmod(outputRoot, 0o700);
-  const outputDir = path.join(outputRoot, `session-${digest}`);
-  await fs.mkdir(outputDir, { mode: 0o700 });
-  return outputDir;
-}
-
-function validateOutputRoot(outputRoot) {
-  if (
-    !path.isAbsolute(outputRoot) ||
-    path.basename(outputRoot) !== "mcp-output" ||
-    path.dirname(outputRoot) === path.parse(outputRoot).root
-  ) {
-    throw new TypeError("outputRoot must be an absolute mcp-output directory below a private runtime directory");
-  }
-}
-
-async function prepareOutputRoot(outputRoot) {
-  await fs.mkdir(outputRoot, { recursive: true, mode: 0o700 });
-  const stat = await fs.lstat(outputRoot);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new TypeError("outputRoot must be a real directory");
-  }
-  await fs.chmod(outputRoot, 0o700);
-  for (const entry of await fs.readdir(outputRoot, { withFileTypes: true })) {
-    if (entry.isDirectory() && SESSION_OUTPUT_PATTERN.test(entry.name)) {
-      await fs.rm(path.join(outputRoot, entry.name), { recursive: true, force: true });
-    }
-  }
-}
-
-async function removeSessionOutputDir(outputDir) {
-  if (!outputDir) return;
-  await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
-}
-
-function clientError(error) {
-  if (error instanceof ControllerError) return error;
-  return new ControllerError("browser_extension_unavailable", "browser extension is unavailable", {
-    status: 503,
-    retryable: true,
-    cause: error,
-  });
-}
-
-function extensionRejected() {
-  return new ControllerError("browser_extension_rejected", "browser extension rejected the credential", {
-    status: 401,
-    retryable: false,
-  });
-}
-
-class StreamingMarkerDetector {
-  constructor(marker) {
-    this.marker = Buffer.from(marker, "ascii");
-    this.offset = 0;
-    this.found = false;
-  }
-
-  push(chunk) {
-    if (this.found) return true;
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    for (const byte of bytes) {
-      if (byte === this.marker[this.offset]) {
-        this.offset++;
-        if (this.offset === this.marker.length) {
-          this.found = true;
-          return true;
-        }
-      } else {
-        this.offset = byte === this.marker[0] ? 1 : 0;
-      }
-    }
-    return false;
-  }
-}
-
-function exactArgs(args, required, optional = []) {
-  requireExactObject(args, required, optional);
-}
-
-function requiredPageID(value) {
-  return parseID(value, "page_id");
-}
-
-function optionalPageID(value) {
-  return value === undefined ? "" : requiredPageID(value);
-}
-
-function requiredRef(value) {
-  if (typeof value !== "string" || !PLAYWRIGHT_REF_PATTERN.test(value)) {
-    throw invalidRequest("ref is invalid");
-  }
-  return value;
-}
-
-function requiredText(value) {
-  if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > MAX_INPUT_TEXT_BYTES) {
-    throw invalidRequest("text is invalid");
-  }
-  return value;
-}
-
-function optionalText(value, field) {
-  if (value === undefined) return "";
-  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > MAX_INPUT_TEXT_BYTES) {
-    throw invalidRequest(`${field} is invalid`);
-  }
-  return value;
-}
-
-function optionalBoolean(value, field) {
-  if (value === undefined) return undefined;
-  if (typeof value !== "boolean") throw invalidRequest(`${field} is invalid`);
-  return value;
-}
-
-function optionalInteger(value, field, minimum, maximum) {
-  if (value === undefined) return undefined;
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
-    throw invalidRequest(`${field} is invalid`);
-  }
-  return value;
-}
-
-function optionalMaximum(value) {
-  return optionalInteger(value, "max_chars", 1, MAX_PAGE_TEXT_CHARS) ?? MAX_PAGE_TEXT_CHARS;
-}
-
-function optionalEnum(value, field, allowed) {
-  if (value === undefined) return "";
-  if (typeof value !== "string" || !allowed.includes(value)) throw invalidRequest(`${field} is invalid`);
-  return value;
-}
-
-function optionalStringArray(value, field, allowed) {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.length > allowed.length || value.some((item) => !allowed.includes(item))) {
-    throw invalidRequest(`${field} is invalid`);
-  }
-  return [...new Set(value)];
-}
-
-function requiredURL(value) {
-  return optionalURL(value, { required: true });
-}
-
-function optionalURL(value, { required = false, allowBlank = false } = {}) {
-  if (value === undefined && !required) return "";
-  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > 4096) {
-    throw invalidRequest("url is invalid");
-  }
-  if (allowBlank && value === "about:blank") return value;
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw invalidRequest("url is invalid");
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw invalidRequest("url is invalid");
-  return parsed.href;
-}
-
-function selectValues(args) {
-  if (args.value !== undefined && args.values !== undefined) throw invalidRequest("select values are invalid");
-  const values = args.values ?? (args.value === undefined ? [] : [args.value]);
-  if (!Array.isArray(values) || values.length === 0 || values.length > 32) {
-    throw invalidRequest("select values are invalid");
-  }
-  return values.map(requiredText);
-}
-
-function tabsFromPayload(payload) {
-  const markdown = typeof payload.result === "string" ? payload.result : payload.tabs;
-  if (typeof markdown !== "string") throw clientContractError();
-  if (markdown.trim() === "No open tabs. Navigate to a URL to create one.") return [];
-  const tabs = [];
-  for (const line of markdown.split("\n")) {
-    if (!line.trim()) continue;
-    const match = /^- ([0-9]+):( \(current\))? \[(.*)\]\((.*)\)( \[crashed\])?$/u.exec(line);
-    if (!match || Number(match[1]) !== tabs.length) throw clientContractError();
-    tabs.push({
-      index: Number(match[1]),
-      current: Boolean(match[2]),
-      title: match[3],
-      url: match[4],
-      crashed: Boolean(match[5]),
-    });
-  }
-  if (tabs.length === 0) throw clientContractError();
-  return tabs;
-}
-
-function pageInfoFromPayload(payload) {
-  if (typeof payload.page !== "string") return {};
-  const info = {};
-  for (const line of payload.page.split("\n")) {
-    if (line.startsWith("- Page URL: ")) info.url = line.slice(12);
-    if (line.startsWith("- Page Title: ")) info.title = line.slice(14);
-    if (line === "- Page status: crashed") info.crashed = true;
-  }
-  return info;
-}
-
-function normalizePageInfo(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw clientContractError();
-  const url = observedURL(value.url);
-  if (typeof value.title !== "string" || typeof value.ready_state !== "string") throw clientContractError();
-  return { url, title: value.title, ready_state: value.ready_state };
-}
-
-function observedURL(value) {
-  if (value === "about:blank") return value;
-  return requiredURL(value);
-}
-
-function normalizePageRead(value, maximum) {
-  const info = normalizePageInfo(value);
-  if (typeof value.text !== "string" || typeof value.html !== "string" || typeof value.lang !== "string" || !Number.isSafeInteger(value.scroll_height) || value.scroll_height < 0) {
-    throw clientContractError();
-  }
-  const originalLength = [...value.text].length;
-  return {
-    ...info,
-    lang: value.lang,
-    text: [...value.text].slice(0, maximum).join(""),
-    html: [...value.html].slice(0, maximum).join(""),
-    text_length: originalLength,
-    text_truncated: originalLength > maximum,
-    scroll_height: value.scroll_height,
-  };
-}
-
-function collectSnapshotRefs(value, refs = new Set()) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectSnapshotRefs(item, refs);
-  } else if (value && typeof value === "object") {
-    if (typeof value.ref === "string" && PLAYWRIGHT_REF_PATTERN.test(value.ref)) refs.add(value.ref);
-    for (const item of Object.values(value)) collectSnapshotRefs(item, refs);
-  }
-  return refs;
-}
-
-function comparePlaywrightRefs(left, right) {
-  return Number(left.slice(1)) - Number(right.slice(1));
-}
-
-function tabFingerprint(tab) {
-  return `${tab.title}\u0000${tab.url}\u0000${tab.crashed ? "1" : "0"}`;
-}
-
-function isBridgeConnectionPage(tab) {
-  return typeof tab?.url === "string" && tab.url.startsWith(BRIDGE_CONNECT_URL_PREFIX);
-}
-
-function sameFingerprintList(left, right) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-function findCurrentInsertion(before, after) {
-  const current = after.findIndex((tab) => tab.current);
-  if (current < 0 || after.length !== before.length + 1) return -1;
-  const reduced = after.filter((_, index) => index !== current).map(tabFingerprint);
-  return sameFingerprintList(reduced, before.map(tabFingerprint)) ? current : -1;
-}
-
-function sameTabsAfterRemoval(before, after, removed) {
-  if (after.length !== before.length - 1) return false;
-  const reduced = before.filter((_, index) => index !== removed).map(tabFingerprint);
-  return sameFingerprintList(reduced, after.map(tabFingerprint));
-}
-
-function currentOwnedPageID(pages, tabs) {
-  for (const page of pages.values()) {
-    if (tabs[page.index]?.current) return page.pageID;
-  }
-  return "";
-}
-
-function pageStale(detail) {
-  return new ControllerError("browser_page_stale", "browser page generation is stale", {
-    status: 409,
-    cause: new Error(detail),
-  });
-}
-
-function clientContractError() {
-  return new ControllerError("browser_extension_unavailable", "browser extension is unavailable", {
-    status: 503,
-    retryable: true,
-  });
-}
-
-async function waitForExit(child, timeoutMS) {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  let timer;
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(false), timeoutMS);
-    timer.unref?.();
-  });
-  const exited = child.once ? new Promise((resolve) => child.once("exit", () => resolve(true))) : Promise.resolve(true);
-  const result = await Promise.race([exited, timeout]);
-  clearTimeout(timer);
-  return result;
 }

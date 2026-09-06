@@ -93,10 +93,11 @@ test("MCP client exposes only task pages and binds actions to fresh snapshot ref
   assert.equal(navigated.page.url, "https://example.test/path");
 
   const snapshot = await client.execute("page.snapshot", {});
-  assert.deepEqual(snapshot.refs, ["e7", "e8"]);
-  await client.execute("page.click", { ref: "e7" });
+  assert.deepEqual(snapshot.page, { page_id: "page_1" });
+  assert.deepEqual(snapshot.refs, ["e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9"]);
+  await client.execute("page.click", { ref: "e8" });
   await assert.rejects(
-    client.execute("page.click", { ref: "e7" }),
+    client.execute("page.click", { ref: "e8" }),
     (error) => error.code === "browser_page_stale",
   );
   await assert.rejects(
@@ -117,7 +118,7 @@ test("MCP client exposes only task pages and binds actions to fresh snapshot ref
   const records = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   const calls = records.filter((record) => record.event === "tool");
   assert.equal(calls.some((call) => call.name === "browser_evaluate" &&
-    call.arguments.target === "e7" && call.arguments.function === BACKGROUND_CLICK_FUNCTION), true);
+    call.arguments.target === "e8" && call.arguments.function === BACKGROUND_CLICK_FUNCTION), true);
   assert.equal(calls.some((call) => call.name === "browser_type" && call.arguments.target === ":focus"), true);
   assert.equal(calls.some((call) => JSON.stringify(call.arguments).includes("css=.submit")), false);
   const handoff = calls.find((call) => call.name === "browser_evaluate" &&

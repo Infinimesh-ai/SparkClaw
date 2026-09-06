@@ -133,6 +133,80 @@ func TestRuntimeSessionRejectsASecondTaskWithoutInterruptingTheActiveTask(t *tes
 	}
 }
 
+func TestRuntimeSessionReleaseFailsFastBehindAnInFlightOperation(t *testing.T) {
+	vault := credential.New(store.NewMemoryStore(), credential.Options{Key: strings.Repeat("u", 32)})
+	controller := &fakeControllerClient{
+		result: validationResult(41, 1, 1), executeGate: make(chan struct{}),
+		executeStarted: make(chan struct{}, 1), releaseDone: make(chan struct{}, 1),
+	}
+	service := New(vault, controller, "default")
+	service.closeTimeout = 50 * time.Millisecond
+	service.Initialize(t.Context())
+	if _, err := service.SaveToken(t.Context(), []byte("runtime-extension-token")); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := service.AcquireSession(t.Context(), "task-slow", 0, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executed := make(chan error, 1)
+	go func() {
+		_, err := runtime.Execute(t.Context(), "page.read", map[string]any{})
+		executed <- err
+	}()
+	<-controller.executeStarted
+
+	started := time.Now()
+	err = service.Close()
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Close waited %s behind an in-flight Execute", elapsed)
+	}
+	if ErrorCode(err) != CodeBusy || !ErrorRetryable(err) {
+		t.Fatalf("Close behind an in-flight Execute returned %v (code=%q)", err, ErrorCode(err))
+	}
+	if controller.releaseCalls != 0 {
+		t.Fatalf("release reached the controller while Execute held the session: %d", controller.releaseCalls)
+	}
+	if _, err := runtime.Execute(t.Context(), "tabs.list", map[string]any{}); ErrorCode(err) != CodeSessionStale {
+		t.Fatalf("a released session admitted a new operation: %v", err)
+	}
+
+	close(controller.executeGate)
+	if err := <-executed; err != nil {
+		t.Fatalf("in-flight Execute failed after deferred release: %v", err)
+	}
+	<-controller.releaseDone
+	waitForControllerCalls(t, func() bool { return service.Status(t.Context()).SessionGeneration == 0 })
+	if err := runtime.Release(t.Context()); err != nil {
+		t.Fatalf("second release must be a no-op: %v", err)
+	}
+	if controller.releaseCalls != 1 {
+		t.Fatalf("controller released %d times", controller.releaseCalls)
+	}
+}
+
+func TestServiceCloseDoesNotWaitBehindABlockedAcquire(t *testing.T) {
+	vault := credential.New(store.NewMemoryStore(), credential.Options{Key: strings.Repeat("w", 32)})
+	controller := &fakeControllerClient{result: validationResult(41, 1, 1)}
+	service := New(vault, controller, "default")
+	service.closeTimeout = 50 * time.Millisecond
+	service.Initialize(t.Context())
+	if _, err := service.SaveToken(t.Context(), []byte("runtime-extension-token")); err != nil {
+		t.Fatal(err)
+	}
+	service.opMu.Lock()
+	defer service.opMu.Unlock()
+
+	started := time.Now()
+	err := service.Close()
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Close waited %s behind the operation lock", elapsed)
+	}
+	if ErrorCode(err) != CodeBusy {
+		t.Fatalf("Close behind the operation lock returned %v", err)
+	}
+}
+
 func waitForControllerCalls(t *testing.T, ready func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

@@ -221,8 +221,9 @@ func TestPlaywrightExtensionAdapterKeepsSessionAfterToolContextEnds(t *testing.T
 const fakePlaywrightPageText = "Account owner@example.com has a usable application page with navigation, profile, settings, and recent messages."
 
 type fakePlaywrightController struct {
-	mu       sync.Mutex
-	sessions []*fakePlaywrightSession
+	mu          sync.Mutex
+	sessions    []*fakePlaywrightSession
+	acquireWait time.Duration
 }
 
 func newFakePlaywrightController() *fakePlaywrightController {
@@ -236,10 +237,11 @@ func (c *fakePlaywrightController) Status(context.Context) browsercontrol.Status
 	}
 }
 
-func (c *fakePlaywrightController) AcquireSession(ctx context.Context, _ string, _, _ time.Duration) (browsercontrol.Session, error) {
+func (c *fakePlaywrightController) AcquireSession(ctx context.Context, _ string, waitTimeout, _ time.Duration) (browsercontrol.Session, error) {
 	c.mu.Lock()
 	session := newFakePlaywrightSession(len(c.sessions) + 1)
 	c.sessions = append(c.sessions, session)
+	c.acquireWait = waitTimeout
 	c.mu.Unlock()
 	go func() {
 		<-ctx.Done()
@@ -278,6 +280,10 @@ type fakePlaywrightSession struct {
 	pages    []fakePlaywrightPage
 	calls    []fakePlaywrightCall
 	releases int
+	snapshot []any
+	// executeErr, when set, fails every Execute; a coded browsercontrol error
+	// simulates the controller declaring the session stale.
+	executeErr error
 }
 
 func newFakePlaywrightSession(sequence int) *fakePlaywrightSession {
@@ -303,6 +309,9 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 	s.calls = append(s.calls, fakePlaywrightCall{Operation: operation, Arguments: cloneArgs(arguments)})
 	if s.releases > 0 {
 		return nil, errors.New("session released")
+	}
+	if s.executeErr != nil {
+		return nil, s.executeErr
 	}
 	s.lease.PageGeneration++
 
@@ -351,11 +360,13 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 		}
 		return map[string]any{"page": s.readPageMapLocked(*page)}, nil
 	case "page.snapshot":
+		// The controller returns only the page identity with a snapshot; URL and
+		// title are observed through page.read (see playwright-golden.json).
 		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"page": s.pageMapLocked(*page), "snapshot": fakePlaywrightSnapshot()}, nil
+		return map[string]any{"page": map[string]any{"page_id": page.ID}, "snapshot": s.snapshotLocked()}, nil
 	case "page.click", "page.fill", "page.type", "page.select":
 		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
 		if err != nil {
@@ -368,7 +379,7 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 			return nil, err
 		}
 		return map[string]any{
-			"page": s.pageMapLocked(*page), "screenshot": map[string]any{"mime_type": "image/png", "data_base64": "c2NyZWVuc2hvdA=="},
+			"page": map[string]any{"page_id": page.ID}, "screenshot": map[string]any{"mime_type": "image/png", "data_base64": "c2NyZWVuc2hvdA=="},
 		}, nil
 	default:
 		return nil, errors.New("unsupported fake operation: " + operation)
@@ -459,6 +470,61 @@ func (s *fakePlaywrightSession) removePageLocked(pageID string) bool {
 		return true
 	}
 	return false
+}
+
+func (s *fakePlaywrightSession) snapshotLocked() []any {
+	if s.snapshot != nil {
+		return s.snapshot
+	}
+	return fakePlaywrightSnapshot()
+}
+
+func TestPlaywrightExtensionAdapterAcquiresWithTheConfiguredStartupTimeout(t *testing.T) {
+	controller := newFakePlaywrightController()
+	cfg := playwrightAdapterTestConfig()
+	cfg.Adapters.BrowserAutomation.StartupTimeoutMS = 7500
+	adapter := NewPlaywrightExtensionAdapter(cfg, controller).(*PlaywrightExtensionAdapter)
+	if _, err := adapter.Call(context.Background(), "browser.list_tabs", map[string]any{"owner_id": "owner-startup"}); err != nil {
+		t.Fatalf("list tabs: %v", err)
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if controller.acquireWait != 7500*time.Millisecond {
+		t.Fatalf("acquire wait = %s, want the configured startup timeout", controller.acquireWait)
+	}
+}
+
+func TestPlaywrightExtensionAdapterSettleStopsPollingOnceTheSessionIsStale(t *testing.T) {
+	controller := newFakePlaywrightController()
+	adapter := NewPlaywrightExtensionAdapter(playwrightAdapterTestConfig(), controller).(*PlaywrightExtensionAdapter)
+	ctx := context.Background()
+	baseArgs := map[string]any{"owner_id": "owner-stale"}
+
+	for _, mode := range []string{"stable_state", "ready"} {
+		opened, err := adapter.Call(ctx, "browser.open", mergeArgs(baseArgs, map[string]any{"url": "https://example.com/settle"}))
+		if err != nil {
+			t.Fatalf("%s open: %v", mode, err)
+		}
+		pageID := selectedPageID(mapValue(opened.Output))
+		session := controller.lastSession()
+		session.mu.Lock()
+		session.executeErr = &browsercontrol.Error{Code: browsercontrol.CodeSessionStale}
+		session.mu.Unlock()
+
+		started := time.Now()
+		_, err = adapter.Call(ctx, "browser.wait", mergeArgs(baseArgs, map[string]any{
+			"page_id": pageID, "mode": mode, "timeout_ms": 5000, "quiet_period_ms": 200, "poll_interval_ms": 50,
+		}))
+		if elapsed := time.Since(started); elapsed > 2*time.Second {
+			t.Fatalf("%s wait kept polling for %s after the session went stale", mode, elapsed)
+		}
+		if err == nil {
+			t.Fatalf("%s wait succeeded against a stale session", mode)
+		}
+		if adapter.session != nil {
+			t.Fatalf("%s wait left the stale session attached", mode)
+		}
+	}
 }
 
 func fakePlaywrightSnapshot() []any {

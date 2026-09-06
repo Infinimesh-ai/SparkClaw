@@ -181,7 +181,10 @@ export async function runProcess(spawnImpl, executable, args, options) {
   });
 }
 
-function classifyProcessExit(stdout, stderr) {
+// Classifies a non-zero Playwright CLI exit from its output. Playwright emits
+// no machine-readable error code, so these patterns are pinned against the
+// pinned playwright-core bundle and test/fixtures/playwright-golden.json.
+export function classifyProcessExit(stdout, stderr) {
   const output = `${stdout}\n${stderr}`;
   let reason = "process_exit";
   if (/SyntaxError|Unexpected token|Unexpected identifier/u.test(output)) {
@@ -191,7 +194,7 @@ function classifyProcessExit(stdout, stderr) {
   ) {
     reason = "process_exit_context_destroyed";
   } else if (
-    /Target page, context or browser has been closed|Session closed|Browser ['"].+['"] is not open/u.test(output)
+    /Target page, context or browser has been closed|Session closed|browser ['"].+['"] is not open/iu.test(output)
   ) {
     reason = "process_exit_page_closed";
   } else if (/too many arguments|Unknown option|Invalid input|invalid_type/iu.test(output)) {

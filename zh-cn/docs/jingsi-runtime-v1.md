@@ -147,7 +147,15 @@ Memory Context、结果摘要或 bearer。
 的 method、path、media type 与 request-key header，把每条 fixture 消息经 HTTP 驱动真实 provider，
 并把每个中央 assertion 名称映射为具体检查（无法映射的名称会让门禁失败）。它优先从
 `SPARKCLAW_JINGSI_CONTRACT_MANIFEST` 解析 manifest，否则查找同级的 `InfiniCenter` 检出；两者都
-不存在时（全新克隆、CI），该门禁会跳过而不是让 `go test ./...` 失败。
+不存在时（全新克隆），该门禁会跳过而不是让 `go test ./...` 失败。
+
+CI 使用 InfiniCenter 的只读 SSH Deploy key：将公钥登记到 InfiniCenter 的 Deploy keys，
+不授予写权限，并将私钥保存到 SparkClaw 的 Actions secret `INFINICENTER_SSH_KEY`。
+中枢 checkout 使用 `ssh-key` 与 `persist-credentials: false`；job 环境只保存是否存在密钥的
+标记，不包含私钥。main push 和同仓 pull request 缺少密钥时直接失败；fork pull request
+拿不到仓库 secret，跳过中央门禁。独立的 `Run the central JingSi contract gate` 步骤执行
+`go test -count=1 -v ./internal/contracttest`，逐项记录中央 case，避免依赖包测试缓存。
+这替代之前的 `INFINICENTER_TOKEN` checkout，不再需要个人访问令牌。
 
 提供方测试覆盖完全一致的重放与漂移、跨重启持久化的 negative fence、响应丢失后的查询、
 单调事件分页、统一授权、幂等取消、专用 bearer 路由、`return_nowhere`、data-only

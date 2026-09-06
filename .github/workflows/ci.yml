@@ -104,23 +104,37 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      INFINICENTER_TOKEN: ${{ secrets.INFINICENTER_TOKEN }}
+      HAS_INFINICENTER_SSH_KEY: ${{ secrets.INFINICENTER_SSH_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       # internal/contracttest gates the JingSi Runtime v1 provider against the
       # central SparkClaw--JingSi conformance fixtures, which live in the private
-      # InfiniCenter hub and are deliberately not vendored. With a read token the
-      # gate runs; without one it skips exactly as on a fresh clone.
+      # InfiniCenter hub and are deliberately not vendored. Trusted runs require
+      # its read-only deploy key; fork PRs cannot access repository secrets.
+      - name: Require the InfiniCenter deploy key for trusted CI
+        if: ${{ env.HAS_INFINICENTER_SSH_KEY != 'true' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: |
+          echo "::error::INFINICENTER_SSH_KEY must contain the private key for an InfiniCenter read-only deploy key."
+          exit 1
       - name: Check out the InfiniCenter contract hub
-        if: ${{ env.INFINICENTER_TOKEN != '' }}
+        if: ${{ env.HAS_INFINICENTER_SSH_KEY == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: Infinimesh-ai/InfiniCenter
-          token: ${{ secrets.INFINICENTER_TOKEN }}
+          ssh-key: ${{ secrets.INFINICENTER_SSH_KEY }}
+          persist-credentials: false
           path: InfiniCenter
       - name: Point the contract gate at the hub checkout
-        if: ${{ env.INFINICENTER_TOKEN != '' }}
+        if: ${{ env.HAS_INFINICENTER_SSH_KEY == 'true' }}
         run: echo "SPARKCLAW_JINGSI_CONTRACT_MANIFEST=$GITHUB_WORKSPACE/InfiniCenter/clusters/ProjectGroup-2/contracts/SparkClaw--JingSi/conformance/v1/manifest.json" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/gateway/go.mod
+          cache-dependency-path: services/gateway/go.sum
+      - name: Run the central JingSi contract gate
+        if: ${{ env.HAS_INFINICENTER_SSH_KEY == 'true' }}
+        run: go test -count=1 -v ./internal/contracttest
+        working-directory: services/gateway
       - name: Install CJK weather-card font
         run: |
           sudo apt-get update
@@ -144,10 +158,6 @@ jobs:
         run: npm test --prefix tools/browser-bridge
       - name: Test browser email provider scripts
         run: npm run test:email-scripts
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: services/gateway/go.mod
-          cache-dependency-path: services/gateway/go.sum
       - run: go vet ./...
         working-directory: services/gateway
       - run: go test ./...

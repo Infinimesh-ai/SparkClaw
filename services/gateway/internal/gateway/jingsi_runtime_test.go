@@ -136,34 +136,16 @@ func TestAdmissionRuleIsRecordedOnTheRunAndNeverWidensTheGrant(t *testing.T) {
 		Budget: jingsiruntime.Budget{MaxRuntimeMS: 30000, MaxToolCalls: 3, MaxOutputBytes: 4096},
 	}
 	read := app.ToolDefinition{Name: "files.read", Directory: app.ToolDirectoryMetadata{Effects: []app.ToolEffect{app.ToolEffectWorkspaceRead}}}
-	for _, enforce := range []bool{false, true} {
-		grant := jingSiGrant(input)
-		grant.EffectScopesEnforced = enforce
-		persisted, err := jingsiscope.Parse(grant.Scopes())
-		if err != nil {
-			t.Fatalf("Parse(projection) error = %v", err)
-		}
-		// The persisted scopes carry exactly what JingSi granted plus the
-		// admission fact; no effect token is added on JingSi's behalf.
-		if !reflect.DeepEqual(persisted.DataScope, []string{"memory.context"}) || len(persisted.NetworkScope) != 0 || persisted.EffectScopesEnforced != enforce {
-			t.Fatalf("enforce=%v persisted grant = %#v", enforce, persisted)
-		}
-		// Legacy admission keeps the tool_scope rule; enforced admission
-		// hides a tool whose effect JingSi did not grant.
-		if got := persisted.AllowsTool(read); got != !enforce {
-			t.Fatalf("enforce=%v AllowsTool(files.read) = %v", enforce, got)
-		}
+	grant := jingSiGrant(input)
+	persisted, err := jingsiscope.Parse(grant.Scopes())
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A run admitted under the legacy rule keeps it on re-entry even when the
-	// provider is now strict: the admission travels with the run, the grant is
-	// never re-derived from current configuration.
-	legacy := jingSiGrant(input)
-	run := app.AgentRun{MessageContext: &app.MessageRunContext{
-		Source:        app.MessageSourceContext{Adapter: jingsiscope.AdapterID},
-		Authorization: app.MessageAuthorization{Scope: legacy.Scopes()},
-	}}
-	if grant, scoped := jingsiscope.ForRun(run); !scoped || grant.EffectScopesEnforced || !grant.AllowsTool(read) {
-		t.Fatalf("legacy-admitted run lost its admission on re-entry: %#v", grant)
+	if !reflect.DeepEqual(persisted.DataScope, []string{"memory.context"}) || len(persisted.NetworkScope) != 0 {
+		t.Fatalf("grant was widened: %#v", persisted)
+	}
+	if persisted.AllowsTool(read) {
+		t.Fatal("ungranted workspace read was allowed")
 	}
 }
 

@@ -54,14 +54,14 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
-- JingSi Runtime v1 tool exposure now understands `data_scope`/`network_scope`
-  as tool-effect tokens (`local.compute` is the registered pure-compute
-  exception). Each execution records the admission rule it was accepted under
-  (`sparkclaw.admission:effect_scopes_legacy|effect_scopes_enforced`); JingSi's
-  grant is persisted verbatim and never widened. `jingsi_runtime_v1.enforce_effect_scopes`
-  (`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `true` after
-  InfiniCenter decision 0034 acceptance and real consumer proof) selects the rule for new executions; a run keeps
-  its admission across restart re-entry.
+- JingSi Runtime v1 now always enforces the accepted decision 0034 effect
+  vocabulary after real consumer allow/deny and restart proof. The default was
+  enabled in a separate revision before removing the compatibility setting and
+  environment variable; retired settings now fail configuration loading. Legacy
+  admission cannot execute tools after retirement; drain old executions before
+  upgrading. Grants and terminal reconciliation remain unchanged. Document
+  preflight now checks authorization before format sniffing or registration can
+  read a file, closing a read observed even when the final execution was denied.
 - JingSi Runtime v1 operational bounds: the state directory is swept hourly
   under a new `jingsi_runtime_v1.retention_days` knob
   (`SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS`, default 30, `0` keeps every

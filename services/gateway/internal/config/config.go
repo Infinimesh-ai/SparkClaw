@@ -10,11 +10,23 @@ import (
 )
 
 func Load(path string) (Config, error) {
+	if _, present := os.LookupEnv("SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES"); present {
+		return Config{}, errors.New("SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES is retired; remove it after draining legacy executions")
+	}
 	cfg := Default()
 	if path != "" {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return Config{}, err
+		}
+		var retired struct {
+			Runtime map[string]json.RawMessage `json:"jingsi_runtime_v1"`
+		}
+		if err := json.Unmarshal(raw, &retired); err != nil {
+			return Config{}, err
+		}
+		if _, present := retired.Runtime["enforce_effect_scopes"]; present {
+			return Config{}, errors.New("jingsi_runtime_v1.enforce_effect_scopes is retired; remove it after draining legacy executions")
 		}
 		if err := rejectLegacyModelCapacity(raw); err != nil {
 			return Config{}, err

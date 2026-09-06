@@ -94,18 +94,23 @@ Context；它不映射到任何工具 effect，提供方只要收到 `memory_con
 `local.compute` 是登记在案的纯计算例外：这类工具不需要 data/network token，但仍受
 `tool_scope`、approval policy 与工具调用预算约束。声明了混合 effect 的工具必须逐项满足。
 
-该 effect 词汇表已由 InfiniCenter 决策 0034 接受，JingSi 已完成真实 provider 的 allow/deny
-与重启回证。SparkClaw 以两种
-暴露规则之一准入每个 execution，并把该规则记录在 run 上：
-`sparkclaw.admission:effect_scopes_legacy` 或 `sparkclaw.admission:effect_scopes_enforced`。
-两种规则下 JingSi 的 grant 都原样持久化，绝不代 JingSi 补加任何 token，因此持久化 scope 不会
-声称 JingSi 未发送的授权。`jingsi_runtime_v1.enforce_effect_scopes`
-（`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`，默认 `true`）选择新准入 execution 的
-规则：legacy 准入只按 `tool_scope` 暴露工具、不参考 `data_scope`/`network_scope`；enforced 准入
-额外要求上表的 effect token。execution 在重启重新进入时保持准入时的规则，不会按当前配置重新
-推导；投影缺失或损坏准入记录的 run 失败关闭。切换由决策 0034 协同：JingSi 只把新授权任务
-路由到运行 enforced 准入的 provider，既有任务按原 grant 与 request key 对账，切换验证完成后
-退役该开关。
+InfiniCenter 决策 0034 已接受。所有新 execution 只记录
+`sparkclaw.admission:effect_scopes_enforced`，JingSi grant 原样持久化，每个工具 effect
+都须获得授权。文档预检与登记也必须先检查获授权且无需审批的 document reader，之后才可
+嗅探格式或读取文件内容。缺失、未知及已退役的 `effect_scopes_legacy` 准入值均失败关闭，
+不重新解释为 enforced。
+
+兼容配置 `jingsi_runtime_v1.enforce_effect_scopes` 与环境变量
+`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES` 已删除；保留任一旧设置会在配置加载时
+报错，包括 false、true 和空环境变量。旧部署须先排空 legacy execution，再升级并删除设置。
+终态 lookup/status/cancel/events、exact submit replay 仍使用原 grant 与 request key；
+不迁移、不补权。
+
+JingSi 真实进程门禁编译正式 gateway 入口，经 typed HTTP consumer、真实 executor/ToolHub、
+file store 与 Linux 文件访问观测：1 个 allow 确实读取成功，6 个 deny 均未读取文件；
+7 个终态 execution 在进程重启后对账不变，无重复读取，scope drift 不执行。
+显式开启、默认开启版本、无开关版本分别通过。模型选择使用 deterministic mock capacity
+profile；此为本地真实 provider/文件工具证据，不代表真实模型、外网或 GB10 验收。
 
 只有 JingSi 提供了有界 v1 `memory_context` 时才会包含 Memory。goal 仍是 risk、guard、
 语义路由、消息控制和能力准入唯一的 owner intent 输入。Memory summary 保存在独立的

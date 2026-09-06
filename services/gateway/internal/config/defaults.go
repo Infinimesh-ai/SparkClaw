@@ -22,7 +22,7 @@ func Default() Config {
 			MaxMessageBytes: 64 << 10,
 		},
 		JingSiRuntime: JingSiRuntimeConfig{
-			Enabled: false, StateDir: "./data/jingsi-runtime-v1", MaxConcurrent: 4, RetentionDays: 30, EnforceEffectScopes: true,
+			Enabled: false, StateDir: "./data/jingsi-runtime-v1", MaxConcurrent: 4, RetentionDays: 30,
 		},
 		Model: ModelConfig{
 			CapacityProfile:    "dgx-spark-dual-light-v1",

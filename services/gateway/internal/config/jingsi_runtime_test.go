@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,12 +69,24 @@ func TestJingSiRuntimeConfigRetentionDaysDefaultsAndValidates(t *testing.T) {
 	}
 }
 
-func TestJingSiRuntimeEffectScopesDefaultToEnforced(t *testing.T) {
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatal(err)
+func TestJingSiRuntimeRejectsRetiredEffectSwitch(t *testing.T) {
+	for _, value := range []string{"false", "true", "null"} {
+		t.Run("config_"+value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(`{"jingsi_runtime_v1":{"enforce_effect_scopes":`+value+`}}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "enforce_effect_scopes is retired") {
+				t.Fatalf("retired config was not rejected: %v", err)
+			}
+		})
 	}
-	if !cfg.JingSiRuntime.EnforceEffectScopes {
-		t.Fatal("new executions must default to enforced admission")
+	for _, value := range []string{"false", "true", ""} {
+		t.Run("env_"+value, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES", value)
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "ENFORCE_EFFECT_SCOPES is retired") {
+				t.Fatalf("retired env was not rejected: %v", err)
+			}
+		})
 	}
 }

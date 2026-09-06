@@ -70,13 +70,8 @@ type JingSiRuntimeConfig struct {
 	BearerTokenFile string `json:"bearer_token_file,omitempty"`
 	MaxConcurrent   int    `json:"max_concurrent"`
 	RetentionDays   int    `json:"retention_days"`
-	// EnforceEffectScopes selects the admission rule for new executions: true
-	// requires every declared tool effect to be covered by JingSi's
-	// data_scope/network_scope, false keeps the legacy tool_scope-only rule.
-	// The rule is recorded on each run and never widens JingSi's grant.
-	// Accepted InfiniCenter decision 0034: default true after consumer proof.
-	EnforceEffectScopes bool   `json:"enforce_effect_scopes"`
-	BearerToken         string `json:"-"`
+
+	BearerToken string `json:"-"`
 }
 
 type GatewayConfig struct {

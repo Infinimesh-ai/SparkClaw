@@ -157,7 +157,6 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_JINGSI_RUNTIME_V1_BEARER_TOKEN", doc: "JingSi Runtime v1 bearer token (exclusive with the token file).", apply: envString(func(c *Config) *string { return &c.JingSiRuntime.BearerToken })},
 	{name: "SPARKCLAW_JINGSI_RUNTIME_V1_BEARER_TOKEN_FILE", doc: "Owner-only file holding the JingSi Runtime v1 bearer token.", apply: envString(func(c *Config) *string { return &c.JingSiRuntime.BearerTokenFile })},
 	{name: "SPARKCLAW_JINGSI_RUNTIME_V1_MAX_CONCURRENT", doc: "Maximum concurrent JingSi Runtime v1 executions.", apply: envInt(func(c *Config) *int { return &c.JingSiRuntime.MaxConcurrent })},
-	{name: "SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES", doc: "Admit new JingSi executions under effect-scope enforcement instead of the legacy tool_scope-only rule (accepted InfiniCenter decision 0034; default true).", apply: envBool(func(c *Config) *bool { return &c.JingSiRuntime.EnforceEffectScopes })},
 	{name: "SPARKCLAW_JINGSI_RUNTIME_V1_RETENTION_DAYS", doc: "Days to keep terminal JingSi Runtime v1 execution records and negative fences (0 keeps them forever).", apply: envInt(func(c *Config) *int { return &c.JingSiRuntime.RetentionDays })},
 	{name: "SPARKCLAW_PAIRING_REQUIRED", doc: "Require device pairing before serving authenticated routes.", apply: envBool(func(c *Config) *bool { return &c.Gateway.PairingRequired })},
 	{name: "SPARKCLAW_ISCP_PAIRING_ENABLED", doc: "Enable ISCP pairing against the authority.", apply: envBool(func(c *Config) *bool { return &c.ISCPPairing.Enabled })},

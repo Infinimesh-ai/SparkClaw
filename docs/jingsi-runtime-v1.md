@@ -114,24 +114,29 @@ data or network token but remains bound by `tool_scope`, the approval policy,
 and the tool-call budget. A tool with mixed effects must satisfy every one of
 them.
 
-InfiniCenter decision 0034 accepts the effect vocabulary after JingSi real
-provider allow/deny and restart proof. SparkClaw admits each execution under one
-of two exposure rules and records that rule on the run as
-`sparkclaw.admission:effect_scopes_legacy` or
-`sparkclaw.admission:effect_scopes_enforced`. JingSi's grant is persisted
-exactly as received under both rules; nothing is ever added to it on JingSi's
-behalf, so the persisted scopes never claim an authorization JingSi did not
-send. `jingsi_runtime_v1.enforce_effect_scopes`
-(`SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES`, default `true`) selects
-the rule for newly admitted executions: legacy admission exposes the tools named
-in `tool_scope` without consulting `data_scope`/`network_scope`; enforced
-admission additionally requires the effect tokens above. An execution keeps the
-admission it was accepted under across restart re-entry; it is never re-derived
-from the current setting, and a run whose projection lacks or corrupts the
-admission fails closed. The switch-over is coordinated in decision 0034: JingSi
-routes newly authorized tasks only to a provider running enforced admission,
-existing tasks reconcile on their original grant and request key, and the
-setting is retired once that switch-over is verified.
+InfiniCenter decision 0034 is accepted. All new executions record
+`sparkclaw.admission:effect_scopes_enforced`; their grant is persisted exactly as
+JingSi sent it. Every declared effect must be authorized. Document preflight and
+registration also require an authorized, non-approval document reader before
+format sniffing or any file-content read. Missing/unknown admission and the retired
+`effect_scopes_legacy` value fail closed instead of being reinterpreted.
+
+The compatibility setting `jingsi_runtime_v1.enforce_effect_scopes` and environment
+variable `SPARKCLAW_JINGSI_RUNTIME_V1_ENFORCE_EFFECT_SCOPES` are removed. Config
+loading rejects either retired setting, including `false`, `true`, or an empty
+environment value. Existing deployments must drain legacy executions before
+upgrading and remove the setting. Terminal lookup/status/cancel/events and exact
+submit replay retain their original grant and request key; no stored authorization
+is migrated or widened.
+
+JingSi's real-process gate compiled the shipping gateway and used its typed HTTP
+consumer, real executor/ToolHub, file store and Linux file-access observation: one
+allowed read succeeded and six denied cases never read the fixture; all seven
+terminal executions reconciled unchanged after process restart, with no repeated
+read and no scope-drift execution. Explicit enforcement, the default-enabled
+revision and this switch-free revision passed separately. Model selection used a
+deterministic mock capacity profile; this is local provider/file-tool evidence,
+not a live model, external-network or GB10 acceptance claim.
 
 Memory is included only when JingSi supplied the bounded v1 `memory_context`.
 The goal remains the sole owner-intent input for risk, guard, semantic routing,

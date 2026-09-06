@@ -16,7 +16,7 @@ func jingsiScopedRun(grant jingsiscope.Grant) app.AgentRun {
 
 func jingsiTestGrant() jingsiscope.Grant {
 	return jingsiscope.Grant{
-		Tools: []string{"files.read"}, ApprovalPolicy: jingsiscope.ApprovalDeny, MaxToolCalls: 4, EffectScopesEnforced: true,
+		Tools: []string{"files.read"}, ApprovalPolicy: jingsiscope.ApprovalDeny, MaxToolCalls: 4,
 		DataScope: []string{string(app.ToolEffectWorkspaceRead)},
 		Purpose:   "task.execute", GrantID: "grant_demo", GrantVersion: "v1",
 	}

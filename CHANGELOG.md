@@ -54,6 +54,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Store and Gateway telemetry: `GET /metrics` now derives its message, run,
+  model call, tool call and episode summary totals from bounded Store
+  aggregate reads (`CountVisibleMessages`, `CountVisibleRuns`,
+  `ModelCallStats`, `CountToolCalls`, `CountEpisodeSummaries`, implemented on
+  the memory, file and PostgreSQL backends) instead of listing every record
+  on each scrape. Exported metric names and values are unchanged.
 - Deployment: `docker compose` now requires an explicit
   `SPARKCLAW_MODEL_CAPACITY_PROFILE` (the previous `mock` default silently
   routed every model call to the mock router when the deploy scripts were

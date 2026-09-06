@@ -171,3 +171,23 @@ func (s *MemoryStore) MessageEventsAfter(ctx context.Context, sessionID, after s
 	}
 	return MessageEventPage{Events: matching, NextCursor: next, HasMore: hasMore}, nil
 }
+
+func (s *MemoryStore) CountVisibleMessages(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationConversationCountVisible, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationConversationCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationConversationCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	count := 0
+	for id, session := range s.sessions {
+		if !session.Hidden {
+			count += len(s.messages[id])
+		}
+	}
+	return count, nil
+}

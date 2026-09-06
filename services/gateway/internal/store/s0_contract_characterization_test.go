@@ -42,7 +42,7 @@ var s0RepositoryMethods = map[string][]string{
 		"UpdateEmailProviderSetting",
 	},
 	"ConversationRepository": {
-		"AddMessage", "ListMessages", "ListRecentMessages", "MessageEventHead", "MessageEventsAfter",
+		"AddMessage", "CountVisibleMessages", "ListMessages", "ListRecentMessages", "MessageEventHead", "MessageEventsAfter",
 	},
 	"CredentialRepository": {
 		"DeleteCredentialSecret", "GetCredentialSecret", "SaveCredentialSecret",
@@ -82,8 +82,8 @@ var s0RepositoryMethods = map[string][]string{
 		"MarkAllPassiveNotificationsRead", "MarkPassiveNotificationRead", "PassiveNotificationRevision", "PrunePassiveNotifications",
 	},
 	"RunRepository": {
-		"GetRun", "GetToolCall", "LatestModelCallsByLane", "ListEpisodeSummaries", "ListRecentEpisodeSummaries", "ListModelCalls", "ListRunFeedback", "ListRuns", "ListToolCalls", "ListRecentToolCalls",
-		"SaveEpisodeSummary", "SaveModelCall", "SaveRun", "SaveRunFeedback", "SaveToolCall",
+		"CountEpisodeSummaries", "CountToolCalls", "CountVisibleRuns", "GetRun", "GetToolCall", "LatestModelCallsByLane", "ListEpisodeSummaries", "ListRecentEpisodeSummaries", "ListModelCalls", "ListRunFeedback", "ListRuns", "ListToolCalls", "ListRecentToolCalls",
+		"ModelCallStats", "SaveEpisodeSummary", "SaveModelCall", "SaveRun", "SaveRunFeedback", "SaveToolCall",
 	},
 	"ScheduleRepository": {
 		"ClaimDueReminders", "GetReminder", "ListReminderDeliveries", "ListReminders", "SaveReminder", "SaveReminderDelivery", "UpdatePendingReminder",
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 147 {
-		t.Fatalf("repository method count = %d, want migrated baseline 147", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 152 {
+		t.Fatalf("repository method count = %d, want migrated baseline 152", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

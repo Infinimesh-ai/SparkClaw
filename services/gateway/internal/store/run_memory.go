@@ -439,3 +439,74 @@ func (s *MemoryStore) ListRecentEpisodeSummaries(ctx context.Context, sessionID 
 	}
 	return out, nil
 }
+
+func (s *MemoryStore) CountVisibleRuns(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationRunCountVisible, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationRunCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, run := range s.runs {
+		if session, ok := s.sessions[run.SessionID]; ok && !session.Hidden {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (s *MemoryStore) ModelCallStats(ctx context.Context) (app.ModelCallStats, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallStats, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallStats, ctx); err != nil {
+		return app.ModelCallStats{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationModelCallStats, ctx); err != nil {
+		return app.ModelCallStats{}, err
+	}
+	stats := app.ModelCallStats{}
+	for _, call := range s.modelCalls {
+		stats.Count++
+		if modelCallFailed(call) {
+			stats.FailedCount++
+		}
+		stats.LatencyMSTotal += call.LatencyMS
+		stats.TotalTokens += call.TotalTokens
+	}
+	return stats, nil
+}
+
+func (s *MemoryStore) CountToolCalls(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallCount, ctx); err != nil {
+		return 0, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationToolCallCount, ctx); err != nil {
+		return 0, err
+	}
+	return len(s.toolCalls), nil
+}
+
+func (s *MemoryStore) CountEpisodeSummaries(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummaryCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummaryCount, ctx); err != nil {
+		return 0, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationEpisodeSummaryCount, ctx); err != nil {
+		return 0, err
+	}
+	return len(s.episodeSummaries), nil
+}

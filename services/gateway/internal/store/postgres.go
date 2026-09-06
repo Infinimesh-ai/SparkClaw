@@ -289,3 +289,12 @@ func zeroTimeToNil(t time.Time) any {
 	}
 	return t
 }
+
+// queryPostgresCount runs one aggregate COUNT statement and returns its value.
+func queryPostgresCount(ctx context.Context, ops ownerPostgresOps, sql string, args ...any) (int, error) {
+	var count int64
+	if err := ops.QueryRow(ctx, sql, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}

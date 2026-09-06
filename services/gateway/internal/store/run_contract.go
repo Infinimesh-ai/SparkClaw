@@ -68,6 +68,12 @@ func modelCallIsLater(candidate, current app.ModelCall) bool {
 	return candidate.ID > current.ID
 }
 
+// modelCallFailed reports whether a persisted model call ended in failure;
+// every backend counts model call errors with this one rule.
+func modelCallFailed(call app.ModelCall) bool {
+	return call.Status == app.ModelCallStatusFailed
+}
+
 func prepareToolCall(call app.ToolCall, now time.Time) (app.ToolCall, error) {
 	if strings.TrimSpace(call.ID) == "" {
 		return app.ToolCall{}, errors.New("tool call ID is required")

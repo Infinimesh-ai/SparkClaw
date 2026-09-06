@@ -574,3 +574,64 @@ func (s *PostgresStore) ListRecentEpisodeSummaries(ctx context.Context, sessionI
 	}
 	return out, nil
 }
+
+func (s *PostgresStore) CountVisibleRuns(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationRunCountVisible, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationRunCountVisible, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.runPostgres, `
+		SELECT count(*)
+		FROM agent_runs r
+		JOIN sessions s ON s.id = r.session_id
+		WHERE s.hidden = false
+	`)
+	if err != nil {
+		return 0, classifyRunPostgresReadError(OperationRunCountVisible, ctx, err)
+	}
+	return count, nil
+}
+
+func (s *PostgresStore) ModelCallStats(ctx context.Context) (app.ModelCallStats, error) {
+	ctx, cancel := operationContext(ctx, OperationModelCallStats, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationModelCallStats, ctx); err != nil {
+		return app.ModelCallStats{}, err
+	}
+	var count, failed, latency, tokens int64
+	if err := s.runPostgres.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE status = $1),
+			coalesce(sum(latency_ms), 0)::bigint, coalesce(sum(total_tokens), 0)::bigint
+		FROM model_calls
+	`, app.ModelCallStatusFailed).Scan(&count, &failed, &latency, &tokens); err != nil {
+		return app.ModelCallStats{}, classifyRunPostgresReadError(OperationModelCallStats, ctx, err)
+	}
+	return app.ModelCallStats{Count: int(count), FailedCount: int(failed), LatencyMSTotal: latency, TotalTokens: int(tokens)}, nil
+}
+
+func (s *PostgresStore) CountToolCalls(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationToolCallCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationToolCallCount, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.runPostgres, `SELECT count(*) FROM tool_calls`)
+	if err != nil {
+		return 0, classifyRunPostgresReadError(OperationToolCallCount, ctx, err)
+	}
+	return count, nil
+}
+
+func (s *PostgresStore) CountEpisodeSummaries(ctx context.Context) (int, error) {
+	ctx, cancel := operationContext(ctx, OperationEpisodeSummaryCount, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationEpisodeSummaryCount, ctx); err != nil {
+		return 0, err
+	}
+	count, err := queryPostgresCount(ctx, s.runPostgres, `SELECT count(*) FROM episode_summaries`)
+	if err != nil {
+		return 0, classifyRunPostgresReadError(OperationEpisodeSummaryCount, ctx, err)
+	}
+	return count, nil
+}

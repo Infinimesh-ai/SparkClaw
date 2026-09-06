@@ -15,51 +15,34 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		writeSessionStoreError(w, err)
 		return
 	}
-	messages := 0
-	runs := 0
-	allModelCalls, err := s.store.ListModelCalls(r.Context(), "", "")
+	messages, err := s.store.CountVisibleMessages(r.Context())
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
 	}
-	allToolCalls, err := s.store.ListToolCalls(r.Context(), "")
+	runs, err := s.store.CountVisibleRuns(r.Context())
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
 	}
-	allEpisodes, err := s.store.ListEpisodeSummaries(r.Context(), "")
+	modelCalls, err := s.store.ModelCallStats(r.Context())
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
 	}
-	modelCalls := len(allModelCalls)
-	modelErrors := 0
-	modelLatencyTotal := int64(0)
-	modelTokensTotal := 0
-	for _, session := range sessions {
-		storedMessages, err := s.store.ListMessages(r.Context(), session.ID)
-		if err != nil {
-			writeSessionStoreError(w, err)
-			return
-		}
-		messages += len(storedMessages)
-		storedRuns, err := s.store.ListRuns(r.Context(), session.ID)
-		if err != nil {
-			writeSessionStoreError(w, err)
-			return
-		}
-		runs += len(storedRuns)
+	toolCalls, err := s.store.CountToolCalls(r.Context())
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
 	}
-	for _, call := range allModelCalls {
-		if call.Status == "failed" {
-			modelErrors++
-		}
-		modelLatencyTotal += call.LatencyMS
-		modelTokensTotal += call.TotalTokens
+	episodes, err := s.store.CountEpisodeSummaries(r.Context())
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
 	}
 	modelLatencyAverage := float64(0)
-	if modelCalls > 0 {
-		modelLatencyAverage = float64(modelLatencyTotal) / float64(modelCalls)
+	if modelCalls.Count > 0 {
+		modelLatencyAverage = float64(modelCalls.LatencyMSTotal) / float64(modelCalls.Count)
 	}
 	approvals, err := s.store.ListApprovals(r.Context(), "")
 	if err != nil {
@@ -107,19 +90,19 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_agent_runs_total %d", runs),
 		"# HELP sparkclaw_model_calls_total Current model call count.",
 		"# TYPE sparkclaw_model_calls_total gauge",
-		fmt.Sprintf("sparkclaw_model_calls_total %d", modelCalls),
+		fmt.Sprintf("sparkclaw_model_calls_total %d", modelCalls.Count),
 		"# HELP sparkclaw_model_call_errors_total Current failed model call count.",
 		"# TYPE sparkclaw_model_call_errors_total gauge",
-		fmt.Sprintf("sparkclaw_model_call_errors_total %d", modelErrors),
+		fmt.Sprintf("sparkclaw_model_call_errors_total %d", modelCalls.FailedCount),
 		"# HELP sparkclaw_model_call_latency_ms_avg Average stored model call latency in milliseconds.",
 		"# TYPE sparkclaw_model_call_latency_ms_avg gauge",
 		fmt.Sprintf("sparkclaw_model_call_latency_ms_avg %.2f", modelLatencyAverage),
 		"# HELP sparkclaw_model_call_tokens_total Total stored model call token usage.",
 		"# TYPE sparkclaw_model_call_tokens_total gauge",
-		fmt.Sprintf("sparkclaw_model_call_tokens_total %d", modelTokensTotal),
+		fmt.Sprintf("sparkclaw_model_call_tokens_total %d", modelCalls.TotalTokens),
 		"# HELP sparkclaw_tool_calls_total Current tool call count.",
 		"# TYPE sparkclaw_tool_calls_total gauge",
-		fmt.Sprintf("sparkclaw_tool_calls_total %d", len(allToolCalls)),
+		fmt.Sprintf("sparkclaw_tool_calls_total %d", toolCalls),
 		"# HELP sparkclaw_approvals_total Current approval count.",
 		"# TYPE sparkclaw_approvals_total gauge",
 		fmt.Sprintf("sparkclaw_approvals_total %d", len(approvals)),
@@ -134,7 +117,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("sparkclaw_memories_total %d", len(memories)),
 		"# HELP sparkclaw_episode_summaries_total Current episode summary count.",
 		"# TYPE sparkclaw_episode_summaries_total gauge",
-		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(allEpisodes)),
+		fmt.Sprintf("sparkclaw_episode_summaries_total %d", episodes),
 	}
 	lines = append(lines, s.tools.DocumentMetrics()...)
 	lines = append(lines, s.storeOperationMetrics()...)

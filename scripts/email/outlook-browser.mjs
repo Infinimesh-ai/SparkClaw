@@ -22,57 +22,23 @@ export const PROBE_EXPRESSION = String.raw`(async () => {
       style.display !== "none" && style.visibility !== "hidden" &&
       Number.parseFloat(style.opacity || "1") > 0;
   };
-  const anyVisible = (selector) =>
-    Array.from(document.querySelectorAll(selector)).some(isVisible);
   const collect = () => {
-    const titleBar = document.querySelector("#OwaTitleBar");
-    const appLauncher = document.querySelector(
-      "#OwaTitleBar button#owaAppLauncherBtn_container",
-    );
     const accountControl = Array.from(document.querySelectorAll([
       "#OwaTitleBar button#O365_MainLink_MePhoto",
       "#OwaTitleBar button#O365_MeFlexPane_ButtonID",
       '#OwaTitleBar button[data-testid="mectrl_headerPicture"]',
-      '#OwaTitleBar button[aria-label^="Account manager for "]',
-      '#OwaTitleBar button[aria-label^="Account manager"]',
-      '#OwaTitleBar button[aria-label^="\u5e10\u6237\u7ba1\u7406"]',
-      '#OwaTitleBar button[aria-label^="\u8d26\u6237\u7ba1\u7406"]',
     ].join(", "))).find(isVisible) || null;
     return {
       contract_version: 1,
       url: window.location.href,
-      positive: {
-        app_shell: isVisible(titleBar) && isVisible(appLauncher),
-        compose_command: anyVisible([
-          'button[aria-label="New mail"]',
-          'button[aria-label="New message"]',
-          'button[aria-label="\u65b0\u90ae\u4ef6"]',
-          'button[aria-label="\u65b0\u5efa\u90ae\u4ef6"]',
-        ].join(", ")),
-        mail_navigation: anyVisible([
-          '[role="navigation"] button[aria-label="Mail"]',
-          '[role="navigation"] button[aria-label="\u90ae\u4ef6"]',
-        ].join(", ")),
-      },
-      negative: {
-        credential_entry: anyVisible([
-          'input[name="loginfmt"]',
-          "input#i0116",
-          'input[name="passwd"]',
-          "input#i0118",
-        ].join(", ")),
-        account_chooser: anyVisible([
-          "#tilesHolder",
-          '[data-testid="tile-list"]',
-          '[role="listbox"][aria-label="Pick an account"]',
-          '[role="listbox"][aria-label="\u9009\u62e9\u5e10\u6237"]',
-          '[role="listbox"][aria-label="\u9009\u62e9\u8d26\u6237"]',
-        ].join(", ")),
-        sign_in_action: anyVisible([
-          "#idSIButton9",
-          'button[data-testid="primaryButton"]',
-        ].join(", ")),
-      },
+      mailbox_visible: Array.from(document.querySelectorAll([
+        'button[aria-label="New mail"]',
+        'button[aria-label="New message"]',
+        'button[aria-label="\u65b0\u90ae\u4ef6"]',
+        'button[aria-label="\u65b0\u5efa\u90ae\u4ef6"]',
+        '[role="navigation"] button[aria-label="Mail"]',
+        '[role="navigation"] button[aria-label="\u90ae\u4ef6"]',
+      ].join(", "))).some(isVisible),
       account_marker: accountControl ? {
         source: "account_control",
         label: accountControl.getAttribute("aria-label") ||
@@ -85,8 +51,8 @@ export const PROBE_EXPRESSION = String.raw`(async () => {
   let evidence = collect();
   while (
     Date.now() < deadline &&
-    !Object.values(evidence.positive).some(Boolean) &&
-    !Object.values(evidence.negative).some(Boolean)
+    !evidence.mailbox_visible &&
+    ${JSON.stringify([...OUTLOOK_ORIGINS])}.includes(new URL(evidence.url).origin)
   ) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     evidence = collect();
@@ -95,8 +61,8 @@ export const PROBE_EXPRESSION = String.raw`(async () => {
 })()`;
 
 export class OutlookCliError extends Error {
-  constructor(code) {
-    super(code);
+  constructor(code, options) {
+    super(code, options);
     this.name = "OutlookCliError";
     this.code = code;
   }
@@ -129,16 +95,7 @@ export function parseProbeEvidence(evalData) {
     typeof result.url !== "string" ||
     typeof origin !== "string" ||
     result.url !== origin ||
-    !hasBooleanKeys(result.positive, [
-      "app_shell",
-      "compose_command",
-      "mail_navigation",
-    ]) ||
-    !hasBooleanKeys(result.negative, [
-      "account_chooser",
-      "credential_entry",
-      "sign_in_action",
-    ]) ||
+    typeof result.mailbox_visible !== "boolean" ||
     !isAccountMarker(result.account_marker)
   ) {
     throw new OutlookCliError("browser_output_invalid");
@@ -154,17 +111,8 @@ export function classifyProbeEvidence(evidence) {
     throw new OutlookCliError("outlook_origin_not_allowed");
   }
 
-  const positiveCount = Object.values(evidence.positive).filter(Boolean).length;
-  const negativeCount = Object.values(evidence.negative).filter(Boolean).length;
-  if (positiveCount > 0 && negativeCount > 0) {
-    throw new OutlookCliError("outlook_evidence_conflict");
-  }
-  if (negativeCount > 0) throw new OutlookCliError("email_login_required");
-  if (isLoginOrigin) throw new OutlookCliError("outlook_page_contract_changed");
-  if (
-    !evidence.positive.app_shell ||
-    (!evidence.positive.compose_command && !evidence.positive.mail_navigation)
-  ) {
+  if (isLoginOrigin) throw new OutlookCliError("email_login_required");
+  if (!url.pathname.startsWith("/mail/") || !evidence.mailbox_visible) {
     throw new OutlookCliError("outlook_page_contract_changed");
   }
 
@@ -234,10 +182,6 @@ function deriveMaskedAccountHint(marker) {
   const domain = email.slice(separator + 1).toLowerCase();
   const hint = localPrefix + "***@" + domain;
   return Array.from(hint).length <= 64 ? hint : null;
-}
-
-function hasBooleanKeys(value, keys) {
-  return hasExactKeys(value, keys) && keys.every((key) => typeof value[key] === "boolean");
 }
 
 function isAccountMarker(value) {

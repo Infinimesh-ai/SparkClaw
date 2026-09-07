@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
+import vm from "node:vm";
 
 import { GMAIL_SEND_SELECTORS } from "../../../scripts/email/gmail-send.mjs";
 import { QQMAIL_LOGIN_PROBE_SELECTORS } from "../../../scripts/email/qqmail-login-probe.mjs";
-import { QQMAIL_SELECTORS } from "../../../scripts/email/qqmail-send.mjs";
-import { OUTLOOK_SEND_SELECTOR } from "../../../scripts/email/outlook-send.mjs";
+import { QQMAIL_SELECTORS, QQMAIL_SENT_BASELINE_EXPRESSION, QQMAIL_SENT_VERIFICATION_EXPRESSION } from "../../../scripts/email/qqmail-send.mjs";
+import { OUTLOOK_SEND_SELECTOR, OUTLOOK_SEND_VERIFICATION_EXPRESSION, OUTLOOK_RECIPIENT_STATE_EXPRESSION, OUTLOOK_SENT_BASELINE_EXPRESSION } from "../../../scripts/email/outlook-send.mjs";
 import { createProviderRuntime } from "../src/cli-task.mjs";
 import { ProviderScriptRegistry } from "../src/provider-scripts.mjs";
 
@@ -40,6 +41,18 @@ test("all provider probes execute through their injected Playwright runtime adap
     assert.equal(client.adapter, providerCase.adapter, providerCase.provider);
     assert.equal(client.effectAttempted, false, providerCase.provider);
     client.assertAdapterLifecycle();
+  }
+});
+
+test("all email registrations preserve background execution", async () => {
+  const registry = new ProviderScriptRegistry();
+  await registry.prepare();
+  for (const providerCase of CASES) {
+    for (const operation of ["probe", "send"]) {
+      const registration = registry.resolve({ provider: providerCase.provider, operation,
+        scriptID: providerCase[operation], revision: 1 });
+      assert.notEqual(registration.visibleWindow, true);
+    }
   }
 });
 
@@ -102,6 +115,130 @@ test("all provider sends use the registered effect selector exactly once", async
   }
 });
 
+test("QQ draft rejects extra recipients and changed body before Send", async () => {
+  const registry = new ProviderScriptRegistry();
+  await registry.prepare();
+  const registration = registry.resolve({ provider: "qq_mail", operation: "send", scriptID: "qqmail.send", revision: 1 });
+  for (const failure of ["extra_recipient", "changed_body", "uncommitted_recipient"]) {
+    const input = sendInput("qq_mail");
+    const client = new ProviderRuntimeFixture(registration, input);
+    const command = client.qqCommand.bind(client);
+    client.qqCommand = args => {
+      const result = command(args);
+      if (failure === "extra_recipient" && args[1] === "count" && args[2] === QQMAIL_SELECTORS.allRecipientChips) result.count = 2;
+      if (failure === "changed_body" && args[1] === "lines") result.text += "unexpected";
+      if (failure === "uncommitted_recipient" && args[1] === "value" && args[2] === QQMAIL_SELECTORS.recipient && client.qqRecipientCommitted) result.value = "remaining@example.test";
+      return result;
+    };
+    await assert.rejects(registration.handler(input, createProviderRuntime(client, registration)), { code: "draft_verification_failed" });
+    assert.equal(client.effectAttempted, false);
+  }
+});
+
+test("Gmail rejects extra, changed and uncommitted recipients before Send", async () => {
+  const registry = new ProviderScriptRegistry();
+  await registry.prepare();
+  const registration = registry.resolve({ provider: "gmail", operation: "send", scriptID: "gmail.send", revision: 1 });
+  for (const failure of ["extra", "changed", "uncommitted"]) {
+    const input = sendInput("gmail");
+    const client = new ProviderRuntimeFixture(registration, input);
+    const original = client.gmailTab.bind(client);
+    client.gmailTab = () => {
+      const tab = original();
+      if (failure === "extra") {
+        const count = client.gmailCount.bind(client);
+        client.gmailCount = selector => selector === GMAIL_SEND_SELECTORS.recipientChip ? 2 : count(selector);
+      }
+      if (failure === "changed") client.gmailAttribute = () => "wrong@example.test";
+      if (failure === "uncommitted") tab.press = async () => { client.gmailRecipientCommitted = true; };
+      return tab;
+    };
+    await assert.rejects(registration.handler(input, createProviderRuntime(client, registration)), { code: "email_send_precondition_failed" });
+    assert.equal(client.effectAttempted, false);
+  }
+});
+
+test("QQ confirms a new matching sent record, not an old message or another folder", async () => {
+  for (const scenario of ["sent", "empty", "old", "wrong_subject", "compose_open", "inbox", "missing", "unrelated_insert"]) {
+    let now = 0;
+    const first = {
+      getAttribute: () => scenario === "old" ? "old" : "new",
+      getBoundingClientRect: () => ({ width: 20, height: 20 }),
+      querySelector: () => ({ textContent: scenario === "wrong_subject" ? "wrong" : "subject" }),
+    };
+    const rows = scenario === "missing" ? [] : scenario === "empty" ? [first] :
+      [first, { getAttribute: () => scenario === "unrelated_insert" ? "other" : "old" }];
+    const verify = vm.runInNewContext(QQMAIL_SENT_VERIFICATION_EXPRESSION, {
+      Date: { now: () => now }, setTimeout: callback => { now += 6000; callback(); },
+      crypto: crypto.webcrypto, TextEncoder, Uint8Array,
+      location: { hash: scenario === "inbox" ? "#/list/1" : "#/list/3" },
+      getComputedStyle: () => ({ visibility: "visible" }),
+      document: { querySelectorAll: () => rows, querySelector: () => scenario === "compose_open" ? first : null },
+    });
+    const result = await verify({ ids: scenario === "empty" ? [] : ["old"],
+      subject: crypto.createHash("sha256").update("subject").digest("hex"), emptySubject: false });
+    assert.equal(result.sent_evidence, ["sent", "empty"].includes(scenario), scenario);
+  }
+});
+
+test("Outlook confirms only a newly inserted matching sent item after compose closes", async () => {
+  const hash = text => crypto.createHash("sha256").update(text).digest("hex");
+  for (const scenario of ["sent", "empty", "old", "wrong_recipient", "wrong_subject", "open", "inbox", "missing", "unrelated_insert"]) {
+    let now = 0;
+    const row = { id: scenario === "old" ? "old" : "new", isConnected: true,
+      getBoundingClientRect: () => ({ width: 20, height: 20 }),
+      querySelectorAll: () => [scenario === "wrong_recipient" ? "wrong@example.test" : "one@example.test", scenario === "wrong_subject" ? "wrong" : "subject"].map(textContent => ({ textContent, children: [] })),
+    };
+    const inspect = vm.runInNewContext(OUTLOOK_SEND_VERIFICATION_EXPRESSION, {
+      Date: { now: () => now += 6000 }, setTimeout, crypto: crypto.webcrypto, TextEncoder, Uint8Array,
+      window: { location: { href: "https://outlook.live.com/mail/0/sentitems", pathname: scenario === "inbox" ? "/mail/0/inbox" : "/mail/0/sentitems" }, getComputedStyle: () => ({}) },
+      document: { querySelectorAll: selector => selector.includes('[data-convid]') ? scenario === "missing" ? [] : scenario === "empty" ? [row] : [row, {id: scenario === "unrelated_insert" ? "unexpected" : "old"}] : scenario === "open" ? [row] : [] },
+    });
+    const result = await inspect({ids: scenario === "empty" ? [] : ["old"], recipient: hash("one@example.test"), subject: hash("subject")});
+    assert.equal(result.sent_evidence, ["sent", "empty"].includes(scenario), scenario);
+  }
+});
+
+test("Outlook recipient state rejects pending text and extra chips", () => {
+  for (const [pending, inField, total, expected] of [["\u200b", 1, 1, true], ["other@example.test", 1, 1, false], ["", 0, 0, false], ["", 1, 2, false]]) {
+    const field = {
+      querySelectorAll: () => Array(inField),
+      cloneNode: () => ({ textContent: pending, querySelectorAll: () => [] }),
+    };
+    const inspect = vm.runInNewContext(OUTLOOK_RECIPIENT_STATE_EXPRESSION, {
+      document: { querySelector: () => field, querySelectorAll: () => Array(total) },
+    });
+    assert.equal(inspect().valid, expected);
+  }
+});
+
+test("Outlook batch rejects modified fields and a disabled or ambiguous Send control", async () => {
+  const registry = new ProviderScriptRegistry();
+  await registry.prepare();
+  const registration = registry.resolve({ provider: "outlook", operation: "send", scriptID: "outlook.send", revision: 1 });
+  for (const failure of ["recipient", "subject", "body", "send_count", "disabled"]) {
+    const input = sendInput("outlook");
+    const client = new ProviderRuntimeFixture(registration, input);
+    const original = client.outlookTab.bind(client);
+    client.outlookTab = () => {
+      const tab = original();
+      const read = tab.readMany;
+      tab.readMany = async commands => {
+        const values = await read(commands);
+        if (failure === "recipient") values[0].value = "wrong@example.test";
+        if (failure === "subject") values[1].value += " changed";
+        if (failure === "body") values[2].text += " changed";
+        if (failure === "send_count") values[3].count = 2;
+        if (failure === "disabled") values[4].enabled = false;
+        return values;
+      };
+      return tab;
+    };
+    await assert.rejects(registration.handler(input, createProviderRuntime(client, registration)));
+    assert.equal(client.effectAttempted, false, failure);
+  }
+});
+
 class ProviderRuntimeFixture {
   constructor(registration, input) {
     this.registration = registration;
@@ -135,14 +272,17 @@ class ProviderRuntimeFixture {
   outlookTab() {
     this.adapter = "outlook";
     return {
-      inspect: async () => {
+      inspect: async (expression) => {
         this.outlookInspectCalls += 1;
+        if (expression === OUTLOOK_RECIPIENT_STATE_EXPRESSION) return { result: { valid: true } };
+        if (expression === OUTLOOK_SENT_BASELINE_EXPRESSION) return { result: { ids: ["old"] } };
         return outlookProbeEvidence();
       },
       act: async (command) => {
         this.outlookActCalls += 1;
         return this.outlookCommand(command);
       },
+      readMany: async commands => commands.map(command => this.outlookCommand(command)),
     };
   }
 
@@ -150,16 +290,35 @@ class ProviderRuntimeFixture {
     this.adapter = "gmail";
     return {
       open: async () => { this.gmailOpened += 1; },
+      inspect: async () => ({
+        origin: "https://mail.google.com/mail/u/0/#inbox",
+        result: {
+          url: "https://mail.google.com/mail/u/0/#inbox",
+          compose_visible: true,
+          account_label: "Google Account: Person (person@example.test)",
+        },
+      }),
       getUrl: async () => "https://mail.google.com/mail/u/0/#inbox",
       getCount: async (selector) => this.gmailCount(selector),
       getAttribute: async (selector, attribute) => this.gmailAttribute(selector, attribute),
       getValue: async (selector) => this.fields.get(selector) ?? "",
       getText: async (selector) => this.gmailText(selector),
+      readMany: async commands => commands.map(([, subtype, selector, attribute]) => {
+        if (subtype === "count") return { count: this.gmailCount(selector) };
+        if (subtype === "attr") return { value: this.gmailAttribute(selector, attribute) };
+        if (subtype === "text") return { text: this.gmailText(selector) };
+        if (subtype === "value") return { value: this.fields.get(selector) ?? "" };
+        if (subtype === "enabled") return { enabled: true };
+        throw new Error("unsupported Gmail read");
+      }),
       waitFor: async () => {},
       click: async (selector) => this.gmailClick(selector),
       fill: async (selector, value) => { this.fields.set(selector, value); },
       focus: async () => {},
-      press: async () => { this.gmailRecipientCommitted = true; },
+      press: async () => {
+        this.gmailRecipientCommitted = true;
+        this.fields.set(GMAIL_SEND_SELECTORS.recipientInput, "");
+      },
       closeOwnedTab: async () => { this.gmailClosed += 1; },
       dispose: async () => { this.gmailDisposed += 1; },
     };
@@ -167,11 +326,15 @@ class ProviderRuntimeFixture {
 
   qqCommand(command) {
     const [name, subtype, selector] = command;
+    if (name === "eval") {
+      const expression = Buffer.from(selector, "base64").toString("utf8");
+      return { result: expression === QQMAIL_SENT_BASELINE_EXPRESSION ? { ids: ["old"] } : { sent_evidence: true }, origin: this.qqURL() };
+    }
     if (name === "get" && subtype === "url") return { url: this.qqURL() };
     if (name === "get" && subtype === "count") {
       return { count: this.qqCount(selector), selector };
     }
-    if (name === "get" && subtype === "text") {
+    if (name === "get" && ["text", "lines"].includes(subtype)) {
       return { text: this.qqText(selector), origin: this.qqURL() };
     }
     if (name === "get" && subtype === "value") {
@@ -193,17 +356,37 @@ class ProviderRuntimeFixture {
       return { clicked: subtype };
     }
     if (name === "fill") {
+      if (subtype === QQMAIL_SELECTORS.subject) {
+        assert.equal(this.qqRecipientCommitted, true, "resolve QQ recipient before filling subject");
+      }
       this.fields.set(subtype, selector);
       return { filled: subtype };
     }
-    if (name === "focus") return { focused: subtype };
-    if (name === "press") return { pressed: subtype };
-    if (name === "wait") return { waited: subtype };
+    if (name === "focus") {
+      if (subtype === QQMAIL_SELECTORS.subject) {
+        this.qqRecipientCommitted = true;
+        this.fields.set(QQMAIL_SELECTORS.recipient, "");
+      }
+      return { focused: subtype };
+    }
+    if (name === "press") {
+      if (subtype === "Tab") {
+        this.qqRecipientCommitted = true;
+        this.fields.set(QQMAIL_SELECTORS.recipient, "");
+      }
+      return { pressed: subtype };
+    }
+    if (name === "wait") {
+      if (subtype === QQMAIL_SELECTORS.recipientChip) {
+        assert.equal(this.qqRecipientCommitted, true, "QQ recipient commits on blur");
+      }
+      return { waited: subtype };
+    }
     throw new Error(`unsupported QQ Mail command: ${JSON.stringify(command)}`);
   }
 
   qqURL() {
-    if (this.qqSent) return "https://wx.mail.qq.com/home/index#/list/5";
+    if (this.qqSent) return "https://wx.mail.qq.com/home/index#/list/3";
     if (this.qqComposeOpen) return "https://wx.mail.qq.com/home/index#/compose/new";
     return "https://wx.mail.qq.com/home/index";
   }
@@ -238,6 +421,8 @@ class ProviderRuntimeFixture {
       return { filled: subtype };
     }
     if (name === "get" && subtype === "value") return { value: this.fields.get(selector) ?? "" };
+    if (name === "get" && subtype === "count") return { count: 1 };
+    if (name === "get" && subtype === "attr") return { value: this.input.message.recipient };
     if (name === "get" && subtype === "text") return { text: this.fields.get(selector) ?? "" };
     if (name === "is" && subtype === "enabled") return { enabled: true };
     if (name === "click") {
@@ -277,7 +462,7 @@ class ProviderRuntimeFixture {
   }
 
   gmailAttribute(selector, attribute) {
-    if (selector === GMAIL_SEND_SELECTORS.recipientChip && attribute === "email") {
+    if (selector === GMAIL_SEND_SELECTORS.recipientChip && attribute === "data-hovercard-id") {
       return this.input.message.recipient;
     }
     if (attribute === "aria-label") return "Google Account: Person (person@example.test)";
@@ -322,16 +507,7 @@ function outlookProbeEvidence() {
     result: {
       contract_version: 1,
       url,
-      positive: {
-        app_shell: true,
-        compose_command: true,
-        mail_navigation: true,
-      },
-      negative: {
-        credential_entry: false,
-        account_chooser: false,
-        sign_in_action: false,
-      },
+      mailbox_visible: true,
       account_marker: null,
     },
     origin: url,

@@ -42,7 +42,7 @@ The production browser and controller versions qualified in this cutover are:
 | Component | Version |
 |---|---|
 | SparkClaw Chromium | `148.0.7778.0` |
-| SparkClaw Browser Bridge | `1.0.18` |
+| SparkClaw Browser Bridge | `1.0.20` |
 | Playwright MCP | `0.0.80` |
 | Playwright CLI | `0.1.19` |
 | Playwright Library/Core | `1.63.0-alpha-2026-08-31` |

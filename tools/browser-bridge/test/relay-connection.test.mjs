@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { HANDOFF_EVALUATE_FUNCTION } from "../src/protocol.mjs";
+import { BACKGROUND_INPUT_EVALUATE_FUNCTION, HANDOFF_EVALUATE_FUNCTION } from "../src/protocol.mjs";
 import { RelayConnection } from "../src/relay-connection.mjs";
 
 test("relay exposes only its initial task tab and rejects owner-tab control", async () => {
@@ -98,6 +98,47 @@ test("foreground activation requires and consumes the exact handoff marker", asy
   assert.deepEqual(fixture.calls.sendCommand.map((call) => call[1]), ["Runtime.callFunctionOn", "Page.bringToFront"]);
   assert.deepEqual(handoffs, [2, 2]);
   assert.deepEqual(completed, [2, 2]);
+});
+
+test("background input enables only the owned renderer and never grants window handoff", async () => {
+  for (const wrapped of [false, true]) {
+    const fixture = createFixture();
+    const relay = new RelayConnection(fixture.options);
+    const handoffs = [];
+    relay.onhandoff = tabId => handoffs.push(tabId);
+    relay.onhandoffcomplete = tabId => handoffs.push(tabId);
+    await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+    const method = wrapped ? "Runtime.callFunctionOn" : "Runtime.evaluate";
+    const params = wrapped ? {
+      functionDeclaration: "(utilityScript, ...args) => utilityScript.evaluate(...args)", objectId: "utility",
+      arguments: [{ objectId: "utility" }, { value: true }, { value: true }, { value: "wrapper" },
+        { value: 1 }, { value: JSON.stringify({ s: BACKGROUND_INPUT_EVALUATE_FUNCTION }) }],
+      returnByValue: true, awaitPromise: true, userGesture: true,
+    } : { expression: BACKGROUND_INPUT_EVALUATE_FUNCTION };
+    await relay.handleCommand({ id: 2, method: "chrome.debugger.sendCommand", params: [{ tabId: 2 }, method, params] });
+    await relay.handleCommand({ id: 3, method: "chrome.debugger.sendCommand", params: [{ tabId: 2 }, "Page.bringToFront", {}] });
+    await assert.rejects(relay.handleCommand({ id: 4, method: "chrome.debugger.sendCommand",
+      params: [{ tabId: 1 }, method, params] }), /not attached/);
+    assert.deepEqual(fixture.calls.sendCommand, [
+      [{ tabId: 2 }, "Emulation.setFocusEmulationEnabled", { enabled: true }],
+      [{ tabId: 2 }, method, params],
+    ]);
+    assert.deepEqual(handoffs, []);
+    assert.deepEqual(fixture.calls.create, []);
+    assert.deepEqual(fixture.calls.update, []);
+  }
+});
+
+test("background input requires an exact marker and propagates initialization failure", async () => {
+  const fixture = createFixture();
+  const relay = new RelayConnection(fixture.options);
+  await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+  await relay.handleCommand({ id: 2, method: "chrome.debugger.sendCommand", params: [{ tabId: 2 }, "Runtime.evaluate",
+    { expression: BACKGROUND_INPUT_EVALUATE_FUNCTION + ";" }] });
+  assert.deepEqual(fixture.calls.sendCommand.map(call => call[1]), ["Runtime.evaluate"]);
+  fixture.chromeAPI.debugger.sendCommand = async () => { throw new Error("initialization failed"); };
+  await assert.rejects(relay.handleCommand({ id: 3, method: "chrome.debugger.sendCommand", params: [{ tabId: 2 }, "Runtime.evaluate",
+    { expression: BACKGROUND_INPUT_EVALUATE_FUNCTION }] }), /initialization failed/);
 });
 
 test("marker text in an unrelated debugger command cannot authorize focus", async () => {

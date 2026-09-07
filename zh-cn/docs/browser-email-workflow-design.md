@@ -68,6 +68,21 @@ WebChat 的 `设置 > 连接 > 浏览器邮箱` 提供 QQ 邮箱、Outlook 和 G
 Enable/Disable、设为唯一 Default、打开手动登录并运行只读 Probe。Panel 显示有界 Readiness
 Metadata 和可选 Masked Account Hint。
 
+QQ 邮箱登录校验一次批量读取两个页面标记：登录区域可见即需要登录；否则，
+`/home/index` 邮箱页头部显示可见且有效的账号地址即就绪。两种状态都无法识别时，
+返回页面契约错误。不再要求写信按钮、头像容器、各类登录方式同时出现，也不重复检查。
+任务标签页归属和允许的域名仍由浏览器运行时核验。
+
+Outlook 在邮箱路由下看到“新建邮件”或“邮件导航”任一入口即可就绪；Gmail 在邮箱路由
+下看到写信入口即可就绪。两者均在一次 DOM 检查内收集登录状态，账号标签仅用于可选的
+脱敏提示。Microsoft 或 Google 登录域名直接表示需要登录，不再枚举密码、账号选择和
+验证表单。邮箱入口尚未出现时，在同一次检查内最多等待八秒供页面加载，仍未出现则
+返回页面契约错误；状态明确时立即返回。
+
+登录 Probe 的 URL 与页面证据由 Controller 在同一次 CLI 求值中返回。求值前核验任务
+标签页归属与已观察到的服务商 URL，读取 DOM 前核验实时域名，并检查返回的 URL。
+页面上下文失效后，仍须重新核验域名才能重试。
+
 Gateway API：
 
 ```text
@@ -168,7 +183,41 @@ Digest、可选 Opaque Provider Message ID、Browser Credential Generation 和 H
 通过注入的 Playwright Task Runtime 运行；Handler 内不存在 Standalone stdin Entry Point 或
 Process/CDP Fallback。
 
-Controller 通过 Owner-only `0600` Ephemeral Input File 传递 Message Value。Recipient、
+QQ 邮箱先核验收件人完整地址，在后台页面内向主题框发出 mousedown 以解除收件人编辑器
+的焦点锁定，再执行 DOM focus 和 mouseup。等待有效收件人标签后填写其余字段，最终
+要求恰好一个有效收件人标签且输入框为空。
+标签可能只显示昵称。纯文本正文按编辑器的 DIV/BR 行结构还原并保留空行，避免使用受布局
+影响的 `innerText`；未知编辑器结构会在发送前失败。
+QQ 写信前打开“已发送”（`#/list/3`）并记录已有邮件 ID；发送后要求该文件夹新增首行，
+主题摘要匹配，且紧邻原首行。返回任意邮件列表或找到旧的同内容邮件都不能判定成功。
+
+三家邮箱发信和登录探测均在已有浏览器窗口的后台任务标签页运行。邮箱脚本不请求窗口
+Handoff，也不将任务标签页切到前台。写信前 Controller 经现有 Bridge 会话发送固定的
+后台输入标记，只为已附加的任务渲染器启用焦点模拟，使编辑器布局和 Playwright 原生输入
+能在实际后台标签页工作。该标记不授予 Handoff，也不激活标签页或窗口；登录探测不使用
+此标记。输入区焦点转换在页面内部完成，不改变浏览器窗口焦点。等待控件时要求实际可见，而非仅存在 DOM
+节点。Outlook 支持 contenteditable
+收件人输入区，校验已提交标签的完整地址、无残留输入且无额外收件人；Gmail 同时支持
+旧 `email` 和当前 `data-hovercard-id` 收件人标签。存在新版 role=option 标签时只统计这些
+标签，排除折叠视图中重复的地址摘要。Gmail 要求已发送回执且写信界面关闭。
+Outlook 从“已发送”开始并记录已有行 ID；成功时要求写信界面关闭，新首行的收件人和主题
+摘要匹配，且下一行是原来的首行。旧的同内容邮件或仅界面消失均不能判定成功。未知列表
+布局会失败关闭；发送后缺少新增记录时仍报告结果未知，不自动重试。
+
+读取操作将 DOM 结果和读取前后的来源校验合并到一次浏览器求值中，每次求值仍检查任务
+标签页归属，字符串读取仍校验摘要。填充和按键在动作前校验最新标签列表中的来源，动作后
+校验文档 URL，减少动作前重复的 URL 求值。浏览器加载和邮箱服务响应仍会影响总耗时。
+
+发送脚本连续填写字段，再批量读取完整草稿和发送按钮状态。一次浏览器求值先同步采集
+字段，再计算字符串摘要；批量 API 只接受有界读取，不允许混入点击或填充。QQ 的前置
+检查和最终结果读取也采用批量方式。显式等待仅用于邮箱状态转换和发送回执，原生
+Playwright 原生点击和填充自带可操作性等待；QQ 原有 500 毫秒和 1500 毫秒固定延时已移除。
+每次操作仍检查任务标签页归属，发送结果不明时仍不重试。
+
+Controller 通过 Owner-only `0600` 临时 JSON 配置传递 Message Value，确保引号、字面转义
+和换行原样往返。Playwright 也会对求值结果脱敏，因此字段回读附带浏览器计算的 SHA-256；
+只有摘要匹配时才恢复已知输入，单独的脱敏标记不能证明匹配。QQ 包装错误保留底层类型化
+原因用于诊断。Recipient、
 Subject、Body 和 Extension Credential 不出现在 argv、Log、Artifact 或 Model Output。Input
 和 Result 使用严格有界 JSON Contract；Unknown Field 与 Malformed Output 会被拒绝。
 

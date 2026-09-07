@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import crypto from "node:crypto";
+
 import {
   OUTLOOK_ORIGINS,
   OutlookCliError,
@@ -33,6 +35,8 @@ const NEW_MAIL_SELECTOR = [
   'button[aria-label="\u65b0\u5efa\u90ae\u4ef6"]',
 ].join(", ");
 const RECIPIENT_SELECTOR = [
+  '[contenteditable="true"][aria-label="To"]',
+  '[contenteditable="true"][aria-label="\u6536\u4ef6\u4eba"]',
   'input[aria-label="To"]',
   'input[aria-label="Recipients"]',
   'input[aria-label="\u6536\u4ef6\u4eba"]',
@@ -49,6 +53,17 @@ const SUBJECT_SELECTOR = [
   'input[placeholder="Add a subject"]',
   'input[placeholder="\u6dfb\u52a0\u4e3b\u9898"]',
 ].join(", ");
+export const OUTLOOK_RECIPIENT_CHIP_SELECTOR = `[contenteditable="true"] [draggable="true"][aria-label]`;
+export const OUTLOOK_RECIPIENT_STATE_EXPRESSION = `() => {
+  const field = document.querySelector(${JSON.stringify(RECIPIENT_SELECTOR)});
+  if (!field) return { valid: false };
+  const copy = field.cloneNode(true);
+  copy.querySelectorAll('[draggable="true"][aria-label]').forEach(chip => chip.remove());
+  const pending = copy.value ?? copy.textContent ?? "";
+  return { valid: pending.replace(/[\\u200b\\ufeff]/g, "").trim() === "" &&
+    field.querySelectorAll('[draggable="true"][aria-label]').length === 1 &&
+    document.querySelectorAll(${JSON.stringify(OUTLOOK_RECIPIENT_CHIP_SELECTOR)}).length === 1 };
+}`;
 const BODY_SELECTOR = [
   '[contenteditable="true"][aria-label="Message body"]',
   '[contenteditable="true"][aria-label="Email body"]',
@@ -62,7 +77,21 @@ export const OUTLOOK_SEND_SELECTOR = [
   'button[title="\u53d1\u9001"]',
 ].join(", ");
 
-export const OUTLOOK_SEND_VERIFICATION_EXPRESSION = String.raw`(async () => {
+export const OUTLOOK_SENT_BASELINE_EXPRESSION = `async () => {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const rows = Array.from(document.querySelectorAll('[role="option"][data-convid]'));
+    const empty = Array.from(document.querySelectorAll('[role="treeitem"][data-folder-name="sent items"][aria-selected="true"]'))
+      .some(folder => / - 0 items(?:\\s|$)/.test(folder.getAttribute("title") || ""));
+    if (/\\/sentitems\\/?$/.test(location.pathname) && (rows.length > 0 || empty) && rows.length <= 1000) {
+      return { ids: rows.map(row => row.id) };
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return { ids: null };
+}`;
+
+export const OUTLOOK_SEND_VERIFICATION_EXPRESSION = String.raw`(async (expected) => {
   const isVisible = (element) => {
     if (!element || !element.isConnected) return false;
     const style = window.getComputedStyle(element);
@@ -75,27 +104,39 @@ export const OUTLOOK_SEND_VERIFICATION_EXPRESSION = String.raw`(async () => {
     Array.from(document.querySelectorAll(selector)).some(isVisible);
   const bodySelector = ${JSON.stringify(BODY_SELECTOR)};
   const sendSelector = ${JSON.stringify(OUTLOOK_SEND_SELECTOR)};
-  const statusPattern = /^(Message sent|Email sent|\u90ae\u4ef6\u5df2\u53d1\u9001|\u5df2\u53d1\u9001\u90ae\u4ef6)(?:[.!\s]|$)/i;
-  const collect = () => {
-    const statusVisible = Array.from(document.querySelectorAll('[role="status"], [role="alert"]'))
-      .filter(isVisible)
-      .some((element) => statusPattern.test((element.textContent || "").trim()));
+  const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, "0")).join("");
+  const collect = async () => {
     const composeOpen = anyVisible(bodySelector) || anyVisible(sendSelector);
+    const rows = Array.from(document.querySelectorAll('[role="option"][data-convid]'));
+    const first = rows[0];
+    let sentEvidence = false;
+    if (!composeOpen && /\/sentitems\/?$/.test(window.location.pathname) && first &&
+        isVisible(first) && !expected.ids.includes(first.id) &&
+        (expected.ids.length === 0 ? rows.length === 1 : rows[1]?.id === expected.ids[0])) {
+      const fields = Array.from(first.querySelectorAll('span')).filter(element =>
+        element.children.length === 0 && element.textContent.trim() !== "");
+      const recipient = fields[0]?.textContent.trim().toLowerCase() ?? "";
+      const subject = fields[1]?.textContent ?? "";
+      sentEvidence = await digest(recipient) === expected.recipient &&
+        (await digest(subject) === expected.subject || expected.emptySubject === true &&
+          ["(No subject)", "(无主题)"].includes(subject));
+    }
     return {
       contract_version: 1,
       url: window.location.href,
-      sent_evidence: statusVisible || !composeOpen,
+      sent_evidence: sentEvidence,
       compose_open: composeOpen,
     };
   };
   const deadline = Date.now() + 5000;
-  let result = collect();
+  let result = await collect();
   while (!result.sent_evidence && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    result = collect();
+    result = await collect();
   }
   return result;
-})()`;
+})`;
 
 export async function sendOutlook(rawInput, runtime = {}) {
   let sendClickAttempted = false;
@@ -110,7 +151,12 @@ export async function sendOutlook(rawInput, runtime = {}) {
     }, async (tab) => {
       const evidence = parseProbeEvidence(await tab.inspect(PROBE_EXPRESSION));
       classifyProbeEvidence(evidence);
-      await composeAndVerify(tab, input.message, timeoutMs);
+      const baseline = (await tab.inspect(OUTLOOK_SENT_BASELINE_EXPRESSION)).result;
+      if (!Array.isArray(baseline?.ids) || baseline.ids.length > 1000 ||
+          baseline.ids.some(id => typeof id !== "string" || !id || id.length > 1024)) {
+        throw new OutlookCliError("field_verification_failed");
+      }
+      await composeAndVerify(tab, input.message);
 
       sendClickAttempted = true;
       try {
@@ -125,7 +171,12 @@ export async function sendOutlook(rawInput, runtime = {}) {
           await tab.act([
             "eval",
             "-b",
-            Buffer.from(OUTLOOK_SEND_VERIFICATION_EXPRESSION, "utf8").toString("base64"),
+            Buffer.from(`${OUTLOOK_SEND_VERIFICATION_EXPRESSION}(${JSON.stringify({
+              ids: baseline.ids,
+              recipient: crypto.createHash("sha256").update(input.message.recipient.toLowerCase()).digest("hex"),
+              subject: crypto.createHash("sha256").update(input.message.subject ?? "").digest("hex"),
+              emptySubject: !input.message.subject,
+            })})`, "utf8").toString("base64"),
           ]),
         );
       } catch {
@@ -149,41 +200,29 @@ export async function sendOutlook(rawInput, runtime = {}) {
   }
 }
 
-async function composeAndVerify(tab, message, timeoutMs) {
-  const uiTimeout = String(Math.min(timeoutMs, 10_000));
+async function composeAndVerify(tab, message) {
   try {
     await tab.act(["click", NEW_MAIL_SELECTOR]);
-    await tab.act(["wait", RECIPIENT_SELECTOR, "--timeout", uiTimeout]);
     await tab.act(["fill", RECIPIENT_SELECTOR, message.recipient]);
-    const recipient = await tab.act(["get", "value", RECIPIENT_SELECTOR]);
-    if (recipient.value !== message.recipient) {
-      throw new OutlookCliError("field_verification_failed");
-    }
-    await tab.act(["focus", RECIPIENT_SELECTOR]);
     await tab.act(["press", "Enter"]);
-
-    if (message.subject !== undefined) {
-      await tab.act(["wait", SUBJECT_SELECTOR, "--timeout", uiTimeout]);
-      await tab.act(["fill", SUBJECT_SELECTOR, message.subject]);
-      const subject = await tab.act(["get", "value", SUBJECT_SELECTOR]);
-      if (subject.value !== message.subject) {
-        throw new OutlookCliError("field_verification_failed");
-      }
-    }
-
-    await tab.act(["wait", BODY_SELECTOR, "--timeout", uiTimeout]);
+    await tab.act(["fill", SUBJECT_SELECTOR, message.subject ?? ""]);
     await tab.act(["fill", BODY_SELECTOR, message.body.content]);
-    const body = await tab.act(["get", "text", BODY_SELECTOR]);
-    if (normalizeNewlines(body.text) !== normalizeNewlines(message.body.content)) {
+    const [committed, subject, body, send, enabled] = await tab.readMany([
+      ["get", "attr", OUTLOOK_RECIPIENT_CHIP_SELECTOR, "aria-label"],
+      ["get", "value", SUBJECT_SELECTOR],
+      ["get", "text", BODY_SELECTOR],
+      ["get", "count", OUTLOOK_SEND_SELECTOR],
+      ["is", "enabled", OUTLOOK_SEND_SELECTOR],
+    ]);
+    const recipientState = await tab.inspect(OUTLOOK_RECIPIENT_STATE_EXPRESSION);
+    if (committed.value?.toLowerCase() !== message.recipient.toLowerCase() || recipientState.result?.valid !== true ||
+        subject.value !== (message.subject ?? "") || normalizeNewlines(body.text) !== normalizeNewlines(message.body.content)) {
       throw new OutlookCliError("field_verification_failed");
     }
-
-    await tab.act(["wait", OUTLOOK_SEND_SELECTOR, "--timeout", uiTimeout]);
-    const send = await tab.act(["is", "enabled", OUTLOOK_SEND_SELECTOR]);
-    if (send.enabled !== true) throw new OutlookCliError("send_unavailable");
+    if (send.count !== 1 || enabled.enabled !== true) throw new OutlookCliError("send_unavailable");
   } catch (error) {
     if (error instanceof OutlookCliError) throw error;
-    throw new OutlookCliError("send_preparation_failed");
+    throw new OutlookCliError("send_preparation_failed", { cause: error });
   }
 }
 

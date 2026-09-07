@@ -19,6 +19,7 @@ export const QQMAIL_SELECTORS = Object.freeze({
   composePage: ".mail-compose-page",
   recipient: 'input[aria-label="To"], input[aria-label="收件人"]',
   recipientChip: ".mail-compose-page .receiver-editor .xmail-cmp-account:not(.cmp-account-invalid)",
+  allRecipientChips: ".mail-compose-page .receiver-editor .xmail-cmp-account",
   subject: 'input[aria-label="Subject"], input[aria-label="主题"]',
   body: [
     '.mail-compose-page [contenteditable="true"][aria-label="Enter content"]',
@@ -27,7 +28,43 @@ export const QQMAIL_SELECTORS = Object.freeze({
   ].join(", "),
   sendButton: '.mail-compose-header .xmail-ui-btn[data-a11y="button"]',
   sentPage: ".mail-list-page",
+  sentFolder: '.frame-sidebar-menu .sidebar-menu-text:text-is("Sent"), .frame-sidebar-menu .sidebar-menu-text:text-is("已发送")',
 });
+
+export const QQMAIL_SENT_BASELINE_EXPRESSION = `async () => {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (/^#\\/list\\/3(?:$|[/?])/.test(location.hash) && document.querySelector(".mail-list-page")) {
+      return { ids: Array.from(document.querySelectorAll(".mail-list-page-item[data-mailid]"), row => row.getAttribute("data-mailid")) };
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return { ids: null };
+}`;
+
+export const QQMAIL_SENT_VERIFICATION_EXPRESSION = `async expected => {
+  const visible = element => element && element.getBoundingClientRect().width > 0 &&
+    element.getBoundingClientRect().height > 0 && getComputedStyle(element).visibility !== "hidden";
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const rows = Array.from(document.querySelectorAll(".mail-list-page-item[data-mailid]"));
+    const first = rows[0];
+    const id = first?.getAttribute("data-mailid");
+    if (/^#\\/list\\/3(?:$|[/?])/.test(location.hash) &&
+        !visible(document.querySelector(".mail-compose-page")) && visible(first) && id &&
+        !expected.ids.includes(id) && (expected.ids.length === 0 ? rows.length === 1 :
+          rows[1]?.getAttribute("data-mailid") === expected.ids[0])) {
+      const subject = first.querySelector(".mail-subject")?.textContent ?? "";
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(subject))),
+        byte => byte.toString(16).padStart(2, "0")).join("");
+      if (digest === expected.subject || expected.emptySubject && ["(No subject)", "(无主题)"].includes(subject)) {
+        return { sent_evidence: true };
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return { sent_evidence: false };
+}`;
 
 function exactKeys(value, required, optional = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -129,14 +166,9 @@ function composeLocation(value) {
   return parsed.pathname === "/home/index" && parsed.hash.startsWith("#/compose");
 }
 
-function sentLocation(value) {
-  const parsed = parseQQMailURL(value, "send_browser_output_invalid");
-  return parsed.pathname === "/home/index" && /^#\/list\/5(?:$|[/?])/u.test(parsed.hash);
-}
-
 function normalizedSendError(error) {
   if (!(error instanceof QQMailScriptError)) {
-    return new QQMailScriptError("send_precondition_failed", "QQ Mail send preparation failed");
+    return new QQMailScriptError("send_precondition_failed", "QQ Mail send preparation failed", { cause: error });
   }
   const preserved = new Set([
     "browser_runtime_unavailable",
@@ -186,40 +218,62 @@ export async function sendQQMail(rawInput, runtime = {}) {
         throw new QQMailScriptError("send_precondition_failed", "QQ Mail compose control is unavailable");
       }
 
+      const sentBaseline = await task.onTab([
+        ["click", QQMAIL_SELECTORS.sentFolder],
+        ["eval", "-b", Buffer.from(QQMAIL_SENT_BASELINE_EXPRESSION).toString("base64")],
+      ], "send_sent_baseline");
+      const baseline = resultAt(sentBaseline, 1, "send_sent_baseline").result;
+      if (!Array.isArray(baseline?.ids) || baseline.ids.length > 1000 ||
+          baseline.ids.some(id => typeof id !== "string" || !id || id.length > 1024)) {
+        throw new QQMailScriptError("send_precondition_failed", "QQ Mail sent folder is unavailable");
+      }
+
+      // The committed chip may show only a nickname, so verify the address before blur.
+      const recipient = await task.onTab([
+        ["click", QQMAIL_SELECTORS.composeButton],
+        ["fill", QQMAIL_SELECTORS.recipient, input.recipient],
+        ["get", "value", QQMAIL_SELECTORS.recipient],
+      ], "send_prepare_recipient");
+      if (resultAt(recipient, 2, "send_prepare_recipient").value !== input.recipient) {
+        throw new QQMailScriptError("draft_verification_failed", "QQ Mail recipient does not match the request");
+      }
+
       const prepared = await task.onTab(
         [
-          ["click", QQMAIL_SELECTORS.composeButton],
-          ["wait", QQMAIL_SELECTORS.recipient],
-          ["fill", QQMAIL_SELECTORS.recipient, input.recipient],
-          ["press", "Enter"],
+          // Release QQ's recipient focus trap before filling Subject in the background.
+          ["focus", QQMAIL_SELECTORS.subject],
           ["wait", QQMAIL_SELECTORS.recipientChip],
           ["fill", QQMAIL_SELECTORS.subject, input.subject],
           ["fill", QQMAIL_SELECTORS.body, input.body],
-          ["wait", "500"],
           ["get", "url"],
-          ["get", "text", QQMAIL_SELECTORS.recipientChip],
-          ["get", "value", QQMAIL_SELECTORS.subject],
-          ["get", "text", QQMAIL_SELECTORS.body],
           ["is", "visible", QQMAIL_SELECTORS.composePage],
+          ["get", "count", QQMAIL_SELECTORS.allRecipientChips],
+          ["get", "count", QQMAIL_SELECTORS.recipientChip],
+          ["get", "value", QQMAIL_SELECTORS.recipient],
+          ["get", "value", QQMAIL_SELECTORS.subject],
+          ["get", "lines", QQMAIL_SELECTORS.body],
+          ["get", "count", QQMAIL_SELECTORS.sendButton],
+          ["get", "text", QQMAIL_SELECTORS.sendButton],
+          ["is", "visible", QQMAIL_SELECTORS.sendButton],
+          ["is", "enabled", QQMAIL_SELECTORS.sendButton],
         ],
         "send_prepare_draft",
       );
-      const recipientValue = normalizeVisibleText(
-        resultAt(prepared, 9, "send_prepare_draft").text,
-      );
-      const subjectValue = String(resultAt(prepared, 10, "send_prepare_draft").value ?? "");
-      const bodyValue = comparableBody(resultAt(prepared, 11, "send_prepare_draft").text);
+      const subjectValue = String(resultAt(prepared, 9, "send_prepare_draft").value ?? "");
+      const bodyValue = comparableBody(resultAt(prepared, 10, "send_prepare_draft").text);
       const composePageVisible = requireBoolean(
         prepared,
-        12,
+        5,
         "visible",
         "send_prepare_draft",
       );
-      if (!composeLocation(resultAt(prepared, 8, "send_prepare_draft").url) || !composePageVisible) {
+      if (!composeLocation(resultAt(prepared, 4, "send_prepare_draft").url) || !composePageVisible) {
         throw new QQMailScriptError("draft_verification_failed", "QQ Mail compose page is unavailable");
       }
       if (
-        recipientValue !== input.recipient ||
+        requireCount(prepared, 6, "send_prepare_draft") !== 1 ||
+        requireCount(prepared, 7, "send_prepare_draft") !== 1 ||
+        resultAt(prepared, 8, "send_prepare_draft").value !== "" ||
         subjectValue !== input.subject ||
         bodyValue !== comparableBody(input.body)
       ) {
@@ -229,25 +283,12 @@ export async function sendQQMail(rawInput, runtime = {}) {
         );
       }
 
-      const checked = await task.onTab(
-        [
-          ["get", "url"],
-          ["is", "visible", QQMAIL_SELECTORS.composePage],
-          ["get", "count", QQMAIL_SELECTORS.sendButton],
-          ["get", "text", QQMAIL_SELECTORS.sendButton],
-          ["is", "visible", QQMAIL_SELECTORS.sendButton],
-          ["is", "enabled", QQMAIL_SELECTORS.sendButton],
-        ],
-        "send_verify_control",
-      );
-      const sendLabel = normalizeVisibleText(resultAt(checked, 3, "send_verify_control").text);
+      const sendLabel = normalizeVisibleText(resultAt(prepared, 12, "send_prepare_draft").text);
       if (
-        !composeLocation(resultAt(checked, 0, "send_verify_control").url) ||
-        !requireBoolean(checked, 1, "visible", "send_verify_control") ||
-        requireCount(checked, 2, "send_verify_control") !== 1 ||
+        requireCount(prepared, 11, "send_prepare_draft") !== 1 ||
         !["Send", "发送"].includes(sendLabel) ||
-        !requireBoolean(checked, 4, "visible", "send_verify_control") ||
-        !requireBoolean(checked, 5, "enabled", "send_verify_control")
+        !requireBoolean(prepared, 13, "visible", "send_prepare_draft") ||
+        !requireBoolean(prepared, 14, "enabled", "send_prepare_draft")
       ) {
         throw new QQMailScriptError(
           "send_control_not_ready",
@@ -261,17 +302,17 @@ export async function sendQQMail(rawInput, runtime = {}) {
         sent = await task.onTab(
           [
             ["click", QQMAIL_SELECTORS.sendButton],
-            ["wait", "1500"],
-            ["get", "url"],
-            ["is", "visible", QQMAIL_SELECTORS.composePage],
-            ["is", "visible", QQMAIL_SELECTORS.sentPage],
+            ["wait", QQMAIL_SELECTORS.sentPage],
+            ["click", QQMAIL_SELECTORS.sentFolder],
+            ["eval", "-b", Buffer.from(`(${QQMAIL_SENT_VERIFICATION_EXPRESSION})(${JSON.stringify({
+              ids: baseline.ids,
+              subject: createHash("sha256").update(input.subject).digest("hex"),
+              emptySubject: input.subject === "",
+            })})`).toString("base64")],
           ],
           "send_dispatch",
         );
-        const confirmed =
-          sentLocation(resultAt(sent, 2, "send_dispatch").url) &&
-          requireBoolean(sent, 3, "visible", "send_dispatch") === false &&
-          requireBoolean(sent, 4, "visible", "send_dispatch") === true;
+        const confirmed = resultAt(sent, 3, "send_dispatch").result?.sent_evidence === true;
         if (!confirmed) {
           throw new QQMailScriptError("send_outcome_unknown", "QQ Mail send was not confirmed");
         }

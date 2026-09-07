@@ -78,7 +78,7 @@ const registrations = [
     operation: "send",
     scriptID: "outlook.send",
     revision: 1,
-    loginURL: "https://outlook.live.com/mail/",
+    loginURL: "https://outlook.live.com/mail/0/sentitems",
     origins: [
       "https://outlook.live.com",
       "https://outlook.office.com",

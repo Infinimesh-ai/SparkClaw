@@ -119,11 +119,9 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 
 	"page_contract_changed":         app.ToolErrorEmailPageContractChanged,
 	"email_login_evidence_conflict": app.ToolErrorEmailPageContractChanged,
-	"login_evidence_conflict":       app.ToolErrorEmailPageContractChanged,
 	"provider_origin_mismatch":      app.ToolErrorEmailPageContractChanged,
 	"email_provider_origin_invalid": app.ToolErrorEmailPageContractChanged,
 	"outlook_origin_not_allowed":    app.ToolErrorEmailPageContractChanged,
-	"outlook_evidence_conflict":     app.ToolErrorEmailPageContractChanged,
 	"outlook_page_contract_changed": app.ToolErrorEmailPageContractChanged,
 
 	"draft_verification_failed":      app.ToolErrorEmailDraftVerificationFailed,
@@ -139,9 +137,10 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 
 	"login_probe_timeout": app.ToolErrorEmailScriptTimeout,
 
-	"login_probe_invalid_output":  app.ToolErrorEmailScriptInvalidOutput,
-	"send_browser_output_invalid": app.ToolErrorEmailScriptInvalidOutput,
-	"browser_output_invalid":      app.ToolErrorEmailScriptInvalidOutput,
+	"login_probe_invalid_output":   app.ToolErrorEmailScriptInvalidOutput,
+	"send_browser_output_invalid":  app.ToolErrorEmailScriptInvalidOutput,
+	"browser_output_invalid":       app.ToolErrorEmailScriptInvalidOutput,
+	"email_browser_output_invalid": app.ToolErrorEmailScriptInvalidOutput,
 }
 
 func normalizeScriptErrorCode(code string) app.ToolErrorCode {

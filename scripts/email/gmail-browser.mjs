@@ -5,19 +5,39 @@ export const GMAIL_ORIGIN = "https://mail.google.com";
 export const GOOGLE_ACCOUNTS_ORIGIN = "https://accounts.google.com";
 
 const ALLOWED_HTTPS_ORIGINS = new Set([GMAIL_ORIGIN, GOOGLE_ACCOUNTS_ORIGIN]);
-const LOGIN_SELECTORS = Object.freeze({
-  accountControl: '[aria-label^="Google Account:"]',
-  composeControl: '[role="button"][gh="cm"]',
-  mainMenu: '[aria-label="Main menu"]',
-  accountChoice: "[data-identifier]",
-  useAnotherAccount: '[jsname="rwl3qc"]',
-  identifierInput: "input#identifierId",
-  identifierNext: "#identifierNext",
-});
+
+export const GMAIL_PROBE_EXPRESSION = String.raw`(async () => {
+  const isVisible = (element) => {
+    if (!element || !element.isConnected) return false;
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 &&
+      style.display !== "none" && style.visibility !== "hidden" &&
+      Number.parseFloat(style.opacity || "1") > 0;
+  };
+  const collect = () => {
+    const account = Array.from(document.querySelectorAll('[aria-label^="Google Account:"]'))
+      .find(isVisible);
+    return {
+      url: window.location.href,
+      compose_visible: Array.from(document.querySelectorAll('[role="button"][gh="cm"]'))
+        .some(isVisible),
+      account_label: account?.getAttribute("aria-label") ?? "",
+    };
+  };
+  const deadline = Date.now() + 8000;
+  let state = collect();
+  while (Date.now() < deadline && !state.compose_visible &&
+      new URL(state.url).origin === ${JSON.stringify(GMAIL_ORIGIN)}) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    state = collect();
+  }
+  return state;
+})()`;
 
 export class GmailCliError extends Error {
-  constructor(code) {
-    super(code);
+  constructor(code, options) {
+    super(code, options);
     this.name = "GmailCliError";
     this.code = code;
   }
@@ -51,34 +71,23 @@ export function recipientDigest(value) {
 }
 
 export async function inspectGmailLogin(tab, { includeAccountHint = false } = {}) {
-  const initialURL = await tab.getUrl();
-  const initialOrigin = requireAllowedOrigin(initialURL, "email_provider_origin_invalid");
-  const evidence = {};
-  for (const [name, selector] of Object.entries(LOGIN_SELECTORS)) {
-    evidence[name] = await tab.getCount(selector, initialOrigin);
+  const data = await tab.inspect(GMAIL_PROBE_EXPRESSION);
+  const state = data?.result;
+  if (!state || typeof state.url !== "string" || typeof data.origin !== "string" ||
+      typeof state.compose_visible !== "boolean" || typeof state.account_label !== "string" ||
+      state.account_label.length > 512) {
+    throw new GmailCliError("email_browser_output_invalid");
   }
-
-  let accountHint;
-  if (includeAccountHint && initialOrigin === GMAIL_ORIGIN && evidenceIsReady(evidence)) {
-    const label = await tab.getAttribute(
-      LOGIN_SELECTORS.accountControl,
-      "aria-label",
-      initialOrigin,
-    );
-    accountHint = extractAccountHint(label);
-  }
-
-  const finalURL = await tab.getUrl(initialOrigin);
-  const finalOrigin = requireAllowedOrigin(finalURL, "email_provider_origin_invalid");
-  if (finalOrigin !== initialOrigin) {
+  const origin = requireAllowedOrigin(state.url, "email_provider_origin_invalid");
+  requireAllowedOrigin(data.origin, "email_provider_origin_invalid");
+  if (state.url !== data.origin) {
     throw new GmailCliError("email_login_evidence_conflict");
   }
-
-  const result = classifyEvidence(initialOrigin, evidence);
-  if (result !== "ready") {
-    throw new GmailCliError(result);
+  if (origin === GOOGLE_ACCOUNTS_ORIGIN) throw new GmailCliError("email_login_required");
+  if (!new URL(state.url).pathname.startsWith("/mail/") || !state.compose_visible) {
+    throw new GmailCliError("email_page_contract_changed");
   }
-  return { accountHint };
+  return { accountHint: includeAccountHint ? extractAccountHint(state.account_label) : undefined };
 }
 
 export function requireAllowedOrigin(rawURL, errorCode) {
@@ -88,63 +97,10 @@ export function requireAllowedOrigin(rawURL, errorCode) {
   } catch {
     throw new GmailCliError(errorCode);
   }
-  if (!ALLOWED_HTTPS_ORIGINS.has(parsed.origin)) {
+  if (parsed.username || parsed.password || !ALLOWED_HTTPS_ORIGINS.has(parsed.origin)) {
     throw new GmailCliError(errorCode);
   }
   return parsed.origin;
-}
-
-function evidenceIsReady(evidence) {
-  return (
-    evidence.accountControl === 1 &&
-    evidence.composeControl === 1 &&
-    evidence.mainMenu === 1 &&
-    negativeEvidenceCount(evidence) === 0
-  );
-}
-
-function classifyEvidence(origin, evidence) {
-  const positivePresent =
-    evidence.accountControl > 0 ||
-    evidence.composeControl > 0 ||
-    evidence.mainMenu > 0;
-  const negativePresent = negativeEvidenceCount(evidence) > 0;
-
-  if (positivePresent && negativePresent) {
-    return "email_login_evidence_conflict";
-  }
-  if (origin === GMAIL_ORIGIN) {
-    if (negativePresent) {
-      return "email_login_evidence_conflict";
-    }
-    return evidenceIsReady(evidence) ? "ready" : "email_page_contract_changed";
-  }
-  if (origin === GOOGLE_ACCOUNTS_ORIGIN) {
-    if (positivePresent) {
-      return "email_login_evidence_conflict";
-    }
-    const chooserReady = evidence.accountChoice >= 1 && evidence.useAnotherAccount === 1;
-    const identifierReady = evidence.identifierInput === 1 && evidence.identifierNext === 1;
-    const chooserEvidenceCount = evidence.accountChoice + evidence.useAnotherAccount;
-    const identifierEvidenceCount = evidence.identifierInput + evidence.identifierNext;
-    if (
-      (chooserReady && identifierEvidenceCount === 0) ||
-      (identifierReady && chooserEvidenceCount === 0)
-    ) {
-      return "email_login_required";
-    }
-    return "email_page_contract_changed";
-  }
-  return "email_provider_origin_invalid";
-}
-
-function negativeEvidenceCount(evidence) {
-  return (
-    evidence.accountChoice +
-    evidence.useAnotherAccount +
-    evidence.identifierInput +
-    evidence.identifierNext
-  );
 }
 
 function extractAccountHint(label) {

@@ -2,10 +2,12 @@
 // Licensed under the Apache License, Version 2.0.
 
 export const BRIDGE_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
-export const BRIDGE_VERSION = "1.0.18";
+export const BRIDGE_VERSION = "1.0.20";
 export const SUPPORTED_PROTOCOL_VERSION = 2;
 export const HANDOFF_MARKER = "sparkclaw-browser-bridge-handoff-v1";
 export const HANDOFF_EVALUATE_FUNCTION = `() => "${HANDOFF_MARKER}"`;
+export const BACKGROUND_INPUT_MARKER = "sparkclaw-browser-bridge-background-input-v1";
+export const BACKGROUND_INPUT_EVALUATE_FUNCTION = `() => "${BACKGROUND_INPUT_MARKER}"`;
 export const NATIVE_HOST_NAME = "com.sparkclaw.browser_bridge";
 export const REJECTION_MARKER = "browser_extension_rejected";
 export const TOKEN_STORAGE_KEY = "sparkclaw-browser-bridge-token-v1";

@@ -32,7 +32,7 @@ Xvfb 或浏览器自动化引擎。
 | Controller Socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop Launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-固定兼容组合为 Browser Bridge `1.0.18`、Playwright MCP `0.0.80`、Playwright CLI
+固定兼容组合为 Browser Bridge `1.0.20`、Playwright MCP `0.0.80`、Playwright CLI
 `0.1.19`、Playwright Library `1.63.0-alpha-2026-08-31` 和 Chromium
 `148.0.7778.0`。Bridge Source Closure 记录在 `configs/browser-bridge-artifacts.json`，
 安装时拒绝发生修改或出现额外文件的 Source Tree。
@@ -52,6 +52,9 @@ npm run open:browser
 显式 Open Command 会把浏览器带到前台，供 Owner 完成登录或 Human Verification。
 后台 Acquisition 和 Task Action 不会聚焦浏览器或替换当前 Owner Tab；只有显式 Owner
 Handoff 才允许自动化聚焦 Task Tab。
+
+后台连接和清理保留操作系统当前的窗口焦点。恢复 Owner Tab 时不得让浏览器窗口失焦：
+用户此前从其他应用切入浏览器，不代表开始检查登录时应将那个应用重新置于前台。
 
 认证只保留在持久 Profile 内。SparkClaw 不复制 Cookie、不导出 Storage State、不把
 Profile 挂入容器，也不附着其他浏览器 Profile。

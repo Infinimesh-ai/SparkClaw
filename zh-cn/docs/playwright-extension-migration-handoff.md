@@ -38,7 +38,7 @@ Playwright Extension 迁移已于 2026-09-05 完成。SparkClaw Browser Bridge
 | 组件 | 版本 |
 |---|---|
 | SparkClaw Chromium | `148.0.7778.0` |
-| SparkClaw Browser Bridge | `1.0.18` |
+| SparkClaw Browser Bridge | `1.0.20` |
 | Playwright MCP | `0.0.80` |
 | Playwright CLI | `0.1.19` |
 | Playwright Library/Core | `1.63.0-alpha-2026-08-31` |

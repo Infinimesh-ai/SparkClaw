@@ -7,8 +7,8 @@ export const QQMAIL_URL = "https://wx.mail.qq.com/";
 const DEFAULT_TIMEOUT_MS = 45_000;
 
 export class QQMailScriptError extends Error {
-  constructor(code, message) {
-    super(message);
+  constructor(code, message, options) {
+    super(message, options);
     this.name = "QQMailScriptError";
     this.code = code;
   }

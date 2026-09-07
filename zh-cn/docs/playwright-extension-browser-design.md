@@ -5,7 +5,7 @@
 ## 状态
 
 本文于 2026-09-04 提出，并于 2026-09-05 完成。全部阶段和切换门槛均已实施。
-固定校验和的 SparkClaw Browser Bridge `1.0.18`、固定 Chromium
+固定校验和的 SparkClaw Browser Bridge `1.0.20`、固定 Chromium
 `148.0.7778.0`、Owner-scoped Controller、Playwright MCP 和 Playwright CLI
 现已组成唯一生产浏览器 Runtime。browserd、Host-CDP、`agent-browser` 和 Migration
 Selector 均已删除。
@@ -649,7 +649,7 @@ Controller Service 不保存 Extension Token；Token 仍只保存在 Gateway Cre
    Automation Flag。Readiness 恢复 Pairing 和认证，同时轮换 Task/Session Generation。
 5. Browser Bridge 兼容性测试和经 X11 监控的真实场景证明 Attach 与普通 Action 保持后台；
    只有 `tabs.handoff` 会激活任务 Tab。
-6. 最终生产组合为 SparkClaw Browser Bridge `1.0.18`、Playwright MCP `0.0.80`、
+6. 当前生产组合为 SparkClaw Browser Bridge `1.0.20`、Playwright MCP `0.0.80`、
    Playwright CLI `0.1.19`、Playwright Library/Core
    `1.63.0-alpha-2026-08-31` 和 Chromium `148.0.7778.0`。官方 Extension `0.4.0`
    只保留为已完成的兼容性基线。

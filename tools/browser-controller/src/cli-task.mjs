@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 
 import { ControllerError } from "./errors.mjs";
 import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
-import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
+import { BACKGROUND_INPUT_EVALUATE_FUNCTION, BACKGROUND_INPUT_MARKER } from "../../browser-bridge/src/protocol.mjs";
+import { BACKGROUND_FOCUS_FUNCTION, BATCH_READ_FUNCTION, EDITOR_LINES_FUNCTION } from "./dom-actions.mjs";
 import { parseTabsMarkdown, renderTabLine } from "./playwright-output.mjs";
 import {
   MAX_CLI_OUTPUT_BYTES,
@@ -31,6 +32,23 @@ const CLI_COMMANDS = new Set([
   "tab-list",
   "tab-select",
 ]);
+
+function isProbeRead(command) {
+  if (!Array.isArray(command) || command.some((value) => typeof value !== "string")) return false;
+  const [name, subtype] = command;
+  return (name === "get" && subtype === "url" && command.length === 2) ||
+    (command.length === 3 && ((name === "get" && subtype === "text") ||
+      (name === "is" && subtype === "visible")));
+}
+
+function isBatchRead(command) {
+  if (!Array.isArray(command) || command.some(value => typeof value !== "string")) return false;
+  const [name, subtype] = command;
+  return name === "get" && (subtype === "url" && command.length === 2 ||
+    ["count", "value", "text", "lines"].includes(subtype) && command.length === 3 ||
+    subtype === "attr" && command.length === 4) ||
+    name === "is" && ["visible", "enabled"].includes(subtype) && command.length === 3;
+}
 
 export class PlaywrightCLITask {
   constructor(options) {
@@ -134,29 +152,87 @@ export class PlaywrightCLITask {
     }
   }
 
+  async prepareBackgroundPage() {
+    if (this.registration.operation !== "send") throw clientContractError();
+    await this.#assertAllowedOrigin();
+    if (await this.#evalJSON(BACKGROUND_INPUT_EVALUATE_FUNCTION) !== BACKGROUND_INPUT_MARKER) throw clientContractError();
+    await this.#assertAllowedOrigin();
+  }
+
   qqTask() {
     return {
       onTab: async (commands) => {
+        if (this.registration.operation === "probe" && commands.length > 0 &&
+            commands.every(isProbeRead)) {
+          return await this.#probeReads(commands);
+        }
         const results = [];
-        for (const command of commands) {
-          results.push({ success: true, result: await this.#agentAction(command) });
+        for (let index = 0; index < commands.length;) {
+          if (this.registration.operation === "send" && isBatchRead(commands[index])) {
+            const start = index;
+            while (index < commands.length && index - start < 32 && isBatchRead(commands[index])) index += 1;
+            const batch = await this.readMany(commands.slice(start, index));
+            results.push(...batch.map(result => ({ success: true, result })));
+          } else {
+            results.push({ success: true, result: await this.#agentAction(commands[index++]) });
+          }
         }
         return results;
       },
     };
   }
 
+  async #probeReads(commands) {
+    // Collect a read-only evidence round in one document turn. Each evaluation
+    // still selects and validates the owned task tab through #evalJSON.
+    const output = await this.evaluate(`() => {
+      const url = location.href;
+      const parsed = new URL(url);
+      if (parsed.username || parsed.password ||
+          !${JSON.stringify(this.registration.origins)}.includes(parsed.origin)) {
+        return { url, results: null };
+      }
+      const results = ${JSON.stringify(commands)}.map(([name, subtype, selector]) => {
+        if (subtype === "url") return { url };
+        const element = document.querySelector(selector);
+        if (subtype === "text") {
+          return { text: element ? (element.innerText ?? element.textContent ?? "") : "", origin: url };
+        }
+        if (!element || !element.isConnected) return { visible: false, origin: url };
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return { visible: rect.width > 0 && rect.height > 0 &&
+          style.display !== "none" && style.visibility !== "hidden" &&
+          Number.parseFloat(style.opacity || "1") > 0, origin: url };
+      });
+      return { url, results };
+    }`);
+    if (!output || typeof output.url !== "string") throw clientContractError();
+    assertExpectedOrigin(output.url, undefined, this.registration.origins);
+    if (!Array.isArray(output.results) || output.results.length !== commands.length) {
+      throw clientContractError();
+    }
+    return output.results.map((result, index) => {
+      const subtype = commands[index][1];
+      if (!result ||
+          (subtype === "text" && typeof result.text !== "string") ||
+          (subtype === "visible" && typeof result.visible !== "boolean") ||
+          (subtype === "url" && result.url !== output.url)) {
+        throw clientContractError();
+      }
+      return { success: true, result };
+    });
+  }
+
   outlookTab() {
     return {
-      inspect: async (expression) => {
-        this.#assertProviderURL(await this.currentURL());
-        const result = await this.evaluate(expression);
-        const origin = await this.currentURL();
-        this.#assertProviderURL(origin);
-        return { result, origin };
-      },
+      inspect: async (expression) => await this.#inspect(expression),
+      readMany: async commands => await this.readMany(commands),
       act: async (command) => {
-        await this.#assertAllowedOrigin();
+        // DOM operations validate origin themselves; raw evaluation and delays do not.
+        if (command?.[0] === "eval" || command?.[0] === "wait" && /^[0-9]+$/u.test(command[1])) {
+          await this.#assertAllowedOrigin();
+        }
         return await this.#agentAction(command);
       },
     };
@@ -165,6 +241,8 @@ export class PlaywrightCLITask {
   gmailTab() {
     return {
       open: async () => {},
+      inspect: async (expression) => await this.#inspect(expression),
+      readMany: async (commands, expectedOrigin) => await this.readMany(commands, expectedOrigin),
       getUrl: async (expectedOrigin) => await this.currentURL(expectedOrigin),
       getCount: async (selector, expectedOrigin) => await this.count(selector, expectedOrigin),
       getAttribute: async (selector, attribute, expectedOrigin) =>
@@ -180,6 +258,35 @@ export class PlaywrightCLITask {
       closeOwnedTab: async () => {},
       dispose: async () => {},
     };
+  }
+
+  async #inspect(expression) {
+    return await this.#inspectProbe(expression);
+  }
+
+  async #inspectProbe(expression, expectedOrigin, timeoutMS) {
+    if (typeof expression !== "string") throw clientContractError();
+    // Keep the URL guard and result in the same browser call. Tab ownership is
+    // still checked before evaluation, including after a context-loss retry.
+    const output = await this.evaluate(`async () => {
+      const inspectionURL = window.location.href;
+      const parsed = new URL(inspectionURL);
+      if (parsed.username || parsed.password ||
+          !${JSON.stringify(this.registration.origins)}.includes(parsed.origin) ||
+          (${JSON.stringify(expectedOrigin ?? null)} !== null && parsed.origin !== ${JSON.stringify(expectedOrigin ?? null)})) {
+        return { initial_url: inspectionURL, origin: inspectionURL, result: null };
+      }
+      const value = (${expression});
+      const result = await (typeof value === "function" ? value() : value);
+      return { initial_url: inspectionURL, origin: window.location.href, result };
+    }`, true, timeoutMS);
+    if (!output || typeof output.initial_url !== "string" || typeof output.origin !== "string" ||
+        !Object.hasOwn(output, "result")) throw clientContractError();
+    assertExpectedOrigin(output.initial_url, expectedOrigin, this.registration.origins);
+    assertExpectedOrigin(output.origin, expectedOrigin, this.registration.origins);
+    this.#assertProviderURL(output.initial_url);
+    this.#assertProviderURL(output.origin);
+    return { result: output.result, origin: output.origin };
   }
 
   async currentURL(expectedOrigin) {
@@ -201,9 +308,9 @@ export class PlaywrightCLITask {
   }
 
   async count(selector, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
-    const value = await this.#evalJSON(
+    const { result: value } = await this.#inspectProbe(
       `() => document.querySelectorAll(${JSON.stringify(selector)}).length`,
+      expectedOrigin,
     );
     if (!Number.isSafeInteger(value) || value < 0 || value > 10_000) {
       throw clientContractError();
@@ -212,57 +319,113 @@ export class PlaywrightCLITask {
   }
 
   async attribute(selector, attribute, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
-    const value = await this.#evalJSON(
+    const value = await this.#readString(
       `() => document.querySelector(${JSON.stringify(selector)})?.getAttribute(${JSON.stringify(attribute)}) ?? ""`,
+      expectedOrigin,
     );
     if (typeof value !== "string") throw clientContractError();
     return value;
   }
 
   async value(selector, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
-    const value = await this.#evalJSON(
-      `() => document.querySelector(${JSON.stringify(selector)})?.value ?? ""`,
+    const value = await this.#readString(
+      `() => { const element = document.querySelector(${JSON.stringify(selector)}); return element?.value ?? (element?.isContentEditable ? element.textContent : "") ?? ""; }`,
+      expectedOrigin,
     );
     if (typeof value !== "string") throw clientContractError();
     return value;
   }
 
   async text(selector, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
-    const value = await this.#evalJSON(
+    const value = await this.#readString(
       `() => { const element = document.querySelector(${JSON.stringify(selector)}); return element ? (element.innerText ?? element.textContent ?? "") : ""; }`,
+      expectedOrigin,
     );
     if (typeof value !== "string") throw clientContractError();
     return value;
   }
 
+  async lines(selector) {
+    return await this.#readString(`() => (${EDITOR_LINES_FUNCTION})(document.querySelector(${JSON.stringify(selector)}))`);
+  }
+
+  async #readString(expression, expectedOrigin) {
+    if (this.registration.operation !== "send") return (await this.#inspectProbe(expression, expectedOrigin)).result;
+    // Playwright redacts secret values even in eval results. Only recover a
+    // known input when the browser's digest proves the actual field matches.
+    const { result } = await this.#inspectProbe(`async () => {
+      const text = (${expression})();
+      const bytes = new TextEncoder().encode(text);
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+        byte => byte.toString(16).padStart(2, "0")).join("");
+      return { text, digest };
+    }`, expectedOrigin);
+    return this.#restoreString(result);
+  }
+
+  #restoreString(result) {
+    if (!result || typeof result.text !== "string" || !/^[a-f0-9]{64}$/u.test(result.digest)) {
+      throw clientContractError();
+    }
+    const candidates = [result.text, ...this.state.secretValues.flatMap(value =>
+      [value, value.replace(/\r\n?/gu, "\n"), value.toLowerCase()])];
+    const match = candidates.find(value =>
+      crypto.createHash("sha256").update(value, "utf8").digest("hex") === result.digest);
+    if (match === undefined) throw clientContractError();
+    return match;
+  }
+
+  async readMany(commands, expectedOrigin) {
+    if (!Array.isArray(commands) || commands.length === 0 || commands.length > 32 || !commands.every(isBatchRead)) {
+      throw clientContractError();
+    }
+    const { result, origin } = await this.#inspectProbe(
+      `() => (${BATCH_READ_FUNCTION})(${JSON.stringify(commands)}, ${EDITOR_LINES_FUNCTION})`, expectedOrigin,
+    );
+    if (!Array.isArray(result) || result.length !== commands.length) throw clientContractError();
+    return result.map((entry, index) => {
+      const [, subtype, selector] = commands[index];
+      if (!entry || !Object.hasOwn(entry, "value")) throw clientContractError();
+      let value = entry.value;
+      if (subtype === "url") {
+        if (value !== origin) throw clientContractError();
+      } else if (subtype === "count") {
+        if (!Number.isSafeInteger(value) || value < 0 || value > 10_000) throw clientContractError();
+      } else if (["visible", "enabled"].includes(subtype)) {
+        if (typeof value !== "boolean") throw clientContractError();
+      } else {
+        value = this.#restoreString({ text: value, digest: entry.digest });
+      }
+      const field = subtype === "lines" ? "text" : subtype === "attr" ? "value" : subtype;
+      return { [field]: value, origin, ...(subtype === "count" ? { selector } : {}) };
+    });
+  }
+
   async visible(selector, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
-    const value = await this.#evalJSON(
+    const { result: value } = await this.#inspectProbe(
       `() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || !element.isConnected) return false; const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && Number.parseFloat(style.opacity || "1") > 0; }`,
+      expectedOrigin,
     );
     if (typeof value !== "boolean") throw clientContractError();
     return value;
   }
 
   async enabled(selector, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
-    const value = await this.#evalJSON(
+    const { result: value } = await this.#inspectProbe(
       `() => { const element = document.querySelector(${JSON.stringify(selector)}); return Boolean(element) && !element.disabled && element.getAttribute("aria-disabled") !== "true"; }`,
+      expectedOrigin,
     );
     if (typeof value !== "boolean") throw clientContractError();
     return value;
   }
 
-  async evaluate(expression) {
+  async evaluate(expression, validateProvider = false, timeoutMS) {
     if (typeof expression !== "string" || Buffer.byteLength(expression, "utf8") > 32 << 10) {
       throw clientContractError();
     }
     for (let attempt = 0; attempt < TRANSIENT_EVALUATION_ATTEMPTS; attempt += 1) {
       try {
-        return await this.#evalJSON(expression);
+        return await this.#evalJSON(expression, undefined, validateProvider, timeoutMS);
       } catch (error) {
         if (!isContextDestroyed(error) || attempt === TRANSIENT_EVALUATION_ATTEMPTS - 1) {
           throw error;
@@ -277,15 +440,17 @@ export class PlaywrightCLITask {
   async click(selector, expectedOrigin) {
     await this.currentURL(expectedOrigin);
     if (selector === this.registration.effectSelector) this.effectAttempted = true;
-    const clicked = await this.#evalJSON(BACKGROUND_CLICK_FUNCTION, selector);
-    if (clicked !== true) throw clientContractError();
+    await this.#withTaskSelected(async () => {
+      await this.#run(["--raw", `-s=${this.sessionName}`, "click", selector]);
+    });
     await this.currentURL(expectedOrigin);
   }
 
   async fill(selector, value, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
     const secret = this.state.secretName(value);
-    await this.#withTaskSelected(async () => {
+    await this.#withTaskSelected(async tab => {
+      assertExpectedOrigin(tab.url, expectedOrigin, this.registration.origins);
+      this.#assertProviderURL(tab.url);
       await this.#run(["--raw", `-s=${this.sessionName}`, "fill", selector, secret]);
     });
     await this.currentURL(expectedOrigin);
@@ -293,29 +458,35 @@ export class PlaywrightCLITask {
 
   async focus(selector, expectedOrigin) {
     await this.currentURL(expectedOrigin);
-    const focused = await this.#evalJSON(
-      "(element) => { element.focus(); return document.activeElement === element; }",
-      selector,
-    );
+    const focused = await this.#evalJSON(BACKGROUND_FOCUS_FUNCTION, selector);
     if (focused !== true) throw clientContractError();
   }
 
   async press(key, expectedOrigin) {
-    await this.currentURL(expectedOrigin);
     if (typeof key !== "string" || !/^[A-Za-z0-9+_-]{1,32}$/u.test(key)) {
       throw clientContractError();
     }
-    await this.#withTaskSelected(async () => {
+    await this.#withTaskSelected(async tab => {
+      assertExpectedOrigin(tab.url, expectedOrigin, this.registration.origins);
+      this.#assertProviderURL(tab.url);
       await this.#run(["--raw", `-s=${this.sessionName}`, "press", key]);
     });
     await this.currentURL(expectedOrigin);
   }
 
   async waitFor(selector, expectedOrigin, timeoutMS = 10_000) {
-    await this.currentURL(expectedOrigin);
     const bounded = Math.min(Math.max(Number(timeoutMS) || 10_000, 25), 30_000);
-    const expression = `async () => { const selector = ${JSON.stringify(selector)}; const deadline = Date.now() + ${bounded}; while (Date.now() < deadline) { if (document.querySelector(selector)) return true; await new Promise(resolve => setTimeout(resolve, 100)); } return false; }`;
-    if (await this.#evalJSON(expression) !== true) throw clientContractError();
+    const expression = `async () => { const selector = ${JSON.stringify(selector)}; const deadline = Date.now() + ${bounded}; while (Date.now() < deadline) {
+      const element = document.querySelector(selector);
+      if (element && element.isConnected) {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        if (rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" &&
+            Number.parseFloat(style.opacity || "1") > 0) return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } return false; }`;
+    if ((await this.#inspectProbe(expression, expectedOrigin, bounded + 1000)).result !== true) throw clientContractError();
   }
 
   async waitMilliseconds(value) {
@@ -338,6 +509,9 @@ export class PlaywrightCLITask {
         if (subtype === "count") return { count: await this.count(selector), selector };
         if (subtype === "text") {
           return { text: await this.text(selector), origin: await this.currentURL() };
+        }
+        if (subtype === "lines") {
+          return { text: await this.lines(selector), origin: await this.currentURL() };
         }
         if (subtype === "value") {
           return { value: await this.value(selector), origin: await this.currentURL() };
@@ -385,20 +559,23 @@ export class PlaywrightCLITask {
         const encoded = command.includes("-b") ? command[command.indexOf("-b") + 1] : "";
         if (!encoded) break;
         const expression = Buffer.from(encoded, "base64").toString("utf8");
-        return { result: await this.evaluate(expression), origin: await this.currentURL() };
+        return await this.#inspect(expression);
       }
     }
     throw clientContractError();
   }
 
-  async #evalJSON(expression, target) {
-    const output = await this.#withTaskSelected(async () => await this.#run([
-      "--raw",
-      `-s=${this.sessionName}`,
-      "eval",
-      expression,
-      ...(target ? [target] : []),
-    ]));
+  async #evalJSON(expression, target, validateProvider = false, timeoutMS) {
+    const output = await this.#withTaskSelected(async (tab) => {
+      if (validateProvider) {
+        assertExpectedOrigin(tab.url, undefined, this.registration.origins);
+        this.#assertProviderURL(tab.url);
+      }
+      return await this.#run([
+        "--raw", `-s=${this.sessionName}`, "eval", expression,
+        ...(target ? [target] : []),
+      ], timeoutMS);
+    });
     return parseJSON(output);
   }
 
@@ -417,7 +594,7 @@ export class PlaywrightCLITask {
   }
 
   async #withTaskSelected(callback) {
-    const tabs = await this.#tabs();
+    let tabs = await this.#tabs();
     this.#assertTopology(tabs);
     if (!tabs[this.taskIndex]?.current) {
       await this.#run([
@@ -429,8 +606,9 @@ export class PlaywrightCLITask {
       const selected = await this.#tabs();
       this.#assertTopology(selected);
       if (!selected[this.taskIndex]?.current) throw pageStale("page_topology_changed");
+      tabs = selected;
     }
-    return await callback();
+    return await callback(tabs[this.taskIndex]);
   }
 
   async #tabs() {
@@ -476,7 +654,7 @@ export class PlaywrightCLITask {
     });
     if (this.executablePath) env.PLAYWRIGHT_MCP_EXECUTABLE_PATH = this.executablePath;
     if (this.userDataDir) env.PLAYWRIGHT_MCP_USER_DATA_DIR = this.userDataDir;
-    if (this.state.secretsPath) env.PLAYWRIGHT_MCP_SECRETS_FILE = this.state.secretsPath;
+    if (this.state.secretsPath) env.PLAYWRIGHT_MCP_CONFIG = this.state.secretsPath;
     try {
       return await runProcess(this.spawn, process.execPath, [this.entryPoint, ...args], {
         cwd: this.state.outputDir,

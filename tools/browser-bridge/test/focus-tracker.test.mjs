@@ -52,7 +52,7 @@ test("a repeated handoff reuses the focused task window", async () => {
   assert.deepEqual(fixture.calls.windowsUpdate, [[8, { focused: true }]]);
 });
 
-test("connection page restores the owner tab and prior unfocused state", async () => {
+test("connection page preserves browser focus after returning from another app", async () => {
   const fixture = createFixture();
   const tracker = new FocusTracker(fixture.chromeAPI);
   await tick();
@@ -61,7 +61,32 @@ test("connection page restores the owner tab and prior unfocused state", async (
   await tracker.restoreAfterConnectionPage({ id: 3, windowId: 7 });
 
   assert.deepEqual(fixture.calls.tabsUpdate, [[1, { active: true }]]);
-  assert.deepEqual(fixture.calls.windowsUpdate, [[7, { focused: false }]]);
+  assert.deepEqual(fixture.calls.windowsUpdate, []);
+});
+
+test("a cold service worker preserves the already focused owner window", async () => {
+  const fixture = createFixture({ browserFocused: true });
+  const tracker = new FocusTracker(fixture.chromeAPI);
+  await tracker.ready;
+
+  await tracker.restoreAfterConnectionPage({ id: 3, windowId: 7 });
+
+  assert.deepEqual(fixture.calls.tabsUpdate, [[1, { active: true }]]);
+  assert.deepEqual(fixture.calls.windowsUpdate, []);
+});
+
+test("background connection and cleanup preserve focus on another app", async () => {
+  const fixture = createFixture();
+  const tracker = new FocusTracker(fixture.chromeAPI);
+  await tracker.ready;
+  fixture.events.focused.emit(7);
+  fixture.events.focused.emit(-1);
+
+  await tracker.restoreAfterConnectionPage({ id: 3, windowId: 7 });
+  await tracker.closeTaskTabs([2]);
+
+  assert.deepEqual(fixture.calls.windowsUpdate, []);
+  assert.deepEqual(fixture.calls.windowsCreate, []);
 });
 
 test("connection page first observed as about:blank restores the prior owner tab", async () => {
@@ -202,7 +227,7 @@ test("cold service worker closes grouped and ungrouped stale task tabs after res
   assert.deepEqual(fixture.calls.tabsRemove, [[3, 4]]);
 });
 
-function createFixture({ queryAllTabs = false, queryDelay = false } = {}) {
+function createFixture({ queryAllTabs = false, queryDelay = false, browserFocused = false } = {}) {
   const events = { activated: event(), focused: event(), removed: event(), updated: event() };
   const calls = { tabsRemove: [], tabsUngroup: [], tabsUpdate: [], windowsCreate: [], windowsUpdate: [] };
   const groups = [];
@@ -234,7 +259,7 @@ function createFixture({ queryAllTabs = false, queryDelay = false } = {}) {
     windows: {
       WINDOW_ID_NONE: -1,
       onFocusChanged: events.focused,
-      getLastFocused: async () => ({ id: 7, focused: false }),
+      getLastFocused: async () => ({ id: 7, focused: browserFocused }),
       create: async (options) => {
         calls.windowsCreate.push(options);
         const tab = tabs.get(options.tabId);

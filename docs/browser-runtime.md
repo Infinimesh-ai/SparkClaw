@@ -35,7 +35,7 @@ automation engine.
 | Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-The pinned compatibility set is Browser Bridge `1.0.18`, Playwright MCP
+The pinned compatibility set is Browser Bridge `1.0.20`, Playwright MCP
 `0.0.80`, Playwright CLI `0.1.19`, Playwright Library
 `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. The Bridge source
 closure is recorded in `configs/browser-bridge-artifacts.json`; installation
@@ -58,6 +58,10 @@ The explicit open command brings the browser forward for owner work such as
 login or human verification. Background acquisition and task actions do not
 focus the browser or replace the active owner tab. An explicit owner handoff is
 the only automation operation allowed to focus a task tab.
+
+Background connection and cleanup preserve the current OS window focus. Restoring
+the owner tab must not blur its browser window: a prior switch from another app
+does not mean that app should return to the foreground when a login check starts.
 
 Authentication remains inside the persistent profile. SparkClaw never copies
 cookies, exports storage state, mounts the profile into a container, or attaches

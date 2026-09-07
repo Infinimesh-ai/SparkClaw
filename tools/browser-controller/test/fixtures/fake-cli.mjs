@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import vm from "node:vm";
 
 const args = process.argv.slice(2);
 const commandIndex = args.findIndex((value) => !value.startsWith("-"));
@@ -134,7 +135,7 @@ switch (command) {
     ) {
       process.exit(2);
     }
-    writeJSON(evaluate(commandArgs[0] ?? ""));
+    writeJSON(await evaluate(commandArgs[0] ?? ""));
     break;
   case "press":
     break;
@@ -189,6 +190,50 @@ function currentTab() {
 }
 
 function evaluate(expression) {
+  if (expression === '() => "sparkclaw-browser-bridge-background-input-v1"') return process.env.FAKE_CLI_BACKGROUND_INIT_FAIL === "1" ? false : "sparkclaw-browser-bridge-background-input-v1";
+  if (expression === '() => "sparkclaw-browser-bridge-handoff-v1"') return "sparkclaw-browser-bridge-handoff-v1";
+  if (expression === "() => !document.hidden") return process.env.FAKE_CLI_HIDDEN !== "1";
+  if (expression.includes("const inspectionURL = window.location.href;")) {
+    const location = { href: currentTab().url };
+    const inspect = vm.runInNewContext(expression, {
+      URL, TextEncoder, Uint8Array, crypto: crypto.webcrypto,
+      window: { location }, location,
+      getComputedStyle: () => ({}),
+      document: {
+        querySelectorAll: () => [{}],
+        querySelector: selector => {
+          if (process.env.FAKE_CLI_READ_REDIRECT === "1") location.href = "https://foreign.test/";
+          return ({
+          value: process.env.FAKE_CLI_EDITABLE === "1" ? undefined : state.fields[selector] ?? "",
+          isContentEditable: process.env.FAKE_CLI_EDITABLE === "1",
+          textContent: state.fields[selector] ?? "", innerText: state.fields[selector] ?? "",
+          isConnected: true, getBoundingClientRect: () => ({ width: 10, height: 10 }),
+          getAttribute: () => state.fields[selector] ?? "",
+          });
+        },
+      },
+    });
+    return inspect().then(output => {
+      if (process.env.FAKE_CLI_BAD_READBACK_DIGEST === "1" && output.result?.digest) output.result.digest = "0".repeat(64);
+      if (process.env.FAKE_CLI_BAD_READBACK_DIGEST === "1" && Array.isArray(output.result)) {
+        for (const entry of output.result) if (entry.digest) entry.digest = "0".repeat(64);
+      }
+      return output;
+    });
+  }
+  if (expression.includes('crypto.subtle.digest("SHA-256", bytes)')) {
+    return vm.runInNewContext(`(${expression})()`, {
+      TextEncoder, Uint8Array, crypto: crypto.webcrypto,
+      document: { querySelector: selector => ({
+        value: process.env.FAKE_CLI_EDITABLE === "1" ? undefined : state.fields[selector] ?? "",
+        isContentEditable: process.env.FAKE_CLI_EDITABLE === "1",
+        textContent: state.fields[selector] ?? "",
+        innerText: state.fields[selector] ?? "",
+        getAttribute: () => state.fields[selector] ?? "",
+      }) },
+    }).then(result => process.env.FAKE_CLI_BAD_READBACK_DIGEST === "1"
+      ? { ...result, digest: "0".repeat(64) } : result);
+  }
   if (expression.includes("location.href")) return currentTab().url;
   if (expression.includes("document.activeElement === element")) return true;
   if (expression.includes("getBoundingClientRect")) return true;
@@ -204,15 +249,9 @@ function evaluate(expression) {
 }
 
 async function readSecrets() {
-  const secretsPath = process.env.PLAYWRIGHT_MCP_SECRETS_FILE;
+  const secretsPath = process.env.PLAYWRIGHT_MCP_CONFIG;
   if (!secretsPath) return {};
-  const result = {};
-  for (const line of (await fs.readFile(secretsPath, "utf8")).split("\n")) {
-    if (!line) continue;
-    const separator = line.indexOf("=");
-    result[line.slice(0, separator)] = JSON.parse(line.slice(separator + 1));
-  }
-  return result;
+  return JSON.parse(await fs.readFile(secretsPath, "utf8")).secrets;
 }
 
 function renderTabs(tabs) {
@@ -230,7 +269,13 @@ async function appendLog(record) {
 }
 
 function writeJSON(value) {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
+  let output = JSON.stringify(value);
+  if (command === "eval") {
+    for (const [name, secret] of Object.entries(secrets)) {
+      if (secret) output = output.replaceAll(secret, `<secret>${name}</secret>`);
+    }
+  }
+  process.stdout.write(`${output}\n`);
 }
 
 function writeText(value) {

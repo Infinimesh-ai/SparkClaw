@@ -1,7 +1,7 @@
 // Derived from Microsoft Playwright packages/extension/src/relayConnection.ts
 // at 260eae31113073927b93c5c7591b5ae039952dd0. Apache-2.0.
 
-import { HANDOFF_EVALUATE_FUNCTION, HANDOFF_MARKER } from "./protocol.mjs";
+import { BACKGROUND_INPUT_EVALUATE_FUNCTION, HANDOFF_EVALUATE_FUNCTION, HANDOFF_MARKER } from "./protocol.mjs";
 
 const WEBSOCKET_OPEN = 1;
 
@@ -177,7 +177,11 @@ export class RelayConnection {
     }
     if (BLOCKED_CDP_METHODS.has(method)) throw new Error("Browser-wide command is unavailable");
     const params = args[2];
-    const grantsHandoff = isHandoffMarker(method, params);
+    const grantsHandoff = isRuntimeMarker(method, params, HANDOFF_EVALUATE_FUNCTION);
+    if (isRuntimeMarker(method, params, BACKGROUND_INPUT_EVALUATE_FUNCTION)) {
+      // Keep this task's renderer responsive without activating its tab or window.
+      await this.chrome.debugger.sendCommand(args[0], "Emulation.setFocusEmulationEnabled", { enabled: true });
+    }
     if (method === "Page.bringToFront") {
       if (!this.handoffGrants.delete(tabId)) return {};
       this.onhandoff?.(tabId);
@@ -279,20 +283,20 @@ export class RelayConnection {
   }
 }
 
-function isHandoffMarker(method, params) {
+function isRuntimeMarker(method, params, expression) {
   if (!new Set(["Runtime.callFunctionOn", "Runtime.evaluate"]).has(method) || !plainObject(params)) return false;
-  if (method === "Runtime.evaluate") return params.expression === HANDOFF_EVALUATE_FUNCTION;
+  if (method === "Runtime.evaluate") return params.expression === expression;
   if (typeof params.functionDeclaration !== "string" || typeof params.objectId !== "string" ||
       !params.functionDeclaration.includes("utilityScript") || !params.functionDeclaration.includes(".evaluate(") ||
       params.returnByValue !== true || params.awaitPromise !== true || params.userGesture !== true ||
       !Array.isArray(params.arguments) || params.arguments.length !== 6 ||
       typeof params.arguments[0]?.objectId !== "string") return false;
-  return serializedHandoffFunction(params.arguments[5]?.value);
+  return serializedMarkerFunction(params.arguments[5]?.value, expression);
 }
 
-function serializedHandoffFunction(value) {
+function serializedMarkerFunction(value, expression) {
   if (typeof value !== "string") return false;
-  if (value === HANDOFF_EVALUATE_FUNCTION) return true;
+  if (value === expression) return true;
   let parsed;
   try {
     parsed = JSON.parse(value);
@@ -300,7 +304,7 @@ function serializedHandoffFunction(value) {
     return false;
   }
   return plainObject(parsed) && Object.keys(parsed).length === 1 &&
-    parsed.s === HANDOFF_EVALUATE_FUNCTION;
+    parsed.s === expression;
 }
 
 function targetTabID(value) {

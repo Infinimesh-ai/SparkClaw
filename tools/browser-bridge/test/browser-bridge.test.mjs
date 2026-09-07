@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { OwnedGroupRegistry, SparkClawBrowserBridge, TaskTabGroup, cleanupStaleTaskTabs } from "../src/background.mjs";
+import { BRIDGE_VERSION } from "../src/protocol.mjs";
 
 const CONNECT_URL = "chrome-extension://bridge/connect.html?mcpRelayUrl=redacted";
 const RELAY_URL = "ws://127.0.0.1/extension/12345678-1234-4234-8234-123456789abc";
@@ -147,7 +148,7 @@ test("native host requests create an inactive connection tab in the owner window
   assert.deepEqual(port.sent, [{
     type: "bridgeReady",
     extension_id: "mmlmfjhmonkocbjadbfplnigmagldckm",
-    version: "1.0.18",
+    version: BRIDGE_VERSION,
     protocol_version: 2,
   }]);
   const url = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html?" + new URLSearchParams({
@@ -165,7 +166,7 @@ test("native host requests create an inactive connection tab in the owner window
     {
       type: "bridgeReady",
       extension_id: "mmlmfjhmonkocbjadbfplnigmagldckm",
-      version: "1.0.18",
+      version: BRIDGE_VERSION,
       protocol_version: 2,
     },
     { type: "openConnectionResult", id: 7, success: true },

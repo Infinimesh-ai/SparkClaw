@@ -5,7 +5,7 @@
 ## Status
 
 Proposed on 2026-09-04 and completed on 2026-09-05. All phases and cutover gates
-have been implemented. The checksum-pinned SparkClaw Browser Bridge `1.0.18`,
+have been implemented. The checksum-pinned SparkClaw Browser Bridge `1.0.20`,
 fixed Chromium `148.0.7778.0`, owner-scoped Controller, Playwright MCP, and
 Playwright CLI now form the only production browser runtime. Browserd,
 Host-CDP, `agent-browser`, and the migration selector have been removed.
@@ -771,7 +771,7 @@ The cutover passed every browser-migration gate:
 5. Browser Bridge compatibility and X11-monitored live scenarios proved that
    attachment and normal actions remain in the background; only
    `tabs.handoff` activates the task tab.
-6. The final production set is SparkClaw Browser Bridge `1.0.18`, Playwright MCP
+6. The current production set is SparkClaw Browser Bridge `1.0.20`, Playwright MCP
    `0.0.80`, Playwright CLI `0.1.19`, Playwright Library/Core
    `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. Official Extension
    `0.4.0` remains only the completed compatibility baseline.

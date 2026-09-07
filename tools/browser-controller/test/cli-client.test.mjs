@@ -15,6 +15,7 @@ import {
   runProcess,
 } from "../src/cli-runtime.mjs";
 import { ProviderScriptRegistry } from "../src/provider-scripts.mjs";
+import { QQMailScriptError } from "../../../scripts/email/lib/qqmail-browser.mjs";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(testDir, "fixtures", "fake-cli.mjs");
@@ -103,6 +104,28 @@ test("CLI send keeps token and message values out of argv, logs, and artifacts",
   ]);
 });
 
+test("hidden sends read contenteditable recipients and never request a window handoff", async (t) => {
+  const harness = await createHarness(t, { FAKE_CLI_EDITABLE: "1", FAKE_CLI_HIDDEN: "1" });
+  const result = await harness.factory.runScript({ token, sessionID: sessionID(91), provider: "gmail",
+    operation: "send", scriptID: "gmail.test_send", revision: 1,
+    input: sendInput({ recipient: "person@example.test", subject: "subject", body: { format: "text", content: "body" } }),
+  });
+  assert.equal(result.state, "completed");
+  const records = (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(records.filter(record => record.command === "click").length, 1);
+  assert.equal(records.some(record => record.argv?.some(arg => arg.includes("sparkclaw-browser-bridge-handoff-v1"))), false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("background renderer initialization failure stops before draft changes", async t => {
+  const harness = await createHarness(t, { FAKE_CLI_BACKGROUND_INIT_FAIL: "1" });
+  await assert.rejects(harness.factory.runScript({ token, sessionID: sessionID(92), provider: "gmail",
+    operation: "send", scriptID: "gmail.test_send", revision: 1, input: sendInput(basicMessage()) }));
+  const records = (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(records.some(record => record.event === "fill" || record.command === "click"), false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
 test("invalid provider input fails before attach or secret-file creation", async (t) => {
   const harness = await createHarness(t);
   const input = sendInput({
@@ -127,6 +150,17 @@ test("invalid provider input fails before attach or secret-file creation", async
   assert.equal(input.message.recipient, "");
   assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
   await assert.rejects(fs.stat(harness.logPath), (error) => error.code === "ENOENT");
+});
+
+test("a redacted field with a mismatched digest cannot reach Send", async (t) => {
+  const harness = await createHarness(t, { FAKE_CLI_BAD_READBACK_DIGEST: "1" });
+  await assert.rejects(harness.factory.runScript({
+    token, sessionID: sessionID(31), provider: "gmail", operation: "send",
+    scriptID: "gmail.test_send", revision: 1, input: sendInput(basicMessage()),
+  }), error => error.code === "browser_extension_unavailable");
+  const records = (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(records.some(record => record.argv?.includes("#send")), false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
 });
 
 test("a failed send command and post-click cleanup failure both become unknown", async (t) => {
@@ -398,6 +432,41 @@ test("CLI factory diagnoses the fixed provider-handler command without arguments
   }]);
 });
 
+test("wrapped provider runtime failures retain typed diagnostics", async t => {
+  const harness = await createHarness(t, {
+    FAKE_CLI_FAIL_COMMAND: "eval", FAKE_CLI_FAIL_COMMAND_AFTER: "1",
+  }, { probeHandler: async (_input, runtime) => {
+    try { await (await runtime.createOwnedTab()).getUrl("https://mail.google.test"); }
+    catch (cause) { throw new QQMailScriptError("send_precondition_failed", "preparation failed", { cause }); }
+  } });
+  await assert.rejects(harness.factory.runScript({
+    token, sessionID: sessionID(32), provider: "gmail", operation: "probe",
+    scriptID: "gmail.test_probe", revision: 1, input: probeInput(),
+  }), error => error.code === "browser_extension_unavailable");
+  assert.equal(harness.diagnostics[0].reason, "process_exit");
+  assert.equal(harness.diagnostics[0].command, "eval");
+});
+
+test("provider inspection combines URL and result in one CLI evaluation", async (t) => {
+  const harness = await createHarness(t, {}, {
+    outlookProbeHandler: async (_input, runtime) => await runtime.withTaskTab(
+      "probe", async (tab) => await tab.inspect("() => null"),
+    ),
+  });
+  const result = await harness.factory.runScript({
+    token, sessionID: sessionID(13), provider: "outlook", operation: "probe",
+    scriptID: "outlook.test_probe", revision: 1,
+    input: { ...probeInput(), provider: "outlook" },
+  });
+  assert.equal(result.state, "completed");
+  assert.equal(result.result.result, null);
+  assert.equal(result.result.origin, "https://mail.google.test/");
+  const records = (await fs.readFile(harness.logPath, "utf8")).trim()
+    .split("\n").map((line) => JSON.parse(line));
+  // One URL check after navigation, then one combined login inspection.
+  assert.equal(records.filter((record) => record.command === "eval").length, 2);
+});
+
 test("provider inspection retries a destroyed context only after revalidating origin", async (t) => {
   if (process.platform !== "linux") return t.skip("requires /proc daemon reaping");
   const harness = await createHarness(t, {
@@ -426,7 +495,83 @@ test("provider inspection retries a destroyed context only after revalidating or
   const records = (await fs.readFile(harness.logPath, "utf8")).trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert.equal(records.filter((record) => record.command === "eval").length, 5);
+  assert.equal(records.filter((record) => record.command === "eval").length, 4);
+});
+
+test("six guarded reads need six evaluations without separate URL reads", async t => {
+  const harness = await createHarness(t, {}, { probeHandler: async (_input, runtime) => {
+    const tab = await runtime.createOwnedTab();
+    const origin = "https://mail.google.test";
+    assert.equal(await tab.getCount("#field", origin), 1);
+    assert.equal(await tab.getValue("#field", origin), "");
+    assert.equal(await tab.getText("#field", origin), "");
+    assert.equal(await tab.getAttribute("#field", "title", origin), "");
+    await tab.waitFor("#field", origin);
+    await tab.inspect("() => null");
+    return { status: "ready" };
+  } });
+  const result = await harness.factory.runScript({ token, sessionID: sessionID(93), provider: "gmail",
+    operation: "probe", scriptID: "gmail.test_probe", revision: 1, input: probeInput() });
+  assert.equal(result.state, "completed");
+  const records = (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(records.filter(record => record.command === "eval").length, 7);
+});
+
+test("combined field reads reject an unexpected origin and a redirect during reading", async t => {
+  for (const redirect of [false, true]) {
+    const harness = await createHarness(t, redirect ? { FAKE_CLI_READ_REDIRECT: "1" } : {}, {
+      probeHandler: async (_input, runtime) => (await runtime.createOwnedTab()).getValue(
+        "#field", redirect ? "https://mail.google.test" : "https://foreign.test"),
+    });
+    await assert.rejects(harness.factory.runScript({ token, sessionID: sessionID(94), provider: "gmail",
+      operation: "probe", scriptID: "gmail.test_probe", revision: 1, input: probeInput() }));
+    assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+  }
+});
+
+test("batched draft reads use one evaluation and reject altered digests before Send", async t => {
+  for (const invalidDigest of [false, true]) {
+    const harness = await createHarness(t, invalidDigest ? { FAKE_CLI_BAD_READBACK_DIGEST: "1" } : {}, {
+      sendHandler: async (input, runtime) => {
+        const tab = await runtime.createOwnedTab();
+        await tab.fill("#recipient", input.message.recipient, "https://mail.google.test");
+        await tab.fill("#body", input.message.body.content, "https://mail.google.test");
+        const [recipient, body, count, enabled] = await tab.readMany([
+          ["get", "value", "#recipient"], ["get", "text", "#body"],
+          ["get", "count", "#send"], ["is", "enabled", "#send"],
+        ], "https://mail.google.test");
+        assert.equal(recipient.value, input.message.recipient);
+        assert.equal(body.text, input.message.body.content);
+        assert.equal(count.count, 1);
+        assert.equal(enabled.enabled, true);
+        return { status: "verified" };
+      },
+    });
+    const run = harness.factory.runScript({ token, sessionID: sessionID(95), provider: "gmail",
+      operation: "send", scriptID: "gmail.test_send", revision: 1,
+      input: sendInput({ recipient: "one@example.test", subject: "subject", body: { format: "text", content: "line one\nline two" } }),
+    });
+    if (invalidDigest) await assert.rejects(run);
+    else assert.equal((await run).state, "completed");
+    const records = (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+    // Navigation, three background-init reads, two fills, and one batched read.
+    assert.equal(records.filter(record => record.command === "eval").length, 7);
+    assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+  }
+});
+
+test("batch read API refuses actions and oversized batches", async t => {
+  const harness = await createHarness(t, {}, { probeHandler: async (_input, runtime) => {
+    const tab = await runtime.createOwnedTab();
+    for (const commands of [[["click", "#send"]], [], Array(33).fill(["get", "url"])]) {
+      await assert.rejects(tab.readMany(commands));
+    }
+    return {status: "ready"};
+  } });
+  assert.equal((await harness.factory.runScript({ token, sessionID: sessionID(96), provider: "gmail",
+    operation: "probe", scriptID: "gmail.test_probe", revision: 1, input: probeInput() })).state, "completed");
+  const records = (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(records.filter(record => record.command === "eval").length, 1);
 });
 
 test("provider inspection classifies a signed-out redirect before retrying its expression", async (t) => {
@@ -627,7 +772,7 @@ function createRegistry(options = {}) {
       origins: ["https://mail.google.test"],
       timeoutMS: 30_000,
       effectSelector: "#send",
-      handler: async (input, runtime) => {
+      handler: options.sendHandler ?? (async (input, runtime) => {
         const tab = await runtime.createOwnedTab();
         await tab.fill("#recipient", input.message.recipient, "https://mail.google.test");
         await tab.fill("#subject", input.message.subject ?? "", "https://mail.google.test");
@@ -637,7 +782,7 @@ function createRegistry(options = {}) {
         assert.equal(await tab.getText("#body", "https://mail.google.test"), input.message.body.content);
         await tab.click("#send", "https://mail.google.test");
         return { schema_version: 1, status: "sent", provider: "gmail" };
-      },
+      }),
       sourceFiles: [fixtureSource],
     },
   ];

@@ -80,6 +80,26 @@ single default, opened for manual login, and checked with a read-only probe.
 The panel reports bounded readiness metadata and an optional masked account
 hint.
 
+The QQ Mail login probe reads two page markers in one batch: a visible login
+region means login is required; otherwise a visible, valid account address in
+the mailbox header on `/home/index` means ready. If neither state is recognizable,
+the probe reports a page-contract error. It does not require the compose button,
+profile container, or individual login methods, or repeat the same checks.
+Task-tab ownership and allowed-origin validation remain browser-runtime checks.
+
+Outlook accepts a visible new-mail or mail-navigation entry on its mailbox route;
+Gmail accepts a visible compose entry on its mailbox route. Each collects its
+login state in one DOM inspection. Account labels only supply optional masked
+hints. A Microsoft or Google login origin means login is required without
+enumerating password, account-picker, or verification forms. Missing mailbox
+controls get up to eight seconds to render within the inspection, then produce
+a page-contract error; recognized states return immediately.
+
+For login probes, the Controller returns URL and page evidence from the same
+CLI evaluation. It checks task-tab ownership and the observed provider URL
+before evaluation, checks the live origin before DOM access, and validates the
+returned URLs. Context loss still retries only after origin revalidation.
+
 The Gateway API surface is:
 
 ```text
@@ -192,6 +212,53 @@ effect selector may have been activated becomes `email_send_outcome_unknown`.
 That result is terminal and non-retryable because the provider may already have
 sent the message.
 
+QQ Mail verifies the full address before moving DOM focus to the subject field.
+An outside mousedown releases the recipient editor's focus trap; focus and
+mouseup then complete the transition within the background page. The script
+waits for a valid recipient chip before filling the remaining fields. Chip captions may
+contain only a nickname. Plain-text editor verification reconstructs its DIV/BR
+lines, preserving blank lines instead of comparing layout-dependent `innerText`.
+Unsupported editor structure fails before Send.
+QQ opens its Sent folder (`#/list/3`) before composing and records existing
+message IDs. After Send it checks that folder for a new first row with the
+requested subject digest immediately ahead of the previous first row. Returning
+to an arbitrary mail list or finding an older matching message is insufficient.
+
+All three providers' sends and login probes use background task tabs in the
+existing browser window. Email scripts never request a window handoff or bring
+their task tab to the foreground. Before composing, the Controller sends a fixed
+background-input marker through the existing Bridge session. The Bridge enables
+focus emulation only for that attached task renderer, allowing editor layout and
+native Playwright input to run while the real tab stays in the background. This
+marker never grants a handoff or activates a tab/window; probes do not use it.
+Field focus is handled inside the page without changing browser-window focus.
+Waits require a visible control, not merely an existing DOM node. Outlook accepts
+the contenteditable To field and verifies its committed address chip with no
+remaining input or additional recipients. Gmail uses the current role=option
+recipient chips when available, excluding duplicate collapsed address summaries;
+legacy editors use `email` chips. Gmail requires a sent receipt and a
+closed compose view. Outlook starts in Sent Items and records existing row IDs;
+success requires compose to close and a new first row matching recipient and
+subject digests, immediately preceding the former first row. An old matching
+message or disappearance alone is not success. Unrecognized list layouts fail
+closed; a missing post-send record remains an unknown outcome without retry.
+
+Read operations combine the DOM result and before/after origin validation in
+one browser evaluation. Each evaluation still checks task-tab ownership; string
+reads retain digest verification. Fill and keypress validate the fresh tab-list
+origin before acting and the document URL afterwards, avoiding a redundant URL
+evaluation before each action. Browser loading and provider response times still
+contribute to total latency.
+
+Send handlers fill fields consecutively and batch the final draft and Send-control
+reads. One browser evaluation captures the fields synchronously, then hashes the
+string values before returning them. Batches accept only bounded read operations;
+clicks and fills cannot enter this API. QQ also batches its preflight and final
+result reads. Explicit waits remain for provider state transitions and send
+receipts; native Playwright clicks and fills supply their own actionability waits. QQ's
+fixed 500 ms and 1500 ms sleeps are removed. Every operation still checks task-tab
+ownership, and an uncertain send is never retried.
+
 Success returns no subject or body. It contains provider, `sent` status, a
 SHA-256 digest of the exact recipient, optional opaque provider message ID,
 Browser credential generation, and handler revision.
@@ -203,7 +270,12 @@ All six real handlers run through an injected Playwright task runtime. There is
 no standalone stdin entrypoint or process/CDP fallback inside a handler.
 
 The Controller sends message values through an owner-only `0600` ephemeral
-input file. Recipient, subject, body, and extension credential are absent from
+JSON configuration file so quotes, literal escapes, and newlines round-trip
+exactly. Playwright redacts secret values in evaluation output too; field reads
+include a browser-computed SHA-256 digest, and the Controller recovers a known
+input only when that digest matches. Redaction markers alone never establish a
+match. Wrapped QQ runtime failures retain their typed cause for diagnostics.
+Recipient, subject, body, and extension credential are absent from
 argv, logs, artifacts, and model output. Inputs and results use strict bounded
 JSON contracts; unknown fields and malformed output are rejected.
 

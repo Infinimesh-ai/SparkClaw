@@ -136,6 +136,10 @@ export class PlaywrightCLIClientFactory {
       await client.createTaskPage();
       phase = "navigate";
       await client.navigate(registration.loginURL);
+      if (operation === "send") {
+        phase = "prepare_background_page";
+        await client.prepareBackgroundPage();
+      }
       phase = "provider_handler";
       result = await registration.handler(input, createProviderRuntime(client, registration));
     } catch (error) {
@@ -193,22 +197,24 @@ export class PlaywrightCLIClientFactory {
       );
     }
     if (failure) {
-      if (failure instanceof ControllerError) {
-        const reason = DIAGNOSTIC_REASONS.has(failure.diagnosticReason)
-          ? failure.diagnosticReason
+      const runtimeFailure = failure instanceof ControllerError ? failure :
+        failure.cause instanceof ControllerError ? failure.cause : null;
+      if (runtimeFailure) {
+        const reason = DIAGNOSTIC_REASONS.has(runtimeFailure.diagnosticReason)
+          ? runtimeFailure.diagnosticReason
           : undefined;
-        const context = safeDiagnosticContext(failure.diagnosticContext);
+        const context = safeDiagnosticContext(runtimeFailure.diagnosticContext);
         this.#diagnose({
           provider,
           operation,
           scriptID,
           phase,
-          code: failure.code,
+          code: runtimeFailure.code,
           reason,
-          command: safeDiagnosticCommand(failure.diagnosticCommand),
+          command: safeDiagnosticCommand(runtimeFailure.diagnosticCommand),
           ...context,
         });
-        throw failure;
+        throw runtimeFailure;
       }
       return failedResult(registration, providerFailureEnvelope(provider, failure));
     }

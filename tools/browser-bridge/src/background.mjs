@@ -442,8 +442,6 @@ export class FocusTracker {
   constructor(chromeAPI) {
     this.chrome = chromeAPI;
     this.ownerActiveTabs = new Map();
-    this.focusedWindow = chromeAPI.windows.WINDOW_ID_NONE;
-    this.previousFocusedWindow = chromeAPI.windows.WINDOW_ID_NONE;
     this.taskTabs = new Set();
     this.handoffGrants = new Set();
     this.handoffWindows = new Map();
@@ -476,10 +474,6 @@ export class FocusTracker {
     this.chrome.tabs.onRemoved.addListener((tabId) => {
       this.releaseTaskTab(tabId);
       this.#forgetTab(tabId);
-    });
-    this.chrome.windows.onFocusChanged.addListener((windowId) => {
-      this.previousFocusedWindow = this.focusedWindow;
-      this.focusedWindow = windowId;
     });
     this.ready = this.#seed();
   }
@@ -549,11 +543,8 @@ export class FocusTracker {
 
   async restoreAfterConnectionPage(connectTab) {
     this.allowTaskTab(connectTab.id);
+    // Restore only the owner tab; background connections must preserve OS window focus.
     await this.#restoreWhenReady(connectTab.windowId, connectTab.id);
-    if (this.focusedWindow === connectTab.windowId &&
-        this.previousFocusedWindow === this.chrome.windows.WINDOW_ID_NONE) {
-      await this.chrome.windows.update(connectTab.windowId, { focused: false }).catch(() => {});
-    }
   }
 
   async closeTaskTabs(tabIds) {
@@ -597,8 +588,6 @@ export class FocusTracker {
         this.#rememberOwnerTab(tab.windowId, tab.id);
       }
     }
-    const focused = await this.chrome.windows.getLastFocused().catch(() => null);
-    if (Number.isInteger(focused?.id) && focused.focused) this.focusedWindow = focused.id;
   }
 
   #isBridgeURL(url) {

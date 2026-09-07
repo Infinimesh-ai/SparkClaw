@@ -43,8 +43,8 @@ export async function createInvocationState(runtimeRoot, sessionID, input, opera
   const secrets = operation === "send" ? messageSecrets(input) : null;
   let secretsPath = "";
   if (secrets) {
-    secretsPath = path.join(directory, "secrets.env");
-    await fs.writeFile(secretsPath, encodeDotenv(secrets), { mode: 0o600, flag: "wx" });
+    secretsPath = path.join(directory, "secrets.json");
+    await fs.writeFile(secretsPath, JSON.stringify({ secrets }), { mode: 0o600, flag: "wx" });
   }
   const secretValues = Object.values(secrets ?? {}).filter(Boolean);
   return {
@@ -392,13 +392,6 @@ function messageSecrets(input) {
     [SECRET_NAMES.subject]: input.message.subject ?? "",
     [SECRET_NAMES.body]: input.message.body.content,
   };
-}
-
-function encodeDotenv(values) {
-  return `${Object.entries(values).map(([name, value]) => {
-    if (typeof value !== "string") throw clientContractError();
-    return `${name}=${JSON.stringify(value)}`;
-  }).join("\n")}\n`;
 }
 
 async function sha256Hex(value) {

@@ -1,32 +1,34 @@
-# 2026-09-10 专用浏览器真实网站评测
+# Dedicated-browser live evaluation, 2026-09-10
 
-本轮直接连接运行中的 SparkClaw 专用 Chromium，通过其 Browser Bridge 的独立任务页访问 ChatGPT、Claude、Gemini、Grok。使用已有登录状态及已有对话，没有发送测试消息、创建对话或改动邮箱标签页。
+> Language: English | [简体中文](../zh-cn/docs/ai-conversation-live-eval-20260910.md)
 
-实际安装的是 RevivalStack 3.1.0。本轮把本 worktree 的派生脚本临时加载到测试页：批量和正文提取代码保持原样，初始化改为独立控件容器，GM 设置使用默认值，避免与既有油猴控件冲突。没有升级共享油猴安装、重启浏览器或部署 Gateway。
+The evaluation connected to the running SparkClaw Chromium through its Browser Bridge and used task-owned pages on ChatGPT, Claude, Gemini, and Grok. It reused existing login sessions and conversations. No messages were sent, conversations created, or email tabs changed.
 
-## 结果
+The shared installation was RevivalStack 3.1.0. The candidate was temporarily injected into test pages with the batch and extraction code unchanged, a separate control container, and default GM settings. Initialization called `addExportControls()` instead of the full `init()`. This did not upgrade the shared Tampermonkey installation, restart Chromium, or deploy Gateway.
 
-| 平台 | 当前可见时间线 | 首次成功保存 | 导出消息数 | 重跑 |
-|---|---:|---:|---:|---|
-| ChatGPT | 2 条 | 2 条 | 2、4 | 两条均跳过，无重复文件 |
-| Claude | 2 条 | 2 条 | 6、2 | 两条均跳过，无重复文件 |
-| Gemini | 2 条 | 2 条 | 4、4 | 两条均跳过，无重复文件 |
-| Grok | 1 条 | 1 条 | 2 | 一条跳过，无重复文件 |
+## Results
 
-共 7 条真实对话、24 条消息成功保存。逐条重新打开网页核对：7 份文件 SHA-256 均与 ledger 相符，网页与导出中的 user/ai 数量均一致。对包含相应内容的样例，检查了 14 个 `pre code` 文本节点和 90 个表格单元格，文字均可在导出结果中找到；节点数不等于独立代码块数。这不是逐字符或视觉排版无损认证。
+| Provider | Visible conversations | Saved | Messages per file | Rerun |
+|---|---:|---:|---|---|
+| ChatGPT | 2 | 2 | 2, 4 | Both skipped without duplicates |
+| Claude | 2 | 2 | 6, 2 | Both skipped without duplicates |
+| Gemini | 2 | 2 | 4, 4 | Both skipped without duplicates |
+| Grok | 1 | 1 | 2 | Skipped without duplicates |
 
-脚本会重新访问没有更新时间的对话，再通过标题/消息内容指纹判断是否重复。导出时间变化不会单独导致重复保存。此次可见对话数均未超过评测上限（每个平台最多取两条），所以没有因评测抽样排除本次发现的对话。
+Seven real conversations containing 24 messages were saved. Each conversation was reopened independently: all seven file hashes matched the ledger, and exported user/AI message counts matched the page. For applicable samples, text from 14 `pre code` nodes and 90 table cells appeared in the exported files. Node counts do not represent distinct code blocks. This is not a character-for-character or visual fidelity certification.
 
-## 实测发现并修正的问题
+Conversations without update timestamps are revisited and compared by title/message fingerprint. Export timestamp changes alone do not create duplicate files. Each provider exposed at most two conversations during this run, so the qualification sample limit did not exclude any discovered conversation.
 
-1. **后台页点击和等待超时**：普通 Playwright 鼠标点击需要页面稳定帧，默认 `waitForFunction` 使用 rAF；Bridge 后台任务页可能暂停这些帧。改为等待控件挂载后直接触发控件，并以定时轮询等待状态。
-2. **Gemini 检索不能结束**：真实侧栏会保留已经隐藏的加载动画。原代码仍将它视为 busy。现在只认具有可见尺寸的加载/更多控件。
-3. **Grok 时间线未发现**：真实侧栏使用 `[data-sidebar="sidebar"]`，不一定是 `nav`/`aside`；页面初始加载也较慢。新增该根节点支持，并在没有对话或明确空态时等待最多约 30 秒再判定未找到。
-4. **专用浏览器连接方式**：该浏览器没有普通 CDP 调试端口。新增可复跑的 `scripts/ai-chat/qualify-bridge.mjs`，使用已配置 Bridge launcher 和调用方提供的本地浏览器控制凭据。它通过现有后台渲染标记保持任务页可运行，不激活用户标签页。
+## Issues found and fixed
 
-回归测试增加暂停 rAF、隐藏加载/更多控件、Grok 真实侧栏属性和延迟列表加载场景。批量测试 14/14、浏览器组件测试 9/9 通过；组合测试在隔离 Chromium 上完成四平台模拟页面的导出、重跑和已有标签页保留。
+1. Background Bridge pages can suspend animation frames. Pointer-based clicks and default `waitForFunction` polling stalled. The runner now waits for controls to attach, invokes them directly, and uses timer polling.
+2. Gemini retains hidden loading indicators. Discovery now considers only visible loading/more controls.
+3. Grok uses a `[data-sidebar="sidebar"]` root and can hydrate its history slowly. Discovery now recognizes that root and waits approximately 30 seconds before rejecting a page with neither conversations nor an explicit empty state.
+4. The dedicated browser has no ordinary CDP endpoint. `scripts/ai-chat/qualify-bridge.mjs` uses the configured native Bridge launcher and caller-provided browser credential, plus the existing background-rendering marker.
 
-## 复跑与证据
+The original regression run passed 14 batch tests and 9 component tests. Isolated Chromium covered all four fixture providers, repeat exports, and preservation of unrelated pages. Those fixtures are separate from the live-site evidence above.
+
+## Reproduction and private evidence
 
 ```sh
 node scripts/ai-chat/qualify-bridge.mjs \
@@ -35,8 +37,18 @@ node scripts/ai-chat/qualify-bridge.mjs \
   --providers chatgpt,claude,gemini,grok
 ```
 
-由现有凭据/运行时配置提供 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`、`PLAYWRIGHT_MCP_EXECUTABLE_PATH`（Bridge launcher）和 `PLAYWRIGHT_MCP_USER_DATA_DIR`。不要把凭据写入命令参数、报告或版本库。可用 `SPARKCLAW_PLAYWRIGHT_CLI_ENTRY` 指定已安装的 CLI。
+Supply `PLAYWRIGHT_MCP_EXTENSION_TOKEN`, `PLAYWRIGHT_MCP_EXECUTABLE_PATH` (Bridge launcher), and `PLAYWRIGHT_MCP_USER_DATA_DIR` through existing local credential/runtime configuration. Do not put credentials in command arguments, reports, or the repository. `SPARKCLAW_PLAYWRIGHT_CLI_ENTRY` can select an installed CLI.
 
-真实 JSON、ledger、逐次 manifest、源网页对照结果和资格评测汇总位于本 worktree 的忽略目录：`data/workspaces/ai-chat-live-eval/20260910/`。资格汇总记录候选脚本和临时注入内容的 SHA-256。正文、账号信息和对话标题不进入本报告或提交。
+Original JSON, ledgers, per-run manifests, independent page comparisons, and qualification summaries remain in the ignored private worktree directory `data/workspaces/ai-chat-live-eval/20260910/`. Summaries identify the candidate and temporary injection hashes. Conversation text, account information, and titles are excluded from this report and commits.
 
-**通过的是当前登录环境下的短对话和可见时间线评测。** 未证明账号全部历史（归档、项目内、隐藏或平台未展示的对话）已完整检索，也未验证超长虚拟化正文、限流、大规模账号、手动文件夹选择流程、共享油猴升级和 Gateway 自然语言批量路由。文件保存状态仍使用 `saved_visible_history`，覆盖范围保持 unknown。
+## Follow-up scope
+
+The production CLI now defaults to the native Bridge and uses installed controls without candidate injection or a qualification sample limit. Discovery can traverse observed same-provider project/archive/history links, record inaccessible collections, and deduplicate conversations. These additions have separate fixture coverage and must not be inferred to have passed the earlier live run.
+
+The manual flow now uses separate clicks for choosing a directory and opening the export popup, avoiding competing transient-activation requirements. The managed upgrade retires only the old ChatGPT Exporter's exact system UUID and preserves ordinary user copies. The final isolated suite passed 18 tests, including native Tampermonkey fresh import, upgrade retirement, user-copy preservation and redeployment. Only the fixture's managed-policy transport was substituted; native download, hash verification and installation ran intact. Component checks passed 10 tests and the authoritative documentation check covered 77 Markdown files. A strengthened Bridge ownership regression passed after the suite: a later popup and a missing target cannot redirect navigation or cleanup to another page.
+
+The manual-path fixture exercised the full bundled initialization, a real popup, and actual OPFS file writes; directory-picker cancellation and popup blocking were simulated. A separate native-installed control probe timed out even though native import and bootstrap registration succeeded. This remains an installation/execution acceptance gap; fixture initialization does not resolve it.
+
+A subsequent shared-browser connection succeeded, but Chromium rejected Bridge navigation to Tampermonkey's options page and the extension manager. The computer-use tool exposed only the Codex in-app browser, not the dedicated browser or native directory dialog. Consequently the shared installation was not changed or restarted, and its coordination window was released to the email task.
+
+**Live evidence establishes short-conversation extraction and visible-history reruns only.** Full installed-script initialization, shared upgrade, native directory-picker success/cancellation, popup interaction, newly added collection traversal, long virtualized transcripts, rate limits, large accounts, and Gateway natural-language batch routing are not established by this run. Results retain `saved_visible_history` and unknown account-wide coverage.

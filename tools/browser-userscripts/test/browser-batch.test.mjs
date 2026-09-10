@@ -42,3 +42,36 @@ test('four-platform real Chromium: userscript discovery, capture, workspace save
     }
   } finally { await browser.close(); await fs.rm(workspaceRoot,{recursive:true,force:true}); }
 });
+
+test('manual flow: full initialization, real popup, filesystem writes, picker cancellation and popup failure', {skip:!playwrightPath,timeout:120000},async()=>{
+  const {chromium}=await import(playwrightPath);
+  const browser=await chromium.launch({headless:true,executablePath:process.env.SPARKCLAW_TEST_CHROMIUM,args:['--no-sandbox']});
+  try{
+    const context=await browser.newContext();
+    await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture</title><nav><a href="/c/one">Only chat</a></nav><main><section data-testid="conversation-turn-1"><h4>You said</h4><div class="whitespace-pre-wrap">Question</div></section><section data-testid="conversation-turn-2"><h4>ChatGPT said</h4><div class="markdown">Answer</div></section></main>'}));
+    await context.addInitScript(()=>{
+      window.GM_getValue=(_,v)=>v;window.GM_setValue=()=>{};window.GM_registerMenuCommand=()=>{};
+      // Dialog transport is a fixture; actual FileSystemHandle writes use OPFS.
+      window.showDirectoryPicker=async()=>{if(window.pickerCanceled)throw new DOMException('picker_canceled','AbortError');return navigator.storage.getDirectory();};
+    });
+    await context.addInitScript({content:source});
+    const page=await context.newPage();await page.goto('https://chatgpt.com/');
+    await page.locator('#sparkclaw-batch-account').fill('fixture');
+    const click=async id=>{await page.locator('#'+id).evaluate(n=>n.click());await page.waitForFunction(()=>document.querySelector('#sparkclaw-batch-status').dataset.state!=='working',null,{polling:100});};
+    await page.evaluate(()=>window.pickerCanceled=true);
+    await click('sparkclaw-batch-directory');
+    assert.equal(await page.locator('#sparkclaw-batch-status').innerText(),'picker_canceled');
+    await click('sparkclaw-batch-export');
+    assert.equal(await page.locator('#sparkclaw-batch-status').innerText(),'select_directory_for_current_account');
+    await page.evaluate(()=>{window.pickerCanceled=false;window.originalOpen=window.open;window.open=()=>null;});
+    await click('sparkclaw-batch-directory');await click('sparkclaw-batch-export');
+    assert.equal(await page.locator('#sparkclaw-batch-status').innerText(),'batch_popup_blocked');
+    await page.evaluate(()=>window.open=window.originalOpen);
+    await click('sparkclaw-batch-export');
+    assert.match(await page.locator('#sparkclaw-batch-status').innerText(),/导出 1，跳过 0，失败 0/);
+    const files=await page.evaluate(async()=>{const out={};for await(const [name,handle]of(await navigator.storage.getDirectory()).entries())out[name]=await(await handle.getFile()).text();return out;});
+    const ledger=JSON.parse(Object.entries(files).find(([name])=>name.endsWith('-export-ledger.json'))[1]);
+    assert.equal(JSON.parse(files[ledger.one.path]).messages.length,2);
+    assert.equal(context.pages().length,1,'owned popup closes, parent survives');
+  }finally{await browser.close();}
+});

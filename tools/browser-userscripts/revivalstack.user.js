@@ -37,14 +37,25 @@ function batchConversation(provider, href) {
     return { id: match[1], url: url.origin + url.pathname.replace(/\/$/, '') };
   } catch { return null; }
 }
+function batchCollection(provider, href) {
+  try {
+    const config = SPARKCLAW_BATCH_PROVIDERS[provider], url = new URL(href, 'https://' + config.host);
+    if (url.protocol !== 'https:' || url.host !== config.host || url.username || url.password || url.search || url.hash) return null;
+    // Follow only observed history/collection links, never destructive menus,
+    // arbitrary external links, account selectors or guessed private APIs.
+    if (!/^\/(?:projects?(?:\/[\w-]+)?|g\/[\w-]+(?:\/project)?|archived(?:-chats)?|archive|recents|history)\/?$/.test(url.pathname)) return null;
+    return url.origin + url.pathname.replace(/\/$/, '');
+  } catch { return null; }
+}
 async function scanBatchTimeline(provider, io) {
-  const rows = new Map();
+  const rows = new Map(), collections = new Set();
   let stable = 0;
   for (let step = 0; step < 2000; step++) {
     io.check();
     const snapshot = await io.snapshot();
     if (snapshot.blocked) throw new Error('timeline_login_or_loading_blocked');
     let added = 0;
+    for (const href of snapshot.collections || []) { const url = batchCollection(provider, href); if (url && !collections.has(url)) { collections.add(url); added++; } }
     for (const item of snapshot.items) {
       const ref = batchConversation(provider, item.url);
       if (!ref) continue;
@@ -54,8 +65,9 @@ async function scanBatchTimeline(provider, io) {
     }
     if (snapshot.end && !added && !snapshot.busy) stable++; else stable = 0;
     if (stable >= 5 && (rows.size || snapshot.empty || step >= 29)) {
-      if (!rows.size && !snapshot.empty) throw new Error('timeline_not_found');
+      if (!rows.size && !snapshot.empty && !collections.size) throw new Error('timeline_not_found');
       return { schema: 'sparkclaw.timeline.v1', provider, coverage: 'visible-history', complete: false,
+        collections: [...collections],
         warning: 'UI exhaustion cannot prove account-wide coverage; archived/project/hidden conversations may be absent.',
         conversations: [...rows.values()].sort((a, b) => a.updated && b.updated ? a.updated.localeCompare(b.updated) || a.id.localeCompare(b.id) : a.updated ? -1 : b.updated ? 1 : b.rank - a.rank) };
     }
@@ -63,13 +75,42 @@ async function scanBatchTimeline(provider, io) {
   }
   throw new Error('timeline_scan_limit');
 }
+async function discoverBatchHistory(provider, initial, scanURL, check) {
+  const rows = new Map(), visited = new Set(), pending = [initial];
+  const sources = [], errors = [];
+  while (pending.length) {
+    check(); const url = pending.shift();
+    if (visited.has(url)) continue;
+    if (visited.size >= 1000) throw new Error('history_collection_limit');
+    visited.add(url);
+    try {
+      const timeline = await scanURL(url);
+      if (timeline.provider !== provider || !Array.isArray(timeline.conversations)) throw new Error('timeline_invalid');
+      sources.push({ url, count: timeline.conversations.length, coverage: timeline.coverage });
+      for (const item of timeline.conversations) {
+        const ref = batchConversation(provider, item.url);
+        if (!ref || ref.id !== item.id) throw new Error('timeline_identity_invalid');
+        const previous = rows.get(item.id);
+        if (!previous || (item.updated && (!previous.updated || item.updated > previous.updated))) rows.set(item.id, item);
+      }
+      for (const href of timeline.collections || []) {
+        const collection = batchCollection(provider, href);
+        if (collection && !visited.has(collection) && !pending.includes(collection)) pending.push(collection);
+      }
+    } catch (error) { check(); errors.push({url,error:error.message}); }
+  }
+  if (!sources.length) throw new Error(errors[0]?.error || 'timeline_not_found');
+  return { schema: 'sparkclaw.timeline.v1', provider, coverage:'visible-history', complete:false,
+    sources, errors, warning:'Only discovered history and collection links were scanned. Hidden archives, projects, and virtualized messages may be absent.',
+    conversations:[...rows.values()].sort((a,b)=>a.updated && b.updated ? a.updated.localeCompare(b.updated) || a.id.localeCompare(b.id) : a.updated ? -1 : b.updated ? 1 : 0) };
+}
 // Reads only rendered UI. No private website API, token, or cookie dependencies.
 function batchTimelineSnapshot(provider, doc = document) {
   const visible = node => {
     const rect = node.getBoundingClientRect(), style = doc.defaultView.getComputedStyle(node);
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
-  const roots = [...doc.querySelectorAll('nav, [role="navigation"], aside, side-navigation, [data-sidebar="sidebar"]'), /\/recents|\/history/.test(doc.location.pathname) ? doc.querySelector('main') : null].filter(Boolean).filter((root, index, all) => !all.some((other, i) => i !== index && other.contains(root)));
+  const roots = [...doc.querySelectorAll('nav, [role="navigation"], aside, side-navigation, [data-sidebar="sidebar"]'), !!batchCollection(provider, doc.location.href) ? doc.querySelector('main') : null].filter(Boolean).filter((root, index, all) => !all.some((other, i) => i !== index && other.contains(root)));
   const items = [];
   for (const root of roots) {
     for (const node of root.querySelectorAll('a[href], [data-conversation-id]')) {
@@ -82,7 +123,8 @@ function batchTimelineSnapshot(provider, doc = document) {
   }
   const scrollers = roots.flatMap(root => [root, ...root.querySelectorAll('*')]).filter(node => node.scrollHeight > node.clientHeight + 4 && node.clientHeight > 0 && /auto|scroll/.test(doc.defaultView.getComputedStyle(node).overflowY));
   const more = roots.flatMap(root => [...root.querySelectorAll('button')]).find(node => /^(load more|show more|加载更多|显示更多)$/i.test(node.textContent.trim()) && !node.disabled && node.getAttribute('aria-disabled') !== 'true' && visible(node));
-  return { items, end: !more && scrollers.every(node => node.scrollTop + node.clientHeight >= node.scrollHeight - 4),
+  const collections = roots.flatMap(root => [...root.querySelectorAll('a[href]')]).map(node => node.getAttribute('href')).filter(href => batchCollection(provider, href));
+  return { items, collections, end: !more && scrollers.every(node => node.scrollTop + node.clientHeight >= node.scrollHeight - 4),
     busy: roots.some(root => [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some(visible)),
     empty: roots.some(root => /^(no conversations|no chats|暂无对话|暂无聊天)$/i.test(root.textContent.trim())),
     blocked: !!doc.querySelector('input[type="password"]'), scrollers, more };
@@ -169,37 +211,35 @@ function installTimelineBatch(parent, captureCurrent) {
     }
     throw new Error('conversation_not_ready');
   });
-  add('sparkclaw-batch-export', '批量导出到文件夹', async () => {
-    // Ask for the directory inside this explicit user gesture. A directory is
-    // an account/workspace scope; never share it between platform accounts.
-    const accountScope = window.prompt('请输入当前登录账号/工作区标识（仅用于区分本地导出记录；切换账号后请使用不同标识）');
-    if (!accountScope?.trim()) throw new Error('account_scope_required');
+  // Each browser activation-consuming operation gets its own explicit click.
+  let selectedDirectory, selectedAccount;
+  const accountInput = document.createElement('input');
+  accountInput.id = 'sparkclaw-batch-account';
+  accountInput.placeholder = '当前账号/工作区标识';
+  accountInput.setAttribute('aria-label', '批量导出账号/工作区标识');
+  container.appendChild(accountInput);
+  add('sparkclaw-batch-directory', '选择导出文件夹', async () => {
+    selectedDirectory = undefined; selectedAccount = undefined;
+    const scope = accountInput.value.trim();
+    if (!scope) throw new Error('account_scope_required');
+    if (!window.showDirectoryPicker) throw new Error('directory_picker_unavailable');
+    const directory = await window.showDirectoryPicker({ mode: 'readwrite' });
+    check(); selectedDirectory = directory; selectedAccount = scope;
+    status.textContent = '文件夹已选择，请点击开始批量导出';
+  });
+  add('sparkclaw-batch-export', '开始批量导出', async () => {
+    const directory = selectedDirectory, accountScope = accountInput.value.trim();
+    if (!directory || selectedAccount !== accountScope) throw new Error('select_directory_for_current_account');
     const popup = window.open('about:blank', '_blank', 'popup');
     if (!popup) throw new Error('batch_popup_blocked');
-    let directory;
-    try { directory = await window.showDirectoryPicker({ mode: 'readwrite' }); }
-    catch (error) { popup.close(); throw error; }
-    const read = async name => (await (await directory.getFileHandle(name)).getFile()).text();
-    const write = async (name, text) => { const handle = await directory.getFileHandle(name, { create: true }); const writer = await handle.createWritable(); try { await writer.write(text); await writer.close(); } catch (e) { await writer.abort().catch(() => {}); throw e; } };
-    let ledger = {};
-    const ledgerName = provider + '-' + (await hash(accountScope)).slice(0, 24) + '-export-ledger.json';
-    try {
-      await navigator.locks.request('sparkclaw-batch-' + provider, { ifAvailable: true }, async lock => {
-        if (!lock) throw new Error('batch_already_running');
-        try { ledger = JSON.parse(await read(ledgerName)); } catch (error) { if (error.name !== 'NotFoundError') throw error; }
-        const timeline = await scan();
-        const result = await runTimelineBatch({ provider, timeline, ledger, check,
-          verify: async row => { try { return /^[\w.-]+\.json$/.test(row.path) && await hash(await read(row.path)) === row.sha256; } catch { return false; } },
-          save: async (item, text) => { const sha256 = await hash(text), name = provider + '-' + item.id + '-' + sha256 + '.json'; await write(name, text); return { path: name, sha256 }; },
-          commit: async (id, row) => { await write(ledgerName, JSON.stringify({ ...ledger, [id]: row }, null, 2)); },
-          capture: async item => {
+    const popupCommand = async (url, commandID) => {
             const previousDocument = popup.document;
-            popup.location.href = item.url;
+            popup.location.href = url;
             for (let n = 0; n < 120; n++) {
               check(); if (popup.closed) throw new Error('batch_window_closed');
               let doc; try { doc = popup.document; } catch { throw new Error('login_or_origin_changed'); }
-              const button = doc.querySelector('#sparkclaw-batch-capture');
-              if (doc !== previousDocument && doc.readyState !== 'loading' && doc.location.href.replace(/\/$/, '') === item.url && button) {
+              const button = doc.querySelector('#' + commandID);
+              if (doc !== previousDocument && doc.readyState !== 'loading' && doc.location.href.replace(/\/$/, '') === url.replace(/\/$/, '') && button) {
                 button.click();
                 for (let attempt = 0; attempt < 120; attempt++) {
                   await pause(1000); check();
@@ -212,10 +252,26 @@ function installTimelineBatch(parent, captureCurrent) {
               await pause(1000);
             }
             throw new Error('userscript_not_ready');
-          }, progress: result => { status.textContent = `已导出 ${result.exported.length} 条，失败 ${result.failed.length} 条`; }
+
+    };
+    const read = async name => (await (await directory.getFileHandle(name)).getFile()).text();
+    const write = async (name, text) => { const handle = await directory.getFileHandle(name, { create: true }); const writer = await handle.createWritable(); try { await writer.write(text); await writer.close(); } catch (e) { await writer.abort().catch(() => {}); throw e; } };
+    let ledger = {};
+    const ledgerName = provider + '-' + (await hash(accountScope)).slice(0, 24) + '-export-ledger.json';
+    try {
+      await navigator.locks.request('sparkclaw-batch-' + provider, { ifAvailable: true }, async lock => {
+        if (!lock) throw new Error('batch_already_running');
+        try { ledger = JSON.parse(await read(ledgerName)); } catch (error) { if (error.name !== 'NotFoundError') throw error; }
+        const config = SPARKCLAW_BATCH_PROVIDERS[provider];
+        const timeline = await discoverBatchHistory(provider, 'https://' + config.host + config.history, async url => JSON.parse(await popupCommand(url, 'sparkclaw-batch-scan')), check);
+        const result = await runTimelineBatch({ provider, timeline, ledger, check,
+          verify: async row => { try { return /^[\w.-]+\.json$/.test(row.path) && await hash(await read(row.path)) === row.sha256; } catch { return false; } },
+          save: async (item, text) => { const sha256 = await hash(text), name = provider + '-' + item.id + '-' + sha256 + '.json'; await write(name, text); return { path: name, sha256 }; },
+          commit: async (id, row) => { await write(ledgerName, JSON.stringify({ ...ledger, [id]: row }, null, 2)); },
+          capture: async item => popupCommand(item.url, 'sparkclaw-batch-capture'), progress: result => { status.textContent = `已导出 ${result.exported.length} 条，失败 ${result.failed.length} 条`; }
         });
         await write(provider + '-batch-' + crypto.randomUUID() + '.json', JSON.stringify({ ...result, timeline, coverage: 'unknown' }, null, 2));
-        status.textContent = `完成可见历史：导出 ${result.exported.length}，跳过 ${result.skipped.length}，失败 ${result.failed.length}；全部历史覆盖未知`;
+        status.textContent = `完成可见历史：导出 ${result.exported.length}，跳过 ${result.skipped.length}，失败 ${result.failed.length}，历史检索失败 ${timeline.errors.length}；全部历史覆盖未知`;
       });
     } finally { popup.close(); }
   });

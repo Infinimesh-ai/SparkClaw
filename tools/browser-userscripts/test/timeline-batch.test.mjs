@@ -55,3 +55,20 @@ test('delayed website hydration is not mistaken for an empty history', async () 
   const result=await scanBatchTimeline('grok',{check(){},snapshot:async()=>({end:true,items:step<10?[]:[{url:urls.grok}]}),advance:async()=>{step++;}});
   assert.equal(result.conversations.length,1);
 });
+
+test('discovers linked project/archive pages, deduplicates cycles and records inaccessible sources', async () => {
+  const {discoverBatchHistory, batchCollection} = await import('../timeline-core.mjs');
+  const root='https://chatgpt.com/', project='https://chatgpt.com/g/project-1/project', archive='https://chatgpt.com/archived';
+  const visited=[];
+  const result=await discoverBatchHistory('chatgpt',root,async url=>{
+    visited.push(url);
+    if(url===archive) throw new Error('login_required');
+    return {provider:'chatgpt',coverage:'visible-history',conversations:[{id:url===root?'one':'two',url:urls.chatgpt.replace('one',url===root?'one':'two')}],collections:[project,archive,root,'https://evil.test/projects']};
+  },()=>{});
+  assert.deepEqual(visited,[root,project,archive]);
+  assert.deepEqual(result.conversations.map(x=>x.id),['one','two']);
+  assert.deepEqual(result.errors,[{url:archive,error:'login_required'}]);
+  assert.equal(result.complete,false);
+  assert.equal(batchCollection('chatgpt','https://chatgpt.com/logout'),null);
+  assert.equal(batchCollection('chatgpt','https://chatgpt.com/projects?account=other'),null);
+});

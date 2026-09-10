@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { SPARKCLAW_BATCH_PROVIDERS, runTimelineBatch } from '../../tools/browser-userscripts/timeline-core.mjs';
+import { SPARKCLAW_BATCH_PROVIDERS, discoverBatchHistory, runTimelineBatch } from '../../tools/browser-userscripts/timeline-core.mjs';
 
 // SparkClaw can supply its authorized BrowserContext. Only this new page is
 // navigated/closed; no global download settings, browser restart or email state.
@@ -46,8 +46,10 @@ export async function exportTimeline({ context, provider, workspaceRoot, account
       if (await page.locator('#sparkclaw-batch-status').getAttribute('data-state') !== 'ready') throw new Error(await page.locator('#sparkclaw-batch-status').innerText());
       return page.locator('#sparkclaw-batch-output').inputValue();
     }
-    await page.goto('https://' + config.host + config.history, { timeout: 30000 });
-    timeline = JSON.parse(await command('sparkclaw-batch-scan'));
+    timeline = await discoverBatchHistory(provider, 'https://' + config.host + config.history, async url => {
+      await page.goto(url, { timeout: Math.min(30000, deadline - Date.now()) });
+      return JSON.parse(await command('sparkclaw-batch-scan'));
+    }, check);
     const verify = async record => {
       try {
         if (!/^[\w.-]+\.json$/.test(record.path)) return false;
@@ -71,7 +73,7 @@ export async function exportTimeline({ context, provider, workspaceRoot, account
       progress: async () => {}
     });
     // UI history exhaustion is not evidence of complete account history.
-    const receipt = { status: result.failed.length ? 'partial' : 'saved_visible_history', provider, timeline, ...result, directory, manifest_path: manifestPath, coverage: 'unknown' };
+    const receipt = { status: result.failed.length || timeline.errors.length ? 'partial' : 'saved_visible_history', provider, timeline, ...result, directory, manifest_path: manifestPath, coverage: 'unknown' };
     await write(manifestPath, JSON.stringify(receipt, null, 2));
     return receipt;
   } catch (error) {

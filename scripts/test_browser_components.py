@@ -84,7 +84,7 @@ class BrowserComponentsTest(unittest.TestCase):
         provision = components.make_provisioning(manifest)
         state = {'!misc.managed.consumed': {'1:current': 123}}
         for index, (entry, script) in enumerate(zip(manifest['scripts'], provision['scripts'])):
-            uid = f'fixture-{index}'
+            uid = entry['uuid']
             state['!extdb.@meta#' + uid] = {
                 'name': script['name'], 'version': entry['version'],
                 'enabled': True, 'system': True,
@@ -107,6 +107,19 @@ class BrowserComponentsTest(unittest.TestCase):
 
     def test_current_complete_profile_passes(self):
         state, policy = self.valid_state()
+        self.verify_with_state(state, policy)
+
+    def test_retirement_checks_exact_managed_identity_and_preserves_user_copies(self):
+        state, policy = self.valid_state()
+        retired = components.RETIRED_MANAGED_UUIDS[0]
+        state['!extdb.@meta#user-copy'] = {'name': 'ChatGPT Exporter', 'system': False, 'enabled': True}
+        current = components.manifest()['scripts'][0]['uuid']
+        state['!extdb.@meta#user-fork'] = {**state['!extdb.@meta#' + current], 'system': False}
+        self.verify_with_state(state, policy)
+        state['!extdb.@meta#' + retired] = {'system': True, 'enabled': True}
+        with self.assertRaisesRegex(ValueError, 'retired managed'):
+            self.verify_with_state(state, policy)
+        state['!extdb.@meta#' + retired]['system'] = False
         self.verify_with_state(state, policy)
 
     def test_missing_permission_fails_even_with_valid_database(self):
@@ -133,7 +146,7 @@ class BrowserComponentsTest(unittest.TestCase):
         override.start()
         self.addCleanup(override.stop)
         valid, policy = self.valid_state()
-        meta_key = '!extdb.@meta#fixture-0'
+        meta_key = '!extdb.@meta#' + manifest['scripts'][0]['uuid']
         dependency_key = next(key for key in valid if key.startswith('!extdb.@ext#'))
 
         def changed_meta(field, value):
@@ -151,8 +164,8 @@ class BrowserComponentsTest(unittest.TestCase):
             'wrong version': changed_meta('version', '0.0.0'),
             'uncontrolled updates': changed_meta('options', {'check_for_updates': True}),
             'missing update policy': changed_meta('options', {}),
-            'changed source': lambda s: s.update({'!extdb.@source#fixture-0': '// modified'}),
-            'missing source': lambda s: s.pop('!extdb.@source#fixture-0'),
+            'changed source': lambda s: s.update({'!extdb.@source#' + manifest['scripts'][0]['uuid']: '// modified'}),
+            'missing source': lambda s: s.pop('!extdb.@source#' + manifest['scripts'][0]['uuid']),
             'missing dependency': lambda s: s.pop(dependency_key),
             'duplicate dependency': lambda s: s.update({dependency_key + '-duplicate': copy.deepcopy(s[dependency_key])}),
             'changed dependency': lambda s: s[dependency_key].update({'resource': {'base': 'Y2hhbmdlZA=='}}),

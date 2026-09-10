@@ -20,6 +20,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEM = Path('/opt/sparkclaw/browser-components')
 POLICY = Path('/etc/chromium/policies/managed/sparkclaw-userscripts.json')
+RETIRED_MANAGED_UUIDS = ('c6378bd8-6136-4f1b-81be-2c0fed94baf3',)
 
 
 def digest(data):
@@ -144,6 +145,16 @@ def stage(target):
     if source.count(reconcile_old) != 1 or source.count(same_old) != 1:
         raise ValueError('Tampermonkey managed reconciliation patch no longer matches')
     source = source.replace(reconcile_old, reconcile_new).replace(same_old, same_new)
+    # Retire only the product-owned identity through Tampermonkey's native
+    # database/cache APIs. Never match by name or remove ordinary user scripts.
+    retire_old = 'const{version:p,scripts:h,settings:f}=u;if("1"===p){if(h)'
+    retire_new = ('const{version:p,scripts:h,settings:f}=u;if("1"===p){'
+                  'i.push(async()=>{for(const id of ' + json.dumps(RETIRED_MANAGED_UUIDS) + '){'
+                  'const record=sa.getByUid(id);if(record?.script?.system===true){'
+                  'await sa.removeByUid(id);await sa.setStorageByUid(id,void 0);await Lc.dropAll(id);}}});if(h)')
+    if source.count(retire_old) != 1:
+        raise ValueError('Tampermonkey managed retirement patch no longer matches')
+    source = source.replace(retire_old, retire_new)
     (extension / worker).write_text(source)
     extension_manifest = extension / 'manifest.json'
     meta = json.loads(extension_manifest.read_text())
@@ -258,11 +269,16 @@ def verify_profile(profile):
     current_hash = policy['3rdparty']['extensions'][identity]['jsonImport'][0]['hash']
     if current_hash not in state.get('!misc.managed.consumed', {}):
         raise ValueError('current managed script deployment has not been imported')
+    for retired in RETIRED_MANAGED_UUIDS:
+        if state.get('!extdb.@meta#' + retired, {}).get('system') is True:
+            raise ValueError('retired managed script remains installed: ' + retired)
     for expected, item in zip(make_provisioning(m)['scripts'], m['scripts']):
-        matches = [(key, value) for key, value in state.items() if key.startswith('!extdb.@meta#') and value.get('name') == expected['name']]
+        matches = [(key, value) for key, value in state.items() if key.startswith('!extdb.@meta#') and value.get('name') == expected['name'] and value.get('system') is True]
         if len(matches) != 1:
             raise ValueError('managed script missing or duplicated: ' + expected['name'])
         key, meta = matches[0]
+        if key != '!extdb.@meta#' + expected['uuid']:
+            raise ValueError('managed script identity mismatch: ' + expected['name'])
         source = state.get('!extdb.@source#' + key.split('#', 1)[1], '')
         if meta.get('enabled') is not True or meta.get('system') is not True or meta.get('version') != item['version'] or meta.get('options', {}).get('check_for_updates') is not False or digest(source.encode()) != item['sha256']:
             raise ValueError('managed script is disabled, changed, or stale: ' + expected['name'])

@@ -5,15 +5,15 @@
     "url": "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=148.0.7778.0&acceptformat=crx3&x=id%3Ddhdgffkkebhmkfjojejmpbldmpobfkfo%26uc",
     "sha256": "bcaec082c439e11c4df683f43d07e9ac3d4439251d72b91c5b452f977dac15d5",
     "path": "/opt/sparkclaw/tampermonkey",
-    "productVersion": "5.5.0.6",
-    "patchRevision": 6
+    "productVersion": "5.5.0.7",
+    "patchRevision": 7
   },
   "scripts": [
     {
       "file": "revivalstack.user.js",
       "version": "3.1.0-sparkclaw.1",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/blob/main/tools/browser-userscripts/revivalstack.user.js",
-      "sha256": "4920b26fecb54cdc5a52f6b8c8798eea705deee92580276a0f057ccc2c36bb2e",
+      "sha256": "39bfb75039456b7042d4d7fad5ea4eee4bfcb65fce8aa068239aa65fe6e9b4d2",
       "requires": [],
       "uuid": "80700eb2-0fe8-46ea-902f-f4463134057d",
       "upstream_url": "https://raw.githubusercontent.com/revivalstack/ai-chat-exporter/4ce218d1290956703489870aafa2adfdf4448f38/ai-chat-exporter.user.js"

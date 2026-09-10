@@ -14,14 +14,25 @@ function batchConversation(provider, href) {
     return { id: match[1], url: url.origin + url.pathname.replace(/\/$/, '') };
   } catch { return null; }
 }
+function batchCollection(provider, href) {
+  try {
+    const config = SPARKCLAW_BATCH_PROVIDERS[provider], url = new URL(href, 'https://' + config.host);
+    if (url.protocol !== 'https:' || url.host !== config.host || url.username || url.password || url.search || url.hash) return null;
+    // Follow only observed history/collection links, never destructive menus,
+    // arbitrary external links, account selectors or guessed private APIs.
+    if (!/^\/(?:projects?(?:\/[\w-]+)?|g\/[\w-]+(?:\/project)?|archived(?:-chats)?|archive|recents|history)\/?$/.test(url.pathname)) return null;
+    return url.origin + url.pathname.replace(/\/$/, '');
+  } catch { return null; }
+}
 async function scanBatchTimeline(provider, io) {
-  const rows = new Map();
+  const rows = new Map(), collections = new Set();
   let stable = 0;
   for (let step = 0; step < 2000; step++) {
     io.check();
     const snapshot = await io.snapshot();
     if (snapshot.blocked) throw new Error('timeline_login_or_loading_blocked');
     let added = 0;
+    for (const href of snapshot.collections || []) { const url = batchCollection(provider, href); if (url && !collections.has(url)) { collections.add(url); added++; } }
     for (const item of snapshot.items) {
       const ref = batchConversation(provider, item.url);
       if (!ref) continue;
@@ -31,8 +42,9 @@ async function scanBatchTimeline(provider, io) {
     }
     if (snapshot.end && !added && !snapshot.busy) stable++; else stable = 0;
     if (stable >= 5 && (rows.size || snapshot.empty || step >= 29)) {
-      if (!rows.size && !snapshot.empty) throw new Error('timeline_not_found');
+      if (!rows.size && !snapshot.empty && !collections.size) throw new Error('timeline_not_found');
       return { schema: 'sparkclaw.timeline.v1', provider, coverage: 'visible-history', complete: false,
+        collections: [...collections],
         warning: 'UI exhaustion cannot prove account-wide coverage; archived/project/hidden conversations may be absent.',
         conversations: [...rows.values()].sort((a, b) => a.updated && b.updated ? a.updated.localeCompare(b.updated) || a.id.localeCompare(b.id) : a.updated ? -1 : b.updated ? 1 : b.rank - a.rank) };
     }
@@ -40,13 +52,42 @@ async function scanBatchTimeline(provider, io) {
   }
   throw new Error('timeline_scan_limit');
 }
+async function discoverBatchHistory(provider, initial, scanURL, check) {
+  const rows = new Map(), visited = new Set(), pending = [initial];
+  const sources = [], errors = [];
+  while (pending.length) {
+    check(); const url = pending.shift();
+    if (visited.has(url)) continue;
+    if (visited.size >= 1000) throw new Error('history_collection_limit');
+    visited.add(url);
+    try {
+      const timeline = await scanURL(url);
+      if (timeline.provider !== provider || !Array.isArray(timeline.conversations)) throw new Error('timeline_invalid');
+      sources.push({ url, count: timeline.conversations.length, coverage: timeline.coverage });
+      for (const item of timeline.conversations) {
+        const ref = batchConversation(provider, item.url);
+        if (!ref || ref.id !== item.id) throw new Error('timeline_identity_invalid');
+        const previous = rows.get(item.id);
+        if (!previous || (item.updated && (!previous.updated || item.updated > previous.updated))) rows.set(item.id, item);
+      }
+      for (const href of timeline.collections || []) {
+        const collection = batchCollection(provider, href);
+        if (collection && !visited.has(collection) && !pending.includes(collection)) pending.push(collection);
+      }
+    } catch (error) { check(); errors.push({url,error:error.message}); }
+  }
+  if (!sources.length) throw new Error(errors[0]?.error || 'timeline_not_found');
+  return { schema: 'sparkclaw.timeline.v1', provider, coverage:'visible-history', complete:false,
+    sources, errors, warning:'Only discovered history and collection links were scanned. Hidden archives, projects, and virtualized messages may be absent.',
+    conversations:[...rows.values()].sort((a,b)=>a.updated && b.updated ? a.updated.localeCompare(b.updated) || a.id.localeCompare(b.id) : a.updated ? -1 : b.updated ? 1 : 0) };
+}
 // Reads only rendered UI. No private website API, token, or cookie dependencies.
 function batchTimelineSnapshot(provider, doc = document) {
   const visible = node => {
     const rect = node.getBoundingClientRect(), style = doc.defaultView.getComputedStyle(node);
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
-  const roots = [...doc.querySelectorAll('nav, [role="navigation"], aside, side-navigation, [data-sidebar="sidebar"]'), /\/recents|\/history/.test(doc.location.pathname) ? doc.querySelector('main') : null].filter(Boolean).filter((root, index, all) => !all.some((other, i) => i !== index && other.contains(root)));
+  const roots = [...doc.querySelectorAll('nav, [role="navigation"], aside, side-navigation, [data-sidebar="sidebar"]'), !!batchCollection(provider, doc.location.href) ? doc.querySelector('main') : null].filter(Boolean).filter((root, index, all) => !all.some((other, i) => i !== index && other.contains(root)));
   const items = [];
   for (const root of roots) {
     for (const node of root.querySelectorAll('a[href], [data-conversation-id]')) {
@@ -59,7 +100,8 @@ function batchTimelineSnapshot(provider, doc = document) {
   }
   const scrollers = roots.flatMap(root => [root, ...root.querySelectorAll('*')]).filter(node => node.scrollHeight > node.clientHeight + 4 && node.clientHeight > 0 && /auto|scroll/.test(doc.defaultView.getComputedStyle(node).overflowY));
   const more = roots.flatMap(root => [...root.querySelectorAll('button')]).find(node => /^(load more|show more|加载更多|显示更多)$/i.test(node.textContent.trim()) && !node.disabled && node.getAttribute('aria-disabled') !== 'true' && visible(node));
-  return { items, end: !more && scrollers.every(node => node.scrollTop + node.clientHeight >= node.scrollHeight - 4),
+  const collections = roots.flatMap(root => [...root.querySelectorAll('a[href]')]).map(node => node.getAttribute('href')).filter(href => batchCollection(provider, href));
+  return { items, collections, end: !more && scrollers.every(node => node.scrollTop + node.clientHeight >= node.scrollHeight - 4),
     busy: roots.some(root => [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some(visible)),
     empty: roots.some(root => /^(no conversations|no chats|暂无对话|暂无聊天)$/i.test(root.textContent.trim())),
     blocked: !!doc.querySelector('input[type="password"]'), scrollers, more };
@@ -98,4 +140,4 @@ async function runTimelineBatch({ provider, timeline, ledger, capture, save, ver
   return result;
 }
 
-export { SPARKCLAW_BATCH_PROVIDERS, batchConversation, scanBatchTimeline, batchTimelineSnapshot, runTimelineBatch };
+export { SPARKCLAW_BATCH_PROVIDERS, batchConversation, batchCollection, discoverBatchHistory, scanBatchTimeline, batchTimelineSnapshot, runTimelineBatch };

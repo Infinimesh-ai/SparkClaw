@@ -1,12 +1,14 @@
 # RevivalStack timeline batch export
 
+> Language: English | [简体中文](../zh-cn/docs/ai-conversation-batch-export.md)
+
 The SparkClaw fork (`3.1.0-sparkclaw.1`) adds batch orchestration for ChatGPT, Claude, Gemini, and Grok. The retired pionxzh ChatGPT Exporter is removed from the repository and managed-script manifest. Original RevivalStack MIT notices remain. Upstream automatic updates are disabled so they cannot overwrite the fork.
 
 ## Use in the browser
 
-Install the bundled `tools/browser-userscripts/revivalstack.user.js`. Open the signed-in platform's expanded history list: ChatGPT sidebar, Claude `/recents`, Gemini `/app`, or Grok `/history`. Click **批量导出到文件夹**, supply an account/workspace label, and choose an output directory. Allow the task popup. Keep the source page and popup open until completion. **停止批量** stops subsequent work; successfully saved exports remain.
+Install the bundled `tools/browser-userscripts/revivalstack.user.js`. Open the signed-in platform's expanded history list: ChatGPT sidebar, Claude `/recents`, Gemini `/app`, or Grok `/history`. Enter an account/workspace label, click **选择导出文件夹**, then click **开始批量导出**. Allow the task popup. Directory selection and popup creation use separate user gestures. Keep the source page and popup open until completion. **停止批量** stops subsequent work; successfully saved exports remain.
 
-The script scans lazy-loaded and virtualized visible history, deduplicates conversation IDs, and processes oldest first. Exact update timestamps take precedence where the UI provides them; otherwise the reverse of the displayed newest-first list is used. Pinned/grouped lists can therefore affect order. The source page stays on its URL; conversation capture uses a separate popup. Existing manual message filters do not restrict batch capture.
+The script scans lazy-loaded and virtualized visible history, follows observed same-provider project/archive/history collection links, and deduplicates conversation IDs. It processes timestamped conversations oldest first. Exact update timestamps take precedence where the UI provides them; otherwise the reverse of the displayed newest-first list is used. Pinned/grouped lists can therefore affect order. Order across collections without timestamps is discovery order. Failed collections remain in the report and prevent a successful batch status. The source page stays on its URL; conversation capture uses a separate popup. Existing manual message filters do not restrict batch capture.
 
 Each JSON file retains the fork's original serialized conversation output. SHA-256 read-back verification precedes the account-scoped ledger update. A failed save/checkpoint is retried on the next run. Existing records are skipped only if their saved file still verifies; missing/corrupt files are recaptured. If history exposes no update timestamp, the conversation is revisited and title/message content hashes decide whether another file is needed. Changes only to export timestamps do not create duplicate files. Files use provider/conversation/content-hash names to prevent title collisions. Batch reports list exports, skips and failures.
 
@@ -26,17 +28,19 @@ const receipt = await exportTimeline({
 
 The callable creates/closes only its own task page. It consumes fixed userscript controls and saves original JSON, ledger and per-run manifest under `ai-chat-exports/<provider>-<account-hash>/`. Each file is atomically published and verified before checkpointing. A per-directory lock prevents concurrent exporters; a stale lock after a process crash must be removed only after verifying no exporter owns it. Other browser tabs and email files are untouched. Cancellation/timeout closes the owned page; already saved receipts survive.
 
-For local orchestration with an explicitly supplied existing local CDP endpoint:
+For the running dedicated browser, use its configured native Bridge (the default transport):
 
 ```sh
 node scripts/ai-chat/export-batch.mjs --provider chatgpt \
   --workspace /absolute/session/workspace --account my-account-workspace \
-  --cdp http://127.0.0.1:PORT
+  --bridge
 ```
 
 Run separately for each provider (or call the function sequentially). This command does not install/update the script, start a browser, change a browser profile, or restart services. It requires the browser-controller Playwright dependency. Its fixed DOM control IDs are `sparkclaw-batch-scan`, `sparkclaw-batch-capture`, `sparkclaw-batch-status` and `sparkclaw-batch-output`. These are data/capture controls, not an arbitrary-code bridge.
 
-For the native SparkClaw Browser Bridge (which does not expose a normal CDP port), use `scripts/ai-chat/qualify-bridge.mjs --help`. This qualification entry temporarily loads the candidate into owned pages, samples at most two conversations per provider, and uses the existing background-rendering marker. Supply its browser-control credential through the configured environment, never a command argument. It does not update the installed userscript.
+The production Bridge entry uses the installed script without injection or a sample limit. Supply `PLAYWRIGHT_MCP_EXTENSION_TOKEN`, `PLAYWRIGHT_MCP_EXECUTABLE_PATH` and `PLAYWRIGHT_MCP_USER_DATA_DIR` through existing local runtime configuration. `SPARKCLAW_PLAYWRIGHT_CLI_ENTRY` can select the installed CLI. An explicitly supplied local `--cdp http://127.0.0.1:PORT` remains supported for other authorized contexts.
+
+For candidate-only qualification, use `scripts/ai-chat/qualify-bridge.mjs --help`. This qualification entry temporarily loads the candidate into owned pages, samples at most two conversations per provider, and uses the existing background-rendering marker. Supply its browser-control credential through the configured environment, never a command argument. It does not update the installed userscript.
 
 The existing `ai_chat.export` Gateway workflow remains the single-conversation native-download workflow. This batch runner is an additional callable/CLI, **not yet routed from the Gateway's natural-language capability**. Integrating that workflow is separate from the userscript and must retain session workspace and task ownership.
 
@@ -57,6 +61,6 @@ node --test tools/browser-userscripts/test/*.test.mjs
 python3 -m unittest discover -s scripts -p test_browser_components.py
 ```
 
-The build embeds the source into the self-contained userscript and generates `timeline-core.mjs`. The build also updates the fork SHA-256 in `configs/browser-components.json`; `--check` verifies it. The browser integration test requires `SPARKCLAW_TEST_PLAYWRIGHT` (absolute Playwright module path) and `SPARKCLAW_TEST_CHROMIUM`.
+The build embeds the source into the self-contained userscript and generates `timeline-core.mjs`. The build also updates the fork SHA-256 in `configs/browser-components.json`; `--check` verifies it. The browser integration test requires `SPARKCLAW_TEST_PLAYWRIGHT` (absolute Playwright module path) and `SPARKCLAW_TEST_CHROMIUM`. Set `SPARKCLAW_TEST_COMPONENT_LIFECYCLE=1` to include the isolated native Tampermonkey installation lifecycle. It substitutes the managed-policy transport and retains native download, checksum, import and migration behavior.
 
-Merge this worktree's commit via the original integration task. Pay attention to the managed script manifest and installer tests if the email worktree edits them. Retain the existing RevivalStack UUID. The importer should reconcile removed managed scripts; check that an already-installed ChatGPT Exporter is disabled/removed when deployment is eventually scheduled. A manually installed copy may require manual removal. No email provider/controller registrations are changed here.
+Merge this worktree's commit via the original integration task. Pay attention to the managed script manifest and installer tests if the email worktree edits them. Retain the existing RevivalStack UUID. The importer retires only system script UUID `c6378bd8-6136-4f1b-81be-2c0fed94baf3` through native Tampermonkey storage/cache APIs. Verification rejects this retired system identity and checks the active managed UUID. Ordinary user copies are preserved, including copies sharing a display name. Shared upgrade and native-picker acceptance remain unverified; see the live report. No email provider/controller registrations are changed here.

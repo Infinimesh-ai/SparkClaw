@@ -57,6 +57,9 @@ describe("email popup owner flow", () => {
     expect(container.textContent).not.toContain("Email summary");
     expect(api.ensureEmailPresentations).not.toHaveBeenCalled();
     expect(api.emailPresentations).not.toHaveBeenCalled();
+    expect(container.querySelector(".emailBody[open]")).toBeNull();
+    expect(container.textContent).toContain("Individual summary");
+    await act(async () => { const body = container.querySelector<HTMLDetailsElement>(".emailBody")!; body.open = true; body.dispatchEvent(new Event("toggle")); });
     expect(container.textContent).toContain("<script>alert('untrusted')</script>");
     expect(container.querySelector("script")).toBeNull();
     expect(api.markEmailViewed).not.toHaveBeenCalled();
@@ -139,7 +142,7 @@ describe("email popup owner flow", () => {
     await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
     await act(async () => root.render(<EmailPopupEntry text={dictionaries.zh} language="zh" />));
     expect(container.querySelector(".emailDetailHeader h2")?.textContent).toBe("Procurement");
-    expect(container.textContent).not.toContain("A procurement topic");
+    expect(container.textContent).toContain("A procurement topic");
     vi.mocked(api.reanalyzeEmail).mockRejectedValue(new Error("Internal English error /private/path"));
     await act(async () => button(dictionaries.zh.email.reanalyze).click());
     expect(container.textContent).toContain(dictionaries.zh.email.actionFailed);
@@ -152,7 +155,8 @@ describe("email popup owner flow", () => {
     await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
     expect(container.textContent).toContain(text.email.historyMissing);
     expect(container.textContent).not.toContain("/private/diagnostic");
-    expect(container.querySelector(".emailBody[open]")).not.toBeNull();
+    expect(container.querySelector(".emailBody")).not.toBeNull();
+    expect(container.querySelector(".emailBody[open]")).toBeNull();
     expect(button(text.email.reply).disabled).toBe(false);
     expect(api.ensureEmailPresentations).not.toHaveBeenCalled();
   });
@@ -164,7 +168,8 @@ describe("email popup owner flow", () => {
     expect(container.textContent).toContain(text.email.historyFailed);
     expect(container.textContent).not.toContain(text.email.historyPending);
     expect(container.textContent).not.toContain("capture_failed");
-    expect(container.querySelector(".emailBody[open]")).not.toBeNull();
+    expect(container.querySelector(".emailBody")).not.toBeNull();
+    expect(container.querySelector(".emailBody[open]")).toBeNull();
     expect(button(text.email.reply).disabled).toBe(false);
   });
 

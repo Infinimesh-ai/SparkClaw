@@ -30,7 +30,7 @@ func (f *pageFixture) CollectPageForOwner(ctx context.Context, owner string, r a
 	}
 	p.ObservedAt = p.ObservedAt.Add(2 * time.Second)
 	p.Discovery = app.EmailDiscoveryResult{SchemaVersion: 1, Provider: p.Provider, AccountAddress: p.AccountAddress, ObservedAt: p.ObservedAt, Candidates: []app.EmailCaptureTarget{}, Coverage: app.EmailDiscoveryCoverage{Lane: r.Discovery.Lane, ScanComplete: true, BoundaryQualified: r.Discovery.Lane == "recent_inbound"}}
-	if r.Discovery.Lane == "unread" {
+	if r.Discovery.Lane == "recent_inbound" {
 		target := app.EmailCaptureTarget{AccountAddress: p.AccountAddress, ProviderMessageID: "message-1", ProviderSelectionID: "selection-1", Folder: "inbox"}
 		capture, err := fixtureCapture(ctx, f.root, owner, emailautomation.PageCaptureInvocationID(r.InvocationID, p.Provider, target), target.ProviderMessageID)
 		if err != nil {
@@ -86,7 +86,7 @@ func TestPageIntakePublishesSourcesBeforeAckAndResumesAfterLostAck(t *testing.T)
 		t.Fatalf("source was not committed before ack failure: %+v", mails)
 	}
 	saved, _, _ := repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
-	if saved.PageAcks["unread"] != "" {
+	if saved.PageAcks["recent_inbound"] != "" {
 		t.Fatal("failed ack advanced checkpoint")
 	}
 	jobs, _ := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 50})
@@ -108,7 +108,7 @@ func TestPageIntakePublishesSourcesBeforeAckAndResumesAfterLostAck(t *testing.T)
 		t.Fatalf("resume: %v %v", worked, err)
 	}
 	saved, _, _ = repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
-	if saved.PageAcks["unread"] == "" || saved.PageAcks["recent_inbound"] == "" {
+	if saved.PageAcks["unread"] != "" || saved.PageAcks["recent_inbound"] == "" {
 		jobs, _ := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 50})
 		t.Fatalf("page not acknowledged: %+v jobs=%+v calls=%d", saved.PageAcks, jobs, len(browser.calls))
 	}
@@ -141,7 +141,7 @@ type incompletePageFixture struct{ *pageFixture }
 
 func (f *incompletePageFixture) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
 	p, err := f.pageFixture.CollectPageForOwner(ctx, owner, r)
-	if r.Discovery.Lane == "unread" && len(p.Captures) > 0 {
+	if r.Discovery.Lane == "recent_inbound" && len(p.Captures) > 0 {
 		p.Failures = []app.EmailPageFailure{{Target: p.Captures[0].Target, ErrorCode: "email_pinned_message_unavailable"}}
 		p.Captures = nil
 	}
@@ -164,8 +164,8 @@ func TestIncompletePagePreservesCheckpointAndStillCollectsRecentLane(t *testing.
 		t.Fatalf("page run %v %v", worked, err)
 	}
 	saved, _, _ := repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
-	if saved.PageAcks["unread"] != "" || saved.PageAcks["recent_inbound"] == "" {
-		t.Fatalf("incomplete page blocked independent scan or was acknowledged: %+v", saved.PageAcks)
+	if saved.PageAcks["recent_inbound"] != "" || !saved.Boundary.Equal(box.Boundary) {
+		t.Fatalf("incomplete interval was acknowledged: %+v", saved.PageAcks)
 	}
 	jobs, _ := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 50})
 	for _, j := range jobs {
@@ -260,15 +260,15 @@ func TestEmptyPagesFinishNormallyWithoutHidingReadMailOrPendingScope(t *testing.
 			if !worked || err != nil {
 				t.Fatalf("empty collection did not finish: %v %v", worked, err)
 			}
-			wantCalls := 2
+			wantCalls := 1
 			if scenario == "pending_history" {
-				wantCalls = 3
+				wantCalls = 2
 			}
 			if len(browser.calls) != wantCalls {
 				t.Fatalf("scope checks=%d want %d", len(browser.calls), wantCalls)
 			}
 			saved, _, _ := repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
-			if saved.PageAcks["unread"] == "" || saved.PageAcks["recent_inbound"] == "" {
+			if saved.PageAcks["unread"] != "" || saved.PageAcks["recent_inbound"] == "" {
 				t.Fatal("valid empty page was not acknowledged")
 			}
 			jobs, _ := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 50})
@@ -283,7 +283,7 @@ func TestEmptyPagesFinishNormallyWithoutHidingReadMailOrPendingScope(t *testing.
 			mails, _ := repo.ListEmailMails(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 20})
 			if scenario == "already_read_new" {
 				if len(mails.Items) != 1 || mails.Items[0].CaptureState != app.EmailCaptureComplete {
-					t.Fatal("empty unread hid newly arrived already-read mail")
+					t.Fatal("recent scan missed newly arrived already-read mail")
 				}
 			} else {
 				if len(mails.Items) != 0 {

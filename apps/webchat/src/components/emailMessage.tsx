@@ -1,3 +1,4 @@
+import { EmailBody } from "./emailBody";
 import { FileDown, Paperclip, RefreshCw } from "lucide-react";
 import type { EmailEntry, EmailMessage, EmailPresentation } from "../api/email";
 import { openEmailFile } from "../api/client";
@@ -39,7 +40,10 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
       {mail.verification && <EmailVerification mailId={mail.id} value={mail.verification} purpose={presentation?.state === "ready" ? presentation.purpose : undefined} text={text} language={language} />}
       {onClassify && <EmailClassificationControls mail={mail} presentation={presentation} text={text} busy={busy} onChange={onClassify} />}
       {(mail.attachments ?? []).length > 0 && <p className="emailWarning">{text.email.attachmentNotAnalyzed}</p>}
-      {mail.body_text && <details className="emailBody" open><summary>{text.email.body}</summary><pre>{mail.body_text}</pre></details>}
+      {mail.summary && <p className="emailSummary">{mail.summary}</p>}
+      <EmailProgress state={mail.summary_state} text={text} />
+      {mail.summary_partial && <p className="emailWarning">{text.email.summaryPartial}</p>}
+      {(mail.body_available || mail.body_text) && <EmailBody key={`${mail.id}:${mail.body_revision ?? "source"}`} mail={mail} text={text} />}
       <div className="emailMessageActions">
         {mail.reply_mail_id && onOpenMail && <button className="emailTextButton" onClick={() => onOpenMail(mail.reply_mail_id!)}>{text.email.openReplyOriginal}</button>}
         {mail.conversation_id && onOpenConversation && <button className="emailTextButton" onClick={() => onOpenConversation(mail.conversation_id!)}>{text.email.relatedConversation}</button>}

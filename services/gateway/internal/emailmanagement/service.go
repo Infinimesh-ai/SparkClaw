@@ -331,7 +331,7 @@ func safeCode(err error) string {
 	if code := emailautomation.ErrorCode(err); code != "" {
 		return string(code)
 	}
-	for _, code := range []string{"email_model_unavailable", "email_model_mock_unqualified", "email_model_output_invalid", "email_model_evidence_invalid", "email_model_input_limit", "email_representation_missing", "email_mail_not_found"} {
+	for _, code := range []string{"email_login_required", "email_model_unavailable", "email_model_mock_unqualified", "email_model_output_invalid", "email_model_evidence_invalid", "email_model_input_limit", "email_representation_missing", "email_mail_not_found"} {
 		if err.Error() == code {
 			return code
 		}

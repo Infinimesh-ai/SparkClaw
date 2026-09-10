@@ -5,6 +5,8 @@ umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+email_new_install=false
+[[ -d "$ROOT/data/workspaces" ]] || email_new_install=true
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
 source "$ROOT/scripts/lib/browser-runtime.sh"
@@ -257,3 +259,7 @@ else
   log "WebChat port: $webchat_port"
 fi
 log "deployment complete"
+
+if [[ "$email_new_install" == true ]]; then
+  python3 "$ROOT/scripts/record-deployment.py" "$ROOT/data/workspaces"
+fi

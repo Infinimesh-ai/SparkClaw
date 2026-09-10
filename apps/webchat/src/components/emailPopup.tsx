@@ -5,6 +5,7 @@ import type { EmailEntry, EmailMessage } from "../api/email";
 import type { Copy, Language } from "../i18n";
 import { formatDateTime } from "../lib/format";
 import { useEmailPages } from "../hooks/useEmailPages";
+import { useEmailLoginAlert } from "../hooks/useEmailLoginAlert";
 import { useEmailStatus } from "../hooks/useEmailStatus";
 import { useEmailViewing } from "../hooks/useEmailViewing";
 import { EmailEventAssignment, EmailEventRename } from "./emailEventAssignment";
@@ -19,10 +20,12 @@ function initialEntry(): Entry {
   return window.localStorage.getItem("sparkclaw.email.entry") === "notification" ? "notification" : "interaction";
 }
 export function EmailPopupEntry({ text, language }: { text: Copy; language: Language }) {
+  const loginRequired = useEmailLoginAlert();
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState("");
   return <>
-    <button className="iconButton" title={text.email.title} aria-label={text.email.title} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Mail size={18} /></button>
+    <button className="iconButton emailEntryButton" title={loginRequired ? text.email.loginExpired : text.email.title} aria-label={text.email.title} aria-describedby={loginRequired ? "email-login-alert" : undefined} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Mail size={18} />{loginRequired && <span className="emailLoginDot" aria-hidden="true" />}</button>
+    {loginRequired && <span id="email-login-alert" className="emailAlertAccessible" role="status">{text.email.loginExpired}</span>}
     {open && <EmailPopup text={text} language={language} selection={selection} onSelect={setSelection} onClose={() => setOpen(false)} />}
   </>;
 }
@@ -178,6 +181,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
               return <button key={conversation.id} className={`emailConversationRow ${selection === conversation.id ? "selected" : ""}`} aria-current={selection === conversation.id ? "true" : undefined} onClick={() => select(conversation.id)}>
                 <span className="emailRowHeading"><strong>{emailEventTitle(conversation, text)}</strong>{conversation.unseen_count > 0 && <span className="emailUnseen">{conversation.unseen_count}</span>}</span>
                 <span>{(conversation.participants ?? []).join(", ")}</span>
+                {conversation.summary && <span className="emailSummaryPreview">{conversation.summary}</span>}
                 <span className="emailRowFooter">{conversation.last_activity_at && <time dateTime={conversation.last_activity_at}>{formatDateTime(conversation.last_activity_at, language)}</time>}{(conversation.concerns ?? []).length > 0 && <span className="emailWarning">{text.email.concern}</span>}</span>
               </button>;
             })}
@@ -195,6 +199,9 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
           <div className="emailTimeline" ref={setViewport}>
             {pending ? <header className="emailDetailHeader"><h2 tabIndex={-1}>{text.email.pending}</h2><p>{text.email.pendingHelp}</p></header> : selected ? <header className="emailDetailHeader">
               <h2 tabIndex={-1}>{title}</h2><p>{(selected.participants ?? []).join(", ")}</p>
+              {selected.summary && <p className="emailSummary">{selected.summary}</p>}
+              <EmailProgress state={selected.summary_state} text={text} />
+              {selected.summary_partial && <p className="emailWarning">{text.email.summaryPartial}</p>}
               <EmailEventRename key={selected.id} conversation={selected} text={text} onSaved={refresh} onError={setActionError} />
               <EmailProgress state={selected.processing_state} text={text} />
               {selected.historical_mixed && <p className="emailWarning">{text.email.historicalMixed} · {text.email.membershipFixed}</p>}

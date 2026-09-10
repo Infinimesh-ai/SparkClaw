@@ -31,6 +31,21 @@ func (c *Controller) AdmitIntake(ctx context.Context, ownerID, providerID string
 		c.forgetIntakeProbe(key)
 		return AdmissionResult{}, err
 	}
+	// A scheduled intake tick can detect reauthentication without requiring
+	// another settings toggle. Never reuse the expired admission proof.
+	if exists && setting.Enabled && setting.State == app.EmailStateLoginRequired {
+		c.forgetIntakeProbe(key)
+		result, probeErr := c.probe(ctx, provider, app.NewID("email_intake_recovery"))
+		if probeErr != nil {
+			// Keep the confirmed login alert through transient recovery failures.
+			return AdmissionResult{}, codedError(app.ToolErrorEmailLoginRequired, "Email login has not been verified again")
+		}
+		setting, err = c.persistProbe(ctx, setting, "email_intake_recovery", result, nil)
+		if err != nil {
+			return AdmissionResult{}, err
+		}
+		c.rememberIntakeProbe(key, setting, result)
+	}
 	if !exists || !setting.Enabled || setting.State != app.EmailStateReady {
 		c.forgetIntakeProbe(key)
 		return AdmissionResult{}, codedError(app.ToolErrorEmailNotConfigured, "Email provider is not ready for intake")

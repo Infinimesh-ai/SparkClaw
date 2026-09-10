@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-pipeline-optimization-design.md)
 
-Status: 2026-09-10 design based on the owner's latest requirements. **Not implemented, imported into Tampermonkey or deployed.** Product direction is confirmed; budgets, field names and sequencing below are proposed implementation details.
+Status: 2026-09-10, implementation in `codex/email-pipeline-optimization`. Deployment/first-enable boundaries, removal of automatic unread scans, login recovery alerts, source-only summaries and collapsed local body loading are implemented and tested. **The new managed network readers and full provider pagination remain in qualification; the branch has not been deployed.** The remaining sections describe the target behavior; they are not blanket acceptance claims.
 
 ## 1. Scope and Precedence
 
@@ -37,7 +37,7 @@ Add stable UUIDs, versions and hashes to the managed manifest and native `jsonIm
 
 ## 4. Initial Organization and Incremental Sync
 
-Initial capture includes only mail received after the user’s deployment time, regardless of read state. Persist `deployment_started_at` for the user’s deployment instance on successful deployment, in UTC with local-time display. Restart, upgrade, redeployment, intake activation, first login and reauthentication must not reset it. Mailboxes bound later use the same deployment lower bound with independent checkpoints. Remove unread discovery and unread-based capture priority: pre-deployment unread mail is excluded, while post-deployment mail read on another device is included. For existing installations use a verifiable original deployment record; if unavailable, ask the user to establish and persist the boundary rather than silently using upgrade time or claiming complete coverage.
+Initial capture includes only mail received after the user’s deployment time, regardless of read state. Persist `deployment_started_at` for the user’s deployment instance on successful deployment, in UTC with local-time display. Restart, upgrade, redeployment, intake activation, first login and reauthentication must not reset it. Mailboxes bound later use the same deployment lower bound with independent checkpoints. Remove unread discovery and unread-based capture priority: pre-deployment unread mail is excluded, while post-deployment mail read on another device is included. For existing installations use a verifiable original deployment record; if unavailable, use the first successful enable of email receiving, as explicitly confirmed by the owner. Persist that fallback once per owner and reuse it for later mailboxes; never substitute upgrade time.
 
 Default scope is qualified ordinary inbound folders/labels. Available Sent members of encountered events remain within the deployment lower bound; thread references must not automatically fetch pre-deployment originals. Mark preceding history as outside scope rather than claiming complete correspondence. Exclude drafts, Spam/Trash and unqualified areas explicitly. Keep already stored originals. Any future pre-deployment history import is a separately specified scope extension. Prioritize fresh arrivals over the initial post-deployment backlog and show capture/analysis progress separately.
 
@@ -117,3 +117,12 @@ Verify inbound and Sent additions within existing thread scope update only affec
 Exercise collapsed bodies and local-only expansion, summary failure with accessible originals, keyboard/narrow-screen/language behavior and per-mail viewing. Verify repeated Local/Remote deployment and restart preserve exact script identities and working AI exporters. Engineering checks cover adapters, incremental state machines and memory/file/PostgreSQL recovery, summary dependencies/cache, WebChat interactions and build. Report synthetic tests separately from real-provider qualification.
 
 This turn delivers documentation only: no Gmail/Outlook script implementation or installation, synchronization, inference or production mail-data changes.
+
+## Implementation evidence (2026-09-10)
+
+- Email management, automation, Store and Gateway Go suites pass. WebChat: 40 files / 128 tests pass; production build passes. Browser capture/read/page suites: 77 tests pass.
+- Configured real model, synthetic correspondence only: message and event summaries retain the 240→260 price change, pending approval and the instruction not to order. This is a format/content smoke test, not a reviewed quality-corpus gate.
+- SparkClaw dedicated browser: Gmail and Outlook login probes succeeded. Observed Gmail `/sync/u/0/i/bv`, `/i/fd`, `/i/s`, and Outlook startup/service responses. This evidence does not prove complete pagination or network original capture.
+- Source summary dependencies contain original sources and membership only. A 100-refresh regression verifies stable generations and no summary-to-classification feedback. Summaries currently follow source language; language-specific caching remains a future requirement.
+- Both page capture and thread expansion now exclude historical members using individual receipt timestamps. Missing timestamps remain explicit partial coverage, particularly for Outlook grouped rows; aggregate LastDeliveryTime is not assigned to every member.
+- The one-time baseline is `.sparkclaw-deployment.json` in the workspace root when available, otherwise the first enabled mailbox baseline persisted per owner. Existing stored originals and boundaries survive reauthentication.

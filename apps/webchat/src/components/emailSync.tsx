@@ -28,6 +28,23 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
     catch (reason) { onError(reason); }
     finally { setBusy(""); }
   }
+  async function recover(provider: EmailProviderStatus["provider"], verify: boolean) {
+    const mailbox = providerMailbox(status, provider);
+    setBusy(provider);
+    try {
+      if (verify && mailbox) {
+        const checked = await api.checkEmailProvider(provider);
+        if (checked.state !== "ready") throw new Error(text.email.loginExpired);
+        await api.updateEmailIntake(provider, true, mailbox.version);
+        const result = await api.syncEmail(mailbox.id);
+        setScheduled(result.scheduled);
+      } else {
+        await api.openEmailLoginBrowser(provider);
+      }
+      await onRefresh();
+    } catch (reason) { onError(reason); await onRefresh(); }
+    finally { setBusy(""); }
+  }
   async function intake(provider: EmailProviderStatus) {
     const mailbox = providerMailbox(status, provider.provider);
     setBusy(provider.provider);
@@ -43,6 +60,12 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
         {scheduled && <span role="status">{text.email.syncScheduled}</span>}
         <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void sync()}><RefreshCw size={14} className={busy === "sync" ? "spin" : ""} />{text.email.sync}</button>
       </div>
+      {(status?.mailboxes ?? []).filter((mailbox) => mailbox.intake_enabled && mailbox.state === "login_required").map((mailbox) => <div className="emailLoginRecovery" role="status" key={mailbox.id}>
+        <strong>{mailbox.address}</strong><span>{text.email.loginExpired}</span>
+        <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void recover(mailbox.provider, false)}>{text.email.signInAgain}</button>
+        <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void recover(mailbox.provider, true)}>{text.email.resumeAfterLogin}</button>
+        <small>{text.email.loginRecoveryHelp}</small>
+      </div>)}
       {open && <div className="emailSyncDetails">
         <p>{text.email.intakeHelp}</p>
         <p>{text.email.oneAccount}</p>

@@ -48,3 +48,26 @@ func TestEmailManagementRealModelSmoke(t *testing.T) {
 		})
 	}
 }
+
+func TestEmailSourceSummaryRealModelSmoke(t *testing.T) {
+	configuration := os.Getenv("SPARKCLAW_TEST_EMAIL_MODEL_CONFIG")
+	if configuration == "" {
+		t.Skip("explicit synthetic model qualification only")
+	}
+	cfg, err := config.Load(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	analyzer := NewModelAnalyzer(modelrouter.New(cfg))
+	for _, kind := range []string{app.EmailJobMessageSummary, app.EmailJobConversationSummary} {
+		input := AnalysisInput{PolicyVersion: sourceSummaryPromptVersion, Kind: kind, TargetID: "synthetic", OutputLanguage: "zh", Evidence: []Evidence{{Ref: "source:one:body", Text: "采购总价人民币240元，请确认是否批准。交付日期尚未确定。"}, {Ref: "source:two:body", Text: "更新：总价已改为人民币260元。尚未获得批准，请勿下单。"}}, MissingContext: []string{}}
+		result, err := analyzer.Analyze(t.Context(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Mock || result.ModelVersion == "" || result.Summary == "" {
+			t.Fatal("no real source summary")
+		}
+		t.Logf("kind=%s model=%s tokens=%d synthetic_summary=%s", kind, result.ModelVersion, result.TotalTokens, result.Summary)
+	}
+}

@@ -107,6 +107,9 @@ func (a *ModelAnalyzer) Analyze(ctx context.Context, input AnalysisInput) (Analy
 			system = eventAssignmentSystem
 		}
 	}
+	if input.PolicyVersion == sourceSummaryPromptVersion {
+		system, schema = sourceSummarySystem, sourceSummarySchema()
+	}
 	result, err := a.client.ChatWithProfileOptions(ctx, modelcapacity.OperationEmailAnalysis, "fast", system, string(raw), modelrouter.ChatOptions{
 		ForceDisableThinking: true,
 		StrictJSONSchema:     &modelrouter.StrictJSONSchema{Name: "email_management_v3", Schema: schema},
@@ -131,6 +134,10 @@ func (a *ModelAnalyzer) Analyze(ctx context.Context, input AnalysisInput) (Analy
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return metadata, errors.New("email_model_output_invalid")
+	}
+	if input.PolicyVersion == sourceSummaryPromptVersion {
+		output.Action, output.Concern = "none", "none"
+		output.Summary = redactVerificationTokens(input, output.Summary)
 	}
 	if input.PolicyVersion == analysisPromptVersion {
 		if input.Kind == app.EmailJobClassification {

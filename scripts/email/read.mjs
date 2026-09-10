@@ -456,6 +456,13 @@ async function discoveryResult(tab, provider, listed, options, includeMembers = 
     const members = includeMembers && (provider === 'gmail' || provider === 'outlook' && row.inventory_complete) && row.members?.length ? row.members.filter(member=>!member.draft) : null;
     if (!members && provider !== 'qq_mail' && !(recent ? row.single_message_proven : row.single_unread_proven)) { unsupported++; continue; }
     for (const member of members ?? [null]) {
+    // A recent thread does not make its historical members recent. Require
+    // individual receipt evidence before downloading any grouped original.
+    if (recent && member) {
+      const receipt = member.received_at ?? (members.length === 1 ? receivedAt(row) : null);
+      if (!receipt || !Number.isFinite(Date.parse(receipt))) { unsupported++; continue; }
+      if (!withinDate(receipt)) continue;
+    }
     const target = {account_address:account.toLowerCase(), provider_message_id:member?.provider_message_id ?? row.provider_message_id,
       provider_selection_id:options && provider==='gmail' ? row.provider_thread_id : row.provider_selection_id ?? row.provider_message_id,
       ...(options ? {folder:member ? (provider==='gmail' ? member.inbox?'inbox':member.sent?'sent':'all' : member.local ? row.folder ?? listed.folder_scope ?? 'inbox' : 'all') : row.folder ?? listed.folder_scope ?? (provider==='gmail' && recent?'all':'inbox'),provider_thread_id:row.provider_thread_id ?? row.provider_selection_id ?? row.provider_message_id} : {})};
@@ -536,7 +543,7 @@ export async function enumerateThread(input,runtime,provider) {
         const folder=member.inbox?'inbox':member.sent?'sent':'all';
         members.push({target:{account_address:input.thread.account_address,provider_message_id:member.provider_message_id,
           provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder},
-          direction:member.inbox?'inbound':member.sent?'outbound':'unknown',draft:member.draft,read_state:member.unread?'unread':'read'});
+          direction:member.inbox?'inbound':member.sent?'outbound':'unknown',draft:member.draft,read_state:member.unread?'unread':'read',...(member.received_at?{received_at:member.received_at}:{})});
       }
     } else if (provider === 'outlook' && rows.length === 1 && rows[0].inventory_complete) {
       for (const member of rows[0].members) {
@@ -544,14 +551,14 @@ export async function enumerateThread(input,runtime,provider) {
         members.push({target:{account_address:input.thread.account_address,provider_message_id:member.provider_message_id,
           provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder},
           draft:member.draft,direction:member.local ? folder==='sent'?'outbound':'inbound' : 'unknown',
-          read_state:rows[0].global_unread_count===0?'read':'unknown'});
+          read_state:rows[0].global_unread_count===0?'read':'unknown',...(rows[0].members.length===1&&rows[0].last_delivery_time?{received_at:rows[0].last_delivery_time}:{})});
       }
     } else if (rows.length === 1 && (provider === 'qq_mail' || rows[0].single_message_proven)) {
       const row = rows[0];
       const target = {account_address:input.thread.account_address,provider_message_id:row.provider_message_id,
         provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder:input.thread.folder};
       validateMailTarget(target);
-      members.push({target,direction:input.thread.folder==='sent'?'outbound':'inbound',draft:false,read_state:row.unread?'unread':'read'});
+      members.push({target,direction:input.thread.folder==='sent'?'outbound':'inbound',draft:false,read_state:row.unread?'unread':'read',...((row.received_at||row.last_delivery_time)?{received_at:row.received_at||row.last_delivery_time}:{})});
     }
     const digest = crypto.createHash('sha256').update(JSON.stringify([provider,input.thread,members.map(member=>member.target.provider_message_id)])).digest('hex');
     const [prior,offsetText] = input.continuation.split(':');

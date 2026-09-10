@@ -6,6 +6,8 @@ umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+email_new_install=false
+[[ -d "$ROOT/data/workspaces" ]] || email_new_install=true
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
 source "$ROOT/scripts/lib/browser-runtime.sh"
@@ -364,3 +366,7 @@ printf '  Gateway ready:  http://127.0.0.1:%s/readyz (WebChat ingress)\n' "$webc
 "${docker_cmd[@]}" ps \
   --filter label=com.docker.compose.project=sparkclaw \
   --format '  {{.Names}}: {{.Status}}'
+
+if [[ "$email_new_install" == true ]]; then
+  python3 "$ROOT/scripts/record-deployment.py" "$ROOT/data/workspaces"
+fi

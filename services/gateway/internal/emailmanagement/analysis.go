@@ -117,6 +117,10 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 		input.Participants = nil
 		input.MissingContext = nil
 	}
+	promptVersion := analysisPromptVersion
+	if input.PolicyVersion == sourceSummaryPromptVersion {
+		promptVersion = sourceSummaryPromptVersion
+	}
 	artifactID := app.NewID("analysis")
 	directory := path.Join("email", ownerScope(job.OwnerID), "analysis", artifactID)
 	inputPath, outputPath := path.Join(directory, "input.json"), path.Join(directory, "output.json")
@@ -127,7 +131,7 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 		OwnerEpoch    int64            `json:"owner_epoch"`
 		Inputs        map[string]int64 `json:"inputs"`
 		Analysis      AnalysisInput    `json:"analysis"`
-	}{analysisPromptVersion, job.Generation, job.InputFingerprint, epoch, after.Inputs, input}
+	}{promptVersion, job.Generation, job.InputFingerprint, epoch, after.Inputs, input}
 	if err = publishJSON(ctx, s.opts.WorkspaceRoot, inputPath, artifact); err != nil {
 		return err
 	}
@@ -139,7 +143,7 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 	if modelErr == nil && (output.Mock || output.ModelVersion == "") {
 		modelErr = errors.New("email_model_mock_unqualified")
 	}
-	if auditErr := s.recordAnalysisArtifact(ctx, directory, input.ClassificationStage, started, output, modelErr); auditErr != nil {
+	if auditErr := s.recordAnalysisArtifact(ctx, directory, input.ClassificationStage, promptVersion, started, output, modelErr); auditErr != nil {
 		return auditErr
 	}
 	// Preserve unsuccessful output as well as successful calls for audit.
@@ -166,7 +170,7 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 		if modelErr == nil && (output.Mock || output.ModelVersion == "") {
 			modelErr = errors.New("email_model_mock_unqualified")
 		}
-		if auditErr := s.recordAnalysisArtifact(ctx, directory, input.ClassificationStage, started, output, modelErr); auditErr != nil {
+		if auditErr := s.recordAnalysisArtifact(ctx, directory, input.ClassificationStage, promptVersion, started, output, modelErr); auditErr != nil {
 			return auditErr
 		}
 		if err = publishJSON(ctx, s.opts.WorkspaceRoot, outputPath, output); err != nil {
@@ -216,7 +220,7 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 		}
 		_, err = s.repository.PublishEmailSummary(ctx, store.EmailSummaryCommand{EmailCommand: cmd, Lease: lease(job, s.now()), Summary: app.EmailSummary{
 			ID: artifactID, TargetKind: job.Kind, TargetID: job.TargetID, Text: output.Summary, EvidenceRefs: output.EvidenceRefs, Coverage: coverage, InputPath: inputPath, InputSHA256: inputHash,
-			OutputPath: outputPath, OutputSHA256: outputHash, ModelVersion: output.ModelVersion, PromptVersion: analysisPromptVersion, Generation: job.Generation, InputFingerprint: job.InputFingerprint}})
+			OutputPath: outputPath, OutputSHA256: outputHash, ModelVersion: output.ModelVersion, PromptVersion: promptVersion, Generation: job.Generation, InputFingerprint: job.InputFingerprint}})
 	}
 	return s.reconcileError(ctx, cmd, err)
 }
@@ -237,12 +241,12 @@ func (s *Service) recordAnalysis(ctx context.Context, started time.Time, output 
 	return record.ID
 }
 
-func (s *Service) recordAnalysisArtifact(ctx context.Context, directory, stage string, started time.Time, output AnalysisOutput, modelErr error) error {
+func (s *Service) recordAnalysisArtifact(ctx context.Context, directory, stage, promptVersion string, started time.Time, output AnalysisOutput, modelErr error) error {
 	id := s.recordAnalysis(ctx, started, output, modelErr)
 	if stage == "" {
 		stage = "event"
 	}
-	metadata := map[string]any{"raw_output": output.RawOutput, "model_call_id": id, "stage": stage, "model_version": output.ModelVersion, "model_checkpoint_pinned": false, "prompt_version": analysisPromptVersion, "prompt_tokens": output.PromptTokens, "response_tokens": output.ResponseTokens, "total_tokens": output.TotalTokens, "started_at": started, "completed_at": s.now(), "error_code": safeCode(modelErr)}
+	metadata := map[string]any{"raw_output": output.RawOutput, "model_call_id": id, "stage": stage, "model_version": output.ModelVersion, "model_checkpoint_pinned": false, "prompt_version": promptVersion, "prompt_tokens": output.PromptTokens, "response_tokens": output.ResponseTokens, "total_tokens": output.TotalTokens, "started_at": started, "completed_at": s.now(), "error_code": safeCode(modelErr)}
 	return publishJSON(ctx, s.opts.WorkspaceRoot, path.Join(directory, stage+"-execution.json"), metadata)
 }
 

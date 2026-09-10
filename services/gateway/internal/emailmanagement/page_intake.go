@@ -34,7 +34,7 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 	registered, _ := s.registry.Get(mailbox.Provider)
 	binding.ScriptRevision = registered.CollectPage.Revision
 	var failures []error
-	for _, scan := range []string{"unread", "recent_observation", "recent_inbound"} {
+	for _, scan := range []string{"recent_observation", "recent_inbound"} {
 		mailbox, err := s.activeMailbox(ctx, job)
 		if err != nil {
 			return errors.Join(append(failures, err)...)
@@ -64,7 +64,7 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 		}
 		request := binding
 		// Mailbox identity survives pause/re-enable while account switches get
-		// a different identity. Thus paused unread checkpoints remain recoverable.
+		// a different identity. Thus paused interval checkpoints remain recoverable.
 		request.InvocationID = "email_page_" + mailbox.ID + "_" + scan
 		request.AckPageID = mailbox.PageAcks[scan]
 		request.Discovery = &app.EmailDiscoveryOptions{Lane: lane, AccountAddress: mailbox.Address, IntervalStart: position.Start, IntervalEnd: position.End, Continuation: position.Continuation, Limit: 50}

@@ -42,6 +42,12 @@ export const zh = {
       offline: "离线"
     },
     email: {
+      summaryPartial: "摘要仅覆盖当前可用的原文片段，可打开邮件正文查看完整上下文。",
+      loginExpired: "邮箱登录已失效，请重新登录。",
+      signInAgain: "重新登录",
+      resumeAfterLogin: "检查登录并继续同步",
+      loginRecoveryHelp: "验证登录后将自动补齐未获取的邮件。",
+
       interactions: "需确认与交互",
       information: "信息通知",
       verification: "验证码",

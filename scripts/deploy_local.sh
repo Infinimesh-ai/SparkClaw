@@ -6,10 +6,9 @@ umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-email_new_install=false
-[[ -d "$ROOT/data/workspaces" ]] || email_new_install=true
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
+source "$ROOT/scripts/lib/email-deployment.sh"
 source "$ROOT/scripts/lib/browser-runtime.sh"
 
 ENV_FILE="$ROOT/.env.local"
@@ -327,6 +326,7 @@ fi
 
 log "starting the single-fast model group; a cold download can take up to several hours"
 log "models are cached under $model_cache and reused on later runs"
+sparkclaw_begin_email_deployment "$ROOT" "${docker_cmd[@]}"
 bash scripts/start_local_compose.sh
 
 webchat_ready=false
@@ -367,6 +367,4 @@ printf '  Gateway ready:  http://127.0.0.1:%s/readyz (WebChat ingress)\n' "$webc
   --filter label=com.docker.compose.project=sparkclaw \
   --format '  {{.Names}}: {{.Status}}'
 
-if [[ "$email_new_install" == true ]]; then
-  python3 "$ROOT/scripts/record-deployment.py" "$ROOT/data/workspaces"
-fi
+python3 "$ROOT/scripts/record-deployment.py" complete "$ROOT/data/workspaces"

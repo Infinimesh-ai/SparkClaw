@@ -5,10 +5,9 @@ umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-email_new_install=false
-[[ -d "$ROOT/data/workspaces" ]] || email_new_install=true
 source "$ROOT/scripts/lib/dotenv.sh"
 source "$ROOT/scripts/lib/deployment-profile.sh"
+source "$ROOT/scripts/lib/email-deployment.sh"
 source "$ROOT/scripts/lib/browser-runtime.sh"
 
 ENV_FILE="${SPARKCLAW_REMOTE_ENV_FILE:-$ROOT/.env.remote}"
@@ -249,6 +248,11 @@ if [[ "$MODE" == "check" ]]; then
   exit 0
 fi
 
+email_docker_cmd=("${DOCKER_BIN:-docker}")
+if ! "${email_docker_cmd[@]}" ps >/dev/null 2>&1; then
+  email_docker_cmd=(sudo -n "${DOCKER_BIN:-docker}")
+fi
+sparkclaw_begin_email_deployment "$ROOT" "${email_docker_cmd[@]}"
 bash "$ROOT/scripts/start_remote_compose.sh"
 
 webchat_port="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
@@ -260,6 +264,4 @@ else
 fi
 log "deployment complete"
 
-if [[ "$email_new_install" == true ]]; then
-  python3 "$ROOT/scripts/record-deployment.py" "$ROOT/data/workspaces"
-fi
+python3 "$ROOT/scripts/record-deployment.py" complete "$ROOT/data/workspaces"

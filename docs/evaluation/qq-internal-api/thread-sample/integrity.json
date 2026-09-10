@@ -1,0 +1,142 @@
+{
+  "messageCount": 7,
+  "uniqueMessageIDs": 7,
+  "missingReferences": 0,
+  "components": [
+    [
+      3,
+      2,
+      1
+    ],
+    [
+      7,
+      6,
+      5,
+      4
+    ]
+  ],
+  "mails": [
+    {
+      "index": 1,
+      "folder": "sent",
+      "subject": "Re: 测试",
+      "time": "2026-09-08T15:31:13+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 2468,
+      "sha256": "04581590ce601468d3918fbab1ac8717fa36ebbe284533fb1dd9c74d38bb677f",
+      "parents": [
+        2
+      ],
+      "referenceMembers": [
+        3,
+        2
+      ],
+      "missingReferenceCount": 0
+    },
+    {
+      "index": 2,
+      "folder": "inbox",
+      "subject": "Re: 测试",
+      "time": "2026-09-08T15:30:32+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 7176,
+      "sha256": "352df72b8f4fdf8b47e87aa5679af42c0a3a639e5ce45b34be8af41cd576ee3a",
+      "parents": [
+        3
+      ],
+      "referenceMembers": [
+        3
+      ],
+      "missingReferenceCount": 0
+    },
+    {
+      "index": 3,
+      "folder": "sent",
+      "subject": "测试",
+      "time": "2026-09-08T15:29:51+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 2439,
+      "sha256": "922437e6f027aba27aecfbb33e9c7c46856dcb0c17628a0b9191a1e9e2a6bd94",
+      "parents": [],
+      "referenceMembers": [],
+      "missingReferenceCount": 0
+    },
+    {
+      "index": 4,
+      "folder": "inbox",
+      "subject": "Re: 测试",
+      "time": "2026-09-08T15:21:54+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 15068,
+      "sha256": "b1cc57964714ca7d6c7c53e810c209abdda558ce1db9b6318a5e2af89bff25f1",
+      "parents": [
+        5
+      ],
+      "referenceMembers": [
+        7,
+        6,
+        5
+      ],
+      "missingReferenceCount": 0
+    },
+    {
+      "index": 5,
+      "folder": "sent",
+      "subject": "Re: 测试",
+      "time": "2026-09-08T15:13:41+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 6347,
+      "sha256": "ad2fe82f79f072d36b88f5f3058f87cc30bbe4f5e4442349c2f15475626cc273",
+      "parents": [
+        6
+      ],
+      "referenceMembers": [
+        7,
+        6
+      ],
+      "missingReferenceCount": 0
+    },
+    {
+      "index": 6,
+      "folder": "inbox",
+      "subject": "Re: 测试",
+      "time": "2026-09-08T15:12:08+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 12000,
+      "sha256": "5f68b1aa38efbb89dd6c6bc977b3e8ea4a707544121622526f41627efc5d20d3",
+      "parents": [
+        7
+      ],
+      "referenceMembers": [
+        7
+      ],
+      "missingReferenceCount": 0
+    },
+    {
+      "index": 7,
+      "folder": "sent",
+      "subject": "测试",
+      "time": "2026-09-08T15:11:01+08:00",
+      "mimeParts": 3,
+      "attachments": 0,
+      "defects": 0,
+      "bytes": 2266,
+      "sha256": "43e58ab2b1d91979a115c004f5376c10096782da9948467eec2421ecee91f2d7",
+      "parents": [],
+      "referenceMembers": [],
+      "missingReferenceCount": 0
+    }
+  ]
+}

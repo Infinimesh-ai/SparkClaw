@@ -1,0 +1,139 @@
+{
+  "query": "subject:测试",
+  "scope": "All-folder subject search; all exact-subject non-draft matches in this observed sample captured (7); two reply chains reconstructed from RFC headers.",
+  "pageSize": 2,
+  "enumerated": 16,
+  "reported": 16,
+  "locked": 0,
+  "pages": [
+    {
+      "page": 0,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 189
+    },
+    {
+      "page": 1,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 169
+    },
+    {
+      "page": 2,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 175
+    },
+    {
+      "page": 3,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 166
+    },
+    {
+      "page": 4,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 207
+    },
+    {
+      "page": 5,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 188
+    },
+    {
+      "page": 6,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 185
+    },
+    {
+      "page": 7,
+      "count": 2,
+      "total": 16,
+      "elapsedMs": 172
+    }
+  ],
+  "enumeratedMs": 1456,
+  "totalMs": 2490,
+  "captures": [
+    {
+      "folder": "sent",
+      "subject": "Re: 测试",
+      "receivedAt": "2026-09-08T07:31:13.000Z",
+      "declaredBytes": 2468,
+      "bytes": 2468,
+      "sizeMatches": true,
+      "elapsedMs": 141,
+      "index": 1,
+      "sha256": "04581590ce601468d3918fbab1ac8717fa36ebbe284533fb1dd9c74d38bb677f"
+    },
+    {
+      "folder": "inbox",
+      "subject": "Re: 测试",
+      "receivedAt": "2026-09-08T07:30:47.000Z",
+      "declaredBytes": 7176,
+      "bytes": 7176,
+      "sizeMatches": true,
+      "elapsedMs": 178,
+      "index": 2,
+      "sha256": "352df72b8f4fdf8b47e87aa5679af42c0a3a639e5ce45b34be8af41cd576ee3a"
+    },
+    {
+      "folder": "sent",
+      "subject": "测试",
+      "receivedAt": "2026-09-08T07:29:51.000Z",
+      "declaredBytes": 2439,
+      "bytes": 2439,
+      "sizeMatches": true,
+      "elapsedMs": 141,
+      "index": 3,
+      "sha256": "922437e6f027aba27aecfbb33e9c7c46856dcb0c17628a0b9191a1e9e2a6bd94"
+    },
+    {
+      "folder": "inbox",
+      "subject": "Re: 测试",
+      "receivedAt": "2026-09-08T07:21:57.000Z",
+      "declaredBytes": 15068,
+      "bytes": 15068,
+      "sizeMatches": true,
+      "elapsedMs": 135,
+      "index": 4,
+      "sha256": "b1cc57964714ca7d6c7c53e810c209abdda558ce1db9b6318a5e2af89bff25f1"
+    },
+    {
+      "folder": "sent",
+      "subject": "Re: 测试",
+      "receivedAt": "2026-09-08T07:13:41.000Z",
+      "declaredBytes": 6347,
+      "bytes": 6347,
+      "sizeMatches": true,
+      "elapsedMs": 155,
+      "index": 5,
+      "sha256": "ad2fe82f79f072d36b88f5f3058f87cc30bbe4f5e4442349c2f15475626cc273"
+    },
+    {
+      "folder": "inbox",
+      "subject": "Re: 测试",
+      "receivedAt": "2026-09-08T07:12:10.000Z",
+      "declaredBytes": 12000,
+      "bytes": 12000,
+      "sizeMatches": true,
+      "elapsedMs": 142,
+      "index": 6,
+      "sha256": "5f68b1aa38efbb89dd6c6bc977b3e8ea4a707544121622526f41627efc5d20d3"
+    },
+    {
+      "folder": "sent",
+      "subject": "测试",
+      "receivedAt": "2026-09-08T07:11:04.000Z",
+      "declaredBytes": 2266,
+      "bytes": 2266,
+      "sizeMatches": true,
+      "elapsedMs": 142,
+      "index": 7,
+      "sha256": "43e58ab2b1d91979a115c004f5376c10096782da9948467eec2421ecee91f2d7"
+    }
+  ]
+}

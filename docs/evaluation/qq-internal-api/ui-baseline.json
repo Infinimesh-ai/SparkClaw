@@ -1,0 +1,27 @@
+{
+  "state": "completed",
+  "result": {
+    "samples": [
+      {
+        "index": 1,
+        "elapsedMs": 10452.1,
+        "bytes": 16108,
+        "sha256": "2f1e8a1f36c5c2d5b9357943f99915ff9179eeb6045cc5cddfbdbc8e320db305"
+      },
+      {
+        "index": 2,
+        "elapsedMs": 10974,
+        "bytes": 7178,
+        "sha256": "d4b574e182beae41731c7d793474d9354f876aa8cdb5a59580db8fadbe08fe36"
+      },
+      {
+        "index": 3,
+        "elapsedMs": 10510.8,
+        "bytes": 15070,
+        "sha256": "3871b322cf3b15831bc97f49cae8285faae076993cbe39d3345bfa97869620b8"
+      }
+    ],
+    "measurement": "existing_collectUnread_plus_native_download_excluding_initial_browser_attach_and_return_to_list"
+  },
+  "sourceChecksum": "trial"
+}

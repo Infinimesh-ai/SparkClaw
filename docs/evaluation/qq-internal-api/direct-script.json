@@ -1,0 +1,120 @@
+{
+  "state": "completed",
+  "result": {
+    "panelPresent": 1,
+    "report": {
+      "schemaVersion": 1,
+      "scriptVersion": "0.2.0",
+      "transport": "qq_session_http",
+      "scope": "current_normal_folder_first_page_excluding_pinned_and_conversation_rows",
+      "cache": "no-store",
+      "concurrency": 1,
+      "requestedCount": 3,
+      "actualCount": 3,
+      "rounds": 3,
+      "totalMs": 1881,
+      "samples": [
+        {
+          "round": 1,
+          "listMs": 217.6,
+          "listBytes": 45459,
+          "listCount": 50,
+          "totalReported": 1331,
+          "originals": [
+            {
+              "index": 1,
+              "bytes": 16106,
+              "sha256": "3120a51e431db3cbaba70d462f9ece7fa61e4ffc051dec26eb6cd115e95cfc0c",
+              "elapsedMs": 126.2,
+              "listedSize": 16106,
+              "sizeMatches": true
+            },
+            {
+              "index": 2,
+              "bytes": 7176,
+              "sha256": "352df72b8f4fdf8b47e87aa5679af42c0a3a639e5ce45b34be8af41cd576ee3a",
+              "elapsedMs": 146.9,
+              "listedSize": 7176,
+              "sizeMatches": true
+            },
+            {
+              "index": 3,
+              "bytes": 15068,
+              "sha256": "b1cc57964714ca7d6c7c53e810c209abdda558ce1db9b6318a5e2af89bff25f1",
+              "elapsedMs": 178.2,
+              "listedSize": 15068,
+              "sizeMatches": true
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "listMs": 144.4,
+          "listBytes": 45459,
+          "listCount": 50,
+          "totalReported": 1331,
+          "originals": [
+            {
+              "index": 1,
+              "bytes": 16106,
+              "sha256": "3120a51e431db3cbaba70d462f9ece7fa61e4ffc051dec26eb6cd115e95cfc0c",
+              "elapsedMs": 118.5,
+              "listedSize": 16106,
+              "sizeMatches": true
+            },
+            {
+              "index": 2,
+              "bytes": 7176,
+              "sha256": "352df72b8f4fdf8b47e87aa5679af42c0a3a639e5ce45b34be8af41cd576ee3a",
+              "elapsedMs": 162.3,
+              "listedSize": 7176,
+              "sizeMatches": true
+            },
+            {
+              "index": 3,
+              "bytes": 15068,
+              "sha256": "b1cc57964714ca7d6c7c53e810c209abdda558ce1db9b6318a5e2af89bff25f1",
+              "elapsedMs": 142.5,
+              "listedSize": 15068,
+              "sizeMatches": true
+            }
+          ]
+        },
+        {
+          "round": 3,
+          "listMs": 146.5,
+          "listBytes": 45459,
+          "listCount": 50,
+          "totalReported": 1331,
+          "originals": [
+            {
+              "index": 1,
+              "bytes": 16106,
+              "sha256": "3120a51e431db3cbaba70d462f9ece7fa61e4ffc051dec26eb6cd115e95cfc0c",
+              "elapsedMs": 203,
+              "listedSize": 16106,
+              "sizeMatches": true
+            },
+            {
+              "index": 2,
+              "bytes": 7176,
+              "sha256": "352df72b8f4fdf8b47e87aa5679af42c0a3a639e5ce45b34be8af41cd576ee3a",
+              "elapsedMs": 158.2,
+              "listedSize": 7176,
+              "sizeMatches": true
+            },
+            {
+              "index": 3,
+              "bytes": 15068,
+              "sha256": "b1cc57964714ca7d6c7c53e810c209abdda558ce1db9b6318a5e2af89bff25f1",
+              "elapsedMs": 135.2,
+              "listedSize": 15068,
+              "sizeMatches": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sourceChecksum": "trial"
+}

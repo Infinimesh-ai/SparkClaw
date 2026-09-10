@@ -1,0 +1,32 @@
+{
+  "state": "completed",
+  "result": {
+    "files": [
+      {
+        "index": 1,
+        "directBytes": 16106,
+        "uiBytes": 16108,
+        "exact": false,
+        "uiHasExtraTrailingCRLF": true,
+        "sha256": "3120a51e431db3cbaba70d462f9ece7fa61e4ffc051dec26eb6cd115e95cfc0c"
+      },
+      {
+        "index": 2,
+        "directBytes": 7176,
+        "uiBytes": 7178,
+        "exact": false,
+        "uiHasExtraTrailingCRLF": true,
+        "sha256": "352df72b8f4fdf8b47e87aa5679af42c0a3a639e5ce45b34be8af41cd576ee3a"
+      },
+      {
+        "index": 3,
+        "directBytes": 15068,
+        "uiBytes": 15070,
+        "exact": false,
+        "uiHasExtraTrailingCRLF": true,
+        "sha256": "b1cc57964714ca7d6c7c53e810c209abdda558ce1db9b6318a5e2af89bff25f1"
+      }
+    ]
+  },
+  "sourceChecksum": "trial"
+}

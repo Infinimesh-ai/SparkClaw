@@ -1,0 +1,47 @@
+{
+  "date": "2026-09-10",
+  "sample": "Sep 8 测试 / Re: 测试",
+  "method": "Observed QQ list session + public application search POST + original EML GET; RFC Message-ID, In-Reply-To and References graph reconstructed locally.",
+  "query": "subject contains 测试",
+  "pagination": {
+    "page_size": 2,
+    "pages": 8,
+    "unique_search_results": 16,
+    "reported_search_results": 16,
+    "locked": 0,
+    "repeat_census_same_target_set": true
+  },
+  "scope_breakdown": {
+    "matching_delivered_mails": 7,
+    "matching_unsent_draft_excluded": 1,
+    "other_subjects_excluded": 8
+  },
+  "threads": [
+    {
+      "mails": 4,
+      "sent": 2,
+      "inbox": 2,
+      "start_local": "2026-09-08 15:11:01",
+      "end_local": "2026-09-08 15:21:54"
+    },
+    {
+      "mails": 3,
+      "sent": 2,
+      "inbox": 1,
+      "start_local": "2026-09-08 15:29:51",
+      "end_local": "2026-09-08 15:31:13"
+    }
+  ],
+  "original_bytes": 47764,
+  "capture_total_ms": 2490,
+  "enumeration_ms": 1456,
+  "mime_defects": 0,
+  "attachment_parts": 0,
+  "limitations": [
+    "This proves the observed sample search coverage and closed predecessor references, not absence of deleted, inaccessible, or subject-changed unseen descendants.",
+    "The account currently exposes these rows individually; QQ collo_maillist grouped-conversation endpoint was found in public source but not live-qualified with a native aggregate ID.",
+    "Seven small original mails, no attachments in this sample; no large-attachment or full-mailbox performance claim.",
+    "Timing starts on the already-authenticated loaded page and includes eight search pages plus seven originals; excludes browser attach/startup.",
+    "Tampermonkey installation and a general-purpose thread reader remain separate; this is a targeted network trial, not a production intake rollout."
+  ]
+}

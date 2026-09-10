@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-10",
+  "script_sha256": "338fe19f2b83ad56a621d06c2d092446353c43bf12ffd0843f2fd1a7c37e10d5",
+  "execution": "Exact userscript injected into the logged-in QQ page using the existing SparkClaw CLI test runtime; not yet installed/verified through Tampermonkey.",
+  "list_mean_ms": 169.5,
+  "original_mean_ms": 152.33333333333334,
+  "ui_original_mean_ms": 10645.633333333333,
+  "observed_mean_ratio": 69.88380743982493,
+  "limits": [
+    "Three distinct small messages, 9 direct reads and 3 existing UI captures; no large attachment or mailbox-wide throughput claim.",
+    "Warm authenticated page; no browser startup or login in stage timings.",
+    "UI baseline includes existing collectUnread checks and native download to disk, excludes initial browser attachment and return navigation; direct timing ends with bytes and hash in page memory, so this is a practical pipeline comparison, not isolated server latency.",
+    "cache:no-store bypasses browser HTTP cache, not necessarily provider caches.",
+    "No persistent userscript installation has been verified.",
+    "One preliminary UI download-event trial timed out; another returned to the extension-connect history page and its output was rejected by the existing credential-output guard. Retried using explicit QQ navigation, without weakening the guard."
+  ]
+}

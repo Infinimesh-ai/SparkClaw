@@ -11,30 +11,12 @@
   "scripts": [
     {
       "file": "revivalstack.user.js",
-      "version": "3.1.0",
-      "url": "https://raw.githubusercontent.com/revivalstack/ai-chat-exporter/4ce218d1290956703489870aafa2adfdf4448f38/ai-chat-exporter.user.js",
-      "sha256": "88709c3a1a3f97266492572e6b6a9e786b396c9753fcb4e738a0a6d1af7f954f",
+      "version": "3.1.0-sparkclaw.1",
+      "url": "https://github.com/Infinimesh-ai/SparkClaw/blob/main/tools/browser-userscripts/revivalstack.user.js",
+      "sha256": "886823f77f6cb0e903165a0e037830cc9dc09dc72d27d46e7a42942125181494",
       "requires": [],
-      "uuid": "80700eb2-0fe8-46ea-902f-f4463134057d"
-    },
-    {
-      "file": "chatgpt-exporter.user.js",
-      "version": "2.35.0",
-      "url": "https://raw.githubusercontent.com/pionxzh/chatgpt-exporter/master/dist/chatgpt.user.js",
-      "sha256": "a19ab92fdf02af186ec98bf84e7b776d884f68b859278cd83b94197ef84cc4f5",
-      "requires": [
-        {
-          "file": "jszip.min.js",
-          "url": "https://cdn.jsdelivr.net/npm/jszip@3.9.1/dist/jszip.min.js",
-          "sha256": "6923cf22525f4874394fbc2e9db3dca7bb4cd2b96ae5d1e850678df0ee6874c8"
-        },
-        {
-          "file": "snapdom.js",
-          "url": "https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.24.10/dist/snapdom.js",
-          "sha256": "9b4ee4118a369d7fd04e74ffcfc5495ade3fb7191a94f5fb3df2fba067890927"
-        }
-      ],
-      "uuid": "c6378bd8-6136-4f1b-81be-2c0fed94baf3"
+      "uuid": "80700eb2-0fe8-46ea-902f-f4463134057d",
+      "upstream_url": "https://raw.githubusercontent.com/revivalstack/ai-chat-exporter/4ce218d1290956703489870aafa2adfdf4448f38/ai-chat-exporter.user.js"
     }
   ]
 }

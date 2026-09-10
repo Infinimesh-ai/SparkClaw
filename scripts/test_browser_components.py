@@ -124,6 +124,14 @@ class BrowserComponentsTest(unittest.TestCase):
             self.verify_with_state(state, policy)
 
     def test_receipt_metadata_sources_and_dependencies_fail_closed(self):
+        # Dependency validation remains covered even when the production fork
+        # is self-contained and no longer installs ChatGPT Exporter.
+        manifest = components.manifest()
+        data = (components.ROOT / 'tools/browser-userscripts/jszip.min.js').read_bytes()
+        manifest['scripts'][0]['requires'] = [{'file': 'jszip.min.js', 'url': 'https://example.test/jszip.js', 'sha256': components.digest(data)}]
+        override = patch.object(components, 'manifest', return_value=manifest)
+        override.start()
+        self.addCleanup(override.stop)
         valid, policy = self.valid_state()
         meta_key = '!extdb.@meta#fixture-0'
         dependency_key = next(key for key in valid if key.startswith('!extdb.@ext#'))
@@ -184,7 +192,7 @@ class BrowserComponentsTest(unittest.TestCase):
                 if kind == 'script':
                     changed['scripts'][0]['sha256'] = '0' * 64
                 else:
-                    next(s for s in changed['scripts'] if s['requires'])['requires'][0]['sha256'] = '0' * 64
+                    changed['scripts'][0]['requires'] = [{'file': 'jszip.min.js', 'url': 'https://example.test/jszip.js', 'sha256': '0' * 64}]
                 with self.assertRaisesRegex(ValueError, 'checksum'):
                     components.make_provisioning(changed)
 

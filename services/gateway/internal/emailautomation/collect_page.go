@@ -210,7 +210,7 @@ func emptyPageObservation(discovery app.EmailDiscoveryResult) bool {
 		return false
 	}
 	switch discovery.Coverage.Reason {
-	case "loaded_rows_only", "native_folder_scan_partial", "folder_scope_and_pagination_unqualified":
+	case "loaded_rows_only", "native_folder_scan_partial", "folder_scope_and_pagination_unqualified", "network_page_continues", "network_page_changed":
 		return true
 	default:
 		return false

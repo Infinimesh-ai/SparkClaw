@@ -14,6 +14,7 @@ function routeExport({ key, origins }) {
   };
   window.open = function(value) {
     if (!allowed(value)) return null;
+    window.SparkClawMailReader?.observeNativeOriginalURL(value);
     location.assign(value);
     return { closed: false, focus() {}, close() {} };
   };
@@ -43,7 +44,15 @@ export async function downloadFromPage(task, selector, destination, maxBytes) {
     pending.catch(() => {});
     try {
       await page.evaluate(${routeExport.toString()}, {key:${JSON.stringify(key)}, origins:${JSON.stringify(task.registration.downloadOrigins ?? task.registration.origins)}});
-      await page.locator(${JSON.stringify(selector)}).evaluate(node => node.click(), undefined, { timeout: 10000 });
+      if (${JSON.stringify(selector === '#sparkclaw-mail-original')}) {
+        // A trusted click supplies Chromium's download user activation even
+        // after a slow native inspection. The one-pixel link is task-owned.
+        await page.locator(${JSON.stringify(selector)}).evaluate(node => {
+          node.hidden = false;
+          node.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;opacity:0;z-index:2147483647';
+        });
+        await page.locator(${JSON.stringify(selector)}).click({ timeout: 10000 });
+      } else await page.locator(${JSON.stringify(selector)}).evaluate(node => node.click(), undefined, { timeout: 10000 });
       download = await pending;
       const allowed = await page.evaluate(({ value, origins }) => {
         const url = new URL(value);

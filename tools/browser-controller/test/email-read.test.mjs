@@ -285,7 +285,7 @@ test('Gmail recent intake uses ordinary-mail search and admits read archive mail
  const member={provider_message_id:'abc',provider_thread_id:'thread-f:2748',inbox:false,sent:false,draft:false,unread:false,received_at:'2026-09-08T00:30:00Z'};
  const runtime={withReadTab:fn=>fn({navigate:async url=>assert.ok(url.endsWith('#all')),fill:async(_selector,query)=>queries.push(query),press:async()=>{},
   inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:[record],empty:false}}),
-  runReadCode:async code=>code.includes('return state.records')?[member]:true})};
+  runReadCode:async code=>code.includes('window.SparkClawMailReader')?null:code.includes('return state.records')?[member]:true})};
  const input=discoveryInput({lane:'recent_inbound'});input.provider='gmail';
  const result=await discoverEmail(input,runtime,'gmail');
  assert.equal(result.candidates.length,1);assert.equal(result.candidates[0].folder,'all');assert.equal(result.coverage.ordering,'gmail_internal_received');
@@ -365,7 +365,7 @@ test('Gmail accepts the observed empty-search sentence only in its visible resul
 
 test('Gmail direct thread inventory requires the indexed anchor and keeps partial coverage',async()=>{
  const url=READ_PROVIDERS.gmail.url, events=[];
- const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return true;},
+ const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return !code.includes('controls.length===1');},
   inspect:async({})=>{const detail=events.some(code=>code.includes('#all/abc'));return {origin:url,result:detail?{url,account_address:'owner@example.test',ids:['abc','def']}:{url,account_address:'owner@example.test',empty:true,rows:[]}};}};
  const input={schema_version:1,operation:'enumerate_thread',provider:'gmail',account:'default',owner_scope:'a'.repeat(64),invocation_id:'history-1',
   thread:{account_address:'owner@example.test',provider_thread_id:'thread-f:2748',provider_selection_id:'abc',folder:'inbox'},continuation:'',limit:50};
@@ -388,7 +388,7 @@ test('Gmail direct rendered inventory rejects an absent anchor or duplicate nati
 
 test('Gmail exact indexed capture can open a source absent from the loaded folder',async()=>{
  const url=READ_PROVIDERS.gmail.url, events=[];
- const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return true;},
+ const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return !code.includes('controls.length===1');},
   inspect:async()=>({origin:url,result:events.some(code=>code.includes('#all/abc'))?
    {url,account_address:'owner@example.test',provider_message_id:'abc',body_text:'source'}:
    {url,account_address:'owner@example.test',empty:true,rows:[]}})};

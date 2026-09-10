@@ -32,13 +32,14 @@ const readRegistrations = [
     handler:operation==='read'?handler:(input,runtime)=>({discover:discoverEmail,capture:readEmail,enumerate_thread:enumerateThread,mark_read:markEmailRead,collect_page:collectEmailPage}[operation])(input,runtime,provider), revision: 1,
     loginURL: READ_PROVIDERS[provider].url,
     downloadOrigins: [...READ_PROVIDERS[provider].origins,
-      ...(provider === "gmail" ? ["https://mail-attachment.googleusercontent.com"] : [])],
+      ...(provider === "gmail" ? ["https://mail-attachment.googleusercontent.com"] : []),
+      ...(provider === "outlook" ? ["https://attachment.outlook.live.net"] : [])],
     origins: [...READ_PROVIDERS[provider].origins,
       ...(provider === "gmail" ? ["https://accounts.google.com"] : []),
       ...(provider === "outlook" ? ["https://login.live.com", "https://login.microsoftonline.com", "https://www.microsoft.com"] : [])],
     ...(provider === "outlook" ? { signedOutURL: outlookSignedOutURL } : {}),
     timeoutMS: operation === 'collect_page' ? 1_800_000 : 180_000,
-    sourceFiles: ["scripts/email/read.mjs", "scripts/email/lib/read-capture.mjs", "scripts/email/lib/gmail-list.mjs", "scripts/email/lib/outlook-list.mjs", "scripts/email/lib/qqmail-list.mjs", "scripts/email/lib/qqmail-detail.mjs"],
+    sourceFiles: ["scripts/email/read.mjs", "scripts/email/lib/read-capture.mjs", "scripts/email/lib/gmail-list.mjs", "scripts/email/lib/outlook-list.mjs", "scripts/email/lib/qqmail-list.mjs", "scripts/email/lib/qqmail-detail.mjs", "scripts/email/lib/network-reader.mjs", "scripts/email/userscripts/lib/outlook-early-bridge.mjs"],
   }))),
 ];
 
@@ -239,7 +240,7 @@ function registration(value) {
     ...value,
     validate: value.validate ?? ((input) => validateScriptInput(value.provider, value.operation, input)),
     origins: Object.freeze([...value.origins]),
-    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["scripts/email/lib/managed-send.mjs","scripts/email/lib/managed-send-dom.mjs","scripts/email/lib/send-journal.mjs","scripts/email/read.mjs","scripts/email/lib/read-capture.mjs","scripts/email/lib/gmail-list.mjs","scripts/email/lib/outlook-list.mjs","scripts/email/lib/qqmail-list.mjs","scripts/email/lib/qqmail-detail.mjs"]:[])])]),
+    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["scripts/email/lib/managed-send.mjs","scripts/email/lib/managed-send-dom.mjs","scripts/email/lib/send-journal.mjs","scripts/email/read.mjs","scripts/email/lib/read-capture.mjs","scripts/email/lib/gmail-list.mjs","scripts/email/lib/outlook-list.mjs","scripts/email/lib/qqmail-list.mjs","scripts/email/lib/qqmail-detail.mjs","scripts/email/lib/network-reader.mjs","scripts/email/userscripts/lib/outlook-early-bridge.mjs"]:[])])]),
   });
 }
 

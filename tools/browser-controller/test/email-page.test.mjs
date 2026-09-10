@@ -166,7 +166,7 @@ test('production Gmail page adapter captures proven conversation members and exc
         phase==='menu'?{commands:['Download message','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;return code.includes('return state.records')?members:true;},
+    runReadCode:async code=>{if(code.includes('page.reload'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
     click:async()=>{},fill:async()=>{queries++;},press:async()=>{},
     download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };
@@ -338,7 +338,7 @@ test('production Gmail page adapter filters historical, future, and unqualified 
         phase==='menu'?{commands:['Download message','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;return code.includes('return state.records')?members:true;},
+    runReadCode:async code=>{if(code.includes('page.reload'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
     click:async()=>{},fill:async()=>{queries++;},press:async()=>{},
     download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };

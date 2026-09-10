@@ -22,6 +22,7 @@ var providerUnavailableScriptCodes = map[string]bool{
 	"email_probe_configuration_error": true,
 	"email_tab_cleanup_failed":        true,
 	"email_capture_unavailable":       true,
+	"email_network_read_failed":       true,
 	"login_probe_browser_failure":     true,
 	// The Controller envelope substitutes this code when a script error
 	// carries no well-formed code of its own.

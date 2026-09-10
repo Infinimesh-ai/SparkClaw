@@ -28,3 +28,9 @@ npm run start:remote -- --check
 ```
 
 A start/preflight validates the installed version; a deployment installs/reconciles it. Upgrade the manifest, reviewed compatibility patch and bundled sources together, then run component tests, a fresh-profile real install, a repeated install, and actual readiness. Never bypass a mismatched script receipt. The old per-user `browser-extensions.json` mechanism is not part of this product contract.
+
+## Managed email readers
+
+The component manifest also includes the QQ Mail, Gmail and Outlook Network Readers. Their editable source is in `scripts/email/userscripts/lib/`; `node scripts/email/userscripts/build.mjs` produces the three pinned files in `tools/browser-userscripts/` and updates their manifest hashes. `--check` rejects stale generated files. They expose read operations to the Controller on the matching signed-in provider page and never schedule synchronization independently.
+
+Session headers, provider pagination tokens and learned original-download URLs stay in the owned page's memory. The Gateway persists account-bound receipt-time intervals and source acknowledgements. The Outlook Controller installs a small early Worker observation bridge because the website may bind its transport before Tampermonkey's asynchronous script injection finishes; the installed Reader consumes those observations and performs qualified reads. If a Reader is absent or cannot prove a request contract, native capture remains the fallback. Installation readiness does not certify mailbox-wide folder coverage or successful original capture; see the implementation status in [the email pipeline design](email-pipeline-optimization-design.md).

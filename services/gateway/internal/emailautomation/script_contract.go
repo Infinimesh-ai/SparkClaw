@@ -131,6 +131,7 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_send_control_unverified":       app.ToolErrorEmailSendControlUnverified,
 	"email_recipient_verification_failed": app.ToolErrorEmailDraftVerificationFailed,
 
+	"email_cursor_invalid":      app.ToolErrorEmailInvalidInput,
 	"invalid_request":           app.ToolErrorEmailInvalidInput,
 	"invalid_input":             app.ToolErrorEmailInvalidInput,
 	"invalid_message":           app.ToolErrorEmailInvalidInput,
@@ -141,6 +142,7 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"invalid_body":              app.ToolErrorEmailInvalidInput,
 	"body_too_large":            app.ToolErrorEmailInvalidInput,
 
+	"email_network_list_unqualified":      app.ToolErrorEmailPageContractChanged,
 	"page_contract_changed":               app.ToolErrorEmailPageContractChanged,
 	"email_login_evidence_conflict":       app.ToolErrorEmailPageContractChanged,
 	"provider_origin_mismatch":            app.ToolErrorEmailPageContractChanged,

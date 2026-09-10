@@ -1,0 +1,1222 @@
+Delivered-To: hsrr05901@gmail.com
+Received: by 2002:ac9:6a51:0:b0:63c:5cce:fd9e with SMTP id v17csp228955ocm;
+        Wed, 15 Jul 2026 16:43:56 -0700 (PDT)
+X-Received: by 2002:a05:620a:408d:b0:930:9533:5e32 with SMTP id af79cd13be357-930a5f182edmr30715885a.7.1784159036474;
+        Wed, 15 Jul 2026 16:43:56 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784159036; cv=none;
+        d=google.com; s=arc-20260327;
+        b=MhtFvGkaq4isbTnEyHcJuG1DoFcBM2hOCufxmA3tMYEWRGxmOnOuWavaTvt1Y9c1Ji
+         1+Bf9JxdGdYQcj69j/qbWg/Lp4mJ7VmkJBFy2tTUrirBgrs6WvMTV+0WUc9uRYrailTp
+         vZ3FciXJkV+J4uSkvDZsOTRKg6Kr4B6nDnvQLPAQ1/CM06dUDK2hxHH7DHsqvWZXJyiS
+         9EtSdkiA1IZxfLxAWS13WdKxcr8jDQtxOlBWpiqyweGrWhPyHZeA+YWbBCRYzaHV+KN/
+         n5cveENBzBk8XKSQhDwZsR5eofznxuo4DmNl3j8KtCP6gIX0O/OXMBTYMiyCMKHd6Hch
+         L3/Q==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=feedback-id:precedence:list-id:list-unsubscribe-post
+         :list-unsubscribe:mime-version:subject:message-id:cc:to:reply-to
+         :from:date:dkim-signature:dkim-signature;
+        bh=nCT5NsuatCGB13QCTnDCJOZPqSffDdQCVyjXVShIjMY=;
+        fh=4I0pURltadB+oGF9CltmW92aOjFSsQT5Gwe2SjedVwM=;
+        b=EqCGCBE4K+rAqb5ibry8t342qaHWzBsRpkZOVbUmKOpxrGVOCo36DHfeWNwCP/1Pzp
+         yFnynkhiC2AnxlotstnybLWk70NE8H0WEH+jeeOza4SbTKImmc8r8ZKnO2NKULE+H7Sy
+         IVF9SRO5ImYob3t3piG3F2Qwz0dKrwZbuQnupXD/DiljPE8Jm62O2f4l5ccZNhr4eGIW
+         jHGTzL6AgjKh9p/mG2EKHePaD5q3XlNvanY1ShJH6duDvO5IKMDAYDE1zn2DLPfk3AlN
+         NuzV98eMYxPzBPLCmIW6wKTPOGY8s/1M9geQL+OXBccVgyU/+U4hwcge9sUq8w42Ipq0
+         VcAg==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@mail.perplexity.ai header.s=pvaqpelevmk57ovqno6vcegbltm6sbnt header.b=k8sTv6Sp;
+       dkim=pass header.i=@amazonses.com header.s=224i4yxa5dv7c2xz3womw6peuasteono header.b=EZg780I1;
+       spf=pass (google.com: domain of 0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@envelope.mail.perplexity.ai designates 216.221.169.107 as permitted sender) smtp.mailfrom=0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@envelope.mail.perplexity.ai;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=perplexity.ai
+Return-Path: <0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@envelope.mail.perplexity.ai>
+Received: from g169-107.smtp-out.amazonses.com (g169-107.smtp-out.amazonses.com. [216.221.169.107])
+        by mx.google.com with ESMTPS id af79cd13be357-92ee5dc320dsi1982503385a.434.2026.07.15.16.43.56
+        for <hsrr05901@gmail.com>
+        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256 bits=128/128);
+        Wed, 15 Jul 2026 16:43:56 -0700 (PDT)
+Received-SPF: pass (google.com: domain of 0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@envelope.mail.perplexity.ai designates 216.221.169.107 as permitted sender) client-ip=216.221.169.107;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@mail.perplexity.ai header.s=pvaqpelevmk57ovqno6vcegbltm6sbnt header.b=k8sTv6Sp;
+       dkim=pass header.i=@amazonses.com header.s=224i4yxa5dv7c2xz3womw6peuasteono header.b=EZg780I1;
+       spf=pass (google.com: domain of 0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@envelope.mail.perplexity.ai designates 216.221.169.107 as permitted sender) smtp.mailfrom=0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@envelope.mail.perplexity.ai;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=perplexity.ai
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/simple;
+	s=pvaqpelevmk57ovqno6vcegbltm6sbnt; d=mail.perplexity.ai;
+	t=1784159036;
+	h=Date:From:Reply-To:To:Cc:Message-ID:Subject:MIME-Version:List-Unsubscribe:List-Unsubscribe-Post:List-ID:Content-Type;
+	bh=XIzCMQdSldXTq+WsHSJqMPwTzQvAqF8u7/4NnzvQ7I0=;
+	b=k8sTv6SpMe9wBHw4GjgGgg+1yWpWVia7xlClRNbrmUPMWFdg2aMwBwPQUZp2j+9C
+	jH3Cyh8bfnGFo/orXDCaKi4J9z7zDfdUPC1aQ0jnO5LzZr9WPQxNOx5tHm1jAcELi+y
+	Dgvj5YaosQ0UffsSnYkn8x2Ay8yPkiD0ARlGibzF418ijWBTjR1FQ/a2ssNvpj2zWOs
+	RXJmrb+00SPxBB4rCmzZnU2kozI5t9qEEr51kZV8lsUWA1RcjtNWpT3VBKiQ9edG1hX
+	eObdQS++ZRz02PlcDuc5MgBfd7NNbdfbOVBP8ixuWzkzGYZIUIa93evhdjelQO01v9G
+	TLH0e+MKag==
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/simple;
+	s=224i4yxa5dv7c2xz3womw6peuasteono; d=amazonses.com; t=1784159036;
+	h=Date:From:Reply-To:To:Cc:Message-ID:Subject:MIME-Version:List-Unsubscribe:List-Unsubscribe-Post:List-ID:Content-Type:Feedback-ID;
+	bh=XIzCMQdSldXTq+WsHSJqMPwTzQvAqF8u7/4NnzvQ7I0=;
+	b=EZg780I14y+bQRzfTNyAy7OVhIfAlKb1IJN95YfzrA9X2xgp9Ec2bK2SrxPYboaB
+	quUjPCfZiwFkTJIxf9L/fvBghLsMuAwvg4Mv1f6GR9dKcRqx+5eALb2YJt/6QDtD2S1
+	7q+xKWS5S/MQA9OxgfJ3Hnntg3RaD/moyZew8asA=
+Date: Wed, 15 Jul 2026 23:43:55 +0000
+From: Perplexity <team@mail.perplexity.ai>
+Reply-To: Perplexity <team@perplexity.ai>
+To: hsrr05901@gmail.com
+Cc: 
+Message-ID: <0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@email.amazonses.com>
+Subject: =?utf-8?B?QmV0dGVyIGFuc3dlcnMgZm9yIGV2ZXJ5dGhpbmcgeW91J3JlIGN1cmlvdXMgYWJvdXQ=?=
+MIME-Version: 1.0
+List-Unsubscribe: <mailto:cmrmq81x53rxg01vohw33bpeu+b3cb2eab96dc07d536ee56f3b2235172e47c28913b1d34523b9cbfa2b25c1f152db4b41fb745ab563f1227adeeb06d6e22752697cc5ff75b8c3e8076@unsubscribe.loops.so?subject=unsubscribe>,<https://app.loops.so/unsubscribe/cmrmq81x53rxg01vohw33bpeu/b3cb2eab96dc07d536ee56f3b2235172e47c28913b1d34523b9cbfa2b25c1f152db4b41fb745ab563f1227adeeb06d6e22752697cc5ff75b8c3e8076>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+List-ID: "Perplexity" <general.mail.perplexity.ai>
+Precedence: Bulk
+X-Auto-Response-Suppress: All
+Content-Type: multipart/alternative; boundary=kfifavl6wa
+Feedback-ID: :1.us-east-1.tJX7MlTBUlvqMyZhxLCPa5G1WtiaRjP1DpZnl+IQxC72DBFExKAMS58srKFTpZyVgqWFO3ibnA53bM6Cr7qhcHUH9bTyx+YNQ5dHlPT8Y5hTj46Qt7Or9ZRKZ5xjn/7lYQaWhOl7eY1Wps5Q1VqzM2k2O3H0s7KQT7fAbJpQOKk=:1.us-east-1.1nRXWOT+ETvogqnAUaOa7HjKGx1p40xVES7T8DfH/Gc=:AmazonSES
+X-SES-Outgoing: 2026.07.15-216.221.169.107
+
+--kfifavl6wa
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+See how people are using Perplexity to answer their toughest questions
+
+
+
+
+See how people are using Perplexity to answer their toughest questions
+
+Try Perplexity
+[https://perplexity.sng.link/E6awk/ism9?=
+_dl=3Dperplexity-app%3A%2F%2F&_fallback_redirect=3Dhttps%3A%2F%2Fperplexity=
+.ai&wpsrc=3DEmail&pcn=3Dnew%20user&wpcn=3Dnew%20user&pscn=3Dgeneral-consume=
+r-2&wpscn=3Dgeneral-consumer-2&utm_source=3DEmail&utm_medium=3Dgeneral-cons=
+umer-2&_smtype=3D3&_forward_params=3D1]
+
+Stay on top of your finances
+
+=E2=80=9CCompare the top high-yield savings accounts right now =E2=80=94 =
+rates, fees, and minimum balances=E2=80=9D
+
+[https://perplexity.sng.=
+link/E6awk/ism9?_dl=3Dperplexity-app%3A%2F%2Fsearch%3Fq%3DCompare%20the%20t=
+op%20high-yield%20savings%20accounts%20right%20now%20%E2%80%94%20rates%2C%2=
+0fees%2C%20and%20minimum%20balances&_fallback_redirect=3Dhttps%3A%2F%2Fperp=
+lexity.ai%2Fsearch%3Fq%3DCompare%20the%20top%20high-yield%20savings%20accou=
+nts%20right%20now%20%E2%80%94%20rates%2C%20fees%2C%20and%20minimum%20balanc=
+es&wpsrc=3DEmail&pcn=3Dnew%20user&wpcn=3Dnew%20user&pscn=3Dgeneral-consumer=
+-2&wpscn=3Dgeneral-consumer-2&utm_source=3DEmail&utm_medium=3Dgeneral-consu=
+mer-2&_smtype=3D3&_forward_params=3D1]
+
+Get answers about your health
+
+=E2=80=9CWhat does my blood work mean? Break down each marker and flag =
+anything outside normal range=E2=80=9D
+
+[https://perplexity.sng.=
+link/E6awk/ism9?_dl=3Dperplexity-app%3A%2F%2Fsearch%3Fq%3DWhat%20does%20my%=
+20blood%20work%20mean%3F%20Break%20down%20each%20marker%20and%20flag%20anyt=
+hing%20outside%20normal%20range&_fallback_redirect=3Dhttps%3A%2F%2Fperplexi=
+ty.ai%2Fsearch%3Fq%3DWhat%20does%20my%20blood%20work%20mean%3F%20Break%20do=
+wn%20each%20marker%20and%20flag%20anything%20outside%20normal%20range&wpsrc=
+=3DEmail&pcn=3Dnew%20user&wpcn=3Dnew%20user&pscn=3Dgeneral-consumer-2&wpscn=
+=3Dgeneral-consumer-2&utm_source=3DEmail&utm_medium=3Dgeneral-consumer-2&_s=
+mtype=3D3&_forward_params=3D1]
+
+Get local recommendations
+
+=E2=80=9CFind me a restaurant near Union Square with outdoor seating, great=
+ reviews, and a reservation available tonight=E2=80=9D
+
+[https://perplexity.sng.link/E6awk/ism9?_dl=3Dperplexity-app%3A%2F%2Fsearch=
+%3Fq%3DFind%20me%20a%20restaurant%20near%20Union%20Square%20with%20outdoor%=
+20seating%2C%20great%20reviews%2C%20and%20a%20reservation%20available%20ton=
+ight&_fallback_redirect=3Dhttps%3A%2F%2Fperplexity.ai%2Fsearch%3Fq%3DFind%2=
+0me%20a%20restaurant%20near%20Union%20Square%20with%20outdoor%20seating%2C%=
+20great%20reviews%2C%20and%20a%20reservation%20available%20tonight&wpsrc=3D=
+Email&pcn=3Dnew%20user&wpcn=3Dnew%20user&pscn=3Dgeneral-consumer-2&wpscn=3D=
+general-consumer-2&utm_source=3DEmail&utm_medium=3Dgeneral-consumer-2&_smty=
+pe=3D3&_forward_params=3D1]
+
+Learn something new every day
+
+=E2=80=9CExplain how the US electoral college works, what the arguments for=
+ and against it are, and what it would take to change it=E2=80=9D
+
+[https://perplexity.sng.link/E6awk/ism9?_dl=3Dperplexity-app%3A%2F%2Fsearch=
+%3Fq%3DExplain%20how%20the%20US%20electoral%20college%20works%2C%20what%20t=
+he%20arguments%20for%20and%20against%20it%20are%2C%20and%20what%20it%20woul=
+d%20take%20to%20change%20it&_fallback_redirect=3Dhttps%3A%2F%2Fperplexity.=
+ai%2Fsearch%3Fq%3DExplain%20how%20the%20US%20electoral%20college%20works%2C=
+%20what%20the%20arguments%20for%20and%20against%20it%20are%2C%20and%20what%=
+20it%20would%20take%20to%20change%20it&wpsrc=3DEmail&pcn=3Dnew%20user&wpcn=
+=3Dnew%20user&pscn=3Dgeneral-consumer-2&wpscn=3Dgeneral-consumer-2&utm_sour=
+ce=3DEmail&utm_medium=3Dgeneral-consumer-2&_smtype=3D3&_forward_params=3D1]
+
+Follow us
+
+https://x.com/perplexity_ai https://www.linkedin.=
+com/company/perplexity-ai https://www.instagram.com/perplexity
+https://www.youtube.com/@perplexity-ai https://discord.gg/perplexity-ai
+https://apps.apple.com/app/perplexity-ask-anything/id1668000334
+https://play.google.com/store/apps/details?id=3Dai.perplexity.app.android
+
+=C2=A9 2026 Perplexity. 115 Sansome St, Suite 900, San Francisco, CA 94104
+
+Unsubscribe [https://app.loops.so/unsubscribe/cmrmq81x53rxg01vohw33bpeu/b3c=
+b2eab96dc07d536ee56f3b2235172e47c28913b1d34523b9cbfa2b25c1f152db4b41fb745ab=
+563f1227adeeb06d6e22752697cc5ff75b8c3e8076] =C2=A0|=C2=A0 Privacy Policy =
+[https://www.perplexity.ai/privacy] =C2=A0|=C2=A0 Terms and conditions
+[https://www.perplexity.ai/terms]
+
+--kfifavl6wa
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+<!doctype html>
+<html lang=3D"und" dir=3D"auto" xmlns=3D"http://www.w3.org/1999/xhtml" xmln=
+s:v=3D"urn:schemas-microsoft-com:vml" xmlns:o=3D"urn:schemas-microsoft-com:=
+office:office">
+  <head>
+    <title>New User Queries - General Consumer v2</title>
+    <!--[if !mso]><!-->
+    <meta http-equiv=3D"X-UA-Compatible" content=3D"IE=3Dedge">
+    <!--<![endif]-->
+    <meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3DUTF-8=
+">
+    <meta name=3D"viewport" content=3D"width=3Ddevice-width, initial-scale=
+=3D1">
+    <style type=3D"text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size=
+-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-r=
+space:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decora=
+tion:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type=3D"text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+   =20
+      <!--[if !mso]><!-->
+        <link href=3D"https://fonts.googleapis.com/css?family=3DRoboto:300,=
+400,500,700" rel=3D"stylesheet" type=3D"text/css">
+<link href=3D"https://fonts.googleapis.com/css2?family=3DInter:wght@400;500=
+;600&display=3Dswap" rel=3D"stylesheet" type=3D"text/css">
+        <style type=3D"text/css">
+          @import url(https://fonts.googleapis.com/css?family=3DRoboto:300,=
+400,500,700);
+@import url(https://fonts.googleapis.com/css2?family=3DInter:wght@400;500;6=
+00&display=3Dswap);
+        </style>
+      <!--<![endif]-->
+
+   =20
+   =20
+    <style type=3D"text/css">
+      @media only screen and (min-width:599px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+      }
+    </style>
+    <style media=3D"screen and (min-width:599px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width:=
+ 100%; }
+    </style>
+   =20
+   =20
+ =20
+   =20
+    <style type=3D"text/css">
+
+    @media only screen and (max-width:598px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+ =20
+    </style>
+    =20
+    <style type=3D"text/css">
+@media only screen and (max-width:599px) {
+        .row-icon { width: 40px !important; padding: 16px 0 16px 24px !impo=
+rtant; }
+        .row-icon img { width: 20px !important; height: 20px !important; }
+        .row-text { padding: 16px 20px 16px 8px !important; }
+        .row-text p.row-title { font-size: 14px !important; }
+        .row-text p.row-desc { font-size: 12px !important; }
+        .social-icons img { width: 28px !important; height: 28px !important=
+; }
+        .social-icons td { padding: 0 8px !important; }
+      }
+    </style>
+   =20
+  </head>
+ =20
+      <body  style=3D"word-spacing:normal;background-color:#ffffff;">
+       =20
+    <div style=3D"display:none;font-size:1px;color:#ffffff;line-height:1px;=
+max-height:0px;max-width:0px;opacity:0;overflow:hidden;">See how people are=
+ using Perplexity to answer their toughest questions</div>
+ =20
+        <div
+           aria-label=3D"New User Queries - General Consumer v2" aria-roled=
+escription=3D"email" role=3D"article" lang=3D"und" dir=3D"auto" style=3D"wo=
+rd-spacing:normal;background-color:#ffffff;"
+        >
+        <img alt=3D"" src=3D"https://c.vialoops.com/CI0/0100019f682a61dc-35=
+5c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/zDmrIGIXizhRXmUJs7BoDkE4DiGbo7uT8=
+-EQZwP8YSM=3D452" style=3D"display: none; width: 1px; height: 1px;">
+<!-- LOGO -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:48px 40px 0;t=
+ext-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:520px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"vertical-align:top;" width=3D"100%"
+      >
+        <tbody>
+         =20
+              <tr>
+                <td
+                   align=3D"center" style=3D"font-size:0px;padding:0 0 24px=
+;word-break:break-word;"
+                >
+                 =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style=3D"width:120px;">
+             =20
+      <img
+         alt=3D"Perplexity" src=3D"https://images.vialoops.com/cmn6htovi00x=
+50iugqhzp6roe/img/cmn6k4snq02bl0i0grn3e1yn7.png" style=3D"border:0;display:=
+block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13=
+px;" width=3D"120" height=3D"auto"
+      />
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- HEADLINE --><!--
+      For per-segment headlines, use one of these approaches in Loops:
+      Option A: One template per segment (headline baked in at build time)
+      Option B: Use a Loops contact property like See how people are using =
+Perplexity to answer their toughest questions set via API
+    -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 40px 7px;te=
+xt-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:520px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"vertical-align:top;" width=3D"100%"
+      >
+        <tbody>
+         =20
+              <tr>
+                <td
+                   align=3D"center" style=3D"font-size:0px;padding:0 16px;w=
+ord-break:break-word;"
+                >
+                 =20
+      <div
+         style=3D"font-family:Georgia, 'Times New Roman', serif;font-size:2=
+6px;font-weight:400;line-height:1.3;text-align:center;color:#1a8a8a;"
+      >See how people are using Perplexity to answer their toughest questio=
+ns</div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- CTA BUTTON -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 24px 36px;t=
+ext-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:552px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"vertical-align:top;" width=3D"100%"
+      >
+        <tbody>
+         =20
+              <tr>
+                <td
+                   align=3D"center" style=3D"font-size:0px;padding:10px 25p=
+x;word-break:break-word;"
+                >
+                 =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"border-collapse:separate;line-height:100%;"
+      >
+        <tbody>
+          <tr>
+            <td
+               align=3D"center" bgcolor=3D"#20808D" role=3D"presentation" s=
+tyle=3D"border:none;border-radius:8px;cursor:auto;mso-padding-alt:12px 32px=
+;background:#20808D;" valign=3D"middle"
+            >
+              <a
+                 href=3D"https://c.vialoops.com/CL0/https:%2F%2Fperplexity.=
+sng.link%2FE6awk%2Fism9%3F_dl=3Dperplexity-app%253A%252F%252F%26_fallback_r=
+edirect=3Dhttps%253A%252F%252Fperplexity.ai%26wpsrc=3DEmail%26pcn=3Dnew%252=
+0user%26wpcn=3Dnew%2520user%26pscn=3Dgeneral-consumer-2%26wpscn=3Dgeneral-c=
+onsumer-2%26utm_source=3DEmail%26utm_medium=3Dgeneral-consumer-2%26_smtype=
+=3D3%26_forward_params=3D1/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053ed=
+a0c71be-000000/2mR_05QdfRC7c_1MqCpK9botCBAZfp0cLV2cLeShilQ=3D452" style=3D"=
+display:inline-block;background:#20808D;color:#ffffff;font-family:Inter, -a=
+pple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;font-size:1=
+5px;font-weight:500;line-height:120%;margin:0;text-decoration:none;text-tra=
+nsform:none;padding:12px 32px;mso-padding-alt:0px;border-radius:8px;" targe=
+t=3D"_blank"
+              >
+                Try Perplexity
+              </a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- QUERY ROW 1 -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 40px 12px;t=
+ext-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:520px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" width=3D"100%"
+      >
+        <tbody>
+          <tr>
+            <td  style=3D"vertical-align:top;padding:0;">
+             =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"" width=3D"100%"
+      >
+        <tbody>
+          <a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fperplexity.sng.=
+link%2FE6awk%2Fism9%3F_dl=3Dperplexity-app%253A%252F%252Fsearch%253Fq%253DC=
+ompare%2520the%2520top%2520high-yield%2520savings%2520accounts%2520right%25=
+20now%2520%25E2%2580%2594%2520rates%252C%2520fees%252C%2520and%2520minimum%=
+2520balances%26_fallback_redirect=3Dhttps%253A%252F%252Fperplexity.ai%252Fs=
+earch%253Fq%253DCompare%2520the%2520top%2520high-yield%2520savings%2520acco=
+unts%2520right%2520now%2520%25E2%2580%2594%2520rates%252C%2520fees%252C%252=
+0and%2520minimum%2520balances%26wpsrc=3DEmail%26pcn=3Dnew%2520user%26wpcn=
+=3Dnew%2520user%26pscn=3Dgeneral-consumer-2%26wpscn=3Dgeneral-consumer-2%26=
+utm_source=3DEmail%26utm_medium=3Dgeneral-consumer-2%26_smtype=3D3%26_forwa=
+rd_params=3D1/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-00000=
+0/NFrSXCsttYh85iLNM3K65vq0oCKfQNj24S3bNmTE6Tc=3D452" target=3D"_blank" styl=
+e=3D"text-decoration:none;display:block;">
+            <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0=
+" border=3D"0" width=3D"100%" style=3D"background-color:#f5f6f8;border-radi=
+us:16px;">
+              <tr>
+                <td class=3D"row-icon" width=3D"48" style=3D"vertical-align=
+:top;padding:22px 0 20px 36px;width:48px;">
+                  <img src=3D"https://images.vialoops.com/cmn6htovi00x50iug=
+qhzp6roe/img/cmn6k4snp02be0i0gid90uv7e.png" alt=3D"" width=3D"24" height=3D=
+"24" style=3D"display:block;width:24px;height:24px;" />
+                </td>
+                <td class=3D"row-text" style=3D"vertical-align:top;padding:=
+20px 24px 20px 8px;">
+                  <p class=3D"row-title" style=3D"margin:0 0 4px;font-famil=
+y:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-=
+size:15px;font-weight:600;line-height:1.3;color:#1a1a1a;">Stay on top of yo=
+ur finances</p>
+                  <p class=3D"row-desc" style=3D"margin:0;font-family:Inter=
+,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13=
+px;font-weight:400;line-height:1.5;color:#777777;">=E2=80=9CCompare the top=
+ high-yield savings accounts right now =E2=80=94 rates, fees, and minimum b=
+alances=E2=80=9D</p>
+                </td>
+              </tr>
+            </table>
+          </a>
+        </tbody>
+      </table>
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- QUERY ROW 2 -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 40px 12px;t=
+ext-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:520px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" width=3D"100%"
+      >
+        <tbody>
+          <tr>
+            <td  style=3D"vertical-align:top;padding:0;">
+             =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"" width=3D"100%"
+      >
+        <tbody>
+          <a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fperplexity.sng.=
+link%2FE6awk%2Fism9%3F_dl=3Dperplexity-app%253A%252F%252Fsearch%253Fq%253DW=
+hat%2520does%2520my%2520blood%2520work%2520mean%253F%2520Break%2520down%252=
+0each%2520marker%2520and%2520flag%2520anything%2520outside%2520normal%2520r=
+ange%26_fallback_redirect=3Dhttps%253A%252F%252Fperplexity.ai%252Fsearch%25=
+3Fq%253DWhat%2520does%2520my%2520blood%2520work%2520mean%253F%2520Break%252=
+0down%2520each%2520marker%2520and%2520flag%2520anything%2520outside%2520nor=
+mal%2520range%26wpsrc=3DEmail%26pcn=3Dnew%2520user%26wpcn=3Dnew%2520user%26=
+pscn=3Dgeneral-consumer-2%26wpscn=3Dgeneral-consumer-2%26utm_source=3DEmail=
+%26utm_medium=3Dgeneral-consumer-2%26_smtype=3D3%26_forward_params=3D1/1/01=
+00019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/FKnQrFgd1Cdk79f0=
+g4GXQ-Y3-fwV1p_FevVK1DYSzug=3D452" target=3D"_blank" style=3D"text-decorati=
+on:none;display:block;">
+            <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0=
+" border=3D"0" width=3D"100%" style=3D"background-color:#f5f6f8;border-radi=
+us:16px;">
+              <tr>
+                <td class=3D"row-icon" width=3D"48" style=3D"vertical-align=
+:top;padding:22px 0 20px 36px;width:48px;">
+                  <img src=3D"https://images.vialoops.com/cmn6htovi00x50iug=
+qhzp6roe/img/cmn6k4snq02bm0i0gtr4fknw2.png" alt=3D"" width=3D"24" height=3D=
+"24" style=3D"display:block;width:24px;height:24px;" />
+                </td>
+                <td class=3D"row-text" style=3D"vertical-align:top;padding:=
+20px 24px 20px 8px;">
+                  <p class=3D"row-title" style=3D"margin:0 0 4px;font-famil=
+y:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-=
+size:15px;font-weight:600;line-height:1.3;color:#1a1a1a;">Get answers about=
+ your health</p>
+                  <p class=3D"row-desc" style=3D"margin:0;font-family:Inter=
+,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13=
+px;font-weight:400;line-height:1.5;color:#777777;">=E2=80=9CWhat does my bl=
+ood work mean? Break down each marker and flag anything outside normal rang=
+e=E2=80=9D</p>
+                </td>
+              </tr>
+            </table>
+          </a>
+        </tbody>
+      </table>
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- QUERY ROW 3 -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 40px 12px;t=
+ext-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:520px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" width=3D"100%"
+      >
+        <tbody>
+          <tr>
+            <td  style=3D"vertical-align:top;padding:0;">
+             =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"" width=3D"100%"
+      >
+        <tbody>
+          <a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fperplexity.sng.=
+link%2FE6awk%2Fism9%3F_dl=3Dperplexity-app%253A%252F%252Fsearch%253Fq%253DF=
+ind%2520me%2520a%2520restaurant%2520near%2520Union%2520Square%2520with%2520=
+outdoor%2520seating%252C%2520great%2520reviews%252C%2520and%2520a%2520reser=
+vation%2520available%2520tonight%26_fallback_redirect=3Dhttps%253A%252F%252=
+Fperplexity.ai%252Fsearch%253Fq%253DFind%2520me%2520a%2520restaurant%2520ne=
+ar%2520Union%2520Square%2520with%2520outdoor%2520seating%252C%2520great%252=
+0reviews%252C%2520and%2520a%2520reservation%2520available%2520tonight%26wps=
+rc=3DEmail%26pcn=3Dnew%2520user%26wpcn=3Dnew%2520user%26pscn=3Dgeneral-cons=
+umer-2%26wpscn=3Dgeneral-consumer-2%26utm_source=3DEmail%26utm_medium=3Dgen=
+eral-consumer-2%26_smtype=3D3%26_forward_params=3D1/1/0100019f682a61dc-355c=
+9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/N7WMUybupLwQ60pWlVBIusbYBCFv6R_gtDf=
+0AoDK1EE=3D452" target=3D"_blank" style=3D"text-decoration:none;display:blo=
+ck;">
+            <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0=
+" border=3D"0" width=3D"100%" style=3D"background-color:#f5f6f8;border-radi=
+us:16px;">
+              <tr>
+                <td class=3D"row-icon" width=3D"48" style=3D"vertical-align=
+:top;padding:22px 0 20px 36px;width:48px;">
+                  <img src=3D"https://images.vialoops.com/cmn6htovi00x50iug=
+qhzp6roe/img/cmn6k4snv02bo0i0gqe5sp5r7.png" alt=3D"" width=3D"24" height=3D=
+"24" style=3D"display:block;width:24px;height:24px;" />
+                </td>
+                <td class=3D"row-text" style=3D"vertical-align:top;padding:=
+20px 24px 20px 8px;">
+                  <p class=3D"row-title" style=3D"margin:0 0 4px;font-famil=
+y:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-=
+size:15px;font-weight:600;line-height:1.3;color:#1a1a1a;">Get local recomme=
+ndations</p>
+                  <p class=3D"row-desc" style=3D"margin:0;font-family:Inter=
+,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13=
+px;font-weight:400;line-height:1.5;color:#777777;">=E2=80=9CFind me a resta=
+urant near Union Square with outdoor seating, great reviews, and a reservat=
+ion available tonight=E2=80=9D</p>
+                </td>
+              </tr>
+            </table>
+          </a>
+        </tbody>
+      </table>
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- QUERY ROW 4 -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"background:#ffffff;background-color:#ffffff;margin:0px=
+ auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"background:#ffffff;background-color:#fffff=
+f;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 40px 0;text=
+-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:520px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" width=3D"100%"
+      >
+        <tbody>
+          <tr>
+            <td  style=3D"vertical-align:top;padding:0;">
+             =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"" width=3D"100%"
+      >
+        <tbody>
+          <a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fperplexity.sng.=
+link%2FE6awk%2Fism9%3F_dl=3Dperplexity-app%253A%252F%252Fsearch%253Fq%253DE=
+xplain%2520how%2520the%2520US%2520electoral%2520college%2520works%252C%2520=
+what%2520the%2520arguments%2520for%2520and%2520against%2520it%2520are%252C%=
+2520and%2520what%2520it%2520would%2520take%2520to%2520change%2520it%26_fall=
+back_redirect=3Dhttps%253A%252F%252Fperplexity.ai%252Fsearch%253Fq%253DExpl=
+ain%2520how%2520the%2520US%2520electoral%2520college%2520works%252C%2520wha=
+t%2520the%2520arguments%2520for%2520and%2520against%2520it%2520are%252C%252=
+0and%2520what%2520it%2520would%2520take%2520to%2520change%2520it%26wpsrc=3D=
+Email%26pcn=3Dnew%2520user%26wpcn=3Dnew%2520user%26pscn=3Dgeneral-consumer-=
+2%26wpscn=3Dgeneral-consumer-2%26utm_source=3DEmail%26utm_medium=3Dgeneral-=
+consumer-2%26_smtype=3D3%26_forward_params=3D1/1/0100019f682a61dc-355c9fc3-=
+db5d-4eb6-b2bd-053eda0c71be-000000/3QDfvqlNB3wU5JRARhyiAppMP-TdRLwOh5lumjcd=
+OEM=3D452" target=3D"_blank" style=3D"text-decoration:none;display:block;">
+            <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0=
+" border=3D"0" width=3D"100%" style=3D"background-color:#f5f6f8;border-radi=
+us:16px;">
+              <tr>
+                <td class=3D"row-icon" width=3D"48" style=3D"vertical-align=
+:top;padding:22px 0 20px 36px;width:48px;">
+                  <img src=3D"https://images.vialoops.com/cmn6htovi00x50iug=
+qhzp6roe/img/cmn6k4snq02bh0i0gfsk0lktn.png" alt=3D"" width=3D"24" height=3D=
+"24" style=3D"display:block;width:24px;height:24px;" />
+                </td>
+                <td class=3D"row-text" style=3D"vertical-align:top;padding:=
+20px 24px 20px 8px;">
+                  <p class=3D"row-title" style=3D"margin:0 0 4px;font-famil=
+y:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-=
+size:15px;font-weight:600;line-height:1.3;color:#1a1a1a;">Learn something n=
+ew every day</p>
+                  <p class=3D"row-desc" style=3D"margin:0;font-family:Inter=
+,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13=
+px;font-weight:400;line-height:1.5;color:#777777;">=E2=80=9CExplain how the=
+ US electoral college works, what the arguments for and against it are, and=
+ what it would take to change it=E2=80=9D</p>
+                </td>
+              </tr>
+            </table>
+          </a>
+        </tbody>
+      </table>
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- FOOTER -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-h=
+eight-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"margin:0px auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:32px 24px 8px=
+;text-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:552px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"vertical-align:top;" width=3D"100%"
+      >
+        <tbody>
+         =20
+              <tr>
+                <td
+                   align=3D"center" style=3D"font-size:0px;padding:0 0 12px=
+;word-break:break-word;"
+                >
+                 =20
+      <div
+         style=3D"font-family:Inter, -apple-system, BlinkMacSystemFont, 'Se=
+goe UI', Roboto, sans-serif;font-size:13px;line-height:1.5;text-align:cente=
+r;color:#999999;"
+      >Follow us</div>
+   =20
+                </td>
+              </tr>
+            <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0=
+" border=3D"0" class=3D"social-icons" align=3D"center" style=3D"margin:0 au=
+to;">
+            <tr>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fx.com%2Fperplexity_ai/1/0100019f682a61dc-355c9fc3-db5d-4e=
+b6-b2bd-053eda0c71be-000000/VLn6MAM7lN87POjSk4tZvAaqHiCRSIVnt9o7lEGgv_c=3D4=
+52" target=3D"_blank"><img src=3D"https://images.vialoops.com/cmn6htovi00x5=
+0iugqhzp6roe/img/cmn6k4snq02bg0i0g3vhad8e4.png" alt=3D"X" width=3D"22" heig=
+ht=3D"22" style=3D"display:block;" /></a></td>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fwww.linkedin.com%2Fcompany%2Fperplexity-ai/1/0100019f682a=
+61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/-xXUSjr2ilyP8iJNDOKN3aNlWW=
+6D8VEkCAb5dxz6NI8=3D452" target=3D"_blank"><img src=3D"https://images.vialo=
+ops.com/cmn6htovi00x50iugqhzp6roe/img/cmn6k4snq02bk0i0gq4nmhhq2.png" alt=3D=
+"LinkedIn" width=3D"22" height=3D"22" style=3D"display:block;" /></a></td>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fwww.instagram.com%2Fperplexity/1/0100019f682a61dc-355c9fc=
+3-db5d-4eb6-b2bd-053eda0c71be-000000/PThB23TgNUIBTLZeajtyCwFv-HiQDZ0K21KkEX=
+SXyK8=3D452" target=3D"_blank"><img src=3D"https://images.vialoops.com/cmn6=
+htovi00x50iugqhzp6roe/img/cmn6k4snq02bf0i0g4vh9bust.png" alt=3D"Instagram" =
+width=3D"22" height=3D"22" style=3D"display:block;" /></a></td>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fwww.youtube.com%2F@perplexity-ai/1/0100019f682a61dc-355c9=
+fc3-db5d-4eb6-b2bd-053eda0c71be-000000/nXeyTXMPqRJnOOchxGxFPbBa3by1nSaXfUwZ=
+xSCon4k=3D452" target=3D"_blank"><img src=3D"https://images.vialoops.com/cm=
+n6htovi00x50iugqhzp6roe/img/cmn6k4snq02bj0i0g7utcin9h.png" alt=3D"YouTube" =
+width=3D"22" height=3D"22" style=3D"display:block;" /></a></td>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fdiscord.gg%2Fperplexity-ai/1/0100019f682a61dc-355c9fc3-db=
+5d-4eb6-b2bd-053eda0c71be-000000/HCIBAK1yNVefmRYLje_wSEqliSeh3fLzNs-t_NK5E7=
+4=3D452" target=3D"_blank"><img src=3D"https://images.vialoops.com/cmn6htov=
+i00x50iugqhzp6roe/img/cmn6k4snv02bp0i0ghl66vscr.png" alt=3D"Discord" width=
+=3D"22" height=3D"22" style=3D"display:block;" /></a></td>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fapps.apple.com%2Fapp%2Fperplexity-ask-anything%2Fid166800=
+0334/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/6HkSU9g=
+aaSmkF9U3cnvKcCykOxnW85MtQQNoCduzods=3D452" target=3D"_blank"><img src=3D"h=
+ttps://images.vialoops.com/cmn6htovi00x50iugqhzp6roe/img/cmn6k4snu02bn0i0gp=
+wbzmp1t.png" alt=3D"App Store" width=3D"22" height=3D"22" style=3D"display:=
+block;" /></a></td>
+              <td style=3D"padding:0 7px;"><a href=3D"https://c.vialoops.co=
+m/CL0/https:%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid=3Dai.perple=
+xity.app.android/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-00=
+0000/MgFXtkLVUMbi6u4yTonvPdy9yYVUlt_VSJSXTPOhLnU=3D452" target=3D"_blank"><=
+img src=3D"https://images.vialoops.com/cmn6htovi00x50iugqhzp6roe/img/cmn6k4=
+snq02bi0i0gto3orxs3.png" alt=3D"Play Store" width=3D"22" height=3D"22" styl=
+e=3D"display:block;" /></a></td>
+            </tr>
+          </table>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+    <!-- LEGAL -->
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:600px=
+;" width=3D"600" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-h=
+eight-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"margin:0px auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:16px 24px 12p=
+x;text-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:552px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"vertical-align:top;" width=3D"100%"
+      >
+        <tbody>
+         =20
+              <tr>
+                <td
+                   align=3D"center" style=3D"font-size:0px;padding:0;word-b=
+reak:break-word;"
+                >
+                 =20
+      <div
+         style=3D"font-family:Inter, -apple-system, BlinkMacSystemFont, 'Se=
+goe UI', Roboto, sans-serif;font-size:11px;line-height:1.5;text-align:cente=
+r;color:#999999;"
+      >&copy; 2026 Perplexity. 115 Sansome St, Suite 900, San Francisco, CA=
+ 94104</div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><table align=3D"center" border=3D=
+"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"" role=3D"presentation" st=
+yle=3D"width:600px;" width=3D"600" ><tr><td style=3D"line-height:0px;font-s=
+ize:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div  style=3D"margin:0px auto;max-width:600px;">
+       =20
+        <table
+           align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" role=3D"presentation" style=3D"width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style=3D"direction:ltr;font-size:0px;padding:0 24px 40px;t=
+ext-align:center;"
+              >
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:552px;" ><![endif]-->
+           =20
+      <div
+         class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-siz=
+e:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top=
+;width:100%;"
+      >
+       =20
+      <table
+         border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentat=
+ion" style=3D"vertical-align:top;" width=3D"100%"
+      >
+        <tbody>
+         =20
+              <tr>
+                <td
+                   align=3D"center" style=3D"font-size:0px;padding:0;word-b=
+reak:break-word;"
+                >
+                 =20
+      <div
+         style=3D"font-family:Inter, -apple-system, BlinkMacSystemFont, 'Se=
+goe UI', Roboto, sans-serif;font-size:11px;line-height:1.5;text-align:cente=
+r;color:#1a1a1a;"
+      ><a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fapp.loops.so%2Funs=
+ubscribe%2Fcmrmq81x53rxg01vohw33bpeu%2Fb3cb2eab96dc07d536ee56f3b2235172e47c=
+28913b1d34523b9cbfa2b25c1f152db4b41fb745ab563f1227adeeb06d6e22752697cc5ff75=
+b8c3e8076/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/G-=
+JYHiwat7aVL8S-j7cHNjmqFnlXWHRMlU0aThWROGk=3D452" style=3D"color:#999999;tex=
+t-decoration:underline;">Unsubscribe</a>
+          <span style=3D"color:#cccccc;"> &nbsp;|&nbsp; </span>
+          <a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fwww.perplexity.=
+ai%2Fprivacy/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000=
+/87rQyNewYBKDZP5Pd7rUeI_RLSbMTt5dGJwDKengGoE=3D452" style=3D"color:#999999;=
+text-decoration:underline;">Privacy Policy</a>
+          <span style=3D"color:#cccccc;"> &nbsp;|&nbsp; </span>
+          <a href=3D"https://c.vialoops.com/CL0/https:%2F%2Fwww.perplexity.=
+ai%2Fterms/1/0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000/S=
+qWZcuxc1Q40SsxDCTbHEawwy_4M0_R6Of7fxnpX5CY=3D452" style=3D"color:#999999;te=
+xt-decoration:underline;">Terms and conditions</a></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+   =20
+      </div>
+      </body>
+   =20
+</html>
+ =20
+
+--kfifavl6wa--

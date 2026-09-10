@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "stage": "discovery_and_specified_capture",
+  "providers": [
+    {
+      "provider": "qq_mail",
+      "status": "collected",
+      "self_delivery_verified": true,
+      "body_verified": true,
+      "source_files": 5,
+      "eml_bytes": 3322,
+      "attachment_bytes": 59,
+      "attachment_sha256": "c28597c8da33e821fd150f6bf666f9405c42cb227f2909ea0d87ecf928aac1de",
+      "read_state": "read",
+      "wire": {
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbox_unread",
+          "scan_complete": false,
+          "scanned_rows": 12,
+          "unsupported_rows": 0,
+          "limited": true
+        },
+        "provider": "qq_mail",
+        "status": "listed"
+      }
+    },
+    {
+      "provider": "gmail",
+      "status": "collected",
+      "self_delivery_verified": true,
+      "body_verified": true,
+      "source_files": 5,
+      "eml_bytes": 1494,
+      "attachment_bytes": 59,
+      "attachment_sha256": "c28597c8da33e821fd150f6bf666f9405c42cb227f2909ea0d87ecf928aac1de",
+      "read_state": "read",
+      "wire": {
+        "candidates": 12,
+        "coverage": {
+          "scope": "inbox_unread",
+          "scan_complete": false,
+          "scanned_rows": 12,
+          "unsupported_rows": 0,
+          "limited": true
+        },
+        "provider": "gmail",
+        "status": "listed"
+      }
+    },
+    {
+      "provider": "outlook",
+      "status": "not_captured",
+      "discovery": {
+        "status": "listed",
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbox_unread",
+          "scan_complete": false,
+          "scanned_rows": 1,
+          "unsupported_rows": 1,
+          "limited": true
+        }
+      },
+      "conversation_counts": [
+        {
+          "local": 1,
+          "global": 2,
+          "unread": 1,
+          "global_unread": 1,
+          "items": 1,
+          "global_items": 2
+        }
+      ],
+      "wire": {
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbox_unread",
+          "scan_complete": false,
+          "scanned_rows": 1,
+          "unsupported_rows": 1,
+          "limited": true
+        },
+        "provider": "outlook",
+        "status": "listed"
+      }
+    }
+  ],
+  "limitations": [
+    "bounded loaded-list discovery; no complete pagination",
+    "multi-message conversations unsupported",
+    "no durable queue, mail Store or model integration"
+  ],
+  "alternative_eml_generation": false
+}

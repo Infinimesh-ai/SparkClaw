@@ -1,0 +1,60 @@
+{
+  "model_alias": "sparkclaw-fast",
+  "model_profile": "sparkclaw-product-v1",
+  "prompt_version": "email-presentation-v3",
+  "results": [
+    {
+      "entry": "notification",
+      "language": "zh",
+      "output": {
+        "purpose": "通知 CloudDesk 包裹已发货",
+        "service_label": "CloudDesk",
+        "requested_response": "",
+        "title": "CloudDesk delivery",
+        "summary": "CloudDesk 通知包裹已发货，无需回复。",
+        "explanation": "该邮件被归类为通知，因为邮件正文明确指出这是一条状态通知，且不需要回复。",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "notification",
+      "language": "en",
+      "output": {
+        "purpose": "To inform the recipient that the CloudDesk package has been shipped and that no response is necessary.",
+        "service_label": "CloudDesk",
+        "requested_response": "",
+        "title": "CloudDesk delivery",
+        "summary": "The CloudDesk package has shipped. This is a notification requiring no reply.",
+        "explanation": "This email is a shipping status notification for the CloudDesk package. It explicitly states that no reply is needed, so no action is required.",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "interaction",
+      "language": "zh",
+      "output": {
+        "purpose": "确认是否接受CloudDesk的新交付日期。",
+        "service_label": "CloudDesk",
+        "requested_response": "确认是否接受修订后的交付日期。",
+        "title": "CloudDesk交付",
+        "summary": "CloudDesk请求确认是否接受9月18日的新交付日期。",
+        "explanation": "该邮件被分类为需要回复，因为正文中明确请求确认是否接受新的交付日期（9月18日）。",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "interaction",
+      "language": "en",
+      "output": {
+        "purpose": "To request confirmation of the revised delivery date for CloudDesk.",
+        "service_label": "CloudDesk",
+        "requested_response": "Confirm acceptance of the revised delivery date.",
+        "title": "CloudDesk delivery",
+        "summary": "The sender is asking for confirmation regarding the new delivery date of September 18 for CloudDesk.",
+        "explanation": "The email is classified as an interaction because the sender is requesting a specific action from the recipient. The body evidence explicitly asks the recipient to confirm acceptance of a new delivery date, which defines the nature of the communication as a request for confirmation.",
+        "concerns": []
+      }
+    }
+  ],
+  "source": "synthetic; no mail read or sent"
+}

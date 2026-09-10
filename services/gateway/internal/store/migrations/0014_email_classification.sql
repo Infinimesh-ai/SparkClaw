@@ -1,0 +1,3 @@
+ALTER TABLE email_management_records DROP CONSTRAINT email_management_records_kind_check;
+ALTER TABLE email_management_records ADD CONSTRAINT email_management_records_kind_check CHECK (kind IN ('mailbox','mail','capture','representation','context','conversation','decision','concern','concern_link','target','dependency','reference','refresh','job','thread','sync','view','command','counter','summary','sender_rule','presentation','draft','send_snapshot'));
+CREATE INDEX email_management_entry ON email_management_records(owner_id,(COALESCE(payload->'classification'->>'effective_entry','interaction')),sort_key COLLATE "C" DESC) WHERE kind='mail';

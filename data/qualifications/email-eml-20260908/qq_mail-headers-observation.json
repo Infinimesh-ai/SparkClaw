@@ -1,0 +1,166 @@
+{
+  "browser_timezone": "Asia/Shanghai",
+  "text": [
+    {
+      "tag": "SPAN",
+      "class": "mail-subject-text",
+      "text": "Steam 上有新的登录操作",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "ui-avatar-text",
+      "text": "St",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "Steam Team",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-email",
+      "text": "<noreply@steampowered.com>",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "action-divider",
+      "text": "",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "ui-btn-text",
+      "text": "More options",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-label-align basic-item-name",
+      "text": "To",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "Me",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-email",
+      "text": "<zhishi-x@qq.com>",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "time-text",
+      "text": "Aug 11, 2026 19:31",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-hyperlink",
+      "text": "Details",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "mail-detail-divider",
+      "text": "",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "",
+      "text": "Quick reply to",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "noreply",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "ui-btn-text",
+      "text": "Reply All",
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null
+    },
+    {
+      "tag": "DIV",
+      "class": "ui-btn-text",
+      "text": "Forward",
+      "title": null,
+      "label": null
+    }
+  ],
+  "controls": []
+}

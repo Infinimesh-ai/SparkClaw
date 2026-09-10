@@ -18,6 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
@@ -80,6 +81,7 @@ type Server struct {
 	mcp                      MCPController
 	integrations             IntegrationController
 	email                    EmailController
+	emailManagement          *emailmanagement.Service
 	browserControl           BrowserControlController
 	mcpAccess                *mcpaccess.Service
 	iscpPairing              *iscppairing.Service
@@ -189,6 +191,10 @@ func WithEmailController(controller EmailController) Option {
 	return func(server *Server) {
 		server.email = controller
 	}
+}
+
+func WithEmailManagement(service *emailmanagement.Service) Option {
+	return func(server *Server) { server.emailManagement = service }
 }
 
 func WithBrowserControlController(controller BrowserControlController) Option {
@@ -413,6 +419,25 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/email/providers/{provider}", s.updateEmailProvider)
 	s.mux.HandleFunc("POST /api/email/providers/{provider}/login-browser", s.openEmailLoginBrowser)
 	s.mux.HandleFunc("POST /api/email/providers/{provider}/check", s.checkEmailProvider)
+	s.registerEmailComposeRoutes()
+	s.mux.HandleFunc("GET /api/email/presentations", s.getEmailPresentations)
+	s.mux.HandleFunc("POST /api/email/presentations/ensure", s.ensureEmailPresentations)
+	s.mux.HandleFunc("GET /api/email/notifications", s.listEmailRoutedMessages)
+	s.mux.HandleFunc("GET /api/email/interaction-mails", s.listEmailRoutedMessages)
+	s.mux.HandleFunc("GET /api/email/messages/{mail}/verification", s.revealEmailVerification)
+	s.mux.HandleFunc("GET /api/email/messages/{mail}", s.getEmailSingleMessage)
+	s.mux.HandleFunc("POST /api/email/messages/{mail}/classification", s.changeEmailClassification)
+	s.mux.HandleFunc("GET /api/email/sender-rules", s.emailSenderRules)
+	s.mux.HandleFunc("POST /api/email/sender-rules/{rule}", s.updateEmailSenderRule)
+	s.mux.HandleFunc("GET /api/email/conversations", s.listEmailConversations)
+	s.mux.HandleFunc("GET /api/email/conversations/{conversation}", s.getEmailConversation)
+	s.mux.HandleFunc("GET /api/email/conversations/{conversation}/messages", s.listEmailMessages)
+	s.mux.HandleFunc("GET /api/email/pending", s.listEmailPending)
+	s.mux.HandleFunc("GET /api/email/sync-status", s.getEmailSyncStatus)
+	s.mux.HandleFunc("POST /api/email/sync", s.scheduleEmailSync)
+	s.mux.HandleFunc("POST /api/email/messages/viewed", s.markEmailMessagesViewed)
+	s.mux.HandleFunc("POST /api/email/messages/{mail}/reanalyze", s.reanalyzeEmailMessage)
+	s.mux.HandleFunc("GET /api/email/messages/{mail}/file", s.getEmailMessageFile)
 	s.mux.HandleFunc("GET /api/browser/extension", s.getBrowserExtension)
 	s.mux.HandleFunc("PUT /api/browser/extension/token", s.putBrowserExtensionToken)
 	s.mux.HandleFunc("POST /api/browser/extension/check", s.checkBrowserExtension)

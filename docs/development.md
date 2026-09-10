@@ -7,6 +7,36 @@ for system ownership, [Workflow capabilities](workflow-capabilities.md) for the
 shipped user surface, and the relevant component guide from the
 [documentation index](index.md) before changing behavior.
 
+Browser email `browser.email` r2 keeps separate human `read` and approval-gated
+`send` operations. Background receiving is independently default-off per verified
+owner/provider binding. `emailmanagement` now owns durable discovery, capture,
+parse, model assignment/summaries, dependency refresh and per-mail viewing; its
+lifecycle is assembled in Gateway bootstrap. Memory, File and PostgreSQL implement
+the typed EmailRepository; WebChat uses owner-scoped ID APIs and safe downloads.
+The default worker limits are one browser worker, one parser and two model workers,
+a 60-second discovery tick, three-minute renewable leases, five-minute job deadlines
+and at most 1,000 pending jobs admitted through a discovery command. Local model
+mock mode leaves semantic work visibly failed instead of inventing successful output.
+Provider script changes regenerate the Gateway contract with
+`npm run sync:provider-contract --prefix tools/browser-controller`. Review
+[email implementation and validation](email-management-implementation.md) for real
+provider limitations and pending release gates; fixture tests do not qualify them.
+
+For source capture, set host `SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT` to the
+existing directory shared with the Gateway workspace; relative source paths
+must identify the same files on both sides. The fixed scripts preserve original
+EML and decode MIME with `mailparser`; current provider adapters fail when original
+export is unavailable. Selection journals pin retries, immutable manifests verify source
+bytes, and mutable read-state records remain separate. A `partial` receipt is
+not complete collection, and receipt replay verifies files without consuming a
+new message. See [email source data](email-read-design.md) for limits and the
+source integrity and historical qualification boundaries.
+
+Focused synthetic checks are `node --test
+tools/browser-controller/test/email-capture.test.mjs` and `node --test
+tools/browser-controller/test/cli-client.test.mjs`. They do not replace live
+provider acceptance or establish production deployment.
+
 ## Repository Map
 
 ```text

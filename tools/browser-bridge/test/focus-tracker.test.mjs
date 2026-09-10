@@ -223,7 +223,7 @@ test("cold service worker closes grouped and ungrouped stale task tabs after res
   await cleanupStaleTaskTabs(fixture.chromeAPI, tracker, ownedGroups, new Set([5]));
 
   assert.deepEqual(fixture.calls.tabsUpdate, [[1, { active: true }], [1, { active: true }]]);
-  assert.deepEqual(fixture.calls.tabsUngroup, [[3, 4]]);
+  assert.deepEqual(fixture.calls.tabsUngroup, [], "keep ownership evidence until native removal succeeds");
   assert.deepEqual(fixture.calls.tabsRemove, [[3, 4]]);
 });
 

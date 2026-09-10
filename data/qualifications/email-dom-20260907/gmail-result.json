@@ -1,0 +1,57 @@
+{
+  "provider": "gmail",
+  "sample": "existing_pinned_read_message",
+  "eml_reference": false,
+  "identity_matches": true,
+  "account_matches": true,
+  "subject_present": true,
+  "body_count": 1,
+  "body_characters": 787,
+  "body_stable": true,
+  "address_node_count": 5,
+  "date_node_count": 1,
+  "detail_fields": [
+    "from:",
+    "reply-to:",
+    "to:",
+    "date:",
+    "subject:",
+    "mailed-by:",
+    "security:"
+  ],
+  "details_stable": true,
+  "operations": 4,
+  "elapsed_ms": 23177,
+  "controls": [
+    {
+      "tag": "BUTTON",
+      "class": "pYTkkf-JX-I pYTkkf-JX-I-ql-ay5-ays R1Zuwf",
+      "category": "other"
+    },
+    {
+      "tag": "BUTTON",
+      "class": "pYTkkf-JX-I pYTkkf-JX-I-ql-ay5-ays DILLkc",
+      "category": "other"
+    },
+    {
+      "tag": "BUTTON",
+      "class": "pYTkkf-JX-I pYTkkf-JX-I-ql-ay5-ays Wsq5Cf",
+      "category": "more"
+    },
+    {
+      "tag": "DIV",
+      "class": "ajy",
+      "category": "details"
+    },
+    {
+      "tag": "SPAN",
+      "class": "",
+      "category": "other"
+    },
+    {
+      "tag": "SPAN",
+      "class": "",
+      "category": "other"
+    }
+  ]
+}

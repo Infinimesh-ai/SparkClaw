@@ -63,7 +63,7 @@ func main() {
 		os.Exit(1)
 	}
 	runtime = runtime.WithArtifactStore(artifactStore)
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, transcriber, storeRuntime)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, transcriber, storeRuntime, models)
 	if err != nil {
 		slog.Error("failed to initialize gateway services", "error", err)
 		os.Exit(1)
@@ -128,6 +128,8 @@ func main() {
 type backend struct {
 	store.ISCPOnboardingRepository
 	store.OwnerRepository
+	store.EmailRepository
+	store.EmailPresentationRepository
 	store.ClientRepository
 	store.CredentialRepository
 	store.ConnectorRepository
@@ -177,6 +179,8 @@ func backendFromRuntime(runtime *store.Runtime) backend {
 	return backend{
 		ISCPOnboardingRepository:      runtime.ISCPOnboardingRepository(),
 		OwnerRepository:               runtime.OwnerRepository(),
+		EmailRepository:               runtime.EmailRepository(),
+		EmailPresentationRepository:   runtime.EmailPresentationRepository(),
 		ClientRepository:              runtime.ClientRepository(),
 		CredentialRepository:          runtime.CredentialRepository(),
 		ConnectorRepository:           runtime.ConnectorRepository(),

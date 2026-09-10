@@ -199,6 +199,8 @@ export function classifyProcessExit(stdout, stderr) {
     reason = "process_exit_page_closed";
   } else if (/too many arguments|Unknown option|Invalid input|invalid_type/iu.test(output)) {
     reason = "process_exit_invalid_arguments";
+  } else if (/Timeout|timed out/iu.test(output) && /waiting for event ["']download["']/iu.test(output)) {
+    reason = "process_exit_download_timeout";
   } else if (/Timeout|timed out/iu.test(output)) {
     reason = "process_exit_action_timeout";
   }
@@ -266,6 +268,10 @@ export function scrubPlaywrightEnvironment(env) {
 export function clearMessageInput(input) {
   if (!input?.message) return;
   input.message.recipient = "";
+  if(Array.isArray(input.message.to))input.message.to.fill("");
+  if(Array.isArray(input.message.cc))input.message.cc.fill("");
+  if(input.account_address)input.account_address="";
+  if(input.reply_target)for(const k of Object.keys(input.reply_target))input.reply_target[k]="";
   if (Object.hasOwn(input.message, "subject")) input.message.subject = "";
   if (input.message.body) input.message.body.content = "";
 }
@@ -387,7 +393,9 @@ async function processExists(pid) {
 }
 
 function messageSecrets(input) {
+  const recipients=[...input.message.to??[],...input.message.cc??[]];
   return {
+    ...Object.fromEntries(recipients.map((value,index)=>["EMAIL_RECIPIENT_"+index,value])),
     [SECRET_NAMES.recipient]: input.message.recipient,
     [SECRET_NAMES.subject]: input.message.subject ?? "",
     [SECRET_NAMES.body]: input.message.body.content,

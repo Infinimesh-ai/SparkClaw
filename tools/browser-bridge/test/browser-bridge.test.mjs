@@ -291,6 +291,81 @@ test("handoff regrouping cannot release the task tab before Chrome resolves tabs
   assert.deepEqual(released, []);
 });
 
+test("failed native removal preserves group ownership and retries without ungrouping", async () => {
+  const fixture = createBridgeFixture();
+  fixture.chromeAPI.tabGroups.query = async () => [{ id: 40 }];
+  fixture.chromeAPI.tabs.query = async query => Number.isInteger(query?.groupId)
+    ? [fixture.tabs.get(3)] : [...fixture.tabs.values()];
+  let failed = false;
+  fixture.chromeAPI.tabs.remove = async ids => {
+    fixture.calls.tabsRemove.push(ids);
+    if (!failed) { failed = true; throw new Error("native removal failed"); }
+  };
+  const registry = new OwnedGroupRegistry(fixture.chromeAPI);
+  await registry.add(40);
+  const focus = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] }).focus;
+  await assert.rejects(cleanupStaleTaskTabs(fixture.chromeAPI, focus, registry), /native removal failed/);
+  assert.deepEqual([...await registry.list()], [40]);
+  assert.deepEqual(fixture.calls.tabsUngroup, []);
+  await cleanupStaleTaskTabs(fixture.chromeAPI, focus, registry);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3], [3]]);
+  assert.deepEqual([...await registry.list()], []);
+});
+
+test("unavailable group inventory does not erase persisted ownership", async () => {
+  const fixture = createBridgeFixture();
+  fixture.chromeAPI.tabGroups.query = async () => { throw new Error("inventory unavailable"); };
+  const registry = new OwnedGroupRegistry(fixture.chromeAPI);
+  await registry.add(40);
+  const focus = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] }).focus;
+  await assert.rejects(cleanupStaleTaskTabs(fixture.chromeAPI, focus, registry), /inventory unavailable/);
+  assert.deepEqual([...await registry.list()], [40]);
+  assert.deepEqual(fixture.calls.tabsRemove, []);
+});
+
+test("a connection admitted during focus restoration is protected at native removal", async () => {
+  const fixture = createBridgeFixture();
+  const protectedTabs = new Set();
+  fixture.chromeAPI.tabGroups.query = async () => [{ id: 40 }];
+  fixture.chromeAPI.tabs.query = async query => Number.isInteger(query?.groupId)
+    ? [fixture.tabs.get(3)] : [...fixture.tabs.values()];
+  const get = fixture.chromeAPI.tabs.get;
+  fixture.chromeAPI.tabs.get = async id => {
+    if (id === 3) protectedTabs.add(3);
+    return get(id);
+  };
+  const registry = new OwnedGroupRegistry(fixture.chromeAPI);
+  await registry.add(40);
+  const focus = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] }).focus;
+  await cleanupStaleTaskTabs(fixture.chromeAPI, focus, registry, () => protectedTabs);
+  assert.deepEqual(fixture.calls.tabsRemove, []);
+  assert.deepEqual([...await registry.list()], [40]);
+});
+
+test("background cleanup retries native failure without waiting for a worker restart", async () => {
+  const fixture = createBridgeFixture();
+  const clock = createClock();
+  fixture.chromeAPI.tabGroups.query = async () => [{ id: 40 }];
+  fixture.chromeAPI.tabs.query = async query => Number.isInteger(query?.groupId)
+    ? [fixture.tabs.get(3)] : [...fixture.tabs.values()];
+  const registry = new OwnedGroupRegistry(fixture.chromeAPI);
+  await registry.add(40);
+  let failed = false;
+  fixture.chromeAPI.tabs.remove = async ids => {
+    fixture.calls.tabsRemove.push(ids);
+    if (!failed) { failed = true; throw new Error("native removal failed"); }
+  };
+  new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [1],
+    setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout });
+  await clock.run(clock.findByDelay(1));
+  assert.deepEqual([...await registry.list()], [40]);
+  const retry = clock.findByDelay(10_000);
+  assert.ok(retry);
+  await clock.run(retry);
+  assert.deepEqual([...await registry.list()], []);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3], [3]]);
+});
+
 function createBridgeFixture() {
   const events = {
     activated: event(),
@@ -318,6 +393,7 @@ function createBridgeFixture() {
       onStartup: events.startup,
     },
     action: { onClicked: events.clicked },
+    downloads: { onCreated: event() },
     debugger: {
       attach: async () => {},
       detach: async () => {},
@@ -428,3 +504,155 @@ function nativePort() {
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));
 }
+
+test("concurrent task attachments create one group and retain both tab leases", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  f.relay.ontabattached(3);
+  await tick();
+  assert.equal(f.pending.length, 1);
+  f.pending[0].resolve();
+  await tick();
+  assert.equal(f.pending.length, 2);
+  assert.equal(f.pending[1].options.groupId, 91);
+  f.pending[1].resolve();
+  await tick();
+  assert.deepEqual(f.released, []);
+  assert.deepEqual([...await f.registry.list()], [91]);
+  await f.relay.onclose();
+  assert.deepEqual(f.closed, [[2, 3]]);
+});
+
+test("close waits for in-flight grouping, skips queued attachments and removes late group ownership", async () => {
+  const f = groupingFixture();
+  let closed = false;
+  f.group.onclose = () => { closed = true; };
+  f.relay.ontabattached(2);
+  f.relay.ontabattached(3);
+  await tick();
+  const closing = f.relay.onclose();
+  f.relay.ontabattached(4);
+  assert.equal(closed, false);
+  assert.deepEqual(f.closed, []);
+  f.pending[0].resolve();
+  await closing;
+  assert.equal(f.pending.length, 1);
+  assert.equal(closed, true);
+  assert.deepEqual(f.closed, [[2, 3]]);
+  assert.deepEqual([...await f.registry.list()], []);
+});
+
+test("failed task close retains persisted group ownership for retry", async () => {
+  const f = groupingFixture({ failClose: true });
+  f.relay.ontabattached(2);
+  await tick();
+  f.pending[0].resolve();
+  await tick();
+  await f.relay.onclose();
+  assert.deepEqual([...await f.registry.list()], [91]);
+});
+
+test("owner ungroup during pending group creation releases the tab and never closes it", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  await tick();
+  f.tabs.get(2).groupId = -1;
+  f.updated.emit(2, { groupId: -1 });
+  f.pending[0].resolve();
+  await tick();
+  assert.deepEqual(f.released, [2]);
+  await f.relay.onclose();
+  assert.deepEqual(f.closed, []);
+});
+
+test("explicit release while grouping is pending undoes only that late task grouping", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  await tick();
+  f.group.releaseTab(2);
+  f.pending[0].resolve();
+  await tick();
+  assert.deepEqual(f.ungrouped, [[2]]);
+  await f.relay.onclose();
+  assert.deepEqual(f.closed, []);
+});
+
+function groupingFixture({ failClose = false } = {}) {
+  const base = createBridgeFixture();
+  const registry = new OwnedGroupRegistry(base.chromeAPI);
+  const pending = [], released = [], closed = [], ungrouped = [];
+  const tabs = new Map([[2, { id: 2, groupId: -1 }], [3, { id: 3, groupId: -1 }]]);
+  let nextGroupID = 90;
+  base.chromeAPI.tabs.get = async id => tabs.get(id);
+  base.chromeAPI.tabs.group = options => {
+    const id = options.groupId ?? ++nextGroupID;
+    for (const tabId of options.tabIds) {
+      tabs.get(tabId).groupId = id;
+      base.events.updated.emit(tabId, { groupId: id });
+    }
+    return new Promise(resolve => pending.push({ options, resolve: () => resolve(id) }));
+  };
+  base.chromeAPI.tabs.ungroup = async ids => { ungrouped.push(ids); };
+  const relay = { connectedTabIds: () => [...tabs.keys()], releaseTab: id => released.push(id) };
+  const group = new TaskTabGroup({ chromeAPI: base.chromeAPI, relay, initialTab: { id: 2 },
+    clientName: "test", style: { title: "SparkClaw task" }, ownedGroups: registry,
+    focus: { releaseTaskTab() {}, closeTaskTabs: async ids => {
+      closed.push(ids);
+      if (failClose) throw new Error("temporary Chrome failure");
+    } } });
+  return { group, relay, pending, released, closed, ungrouped, registry, tabs, updated: base.events.updated };
+}
+
+test("owner ungroup before concurrent disconnect survives pending group cleanup", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  await tick();
+  f.tabs.get(2).groupId = -1;
+  f.updated.emit(2, { groupId: -1 });
+  const closing = f.relay.onclose();
+  f.pending[0].resolve();
+  await closing;
+  assert.deepEqual(f.released, [2]);
+  assert.deepEqual(f.closed, []);
+});
+
+test("closing groups protect owned tabs until late grouping and native close finish", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  f.relay.ontabattached(3);
+  await tick();
+  f.relay.connectedTabIds = () => [];
+  const closing = f.relay.onclose();
+  assert.deepEqual(f.group.connectedTabIds(), [2, 3]);
+  f.group.releaseTab(3);
+  assert.deepEqual(f.group.connectedTabIds(), [2]);
+  f.pending[0].resolve();
+  await closing;
+  assert.deepEqual(f.closed, [[2]]);
+  assert.deepEqual(f.group.connectedTabIds(), []);
+});
+
+test("owner ungroup while close restores focus is rechecked before native removal", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  await tick();
+  f.pending[0].resolve();
+  await tick();
+  let finish;
+  const gate = new Promise(resolve => { finish = resolve; });
+  let closeEntered = false;
+  const actuallyClosed = [];
+  f.group.focus.closeTaskTabs = async (ids, canClose) => {
+    closeEntered = true;
+    await gate;
+    actuallyClosed.push(...ids.filter(canClose));
+  };
+  const closing = f.relay.onclose();
+  await tick();
+  assert.equal(closeEntered, true);
+  f.updated.emit(2, { groupId: -1 });
+  finish();
+  await closing;
+  assert.deepEqual(f.released, [2]);
+  assert.deepEqual(actuallyClosed, []);
+});

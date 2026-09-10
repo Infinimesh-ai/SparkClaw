@@ -27,18 +27,20 @@ the corresponding ignored private file. Startup commands are documented in
 
 ## Browser Email
 
-Browser email is an active send-only integration for QQ Mail, Outlook, and
-Gmail. It is not a messaging connector and does not use provider credentials,
+Browser email provides sending and a source-capture implementation for QQ Mail,
+Outlook, and Gmail. Fresh unread capture is not yet fully qualified; current
+limitations are recorded in the [source design](email-read-design.md).
+It is not a messaging connector and does not use provider credentials,
 OAuth tokens, IMAP, SMTP, Gmail API, or Microsoft Graph. Authentication stays
 inside the dedicated host-owned SparkClaw Chromium profile.
 
 WebChat exposes the three providers under `Settings > Connections > Browser
 email`. Opening a login entry creates a task-owned provider tab and explicitly
-hands it to the owner for manual login. Login checks and sends create separate
+hands it to the owner for manual login. Login checks, reads, and sends create separate
 background task-owned tabs; they never reuse an owner tab, former login tab, or
 another idle tab.
 
-Every send request runs a deterministic login probe before Workflow creation.
+Every read or send request runs a deterministic login probe before Workflow creation.
 Runtime selects an explicitly named provider or the single configured default,
 then freezes the provider setting version, Browser control credential
 generation, handler revisions, validation time, and invocation ID. The model
@@ -47,7 +49,15 @@ body. One exact-content approval precedes the provider handler, which attempts
 Send at most once. An unknown send outcome is terminal and is never retried
 automatically.
 
-Email reading, replies, drafts, attachments, multiple recipients/accounts, and
+Current reading work runs fixed scripts without send authority to capture one
+unread message and in-scope attachments into workspace source files. The bounded
+result returns capture status/count and a relative manifest reference, distinct
+from Gateway Store publication or model analysis. Complete durable capture is
+required before an explicit mark-read action; automatic marking on open and
+uncertain effects are recorded separately. Limits and missing material remain
+explicit; see [source design](email-read-design.md).
+
+Replies, drafts, outgoing attachments, multiple recipients/accounts, and
 generic browser fallback are unavailable. QQ Mail is not a generic registered
 browser destination. See [Browser email Workflow](browser-email-workflow-design.md)
 and [Browser runtime](browser-runtime.md).

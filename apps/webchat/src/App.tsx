@@ -16,6 +16,7 @@ import { DeliveryTargetPicker } from "./components/deliveryTargetPicker";
 import { ScheduleBar } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { NotificationCenter } from "./components/notificationCenter";
+import { EmailPopupEntry } from "./components/emailPopup";
 import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
@@ -530,6 +531,7 @@ export function App() {
             <p>{ready ? `${ready.model_mode} ${text.topbar.modelMode} · ${ready.workspace_root}` : text.topbar.connecting}</p>
           </div>
           <div className="topbarActions">
+            <EmailPopupEntry text={text} language={language} />
             <NotificationCenter
               notifications={notificationCenter.notifications}
               unreadCount={notificationCenter.unreadCount}

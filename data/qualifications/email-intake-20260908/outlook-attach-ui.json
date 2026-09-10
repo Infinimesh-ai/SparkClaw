@@ -1,0 +1,50 @@
+{
+  "inputs": [
+    {
+      "accept": "image/*",
+      "id": "",
+      "html": "<input type=\"file\" accept=\"image/*\" class=\"JzkXe\" multiple=\"\" data-testid=\"local-computer-filein\" value=\"\">"
+    },
+    {
+      "accept": "",
+      "id": "",
+      "html": "<input type=\"file\" class=\"JzkXe\" multiple=\"\" data-testid=\"local-computer-filein\" value=\"\">"
+    },
+    {
+      "accept": "",
+      "id": "",
+      "html": "<input type=\"file\" class=\"JzkXe\" multiple=\"\" data-testid=\"local-computer-filein\" value=\"\">"
+    },
+    {
+      "accept": "",
+      "id": "",
+      "html": "<input type=\"file\" class=\"JzkXe\" multiple=\"\" data-testid=\"local-computer-filein\" value=\"\">"
+    }
+  ],
+  "menus": [
+    {
+      "text": "",
+      "aria": null
+    },
+    {
+      "text": "",
+      "aria": null
+    },
+    {
+      "text": "Browse this computer",
+      "aria": "Browse this computer"
+    },
+    {
+      "text": "OneDrive",
+      "aria": "OneDrive"
+    },
+    {
+      "text": "Upload and shareUpload and share from cloud",
+      "aria": "Upload and share"
+    },
+    {
+      "text": "LinkInsert a hyperlink. (Ctrl+K)",
+      "aria": "Link"
+    }
+  ]
+}

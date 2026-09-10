@@ -9,6 +9,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { PlaywrightCLIClientFactory } from "../src/cli-client.mjs";
+import { PlaywrightCLITask } from "../src/cli-task.mjs";
 import {
   MAX_CLI_OUTPUT_BYTES,
   prepareRuntimeRoot,
@@ -16,6 +17,7 @@ import {
 } from "../src/cli-runtime.mjs";
 import { ProviderScriptRegistry } from "../src/provider-scripts.mjs";
 import { QQMailScriptError } from "../../../scripts/email/lib/qqmail-browser.mjs";
+import { MANAGED_SEND_SELECTOR } from "../../../scripts/email/lib/managed-send.mjs";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(testDir, "fixtures", "fake-cli.mjs");
@@ -115,6 +117,71 @@ test("hidden sends read contenteditable recipients and never request a window ha
   assert.equal(records.filter(record => record.command === "click").length, 1);
   assert.equal(records.some(record => record.argv?.some(arg => arg.includes("sparkclaw-browser-bridge-handoff-v1"))), false);
   assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("managed To and CC use independent private slots and are erased after completion", async t => {
+  const expected = { to: ["first@example.invalid", "second@example.invalid"], cc: ["copy@example.invalid"], subject: "Synthetic private subject", body: { format: "text", content: "Synthetic private body" } };
+  const input = { ...sendInput(structuredClone(expected)), mode: "compose", account_address: "owner@example.invalid" };
+  const harness = await createHarness(t, {}, { sendHandler: async (request, runtime) => runtime.withSendTab(async tab => {
+    for (const field of ["to", "cc"]) for (const address of request.message[field]) await tab.fill(`#${field}`, address);
+    await tab.fill("#subject", request.message.subject);
+    await tab.fill("#body", request.message.body.content);
+    return { status: "prepared" };
+  }) });
+  const result = await harness.factory.runScript({ token, sessionID: sessionID(120), provider: "gmail", operation: "send", scriptID: "gmail.test_send", revision: 1, input });
+  assert.equal(result.state, "completed");
+  const records = await commandRecords(harness);
+  const fills = records.filter(record => record.event === "fill");
+  assert.deepEqual(fills.map(record => record.argument), ["EMAIL_RECIPIENT_0", "EMAIL_RECIPIENT_1", "EMAIL_RECIPIENT_2", "SPARKCLAW_EMAIL_SUBJECT", "SPARKCLAW_EMAIL_BODY"]);
+  const values = [...expected.to, ...expected.cc, expected.subject, expected.body.content];
+  assert.deepEqual(fills.map(record => record.value_sha256), values.map(digest));
+  const log = await fs.readFile(harness.logPath, "utf8");
+  for (const value of [token, ...values]) assert.equal(log.includes(value), false);
+  assert.equal(input.message.to.some(Boolean), false);
+  assert.equal(input.message.cc.some(Boolean), false);
+  assert.equal(input.message.subject, "");
+  assert.equal(input.message.body.content, "");
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("managed reply lookup permits only fixed folder queries outside private message slots", async t => {
+  const queries = ["in:inbox", "in:sent", "-in:trash -in:spam -in:drafts"];
+  const harness = await createHarness(t, {}, { sendHandler: async (input, runtime) => runtime.withSendTab(async tab => {
+    for (const query of queries) await tab.fill('input[name="q"]', query);
+    for (const [selector, value] of [['input[name="q"]', "from:unregistered@example.invalid"], ["#body", "in:inbox"], ["#to", "unregistered@example.invalid"]]) {
+      await assert.rejects(async () => tab.fill(selector, value));
+    }
+    await tab.fill("#body", input.message.body.content);
+    return { status: "prepared" };
+  }) });
+  const result = await harness.factory.runScript({ token, sessionID: sessionID(121), provider: "gmail", operation: "send", scriptID: "gmail.test_send", revision: 1, input: sendInput(basicMessage()) });
+  assert.equal(result.state, "completed");
+  const records = await commandRecords(harness);
+  const queriesRun = records.filter(record => record.command === "run-code");
+  assert.equal(queriesRun.length, 3);
+  queries.forEach((query, index) => assert.ok(queriesRun[index].argv.some(arg => arg.includes(JSON.stringify(query)))));
+  assert.deepEqual(records.filter(record => record.event === "fill").map(record => record.argument), ["SPARKCLAW_EMAIL_BODY"]);
+  assert.equal(JSON.stringify(records).includes("unregistered@example.invalid"), false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("managed Send click and cleanup failures remain unknown through the CLI effect fence", async t => {
+  const registry = new ProviderScriptRegistry();
+  for (const provider of ["gmail", "outlook", "qq_mail"]) {
+    const entry = registry.entries.get(`${provider}:send`);
+    assert.ok(entry.effectSelectors.includes(MANAGED_SEND_SELECTOR));
+  }
+  for (const env of [{ FAKE_CLI_FAIL_AFTER_EFFECT: "1", FAKE_CLI_EFFECT_SELECTOR: MANAGED_SEND_SELECTOR }, { FAKE_CLI_FAIL_COMMAND: "close" }]) {
+    const harness = await createHarness(t, env, { effectSelectors: [MANAGED_SEND_SELECTOR], sendHandler: async (_input, runtime) => runtime.withSendTab(async tab => {
+      await tab.click(MANAGED_SEND_SELECTOR);
+      return { status: "sent" };
+    }) });
+    const result = await harness.factory.runScript({ token, sessionID: sessionID(122), provider: "gmail", operation: "send", scriptID: "gmail.test_send", revision: 1, input: sendInput(basicMessage()) });
+    assert.equal(result.state, "failed");
+    assert.equal(result.result.code, "send_outcome_unknown");
+    assert.equal((await commandRecords(harness)).filter(record => record.command === "click").length, 1);
+    assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+  }
 });
 
 test("background renderer initialization failure stops before draft changes", async t => {
@@ -279,6 +346,26 @@ test("CLI deadlines and owner-tab topology changes fail closed and clean runtime
     (error) => error.code === "browser_page_stale" && error.status === 409,
   );
   assert.deepEqual(await fs.readdir(staleHarness.runtimeRoot), []);
+});
+
+test('task-owned popup is closed after a topology failure without leaving the primary task page',async t=>{
+  const harness=await createHarness(t,{FAKE_CLI_TASK_POPUP_ON:'eval'});
+  await assert.rejects(harness.factory.runScript({token,sessionID:sessionID(181),provider:'gmail',operation:'probe',scriptID:'gmail.test_probe',revision:1,input:probeInput()}),{code:'browser_page_stale'});
+  const records=await commandRecords(harness);
+  const closes=records.filter(r=>r.command==='tab-close');
+  assert.deepEqual(closes.map(r=>r.argv.at(-1)),['1','0']);
+  assert.equal(records.at(-1).command,'close');
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
+test('aborted handler retains a separate bounded budget to close the actual task page',async t=>{
+  const abort=new AbortController();
+  const harness=await createHarness(t,{}, {probeHandler:async()=>{abort.abort();throw new Error('cancelled handler');}});
+  const result=await harness.factory.runScript({token,signal:abort.signal,sessionID:sessionID(182),provider:'gmail',operation:'probe',scriptID:'gmail.test_probe',revision:1,input:probeInput()});
+  assert.equal(result.result.status,'error');
+  const records=await commandRecords(harness);
+  assert.equal(records.filter(r=>r.command==='tab-close').length,1);
+  assert.equal(records.at(-1).command,'close');
 });
 
 test("CLI process diagnostics expose only fixed internal failure reasons", async () => {
@@ -719,6 +806,141 @@ test("provider login launcher uses only the fixed executable, profile, and regis
   assert.equal("PLAYWRIGHT_MCP_EXTENSION_TOKEN" in calls[0].options.env, false);
 });
 
+test("read CLI initializes background input and downloads owned bytes without a handoff", async t => {
+  let target;
+  const harness = await createHarness(t, {}, { readHandler: async (_input, runtime) => runtime.withReadTab(async tab => {
+    assert.deepEqual(await tab.runReadCode("async page => ({ origin: page.url() })"), { origin: "https://mail.google.test/" });
+    return tab.download("#attachment", target, 16);
+  }) });
+  target = path.join(harness.dir, "attachment.bin");
+  const result = await runRead(harness, 100);
+  assert.equal(result.state, "completed");
+  assert.deepEqual(result.result, { bytes: 16 });
+  assert.deepEqual(await fs.readFile(target), Buffer.alloc(16, "x"));
+  assert.equal((await fs.stat(target)).mode & 0o777, 0o600);
+  const records = await commandRecords(harness);
+  assert.equal(records.filter(record => record.event === "download_click").length, 1);
+  assert.ok(records.some(record => record.command === "eval" && record.argv.some(arg => arg.includes("background-input-v1"))));
+  assert.equal(records.some(record => record.argv?.some(arg => arg.includes("handoff-v1"))), false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("read download rejects oversized bytes and preserves existing destinations", async t => {
+  for (const existing of [false, true]) {
+    let target;
+    const harness = await createHarness(t, {}, { readHandler: async (_input, runtime) => runtime.withReadTab(async tab => {
+      await assert.rejects(tab.download("#attachment", target, existing ? 16 : 15), { code: existing ? "EEXIST" : "email_download_limit" });
+      return { rejected: true };
+    }) });
+    target = path.join(harness.dir, "attachment.bin");
+    if (existing) await fs.writeFile(target, "existing bytes");
+    assert.equal((await runRead(harness, existing ? 101 : 102)).state, "completed");
+    if (existing) assert.equal(await fs.readFile(target, "utf8"), "existing bytes");
+    else await assert.rejects(fs.stat(target), { code: "ENOENT" });
+    assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+  }
+});
+
+test("read native saveAs preserves exact binary bytes above the CLI output limit", async t => {
+  const length = (1 << 20) + 13;
+  let target;
+  const harness = await createHarness(t, { FAKE_CLI_DOWNLOAD_BYTES: String(length), FAKE_CLI_DOWNLOAD_PATTERN: "1" }, {
+    readHandler: async (_input, runtime) => runtime.withReadTab(tab => tab.download("#original", target, length)),
+  });
+  target = path.join(harness.dir, "original.eml");
+  const result = await runRead(harness, 107);
+  assert.deepEqual(result.result, { bytes: length });
+  const bytes = await fs.readFile(target);
+  assert.equal(bytes.length, length);
+  for (let offset = 0; offset < length; offset += 512 << 10) {
+    const size = Math.min(512 << 10, length - offset);
+    assert.deepEqual(bytes.subarray(offset, offset + size), Buffer.alloc(size, offset / (512 << 10)));
+  }
+  assert.equal((await commandRecords(harness)).filter(record => record.event === "download_click").length, 1);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("read background initialization failure prevents run-code and download", async t => {
+  const harness = await createHarness(t, { FAKE_CLI_BACKGROUND_INIT_FAIL: "1" }, { readHandler: async () => assert.fail("read handler must not run") });
+  await assert.rejects(runRead(harness, 103));
+  assert.equal((await commandRecords(harness)).some(record => record.command === "run-code"), false);
+});
+
+test("read accepts native popup and Blob download URLs", async t => {
+  for (const mode of ["popup", "blob"]) {
+    let target;
+    const harness = await createHarness(t, { FAKE_CLI_DOWNLOAD_MODE: mode }, {
+      readHandler: async (_input, runtime) => runtime.withReadTab(tab => tab.download("#original", target, 16)),
+    });
+    target = path.join(harness.dir, "original.eml");
+    assert.equal((await runRead(harness, mode === "popup" ? 108 : 109)).state, "completed");
+    assert.deepEqual(await fs.readFile(target), Buffer.alloc(16, "x"));
+    assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+  }
+});
+
+test("read cancels downloads from an unregistered final origin", async t => {
+  let target;
+  const harness = await createHarness(t, { FAKE_CLI_DOWNLOAD_URL: "https://foreign.test/export" }, {
+    readHandler: async (_input, runtime) => runtime.withReadTab(async tab => {
+      await assert.rejects(tab.download("#original", target, 16), { code: "email_capture_unavailable" });
+      return { rejected: true };
+    }),
+  });
+  target = path.join(harness.dir, "original.eml");
+  assert.equal((await runRead(harness, 110)).state, "completed");
+  assert.equal((await commandRecords(harness)).filter(record => record.event === "download_canceled").length, 1);
+  await assert.rejects(fs.stat(target), { code: "ENOENT" });
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("read download rejects an origin change inside the subprocess before clicking", async t => {
+  let target;
+  const harness = await createHarness(t, { FAKE_CLI_RUN_CODE_URL: "https://foreign.test/" }, { readHandler: async (_input, runtime) => runtime.withReadTab(tab => tab.download("#attachment", target, 16)) });
+  target = path.join(harness.dir, "attachment.bin");
+  await assert.rejects(runRead(harness, 104));
+  assert.equal((await commandRecords(harness)).some(record => record.event === "download_click"), false);
+  await assert.rejects(fs.stat(target), { code: "ENOENT" });
+});
+
+test("read run-code rejects owner-tab changes before a subsequent command", async t => {
+  const harness = await createHarness(t, { FAKE_CLI_MUTATE_OWNER_ON: "run-code", FAKE_CLI_OWNER_TABS: JSON.stringify([
+    fakeConnectTab(), { title: "Owner", url: "https://owner.test/", current: false, crashed: false },
+  ]) }, { readHandler: async (_input, runtime) => runtime.withReadTab(tab => tab.runReadCode("async page => ({ origin: page.url() })")) });
+  await assert.rejects(runRead(harness, 105), error => error.code === "browser_page_stale");
+});
+
+test("read run-code limits code and subprocess output and rejects invalid download arguments", async t => {
+  const harness = await createHarness(t, {}, { readHandler: async (_input, runtime) => runtime.withReadTab(async tab => {
+    await assert.rejects(tab.runReadCode("x".repeat((64 << 10) + 1)));
+    for (const [destination, limit] of [["relative.bin", 16], ["/tmp/unused", 0], ["/tmp/unused", (110 << 20) + 1]]) {
+      await assert.rejects(tab.download("#attachment", destination, limit));
+    }
+    await assert.rejects(tab.runReadCode(`async () => "x".repeat(${MAX_CLI_OUTPUT_BYTES + 1})`), error => error.diagnosticReason === "output_overflow");
+    return { rejected: true };
+  }) });
+  assert.equal((await runRead(harness, 106)).state, "completed");
+  const commands = (await commandRecords(harness)).filter(record => record.command === "run-code");
+  assert.equal(commands.length, 1);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});
+
+test("probe tasks cannot use read code, downloads or background input initialization", async () => {
+  const task = new PlaywrightCLITask({ state: { sessionID: "probe-test" }, registration: { operation: "probe", timeoutMS: 1000 } });
+  await assert.rejects(task.runReadCode("async () => true"));
+  await assert.rejects(task.download("#attachment", "/tmp/not-created.bin", 16));
+  await assert.rejects(task.prepareBackgroundPage());
+});
+
+function runRead(harness, id) {
+  return harness.factory.runScript({ token, sessionID: sessionID(id), provider: "gmail", operation: "read", scriptID: "gmail.test_read", revision: 1,
+    input: { schema_version: 1, operation: "read", invocation_id: `read-${id}`, provider: "gmail", account: "default", owner_scope: "a".repeat(64) } });
+}
+
+async function commandRecords(harness) {
+  return (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
+}
+
 async function createHarness(t, extraEnv = {}, options = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-browser-cli-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -772,6 +994,7 @@ function createRegistry(options = {}) {
       origins: ["https://mail.google.test"],
       timeoutMS: 30_000,
       effectSelector: "#send",
+      effectSelectors: options.effectSelectors,
       handler: options.sendHandler ?? (async (input, runtime) => {
         const tab = await runtime.createOwnedTab();
         await tab.fill("#recipient", input.message.recipient, "https://mail.google.test");
@@ -786,6 +1009,14 @@ function createRegistry(options = {}) {
       sourceFiles: [fixtureSource],
     },
   ];
+  if (options.readHandler) {
+    entries.push({
+      provider: "gmail", operation: options.readOperation ?? "read", scriptID: "gmail.test_read", revision: 1,
+      loginURL: "https://mail.google.test/", origins: ["https://mail.google.test"],
+      timeoutMS: 30_000, handler: options.readHandler, sourceFiles: [fixtureSource],
+      validate: value => assert.equal(value.operation, options.readOperation ?? "read"),
+    });
+  }
   if (options.outlookProbeHandler) {
     entries.push({
       provider: "outlook",
@@ -859,3 +1090,25 @@ function fakeConnectTab() {
     task: true,
   };
 }
+
+
+test("collect_page CLI keeps all native downloads in one initialized task and exposes cancellation", async t => {
+  let harness;
+  const abort = new AbortController();
+  harness = await createHarness(t, {}, { readOperation: "collect_page", readHandler: async (_input, runtime) => {
+    assert.equal(runtime.signal, abort.signal);
+    return runtime.withReadTab(async tab => {
+      for (const name of ["a", "b"]) await tab.download("#original", path.join(harness.dir, `${name}.eml`), 16);
+      return { captured: 2 };
+    });
+  } });
+  const result = await harness.factory.runScript({ token, sessionID: sessionID(120), provider: "gmail", operation: "collect_page", scriptID: "gmail.test_read", revision: 1,
+    input: { schema_version: 1, operation: "collect_page", invocation_id: "page-test", provider: "gmail", account: "default" }, signal: abort.signal });
+  assert.equal(result.state, "completed");
+  const records = await commandRecords(harness);
+  assert.equal(records.filter(record => record.command === "attach").length, 1);
+  assert.equal(records.filter(record => record.event === "download_click").length, 2);
+  assert.equal(records.filter(record => record.command === "goto").length, 1);
+  assert.equal(records.some(record => record.argv?.some(arg => arg.includes("handoff-v1"))), false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot), []);
+});

@@ -1,0 +1,780 @@
+Delivered-To: hsrr05901@gmail.com
+Received: by 2002:a05:6802:185:b0:63c:5747:3489 with SMTP id h5csp4538190ocx;
+        Mon, 24 Aug 2026 13:32:52 -0700 (PDT)
+X-Received: by 2002:a05:6214:4a86:b0:8f1:77b7:9bdc with SMTP id 6a1803df08f44-90cb5fb9abamr24591736d6.1.1787603572128;
+        Mon, 24 Aug 2026 13:32:52 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1787603572; cv=none;
+        d=google.com; s=arc-20260327;
+        b=pf2J4HOcIwl6jcz2jHMiKGoTYLaZj7+NaKkY0peE1CEGFBbRSx7rYfMP0SZ1ctrvgX
+         jLUhR3hkb51htA2WFdRIZuzlTY+kyO3szDs1HkOwPutGI8wMIMdLLc8v/gIWx5wMhAvg
+         pN/6MVZ5ouLHRRCpyk0igRPqd+Nn4WtxWqzCrRnfaGN/W5CQGP7cp6Rk/Isr0f0gccBM
+         WJGBrcuKdUA+I0v18ToG6BeJnHzFGFPd5fp/qXOqk1MB8yjjbDAgmpQNpfBta0Iiyru+
+         18wMWdjPsw92XrxM1RPgON2xeMzorRTR+V3BimNqG1j37F2CKOT5P5N60z4s9MPipij0
+         5IZg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=feedback-id:list-unsubscribe-post:precedence:mime-version:subject
+         :message-id:to:reply-to:from:date:list-unsubscribe:dkim-signature
+         :dkim-signature;
+        bh=8OBrZhxklIqG1O6R0EtdGKUI61B+MFBAS5aAmrBbBRQ=;
+        fh=yoHNJ67WaJaPBfUWoDDtdDxPDXrrTfvCS5g1HTss0kQ=;
+        b=bVMHfxZwluhhtqb2Fnvtmgq+TKkv0M6ZHXG6T+AxYJBeGoHtPaVe0/g4FuOfdfCZdc
+         AG5pikVOAm38BYqf3ANpqBKNtF4zuPocxPZB1s7/ur51QkWJjkyVh/hUx4h8yXIF5+Mi
+         ZqSiOIrsPgRtGJcjxLUEf0z+Cd50cHz2MVptDG5Skz+xbS/pJ+fkE54ZkvDUH+/CqYZs
+         B3lfgZhic64pqS3qHG8uh9aT/RZfZMrV6iftTLlf6VbBEuSIwP9gdz3t1CnFh2vM2Izl
+         rJw+M/UXqNI+iqIikGc+n2WCn6RY4Cftvdlf0tlfuiIq40xkZizv3sukdGWJPuzo9DiR
+         EIaQ==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@bf04x.hubspotemail.net header.s=hs2 header.b=OpFsrPwG;
+       dkim=pass header.i=@tavily.com header.s=hs1-45312998 header.b=JtQMbuTe;
+       spf=pass (google.com: domain of 1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net designates 108.179.154.135 as permitted sender) smtp.mailfrom="1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net";
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=tavily.com
+Return-Path: <1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net>
+Received: from 4f2psp.bf04x.hubspotemail.net (4f2psp.bf04x.hubspotemail.net. [108.179.154.135])
+        by mx.google.com with ESMTPS id 6a1803df08f44-90c93a7b278si65548176d6.591.2026.08.24.13.32.51
+        for <hsrr05901@gmail.com>
+        (version=TLS1_2 cipher=ECDHE-ECDSA-AES128-GCM-SHA256 bits=128/128);
+        Mon, 24 Aug 2026 13:32:52 -0700 (PDT)
+Received-SPF: pass (google.com: domain of 1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net designates 108.179.154.135 as permitted sender) client-ip=108.179.154.135;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@bf04x.hubspotemail.net header.s=hs2 header.b=OpFsrPwG;
+       dkim=pass header.i=@tavily.com header.s=hs1-45312998 header.b=JtQMbuTe;
+       spf=pass (google.com: domain of 1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net designates 108.179.154.135 as permitted sender) smtp.mailfrom="1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net";
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=tavily.com
+Received: by 172.16.84.104 with SMTP id a0h5nnp5ez4m1vcir2km9bsjawsrsjjkwcregxyqiv;
+        Mon, 24 Aug 2026 20:31:06 GMT
+DKIM-Signature: v=1; s=hs2; d=bf04x.hubspotemail.net; 
+        i=@bf04x.hubspotemail.net; 
+        h=sender:from:from:reply-to:to:to:cc:cc:subject:subject:list-unsubscribe:list-id:form-sub:feedback-id:list-unsubscribe-post; 
+        a=rsa-sha256; c=relaxed/relaxed; 
+        bh=8OBrZhxklIqG1O6R0EtdGKUI61B+MFBAS5aAmrBbBRQ=; 
+        b=OpFsrPwG7zLa3Bb27AGdGK9uVMuPvPZOUAYnXAfsMmlOgKAswYFn5g1ho05NRh
+         XYDtfYrTZmbporv6NNEKvhAyHPc8iRZH6QohI9QI3OttH8xXZ7b5I14DbRYZH+v
+         eOmKKhZS9GAfp4a+YSIvdoC5yhZ0+aTQnSsKZqABPvcZwWvZIRWFCkOoCKbvyjD
+         aBiEpEjfaMqI6iqFwDHlVaT6fz1206XFvwd9GEjrzwtFOg4451+vyKc30ZQnrJP
+         dMbpqHYAA9zo2cU+ijv+NKV+ECr4PEK5MIH5tX0/S7phAbMnn57Wo9fhDu4x4C7
+         HjazKG9jG3UHDvgoa2AXY8eHBXLw==; q=dns/txt; t=1787603466; 
+        x=1787866266;
+DKIM-Signature: v=1; s=hs1-45312998; d=tavily.com; i=@tavily.com; 
+        h=sender:from:from:reply-to:to:to:cc:cc:subject:subject:list-unsubscribe:list-id:form-sub:feedback-id:list-unsubscribe-post; 
+        a=rsa-sha256; c=relaxed/relaxed; 
+        bh=8OBrZhxklIqG1O6R0EtdGKUI61B+MFBAS5aAmrBbBRQ=; 
+        b=JtQMbuTek2AF4uQyS0CCHuQFUL/4wIXymJL+QHne6Y4EXeUkEGFeQvRImX5smD
+         FnKJcC5BKrxB1Ux8fSQWf83cgfVqSHP+JIe6DtthnGD3yIkatBjun3z8+8FfjEX
+         4JUArPSLbd/NlbcsmI0a8xuMGY5Ohqf6WYEk+lGvEIUExqJF6zCCN6B7Q7DXpgO
+         2VVo4maJ8CC2WExlgzisrXnQvo+w+elbzwligiKXqZsaEuCmibYtenJ+mA+gzi0
+         dBM7Qzxxbo0J5w/fy984yTYkVZd2wlHqNW5OmqyfjmUJl1O8NK6QQ1a/Ct37C4p
+         TMbk5bHopNc9eJe77MopbjUw9luw==; q=dns/txt; t=1787603466; 
+        x=1787866266;
+Return-Path: <1axbl9ih533dkg340rklb42jaq2oxcsqibuxkg-hsrr05901=gmail.com@bf04x.hubspotemail.net>
+X-HS-Cid: 1axfd8tvunr57xues1qmtg282js4odynfzdd9c
+List-Unsubscribe: <mailto:1axcqcdzgwc1b0giee10onmkorg6u3xbo7jasw-hsrr05901=gmail.com@bf04x.hubspotemail.net?subject=unsubscribe>, <https://events.tavily.com/hs/subscription-preferences/v2/unsubscribe-all?data=aM2L-Qv5mJbNW4g677h7Swcr0W13zZ6D5_6JkYW15L2TT5yCRc0VzzQj04tglzLN6Ybmv2hKJhSW6YbgW45Jw-RGW7Zhdk35_pbcKW2pGV0S7ypP2VW8yfr6_2Wjvk9W1mZZ_V5zvh30W5qtSdv1Wj3dW347F2>
+Date: Mon, 24 Aug 2026 16:31:06 -0400
+From: Tavily <catie.ditmore@tavily.com>
+Reply-To: catie.ditmore@tavily.com
+To: hsrr05901@gmail.com
+Message-ID: <1787603458230.97c32b11-f6e9-4b4d-9cd7-4bfafe2eac9a@bf04x.hubspotemail.net>
+Subject: Tavily just ranked #1 across three search benchmarks
+MIME-Version: 1.0
+Content-Type: multipart/alternative; 
+	boundary="----=_Part_739236_1197917291.1787603466164"
+Precedence: bulk
+X-Report-Abuse-To: abuse@hubspot.com (see
+ https://policy.hubspot.com/abuse-complaints)
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+Feedback-ID: ae09h0o:aihg6qdx:aidf:HubSpot
+
+------=_Part_739236_1197917291.1787603466164
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+See how Tavily outperformed Exa, Perplexity, Brave, and more.
+
+Hubspot Hero-1 (https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2=
+Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Tr43cscvW6N1vHY6lZ3phW1SQC4H6QlHlnW530FZl5R=
+1ZJyW51KlMR88yjJRW2yrTvP2rL68zW5SmpY98jN3TFW8kbmBB1dyTttW4HNzHN38m83bW7YHj8=
+r4SZhfSW29xxVB7tBTt2W45JkT86MrSY5W2d6wr74pz19cN4J697qrRm5TN8719RwkczgZN3PFr=
+sSl3cwsW56kS2q4Z6q-dW16vn_S4ZnZQdW76_zS58RW70rW4QPH5J6Pyg6GW8f532N2R4-FdLf8=
+4SPg1KlW95pGsN8rq3xTW1QC1mj1mLghDdjC7yK04 )
+
+Have you heard? Tavily is #1 on SealQA-Hard, SealQA-0, and SimpleQA. (https=
+://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7lK799dnwvW5DT7x=
+y5T5HflN6G5Tr43cscvW6N1vHY6lZ3phW1SQC4H6QlHlnW530FZl5R1ZJyW51KlMR88yjJRW2yr=
+TvP2rL68zW5SmpY98jN3TFW8kbmBB1dyTttW4HNzHN38m83bW7YHj8r4SZhfSW29xxVB7tBTt2W=
+45JkT86MrSY5W2d6wr74pz19cN4J697qrRm5TN8719RwkczgZN3PFrsSl3cwsW56kS2q4Z6q-dW=
+16vn_S4ZnZQdW76_zS58RW70rW4QPH5J6Pyg6GW8f532N2R4-FdLf84SPg1KlW95pGsN8rq3xTW=
+1QC1mj1mLghDdjC7yK04 )
+
+We tested how Tavily Search ranks evidence, handles conflicting sources, an=
+d keeps its index fresh. The results put Tavily ahead of all other provider=
+s across all three benchmarks.
+
+If you=E2=80=99re building agents, this is one worth watching.
+
+Hubspot SealQA0-hard (https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWx=
+gVNGs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Tr43cscvW6N1vHY6lZ3phW1SQC4H6QlHlnW53=
+0FZl5R1ZJyW51KlMR88yjJRW2yrTvP2rL68zW5SmpY98jN3TFW8kbmBB1dyTttW4HNzHN38m83b=
+W7YHj8r4SZhfSW29xxVB7tBTt2W45JkT86MrSY5W2d6wr74pz19cN4J697qrRm5TN8719Rwkczg=
+ZN3PFrsSl3cwsW56kS2q4Z6q-dW16vn_S4ZnZQdW76_zS58RW70rW4QPH5J6Pyg6GW8f532N2R4=
+-FdLf84SPg1KlW95pGsN8rq3xTW1QC1mj1mLghDdjC7yK04 )
+
+Why does that matter? Your agents are only as reliable as the information t=
+hey receive. Tavily surfaces stronger evidence, handles conflicting sources=
+, and keeps results fresh, helping agents deliver answers you can trust.
+
+The best part? These improvements are already live. That means no upgrades,=
+ new API versions, or changes on your end.
+
+See the full results here
+(https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7lK799dnwv=
+W5DT7xy5T5HflN6G5Tr43cscvW6N1vHY6lZ3phW1SQC4H6QlHlnW530FZl5R1ZJyW51KlMR88yj=
+JRW2yrTvP2rL68zW5SmpY98jN3TFW8kbmBB1dyTttW4HNzHN38m83bW7YHj8r4SZhfSW29xxVB7=
+tBTt2W45JkT86MrSY5W2d6wr74pz19cN4J697qrRm5TN8719RwkczgZN3PFrsSl3cwsW56kS2q4=
+Z6q-dW16vn_S4ZnZQdW76_zS58RW70rW4QPH5J6Pyg6GW8f532N2R4-FdLf84SPg1KlW95pGsN8=
+rq3xTW1QC1mj1mLghDdjC7yK04 )
+
+LinkedIn (https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7=
+lK799dnwvW5DT7xy5T5HflN6G5Trn3prCCW7lCdLW6lZ3lJN3rrMBSd_yvzN51YZF2nrdL8W35g=
+hpy5pNH-wW5hz0YR6vs-nNW2ms-dJ8NWt4MVgBQ8t7ZSQZnW87Z65g9gxsS2W6Zb0ww3vJmQDMT=
+9wcm8yp-WW5RlDh57xD2BgW3KQ19Y8_cRKMW4w9YSG4_H8xkVq19FR29w0zHW2YBtTC2w3FtsW8=
+F8X1V16Tp2pW85P78M10cGlFW3k187f83FFfwW7lxjPZ8m5kxZW17t1574j9d-yW25r3BG6hRjB=
+GW29FQ7J4syDh4W12nCBW5n3BKsN803mmlcxXqVW44PnVr6gmR7ff5sGnjM04 )
+
+X (https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7lK799dn=
+wvW5DT7xy5T5HflN6G5Tr43prCCW6N1vHY6lZ3m-N4V7F33wsw9yW6_bdkG2W7PbLW7nDBGf2JX=
+94wW1KfjLb6sjtftW5fvF4w6jWnW7W4hJhxJ3JbdwWW668-Fv1tv4LnW7wthFq2VjgRxW8csbWn=
+2B3Hr7W11gPm971R0HmN2RKFhzPfcmPV-hDdG3JWxWxW4843Yw70m26WW69Rgj44Pry-5W8Cq63=
+z1pgP5KN89mnqy9d5SQW8z2zkT94Z3LTW5fvz8H1w5ddHW8Lj038121stFN73qZc3pKTh6W4Kf3=
+My4JNnD7W37Z74W92QdqMf8GMfD604 )
+
+YouTube (https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7l=
+K799dnwvW5DT7xy5T5HflN6G5TrH3prCCW7Y8-PT6lZ3kvW3Vvf4-9431G5W8Vd1nC6ZyksVW59=
+N4YK79Qz1DW9ccQQs387qSxW5lGKFG34CPt-W2g8Y962bdBLWW6CRFhk5ddD8DW2PCPRn5r2ZQ8=
+W45S-yp47HMydW3ZvBX35SWqhKW2DLRC93pPrX0W6JsxQj2mS5MbW4NDRVq9bbFr8W13bq_f4kw=
+VmRW1CT1LM1ryDC6VLCfM-41h4hnW1d0_Nq98YbVKW4ggnx31rT_LwN5MtcGk9hldgW42LCmF4-=
+L9_gW7pf4yv4j0GmYW8yvbJ55_gCbHV8zkrH5YqJ2cW1P2-sV1SRdzhW8ctrMp893-MGW5fv8mk=
+7DG54kddTpNq04 )
+
+Website (https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7l=
+K799dnwvW5DT7xy5T5HflN6G5Tr43prCCW6N1vHY6lZ3n7W2Rgfgt8YM_s6W4xp0FB1Hqlq7W6t=
+3T317w-cXvVpc7ZC4rbxcpN1w6NfQfNd5YW7CWXPN1LYBxBW8hPLtS1ZpMwQW5DzQgQ8NYV_wW6=
+0mcG_7cc95VV5DRQ25kFJbvW4Vvr464QFpZBW8j1_PS2dGmC2W5BLz6z52kG5cW8PDkgH21ZM4R=
+VhZBsG1Xm6wsW2pYgTF6SVyfmN2NywNmQczBgVNy_B42WznyZVB8j6Z7R2ty9W7gG3Yb875fYVW=
+4MDj7-2Hrs86W14Ncd91FrRDHf1MhtC-04 )
+
+Tavily, 1350 Broadway, New York, New York 10018, United States
+
+Unsubscribe (https://events.tavily.com/hs/preferences-center/en/direct?data=
+=3DW2nXS-N30h-MzW3T4znz3H5J-9W47hNVJ3z98LpW2KwFRv3GRFSSW2Kx4mC1ZdTjQW1Z5Svy=
+3j4jSLW41DtwR3F8M8BW3483y42-rjP6W3QQVbz4fM8ytW1LzNTc238-h9W1XmLTG1Sl48lW47W=
+dh532GM5tW2YFKSm3zd3QgW38B1yR3g94DpW1Xp0461BMPH_W1Lv7tZ4crkWQW4rFzMG3K4FbnW=
+47MgyY1Vy98rW4fhbkV4m8NPtW2TxXrp3Fg91yW20Xq6z25nljjW4pyfGY3K73P_W4kqFXj4phx=
+PVW2KrRVp3XZ-4XW1X9kFQ2FDprRW3V_qYd3jcWzcW3H36Lf4mGkHqW4hGMrD2TrtYCW4tl37j1=
+QtMWYW1ZdSym3SQdTwW21lNTc1BF2-2W23mmb_2WF2jzW3BLKNq3jqclWW2zKRK12xKd7BW1QDf=
+Wv3bfhcFW32JpXH3BYrvrW2HVP2J3Vw-_-W3j121S3yMFGgW43QfXj2Rg8znW3F0Tg73BWrHQW4=
+pb-X61LH9kTW3M2jz22CFWTgW1QlLhS4tD5yBW4kvQGP49tbskW343-ts2HsXkXW2sR5bb2t2x8=
+VW2Wsvm11Z4yJ_W2FCFWP3QP8S5W1Q0Q7s3NWb0wW2WxH4Y3_DJXnW2zKtzl1_p3jnW3R6Zq-3K=
+4CJyW36k0Wt3zjGDmW3CfCpl4prWpBW2qz78q45Y59qW30nXFD2zz4LjW3__9jd4cqWmXW4mBdl=
+Y3ZwdP9W2p6ctp327srZf2YlTw304&_hsenc=3Dp2ANqtz--04VQfvPe9IyZ_cC61mZ8nOqM_-e=
+CStA-OmfzzU3vLxWdWaIJhQEHqEUeW0WNTsjZ5PJ6Xsffcgok-XPFxtWnxIp56kQ&_hsmi=3D43=
+4854787 )
+Manage preferences (https://events.tavily.com/hs/preferences-center/en/page=
+?data=3DW2nXS-N30h-MzW3T4znz3H5J-9W47hNVJ3z98LpW2KwFRv3GRFSSW2Kx4mC1ZdTjQW1=
+Z5Svy3j4jSLW41DtwR3F8M8BW3483y42-rjP6W3QQVbz4fM8ytW1LzNTc238-h9W1XmLTG1Sl48=
+lW47Wdh532GM5tW2YFKSm3zd3QgW38B1yR3g94DpW1Xp0461BMPH_W1Lv7tZ4crkWQW4rFzMG3K=
+4FbnW47MgyY1Vy98rW4fhbkV4m8NPtW2TxXrp3Fg91yW20Xq6z25nljjW4pyfGY3K73P_W4kqFX=
+j4phxPVW2KrRVp3XZ-4XW1X9kFQ2FDprRW3V_qYd3jcWzcW3H36Lf4mGkHqW4hGMrD2TrtYCW4t=
+l37j1QtMWYW1ZdSym3SQdTwW21lNTc1BF2-2W23mmb_2WF2jzW3BLKNq3jqclWW2zKRK12xKd7B=
+W1QDfWv3bfhcFW32JpXH3BYrvrW2HVP2J3Vw-_-W3j121S3yMFGgW43QfXj2Rg8znW3F0Tg73BW=
+rHQW4pb-X61LH9kTW3M2jz22CFWTgW1QlLhS4tD5yBW4kvQGP49tbskW343-ts2HsXkXW2sR5bb=
+2t2x8VW2Wsvm11Z4yJ_W2FCFWP3QP8S5W1Q0Q7s3NWb0wW2WxH4Y3_DJXnW2zKtzl1_p3jnW3R6=
+Zq-3K4CJyW36k0Wt3zjGDmW3CfCpl4prWpBW2qz78q45Y59qW30nXFD2zz4LjW3__9jd4cqWmXW=
+4mBdlY3ZwdP9W2p6ctp327srZf2YlTw304&_hsenc=3Dp2ANqtz--04VQfvPe9IyZ_cC61mZ8nO=
+qM_-eCStA-OmfzzU3vLxWdWaIJhQEHqEUeW0WNTsjZ5PJ6Xsffcgok-XPFxtWnxIp56kQ&_hsmi=
+=3D434854787 )
+------=_Part_739236_1197917291.1787603466164
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional //EN" "http://www=
+.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns=3D"http://www.w3=
+.org/1999/xhtml" xmlns:o=3D"urn:schemas-microsoft-com:office:office" xmlns:=
+v=3D"urn:schemas-microsoft-com:vml" lang=3D"en"><head>
+    <title>Tavily just ranked #1 across three search benchmarks</title>
+    <meta property=3D"og:title" content=3D"Tavily just ranked #1 across thr=
+ee search benchmarks">
+    <meta name=3D"twitter:title" content=3D"Tavily just ranked #1 across th=
+ree search benchmarks">
+   =20
+   =20
+   =20
+<meta name=3D"x-apple-disable-message-reformatting">
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3DUTF-8">
+<meta http-equiv=3D"X-UA-Compatible" content=3D"IE=3Dedge">
+<meta name=3D"viewport" content=3D"width=3Ddevice-width, initial-scale=3D1.=
+0">
+<style>
+a.cta_button{-moz-box-sizing:content-box !important;-webkit-box-sizing:cont=
+ent-box !important;box-sizing:content-box !important;vertical-align:middle}=
+.hs-breadcrumb-menu{list-style-type:none;margin:0px 0px 0px 0px;padding:0px=
+ 0px 0px 0px}.hs-breadcrumb-menu-item{float:left;padding:10px 0px 10px 10px=
+}.hs-breadcrumb-menu-divider:before{content:'=E2=80=BA';padding-left:10px}.=
+hs-featured-image-link{border:0}.hs-featured-image{float:right;margin:0 0 2=
+0px 20px;max-width:50%}@media (max-width: 568px){.hs-featured-image{float:n=
+one;margin:0;width:100%;max-width:100%}}.hs-screen-reader-text{clip:rect(1p=
+x, 1px, 1px, 1px);height:1px;overflow:hidden;position:absolute !important;w=
+idth:1px}
+</style>
+<!-- $$__SECOND_PASS_CSS_HEAD__$$ -->
+    <!--[if gte mso 9]>
+  <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    <w:WordDocument xmlns:w=3D"urn:schemas-microsoft-com:office:word">
+      <w:DontUseAdvancedTypographyReadingMail/>
+    </w:WordDocument>
+  </xml>
+ =20
+  <style>
+    ul > li {
+      text-indent: -1em;
+    }
+  </style>
+<![endif]-->
+<!--[if mso]>
+<style type=3D"text/css">
+ body, td {font-family: Arial, Helvetica, sans-serif;}
+ .hse-body-wrapper-table {background-color: #ffffff;}
+</style>
+<![endif]-->
+<!--[if mso | IE]>
+  <style type=3D"text/css">
+    .hse-column-container { border: none !important; padding: 0 !important;=
+ }
+  </style>
+<![endif]-->
+   =20
+     =20
+ =20
+ =20
+   =20
+  <meta name=3D"generator" content=3D"HubSpot"><meta property=3D"og:url" co=
+ntent=3D"https://events.tavily.com/-temporary-slug-fa14c495-3e25-442f-86e6-=
+43244bf40d17"><meta name=3D"robots" content=3D"noindex,follow"><!--[if !((m=
+so)|(IE))]><!-- --><style type=3D"text/css">@media only screen and (max-wid=
+th:639px){img.stretch-on-mobile,.hs_rss_email_entries_table img,.hs-stretch=
+-cta .hs-cta-img{height:auto !important;width:100% !important}
+.display_block_on_small_screens{display:block}.hs_padded{padding-left:20px =
+!important;padding-right:20px !important}
+.hs-hm,table.hs-hm{display:none}.hs-hd{display:block !important}table.hs-hd=
+{display:table !important}
+}@media only screen and (max-width:639px){.hse-border-m{border-left:1px sol=
+id #ccc !important;border-right:1px solid #ccc !important;box-sizing:border=
+-box}
+.hse-border-bottom-m{border-bottom:1px solid #ccc !important}.hse-border-to=
+p-m{border-top:1px solid #ccc !important}
+.hse-border-top-hm{border-top:none !important}.hse-border-bottom-hm{border-=
+bottom:none !important}
+}.moz-text-html .hse-column-container{max-width:600px !important;width:600p=
+x !important}
+.moz-text-html .hse-column{display:table-cell;vertical-align:top}.moz-text-=
+html .hse-section .hse-size-12{max-width:600px !important;width:600px !impo=
+rtant}
+@media only screen and (min-width:640px){.hse-column-container{max-width:60=
+0px !important;width:600px !important}
+.hse-column{display:table-cell;vertical-align:top}.hse-section .hse-size-12=
+{max-width:600px !important;width:600px !important}
+}@media only screen and (max-width:639px){.hse-body-wrapper-td{padding-top:=
+20px !important}
+#section-0 .hse-column-container{padding-top:0px !important;padding-bottom:=
+0px !important}
+#section-0 .hse-column-container{background-color:#fff !important} }@media =
+screen and (max-width:639px){.social-network-cell{display:inline-block}
+}@media only screen and (max-width:639px){.hse-body-wrapper-td{padding-bott=
+om:20px !important}
+#section-1 .hse-column-container{padding-top:0px !important;padding-bottom:=
+0px !important;background-color:transparent !important}
+#section-1 .hse-column-container{background-color:transparent !important} }=
+</style><!--<![endif]--><style type=3D"text/css">#hs_body #hs_cos_wrapper_m=
+ain a[x-apple-data-detectors]{color:inherit !important;text-decoration:none=
+ !important;font-size:inherit !important;font-family:inherit !important;fon=
+t-weight:inherit !important;line-height:inherit !important}
+a{text-decoration:underline}p{margin:0}body{-ms-text-size-adjust:100%;-webk=
+it-text-size-adjust:100%;-webkit-font-smoothing:antialiased;moz-osx-font-sm=
+oothing:grayscale}
+table{border-spacing:0;mso-table-lspace:0;mso-table-rspace:0}table,td{borde=
+r-collapse:collapse}
+img{-ms-interpolation-mode:bicubic}p,a,li,td,blockquote{mso-line-height-rul=
+e:exactly}
+.ShadowHTML p,.sh-modified-inline p{margin:0}</style></head>
+  <body id=3D"hs_body" bgcolor=3D"#ffffff" style=3D"margin:0 !important; pa=
+dding:0 !important; font-family:Arial, sans-serif; font-size:15px; color:#1=
+f1e1e; word-break:break-word">
+    <div id=3D"preview_text" style=3D"display:none;font-size:1px;color:#fff=
+fff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;=
+" lang=3D"en">See how Tavily outperformed Exa, Perplexity, Brave, and more.=
+=E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=
+=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=
+=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=
+=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=
+=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =
+=E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=
+=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=
+=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=
+=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=
+=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =
+=E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=
+=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=
+=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=
+=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=
+=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =
+=E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=
+=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=
+=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=
+=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=
+=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =
+=E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=
+=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=
+=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=
+=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=
+=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =
+=E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=CD=8F =E2=80=87=
+=CD=8F =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=
+=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =
+=C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD =C2=AD &nbsp;
+</div>
+   =20
+<!--[if gte mso 9]>
+<v:background xmlns:v=3D"urn:schemas-microsoft-com:vml" fill=3D"t">
+    <v:fill type=3D"tile" size=3D"100%,100%" color=3D"#ffffff"/>
+</v:background>
+<![endif]-->
+    <div class=3D"hse-body-background" lang=3D"en" style=3D"background-colo=
+r:#ffffff" bgcolor=3D"#ffffff">
+      <table role=3D"presentation" class=3D"hse-body-wrapper-table" cellpad=
+ding=3D"0" cellspacing=3D"0" style=3D"margin:0; padding:0; width:100% !impo=
+rtant; min-width:320px !important; height:100% !important" width=3D"100%" h=
+eight=3D"100%">
+        <tbody><tr>
+          <td class=3D"hse-body-wrapper-td" valign=3D"top" style=3D"font-fa=
+mily:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:break-wor=
+d; padding-top:20px; padding-bottom:20px">
+            <div id=3D"hs_cos_wrapper_main" class=3D"hs_cos_wrapper hs_cos_=
+wrapper_widget hs_cos_wrapper_type_dnd_area" style=3D"color: inherit; font-=
+size: inherit; line-height: inherit;" data-hs-cos-general-type=3D"widget" d=
+ata-hs-cos-type=3D"dnd_area">  <div id=3D"section-0" class=3D"hse-section h=
+se-section-first" style=3D"padding-left:10px; padding-right:10px">
+   =20
+   =20
+      <div class=3D"hse-column-container" style=3D"min-width:280px; max-wid=
+th:600px; margin:0 auto; background-color:#ffffff" bgcolor=3D"#ffffff">
+   =20
+    <!--[if (mso)|(IE)]>
+      <table align=3D"center" style=3D"width:600px;" cellpadding=3D"0" cell=
+spacing=3D"0" role=3D"presentation" width=3D"600" bgcolor=3D"#ffffff">
+      <tr style=3D"background-color:#ffffff;">
+    <![endif]-->
+    <!--[if (mso)|(IE)]>
+  <td valign=3D"top" style=3D"width:600px;">
+<![endif]-->
+<!--[if gte mso 9]>
+  <table role=3D"presentation" width=3D"600" cellpadding=3D"0" cellspacing=
+=3D"0" style=3D"width:600px">
+<![endif]-->
+<div id=3D"column-0-0" class=3D"hse-column hse-size-12">
+  <div id=3D"hs_cos_wrapper_module-0-0-0" class=3D"hs_cos_wrapper hs_cos_wr=
+apper_widget hs_cos_wrapper_type_module" style=3D"color: inherit; font-size=
+: inherit; line-height: inherit;" data-hs-cos-general-type=3D"widget" data-=
+hs-cos-type=3D"module"><table class=3D"hse-image-wrapper" role=3D"presentat=
+ion" width=3D"100%" cellpadding=3D"0" cellspacing=3D"0">
+  <tbody>
+    <tr>
+      <td class=3D"hs_padded" align=3D"center" valign=3D"top" style=3D"font=
+-family:Arial, sans-serif; color:#1f1e1e; word-break:break-word; text-align=
+:center; padding:10px 20px; font-size:0px">
+        <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVN=
+Gs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Trn3dh8WW7lCdLW6lZ3kCW5ybmVp7bLLwxW4tlXb=
+B2Q56c1W3cnJQ06hF1RyW6DHppW1qtfVRN5K01xWKw67sW2S9XR_1lNNqLN7M3blMqV9dvW7ndb=
+2g31hfbRW1w4DHW63Y73sW8pg7gm3cDQ17W5B9yCd57hkT7W4j4nL513Jhg2W3kkqJ98-HQMNW1=
+zXXgy3wbckxW1LW6xC2nkH5wW33MKsq1GJTBVN1sjccbyPqBzW3xKg9b8QlQWlW95SW3n8Rdf8Z=
+W6lydS47Q192RW21x6rW8hn6z9W9fcSwr6cGr4qW6gHVYd1m3qXZW2Z7JmB49Wbqlf192B8n04"=
+ target=3D"_blank" style=3D"color:#00a4bd" data-hs-link-id=3D"0" data-hs-li=
+nk-id-v2=3D"nJmOFfdK">
+        <img alt=3D"Hubspot Hero-1" src=3D"https://events.tavily.com/hs-fs/=
+hubfs/Hubspot%20Hero-1.png?width=3D1120&amp;upscale=3Dtrue&amp;name=3DHubsp=
+ot%20Hero-1.png" style=3D"outline:none; text-decoration:none; border:none; =
+max-width:100%; font-size:16px" width=3D"560" align=3D"middle">
+        </a>
+      </td>
+    </tr>
+  </tbody>
+</table></div>
+  <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" width=3D=
+"100%" class=3D"" style=3D""><tbody><tr><td class=3D"hs_padded" style=3D"fo=
+nt-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:brea=
+k-word; padding:10px 20px"><div id=3D"hs_cos_wrapper_module-0-0-1" class=3D=
+"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style=3D"=
+color: inherit; font-size: inherit; line-height: inherit;" data-hs-cos-gene=
+ral-type=3D"widget" data-hs-cos-type=3D"module"><div id=3D"hs_cos_wrapper_m=
+odule-0-0-1_" class=3D"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_=
+type_rich_text" style=3D"color: inherit; font-size: inherit; line-height: i=
+nherit;" data-hs-cos-general-type=3D"widget" data-hs-cos-type=3D"rich_text"=
+><p style=3D"line-height:175%">Have you heard? <a href=3D"https://events.ta=
+vily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVNGs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5T=
+rn3dh8WW7lCdLW6lZ3nfN15Tywp2fd0vTy6lS82_s-YW5lv1lN4Ngs34W64pcxk2WjDYbV8N7Bd=
+5YfwT3W54WwqV6QSJXgVmrzSm20zFC1W2pcfd861p4chW1V9Tmw6g2lS8W63Gfqf4Cl7YZW7HYM=
+wz8cLJ7KN1hPVrQ-rl4kN7H5DFJBgB-4W6vqHyH8-Vj2VW2-CjF-8HFdvFW2pwZ9k74L8BdVXtZ=
+cJ6PLBfFW3f6TLL8xyvvFW1jxVhv1KswdfW2yWXXh3QdzjVW5d4ZYQ1_SncgW5r7dnL926bg7W3=
+2_jVl7Ht1SmW3zP-G046brfQf9hFQ3l04" style=3D"color:#80af9b; font-weight:bold=
+" rel=3D"noopener" data-hs-link-id=3D"1" data-hs-link-id-v2=3D"lnq3ELsP" ta=
+rget=3D"_blank">Tavily is #1 on SealQA-Hard, SealQA-0, and SimpleQA.</a></p=
+>
+<p style=3D"line-height:175%">&nbsp;</p>
+<p style=3D"line-height:175%">We tested how Tavily Search ranks evidence, h=
+andles conflicting sources, and keeps its index fresh. The results put Tavi=
+ly ahead of all other providers&nbsp;across all three benchmarks.</p>
+<p style=3D"line-height:175%">&nbsp;</p>
+<p style=3D"line-height:175%">If you=E2=80=99re building agents, this is on=
+e worth watching.</p></div></div></td></tr></tbody></table>
+</div>
+<!--[if gte mso 9]></table><![endif]-->
+<!--[if (mso)|(IE)]></td><![endif]-->
+    <!--[if (mso)|(IE)]></tr></table><![endif]-->
+    </div>
+  =20
+  </div>
+  <div id=3D"section-1" class=3D"hse-section hse-section-last" style=3D"pad=
+ding-left:10px; padding-right:10px">
+   =20
+   =20
+      <div class=3D"hse-column-container" style=3D"min-width:280px; max-wid=
+th:600px; margin:0 auto">
+   =20
+    <!--[if (mso)|(IE)]>
+      <table align=3D"center" style=3D"width:600px;" cellpadding=3D"0" cell=
+spacing=3D"0" role=3D"presentation">
+      <tr>
+    <![endif]-->
+    <!--[if (mso)|(IE)]>
+  <td valign=3D"top" style=3D"width:600px;">
+<![endif]-->
+<!--[if gte mso 9]>
+  <table role=3D"presentation" width=3D"600" cellpadding=3D"0" cellspacing=
+=3D"0" style=3D"width:600px">
+<![endif]-->
+<div id=3D"column-1-0" class=3D"hse-column hse-size-12">
+  <div id=3D"hs_cos_wrapper_module_17873240368111" class=3D"hs_cos_wrapper =
+hs_cos_wrapper_widget hs_cos_wrapper_type_module" style=3D"color: inherit; =
+font-size: inherit; line-height: inherit;" data-hs-cos-general-type=3D"widg=
+et" data-hs-cos-type=3D"module"><table class=3D"hse-image-wrapper" role=3D"=
+presentation" width=3D"100%" cellpadding=3D"0" cellspacing=3D"0">
+  <tbody>
+    <tr>
+      <td class=3D"hs_padded" align=3D"center" valign=3D"top" style=3D"font=
+-family:Arial, sans-serif; color:#1f1e1e; word-break:break-word; text-align=
+:center; padding:10px 20px; font-size:0px">
+        <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVN=
+Gs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Trn3dh8WW7lCdLW6lZ3lFW8d1jmR8wWSK1W6KvSF=
+x6yk7cKW7BryKq9cltK8W1N3B_r68Z71zVStSds5cGlGZW5pWm2M6cPghZW4-PcmR6-hFYsW6Cj=
+w0j4_1R0NW1_sR5C7w3PQLW6xXffs8m9Cg0W5tr16t5h-jq2W6ZYZpH137nqQVQVgbr6n9tD9W6=
+GbVMM4ssDk3W8lDN1k4CNQl0W4wVsjC7-qYxvW1J-5KJ4M2KCKN8f35yxDwFW6W9lTCqV9jckzd=
+W1_PLNR1WQtvDW6X6NW97thK58W3p9WSd9hKMT6W33_cg2532tQBW98tGnW7nWSlzf7DjQ4R04"=
+ target=3D"_blank" style=3D"color:#00a4bd" data-hs-link-id=3D"2" data-hs-li=
+nk-id-v2=3D"6lddorLV">
+        <img alt=3D"Hubspot SealQA0-hard" src=3D"https://events.tavily.com/=
+hs-fs/hubfs/Hubspot%20SealQA0-hard.png?width=3D1120&amp;upscale=3Dtrue&amp;=
+name=3DHubspot%20SealQA0-hard.png" style=3D"outline:none; text-decoration:n=
+one; border:none; max-width:100%; font-size:16px" width=3D"560" align=3D"mi=
+ddle">
+        </a>
+      </td>
+    </tr>
+  </tbody>
+</table></div>
+  <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" width=3D=
+"100%" class=3D"" style=3D""><tbody><tr><td class=3D"hs_padded" style=3D"fo=
+nt-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:brea=
+k-word; padding:10px 20px"><div id=3D"hs_cos_wrapper_module-1-0-4" class=3D=
+"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style=3D"=
+color: inherit; font-size: inherit; line-height: inherit;" data-hs-cos-gene=
+ral-type=3D"widget" data-hs-cos-type=3D"module"><div id=3D"hs_cos_wrapper_m=
+odule-1-0-4_" class=3D"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_=
+type_rich_text" style=3D"color: inherit; font-size: inherit; line-height: i=
+nherit;" data-hs-cos-general-type=3D"widget" data-hs-cos-type=3D"rich_text"=
+><p style=3D"line-height:175%">Why does that matter? Your agents are only a=
+s reliable as the information they receive. Tavily surfaces stronger eviden=
+ce, handles conflicting sources, and keeps results fresh, helping agents de=
+liver answers you can trust.</p>
+<p style=3D"line-height:175%">&nbsp;</p>
+<p style=3D"line-height:175%">The best part? These improvements are already=
+ live. That means no upgrades, new API versions, or changes on your end.</p=
+></div></div></td></tr></tbody></table>
+  <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" width=3D=
+"100%" class=3D"" style=3D""><tbody><tr><td class=3D"hs_padded" style=3D"fo=
+nt-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:brea=
+k-word; padding:10px 20px"><div id=3D"hs_cos_wrapper_module_17872431852971"=
+ class=3D"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" =
+style=3D"color: inherit; font-size: inherit; line-height: inherit;" data-hs=
+-cos-general-type=3D"widget" data-hs-cos-type=3D"module"><table align=3D"ce=
+nter" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"presentation=
+" style=3D"border-collapse:separate!important">
+    <tbody><tr>
+      <td align=3D"center" valign=3D"middle" bgcolor=3D"#1f1e1e" style=3D"f=
+ont-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:bre=
+ak-word; border-radius:8px; cursor:auto; background-color:#1f1e1e; mso-padd=
+ing-alt:12px 18px">
+        <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC04/MWxgVN=
+Gs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Trn3dh8WW7lCdLW6lZ3kHW4zKKxR2gFF-cW1yn80=
+D1zVChnW1JJL93297RpdW6pp1bq62vWc6W7nhgW-3XVwhcW6ljVmd9dZzLJW4ZvgNs3Pc4GwW3y=
+CRrF4Hw1C6W1cfHS06Kr6WsW1JJgsF7Sn-TKW19YvsL96QbxNW88qQ_w1lklj3W7_Gsmd22ClGm=
+W3t8q5g8Jx2f_W4CZp6k5hvCBxW38xB1k84FFBLMDKZHSzKY_SW5c5QMY4TJzfzVkp7sY1D1TJh=
+N29ZTz-_SsCpW6sfWMX4MJfQ7W2H_dSn8y-gWXN1yFys9_4fzHW8v8j5N7M9xqdf56s_8x04" t=
+arget=3D"_blank" style=3D"color:#00a4bd; font-size:16px; font-family:Arial,=
+ sans-serif; Margin:0; text-transform:none; letter-spacing:0px; text-decora=
+tion:none; padding:12px 18px; display:block" data-hs-link-id=3D"3" data-hs-=
+link-id-v2=3D"9tCFXsQk">
+          <strong style=3D"color:#ffffff;font-weight:bold;text-decoration:n=
+one;font-style:normal;">See the full results here</strong>
+        </a>
+      </td>
+    </tr>
+  </tbody></table></div></td></tr></tbody></table>
+  <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" width=3D=
+"100%" class=3D"" style=3D""><tbody><tr><td class=3D"hs_padded" style=3D"fo=
+nt-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:brea=
+k-word; padding:10px 20px"><div id=3D"hs_cos_wrapper_module-1-0-7" class=3D=
+"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style=3D"=
+color: inherit; font-size: inherit; line-height: inherit;" data-hs-cos-gene=
+ral-type=3D"widget" data-hs-cos-type=3D"module"><table role=3D"presentation=
+" align=3D"center" style=3D"width: auto; text-align: center; margin: 0 auto=
+; " class=3D"hs_cos_wrapper_type_social_module">
+  <tbody>
+    <tr>
+      <td class=3D"social-network-cell" align=3D"center" style=3D"font-fami=
+ly:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:break-word"=
+>
+        <table role=3D"presentation" align=3D"center" style=3D"width: auto;=
+ text-align: center; margin: 0 auto; " class=3D"hs_cos_wrapper_type_social_=
+module_single">
+          <tbody>
+            <tr>
+              <td class=3D"display_block_on_small_screens" align=3D"center"=
+ style=3D"font-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; wor=
+d-break:break-word; padding:8px 5px; line-height:1; vertical-align:middle" =
+valign=3D"middle">
+                <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC0=
+4/MWxgVNGs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5TrH3qgz0W7Y8-PT6lZ3mpW1Q5h2T5lt2=
+lwW6bFkNy5cllmNW3KKq8R5B1WffW910BGl4mkSf9W2t_MX096SfX-W2_YzCZ4ZKW1sW1vNyS64=
+J2TmNW3b-BVN6Mvm_zW4pjG5-435F5MW140y-n4jb21JW6pcT_s1G7-NnW55Bk_m8LStlDW5m37=
+qm5QFTmnW7MZbnx5NqxXGW5FR-rG68tg52W46fT082kplRQW2X3vhF3nKn9cVvRKmV9cRCNMVQ9=
+ZvT6fv4k2VS9nPs4zh2vGV5D5f685KhZ7W32F4j95yQKB-W3_KKbF7T-dPlW4PfnV96_r9ghV9y=
+9rJ3gJ51xW7923bK1VCdw-f7l-YZq04" style=3D"color:#00a4bd; text-decoration:no=
+ne !important" data-hs-link-id=3D"0" data-hs-link-id-v2=3D"MQw+nd/g" target=
+=3D"_blank"><img src=3D"https://events.tavily.com/hs/hsstatic/TemplateAsset=
+s/static-1.262/img/hs_default_template_images/modules/Follow+Me+-+Email/lin=
+kedin_circle_black.png" alt=3D"LinkedIn" height=3D"25" style=3D"outline:non=
+e; text-decoration:none; border:none; width:auto!important; height:25px!imp=
+ortant; vertical-align:middle" valign=3D"middle" width=3D"auto">
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td><td class=3D"social-network-cell" align=3D"center" style=3D"font=
+-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:break-=
+word">
+        <table role=3D"presentation" align=3D"center" style=3D"width: auto;=
+ text-align: center; margin: 0 auto; " class=3D"hs_cos_wrapper_type_social_=
+module_single">
+          <tbody>
+            <tr>
+              <td class=3D"display_block_on_small_screens" align=3D"center"=
+ style=3D"font-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; wor=
+d-break:break-word; padding:8px 5px; line-height:1; vertical-align:middle" =
+valign=3D"middle">
+                <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC0=
+4/MWxgVNGs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Tr43qgz0W6N1vHY6lZ3pBW1Zn5gX6sTc=
+BNW7G_glN3B93HkW60CFxr5HPHtqVspWRb7y4b1yW91YtLM1zqYt7W55gwd18f8jqhW3ln1Cp72=
+F2MdW8rgX9r8HKlCMN5NSLm_jPlmSW1SNcJT1l3PqFW1HxhV_2hKX5fVVjfXB5RZ558VPsRhY6L=
+7f1bN583TXwbY6ZcW93ZvWj2DXtqqW6j_hsN1lLDkKN1MbtgbC6TyjW8p1ldb1J5hfHW8GmPd44=
+gWGy9W9dq42v8-ThbkW4TBWVX4bJHHQW8SnlF97C7PZLf2gH8wT04" style=3D"color:#00a4=
+bd; text-decoration:none !important" data-hs-link-id=3D"0" data-hs-link-id-=
+v2=3D"gjSFLxfR" target=3D"_blank"><img src=3D"https://events.tavily.com/hs/=
+hsstatic/TemplateAssets/static-1.262/img/hs_default_template_images/modules=
+/Follow+Me+-+Email/twitter_circle_black.png" alt=3D"X" height=3D"25" style=
+=3D"outline:none; text-decoration:none; border:none; width:auto!important; =
+height:25px!important; vertical-align:middle" valign=3D"middle" width=3D"au=
+to">
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td><td class=3D"social-network-cell" align=3D"center" style=3D"font=
+-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:break-=
+word">
+        <table role=3D"presentation" align=3D"center" style=3D"width: auto;=
+ text-align: center; margin: 0 auto; " class=3D"hs_cos_wrapper_type_social_=
+module_single">
+          <tbody>
+            <tr>
+              <td class=3D"display_block_on_small_screens" align=3D"center"=
+ style=3D"font-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; wor=
+d-break:break-word; padding:8px 5px; line-height:1; vertical-align:middle" =
+valign=3D"middle">
+                <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC0=
+4/MWxgVNGs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Tr-3qgz0W8wLKSR6lZ3p4N1tc7YT7240=
+2W8zt7fz2g9N40W1k7lKN9h5RM-W4KSNyD39nbSRVJMcS92xDWwMW8BJb9M1qStCxN2ntF_WGh0=
+PKW783T8Z7YF9ntW7Vdrv46Nm7MdW6ZM3Dn3lDP5VW2cy16R23TVhCW62wz593ZMB4nW5T8KPR8=
+nWm5NW4BhQLW33pRv0W4YlMyN31sVwLW2WLwZv3n0dTmW8D5kQ_2H3fdlW5FT5DK8-FpJ7W2JpD=
+855Fs339N429-cYJ1kx-MnXWL_JbRyWW8bYDbP17724MW1Zjcfx6rMq4qW6MKtXz7vr4FGW6jc0=
+lS5bNbLdW2g7B945cWvgSVTfkt98p7S40W2Xgv336yflr8f3rRPJv04" style=3D"color:#00=
+a4bd; text-decoration:none !important" data-hs-link-id=3D"0" data-hs-link-i=
+d-v2=3D"rJmKoOj6" target=3D"_blank"><img src=3D"https://events.tavily.com/h=
+s/hsstatic/TemplateAssets/static-1.262/img/hs_default_template_images/modul=
+es/Follow+Me+-+Email/youtube_circle_black.png" alt=3D"YouTube" height=3D"25=
+" style=3D"outline:none; text-decoration:none; border:none; width:auto!impo=
+rtant; height:25px!important; vertical-align:middle" valign=3D"middle" widt=
+h=3D"auto">
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td><td class=3D"social-network-cell" align=3D"center" style=3D"font=
+-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:break-=
+word">
+        <table role=3D"presentation" align=3D"center" style=3D"width: auto;=
+ text-align: center; margin: 0 auto; " class=3D"hs_cos_wrapper_type_social_=
+module_single">
+          <tbody>
+            <tr>
+              <td class=3D"display_block_on_small_screens" align=3D"center"=
+ style=3D"font-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; wor=
+d-break:break-word; padding:8px 5px; line-height:1; vertical-align:middle" =
+valign=3D"middle">
+                <a href=3D"https://events.tavily.com/e3t/Ctc/DQ+113/d5kNrC0=
+4/MWxgVNGs2Q1W2S7lK799dnwvW5DT7xy5T5HflN6G5Trn3qgz0W7lCdLW6lZ3nNW2GF72f32_0=
+JXW2T1g2G5pZqtVVGRmWC5D2XzsW1hQbB61zmkkWW3yPq9j72n6DYW5-rbfT8MpBT7W7Qbrsm8F=
+00rRW4X9y029cGktgVFMq6s95JZShVMMtfp15cJhXW5bvdbF63RJwWW9cPMC38YkCllVj5tdt5S=
+vTv1W5Sk3_g7zlgwNW8n4Hyv2_9GnMW3-gc6371XNl8W7Dw_mg2RwvB0W1yLVWW1XXpZPN7Y8j-=
+XC9kKhW8gQ9lb84wpX-N8T7MwfbwGdCW4jLj4d5P90grW442dkj91V17RMHNPYdNt3wHf39wXHd=
+04" style=3D"color:#00a4bd; text-decoration:none !important" data-hs-link-i=
+d=3D"0" data-hs-link-id-v2=3D"uxd6MpRt" target=3D"_blank"><img src=3D"https=
+://events.tavily.com/hs/hsstatic/TemplateAssets/static-1.262/img/hs_default=
+_template_images/modules/Follow+Me+-+Email/website_circle_black.png" alt=3D=
+"Website" height=3D"25" style=3D"outline:none; text-decoration:none; border=
+:none; width:auto!important; height:25px!important; vertical-align:middle" =
+valign=3D"middle" width=3D"auto">
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  </tbody>
+</table>
+</div></td></tr></tbody></table>
+  <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" width=3D=
+"100%" class=3D"" style=3D""><tbody><tr><td class=3D"hs_padded" style=3D"fo=
+nt-family:Arial, sans-serif; font-size:15px; color:#1f1e1e; word-break:brea=
+k-word; padding:10px 20px"><div id=3D"hs_cos_wrapper_module-1-0-8" class=3D=
+"hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style=3D"=
+color: inherit; font-size: inherit; line-height: inherit;" data-hs-cos-gene=
+ral-type=3D"widget" data-hs-cos-type=3D"module"><table role=3D"presentation=
+" class=3D"hse-footer hse-secondary" width=3D"100%" cellpadding=3D"0" cells=
+pacing=3D"0" style=3D"font-family:Arial, sans-serif; font-size:12px; line-h=
+eight:135%; color:#23496d; margin-bottom:0; padding:0">
+  <tbody>
+    <tr>
+      <td align=3D"center" valign=3D"top" style=3D"font-family:Arial, sans-=
+serif; font-size:15px; color:#1f1e1e; word-break:break-word; text-align:cen=
+ter; margin-bottom:0; line-height:135%; padding:10px 20px">
+        <p style=3D"font-family:Arial, sans-serif;font-size:12px;font-weigh=
+t:normal;text-decoration:none;font-style:normal;color:#23496d">
+          Tavily, 1350 Broadway, New York, New York 10018, United States
+        </p>
+        <p>
+          <a data-unsubscribe=3D"true" href=3D"https://events.tavily.com/hs=
+/preferences-center/en/direct?data=3DW2nXS-N30h-MzW3T4znz3H5J-9W47hNVJ3z98L=
+pW2KwFRv3GRFSSW2Kx4mC1ZdTjQW1Z5Svy3j4jSLW41DtwR3F8M8BW3483y42-rjP6W3QQVbz4f=
+M8ytW1LzNTc238-h9W1XmLTG1Sl48lW47Wdh532GM5tW2YFKSm3zd3QgW38B1yR3g94DpW1Xp04=
+61BMPH_W1Lv7tZ4crkWQW4rFzMG3K4FbnW47MgyY1Vy98rW4fhbkV4m8NPtW2TxXrp3Fg91yW20=
+Xq6z25nljjW4pyfGY3K73P_W4kqFXj4phxPVW2KrRVp3XZ-4XW1X9kFQ2FDprRW3V_qYd3jcWzc=
+W3H36Lf4mGkHqW4hGMrD2TrtYCW4tl37j1QtMWYW1ZdSym3SQdTwW21lNTc1BF2-2W23mmb_2WF=
+2jzW3BLKNq3jqclWW2zKRK12xKd7BW1QDfWv3bfhcFW32JpXH3BYrvrW2HVP2J3Vw-_-W3j121S=
+3yMFGgW43QfXj2Rg8znW3F0Tg73BWrHQW4pb-X61LH9kTW3M2jz22CFWTgW1QlLhS4tD5yBW4kv=
+QGP49tbskW343-ts2HsXkXW2sR5bb2t2x8VW2Wsvm11Z4yJ_W2FCFWP3QP8S5W1Q0Q7s3NWb0wW=
+2WxH4Y3_DJXnW2zKtzl1_p3jnW3R6Zq-3K4CJyW36k0Wt3zjGDmW3CfCpl4prWpBW2qz78q45Y5=
+9qW30nXFD2zz4LjW3__9jd4cqWmXW4mBdlY3ZwdP9W2p6ctp327srZf2YlTw304&amp;utm_cam=
+paign=3D51929716-FinServ%20Industry&amp;utm_source=3Dhs_email&amp;utm_mediu=
+m=3Demail&amp;utm_content=3D434854787&amp;_hsenc=3Dp2ANqtz--gmcuZUDYBcisC5S=
+8kutFdHVI8tl5IH4Y8YzDOnwUi5sXR5LxirFMQaLLOKUuwmc8nJzubV2z2zt0ARKyQlhTwc897Z=
+g&amp;_hsmi=3D434854787" style=3D"font-family:Helvetica,Arial,sans-serif; f=
+ont-size:12px; color:#00a4bd; font-weight:normal; text-decoration:underline=
+; font-style:normal" data-hs-link-id=3D"0" data-hs-link-id-v2=3D"SFRZzEXk" =
+target=3D"_blank">Unsubscribe</a>
+          <a data-unsubscribe=3D"true" href=3D"https://events.tavily.com/hs=
+/preferences-center/en/page?data=3DW2nXS-N30h-MzW3T4znz3H5J-9W47hNVJ3z98LpW=
+2KwFRv3GRFSSW2Kx4mC1ZdTjQW1Z5Svy3j4jSLW41DtwR3F8M8BW3483y42-rjP6W3QQVbz4fM8=
+ytW1LzNTc238-h9W1XmLTG1Sl48lW47Wdh532GM5tW2YFKSm3zd3QgW38B1yR3g94DpW1Xp0461=
+BMPH_W1Lv7tZ4crkWQW4rFzMG3K4FbnW47MgyY1Vy98rW4fhbkV4m8NPtW2TxXrp3Fg91yW20Xq=
+6z25nljjW4pyfGY3K73P_W4kqFXj4phxPVW2KrRVp3XZ-4XW1X9kFQ2FDprRW3V_qYd3jcWzcW3=
+H36Lf4mGkHqW4hGMrD2TrtYCW4tl37j1QtMWYW1ZdSym3SQdTwW21lNTc1BF2-2W23mmb_2WF2j=
+zW3BLKNq3jqclWW2zKRK12xKd7BW1QDfWv3bfhcFW32JpXH3BYrvrW2HVP2J3Vw-_-W3j121S3y=
+MFGgW43QfXj2Rg8znW3F0Tg73BWrHQW4pb-X61LH9kTW3M2jz22CFWTgW1QlLhS4tD5yBW4kvQG=
+P49tbskW343-ts2HsXkXW2sR5bb2t2x8VW2Wsvm11Z4yJ_W2FCFWP3QP8S5W1Q0Q7s3NWb0wW2W=
+xH4Y3_DJXnW2zKtzl1_p3jnW3R6Zq-3K4CJyW36k0Wt3zjGDmW3CfCpl4prWpBW2qz78q45Y59q=
+W30nXFD2zz4LjW3__9jd4cqWmXW4mBdlY3ZwdP9W2p6ctp327srZf2YlTw304&amp;utm_campa=
+ign=3D51929716-FinServ%20Industry&amp;utm_source=3Dhs_email&amp;utm_medium=
+=3Demail&amp;utm_content=3D434854787&amp;_hsenc=3Dp2ANqtz--gmcuZUDYBcisC5S8=
+kutFdHVI8tl5IH4Y8YzDOnwUi5sXR5LxirFMQaLLOKUuwmc8nJzubV2z2zt0ARKyQlhTwc897Zg=
+&amp;_hsmi=3D434854787" style=3D"font-family:Helvetica,Arial,sans-serif; fo=
+nt-size:12px; color:#00a4bd; font-weight:normal; text-decoration:underline;=
+ font-style:normal" data-hs-link-id=3D"0" data-hs-link-id-v2=3D"qjPJqCop" t=
+arget=3D"_blank">Manage preferences</a>
+        </p>
+      </td>
+    </tr>
+  </tbody>
+</table></div></td></tr></tbody></table>
+</div>
+<!--[if gte mso 9]></table><![endif]-->
+<!--[if (mso)|(IE)]></td><![endif]-->
+    <!--[if (mso)|(IE)]></tr></table><![endif]-->
+    </div>
+  =20
+  </div></div>
+          </td>
+        </tr>
+      </tbody></table>
+    </div>
+ =20
+<img src=3D"https://events.tavily.com/e3t/Cto/DQ+113/d5kNrC04/MWxgVNGs2Q1W2=
+S7lK799dnwvW5DT7xy5T5HflW6G5Tb93D7Ds11p2" alt=3D"" width=3D"1" height=3D"1"=
+ border=3D"0" style=3D"display:none!important;min-height:1px!important;widt=
+h:1px!important;border-width:0!important;margin-top:0!important;margin-bott=
+om:0!important;margin-right:0!important;margin-left:0!important;padding-top=
+:0!important;padding-bottom:0!important;padding-right:0!important;padding-l=
+eft:0!important"></body></html>
+------=_Part_739236_1197917291.1787603466164--
+

@@ -1,0 +1,79 @@
+{
+  "date": "2026-09-07",
+  "decision": "candidate_not_adopted",
+  "scope": "information-only trial on three existing pinned read messages",
+  "production_path_changed": false,
+  "outlook": {
+    "reference_integrity_verified": true,
+    "independent_reference": "existing_original_eml",
+    "account_matches": true,
+    "identity_matches": true,
+    "subject_matches": true,
+    "from_address_matches": true,
+    "to_address_available_and_matches": true,
+    "to_cc_grouping_coverage": "one_recipient_no_cc_only",
+    "displayed_date_matches_to_minute": true,
+    "body_stable": true,
+    "offline_render": true,
+    "scripts_disabled": true,
+    "reference_visible_characters": 488,
+    "web_visible_characters": 490,
+    "captured_html_visible_characters": 490,
+    "reference_visible_matches_web": false,
+    "captured_html_visible_matches_reference": false,
+    "reference_links": 4,
+    "captured_links": 4,
+    "all_reference_links_preserved": true,
+    "removed_characters": 0,
+    "added_code_points": [
+      57619,
+      32
+    ],
+    "provider_icons_removed_in_comparison": 1,
+    "visible_text_matches_after_icon_filter": true,
+    "reference_attachments": 0,
+    "script_browser_calls": 3,
+    "elapsed_ms": 23108
+  },
+  "gmail": {
+    "independent_reference": null,
+    "account_matches": true,
+    "identity_matches": true,
+    "body_stable": true,
+    "body_characters": 787,
+    "detail_fields": [
+      "from:",
+      "reply-to:",
+      "to:",
+      "date:",
+      "subject:",
+      "mailed-by:",
+      "security:"
+    ],
+    "subject_detail_matches_header": true,
+    "details_stable": true,
+    "detail_expansions": 1,
+    "script_browser_calls": 4,
+    "elapsed_ms": 23177
+  },
+  "qq_mail": {
+    "independent_reference": null,
+    "account_matches": true,
+    "identity_matches": true,
+    "subject_present": true,
+    "body_characters": 418,
+    "body_html_characters": 26443,
+    "read_state": "read",
+    "attachment_inventory_complete": false,
+    "original_export_invoked": false,
+    "script_browser_calls": 5,
+    "elapsed_ms": 14879
+  },
+  "limitations": [
+    "No live attachment download or complete inventory qualification",
+    "No new unread selection or read-state mutation trial",
+    "Only Outlook has an independent EML reference",
+    "No complex quoted thread or recipient grouping coverage",
+    "Elapsed times include setup/navigation and capture but exclude cleanup; flows differ from prior EML collection and do not establish speedup"
+  ]
+}

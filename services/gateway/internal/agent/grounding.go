@@ -70,6 +70,9 @@ func groundedSummary(goal, fallback string, calls []app.ToolCall) string {
 }
 
 func groundedSummaryWithStrategy(goal, fallback string, calls []app.ToolCall) (string, string) {
+	if grounded, ok := groundedEmailReadSummary(calls); ok {
+		return grounded, strategyGroundedResult
+	}
 	if grounded, ok := groundedLocalMindTaskSummary(calls); ok {
 		return grounded, strategyLocalMindTask
 	}

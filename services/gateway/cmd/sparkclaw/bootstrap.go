@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/happyapproval"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
@@ -20,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -29,6 +31,7 @@ import (
 
 type gatewayServices struct {
 	server            *gateway.Server
+	emailManagement   *emailmanagement.Service
 	connectors        *connectorAssembly
 	reminderScheduler *reminder.Scheduler
 	mcpManager        *mcpintegration.Manager
@@ -46,6 +49,7 @@ func newGatewayServices(
 	traces *trace.Writer,
 	transcriber speech.Transcriber,
 	storeRuntime *store.Runtime,
+	models modelrouter.Router,
 ) (*gatewayServices, error) {
 	integrationRuns := integrationrun.New()
 	tools.WithIntegrationRuns(integrationRuns)
@@ -77,7 +81,13 @@ func newGatewayServices(
 		emailRunner,
 		emailRunner,
 	)
+	emailController.WithCaptureWorkspaceRoot(cfg.Workspaces.DefaultRoot)
+	emailManagement, err := emailmanagement.New(st, emailController, emailRegistry, emailmanagement.NewModelAnalyzer(models), tools, emailmanagement.Options{WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	if err != nil {
+		return nil, fmt.Errorf("assemble email management: %w", err)
+	}
 	tools.WithEmailSender(emailController)
+	tools.WithEmailReader(emailController)
 	runtime = runtime.WithEmailAdmission(emailController)
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
@@ -135,6 +145,7 @@ func newGatewayServices(
 			gateway.WithMCPController(mcpManager),
 			gateway.WithIntegrationController(integrations),
 			gateway.WithEmailController(emailController),
+			gateway.WithEmailManagement(emailManagement),
 			gateway.WithBrowserControlController(browserControl),
 			gateway.WithISCPPairing(iscpPairing),
 			gateway.WithExternalApprovalResolver(happyApprovals),
@@ -144,6 +155,7 @@ func newGatewayServices(
 			gateway.WithJingSiRuntime(jingsiRuntime),
 		),
 		connectors:        connectors,
+		emailManagement:   emailManagement,
 		reminderScheduler: reminderScheduler,
 		mcpManager:        mcpManager,
 		happyApprovals:    happyApprovals,
@@ -184,6 +196,9 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 	if err := s.connectors.registry.Start(ctx); err != nil {
 		return err
 	}
+	if s.emailManagement != nil {
+		s.emailManagement.Start(ctx)
+	}
 	if s.reminderScheduler != nil {
 		go s.reminderScheduler.Run(ctx)
 	}
@@ -198,6 +213,13 @@ func (s *gatewayServices) Start(ctx context.Context) error {
 }
 
 func (s *gatewayServices) Close() {
+	if s.emailManagement != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := s.emailManagement.Close(ctx); err != nil {
+			slog.Warn("email management shutdown timed out")
+		}
+		cancel()
+	}
 	if s.browserControl != nil {
 		if err := s.browserControl.Close(); err != nil {
 			slog.Warn("browser control shutdown failed", "error", err)

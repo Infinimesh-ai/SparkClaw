@@ -39,8 +39,15 @@ func TestRegistryRejectsAmbiguousAliasesAndClonesRegistrations(t *testing.T) {
 		return Script{ID: id, Revision: 1, Timeout: time.Second}
 	}
 	providers := []Provider{
-		{ID: app.EmailProviderGmail, DisplayName: "Gmail", Aliases: []string{"shared"}, Probe: script("gmail-probe"), Send: script("gmail-send")},
-		{ID: app.EmailProviderOutlook, DisplayName: "Outlook", Aliases: []string{"shared"}, Probe: script("outlook-probe"), Send: script("outlook-send")},
+		{ID: app.EmailProviderGmail, DisplayName: "Gmail", Aliases: []string{"shared"}, Probe: script("gmail-probe"), Send: script("gmail-send"), Read: script("gmail-read")},
+		{ID: app.EmailProviderOutlook, DisplayName: "Outlook", Aliases: []string{"shared"}, Probe: script("outlook-probe"), Send: script("outlook-send"), Read: script("outlook-read")},
+	}
+	for i := range providers {
+		providers[i].Discover = script(providers[i].ID + "-discover")
+		providers[i].Capture = script(providers[i].ID + "-capture")
+		providers[i].EnumerateThread = script(providers[i].ID + "-enumerate")
+		providers[i].CollectPage = script(providers[i].ID + "-collect-page")
+		providers[i].MarkRead = script(providers[i].ID + "-mark-read")
 	}
 	if _, err := NewRegistry(providers); err == nil {
 		t.Fatal("ambiguous provider alias was accepted")
@@ -75,7 +82,7 @@ func TestDefaultRegistryIsGeneratedFromTheControllerContract(t *testing.T) {
 		if provider.ID != wantIDs[index] || provider.DisplayName != app.EmailProviderDisplayName(provider.ID) {
 			t.Fatalf("provider %d = %#v, want %s", index, provider, wantIDs[index])
 		}
-		for operation, script := range map[string]Script{"probe": provider.Probe, "send": provider.Send} {
+		for operation, script := range map[string]Script{"probe": provider.Probe, "send": provider.Send, "read": provider.Read, "discover": provider.Discover, "capture": provider.Capture, "enumerate_thread": provider.EnumerateThread, "mark_read": provider.MarkRead, "collect_page": provider.CollectPage} {
 			index := slices.IndexFunc(contract.Scripts, func(entry providerScriptContractEntry) bool {
 				return entry.Provider == provider.ID && entry.Operation == operation
 			})
@@ -88,7 +95,7 @@ func TestDefaultRegistryIsGeneratedFromTheControllerContract(t *testing.T) {
 			}
 		}
 	}
-	if len(contract.Scripts) != 2*len(wantIDs) {
+	if len(contract.Scripts) != 8*len(wantIDs) {
 		t.Fatalf("contract lists %d scripts for %d providers", len(contract.Scripts), len(wantIDs))
 	}
 }

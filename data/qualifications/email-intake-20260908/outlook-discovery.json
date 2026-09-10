@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "provider": "outlook",
+  "status": "listed",
+  "account_address": "zhishix.ai@outlook.com",
+  "candidates": [],
+  "coverage": {
+    "scope": "inbox_unread",
+    "scan_complete": false,
+    "scanned_rows": 1,
+    "unsupported_rows": 1,
+    "limited": true
+  },
+  "observed_at": "2026-09-08T06:33:26.019Z"
+}

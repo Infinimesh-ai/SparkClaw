@@ -1,0 +1,180 @@
+{
+  "messages": [
+    {
+      "id": "1a07fa2d841b9c8c",
+      "sender": "hsrr05901@gmail.com"
+    }
+  ],
+  "controls": [
+    {
+      "text": "",
+      "aria": "Main menu",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Advanced search options",
+      "tooltip": "Show search options"
+    },
+    {
+      "text": "",
+      "aria": "Clear search",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Search mail",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Support",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Settings",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Ask Gemini",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Google apps",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Google Account: Srr H  \n(hsrr05901@gmail.com), Google membership",
+      "tooltip": null
+    },
+    {
+      "text": "Compose",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "More ",
+      "aria": "More labels",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Create new label",
+      "tooltip": "Create new label"
+    },
+    {
+      "text": "",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": " ",
+      "aria": "More email options",
+      "tooltip": null
+    },
+    {
+      "text": " ",
+      "aria": "Newer",
+      "tooltip": "Newer"
+    },
+    {
+      "text": " ",
+      "aria": "Older",
+      "tooltip": "Older"
+    },
+    {
+      "text": "",
+      "aria": "Print all",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "In new window",
+      "tooltip": null
+    },
+    {
+      "text": "Inbox",
+      "aria": "Search for all messages with label Inbox",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Remove label Inbox from this conversation",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Add reaction",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Reply",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "More message options",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Show details",
+      "tooltip": "Show details"
+    },
+    {
+      "text": "Add to Drive",
+      "aria": null,
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Download attachment sparkclaw-验证.txt",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Add attachment to Drive sparkclaw-验证.txt",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Add reaction",
+      "tooltip": null
+    },
+    {
+      "text": "",
+      "aria": "Hide side panel",
+      "tooltip": null
+    }
+  ]
+}

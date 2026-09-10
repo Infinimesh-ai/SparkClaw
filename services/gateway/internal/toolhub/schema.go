@@ -187,7 +187,7 @@ func validateSchemaValue(value any, schema map[string]any, path string) error {
 func validateObject(object map[string]any, schema map[string]any, path string) error {
 	props := schemaMap(schema["properties"])
 	for _, name := range stringList(schema["required"]) {
-		if value, ok := object[name]; !ok || value == nil {
+		if value, ok := object[name]; !ok || value == nil && !slices.Contains(schemaTypes(props[name]["type"]), "null") {
 			return fmt.Errorf("%s requires %q", path, name)
 		}
 	}

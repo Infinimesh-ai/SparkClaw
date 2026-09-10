@@ -1,0 +1,25 @@
+{
+  "provider": "qq_mail",
+  "account_matches": true,
+  "identity_matches": true,
+  "acquisition": "provider_export_response",
+  "elapsed_ms": 22432,
+  "status": "captured",
+  "events": [
+    {
+      "allowed": true,
+      "origin": "https://wx.mail.qq.com",
+      "protocol": "https:"
+    }
+  ],
+  "response": {
+    "status": 200,
+    "type": "application/octet-stream",
+    "redirected": false,
+    "origin": "https://wx.mail.qq.com"
+  },
+  "bytes": 38146,
+  "sha256": "375a6c6e7348620c1a310b344e5d441049625e19135119859fa8101076211988",
+  "attachment_count": 0,
+  "subject_matches": true
+}

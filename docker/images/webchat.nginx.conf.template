@@ -34,6 +34,11 @@ server {
     proxy_read_timeout 1h;
     proxy_send_timeout 1h;
     proxy_pass http://gateway:18789$request_uri;
+
+    # JSON escaping can expand a valid 200 KiB email draft beyond 1 MiB.
+    location /api/email/drafts {
+      client_max_body_size 2m;
+    }
   }
 
   location = /mcp {

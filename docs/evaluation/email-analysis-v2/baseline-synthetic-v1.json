@@ -1,0 +1,1238 @@
+{
+  "ambiguous_without_fallback": 2,
+  "clear_automatic_coverage": 0.9777777777777777,
+  "confusion_matrix": {
+    "interaction": {
+      "interaction": 29,
+      "notification": 1
+    },
+    "notification": {
+      "error": 2,
+      "notification": 58
+    },
+    "unknown": {
+      "interaction": 2,
+      "unknown": 28
+    }
+  },
+  "corpus": "synthetic-v1",
+  "correct_verification_codes": 28,
+  "false_code_extractions": 0,
+  "model_errors": 2,
+  "model_profile": "sparkclaw-product-v1",
+  "precision": {
+    "interaction": 0.9354838709677419,
+    "notification": 0.9830508474576272
+  },
+  "recall": {
+    "interaction": 0.9666666666666667,
+    "notification": 0.9666666666666667
+  },
+  "release_gates_passed": false,
+  "required_interaction_to_notification_rate": 0.03333333333333333,
+  "results": [
+    {
+      "id": "interaction-01-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-01-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-02-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-02-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-03-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-03-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-04-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-04-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-05-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-05-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-06-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-06-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-07-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-07-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-08-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-08-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-09-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-09-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-10-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-10-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-11-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-11-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-12-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-12-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-13-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-13-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-14-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-14-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-15-en",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "interaction-15-zh",
+      "group": "interaction",
+      "expected": "interaction",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-01-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-01-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-02-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-02-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-03-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-03-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-04-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-04-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-05-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-05-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-06-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-06-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-07-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-07-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-08-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-08-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-09-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-09-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-10-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-10-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-11-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-11-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-12-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-12-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-13-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-13-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-14-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-14-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-15-en",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "notification-15-zh",
+      "group": "notification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-01-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-01-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-02-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-02-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-03-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-03-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-04-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-04-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-05-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-05-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-06-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-06-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-07-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-07-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-08-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-08-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-09-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-09-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-10-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-10-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "interaction",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-11-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-11-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-12-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-12-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-13-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-13-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-14-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-14-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-15-en",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "ambiguous-15-zh",
+      "group": "ambiguous",
+      "expected": "unknown",
+      "category": "unknown",
+      "fallback": true,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-01-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-01-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-02-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-02-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-03-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-03-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-04-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-04-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-05-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-05-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-06-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-06-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-07-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-07-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-08-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "error",
+      "fallback": true,
+      "code_correct": false,
+      "false_code": false,
+      "model": "sparkclaw-fast",
+      "error": "email_processing_failed"
+    },
+    {
+      "id": "verification-08-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "error",
+      "fallback": true,
+      "code_correct": false,
+      "false_code": false,
+      "model": "sparkclaw-fast",
+      "error": "email_processing_failed"
+    },
+    {
+      "id": "verification-09-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-09-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-10-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-10-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-11-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-11-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-12-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-12-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-13-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-13-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-14-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-14-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-15-en",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    },
+    {
+      "id": "verification-15-zh",
+      "group": "verification",
+      "expected": "notification",
+      "category": "notification",
+      "fallback": false,
+      "code_correct": true,
+      "false_code": false,
+      "model": "sparkclaw-fast"
+    }
+  ],
+  "sample_count": 120
+}

@@ -1,0 +1,6 @@
+{
+  "recipient": true,
+  "subject": true,
+  "body": true,
+  "attachment": true
+}

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import {isManagedSend,sendManagedMail} from "./lib/managed-send.mjs";
 import { createHash } from "node:crypto";
 import {
   QQMailScriptError,
@@ -192,6 +193,7 @@ function normalizedSendError(error) {
 }
 
 export async function sendQQMail(rawInput, runtime = {}) {
+  if(isManagedSend(rawInput))return sendManagedMail(rawInput,"qq_mail",runtime);
   const input = validateInput(rawInput);
   let sendClickAttempted = false;
   try {

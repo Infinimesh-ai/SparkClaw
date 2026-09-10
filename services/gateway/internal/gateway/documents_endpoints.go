@@ -259,6 +259,10 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid document path"))
 		return
 	}
+	if clean == "email" || strings.HasPrefix(clean, "email"+string(filepath.Separator)) {
+		writeError(w, http.StatusForbidden, errors.New("email sources require the owner-scoped email file endpoint"))
+		return
+	}
 	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -269,8 +273,41 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("document path escapes workspace"))
 		return
 	}
+	resolvedRoot, rootErr := filepath.EvalSymlinks(workspaceRoot)
+	resolvedPath, pathErr := filepath.EvalSymlinks(path)
+	if rootErr != nil || pathErr != nil {
+		writeError(w, http.StatusNotFound, errors.New("document was not found"))
+		return
+	}
+	if !pathWithinRoot(resolvedRoot, resolvedPath) {
+		writeError(w, http.StatusBadRequest, errors.New("document path escapes workspace"))
+		return
+	}
+	// Check the default source root as well as this session's root. A session
+	// can itself be rooted inside email, or an ordinary upload can be an alias
+	// into it. Neither may bypass mail ownership and committed-manifest checks.
+	for _, root := range []string{s.cfg.Workspaces.DefaultRoot, workspaceRoot} {
+		if documentResolvesIntoEmail(root, path, resolvedPath) {
+			writeError(w, http.StatusForbidden, errors.New("email sources require the owner-scoped email file endpoint"))
+			return
+		}
+	}
 	w.Header().Set("Cache-Control", "private, max-age=300")
-	http.ServeFile(w, r, path)
+	http.ServeFile(w, r, resolvedPath)
+}
+
+func documentResolvesIntoEmail(workspaceRoot, requestedPath, resolvedPath string) bool {
+	protected := filepath.Join(workspaceRoot, "email")
+	if pathWithinRoot(protected, requestedPath) || pathWithinRoot(protected, resolvedPath) {
+		return true
+	}
+	if realRoot, err := filepath.EvalSymlinks(workspaceRoot); err == nil && pathWithinRoot(filepath.Join(realRoot, "email"), resolvedPath) {
+		return true
+	}
+	if realEmail, err := filepath.EvalSymlinks(protected); err == nil && pathWithinRoot(realEmail, resolvedPath) {
+		return true
+	}
+	return false
 }
 
 func (s *Server) workspaceRootForSession(ctx context.Context, sessionID string) (string, error) {

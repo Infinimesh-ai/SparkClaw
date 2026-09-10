@@ -1,0 +1,15 @@
+{
+  "provider": "qq_mail",
+  "sample": "existing_pinned_read_message",
+  "eml_reference": false,
+  "identity_matches": true,
+  "account_matches": true,
+  "subject_present": true,
+  "body_characters": 418,
+  "body_html_characters": 26443,
+  "read_state": "read",
+  "attachment_inventory_complete": false,
+  "operations": 5,
+  "elapsed_ms": 14879,
+  "original_export_invoked": false
+}

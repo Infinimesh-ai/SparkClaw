@@ -87,7 +87,7 @@ export class SparkClawBrowserBridge {
         this.#clearPending(sender.tab.id);
         this.#releaseTab(sender.tab.id);
         respond({ success: true });
-        void this.focus.closeTaskTabs([sender.tab.id]);
+        void this.focus.closeTaskTabs([sender.tab.id]).catch(() => this.#scheduleStaleTaskCleanup(1000));
         return false;
       case "getConnectionStatus":
         if (!this.#isBridgePage(sender, "status.html")) {
@@ -106,7 +106,7 @@ export class SparkClawBrowserBridge {
             connectedTabIds: group.connectedTabIds(),
           })),
         });
-        void cleanupStaleTaskTabs(this.chrome, this.focus, this.ownedGroups, this.#protectedTaskTabIDs());
+        this.#scheduleStaleTaskCleanup(0);
         return false;
       case "disconnect":
         if (!this.#isBridgePage(sender, "status.html")) {
@@ -143,7 +143,7 @@ export class SparkClawBrowserBridge {
       pending.timer = null;
       if (!this.#clearPending(tabId, pending)) return;
       this.#releaseTab(tabId);
-      void this.focus.closeTaskTabs([tabId]);
+      void this.focus.closeTaskTabs([tabId]).catch(() => this.#scheduleStaleTaskCleanup(1000));
     }, this.pendingConnectionTTLMS);
     await this.focus.restoreAfterConnectionPage(sender.tab);
   }
@@ -188,7 +188,10 @@ export class SparkClawBrowserBridge {
       await group.completeHandoff(tabId);
       this.#focusNativeHandoffWindow();
     };
-    group.onclose = () => this.connections.delete(id);
+    group.onclose = () => {
+      this.connections.delete(id);
+      this.#scheduleStaleTaskCleanup(1000);
+    };
     this.connections.set(id, group);
     relay.attachInitialTab(selectorTab);
     relay.didInitialize();
@@ -214,10 +217,14 @@ export class SparkClawBrowserBridge {
     return tabIDs;
   }
 
-  #scheduleStaleTaskCleanup(delayMS) {
-    this.setTimeout(() => {
-      void cleanupStaleTaskTabs(this.chrome, this.focus, this.ownedGroups, this.#protectedTaskTabIDs());
+  #scheduleStaleTaskCleanup(delayMS, retries = 2) {
+    const timer = this.setTimeout(() => {
+      void cleanupStaleTaskTabs(this.chrome, this.focus, this.ownedGroups,
+        () => this.#protectedTaskTabIDs()).catch(() => {
+        if (retries > 0) this.#scheduleStaleTaskCleanup(10_000, retries - 1);
+      });
     }, delayMS);
+    timer?.unref?.();
   }
 
   #connectNativeHost() {
@@ -304,6 +311,10 @@ export class TaskTabGroup {
     this.focus = focus;
     this.ownedGroups = ownedGroups;
     this.groupID = null;
+    this.groupingQueue = Promise.resolve();
+    this.groupingTabs = new Set();
+    this.groupChanges = new Map();
+    this.closed = false;
     this.createdGroupIDs = new Set();
     this.ownedTabs = new Set([initialTab.id]);
     this.handoffTabs = new Set();
@@ -316,10 +327,12 @@ export class TaskTabGroup {
     this.chrome.tabs.onRemoved.addListener(this.onRemoved);
     const relayTabAllowed = this.relay.ontaballowed;
     this.relay.ontaballowed = (tabId) => {
+      if (this.closed) return;
       relayTabAllowed?.(tabId);
       this.ownedTabs.add(tabId);
     };
     this.relay.ontabattached = (tabId) => {
+      if (this.closed) return;
       this.ownedTabs.add(tabId);
       void this.#addToGroup(tabId);
     };
@@ -327,7 +340,7 @@ export class TaskTabGroup {
   }
 
   connectedTabIds() {
-    return this.relay.connectedTabIds();
+    return [...new Set([...this.relay.connectedTabIds(), ...this.ownedTabs])];
   }
 
   releaseTab(tabId) {
@@ -353,22 +366,51 @@ export class TaskTabGroup {
     }
   }
 
-  async #addToGroup(tabId, createGroup = false) {
+  #addToGroup(tabId, createGroup = false) {
+    // Chrome can emit groupId changes before tabs.group resolves. Serialize
+    // creation and reconcile those events only after the assigned ID is known.
+    const pending = this.groupingQueue.then(() => this.#groupTab(tabId, createGroup));
+    this.groupingQueue = pending.catch(() => {});
+    return this.groupingQueue;
+  }
+
+  async #groupTab(tabId, createGroup) {
+    if (this.closed || !this.ownedTabs.has(tabId)) return;
+    this.groupingTabs.add(tabId);
     try {
+      let assignedGroup;
       if (this.groupID === null || createGroup) {
-        this.groupID = await this.chrome.tabs.group({ tabIds: [tabId] });
-        this.createdGroupIDs.add(this.groupID);
-        await this.ownedGroups.add(this.groupID);
-        await this.chrome.tabGroups.update(this.groupID, this.style);
+        assignedGroup = await this.chrome.tabs.group({ tabIds: [tabId] });
+        this.groupID = assignedGroup;
+        this.createdGroupIDs.add(assignedGroup);
+        await this.ownedGroups.add(assignedGroup);
+        if (!this.closed) await this.chrome.tabGroups.update(assignedGroup, this.style);
       } else {
-        await this.chrome.tabs.group({ groupId: this.groupID, tabIds: [tabId] });
+        assignedGroup = this.groupID;
+        await this.chrome.tabs.group({ groupId: assignedGroup, tabIds: [tabId] });
+      }
+      // Explicit owner release can race a pending Chrome grouping operation.
+      // Remove our presentation only if the tab still occupies that exact group.
+      if (!this.ownedTabs.has(tabId)) {
+        const tab = await this.chrome.tabs.get(tabId).catch(() => null);
+        if (tab?.groupId === assignedGroup) await ungroupTabs(this.chrome, [tabId]);
+        this.groupChanges.delete(tabId);
       }
     } catch {
       // Grouping is presentation-only; task authorization remains in RelayConnection.
+    } finally {
+      this.groupingTabs.delete(tabId);
+      const observed = this.groupChanges.get(tabId);
+      this.groupChanges.delete(tabId);
+      if (observed !== undefined) await this.#groupChanged(tabId, observed);
     }
   }
 
   async #groupChanged(tabId, groupId) {
+    if (this.groupingTabs.has(tabId)) {
+      this.groupChanges.set(tabId, groupId);
+      return;
+    }
     if (this.groupID === null) return;
     if (this.handoffTabs.has(tabId)) return;
     if (groupId === this.groupID && !this.ownedTabs.has(tabId)) {
@@ -379,16 +421,29 @@ export class TaskTabGroup {
   }
 
   #closed() {
-    this.chrome.tabs.onUpdated.removeListener(this.onUpdated);
-    this.chrome.tabs.onRemoved.removeListener(this.onRemoved);
-    const tabs = [...this.ownedTabs];
-    const groupIDs = [...this.createdGroupIDs];
-    this.ownedTabs.clear();
-    this.handoffTabs.clear();
-    this.createdGroupIDs.clear();
-    if (tabs.length) void this.focus.closeTaskTabs(tabs).then(() => this.ownedGroups.remove(groupIDs));
-    else void this.ownedGroups.remove(groupIDs);
-    this.onclose?.();
+    if (this.closed) return this.cleanupPromise;
+    this.closed = true;
+    this.cleanupPromise = (async () => {
+      // Include IDs returned by a Chrome grouping call that was already in flight.
+      await this.groupingQueue;
+      const tabs = [...this.ownedTabs];
+      const groupIDs = [...this.createdGroupIDs];
+      try {
+        if (tabs.length) await this.focus.closeTaskTabs(tabs, tabId => this.ownedTabs.has(tabId));
+        await this.ownedGroups.remove(groupIDs);
+      } catch {
+        // Keep persisted group ownership so the stale-task sweep can retry.
+      } finally {
+        this.chrome.tabs.onUpdated.removeListener(this.onUpdated);
+        this.chrome.tabs.onRemoved.removeListener(this.onRemoved);
+        this.ownedTabs.clear();
+        this.handoffTabs.clear();
+        this.createdGroupIDs.clear();
+        this.groupChanges.clear();
+        this.onclose?.();
+      }
+    })();
+    return this.cleanupPromise;
   }
 }
 
@@ -547,17 +602,21 @@ export class FocusTracker {
     await this.#restoreWhenReady(connectTab.windowId, connectTab.id);
   }
 
-  async closeTaskTabs(tabIds) {
+  async closeTaskTabs(tabIds, canClose = () => true) {
     const ids = [...new Set(tabIds.filter(Number.isInteger))];
-    if (ids.length === 0) return;
+    if (ids.length === 0) return [];
     for (const tabId of ids) this.allowTaskTab(tabId);
     await this.ready;
     const tabs = await Promise.all(ids.map((tabId) => this.chrome.tabs.get(tabId).catch(() => null)));
     const taskWindows = new Set(tabs.filter((tab) => Number.isInteger(tab?.windowId)).map((tab) => tab.windowId));
     for (const windowId of taskWindows) await this.#restoreOwnerTab(windowId);
-    await closeTaskTabs(this.chrome, ids);
+    // A connection may become active while Chrome's asynchronous queries or
+    // focus restoration are pending. Check ownership again at the actual close.
+    const closing = ids.filter(canClose);
+    await closeTaskTabs(this.chrome, closing);
     for (const windowId of taskWindows) await this.#restoreOwnerTab(windowId);
-    for (const tabId of ids) this.releaseTaskTab(tabId);
+    for (const tabId of closing) this.releaseTaskTab(tabId);
+    return closing;
   }
 
   async #restoreOwnerTab(windowId, excludedTabId) {
@@ -644,29 +703,30 @@ async function openRelayConnection(WebSocketClass, relayURL, timers) {
 }
 
 export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protectedTabIDs = new Set()) {
+  const protectedNow = () => typeof protectedTabIDs === "function" ? protectedTabIDs() : protectedTabIDs;
   const staleTabIDs = new Set();
   const ownedGroupIDs = await ownedGroups.list();
-  const groups = await chromeAPI.tabGroups.query({}).catch(() => []);
-  const staleGroupIDs = [];
+  const groups = await chromeAPI.tabGroups.query({});
+  const staleGroups = new Map();
   for (const group of groups) {
     if (!ownedGroupIDs.has(group.id)) continue;
-    const tabs = await chromeAPI.tabs.query({ groupId: group.id }).catch(() => []);
+    const tabs = await chromeAPI.tabs.query({ groupId: group.id });
     const tabIDs = tabs.map((tab) => tab.id).filter(Number.isInteger);
-    if (tabIDs.some((tabId) => protectedTabIDs.has(tabId))) continue;
+    if (tabIDs.some((tabId) => protectedNow().has(tabId))) continue;
     for (const tabId of tabIDs) staleTabIDs.add(tabId);
-    staleGroupIDs.push(group.id);
+    staleGroups.set(group.id, tabIDs);
   }
-  const tabs = await chromeAPI.tabs.query({}).catch(() => []);
+  const tabs = await chromeAPI.tabs.query({});
   const connectionPrefix = `chrome-extension://${chromeAPI.runtime.id}/connect.html?`;
   for (const tab of tabs) {
     if (Number.isInteger(tab.id) && typeof tab.url === "string" && tab.url.startsWith(connectionPrefix)) {
       staleTabIDs.add(tab.id);
     }
   }
-  for (const tabId of protectedTabIDs) staleTabIDs.delete(tabId);
-  await focus.closeTaskTabs([...staleTabIDs]);
+  const closed = new Set(await focus.closeTaskTabs([...staleTabIDs], tabId => !protectedNow().has(tabId)));
   const liveGroupIDs = new Set(groups.map((group) => group.id));
-  await ownedGroups.remove([...ownedGroupIDs].filter((groupID) => staleGroupIDs.includes(groupID) || !liveGroupIDs.has(groupID)));
+  await ownedGroups.remove([...ownedGroupIDs].filter((groupID) =>
+    !liveGroupIDs.has(groupID) || staleGroups.has(groupID) && staleGroups.get(groupID).every(tabId => closed.has(tabId))));
 }
 
 async function ungroupTabs(chromeAPI, tabIds) {
@@ -675,8 +735,15 @@ async function ungroupTabs(chromeAPI, tabIds) {
 }
 
 async function closeTaskTabs(chromeAPI, tabIds) {
-  await ungroupTabs(chromeAPI, tabIds);
-  await chromeAPI.tabs.remove(tabIds).catch(() => {});
+  if (tabIds.length === 0) return;
+  // Removal also removes empty groups. Ungrouping first would erase ownership
+  // evidence if removal fails, leaving an ordinary-looking orphan mailbox tab.
+  try {
+    await chromeAPI.tabs.remove(tabIds);
+  } catch (error) {
+    const remaining = await Promise.all(tabIds.map(tabId => chromeAPI.tabs.get(tabId).catch(() => null)));
+    if (remaining.some(Boolean)) throw error;
+  }
 }
 
 function uniqueGroupStyle(clientName, groups) {

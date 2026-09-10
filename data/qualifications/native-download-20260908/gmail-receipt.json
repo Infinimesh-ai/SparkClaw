@@ -1,0 +1,11 @@
+{
+  "provider": "gmail",
+  "status": "verified",
+  "acquisition": "playwright_download_saveAs",
+  "bytes": 45731,
+  "sha256": "f6a72d81e490dbad1f216bdb6f281bac72d45a4f5db5b9c39fef5b20aa0a9a14",
+  "reference_exact": true,
+  "subject_matches": true,
+  "attachment_count": 0,
+  "elapsed_ms": 31225
+}

@@ -282,7 +282,11 @@ func (c *HTTPControllerClient) RunScript(ctx context.Context, input RunScriptReq
 		Revision: input.Revision, Input: input.Input, WaitTimeoutMS: input.WaitTimeoutMS,
 	}
 	var result ScriptExecutionResult
-	if err := c.postJSON(ctx, "/v1/run-script", payload, maxControllerResponseBytes, &result); err != nil {
+	maximum := int64(maxControllerResponseBytes)
+	if input.Operation == "collect_page" {
+		maximum = 2 << 20 // bounded page receipts plus the Controller envelope
+	}
+	if err := c.postJSON(ctx, "/v1/run-script", payload, maximum, &result); err != nil {
 		return ScriptExecutionResult{}, err
 	}
 	if result.SchemaVersion != 1 || result.State != "completed" && result.State != "failed" ||

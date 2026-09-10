@@ -1,0 +1,19 @@
+{
+  "offline_render": true,
+  "scripts_disabled": true,
+  "reference_visible_characters": 488,
+  "web_visible_characters": 490,
+  "captured_html_visible_characters": 490,
+  "reference_visible_matches_web": false,
+  "captured_html_visible_matches_reference": false,
+  "reference_links": 4,
+  "captured_links": 4,
+  "all_reference_links_preserved": true,
+  "removed_characters": 0,
+  "added_code_points": [
+    57619,
+    32
+  ],
+  "provider_icons_removed_in_comparison": 1,
+  "visible_text_matches_after_icon_filter": true
+}

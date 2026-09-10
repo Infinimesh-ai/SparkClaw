@@ -15,8 +15,8 @@ func routeTargetsCapability(route app.RouteDecision, capability app.CapabilityID
 }
 
 func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID, request string, route app.RouteDecision) (app.RouteDecision, error) {
-	if route.Slots.Operation != app.RouteOperationSend {
-		return app.RouteDecision{}, errors.New("Email reading is not enabled")
+	if route.Slots.Operation != app.RouteOperationSend && route.Slots.Operation != app.RouteOperationRead {
+		return app.RouteDecision{}, errors.New("Unsupported email operation")
 	}
 	if r.emailAdmission == nil {
 		return app.RouteDecision{}, errors.New("Browser email is not configured")
@@ -25,9 +25,14 @@ func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID,
 	if err != nil {
 		return app.RouteDecision{}, err
 	}
+	scriptRevision := binding.SendScriptRevision
+	revisionFact := app.EmailRouteFactSendScriptRevision
+	if route.Slots.Operation == app.RouteOperationRead {
+		scriptRevision, revisionFact = binding.ReadScriptRevision, app.EmailRouteFactReadScriptRevision
+	}
 	if strings.TrimSpace(binding.Provider) == "" || strings.TrimSpace(binding.Account) == "" ||
 		binding.SettingVersion <= 0 || binding.BrowserCredentialGeneration == 0 || binding.ProbeRevision <= 0 ||
-		binding.SendScriptRevision <= 0 || binding.ValidatedAt.IsZero() {
+		scriptRevision <= 0 || binding.ValidatedAt.IsZero() {
 		return app.RouteDecision{}, errors.New("Email login admission returned an incomplete binding")
 	}
 
@@ -45,9 +50,9 @@ func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID,
 	facts[app.EmailRouteFactSettingVersion] = strconv.FormatInt(binding.SettingVersion, 10)
 	facts[app.EmailRouteFactBrowserCredentialGeneration] = strconv.FormatUint(binding.BrowserCredentialGeneration, 10)
 	facts[app.EmailRouteFactProbeRevision] = strconv.Itoa(binding.ProbeRevision)
-	facts[app.EmailRouteFactSendScriptRevision] = strconv.Itoa(binding.SendScriptRevision)
+	facts[revisionFact] = strconv.Itoa(scriptRevision)
 	facts[app.EmailRouteFactValidatedAt] = binding.ValidatedAt.UTC().Format(time.RFC3339Nano)
-	facts[app.EmailRouteFactInvocationID] = app.NewID("email_send")
+	facts[app.EmailRouteFactInvocationID] = app.NewID("email_" + string(route.Slots.Operation))
 	route.Facts = facts
 	if err := r.capabilities.ValidateDecision(route); err != nil {
 		return app.RouteDecision{}, err
@@ -57,7 +62,7 @@ func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID,
 		Fields: map[string]any{
 			"provider": binding.Provider, "account": binding.Account, "account_hint": accountHint,
 			"setting_version": binding.SettingVersion, "browser_credential_generation": binding.BrowserCredentialGeneration,
-			"probe_revision": binding.ProbeRevision, "send_script_revision": binding.SendScriptRevision,
+			"probe_revision": binding.ProbeRevision, "script_revision": scriptRevision, "operation": string(route.Slots.Operation),
 		},
 	})
 	return route, nil

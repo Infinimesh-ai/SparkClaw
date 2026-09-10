@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "provider": "qq_mail",
+  "invocation_id": "intake-qq_mail-capture-1",
+  "selection": {
+    "account_address": "zhishi-x@qq.com",
+    "provider_selection_id": "ZL0008_~sjNZCmMCLEuE2oAdntk410"
+  },
+  "identity": {
+    "account_address": "zhishi-x@qq.com",
+    "provider_message_id": "ZL0008_~sjNZCmMCLEuE2oAdntk410",
+    "mailbox_id": "mb_b6a884bd4a2b660a14ea81b9a23ac3ab",
+    "mail_id": "mail_cd5f5c080692399b0c114ed34f81d411"
+  },
+  "receipt": {
+    "schema_version": 1,
+    "status": "collected",
+    "provider": "qq_mail",
+    "capture": {
+      "manifest_path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_b6a884bd4a2b660a14ea81b9a23ac3ab/mail_cd5f5c080692399b0c114ed34f81d411/source/cap_e5c6efa8cbf5a3b7f4ec22086226238d/capture.json",
+      "manifest_sha256": "sha256:fed890dd843d8bf977ea9b976bd43e3e34ce12d854e8acb5b9d89603b44a9385",
+      "mailbox_id": "mb_b6a884bd4a2b660a14ea81b9a23ac3ab",
+      "mail_id": "mail_cd5f5c080692399b0c114ed34f81d411",
+      "capture_id": "cap_e5c6efa8cbf5a3b7f4ec22086226238d",
+      "attachments_count": 1,
+      "read_state": "read"
+    }
+  }
+}

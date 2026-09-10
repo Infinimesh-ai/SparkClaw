@@ -288,3 +288,16 @@ func testSocketPath(t *testing.T) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "controller.sock")
 }
+
+func TestPageScriptTransportAllowsBoundedBatchReceiptsOnly(t *testing.T) {
+	for _, operation := range []string{"capture", "collect_page"} {
+		t.Run(operation, func(t *testing.T) {
+			raw, _ := json.Marshal(ScriptExecutionResult{SchemaVersion: 1, State: "completed", ProfileID: "default", Lane: "cli", Provider: "gmail", Operation: operation, ScriptID: "gmail." + operation, Revision: 1, SourceChecksum: "sha256:" + strings.Repeat("a", 64), CredentialGeneration: 1, ControllerGeneration: 1, SessionGeneration: 1, Result: json.RawMessage(`{"receipts":"` + strings.Repeat("x", 100<<10) + `"}`)})
+			client := serveControllerResponse(t, 200, string(raw))
+			_, err := client.RunScript(t.Context(), RunScriptRequest{ProfileID: "default", Provider: "gmail", Operation: operation, ScriptID: "gmail." + operation, Revision: 1, CredentialGeneration: 1, Input: map[string]any{}}, nil)
+			if (err == nil) != (operation == "collect_page") {
+				t.Fatalf("%s transport: %v", operation, err)
+			}
+		})
+	}
+}

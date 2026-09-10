@@ -26,6 +26,7 @@ func TestFileStoreRequiresDurablePath(t *testing.T) {
 
 func TestFileSnapshotJSONShapeRemainsStable(t *testing.T) {
 	want := []string{
+		"email_management_records",
 		"sessions", "clients", "owner_profile", "owner_profiles", "pairing_codes", "iscp_onboardings",
 		"mcp_access_tickets", "mcp_bindings", "mcp_operations", "messages", "run_feedback", "runs",
 		"model_calls", "tool_calls", "document_records", "approvals", "reminders", "reminder_delivery",

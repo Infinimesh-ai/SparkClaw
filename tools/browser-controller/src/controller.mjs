@@ -41,7 +41,9 @@ const PAGE_MUTATING_OPERATIONS = new Set([
   "tabs.handoff",
   "tabs.new",
 ]);
-const SCRIPT_OPERATIONS = new Set(["probe", "send"]);
+const PARALLEL_PROVIDERS = new Set(["qq_mail", "gmail", "outlook"]);
+const PARALLEL_OPERATIONS = new Set(["probe", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"]);
+const SCRIPT_OPERATIONS = new Set(["probe", "send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"]);
 
 export class BrowserController {
   constructor({
@@ -73,16 +75,19 @@ export class BrowserController {
     );
     this.sessionGeneration = 0;
     this.active = null;
+    this.providerReservations = new Map();
+    this.exclusiveWaiters = 0;
+    this.changed = deferred();
     this.shuttingDown = false;
   }
 
   health() {
     return {
       schema_version: 1,
-      state: this.shuttingDown ? "stopping" : this.active ? "busy" : "ready",
+      state: this.shuttingDown ? "stopping" : (this.active || this.providerReservations.size) ? "busy" : "ready",
       profile_id: this.profileID,
       controller_generation: this.controllerGeneration,
-      active_session: Boolean(this.active),
+      active_session: Boolean(this.active || this.providerReservations.size),
       versions: this.#versions(),
     };
   }
@@ -145,6 +150,7 @@ export class BrowserController {
     try {
       client = await this.clientFactory.open({ token, sessionID: reservation.sessionID });
       await client.createTaskPage();
+      if (this.shuttingDown) throw new ControllerError("browser_controller_stopping", "browser controller is stopping", { status: 503, retryable: true });
       reservation.client = client;
       reservation.credentialGeneration = credentialGeneration;
       reservation.pageGeneration = 1;
@@ -166,6 +172,7 @@ export class BrowserController {
         expires_at: new Date(Date.now() + sessionTTLMS).toISOString(),
       };
     } catch (error) {
+      await client?.closeTaskPage().catch(() => {});
       await client?.close().catch(() => {});
       this.#finishReservation(reservation);
       throw normalizeClientError(error);
@@ -246,7 +253,7 @@ export class BrowserController {
     };
   }
 
-  async runScript(input) {
+  async runScript(input, { signal } = {}) {
     try {
       requireExactObject(
         input,
@@ -290,7 +297,8 @@ export class BrowserController {
 
       let reservation;
       try {
-        reservation = await this.#reserve(waitMS, "cli", taskID);
+        const providerKey = PARALLEL_PROVIDERS.has(provider) && PARALLEL_OPERATIONS.has(operation) ? provider : null;
+        reservation = await this.#reserve(waitMS, "cli", taskID, providerKey, signal);
         const result = await this.scriptFactory.runScript({
           token,
           sessionID: reservation.sessionID,
@@ -299,7 +307,7 @@ export class BrowserController {
           scriptID,
           revision,
           input: scriptInput,
-          signal: reservation.abortController.signal,
+          signal: signal ? AbortSignal.any([signal, reservation.abortController.signal]) : reservation.abortController.signal,
         });
         return {
           schema_version: 1,
@@ -361,41 +369,47 @@ export class BrowserController {
   }
 
   async shutdown() {
-    if (this.shuttingDown) return;
+    if (this.shutdownPromise) return this.shutdownPromise;
     this.shuttingDown = true;
-    if (!this.active) return;
-    const active = this.active;
-    if (active.lane === "mcp") {
-      await this.#releaseReservation(active);
-      return;
-    }
-    active.abortController.abort();
-    await active.done.promise;
+    this.#notifyWaiters();
+    const reservations = [this.active, ...this.providerReservations.values()].filter(Boolean);
+    for (const reservation of reservations) reservation.abortController.abort();
+    this.shutdownPromise = Promise.all(reservations.map(async reservation => {
+      if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
+      else await reservation.done.promise;
+    }));
+    await this.shutdownPromise;
   }
 
-  async #reserve(waitMS, lane, taskID) {
-    if (this.shuttingDown) {
-      throw new ControllerError("browser_controller_stopping", "browser controller is stopping", {
-        status: 503,
-        retryable: true,
+  async #reserve(waitMS, lane, taskID, provider = null, signal) {
+    const assertRunning = () => {
+      if (signal?.aborted) throw normalizeClientError(new Error("request aborted"));
+      if (this.shuttingDown) throw new ControllerError("browser_controller_stopping", "browser controller is stopping", {
+        status: 503, retryable: true,
       });
-    }
+    };
+    assertRunning();
     const deadline = Date.now() + waitMS;
-    while (this.active) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        throw new ControllerError("browser_busy", "browser profile is busy", {
-          status: 409,
-          retryable: true,
+    // Once exclusive work is waiting, finish the current provider round before
+    // admitting more scans. Otherwise continuous receiving can starve MCP/send.
+    if (!provider) this.exclusiveWaiters++;
+    try {
+      while (this.active || (provider
+        ? this.providerReservations.has(provider) || this.exclusiveWaiters > 0
+        : this.providerReservations.size > 0)) {
+        assertRunning();
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new ControllerError("browser_busy", "browser profile is busy", {
+          status: 409, retryable: true,
         });
+        await waitForDone(this.changed, remaining, signal);
       }
-      await waitForDone(this.active.done, remaining);
-    }
-    if (this.shuttingDown) {
-      throw new ControllerError("browser_controller_stopping", "browser controller is stopping", {
-        status: 503,
-        retryable: true,
-      });
+      assertRunning();
+    } finally {
+      if (!provider) {
+        this.exclusiveWaiters--;
+        this.#notifyWaiters();
+      }
     }
     const done = deferred();
     const reservation = {
@@ -405,13 +419,15 @@ export class BrowserController {
       credentialGeneration: 0,
       lane,
       taskID,
+      provider,
       client: null,
       timer: null,
       done,
       cleanupPromise: null,
       abortController: new AbortController(),
     };
-    this.active = reservation;
+    if (provider) this.providerReservations.set(provider, reservation);
+    else this.active = reservation;
     return reservation;
   }
 
@@ -478,7 +494,15 @@ export class BrowserController {
   #finishReservation(reservation) {
     if (reservation.timer) clearTimeout(reservation.timer);
     if (this.active === reservation) this.active = null;
+    if (this.providerReservations.get(reservation.provider) === reservation) this.providerReservations.delete(reservation.provider);
     reservation.done.resolve();
+    this.#notifyWaiters();
+  }
+
+  #notifyWaiters() {
+    const changed = this.changed;
+    this.changed = deferred();
+    changed.resolve();
   }
 
   async #clientClosed(reservation) {
@@ -516,8 +540,14 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function waitForDone(done, timeoutMS) {
+async function waitForDone(done, timeoutMS, signal) {
   let timer;
+  let abort;
+  const canceled = new Promise((_, reject) => {
+    abort = () => reject(normalizeClientError(new Error("request aborted")));
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
   const timedOut = new Promise((_, reject) => {
     timer = setTimeout(() => {
       reject(new ControllerError("browser_busy", "browser profile is busy", {
@@ -528,8 +558,9 @@ async function waitForDone(done, timeoutMS) {
     timer.unref?.();
   });
   try {
-    await Promise.race([done.promise, timedOut]);
+    await Promise.race([done.promise, timedOut, canceled]);
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 }

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "provider": "outlook",
+  "invocation_id": "read-loop-outlook-known-item-1",
+  "selection": {
+    "account_address": "zhishix.ai@outlook.com",
+    "provider_selection_id": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAPJApIGWnwpCiqJwLFuEeRM="
+  },
+  "identity": {
+    "account_address": "zhishix.ai@outlook.com",
+    "provider_message_id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AXZVnHZuQeEyW90ZE5ahMBQABWARIKwAA",
+    "mailbox_id": "mb_e557ca3ab561584ea387c535c29b7228",
+    "mail_id": "mail_550a39e38cca2ac7929a6edc44504960"
+  },
+  "receipt": {
+    "schema_version": 1,
+    "status": "collected",
+    "provider": "outlook",
+    "capture": {
+      "manifest_path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_e557ca3ab561584ea387c535c29b7228/mail_550a39e38cca2ac7929a6edc44504960/source/cap_73747f855a9513c629551340ea89ad05/capture.json",
+      "manifest_sha256": "sha256:f0f80e577d5fb4bf496449109858348514c5851df77358f16f0df8b321fdad3f",
+      "mailbox_id": "mb_e557ca3ab561584ea387c535c29b7228",
+      "mail_id": "mail_550a39e38cca2ac7929a6edc44504960",
+      "capture_id": "cap_73747f855a9513c629551340ea89ad05",
+      "attachments_count": 0,
+      "read_state": "read"
+    }
+  }
+}

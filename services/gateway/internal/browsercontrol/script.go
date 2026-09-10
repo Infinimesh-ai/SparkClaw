@@ -10,8 +10,11 @@ import (
 var scriptIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 func (s *Service) RunScript(ctx context.Context, input RunScriptRequest) (ScriptExecutionResult, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, false)
+	if err != nil {
+		return ScriptExecutionResult{}, err
+	}
+	defer release()
 
 	input.TaskID = strings.TrimSpace(input.TaskID)
 	input.Provider = strings.TrimSpace(input.Provider)
@@ -19,7 +22,7 @@ func (s *Service) RunScript(ctx context.Context, input RunScriptRequest) (Script
 	input.ScriptID = strings.TrimSpace(input.ScriptID)
 	if input.ProfileID != "" && input.ProfileID != s.profileID || input.TaskID == "" ||
 		!scriptIDPattern.MatchString(input.Provider) ||
-		input.Operation != "probe" && input.Operation != "send" ||
+		input.Operation != "probe" && input.Operation != "send" && input.Operation != "read" && input.Operation != "discover" && input.Operation != "capture" && input.Operation != "enumerate_thread" && input.Operation != "mark_read" && input.Operation != "collect_page" ||
 		!scriptIDPattern.MatchString(input.ScriptID) || input.Revision <= 0 || input.Input == nil ||
 		input.CredentialGeneration <= 0 || input.WaitTimeoutMS < 0 ||
 		input.WaitTimeoutMS > maxRuntimeWaitTimeout.Milliseconds() {
@@ -62,8 +65,11 @@ func (s *Service) RunScript(ctx context.Context, input RunScriptRequest) (Script
 }
 
 func (s *Service) OpenProviderLogin(ctx context.Context, input OpenProviderLoginRequest) (OpenProviderLoginResult, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, false)
+	if err != nil {
+		return OpenProviderLoginResult{}, err
+	}
+	defer release()
 
 	input.TaskID = strings.TrimSpace(input.TaskID)
 	input.Provider = strings.TrimSpace(input.Provider)

@@ -11,6 +11,7 @@ profile="remote"
 env_file=""
 providers="qq_mail,outlook,gmail"
 credential_key_file=""
+controller_socket=""
 effective_env=""
 
 usage() {
@@ -19,12 +20,15 @@ Usage: bash scripts/qualify-playwright-email.sh [options]
 
 Run the fixed Playwright Extension login probes through the installed host
 controller. This command never invokes an email send script.
+Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ=1 and SPARKCLAW_TEST_EMAIL_OWNER_ID
+to also capture one unread inbox message per provider and verify its local files.
 
 Options:
   --profile local|remote       Product profile to load (default: remote)
   --env-file PATH              Private profile overrides (default: .env.<profile>)
   --providers LIST             Comma-separated qq_mail,outlook,gmail subset
   --credential-key-file PATH   Host Vault key file override
+  --controller-socket PATH     Isolated Controller socket for code qualification
   -h, --help                   Show this help
 EOF
 }
@@ -92,6 +96,11 @@ while [[ $# -gt 0 ]]; do
       [[ $# -gt 0 ]] || fail "--credential-key-file requires a path"
       credential_key_file="$1"
       ;;
+    --controller-socket)
+      shift
+      [[ $# -gt 0 ]] || fail "--controller-socket requires a path"
+      controller_socket="$1"
+      ;;
     -h|--help)
       usage
       exit 0
@@ -138,7 +147,7 @@ case "${SPARKCLAW_STATE_DSN:-}" in
   *) fail "product PostgreSQL DSN does not use the supported container or host endpoint" ;;
 esac
 
-host_socket="${SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST:-}"
+host_socket="${controller_socket:-${SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST:-}}"
 [[ "$host_socket" == /* && -S "$host_socket" ]] ||
   fail "host browser-controller socket is unavailable"
 export SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET="$host_socket"
@@ -163,6 +172,7 @@ fi
 command -v go >/dev/null 2>&1 || fail "go is required"
 export SPARKCLAW_TEST_CONFIG="$ROOT/configs/sparkclaw.default.json"
 export SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_PROVIDERS="$providers"
+export SPARKCLAW_TEST_EMAIL_WORKSPACE_ROOT="${SPARKCLAW_TEST_EMAIL_WORKSPACE_ROOT:-${SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT:-$ROOT/data/workspaces}}"
 
 printf '[sparkclaw-playwright-email] profile=%s providers=%s\n' "$profile" "$providers"
 cd "$ROOT/services/gateway"

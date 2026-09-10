@@ -13,7 +13,7 @@ agent runtime。当前产品表面包括：
 - 本地文件、结构化文档和 approval-gated output-copy edit；
 - 公开搜索、直接天气卡片、托管浏览器 open/focus 与页面读取、受限验证 click 和经审批的
   可逆表单草稿；
-- 通过新鲜校验的已配置 QQ 邮箱、Outlook 或 Gmail 账户执行经审批的仅发送浏览器邮箱操作；
+- 通过新鲜校验的已配置 QQ 邮箱、Outlook 或 Gmail 账户脚本采集一封未读邮件及附件，或执行经审批的发送操作；
 - 基于稳定请求/上下文证据的普通聊天回答；
 - 到期 payload 重新进入正常路由的定时消息；
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
@@ -23,8 +23,10 @@ agent runtime。当前产品表面包括：
 - 可选、按 workspace 限定的 LocalMind MCP 接入和被动 ISCP 提及收件箱；
 - trace、artifact、eval、Policy、approval、auth 和 durable state。
 
-准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。浏览器邮箱发送是当前活动的
-有界能力；邮件读取与扩展、日历和内置 workspace knowledge/RAG 仍保持暂缓，见
+准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。单封未读邮件来源采集与邮箱发送
+是当前活动的有界能力；工作区新增默认关闭的后台邮件管理，使用 typed repository、有界 worker
+及 owner 鉴权弹窗，见[实施状态](email-management-implementation.md)。真实服务商／语义质量发布验收
+尚未完成。日历和内置 workspace knowledge/RAG 仍保持暂缓，见
 [暂缓能力](deferred-email-calendar-knowledge.md)。
 
 SparkClaw 不是无限制 autonomous agent 或公开 multi-tenant SaaS。它不允许静默外部发送、

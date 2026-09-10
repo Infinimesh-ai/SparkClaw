@@ -1,0 +1,2 @@
+Synthetic self-mail. Verify UTF-8 body: 邮件底座验证。
+Attachment must contain the matching test marker.

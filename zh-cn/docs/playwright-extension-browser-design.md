@@ -5,7 +5,7 @@
 ## 状态
 
 本文于 2026-09-04 提出，并于 2026-09-05 完成。全部阶段和切换门槛均已实施。
-固定校验和的 SparkClaw Browser Bridge `1.0.20`、固定 Chromium
+固定校验和的 SparkClaw Browser Bridge `1.0.21`、固定 Chromium
 `148.0.7778.0`、Owner-scoped Controller、Playwright MCP 和 Playwright CLI
 现已组成唯一生产浏览器 Runtime。browserd、Host-CDP、`agent-browser` 和 Migration
 Selector 均已删除。
@@ -350,9 +350,10 @@ Automation Owner：
 可见；“后台”表示标签页不抢占焦点，不代表隐藏或 Headless 浏览器。只有显式 Owner
 Handoff 才可以请求前台聚焦。
 
-MCP 和 CLI 不得并发连接同一标签页。每个 Profile 的 Admission 会串行化冲突 Provider
-Effect；只有 PoC 证明不同扩展标签页组相互隔离后，才允许独立通用任务并发。初始实现
-每个 Profile 同时只允许一个 Automation Client。
+MCP 和 CLI 不得并发连接同一标签页。QQ、Gmail、Outlook 的读取／接收／探测脚本
+可在独立 CLI 会话和 Bridge 任务标签页组中并行；同 provider 仍串行。每个连接按自己的
+标签页白名单过滤事件、下载和清理。通用 MCP、发送、登录交接和令牌验证保持全局独占；
+独占请求排队时阻止新接收进入，避免饥饿。HTTP 断开只取消对应脚本，直到清理完成才释放占用。
 
 Owner 与任务标签页交互时，自动化暂停，当前 Snapshot 失效，恢复前必须获取新鲜状态。
 Owner 无操作绝不产生对 Owner 标签页的控制授权。
@@ -375,11 +376,11 @@ Node。每个外部 Provider Effect 仍按 Provider 契约执行新鲜 Probe。
 
 当前实现保留旧 Workflow 的以下邮箱业务不变量：
 
-- 只支持发送；读取、搜索、回复、转发、附件和草稿管理仍不可用；
+- Revision 2 将一封未读邮件及附件采集为工作区文件，并支持发送；搜索、回复、转发、发送附件和草稿管理仍不可用；
 - Provider 和 Account 选择保持确定性并由 Runtime 所有；
 - 登录验证仍在 Workflow 和模型 Context 之外；
-- 模型只提供收件人、可选主题和纯文本正文；
-- 外部 Effect 前必须对精确 Provider、Account Hint、收件人、主题和完整正文进行 Approval；
+- 发送时模型只提供收件人、可选主题和纯文本正文；读取无需模型参数并返回来源采集回执；
+- 发送前必须对精确 Provider、Account Hint、收件人、主题和完整正文进行 Approval；读取不请求发送审批；
 - Send 最多尝试一次，未知结果为终态且绝不自动重试；
 - Script 仍为第一方、带 Revision、有界并使用严格 Schema。
 
@@ -649,7 +650,7 @@ Controller Service 不保存 Extension Token；Token 仍只保存在 Gateway Cre
    Automation Flag。Readiness 恢复 Pairing 和认证，同时轮换 Task/Session Generation。
 5. Browser Bridge 兼容性测试和经 X11 监控的真实场景证明 Attach 与普通 Action 保持后台；
    只有 `tabs.handoff` 会激活任务 Tab。
-6. 当前生产组合为 SparkClaw Browser Bridge `1.0.20`、Playwright MCP `0.0.80`、
+6. 当前生产组合为 SparkClaw Browser Bridge `1.0.21`、Playwright MCP `0.0.80`、
    Playwright CLI `0.1.19`、Playwright Library/Core
    `1.63.0-alpha-2026-08-31` 和 Chromium `148.0.7778.0`。官方 Extension `0.4.0`
    只保留为已完成的兼容性基线。

@@ -1,0 +1,11 @@
+{
+  "provider": "qq_mail",
+  "status": "verified",
+  "acquisition": "playwright_download_saveAs",
+  "bytes": 38146,
+  "sha256": "375a6c6e7348620c1a310b344e5d441049625e19135119859fa8101076211988",
+  "reference_exact": true,
+  "subject_matches": true,
+  "attachment_count": 0,
+  "elapsed_ms": 17450
+}

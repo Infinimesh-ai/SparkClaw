@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "stage": "script_capture",
+  "provider": "outlook",
+  "account_address": "zhishix.ai@outlook.com",
+  "provider_message_id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AXZVnHZuQeEyW90ZE5ahMBQABWARIKwAA",
+  "mailbox_id": "mb_e557ca3ab561584ea387c535c29b7228",
+  "mail_id": "mail_550a39e38cca2ac7929a6edc44504960",
+  "capture_id": "cap_73747f855a9513c629551340ea89ad05",
+  "invocation_id": "read-loop-outlook-known-item-1",
+  "captured_at": "2026-09-08T03:59:53.540Z",
+  "acquisition": "rfc822",
+  "status": "collected",
+  "metadata": {
+    "subject": "Your ChatGPT Desktop referral reward is ready",
+    "from": [
+      {
+        "address": "noreply@email.openai.com",
+        "name": "ChatGPT"
+      }
+    ],
+    "to": [
+      {
+        "address": "zhishix.ai@outlook.com",
+        "name": ""
+      }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "date": "2026-09-07T02:22:08.000Z",
+    "message_id": "<oBeCTzZuSj6A1QAFKDcMOw@geopod-ismtpd-0>",
+    "in_reply_to": null,
+    "references": []
+  },
+  "attachments": [],
+  "files": [
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_e557ca3ab561584ea387c535c29b7228/mail_550a39e38cca2ac7929a6edc44504960/source/cap_73747f855a9513c629551340ea89ad05/message.eml",
+      "bytes": 58069,
+      "sha256": "sha256:d7f376f1a6cda71d6e417c3139bd021cdcee0c7b300ea67a86ac2343032633c8"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_e557ca3ab561584ea387c535c29b7228/mail_550a39e38cca2ac7929a6edc44504960/source/cap_73747f855a9513c629551340ea89ad05/body.txt",
+      "bytes": 7351,
+      "sha256": "sha256:3e1b4780597f25dcaf5e4ea04e16713f1f98ed0ed8cdef405435b070077b6b91"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_e557ca3ab561584ea387c535c29b7228/mail_550a39e38cca2ac7929a6edc44504960/source/cap_73747f855a9513c629551340ea89ad05/body.html",
+      "bytes": 45083,
+      "sha256": "sha256:7feb7d1e424ccfc1fc568120c251b08f02802bc6fc02e91b923036ce2f57498e"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_e557ca3ab561584ea387c535c29b7228/mail_550a39e38cca2ac7929a6edc44504960/source/cap_73747f855a9513c629551340ea89ad05/headers.json",
+      "bytes": 421,
+      "sha256": "sha256:dd76eb8f22ed3a0c49a47694477f131fa0bd89c91be89e5285ed176c7ca4a901"
+    }
+  ],
+  "coverage": {
+    "body": "available",
+    "inventory_complete": true,
+    "attachments_complete": true,
+    "skipped_parts": 0
+  }
+}

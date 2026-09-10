@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "stage": "script_capture",
+  "provider": "gmail",
+  "account_address": "hsrr05901@gmail.com",
+  "provider_message_id": "19f682a65e3f930d",
+  "mailbox_id": "mb_84f53a6ecdceeced328f5f0a0b31eb4b",
+  "mail_id": "mail_706eec057465ed5ea03b8302a5ff2fec",
+  "capture_id": "cap_d53f19ff580061c27989e1d3a59c0e3f",
+  "invocation_id": "read-loop-gmail-1",
+  "captured_at": "2026-09-08T03:42:21.244Z",
+  "acquisition": "rfc822",
+  "status": "collected",
+  "metadata": {
+    "subject": "Better answers for everything you're curious about",
+    "from": [
+      {
+        "address": "team@mail.perplexity.ai",
+        "name": "Perplexity"
+      }
+    ],
+    "to": [
+      {
+        "address": "hsrr05901@gmail.com",
+        "name": ""
+      }
+    ],
+    "cc": [],
+    "reply_to": [
+      {
+        "address": "team@perplexity.ai",
+        "name": "Perplexity"
+      }
+    ],
+    "date": "2026-07-15T23:43:55.000Z",
+    "message_id": "<0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@email.amazonses.com>",
+    "in_reply_to": null,
+    "references": []
+  },
+  "attachments": [],
+  "files": [
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_84f53a6ecdceeced328f5f0a0b31eb4b/mail_706eec057465ed5ea03b8302a5ff2fec/source/cap_d53f19ff580061c27989e1d3a59c0e3f/message.eml",
+      "bytes": 51459,
+      "sha256": "sha256:26d207ae8691cb130f91c1c8353a8a321c2f6e92d2baf93ff28ddef57ec1b071"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_84f53a6ecdceeced328f5f0a0b31eb4b/mail_706eec057465ed5ea03b8302a5ff2fec/source/cap_d53f19ff580061c27989e1d3a59c0e3f/body.txt",
+      "bytes": 4114,
+      "sha256": "sha256:60ca44370be36105e707e1040f080dc23dbc56729a6a4af0cdcc094b43f64764"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_84f53a6ecdceeced328f5f0a0b31eb4b/mail_706eec057465ed5ea03b8302a5ff2fec/source/cap_d53f19ff580061c27989e1d3a59c0e3f/body.html",
+      "bytes": 37321,
+      "sha256": "sha256:960124c85d15454ffa71e82df33f602ba6f6bcd59f02656cb8f3429ac36184ef"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_84f53a6ecdceeced328f5f0a0b31eb4b/mail_706eec057465ed5ea03b8302a5ff2fec/source/cap_d53f19ff580061c27989e1d3a59c0e3f/headers.json",
+      "bytes": 548,
+      "sha256": "sha256:acae4780dc5913ee1a8001cbff5e0b3811cf8ae61617e9e4c2e8af11e878629f"
+    }
+  ],
+  "coverage": {
+    "body": "available",
+    "inventory_complete": true,
+    "attachments_complete": true,
+    "skipped_parts": 0
+  }
+}

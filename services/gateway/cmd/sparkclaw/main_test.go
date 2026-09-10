@@ -213,7 +213,7 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	backend := &recordingSpeechTranscriber{status: speech.Status{
 		Enabled: true, Ready: true, State: speech.StateReady, Backend: "openai-http", Model: "sparkclaw-asr",
 	}}
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend, storeRuntime)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend, storeRuntime, modelrouter.New(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	defer tools.Close()
 	traces := trace.NewWriter(cfg.Storage.TraceDir)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), traces)
-	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech), storeRuntime)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech), storeRuntime, modelrouter.New(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}

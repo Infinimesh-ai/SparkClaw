@@ -48,8 +48,11 @@ func (s *Service) AcquireSession(
 	waitTimeout time.Duration,
 	sessionTTL time.Duration,
 ) (Session, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" || waitTimeout < 0 || waitTimeout > maxRuntimeWaitTimeout || sessionTTL < 0 || sessionTTL > maxRuntimeSessionTTL {
@@ -241,30 +244,15 @@ func (s *RuntimeSession) releaseOp() {
 	<-s.ops
 }
 
-// Close releases the active runtime session within closeTimeout. It never
-// waits behind an in-flight acquisition or operation longer than that budget:
-// the operation lock is polled with TryLock and the session release is
-// context-bounded, so gateway shutdown cannot be pinned by a controller call
-// that is still running against its own, longer deadline.
+// Close releases the active runtime session within closeTimeout, including
+// any wait for in-flight scripts, credential updates or runtime acquisition.
 func (s *Service) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), s.closeTimeout)
 	defer cancel()
-	if !s.tryLockOps(ctx) {
-		return newError(CodeBusy, true, errors.New("browser control shutdown timed out behind an in-flight controller operation"))
+	release, err := s.acquireOperations(ctx, true)
+	if err != nil {
+		return err
 	}
-	defer s.opMu.Unlock()
+	defer release()
 	return s.releaseActiveLocked(ctx)
-}
-
-func (s *Service) tryLockOps(ctx context.Context) bool {
-	for {
-		if s.opMu.TryLock() {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
 }

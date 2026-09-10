@@ -1,0 +1,12 @@
+{
+  "provider": "fixture",
+  "status": "verified",
+  "results": [
+    {
+      "mode": "popup",
+      "bytes": 25,
+      "sha256": "db0a9601ebbb54a19109f5337ac6d0bd9219b330326d29cdacaf1992d6ee093a",
+      "exact": true
+    }
+  ]
+}

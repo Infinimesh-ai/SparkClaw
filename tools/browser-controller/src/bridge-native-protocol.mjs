@@ -1,7 +1,7 @@
 import path from "node:path";
 
 export const BRIDGE_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
-export const BRIDGE_VERSION = "1.0.20";
+export const BRIDGE_VERSION = "1.0.22";
 export const BRIDGE_NATIVE_HOST = "com.sparkclaw.browser_bridge";
 export const MAX_NATIVE_MESSAGE_BYTES = 20 << 10;
 export const BRIDGE_PROTOCOL_VERSION = 2;

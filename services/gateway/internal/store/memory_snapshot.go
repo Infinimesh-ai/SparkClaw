@@ -12,6 +12,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return Snapshot{
+		EmailRecords:          cloneEmailRecords(s.emailRecords),
 		Sessions:              cloneMap(s.sessions),
 		Clients:               cloneClientMap(s.clients),
 		OwnerProfile:          cloneOwnerProfile(s.ownerProfile),
@@ -55,6 +56,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.emailRecords = cloneEmailRecords(ensureMap(snapshot.EmailRecords))
 	s.sessions = ensureMap(snapshot.Sessions)
 	if s.sessionWriteHighWater == nil {
 		s.sessionWriteHighWater = map[string]time.Time{}

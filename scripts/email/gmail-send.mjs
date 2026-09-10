@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import {isManagedSend,sendManagedMail} from "./lib/managed-send.mjs";
 import {
   GMAIL_ORIGIN,
   GmailCliError,
@@ -46,6 +47,7 @@ const KNOWN_ERROR_CODES = new Set([
 ]);
 
 export async function sendGmail(rawInput, runtime = {}) {
+  if(isManagedSend(rawInput))return sendManagedMail(rawInput,"gmail",runtime);
   let tab;
   let failure;
   let sendClickAttempted = false;

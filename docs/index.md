@@ -32,7 +32,9 @@ documentation tree.
 | [Browser runtime](browser-runtime.md) | Current persistent Chromium, SparkClaw Browser Bridge, owner-scoped Controller, task-tab ownership, login handoff, deployment, and security |
 | [Host-CDP browser design](host-cdp-browser-design.md) | Historical record of the retired browserd/Host-CDP implementation that preceded the Playwright cutover |
 | [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |
-| [Browser email Workflow design](browser-email-workflow-design.md) | Current send-only Playwright provider handlers, deterministic admission, exact-content approval, and unknown-outcome invariants |
+| [Browser email Workflow design](browser-email-workflow-design.md) | Single unread-message source capture, sending, deterministic admission, send approval, and unknown-outcome invariants |
+| [Email management system and stages](email-management-design.md) | Implementation contracts: cross-account topics, bounded intake, fixed membership, per-mail viewing and five acceptance stages |
+| [Email management implementation](email-management-implementation.md) | Runtime/API/UI changes, real-provider coverage, engineering evidence and outstanding release gates |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |

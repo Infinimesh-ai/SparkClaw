@@ -1,0 +1,308 @@
+{
+  "code": "email_message_identity_ambiguous",
+  "rows": [
+    {
+      "id": "1a06ccced7a0d512",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "1a060ff9f77bbd2e",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "1a05cf7fa1241d00",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "1a03579d40d97438",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f682a65e3f930d",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f5ff64cf406f97",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f5f894b4d25dba",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f5ddda726a88ec",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f5ad00289d1f22",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f58b74befb0ed3",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f55a9c33611b75",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f50837e822319f",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f5072038a27cf2",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f4e6a8fc038bbf",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f4b5d2f83cb05c",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f4636e129e5078",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f4625365f7abde",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f40fecb2686d1c",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f40f380181af36",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f40d3f0bfe1139",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f40c874ca8e6df",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f409f1d36f25d9",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f4089958a74bdf",
+      "senderClasses": [
+        "bA4",
+        "zF"
+      ]
+    },
+    {
+      "id": "19f3ff45424623f0",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f3ff40e19625c4",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f3ff363c574d2d",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f3b6820927feb5",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f3b67328158a5b",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f165c3b323c076",
+      "senderClasses": [
+        "bA4",
+        "yP",
+        "bx0"
+      ]
+    },
+    {
+      "id": "19f165a1171e9b0b",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f1657a7a071769",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f164b0278573b7",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f164a1daae061d",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f1645c3679845f",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f163f7be19c0b4",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19f082d1680cef3e",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19efa1c24bb16db4",
+      "senderClasses": [
+        "bA4",
+        "yP",
+        "bx0"
+      ]
+    },
+    {
+      "id": "19efa1a1d16e5025",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19cf01cce50d13c2",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "19c011539989a6fe",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "1988f3c73ec94334",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "195433ade4c1274e",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    },
+    {
+      "id": "195431eaa77d7586",
+      "senderClasses": [
+        "bA4",
+        "yP"
+      ]
+    }
+  ]
+}

@@ -42,12 +42,21 @@ type UpdateProviderInput struct {
 type AdmissionResult = app.EmailAdmissionBinding
 
 type Controller struct {
-	store    Repository
-	registry Registry
-	browser  LoginBrowser
-	runner   ScriptRunner
-	now      func() time.Time
-	profile  sync.Mutex
+	store                Repository
+	registry             Registry
+	browser              LoginBrowser
+	runner               ScriptRunner
+	now                  func() time.Time
+	providerLocksMu      sync.Mutex
+	providerLocks        map[string]chan struct{}
+	intakeProbesMu       sync.Mutex
+	captureWorkspaceRoot string
+	intakeProbes         map[intakeProbeKey]intakeProbeEntry
+}
+
+func (c *Controller) WithCaptureWorkspaceRoot(root string) *Controller {
+	c.captureWorkspaceRoot = strings.TrimSpace(root)
+	return c
 }
 
 func NewController(st Repository, registry Registry, browser LoginBrowser, runner ScriptRunner) *Controller {
@@ -114,8 +123,11 @@ func (c *Controller) OpenLoginBrowser(ctx context.Context, ownerID, actorID, pro
 	if !ok {
 		return ProviderStatus{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
-	c.profile.Lock()
-	defer c.profile.Unlock()
+	release, lockErr := c.lockProvider(ctx, provider.ID)
+	if lockErr != nil {
+		return ProviderStatus{}, lockErr
+	}
+	defer release()
 	if c.browser == nil {
 		return ProviderStatus{}, codedError(app.ToolErrorEmailProviderUnavailable, "SparkClaw browser is unavailable")
 	}
@@ -149,6 +161,11 @@ func (c *Controller) Check(ctx context.Context, ownerID, actorID, providerID str
 	if !ok {
 		return ProviderStatus{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
+	release, lockErr := c.lockProvider(ctx, provider.ID)
+	if lockErr != nil {
+		return ProviderStatus{}, lockErr
+	}
+	defer release()
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
 	if err != nil {
 		return ProviderStatus{}, err
@@ -156,8 +173,6 @@ func (c *Controller) Check(ctx context.Context, ownerID, actorID, providerID str
 	if !exists || !setting.Enabled {
 		return providerStatus(provider, settingOrEmpty(setting, exists, ownerID, provider.ID)), codedError(app.ToolErrorEmailNotConfigured, "Email provider is not enabled")
 	}
-	c.profile.Lock()
-	defer c.profile.Unlock()
 	result, probeErr := c.probe(ctx, provider, app.NewID("email_probe"))
 	updated, persistErr := c.persistProbe(ctx, setting, actorID, result, probeErr)
 	if persistErr != nil {
@@ -171,8 +186,11 @@ func (c *Controller) Admit(ctx context.Context, ownerID, request string) (Admiss
 	if err != nil {
 		return AdmissionResult{}, err
 	}
-	c.profile.Lock()
-	defer c.profile.Unlock()
+	release, lockErr := c.lockProvider(ctx, provider.ID)
+	if lockErr != nil {
+		return AdmissionResult{}, lockErr
+	}
+	defer release()
 	result, probeErr := c.probe(ctx, provider, app.NewID("email_admit"))
 	updated, persistErr := c.persistProbe(ctx, setting, "email_admission", result, probeErr)
 	if persistErr != nil {
@@ -184,7 +202,7 @@ func (c *Controller) Admit(ctx context.Context, ownerID, request string) (Admiss
 	return AdmissionResult{
 		Provider: provider.ID, Account: app.EmailAccountDefault, AccountHint: updated.AccountHint,
 		SettingVersion: updated.Version, BrowserCredentialGeneration: result.Generation,
-		ProbeRevision: provider.Probe.Revision, SendScriptRevision: provider.Send.Revision, ValidatedAt: result.CheckedAt,
+		ProbeRevision: provider.Probe.Revision, SendScriptRevision: provider.Send.Revision, ReadScriptRevision: provider.Read.Revision, ValidatedAt: result.CheckedAt,
 	}, nil
 }
 
@@ -193,6 +211,11 @@ func (c *Controller) SendForOwner(ctx context.Context, ownerID string, request S
 	if !ok {
 		return SendResult{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
+	release, lockErr := c.lockProvider(ctx, provider.ID)
+	if lockErr != nil {
+		return SendResult{}, lockErr
+	}
+	defer release()
 	setting, exists, err := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
 	if err != nil {
 		return SendResult{}, err
@@ -200,8 +223,6 @@ func (c *Controller) SendForOwner(ctx context.Context, ownerID string, request S
 	if !exists || !setting.Enabled || setting.State != app.EmailStateReady || setting.Version != request.SettingVersion || setting.Account != request.Account {
 		return SendResult{}, codedError(app.ToolErrorEmailAdmissionStale, "Email provider configuration changed after approval was prepared")
 	}
-	c.profile.Lock()
-	defer c.profile.Unlock()
 	if c.runner == nil {
 		return SendResult{}, codedError(app.ToolErrorEmailProviderUnavailable, "Email provider scripts are unavailable")
 	}
@@ -321,4 +342,10 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// ReconcileSendForOwner only invokes the managed script's read-only receipt path.
+func (c *Controller) ReconcileSendForOwner(ctx context.Context, owner string, request SendRequest) (SendResult, error) {
+	request.Mode = "reconcile"
+	return c.SendForOwner(ctx, owner, request)
 }

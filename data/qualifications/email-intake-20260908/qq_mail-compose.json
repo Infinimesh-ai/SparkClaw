@@ -1,0 +1,36 @@
+{
+  "inputs": [
+    {
+      "type": "text",
+      "name": "",
+      "aria": "To",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Subject",
+      "multiple": false
+    },
+    {
+      "type": "file",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    }
+  ],
+  "editors": [
+    {
+      "role": null,
+      "aria": "Enter content",
+      "class": "xmail-cmp-editor-content xmail-cmp-editor-content-highlight cmp-editor-content-selection-highlight-realtime mail-content-editor-inner"
+    }
+  ],
+  "buttons": []
+}

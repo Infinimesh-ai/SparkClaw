@@ -20,7 +20,7 @@ repository；代码中已不存在宽泛的 `store.Store` interface。当前 rep
   `PassiveNotificationRepository`；
 - execution 与 governance：`RunRepository`、`ApprovalRepository`、
   `AuditRepository`、`MCPRepository`、`ISCPOnboardingRepository`；
-- owner data：`DocumentRepository`、`MemoryRepository`、`ScheduleRepository`；
+- owner data：`DocumentRepository`、`MemoryRepository`、`ScheduleRepository` 和 `EmailRepository`；
 - support record：`EvaluationRepository`、`ArtifactMetadataRepository`、
   `BrowserStateRepository`。
 
@@ -43,6 +43,11 @@ schedule 等 owner。Runtime 不转发 repository method，也不得离开 assem
 因此属于 P0；session lookup 则是普通 read。新增 transaction 前必须指出需要共同变化的准确
 record；新增 idempotency 或 reconciliation 前必须指出可证明结果的稳定 operation/candidate
 identity。
+
+邮件管理按 owner 保存有索引的邮箱、来源版本、线程、对话、查看回执、持久任务、依赖／刷新意图
+及命令回执。模型决策仅通过 typed 条件命令发布，浏览器、来源文件和模型执行均在事务外。
+File 在持久替换中使用同一命令引擎；PostgreSQL 只读取命令所需的有界记录。
+恢复与三后端验证见[邮件实施报告](email-management-implementation.md)。
 
 ## Repository 契约
 

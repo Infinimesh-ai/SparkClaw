@@ -24,10 +24,10 @@ func TestOperationRegistryIsCompleteAndUnique(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 15 {
-		t.Fatalf("registered operations = %d, want 15", len(seen))
+	if len(seen) != 16 {
+		t.Fatalf("registered operations = %d, want 16", len(seen))
 	}
-	if !seen[OperationPPTXVisualAssessment] || !seen[OperationPPTXVisualRepairPlan] {
+	if !seen[OperationEmailAnalysis] || !seen[OperationPPTXVisualAssessment] || !seen[OperationPPTXVisualRepairPlan] {
 		t.Fatal("PPTX visual operations are not registered")
 	}
 }

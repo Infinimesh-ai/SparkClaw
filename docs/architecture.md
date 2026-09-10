@@ -14,7 +14,7 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - local files, structured documents, and approval-gated output-copy edits;
 - public search, direct weather cards, managed browser open/focus and page
   reading, bounded verified clicks, and approval-gated reversible form drafts;
-- approval-gated send-only browser email for a freshly validated configured QQ
+- scripted capture of one unread email and its attachments, and approval-gated sending for a freshly validated configured QQ
   Mail, Outlook, or Gmail account;
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
@@ -28,8 +28,11 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - traces, artifacts, evals, policy, approval, auth, and durable state.
 
 The exact executable leaf set is listed in
-[Workflow capabilities](workflow-capabilities.md). Browser email sending is an
-active bounded capability. Email reading and expansion, calendar, and built-in
+[Workflow capabilities](workflow-capabilities.md). Single unread-email source capture and
+email sending are active bounded capabilities. The worktree additionally implements
+default-off background email management through a typed repository, bounded workers
+and an owner-authenticated popup; see [implementation status](email-management-implementation.md).
+Real-provider/semantic release qualification remains incomplete. Calendar and built-in
 workspace knowledge/RAG remain deferred; see
 [Deferred capabilities](deferred-email-calendar-knowledge.md).
 

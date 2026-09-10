@@ -25,6 +25,7 @@ const scriptFactory = new PlaywrightCLIClientFactory({
   executablePath: process.env.SPARKCLAW_BROWSER_EXECUTABLE?.trim() || "",
   userDataDir: process.env.SPARKCLAW_BROWSER_USER_DATA_DIR?.trim() || "",
   runtimeRoot: process.env.SPARKCLAW_BROWSER_CLI_RUNTIME_DIR?.trim() || path.join(runtimeDirectory, "cli-runtime"),
+  emailWorkspaceRoot: process.env.SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT?.trim() || "",
   connectTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_CONNECT_TIMEOUT_MS", 15_000, 1_000, 120_000),
   actionTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_ACTION_TIMEOUT_MS", 10_000, 500, 120_000),
   navigationTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_NAVIGATION_TIMEOUT_MS", 30_000, 1_000, 120_000),

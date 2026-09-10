@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-09",
+  "method": "Isolated Controller using production CLI secret slots, native fill/press and exported prepareManagedDraft. Native Send selector was prohibited. Unknown dry-run outcome alone is not considered a pass; only successful browser hash readback establishes preparation.",
+  "send_attempts": 0,
+  "cases": [
+    {
+      "provider": "gmail",
+      "mode": "compose",
+      "status": "passed",
+      "secret_backed_fill": true,
+      "account_proved": true,
+      "target_proved": null,
+      "editor_proved": true,
+      "to_readback": true,
+      "cc_readback": true,
+      "subject_readback": true,
+      "body_readback": true,
+      "send_attempts": 0,
+      "own_draft_cleanup": "discard_clicked; no tab cleanup error",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "outlook",
+      "mode": "compose",
+      "status": "passed",
+      "secret_backed_fill": true,
+      "account_proved": true,
+      "target_proved": null,
+      "editor_proved": true,
+      "to_readback": true,
+      "cc_readback": true,
+      "subject_readback": true,
+      "body_readback": true,
+      "send_attempts": 0,
+      "own_draft_cleanup": "confirmed native discard dialog; editor gone",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "qq_mail",
+      "mode": "compose",
+      "status": "passed",
+      "secret_backed_fill": true,
+      "account_proved": true,
+      "target_proved": null,
+      "editor_proved": true,
+      "to_readback": true,
+      "cc_readback": true,
+      "subject_readback": true,
+      "body_readback": true,
+      "send_attempts": 0,
+      "own_draft_cleanup": "native Close clicked; editor gone; saved draft deletion not proved",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "gmail",
+      "mode": "reply",
+      "status": "passed",
+      "secret_backed_fill": true,
+      "account_proved": true,
+      "target_proved": true,
+      "editor_proved": true,
+      "to_readback": true,
+      "cc_readback": true,
+      "subject_readback": true,
+      "body_readback": true,
+      "send_attempts": 0,
+      "own_draft_cleanup": "native Discard clicked; editor gone",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "qq_mail",
+      "mode": "reply",
+      "status": "passed",
+      "secret_backed_fill": true,
+      "account_proved": true,
+      "target_proved": true,
+      "editor_proved": true,
+      "to_readback": true,
+      "cc_readback": true,
+      "subject_readback": true,
+      "body_readback": true,
+      "send_attempts": 0,
+      "own_draft_cleanup": "native Close clicked; editor gone; saved draft deletion not proved",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "qq_mail",
+      "mode": "reply_all",
+      "status": "passed",
+      "secret_backed_fill": true,
+      "account_proved": true,
+      "target_proved": true,
+      "editor_proved": true,
+      "to_readback": true,
+      "cc_readback": true,
+      "subject_readback": true,
+      "body_readback": true,
+      "send_attempts": 0,
+      "own_draft_cleanup": "Confirmed exact unique synthetic nonce draft; native Delete Draft and new Delete/Cancel confirmation; absence verified against complete Drafts list.",
+      "owned_tab_cleanup": "completed",
+      "notes": [
+        "Native Reply All is scoped to the observed top mail-list-page-toolbar; no Reply fallback.",
+        "Production preparation succeeded before an unrelated scratch More-menu exploration timed out."
+      ]
+    },
+    {
+      "provider": "gmail",
+      "mode": "reply_all",
+      "status": "unqualified",
+      "secret_backed_fill": false,
+      "send_attempts": 0,
+      "reason": "Original candidate did not expose a unique native Reply All control; a bounded later inventory could not prove a clean target. No fallback is enabled.",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "outlook",
+      "mode": "reply",
+      "status": "unqualified",
+      "secret_backed_fill": false,
+      "send_attempts": 0,
+      "reason": "Both Inbox and Sent expose one complete conversation containing an existing draft. Protected before editing. A subsequent read-only page inspection found zero open reply editors; native reply editor linkage and fields remain unqualified.",
+      "owned_tab_cleanup": "completed"
+    },
+    {
+      "provider": "outlook",
+      "mode": "reply_all",
+      "status": "unqualified",
+      "secret_backed_fill": false,
+      "send_attempts": 0,
+      "reason": "Both Inbox and Sent expose one complete conversation containing an existing draft. No existing draft was opened, overwritten or deleted; native reply-all editor remains unqualified.",
+      "owned_tab_cleanup": "completed"
+    }
+  ],
+  "remaining_limits": [
+    "Actual email dispatch and delivery were not tested; Send attempts were zero.",
+    "Gmail reply_all and Outlook reply/reply_all are not natively qualified.",
+    "QQ production cleanup fails closed when a native Discard control is unavailable. Native Close is not treated as deletion; failed preparation may leave an autosaved draft. The exact-nonce cleanup used in this qualification is a test-only procedure, not a generalized production delete workflow.",
+    "Three fixed-subject QQ draft candidates remain because ownership cannot be proved.",
+    "Reconcile returns durable known receipts or unknown; without exact sent metadata, explicit manual captured-source association is required."
+  ],
+  "overall_status": "partially_qualified",
+  "cleanup": {
+    "confirmed_unique_qq_drafts_deleted": 1,
+    "unique_nonce_matches_after_cleanup": 0,
+    "qq_drafts_complete_list_before": 10,
+    "qq_drafts_complete_list_after": 9,
+    "earlier_fixed_subject_candidates_preserved": 3,
+    "candidate_ownership": "unproven; early runs did not retain original draft IDs or unique nonces. These are possible test residues, not confirmed user-owned or confirmed test-owned drafts.",
+    "other_preexisting_drafts": "preserved",
+    "latest_owned_tabs": "closed normally; no tab cleanup failures in final runs",
+    "earlier_timeout_surfaces": "A bounded final inventory attempt found no CUA apps/browsers. The Bridge only exposes each current task allowlist, and prior invocation metadata/daemons are already removed. Earlier timeout tabs cannot be independently identified; unknown browser tabs were preserved.",
+    "remaining_recorded_cli_daemons": 0,
+    "remaining_invocation_metadata": 0,
+    "remaining_private_secret_files": 0,
+    "isolated_controller": "stopped",
+    "scratch_source_files": "removed",
+    "temporary_runtime_directories": "removed after confirming no recorded daemons or private secrets remain"
+  },
+  "verification": {
+    "controller_tests": {
+      "passed": 232,
+      "failed": 0
+    },
+    "provider_contract_sync": "passed",
+    "provider_contract_check": "passed",
+    "go_script_and_contract_tests": "passed"
+  }
+}

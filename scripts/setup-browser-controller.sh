@@ -68,6 +68,8 @@ socket_path="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_BROWSER_EXTENSI
 native_socket="$runtime_dir/bridge-native.sock"
 output_dir="$runtime_dir/mcp-output"
 cli_runtime_dir="$runtime_dir/cli-runtime"
+email_workspace_root="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT "$ROOT/data/workspaces")"
+email_workspace_root="$(realpath -m "$email_workspace_root")"
 container_socket="/run/sparkclaw/browser-controller/controller.sock"
 profile_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser/default/user-data"
 controller_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser-controller"
@@ -175,6 +177,9 @@ verify_installation() {
   local health
 
   npm --prefix "$PACKAGE_DIR" ls --depth=0 >/dev/null
+  node "$PACKAGE_DIR/src/install-playwright-downloads.mjs" --check
+  [[ -d "$email_workspace_root" && ! -L "$email_workspace_root" && -w "$email_workspace_root" ]] ||
+    fail "email workspace root is missing or not writable: $email_workspace_root"
   [[ -d "$runtime_dir" && ! -L "$runtime_dir" ]] || fail "controller runtime directory is missing or unsafe"
   [[ "$(stat -c '%u:%a' "$runtime_dir")" == "$(id -u):700" ]] ||
     fail "controller runtime directory must be owner-only"
@@ -200,6 +205,8 @@ verify_installation() {
     fail "browser controller user unit has a stale MCP output directory"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_CLI_RUNTIME_DIR=$cli_runtime_dir")" "$unit_path" ||
     fail "browser controller user unit has a stale CLI runtime directory"
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT=$email_workspace_root")" "$unit_path" ||
+    fail "browser controller user unit has a stale email workspace root"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_CHANNEL=chromium")" "$unit_path" ||
     fail "browser controller user unit has a stale browser channel"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_EXECUTABLE=$bridge_launcher")" "$unit_path" ||
@@ -246,9 +253,11 @@ fi
 log "installing pinned Playwright controller dependencies without browser downloads"
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_ignore_scripts=true npm_config_audit=false \
   npm ci --prefix "$PACKAGE_DIR" --omit=dev --ignore-scripts
+node "$PACKAGE_DIR/src/install-playwright-downloads.mjs"
 
 mkdir -p "$runtime_dir" "$output_dir" "$cli_runtime_dir" "$profile_dir" "$systemd_dir"
 mkdir -p "$controller_bin_dir" "$native_manifest_dir"
+mkdir -p "$email_workspace_root"
 chmod 700 "$runtime_dir" "$output_dir" "$cli_runtime_dir" "$profile_dir" "$systemd_dir" \
   "$controller_data_dir" "$controller_bin_dir" "$native_manifest_dir"
 
@@ -296,6 +305,7 @@ Environment=$(systemd_quote "SPARKCLAW_BROWSER_BRIDGE_NATIVE_SOCKET=$native_sock
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_USER_DATA_DIR=$profile_dir")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_OUTPUT_DIR=$output_dir")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_CLI_RUNTIME_DIR=$cli_runtime_dir")
+Environment=$(systemd_quote "SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT=$email_workspace_root")
 
 [Install]
 WantedBy=default.target

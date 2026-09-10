@@ -38,6 +38,7 @@ type FileStoreOptions struct {
 }
 
 type Snapshot struct {
+	EmailRecords          map[string]EmailRecord               `json:"email_management_records,omitempty"`
 	Sessions              map[string]app.Session               `json:"sessions"`
 	Clients               map[string]app.Client                `json:"clients"`
 	OwnerProfile          app.OwnerProfile                     `json:"owner_profile"`
@@ -235,6 +236,9 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		}
 		if err := normalizeAndValidatePersistedEmailProviderState(snapshot.EmailProviderSettings); err != nil {
 			return nil, fmt.Errorf("validate email provider state: %w", err)
+		}
+		if err := validateEmailRecords(snapshot.EmailRecords); err != nil {
+			return nil, fmt.Errorf("validate email management: %w", err)
 		}
 		inner.loadSnapshot(snapshot)
 		if err := inner.validateSessionState(); err != nil {

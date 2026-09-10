@@ -2,9 +2,24 @@
 
 > Language: [English](../../docs/browser-email-workflow-design.md) | 简体中文
 
+独立默认关闭的统一弹窗、跨邮箱事项对话及后台线程同步已进入[管理系统实施](email-management-implementation.md)。
+本页继续描述现有 Workflow，不能替代新的后台管理流水线。
+
+人工读取入口：实现已确认的[来源数据基础](email-read-design.md)：每次脚本采集一封未读
+邮件，将来源文件及已校验清单存入工作区。这个人工入口不执行 Gateway 邮件 Store 提交或模型分析；脚本完成不能证明后台步骤已完成。新的未读读取尚未完整通过验收，服务商
+限制与真实验证证据记录在来源设计中。
+发送能力保留现有生产状态。
+
+后台服务分工：发现、按身份采集与独立模型分析分工见[本地邮件数据设计](email-read-design.md#接收职责与执行边界)。
+本页描述人工 Workflow 入口。后台发现、指定采集和独立模型分析由 `emailmanagement` 服务
+管理持久 Store 任务和生命周期，不由人工 Workflow 控制。真实服务商覆盖见[实施报告](email-management-implementation.md)。
+
+独立 `discover` / `capture` 脚本及 Gateway 内部服务入口现已落地；`capture` 必须指定目标，
+不会回退到第一封未读。它们已连接独立后台队列、邮件 Store 和模型任务；本页人工 Workflow 不新增目标参数。
+
 状态：已实现。QQ 邮箱、Outlook 和 Gmail 通过生产 SparkClaw Browser Bridge 运行确定性
-Playwright CLI Handler。Phase 6 原子切换删除了原 Host-CDP Runner，未改变仅发送 Workflow、
-Approval 或 Unknown-outcome 语义。
+Playwright CLI Handler。Phase 6 原子切换删除了原 Host-CDP Runner。Revision 2 在发送之外
+增加脚本读取收件箱，保留发送 Approval 与 Unknown-outcome 语义。
 
 ## 决策
 
@@ -13,13 +28,14 @@ SparkClaw 在 Browser Branch 下拥有浏览器邮箱：
 ```text
 browser
 `- browser.email
+   |- browser.email#read
    `- browser.email#send
 ```
 
-`browser.email` 只有 Revision 1 Workflow Profile 和 `send` Operation。Email Read 未注册；
-检查 Inbox、读取未读邮件、Reply、Forward 或管理 Draft 的请求不会获得 Email Tool。
+`browser.email` 使用 Revision 2 Workflow Profile，包含 `read` 和 `send` Operation。
+检查收件箱与读取未读邮件请求路由到 `read`；Reply、Forward 和 Draft 管理仍不可用。
 
-Model 只选择受支持 Function，并提供一个 Recipient、可选 Subject 和 Plain-text Body。
+Model 只选择受支持 Function；读取无需模型参数，发送接受一个 Recipient、可选 Subject 和 Plain-text Body。
 Runtime 拥有 Provider/Account Selection、Login Admission、Browser Control Credential
 Generation、Provider Script Revision、Approval、Invocation Identity 与 Result Validation。
 
@@ -28,6 +44,7 @@ Generation、Provider Script Revision、Approval、Invocation Identity 与 Resul
 当前能力支持：
 
 - 向一个 Recipient 发送一封新的 Plain-text Message；
+- 通过脚本采集一封未读邮件及可取得的范围内二进制资源；
 - 可选的单行 Subject；
 - 每个 Provider 一个有效的已登录账户；
 - QQ 邮箱、Outlook 和 Gmail；
@@ -35,15 +52,15 @@ Generation、Provider Script Revision、Approval、Invocation Identity 与 Resul
 - 确定性只读 Login Probe 与 One-attempt Send Handler；
 - 外部发送 Effect 前的一次 Exact-content Approval。
 
-不支持 Read/Search/List、Reply、Forward、Delete、Archive、Read-state Change、复用 Draft、
-多 Recipient、CC/BCC、Attachment、HTML、Signature 或每个 Provider 多账户。实现不使用
+不支持邮箱搜索、Reply、Forward、Delete、Archive、显式已读状态管理、复用 Draft、
+多 Recipient、CC/BCC、发送附件、HTML、Signature 或每个 Provider 多账户。实现不使用
 OAuth、IMAP、SMTP、Gmail API、Microsoft Graph、Cookie Export、Profile Copy、Container
 Chromium 或备用 Browser Backend。
 
 ## Routing 与 Provider Resolution
 
-Semantic Graph 只有一个用于 `send` 的 `browser.email` Candidate。Hard Negative 包含 Inbox
-检查、Email Read、Attachment、Reply、Login Check 和只要求打开 Provider Website 的请求。
+Semantic Graph 包含 `read` 与 `send` 的 `browser.email` Candidate。发送附件、Reply、
+Login Check 和只要求打开 Provider Website 的请求不属于支持的邮箱操作。
 
 Provider Selection 是确定性的：
 
@@ -55,12 +72,29 @@ Provider ID、Alias、Login URL、Allowed Origin、Handler Path、Source Closure
 Deadline、Result Verifier 和 Send-effect Selector 位于 Controller Provider Registry。Runtime
 只映射这些固定 Handler；Caller 不能提供 Script Path 或 Selector。Gateway 通过生成的投影
 `services/gateway/internal/emailautomation/provider_scripts.json` 绑定该 Registry，其中
-只包含每个 Provider 的 Probe/Send Script ID、Revision 和预算。
+只包含每个 Provider 的 Probe/Read/Send Script ID、Revision 和预算。
 `npm run sync:provider-contract --prefix tools/browser-controller` 重新生成该文件，
 Controller 测试套件在两者漂移时失败；Gateway 不再重复声明 Login URL 或 Origin。
 
 QQ 邮箱不是 Generic Browser Destination。只要求打开 QQ 邮箱的请求不会获得 Email-send
 Authority。
+
+## 收件箱读取
+
+固定脚本 `qqmail.read`、`outlook.read` 和 `gmail.read` 在已有配置账户及新鲜准入校验下
+采集一封未读邮件，采集无需模型参数。读取不请求
+发送审批，也不具有发送权限。
+
+脚本将实际来源材料持久保存到配置工作区，返回有界的清单相对引用、采集数量与状态。
+清单包含不可变 ID、文件字节数和摘要、覆盖情况及缺失资料。采集上限为正文 2 MiB、
+二进制资源最多 20 个、单个 25 MiB、合计 100 MiB。文件内容不内联进脚本回执。
+不支持资源与采集不完整均明确记录。`script_capture` 不等于 Gateway Store 已提交邮件，
+也不等于模型分析完成。
+
+Read Script 在后台 Task Tab 中执行，沿用所有权与 Origin 校验，不能接收任意脚本路径
+或 Selector。仅在完整资料已持久保存后授权标已读，其效果独立记录；打开即自动标已读
+仍须保留实际观察，不能证明采集成功。当前实现边界见[来源设计](email-read-design.md)。
+回复、草稿管理与通用邮箱搜索仍不在范围内。
 
 ## Login 配置
 
@@ -141,7 +175,7 @@ Owner Request
   -> Semantic Route: browser.email#send
   -> Deterministic Provider Resolution
   -> Workflow 外的新只读 Login Admission
-  -> browser.email r1 / email_send
+  -> browser.email r2 / email_send
        -> Model 提供 Recipient、可选 Subject 和 Body
        -> Runtime 恢复全部 Frozen Admission Binding
        -> Exact-content Owner Approval
@@ -277,11 +311,12 @@ Cookie 不进入 Public Setting 或 Error Payload。
 
 ## 验收边界
 
-- Catalog 与 Semantic Routing 只暴露 Send；Email Read 保持不可用。
+- Catalog 与 Semantic Routing 暴露独立的 Read 和 Send Operation。
 - Provider Resolution 和 Admission Fact 保持 Runtime-owned。
 - Workflow 创建前必须通过新的只读 Probe。
 - Workflow 只暴露一个 Email Tool，不暴露 Generic Browser Tool。
-- Approval 绑定 Exact Content 与全部 Frozen Admission Fact。
+- Send Approval 绑定 Exact Content 与全部 Frozen Admission Fact。
+- Read 将一封邮件来源保存为文件并返回有界采集回执，不请求发送审批。
 - Approval 后重新检查 Provider Setting 与 Credential Generation。
 - Send 最多尝试一次，Unknown Outcome 绝不重试。
 - 每个 Provider Operation 使用一个 Bridge-allowlisted Task Tab。
@@ -290,5 +325,5 @@ Cookie 不进入 Public Setting 或 Error Payload。
 - QQ 邮箱不进入 Generic Destination Registry。
 - Provider Setting 在 Memory、File 与 PostgreSQL Store 中行为一致。
 
-Email Read、Attachment、Reply、Draft 或 Multi-account 支持需要独立 Capability 与 Product
-Contract，不得作为未经评审的模式加入 `browser.email` r1。
+发送附件、Reply、Draft 或 Multi-account 支持需要独立 Capability 与 Product Contract，
+不得作为未经评审的模式加入 `browser.email` r2。

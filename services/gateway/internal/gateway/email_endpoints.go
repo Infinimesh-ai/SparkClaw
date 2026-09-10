@@ -25,18 +25,31 @@ func (s *Server) listEmailProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateEmailProvider(w http.ResponseWriter, r *http.Request) {
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+	var input struct {
+		Enabled                *bool  `json:"enabled"`
+		Default                *bool  `json:"default"`
+		ExpectedVersion        *int64 `json:"expected_version"`
+		IntakeEnabled          *bool  `json:"intake_enabled"`
+		ExpectedMailboxVersion *int64 `json:"expected_mailbox_version"`
+	}
+	if err := readEmailJSON(w, r, &input); err != nil || provider == "" {
+		writeError(w, http.StatusBadRequest, errors.New("invalid email provider request"))
+		return
+	}
+	if input.IntakeEnabled != nil {
+		if input.ExpectedMailboxVersion == nil || *input.ExpectedMailboxVersion < 0 || input.Enabled != nil || input.Default != nil || input.ExpectedVersion != nil {
+			writeError(w, http.StatusBadRequest, errors.New("intake changes require expected_mailbox_version and cannot be combined with send settings"))
+			return
+		}
+		s.configureEmailIntake(w, r, provider, *input.IntakeEnabled, *input.ExpectedMailboxVersion)
+		return
+	}
 	if s.email == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("browser email configuration is unavailable"))
 		return
 	}
-	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
-	var input struct {
-		Enabled         *bool  `json:"enabled"`
-		Default         *bool  `json:"default"`
-		ExpectedVersion *int64 `json:"expected_version"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	if err := readJSON(r, &input); err != nil || provider == "" || input.ExpectedVersion == nil || *input.ExpectedVersion < 0 || input.Enabled == nil && input.Default == nil {
+	if input.ExpectedMailboxVersion != nil || input.ExpectedVersion == nil || *input.ExpectedVersion < 0 || input.Enabled == nil && input.Default == nil {
 		writeError(w, http.StatusBadRequest, errors.New("provider, expected_version, and at least one setting change are required"))
 		return
 	}

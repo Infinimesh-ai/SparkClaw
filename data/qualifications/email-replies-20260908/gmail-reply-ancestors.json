@@ -1,0 +1,77 @@
+[
+  {
+    "tag": "DIV",
+    "attrs": {
+      "id": ":p5",
+      "class": "Am aiL aO9 Al editable LW-avf tS-tW",
+      "hidefocus": "true",
+      "aria-label": "Message Body",
+      "writingsuggestions": "false",
+      "g_editable": "true",
+      "role": "textbox",
+      "aria-multiline": "true",
+      "contenteditable": "true",
+      "tabindex": "1",
+      "style": "direction: ltr; min-height: 85px;",
+      "spellcheck": "false",
+      "aria-owns": ":ri",
+      "aria-controls": ":ri"
+    },
+    "recipients": []
+  },
+  {
+    "tag": "DIV",
+    "attrs": {
+      "class": "aO7"
+    },
+    "recipients": []
+  },
+  {
+    "tag": "DIV",
+    "attrs": {
+      "id": ":p9",
+      "class": "Ar Au Ao",
+      "style": "display: block;"
+    },
+    "recipients": []
+  },
+  {
+    "tag": "TD",
+    "attrs": {
+      "class": "Ap"
+    },
+    "recipients": []
+  },
+  {
+    "tag": "TR",
+    "attrs": {},
+    "recipients": []
+  },
+  {
+    "tag": "TBODY",
+    "attrs": {},
+    "recipients": []
+  },
+  {
+    "tag": "TABLE",
+    "attrs": {
+      "cellpadding": "0",
+      "class": "cf An",
+      "id": "undefined"
+    },
+    "recipients": []
+  },
+  {
+    "tag": "DIV",
+    "attrs": {},
+    "recipients": []
+  },
+  {
+    "tag": "DIV",
+    "attrs": {
+      "id": ":mx",
+      "class": "ZyRVue"
+    },
+    "recipients": []
+  }
+]

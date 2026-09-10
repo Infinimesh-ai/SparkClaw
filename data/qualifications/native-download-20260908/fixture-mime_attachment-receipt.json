@@ -1,0 +1,13 @@
+{
+  "provider": "fixture",
+  "status": "verified",
+  "results": [
+    {
+      "mode": "mime_attachment",
+      "bytes": 1435412,
+      "sha256": "4883f5f5fb27e14dbac17541ab23933ce411c8590b010d1c7826dca25d0ca510",
+      "attachment_bytes": 1048613,
+      "attachment_exact": true
+    }
+  ]
+}

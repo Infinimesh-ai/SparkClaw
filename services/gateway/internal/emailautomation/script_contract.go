@@ -39,10 +39,17 @@ type ProbeResult struct {
 
 type SendRequest = app.EmailSendRequest
 type SendResult = app.EmailSendResult
+type ReadRequest = app.EmailReadRequest
+type ReadResult = app.EmailReadResult
 
 type ScriptRunner interface {
 	Probe(context.Context, Provider, string, uint64) (ProbeResult, error)
 	Send(context.Context, Provider, SendRequest) (SendResult, error)
+	Read(context.Context, Provider, ReadRequest) (ReadResult, error)
+	Discover(context.Context, Provider, ReadRequest) (app.EmailDiscoveryResult, error)
+	CollectPage(context.Context, Provider, ReadRequest) (app.EmailPageResult, error)
+	EnumerateThread(context.Context, Provider, app.EmailThreadRequest) (app.EmailThreadResult, error)
+	MarkRead(context.Context, Provider, app.EmailMarkReadRequest) (app.EmailMarkReadResult, error)
 }
 
 func validateMessage(recipient, subject, body string) error {
@@ -84,7 +91,11 @@ func validOpaqueProviderID(value string) bool {
 }
 
 func decodeStrictJSON(raw []byte, output any) error {
-	if len(raw) == 0 || len(raw) > maxScriptOutputBytes {
+	return decodeStrictJSONLimit(raw, output, maxScriptOutputBytes)
+}
+
+func decodeStrictJSONLimit(raw []byte, output any, maxBytes int) error {
+	if len(raw) == 0 || len(raw) > maxBytes {
 		return errors.New("JSON output is empty or oversized")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -107,6 +118,19 @@ func decodeStrictJSON(raw []byte, output any) error {
 // outage. TestScriptErrorCodesCoverEveryEmittedCode keeps this table and the
 // scripts under scripts/email in step.
 var scriptErrorCodes = map[string]app.ToolErrorCode{
+	"email_send_journal_unavailable":      app.ToolErrorEmailNotConfigured,
+	"email_send_configuration_error":      app.ToolErrorEmailNotConfigured,
+	"email_send_journal_conflict":         app.ToolErrorEmailDraftConflict,
+	"email_existing_draft":                app.ToolErrorEmailDraftConflict,
+	"email_reply_target_unverified":       app.ToolErrorEmailDraftVerificationFailed,
+	"email_reply_control_unavailable":     app.ToolErrorEmailDraftVerificationFailed,
+	"email_reply_editor_unverified":       app.ToolErrorEmailDraftVerificationFailed,
+	"email_draft_fields_unverified":       app.ToolErrorEmailDraftVerificationFailed,
+	"email_recipient_editor_unverified":   app.ToolErrorEmailDraftVerificationFailed,
+	"email_cc_unavailable":                app.ToolErrorEmailDraftVerificationFailed,
+	"email_send_control_unverified":       app.ToolErrorEmailSendControlUnverified,
+	"email_recipient_verification_failed": app.ToolErrorEmailDraftVerificationFailed,
+
 	"invalid_request":           app.ToolErrorEmailInvalidInput,
 	"invalid_input":             app.ToolErrorEmailInvalidInput,
 	"invalid_message":           app.ToolErrorEmailInvalidInput,
@@ -117,12 +141,19 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"invalid_body":              app.ToolErrorEmailInvalidInput,
 	"body_too_large":            app.ToolErrorEmailInvalidInput,
 
-	"page_contract_changed":         app.ToolErrorEmailPageContractChanged,
-	"email_login_evidence_conflict": app.ToolErrorEmailPageContractChanged,
-	"provider_origin_mismatch":      app.ToolErrorEmailPageContractChanged,
-	"email_provider_origin_invalid": app.ToolErrorEmailPageContractChanged,
-	"outlook_origin_not_allowed":    app.ToolErrorEmailPageContractChanged,
-	"outlook_page_contract_changed": app.ToolErrorEmailPageContractChanged,
+	"page_contract_changed":               app.ToolErrorEmailPageContractChanged,
+	"email_login_evidence_conflict":       app.ToolErrorEmailPageContractChanged,
+	"provider_origin_mismatch":            app.ToolErrorEmailPageContractChanged,
+	"email_account_identity_mismatch":     app.ToolErrorEmailPageContractChanged,
+	"email_account_identity_unavailable":  app.ToolErrorEmailPageContractChanged,
+	"email_message_identity_invalid":      app.ToolErrorEmailPageContractChanged,
+	"email_message_identity_mismatch":     app.ToolErrorEmailPageContractChanged,
+	"email_message_identity_ambiguous":    app.ToolErrorEmailPageContractChanged,
+	"email_original_download_unavailable": app.ToolErrorEmailPageContractChanged,
+	"email_pinned_message_unavailable":    app.ToolErrorEmailPageContractChanged,
+	"email_provider_origin_invalid":       app.ToolErrorEmailPageContractChanged,
+	"outlook_origin_not_allowed":          app.ToolErrorEmailPageContractChanged,
+	"outlook_page_contract_changed":       app.ToolErrorEmailPageContractChanged,
 
 	"draft_verification_failed":      app.ToolErrorEmailDraftVerificationFailed,
 	"field_verification_failed":      app.ToolErrorEmailDraftVerificationFailed,
@@ -141,6 +172,9 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"send_browser_output_invalid":  app.ToolErrorEmailScriptInvalidOutput,
 	"browser_output_invalid":       app.ToolErrorEmailScriptInvalidOutput,
 	"email_browser_output_invalid": app.ToolErrorEmailScriptInvalidOutput,
+	"email_download_limit":         app.ToolErrorEmailScriptInvalidOutput,
+	"email_capture_invalid":        app.ToolErrorEmailScriptInvalidOutput,
+	"email_capture_limit":          app.ToolErrorEmailScriptInvalidOutput,
 }
 
 func normalizeScriptErrorCode(code string) app.ToolErrorCode {

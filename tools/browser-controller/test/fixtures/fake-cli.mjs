@@ -17,6 +17,11 @@ let state = await loadState();
 state.commandCounts ??= {};
 state.commandCounts[command] = (state.commandCounts[command] ?? 0) + 1;
 await saveState();
+if (process.env.FAKE_CLI_TASK_POPUP_ON === command && !state.popupCreated) {
+  state.tabs.push({ title: 'Export', url: 'https://mail.google.test/export', current: false, crashed: false, task: true });
+  state.popupCreated = true;
+  await saveState();
+}
 if (process.env.FAKE_CLI_MUTATE_OWNER_ON === command && !state.ownerMutated) {
   const owner = state.tabs.find((tab) => !tab.task);
   if (owner) owner.title = `${owner.title}-changed`;
@@ -139,6 +144,52 @@ switch (command) {
     break;
   case "press":
     break;
+  case "run-code": {
+    if (process.env.FAKE_CLI_RUN_CODE_URL) {
+      currentTab().url = process.env.FAKE_CLI_RUN_CODE_URL;
+      await saveState();
+    }
+    let listening = false;
+    let clicked = false;
+    const download = {
+      url: () => process.env.FAKE_CLI_DOWNLOAD_URL ?? (process.env.FAKE_CLI_DOWNLOAD_MODE === "blob" ? `blob:${new URL(currentTab().url).origin}/${crypto.randomUUID()}` : currentTab().url + "download"),
+      cancel: async () => appendLog({ event: "download_canceled" }),
+      delete: async () => appendLog({ event: "download_deleted" }),
+      saveAs: async target => {
+      if (!clicked) throw new Error("Download was not triggered");
+      const bytes = Buffer.alloc(Number(process.env.FAKE_CLI_DOWNLOAD_BYTES ?? "16"), "x");
+      if (process.env.FAKE_CLI_DOWNLOAD_PATTERN === "1") {
+        for (let offset = 0; offset < bytes.length; offset += 512 << 10) bytes.fill(offset / (512 << 10), offset, Math.min(offset + (512 << 10), bytes.length));
+      }
+      await fs.writeFile(target, bytes);
+      await appendLog({ event: "download_saved", target });
+      },
+    };
+    const click = async selector => {
+      await appendLog({ event: "download_click", selector });
+      if (!listening) throw new Error("Download listener must precede click");
+      clicked = true;
+    };
+    const page = {
+      url: () => currentTab().url,
+      evaluate: async (callback, argument) => vm.runInNewContext(`(${callback.toString()})`, { URL, location: new URL(currentTab().url), window: {}, HTMLAnchorElement: class { click() {} } })(argument),
+      waitForTimeout: milliseconds => new Promise(resolve => setTimeout(resolve, Math.min(milliseconds, 1))),
+      locator: selector => ({
+        click: async () => click(selector),
+        evaluate: async callback => callback({ click: () => click(selector) }),
+        fill: async value => { state.fields[selector] = value; await saveState(); },
+      }),
+      waitForEvent: async event => {
+        if (event !== "download") throw new Error("unexpected event");
+        listening = true;
+        return download;
+      },
+    };
+    const result = await vm.runInNewContext(`(${commandArgs[0]})`, {})(page);
+    await saveState();
+    writeJSON(result);
+    break;
+  }
   case "close":
     writeJSON({ session: sessionName, status: "closed" });
     break;

@@ -32,7 +32,7 @@ Xvfb 或浏览器自动化引擎。
 | Controller Socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop Launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-固定兼容组合为 Browser Bridge `1.0.20`、Playwright MCP `0.0.80`、Playwright CLI
+固定兼容组合为 Browser Bridge `1.0.22`、Playwright MCP `0.0.80`、Playwright CLI
 `0.1.19`、Playwright Library `1.63.0-alpha-2026-08-31` 和 Chromium
 `148.0.7778.0`。Bridge Source Closure 记录在 `configs/browser-bridge-artifacts.json`，
 安装时拒绝发生修改或出现额外文件的 Source Tree。
@@ -155,6 +155,15 @@ Local 和 Remote 启动路径会重复该检查，并在 Gateway Ready 后从容
 
 ## 验证
 
+Bridge `1.0.21` 将任务页的原生下载事件接入 Playwright 的 `Download` 文件。Controller
+安装时对固定版本的 Playwright Core relay 应用带版本检查的补丁；安装检查会拒绝缺少
+补丁或上游代码变化。支持现有持久默认上下文的 `allowAndName` 配置，其他上下文和行为
+明确拒绝。Bridge 保留浏览器全局下载设置，只关联任务时间范围内唯一的原生下载记录。
+宿主校验普通文件并复制到私有暂存目录后，才清理原临时下载文件。下载上限为 110 MiB，
+不会覆盖已有目标文件。邮件导出弹窗转为任务页内导航，通过 `waitForEvent('download')`
+和 `saveAs()` 完成保存，MIME 字节不经过 CLI 文本输出。验证与范围见
+[邮件数据设计](email-read-design.md)。
+
 ```bash
 python3 -m unittest scripts/test_browser_bridge.py
 npm test --prefix tools/browser-bridge
@@ -197,3 +206,5 @@ Execution 和 Terminal Unknown-outcome Handling。
 
 迁移决策见 [Playwright Extension 浏览器设计](playwright-extension-browser-design.md)，Provider
 与 Approval 语义见[浏览器邮箱 Workflow](browser-email-workflow-design.md)。
+
+Bridge `1.0.22` 串行处理任务分组，关闭任务前等待尚未完成的分组操作。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面。浏览器任务组数量不等于活动作业数量；跨浏览器会话恢复且无法验证归属的旧组不会按标题删除。

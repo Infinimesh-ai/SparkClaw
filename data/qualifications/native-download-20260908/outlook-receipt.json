@@ -1,0 +1,11 @@
+{
+  "provider": "outlook",
+  "status": "verified",
+  "acquisition": "playwright_download_saveAs",
+  "bytes": 58069,
+  "sha256": "d7f376f1a6cda71d6e417c3139bd021cdcee0c7b300ea67a86ac2343032633c8",
+  "reference_exact": true,
+  "subject_matches": null,
+  "attachment_count": 0,
+  "elapsed_ms": 38704
+}

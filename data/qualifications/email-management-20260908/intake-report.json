@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-08",
+  "deployment": "none; isolated Controller only",
+  "tests": {
+    "controller": {
+      "passed": 182,
+      "failed": 0
+    },
+    "go": [
+      "emailautomation",
+      "browsercontrol",
+      "emailmanagement"
+    ],
+    "vet": [
+      "emailautomation",
+      "browsercontrol"
+    ],
+    "shell_syntax": true,
+    "diff_check": true
+  },
+  "live": {
+    "outlook": {
+      "observed_thread_members": 6,
+      "draft_members": 1,
+      "inventory_complete_for_observation": true,
+      "pinned_inbound_original_bytes": 14656,
+      "pinned_original_sha256": "f2f0b9c9a2f33332196420c7f1ac4517dc08f07933210603c8c69bc65051eab4",
+      "independent_original_byte_match": true,
+      "global_non_inbox_original_bytes": 5534,
+      "global_non_inbox_sender_equals_account": false
+    },
+    "qq_mail": {
+      "bootstrap_unread_candidates": 16,
+      "old_fixture_account_matches_current": false,
+      "recent_24h_candidates": 5,
+      "recent_24h_threads": 5,
+      "ordinary_folder_continuation_passed": true,
+      "ordinary_folder_candidates": 0,
+      "receipt_ordering_field": "totime",
+      "scan_complete": false,
+      "elapsed_seconds": 63.36
+    },
+    "gmail": {
+      "bootstrap_unread_candidates": 12,
+      "recent_24h_candidates": 0,
+      "ordinary_mail_time_query_passed": true,
+      "scan_complete": false,
+      "elapsed_seconds": 69.51
+    }
+  },
+  "effects": {
+    "sent": 0,
+    "explicit_mark_read": 0,
+    "new_unpinned_original_captures": 0,
+    "resident_services_restarted": false
+  },
+  "limitations": [
+    "All recent lanes retain partial coverage; no completed receipt-time/folder-wide boundary is claimed.",
+    "QQ ordinary-folder rotation replays bounded native-scroll prefixes; 100 folders, 2000 metadata rows, and 128 steps are limits, not mailbox exhaustion.",
+    "Gmail and Outlook full native pagination remain unqualified.",
+    "Gmail multiple-member original capture has code and guarded identity checks but lacks real multi-reply export qualification.",
+    "QQ thread inventory returns only a pinned member with reply_relationships_unqualified.",
+    "Outlook global non-Inbox capture is inbound; this is not real Sent export qualification.",
+    "Fresh live unread capture followed by separately committed mark-read is unqualified; separation/replay/fault behavior passes unit tests."
+  ],
+  "cleanup": {
+    "isolated_controller_stopped": true
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-08",
+  "transport": "native_playwright_download_saveAs",
+  "bridge_version": "1.0.21",
+  "originals": [
+    {
+      "provider": "qq_mail",
+      "status": "verified",
+      "acquisition": "playwright_download_saveAs",
+      "bytes": 38146,
+      "sha256": "375a6c6e7348620c1a310b344e5d441049625e19135119859fa8101076211988",
+      "reference_exact": true,
+      "subject_matches": true,
+      "attachment_count": 0,
+      "elapsed_ms": 17450
+    },
+    {
+      "provider": "gmail",
+      "status": "verified",
+      "acquisition": "playwright_download_saveAs",
+      "bytes": 45731,
+      "sha256": "f6a72d81e490dbad1f216bdb6f281bac72d45a4f5db5b9c39fef5b20aa0a9a14",
+      "reference_exact": true,
+      "subject_matches": true,
+      "attachment_count": 0,
+      "elapsed_ms": 31225
+    },
+    {
+      "provider": "outlook",
+      "status": "verified",
+      "acquisition": "playwright_download_saveAs",
+      "bytes": 58069,
+      "sha256": "d7f376f1a6cda71d6e417c3139bd021cdcee0c7b300ea67a86ac2343032633c8",
+      "reference_exact": true,
+      "subject_matches": null,
+      "attachment_count": 0,
+      "elapsed_ms": 38704
+    }
+  ],
+  "fixtures": [
+    {
+      "provider": "fixture",
+      "status": "verified",
+      "results": [
+        {
+          "mode": "popup",
+          "bytes": 25,
+          "sha256": "db0a9601ebbb54a19109f5337ac6d0bd9219b330326d29cdacaf1992d6ee093a",
+          "exact": true
+        }
+      ]
+    },
+    {
+      "provider": "fixture",
+      "status": "verified",
+      "results": [
+        {
+          "mode": "mime_attachment",
+          "bytes": 1435412,
+          "sha256": "4883f5f5fb27e14dbac17541ab23933ce411c8590b010d1c7826dca25d0ca510",
+          "attachment_bytes": 1048613,
+          "attachment_exact": true
+        }
+      ]
+    }
+  ],
+  "alternative": "withdrawn",
+  "verification": {
+    "controller_tests": 149,
+    "bridge_tests": 39,
+    "artifact_tests": 9,
+    "mirrored_documents": 63
+  },
+  "scope": {
+    "pinned_read_samples": true,
+    "new_unread_selection": false,
+    "explicit_mark_read": false,
+    "real_provider_attachment_inventory": false,
+    "gateway_deployment": false
+  },
+  "limitations": [
+    "One export per task; bulk automatic downloads remain subject to Chromium restrictions.",
+    "Identical concurrent final URLs are ambiguous and their files are left untouched."
+  ]
+}

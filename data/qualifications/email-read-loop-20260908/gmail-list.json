@@ -1,0 +1,2376 @@
+{
+  "empty": [],
+  "rows": [
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":fs",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":ft",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5kQ1BDTXdMQ2dxWmZ4ZHRRaEp3S1RyIiwxLG51bGwsIjE5ZjY4MmE2NWUzZjkzMGQiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":fu",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":fv",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":ft",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":fw",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":fx",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "team@mail.perplexity.ai",
+                        "name": "Perplexity",
+                        "data-hovercard-id": "team@mail.perplexity.ai"
+                      },
+                      "text": "Perplexity",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":fy",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":fz"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":g0",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870826346276426509",
+                                    "data-legacy-thread-id": "19f682a65e3f930d",
+                                    "data-legacy-last-message-id": "19f682a65e3f930d",
+                                    "data-legacy-last-non-draft-message-id": "19f682a65e3f930d"
+                                  },
+                                  "text": "Better answers for everything you're curious about",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":g1",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Thu, 16 Jul 2026, 07:43",
+                "id": ":g3",
+                "aria-label": "Thu, 16 Jul 2026, 07:43"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "16 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":g5",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":g6",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:1; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5aa3dQcFFwc3Z4ZmtMR3FmRHBIVlNGIiwxLG51bGwsIjE5ZjVmZjY0Y2Y0MDZmOTciXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":g7",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":g8",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":g6",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":g9",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":ga",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "alex.nucci@firecrawl.dev",
+                        "name": "Alex Nucci",
+                        "data-hovercard-id": "alex.nucci@firecrawl.dev"
+                      },
+                      "text": "Alex Nucci",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":gb",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":gc"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":gd",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870682028681228183",
+                                    "data-legacy-thread-id": "19f5ff64cf406f97",
+                                    "data-legacy-last-message-id": "19f5ff64cf406f97",
+                                    "data-legacy-last-non-draft-message-id": "19f5ff64cf406f97"
+                                  },
+                                  "text": "Templates to get started and how to stay in the loop",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":ge",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Tue, 14 Jul 2026, 17:30",
+                "id": ":gg",
+                "aria-label": "Tue, 14 Jul 2026, 17:30"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "14 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":gi",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":gj",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:2; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5aa0tzaktiaHhRZ250em5zR3NiZE54IiwxLG51bGwsIjE5ZjVkZGRhNzI2YTg4ZWMiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":gk",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":gl",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":gj",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":gm",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":gn",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "team@mail.perplexity.ai",
+                        "name": "Perplexity",
+                        "data-hovercard-id": "team@mail.perplexity.ai"
+                      },
+                      "text": "Perplexity",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":go",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":gp"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":gq",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870645150534502636",
+                                    "data-legacy-thread-id": "19f5ddda726a88ec",
+                                    "data-legacy-last-message-id": "19f5ddda726a88ec",
+                                    "data-legacy-last-non-draft-message-id": "19f5ddda726a88ec"
+                                  },
+                                  "text": "Ask Perplexity a question and get a clear, trusted answer.",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":gr",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Tue, 14 Jul 2026, 07:43",
+                "id": ":gt",
+                "aria-label": "Tue, 14 Jul 2026, 07:43"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "14 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":gv",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":gw",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:3; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5YYnRrd1BqVlJTQkRGRnNyR3FDTUpCIiwxLG51bGwsIjE5ZjVhZDAwMjg5ZDFmMjIiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":gx",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":gy",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":gw",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":gz",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":h0",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "alex.nucci@firecrawl.dev",
+                        "name": "Alex Nucci",
+                        "data-hovercard-id": "alex.nucci@firecrawl.dev"
+                      },
+                      "text": "Alex Nucci",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":h1",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":h2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":h3",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870591436435300130",
+                                    "data-legacy-thread-id": "19f5ad00289d1f22",
+                                    "data-legacy-last-message-id": "19f5ad00289d1f22",
+                                    "data-legacy-last-non-draft-message-id": "19f5ad00289d1f22"
+                                  },
+                                  "text": "The full power of Firecrawl",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":h4",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Mon, 13 Jul 2026, 17:30",
+                "id": ":h6",
+                "aria-label": "Mon, 13 Jul 2026, 17:30"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "13 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":h8",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":h9",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:4; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5YYkpOcUpTRkxkTXJyek12dGhka2xXIiwxLG51bGwsIjE5ZjU4Yjc0YmVmYjBlZDMiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":ha",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":hb",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":h9",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":hc",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":hd",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "team@mail.perplexity.ai",
+                        "name": "Perplexity",
+                        "data-hovercard-id": "team@mail.perplexity.ai"
+                      },
+                      "text": "Perplexity",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":he",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":hf"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":hg",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870554553778900691",
+                                    "data-legacy-thread-id": "19f58b74befb0ed3",
+                                    "data-legacy-last-message-id": "19f58b74befb0ed3",
+                                    "data-legacy-last-non-draft-message-id": "19f58b74befb0ed3"
+                                  },
+                                  "text": "Your answer is one search away",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":hh",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Mon, 13 Jul 2026, 07:43",
+                "id": ":hj",
+                "aria-label": "Mon, 13 Jul 2026, 07:43"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "13 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":hl",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":hm",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:5; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5YWk1OWGpCR0JwY3RqSnRxWnhSaldQIiwxLG51bGwsIjE5ZjU1YTljMzM2MTFiNzUiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":hn",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":ho",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":hm",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":hp",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":hq",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "alex.nucci@firecrawl.dev",
+                        "name": "Alex Nucci",
+                        "data-hovercard-id": "alex.nucci@firecrawl.dev"
+                      },
+                      "text": "Alex Nucci",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":hr",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":hs"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":ht",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870500847165709173",
+                                    "data-legacy-thread-id": "19f55a9c33611b75",
+                                    "data-legacy-last-message-id": "19f55a9c33611b75",
+                                    "data-legacy-last-non-draft-message-id": "19f55a9c33611b75"
+                                  },
+                                  "text": "Give your AI agents Firecrawl",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":hu",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Sun, 12 Jul 2026, 17:30",
+                "id": ":hw",
+                "aria-label": "Sun, 12 Jul 2026, 17:30"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "12 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":hy",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":hz",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:6; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5XUUtrbHdaUWJWRkh6ZnF3bEJsdE1UIiwxLG51bGwsIjE5ZjUwODM3ZTgyMjMxOWYiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":i0",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":i1",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":hz",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":i2",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":i3",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "alex.nucci@firecrawl.dev",
+                        "name": "Alex Nucci",
+                        "data-hovercard-id": "alex.nucci@firecrawl.dev"
+                      },
+                      "text": "Alex Nucci",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":i4",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":i5"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":i6",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870410256453087647",
+                                    "data-legacy-thread-id": "19f50837e822319f",
+                                    "data-legacy-last-message-id": "19f50837e822319f",
+                                    "data-legacy-last-non-draft-message-id": "19f50837e822319f"
+                                  },
+                                  "text": "Control any browser with natural language",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":i7",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Sat, 11 Jul 2026, 17:30",
+                "id": ":i9",
+                "aria-label": "Sat, 11 Jul 2026, 17:30"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "11 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "TR",
+      "attrs": {
+        "class": "zA zE s00Hgd",
+        "jscontroller": "ZdOxDb",
+        "jsaction": "Tnvr6c:RNc9jf;PG1zDd:eyrEaf;WGbBt:iplnUc;nVvxM:iplnUc;",
+        "jsmodel": "nXDxbd",
+        "id": ":ib",
+        "tabindex": "-1",
+        "role": "row",
+        "aria-labelledby": ":ic",
+        "draggable": "false",
+        "jslog": "18406; u014N:xr6bB,SYhH9d; cQYSPc:7; 41:W251bGwsbnVsbCxudWxsLG51bGwsW251bGwsIkZNZmNnelFoVk5XUUJkd2xabEdUV2JWa1ZMQmJRTVpCIiwxLG51bGwsIjE5ZjUwNzIwMzhhMjdjZjIiXSxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLG51bGwsbnVsbCxudWxsLFswXV0."
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "PF xY"
+          },
+          "text": "",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":id",
+            "class": "oZ-x3 xY",
+            "style": "",
+            "data-tooltip": "Select"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":ie",
+                "class": "oZ-jc T-Jo J-J5-Ji ",
+                "role": "checkbox",
+                "aria-labelledby": ":ic",
+                "dir": "ltr",
+                "aria-checked": "false",
+                "tabindex": "-1",
+                "jslog": "202931; u014N:cOuCgd,Kr2w4b"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "apU xY"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "id": ":if",
+                "class": "aXw T-KT",
+                "aria-label": "Not starred",
+                "role": "button",
+                "data-tooltip": "Not starred"
+              },
+              "text": null,
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yX xY ulKHrd ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "id": ":ig",
+                "class": "yW"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bA4"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "SPAN",
+                      "attrs": {
+                        "translate": "no",
+                        "class": "zF",
+                        "email": "hey@mail.you.com",
+                        "name": "You.com",
+                        "data-hovercard-id": "hey@mail.you.com"
+                      },
+                      "text": "You.com",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "id": ":ih",
+            "tabindex": "-1",
+            "class": "xY a4W",
+            "role": "gridcell"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {
+                "class": "a4X",
+                "style": ""
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "class": "xS",
+                    "role": "link"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "xT"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "yi",
+                            "id": ":ii"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ar as"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "at",
+                                    "title": "Inbox",
+                                    "style": "background-color: #e1e3e1; border-color: #e1e3e1;"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "au",
+                                        "style": "border-color:#e1e3e1"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "av",
+                                            "style": "color: #444746"
+                                          },
+                                          "text": "Inbox",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "y6"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "id": ":ij",
+                                "class": "bog"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "SPAN",
+                                  "attrs": {
+                                    "class": "bqe",
+                                    "data-thread-id": "#thread-f:1870409055212829938",
+                                    "data-legacy-thread-id": "19f5072038a27cf2",
+                                    "data-legacy-last-message-id": "19f5072038a27cf2",
+                                    "data-legacy-last-non-draft-message-id": "19f5072038a27cf2"
+                                  },
+                                  "text": "Create your API key and start building today",
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "SPAN",
+                          "attrs": {
+                            "id": ":ik",
+                            "class": "y2"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "SPAN",
+                              "attrs": {
+                                "class": "Zt"
+                              },
+                              "text": " - ",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "yf xY "
+          },
+          "text": " ",
+          "children": []
+        },
+        {
+          "tag": "TD",
+          "attrs": {
+            "class": "xW xY ",
+            "role": "gridcell",
+            "tabindex": "-1"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "SPAN",
+              "attrs": {
+                "title": "Sat, 11 Jul 2026, 17:11",
+                "id": ":im",
+                "aria-label": "Sat, 11 Jul 2026, 17:11"
+              },
+              "text": null,
+              "children": [
+                {
+                  "tag": "SPAN",
+                  "attrs": {
+                    "class": "bq3"
+                  },
+                  "text": "11 Jul",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "buttons": [
+    {
+      "label": "Advanced search options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Clear search",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Search mail",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Ask Gemini",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": "Showing most relevant"
+    }
+  ]
+}

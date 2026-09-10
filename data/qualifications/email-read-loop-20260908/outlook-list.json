@@ -1,0 +1,1211 @@
+{
+  "empty": [
+    "Select an item to read"
+  ],
+  "rows": [
+    {
+      "tag": "DIV",
+      "attrs": {
+        "id": "AQAAAAAAAQABAAABWARILAAAAAA=",
+        "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAPJApIGWnwpCiqJwLFuEeRM=",
+        "tabindex": "0",
+        "class": "jGG6V gDC9O UWKUc",
+        "aria-selected": "false",
+        "aria-setsize": "4",
+        "aria-posinset": "1",
+        "role": "option",
+        "aria-label": "ChatGPT Your ChatGPT Desktop referral reward is ready Mon 10:22 AM Your ChatGPT Desktop referral reward is ready OpenAI You received credits Your invite worked. You and your friend received 1,000 credits each. Open ChatGPT Desktop Your referral sent their first message in ChatGPT Desktop, so we've adde… No conversations selected",
+        "data-focusable-row": "true"
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "DIV",
+          "attrs": {
+            "draggable": "true"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {},
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "role": "group"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "lHRXq hDNlA",
+                        "tabindex": "-1"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "X1bn0"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "BUTTON",
+                              "attrs": {
+                                "tabindex": "-1",
+                                "class": "Es7y_",
+                                "title": "Mark as unread"
+                              },
+                              "text": "",
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "XG5Jd TszOG SZaCC MVhy7"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ZfoST VlT6S azUpZ"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "XG5Jd WNvBZ TBtad q0f8X XW8cf DoCKv vbEPJ",
+                                    "title": "",
+                                    "tabindex": "-1",
+                                    "role": "checkbox",
+                                    "aria-checked": "false",
+                                    "aria-label": "Select a conversation"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "role": "img",
+                                        "id": "avatar-r5h",
+                                        "class": "fui-Avatar r81b29z mP9b0",
+                                        "aria-label": "ChatGPT"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "id": "avatar-r5h__initials",
+                                            "class": "fui-Avatar__initials rip04v ___1h9d960 f1res9jt f1x6mz1o"
+                                          },
+                                          "text": "C",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "S2NDX"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "gCSJa XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "ESO13 gy2aJ pRyEG Ejrkd"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "title": "noreply@email.openai.com"
+                                          },
+                                          "text": "ChatGPT",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "nf3X_ D8iyG Q19mi"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "IjzWp XG5Jd gy2aJ Ejrkd lME98"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "class": "TtcXM"
+                                          },
+                                          "text": "Your ChatGPT Desktop referral reward is ready",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "class": "qq2gS _rWRU Ejrkd D8iyG",
+                                        "title": "Mon 9/7/2026 10:22 AM"
+                                      },
+                                      "text": "Mon 10:22 AM",
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "goF6v XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "uiebQ"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "En7p5"
+                                          },
+                                          "text": null,
+                                          "children": [
+                                            {
+                                              "tag": "SPAN",
+                                              "attrs": {
+                                                "class": "ASFJj gy2aJ Ejrkd"
+                                              },
+                                              "text": "Your ChatGPT Desktop referral reward is ready OpenAI You received credits Your invite worked. You and your friend received 1,000 credits each. Open ChatGPT Desktop Your referral sent their first message in ChatGPT Desktop, so we've adde…",
+                                              "children": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "wBMYh"
+                          },
+                          "text": null,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "DIV",
+      "attrs": {
+        "id": "AQAAAAAAAQABAAABV8aPjgAAAAA=",
+        "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAPNkhNJoV2hJkmUhsb6HLR4=",
+        "tabindex": "-1",
+        "class": "jGG6V gDC9O UWKUc",
+        "aria-selected": "false",
+        "aria-setsize": "0",
+        "aria-posinset": "0",
+        "role": "option",
+        "aria-label": "OpenAI New sign-in to your OpenAI account Sat 12:35 PM New sign-in details for your OpenAI account. Hello, We noticed a new sign-in to your OpenAI account. App: ChatGPT Web Time: September 04, 2026 at 9:35 PM (PDT) Approximate location: Long Beach, US Device: Edge on Mac OS X If thi…",
+        "data-focusable-row": "true"
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "DIV",
+          "attrs": {
+            "draggable": "true"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {},
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "role": "group"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "lHRXq hDNlA",
+                        "tabindex": "-1"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "X1bn0"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "BUTTON",
+                              "attrs": {
+                                "tabindex": "-1",
+                                "class": "Es7y_",
+                                "title": "Mark as unread"
+                              },
+                              "text": "",
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "XG5Jd TszOG SZaCC MVhy7"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ZfoST VlT6S azUpZ"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "XG5Jd WNvBZ TBtad q0f8X XW8cf DoCKv vbEPJ",
+                                    "title": "",
+                                    "tabindex": "-1",
+                                    "role": "checkbox",
+                                    "aria-checked": "false",
+                                    "aria-label": "Select a conversation"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "role": "img",
+                                        "id": "avatar-r5i",
+                                        "class": "fui-Avatar r81b29z mP9b0",
+                                        "aria-label": "OpenAI"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "id": "avatar-r5i__initials",
+                                            "class": "fui-Avatar__initials rip04v ___jxbyg60 f1ntv3ld f101elhj"
+                                          },
+                                          "text": "O",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "S2NDX"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "gCSJa XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "ESO13 gy2aJ pRyEG Ejrkd"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "title": "noreply@tm.openai.com"
+                                          },
+                                          "text": "OpenAI",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "nf3X_ D8iyG Q19mi"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "IjzWp XG5Jd gy2aJ Ejrkd lME98"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "class": "TtcXM"
+                                          },
+                                          "text": "New sign-in to your OpenAI account",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "class": "qq2gS _rWRU Ejrkd D8iyG",
+                                        "title": "Sat 9/5/2026 12:35 PM"
+                                      },
+                                      "text": "Sat 12:35 PM",
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "goF6v XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "uiebQ"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "En7p5"
+                                          },
+                                          "text": null,
+                                          "children": [
+                                            {
+                                              "tag": "SPAN",
+                                              "attrs": {
+                                                "class": "ASFJj gy2aJ Ejrkd"
+                                              },
+                                              "text": "New sign-in details for your OpenAI account. Hello, We noticed a new sign-in to your OpenAI account. App: ChatGPT Web Time: September 04, 2026 at 9:35 PM (PDT) Approximate location: Long Beach, US Device: Edge on Mac OS X If thi…",
+                                              "children": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "wBMYh"
+                          },
+                          "text": null,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "DIV",
+      "attrs": {
+        "id": "AQAAAAAAAQABAAABV8aPjQAAAAA=",
+        "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAC0yVvC9aqJIsmKaxMoVonY=",
+        "tabindex": "-1",
+        "class": "jGG6V gDC9O UWKUc",
+        "aria-selected": "false",
+        "aria-setsize": "0",
+        "aria-posinset": "0",
+        "role": "option",
+        "aria-label": "ChatGPT Your temporary ChatGPT login code Sat 12:35 PM Enter this temporary verification code to continue: 775136 Didn't request a verification code? You can ignore this email. Best, The ChatGPT team ChatGPT Help center",
+        "data-focusable-row": "true"
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "DIV",
+          "attrs": {
+            "draggable": "true"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {},
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "role": "group"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "lHRXq hDNlA",
+                        "tabindex": "-1"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "X1bn0"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "BUTTON",
+                              "attrs": {
+                                "tabindex": "-1",
+                                "class": "Es7y_",
+                                "title": "Mark as unread"
+                              },
+                              "text": "",
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "XG5Jd TszOG SZaCC MVhy7"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ZfoST VlT6S azUpZ"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "XG5Jd WNvBZ TBtad q0f8X XW8cf DoCKv vbEPJ",
+                                    "title": "",
+                                    "tabindex": "-1",
+                                    "role": "checkbox",
+                                    "aria-checked": "false",
+                                    "aria-label": "Select a conversation"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "role": "img",
+                                        "id": "avatar-r5j",
+                                        "class": "fui-Avatar r81b29z mP9b0",
+                                        "aria-label": "ChatGPT"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "id": "avatar-r5j__initials",
+                                            "class": "fui-Avatar__initials rip04v ___1h9d960 f1res9jt f1x6mz1o"
+                                          },
+                                          "text": "C",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "S2NDX"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "gCSJa XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "ESO13 gy2aJ pRyEG Ejrkd"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "title": "noreply@tm.openai.com"
+                                          },
+                                          "text": "ChatGPT",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "nf3X_ D8iyG Q19mi"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "IjzWp XG5Jd gy2aJ Ejrkd lME98"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "class": "TtcXM"
+                                          },
+                                          "text": "Your temporary ChatGPT login code",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "class": "qq2gS _rWRU Ejrkd D8iyG",
+                                        "title": "Sat 9/5/2026 12:35 PM"
+                                      },
+                                      "text": "Sat 12:35 PM",
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "goF6v XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "uiebQ"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "En7p5"
+                                          },
+                                          "text": null,
+                                          "children": [
+                                            {
+                                              "tag": "SPAN",
+                                              "attrs": {
+                                                "class": "ASFJj gy2aJ Ejrkd"
+                                              },
+                                              "text": "Enter this temporary verification code to continue: 775136 Didn't request a verification code? You can ignore this email. Best, The ChatGPT team ChatGPT Help center",
+                                              "children": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "wBMYh"
+                          },
+                          "text": null,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "DIV",
+      "attrs": {
+        "id": "AQAAAAAAAQABAAABU6Q2ewAAAAA=",
+        "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQALDcPV5D2gpIsvtvRYVSY6U=",
+        "tabindex": "-1",
+        "class": "jGG6V gDC9O UWKUc",
+        "aria-selected": "false",
+        "aria-setsize": "0",
+        "aria-posinset": "0",
+        "role": "option",
+        "aria-label": "OpenAI New sign-in to your OpenAI account Thu 9/3 New sign-in details for your OpenAI account. Hello, We noticed a new sign-in to your OpenAI account. App: Codex Time: September 03, 2026 at 5:52 AM (PDT) Approximate location: Long Beach, US Device: Chrome on Linux If this was y…",
+        "data-focusable-row": "true"
+      },
+      "text": null,
+      "children": [
+        {
+          "tag": "DIV",
+          "attrs": {
+            "draggable": "true"
+          },
+          "text": null,
+          "children": [
+            {
+              "tag": "DIV",
+              "attrs": {},
+              "text": null,
+              "children": [
+                {
+                  "tag": "DIV",
+                  "attrs": {
+                    "role": "group"
+                  },
+                  "text": null,
+                  "children": [
+                    {
+                      "tag": "DIV",
+                      "attrs": {
+                        "class": "lHRXq hDNlA",
+                        "tabindex": "-1"
+                      },
+                      "text": null,
+                      "children": [
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "X1bn0"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "BUTTON",
+                              "attrs": {
+                                "tabindex": "-1",
+                                "class": "Es7y_",
+                                "title": "Mark as unread"
+                              },
+                              "text": "",
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "XG5Jd TszOG SZaCC MVhy7"
+                          },
+                          "text": null,
+                          "children": [
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "ZfoST VlT6S azUpZ"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "XG5Jd WNvBZ TBtad q0f8X XW8cf DoCKv vbEPJ",
+                                    "title": "",
+                                    "tabindex": "-1",
+                                    "role": "checkbox",
+                                    "aria-checked": "false",
+                                    "aria-label": "Select a conversation"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "role": "img",
+                                        "id": "avatar-r5k",
+                                        "class": "fui-Avatar r81b29z mP9b0",
+                                        "aria-label": "OpenAI"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "id": "avatar-r5k__initials",
+                                            "class": "fui-Avatar__initials rip04v ___jxbyg60 f1ntv3ld f101elhj"
+                                          },
+                                          "text": "O",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "tag": "DIV",
+                              "attrs": {
+                                "class": "S2NDX"
+                              },
+                              "text": null,
+                              "children": [
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "gCSJa XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "ESO13 gy2aJ pRyEG Ejrkd"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "title": "noreply@tm.openai.com"
+                                          },
+                                          "text": "OpenAI",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "nf3X_ D8iyG Q19mi"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "IjzWp XG5Jd gy2aJ Ejrkd lME98"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "SPAN",
+                                          "attrs": {
+                                            "class": "TtcXM"
+                                          },
+                                          "text": "New sign-in to your OpenAI account",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "SPAN",
+                                      "attrs": {
+                                        "class": "qq2gS _rWRU Ejrkd D8iyG",
+                                        "title": "Thu 9/3/2026 8:52 PM"
+                                      },
+                                      "text": "Thu 9/3",
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "tag": "DIV",
+                                  "attrs": {
+                                    "class": "goF6v XG5Jd"
+                                  },
+                                  "text": null,
+                                  "children": [
+                                    {
+                                      "tag": "DIV",
+                                      "attrs": {
+                                        "class": "uiebQ"
+                                      },
+                                      "text": null,
+                                      "children": [
+                                        {
+                                          "tag": "DIV",
+                                          "attrs": {
+                                            "class": "En7p5"
+                                          },
+                                          "text": null,
+                                          "children": [
+                                            {
+                                              "tag": "SPAN",
+                                              "attrs": {
+                                                "class": "ASFJj gy2aJ Ejrkd"
+                                              },
+                                              "text": "New sign-in details for your OpenAI account. Hello, We noticed a new sign-in to your OpenAI account. App: Codex Time: September 03, 2026 at 5:52 AM (PDT) Approximate location: Long Beach, US Device: Chrome on Linux If this was y…",
+                                              "children": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "DIV",
+                          "attrs": {
+                            "class": "wBMYh"
+                          },
+                          "text": null,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "buttons": [
+    {
+      "label": "Skip to main content",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "App launcher",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Notifications",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Access additional features",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Zhishi X",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Mail",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Calendar",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "People",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "To Do",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Word",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Excel",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "PowerPoint",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "More apps",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Hide navigation pane",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": "File"
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": "Home"
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": "View"
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": "Help"
+    },
+    {
+      "label": "New mail",
+      "title": "",
+      "text": "\nNew mail\nCreate a new email message. (N)"
+    },
+    {
+      "label": " Expand to see more New options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Delete",
+      "title": "",
+      "text": "\nDelete\nthis message. (Delete)"
+    },
+    {
+      "label": " Expand to see delete options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Archive",
+      "title": "",
+      "text": "\nArchive\nMove this message to your archive folder. (E)"
+    },
+    {
+      "label": "Report",
+      "title": "",
+      "text": "\nReport\nthis message as phishing."
+    },
+    {
+      "label": " Expand to see more report options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Move to",
+      "title": "",
+      "text": "\nMove to\na folder. (V)\n"
+    },
+    {
+      "label": "Reply all",
+      "title": "",
+      "text": "\nReply all\nto this message. (Shift+R / Ctrl+Shift+R)"
+    },
+    {
+      "label": " Expand to see more respond options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "With quick steps, you can take multiple actions on a message in a single click. For example, you can set to move a message to a specific folder, flag it, and mark it as read.",
+      "title": "",
+      "text": "\nQuick steps"
+    },
+    {
+      "label": "More quick steps",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Mark all as read",
+      "title": "",
+      "text": "\nMark all as read\nMark all messages in this folder as read."
+    },
+    {
+      "label": "Flag / Unflag",
+      "title": "",
+      "text": "\nFlag / Unflag\nFlag or unflag this message."
+    },
+    {
+      "label": " Expand to see flag options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "More apps",
+      "title": "",
+      "text": "\nEnhance Outlook with apps."
+    },
+    {
+      "label": "Discover groups",
+      "title": "",
+      "text": "\nDiscover groups\nBrowse for an existing group. A group is a workspace for shared email, documents, and calendar events."
+    },
+    {
+      "label": "Undo",
+      "title": "",
+      "text": "\nUndo\nlast action. (Ctrl+Z / Alt+Backspace)"
+    },
+    {
+      "label": "More options",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Switch layouts",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Favorite folder",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Select",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Jump to",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Filter",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": "Sorted: By Date",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "Mark as unread",
+      "text": ""
+    },
+    {
+      "label": "Header action menu",
+      "title": "",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "Mark as unread",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "Mark as unread",
+      "text": ""
+    },
+    {
+      "label": null,
+      "title": "Mark as unread",
+      "text": ""
+    }
+  ]
+}

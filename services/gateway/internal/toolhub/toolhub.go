@@ -58,6 +58,16 @@ type ToolHub struct {
 	lifecycle             *toolHubLifecycle
 	connectorGate         func(ownerID, channel string) bool
 	emailSender           EmailSender
+	emailReader           EmailReader
+}
+
+type EmailReader interface {
+	ReadForOwner(context.Context, string, app.EmailReadRequest) (app.EmailReadResult, error)
+}
+
+func (h *ToolHub) WithEmailReader(reader EmailReader) *ToolHub {
+	h.emailReader = reader
+	return h
 }
 
 type EmailSender interface {

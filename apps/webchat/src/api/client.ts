@@ -47,6 +47,8 @@ import type {
 } from "./types";
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 import { clientTimezone } from "../lib/timezone";
+import { emailQuery } from "./email";
+import type { EmailVerification, EmailDraft, EmailDraftInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus } from "./email";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const PAIRING_API_BASE = import.meta.env.VITE_SPARKCLAW_PAIRING_API_BASE ?? "http://127.0.0.1:18795";
@@ -284,6 +286,25 @@ export async function openDocumentFile(path: string, sessionId = "") {
   }
 }
 
+export function emailFileURL(mailId: string, partId = "") {
+  const query = partId ? `?part_id=${encodeURIComponent(partId)}` : "";
+  const route = `/api/email/messages/${encodeURIComponent(mailId)}/file${query}`;
+  return API_BASE ? new URL(route, new URL(API_BASE, window.location.origin)).toString() : route;
+}
+
+export async function openEmailFile(mailId: string, partId = "", name = "original.eml") {
+  const blob = await fetchAuthedBlob(emailFileURL(mailId, partId));
+  // Email attachments are untrusted. Download bytes instead of navigating to
+  // a same-origin HTML/SVG blob that could execute with WebChat's authority.
+  const objectURL = URL.createObjectURL(new Blob([blob], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = objectURL;
+  link.download = name.split(/[\\/]/).pop() || "attachment";
+  link.rel = "noopener noreferrer";
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+}
+
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
   speechStatus: () => request<SpeechStatus>("/api/speech/status"),
@@ -337,6 +358,56 @@ export const api = {
   connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
   integrations: () => request<{ integrations: IntegrationStatus[] }>("/api/integrations"),
   emailProviders: () => request<{ providers: EmailProviderStatus[] }>("/api/email/providers"),
+  emailConversations: (filters: EmailFilters = {}, signal?: AbortSignal) =>
+    request<EmailConversationPage>(`/api/email/conversations${emailQuery(filters)}`, { signal }),
+  emailConversation: (id: string, signal?: AbortSignal) =>
+    request<{ version: number; conversation: EmailConversation }>(`/api/email/conversations/${encodeURIComponent(id)}`, { signal }),
+  emailMessages: (id: string, filters: EmailFilters = {}, signal?: AbortSignal) =>
+    request<EmailMessagePage>(`/api/email/conversations/${encodeURIComponent(id)}/messages${emailQuery(filters)}`, { signal }),
+  emailPending: (filters: EmailFilters = {}, signal?: AbortSignal) =>
+    request<EmailMessagePage>(`/api/email/pending${emailQuery(filters)}`, { signal }),
+  emailVerification: (id: string) => request<EmailVerification>(`/api/email/messages/${encodeURIComponent(id)}/verification`),
+  emailMessage: (id: string, signal?: AbortSignal) => request<EmailMessage>(`/api/email/messages/${encodeURIComponent(id)}`, { signal }),
+  emailNotifications: (filters: EmailFilters = {}, signal?: AbortSignal) =>
+    request<EmailMessagePage>(`/api/email/notifications${emailQuery(filters)}`, { signal }),
+  emailInteractionMails: (filters: EmailFilters = {}, signal?: AbortSignal) =>
+    request<EmailMessagePage>(`/api/email/interaction-mails${emailQuery(filters)}`, { signal }),
+  emailSenderRules: (signal?: AbortSignal, cursor = "") => request<{ rules: EmailSenderRule[]; next_cursor?: string }>(`/api/email/sender-rules${emailQuery({ cursor, limit: 100 })}`, { signal }),
+  classifyEmail: (id: string, body: { entry: EmailEntry; expected_version: number; remember_sender: boolean; expected_rule_version: number; command_key: string }) =>
+    request<{ classification: EmailClassification }>(`/api/email/messages/${encodeURIComponent(id)}/classification`, { method: "POST", body: JSON.stringify(body) }),
+  updateEmailSenderRule: (id: string, body: { entry: EmailEntry; enabled: boolean; expected_version: number; command_key: string }) =>
+    request<{ rule: EmailSenderRule }>(`/api/email/sender-rules/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify(body) }),
+  emailPresentations: (kind: "mail" | "conversation", ids: string[], language: "en" | "zh", signal?: AbortSignal) => {
+    const query = new URLSearchParams({ target_kind: kind, language });
+    ids.forEach((id) => query.append("target_id", id));
+    return request<{ items: EmailPresentation[] }>(`/api/email/presentations?${query}`, { signal });
+  },
+  ensureEmailPresentations: (kind: "mail" | "conversation", ids: string[], language: "en" | "zh", retry = false, signal?: AbortSignal) =>
+    request<{ items: EmailPresentation[] }>("/api/email/presentations/ensure", { method: "POST", body: JSON.stringify({ target_kind: kind, target_ids: ids, language, retry }), signal }),
+  emailComposeCapabilities: () => request<EmailComposeCapabilities>("/api/email/compose-capabilities"),
+  emailDrafts: (filters: EmailFilters = {}, signal?: AbortSignal) => request<{ items: EmailDraft[]; next_cursor?: string }>(`/api/email/drafts${emailQuery(filters)}`, { signal }),
+  emailDraft: (id: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}`),
+  saveEmailDraft: (body: EmailDraftInput) => request<EmailDraft>(body.id ? `/api/email/drafts/${encodeURIComponent(body.id)}` : "/api/email/drafts", { method: body.id ? "PUT" : "POST", body: JSON.stringify(body) }),
+  emailSentSources: (filters: EmailFilters, signal?: AbortSignal) => request<EmailMessagePage>(`/api/email/sent-sources${emailQuery(filters)}`, { signal }),
+  reconcileEmailDraft: (id: string, sentMailId?: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify(sentMailId ? { sent_mail_id: sentMailId } : {}) }),
+  sendEmailDraft: (id: string, expectedVersion: number, idempotencyKey: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/send`, { method: "POST", body: JSON.stringify({ expected_version: expectedVersion, idempotency_key: idempotencyKey }) }),
+  emailSyncStatus: (signal?: AbortSignal) => request<EmailSyncStatus>("/api/email/sync-status", { signal }),
+  syncEmail: (mailboxId = "") => request<{ scheduled: boolean }>("/api/email/sync", {
+    method: "POST", body: JSON.stringify(mailboxId ? { mailbox_id: mailboxId } : {})
+  }),
+  markEmailViewed: (mailIds: string[], signal?: AbortSignal) => {
+    if (mailIds.length === 0 || mailIds.length > 100) throw new Error("Expected 1–100 mail IDs");
+    return request<{ version: number; mail_ids: string[] }>("/api/email/messages/viewed", {
+      method: "POST", body: JSON.stringify({ mail_ids: mailIds }), signal
+    });
+  },
+  reanalyzeEmail: (id: string) => request<{ scheduled: boolean }>(`/api/email/messages/${encodeURIComponent(id)}/reanalyze`, {
+    method: "POST", body: "{}"
+  }),
+  updateEmailIntake: (provider: EmailProviderStatus["provider"], intakeEnabled: boolean, mailboxVersion: number) =>
+    request<{ mailbox: EmailMailbox }>(`/api/email/providers/${encodeURIComponent(provider)}`, {
+      method: "PATCH", body: JSON.stringify({ intake_enabled: intakeEnabled, expected_mailbox_version: mailboxVersion })
+    }),
   browserExtension: () => request<BrowserExtensionStatus>("/api/browser/extension"),
   saveBrowserExtensionToken: (token: string) => request<BrowserExtensionStatus>("/api/browser/extension/token", {
     method: "PUT",

@@ -5,7 +5,7 @@
 ## Status
 
 Proposed on 2026-09-04 and completed on 2026-09-05. All phases and cutover gates
-have been implemented. The checksum-pinned SparkClaw Browser Bridge `1.0.20`,
+have been implemented. The checksum-pinned SparkClaw Browser Bridge `1.0.21`,
 fixed Chromium `148.0.7778.0`, owner-scoped Controller, Playwright MCP, and
 Playwright CLI now form the only production browser runtime. Browserd,
 Host-CDP, `agent-browser`, and the migration selector have been removed.
@@ -414,10 +414,13 @@ The browser remains headed and owner-visible; "background" describes tab focus,
 not a hidden or headless browser. A task may request foreground focus only for
 an explicit owner handoff.
 
-MCP and CLI must not attach to the same tab concurrently. Per-profile
-admission serializes conflicting provider effects, while independent generic
-tasks may run only after the PoC proves that separate extension tab groups are
-isolated. Initial implementation uses one active automation client per profile.
+MCP and CLI must not attach to the same tab concurrently. QQ, Gmail and Outlook
+read/intake/probe scripts may run concurrently in isolated CLI sessions and Bridge
+task tab groups; scripts for the same provider remain serial. Each connection
+filters events, downloads and cleanup through its own tab allowlist. Generic MCP,
+send, login handoff and token validation remain globally exclusive; queued exclusive
+work prevents new intake from starving it. HTTP disconnection cancels only the
+corresponding script and retains its reservation until cleanup completes.
 
 Owner interaction with a task tab pauses automation, invalidates its current
 snapshot, and requires fresh state before resume. Owner inactivity never grants
@@ -447,13 +450,15 @@ effect still requires a fresh probe according to the provider contract.
 The implementation retains these email business invariants from the legacy
 Workflow:
 
-- send only; reading, search, reply, forward, attachments, and draft management
-  remain unavailable;
+- revision 2 captures one unread message and its attachments into workspace
+  files and supports sending; search, reply, forward, outgoing attachments and
+  draft management remain unavailable;
 - provider and account selection remain deterministic and Runtime-owned;
 - login validation remains outside the Workflow and model context;
-- the model supplies only recipient, optional subject, and plain-text body;
+- for sending the model supplies only recipient, optional subject, and plain-text
+  body; reading takes no model parameters and returns a source-capture receipt;
 - the exact provider, account hint, recipient, subject, and full body require
-  approval immediately before the external effect;
+  approval immediately before sending; reads do not request send approval;
 - Send may be attempted once, and an unknown result is terminal and is never
   retried automatically;
 - scripts remain first-party, revisioned, bounded, and strict-schema.
@@ -771,7 +776,7 @@ The cutover passed every browser-migration gate:
 5. Browser Bridge compatibility and X11-monitored live scenarios proved that
    attachment and normal actions remain in the background; only
    `tabs.handoff` activates the task tab.
-6. The current production set is SparkClaw Browser Bridge `1.0.20`, Playwright MCP
+6. The current production set is SparkClaw Browser Bridge `1.0.21`, Playwright MCP
    `0.0.80`, Playwright CLI `0.1.19`, Playwright Library/Core
    `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. Official Extension
    `0.4.0` remains only the completed compatibility baseline.

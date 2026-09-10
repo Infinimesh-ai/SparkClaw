@@ -33,7 +33,7 @@ func NewPlaywrightRunner(controller PlaywrightController) *PlaywrightRunner {
 const scriptWaitGrace = 60 * time.Second
 
 // scriptContext bounds a controller call by the script's declared budget so a
-// wedged controller cannot pin the request and the per-process profile mutex.
+// wedged controller cannot pin the request and the per-provider operation gate.
 func scriptContext(ctx context.Context, script Script) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, script.Timeout+scriptWaitGrace)
 }
@@ -116,7 +116,8 @@ func (r *PlaywrightRunner) Send(
 		!invocationIDPattern.MatchString(request.InvocationID) {
 		return SendResult{}, codedError(app.ToolErrorEmailInvalidInput, "Email send binding is invalid")
 	}
-	if err := validateMessage(request.Recipient, request.Subject, request.Body); err != nil {
+	expectedDigest, err := validateComposeRequest(request)
+	if err != nil {
 		return SendResult{}, err
 	}
 	generation, err := r.credentialGeneration(ctx, request.BrowserCredentialGeneration)
@@ -124,20 +125,30 @@ func (r *PlaywrightRunner) Send(
 		return SendResult{}, err
 	}
 	input := struct {
-		SchemaVersion int    `json:"schema_version"`
-		Operation     string `json:"operation"`
-		InvocationID  string `json:"invocation_id"`
-		Provider      string `json:"provider"`
-		Account       string `json:"account"`
-		Message       struct {
-			Recipient string `json:"recipient"`
-			Subject   string `json:"subject"`
+		SchemaVersion  int                   `json:"schema_version"`
+		Operation      string                `json:"operation"`
+		InvocationID   string                `json:"invocation_id"`
+		Provider       string                `json:"provider"`
+		Account        string                `json:"account"`
+		Mode           string                `json:"mode,omitempty"`
+		AccountAddress string                `json:"account_address,omitempty"`
+		ReplyTarget    *app.EmailReplyTarget `json:"reply_target,omitempty"`
+		Message        struct {
+			Recipient string   `json:"recipient,omitempty"`
+			To        []string `json:"to,omitempty"`
+			CC        []string `json:"cc,omitempty"`
+			Subject   string   `json:"subject"`
 			Body      struct {
 				Format  string `json:"format"`
 				Content string `json:"content"`
 			} `json:"body"`
 		} `json:"message"`
 	}{SchemaVersion: 1, Operation: "send", InvocationID: request.InvocationID, Provider: provider.ID, Account: app.EmailAccountDefault}
+	input.Mode = request.Mode
+	input.AccountAddress = request.AccountAddress
+	input.ReplyTarget = request.ReplyTarget
+	input.Message.To = request.To
+	input.Message.CC = request.CC
 	input.Message.Recipient = request.Recipient
 	input.Message.Subject = request.Subject
 	input.Message.Body.Format = "text"
@@ -161,17 +172,21 @@ func (r *PlaywrightRunner) Send(
 		Provider          string `json:"provider"`
 		RecipientDigest   string `json:"recipient_digest"`
 		ProviderMessageID string `json:"provider_message_id,omitempty"`
+		ProviderThreadID  string `json:"provider_thread_id,omitempty"`
 	}
 	if err := decodeStrictJSON(result.Result, &output); err != nil ||
-		output.SchemaVersion != 1 || output.Status != "sent" || output.Provider != provider.ID ||
-		output.RecipientDigest != recipientDigest(request.Recipient) ||
-		!validOpaqueProviderID(output.ProviderMessageID) ||
+		output.SchemaVersion != 1 || (output.Status != "sent" && !(request.Mode != "" && output.Status == "unknown")) || output.Provider != provider.ID ||
+		output.RecipientDigest != expectedDigest ||
+		!validSendProviderID(output.ProviderMessageID, request.Mode != "") || !validSendProviderID(output.ProviderThreadID, request.Mode != "") ||
 		result.CredentialGeneration != generation {
 		return SendResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email send script returned an invalid result")
 	}
+	if output.Status == "unknown" && request.Mode != "reconcile" {
+		return SendResult{}, codedError(app.ToolErrorEmailSendOutcomeUnknown, "Email send outcome is pending confirmation")
+	}
 	return SendResult{
 		Provider: provider.ID, Status: output.Status, RecipientDigest: output.RecipientDigest,
-		ProviderMessageID:           output.ProviderMessageID,
+		ProviderMessageID: output.ProviderMessageID, ProviderThreadID: output.ProviderThreadID,
 		BrowserCredentialGeneration: uint64(result.CredentialGeneration), ScriptRevision: provider.Send.Revision,
 	}, nil
 }

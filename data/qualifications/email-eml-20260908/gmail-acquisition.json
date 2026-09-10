@@ -1,0 +1,25 @@
+{
+  "provider": "gmail",
+  "account_matches": true,
+  "identity_matches": true,
+  "acquisition": "provider_export_response",
+  "elapsed_ms": 30888,
+  "status": "captured",
+  "events": [
+    {
+      "allowed": true,
+      "origin": "https://mail.google.com",
+      "protocol": "https:"
+    }
+  ],
+  "response": {
+    "status": 200,
+    "type": "application/force-download; charset=utf-8",
+    "redirected": true,
+    "origin": "https://mail-attachment.googleusercontent.com"
+  },
+  "bytes": 45731,
+  "sha256": "f6a72d81e490dbad1f216bdb6f281bac72d45a4f5db5b9c39fef5b20aa0a9a14",
+  "attachment_count": 0,
+  "subject_matches": true
+}

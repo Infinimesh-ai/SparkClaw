@@ -7,13 +7,18 @@
 通用邮箱、日历和 Workspace Knowledge/RAG 原型已于 2026-07-16 从 SparkClaw 活动架构中
 移除。它们是跨层占位实现，不是完整产品能力。
 
-2026-09-03，SparkClaw 引入了一个全新且刻意收窄的活动邮箱切片：`browser.email` r1
+2026-09-03，SparkClaw 引入了一个全新且刻意收窄的活动邮箱切片：`browser.email`
 可以通过刚刚校验的已配置 QQ 邮箱、Outlook 或 Gmail 浏览器账户，发送一封经审批的纯文本
 邮件。其登录、Browser Bridge Provider Handler、审批和未知结果契约见
 [浏览器邮箱 Workflow](browser-email-workflow-design.md)。
 
-该仅发送能力不会重新启用旧 Personal Data Connector。邮件读取和更广泛的邮箱操作仍保持
-暂缓；日历和内置 Workspace Knowledge/RAG 也保持暂缓。
+Revision 2 增加通过固定浏览器脚本采集一封未读邮件及范围内附件的来源资料；新的未读采集
+尚未完整通过验收，服务商限制见[来源设计](email-read-design.md)。这些能力不会重新启用旧 Personal Data
+Connector。通用邮箱搜索、回复、草稿与发送附件仍保持暂缓；日历和内置 Workspace
+Knowledge/RAG 也保持暂缓。
+
+[邮件管理实施](email-management-implementation.md)已新增已提交邮件的本地搜索、固定事项归属和
+有界后台接收；不重新启用旧 Connector，也不提供任意远端邮箱搜索。
 
 独立 Embedding Lane 继续用于 Semantic Routing，不归已移除的 Knowledge 原型所有，也不由其扩展。
 
@@ -42,8 +47,8 @@ File Adapter 只会查询 JSON Fixture，并把发送追加到本地 JSONL。HTT
 提供方 Endpoint，却没有定义账户授权、邮箱身份、分页、MIME、附件、草稿状态、投递语义、
 提供方错误映射或发送结果未知后的对账。在 Mock Append 外套一层审批并不会得到真实邮箱系统。
 
-当前活动浏览器发送切片只完成了有界的单收件人发送契约，不表示收件箱读取、搜索、回复、
-附件、草稿同步或多账户语义已经完成设计。
+当前活动浏览器邮箱切片完成了单封未读邮件来源采集和单收件人发送契约，不表示搜索、回复、发送附件、
+草稿同步或多账户语义已经完成设计。
 
 ### 日历
 

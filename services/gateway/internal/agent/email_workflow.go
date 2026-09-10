@@ -10,7 +10,7 @@ import (
 type browserEmailProfile struct{}
 
 func (browserEmailProfile) ID() app.WorkflowID           { return app.WorkflowBrowserEmail }
-func (browserEmailProfile) Revision() int                { return 1 }
+func (browserEmailProfile) Revision() int                { return 2 }
 func (browserEmailProfile) Capability() app.CapabilityID { return app.CapabilityBrowserEmail }
 func (browserEmailProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
@@ -21,8 +21,14 @@ func (browserEmailProfile) RoutingSemantics() workflowRoutingSemantics {
 		},
 		TreeDescription: "Send exactly one new plain-text email through a configured QQ Mail, Outlook, or Gmail browser account. The provider is resolved deterministically by Runtime; the model supplies only recipient, optional single-line subject, and body.",
 		HardNegatives: []string{
-			"查看 Gmail 收件箱", "读第一封未读邮件", "打开 QQ 邮箱网页", "给邮件添加附件", "回复这封邮件", "检查 Outlook 是否登录",
+			"打开 QQ 邮箱网页", "给邮件添加附件", "回复这封邮件", "检查 Outlook 是否登录",
 		},
+	}, {
+		Key:             "read",
+		Route:           workflowRouteTemplate{Operation: app.RouteOperationRead},
+		EmbedTexts:      []string{"读取 Gmail 的一封未读邮件", "读第一封未读邮件", "读取 QQ 邮箱邮件并保存附件", "采集 Outlook 的一封未读邮件", "Read one unread email", "Capture an unread Gmail email and its attachments"},
+		TreeDescription: "Capture exactly one unread email and its available attachments from configured QQ Mail, Outlook, or Gmail into workspace source files. Runtime selects the account; the model supplies no parameters. Returns a capture receipt, not a model summary. Does not search arbitrary folders or reply.",
+		HardNegatives:   []string{"发送邮件", "回复这封邮件", "批量读取全部邮件", "检查 Outlook 是否登录", "打开 QQ 邮箱网页"},
 	}}}
 }
 func (browserEmailProfile) Finalization() workflowFinalizationMode {
@@ -30,13 +36,18 @@ func (browserEmailProfile) Finalization() workflowFinalizationMode {
 }
 
 func (p browserEmailProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
-	if route.Slots.Operation != app.RouteOperationSend {
-		return app.IntentEnvelope{}, app.WorkflowPlan{}, errors.New("browser.email only supports send")
+	if route.Slots.Operation != app.RouteOperationSend && route.Slots.Operation != app.RouteOperationRead {
+		return app.IntentEnvelope{}, app.WorkflowPlan{}, errors.New("browser.email only supports send and read")
+	}
+	reading := route.Slots.Operation == app.RouteOperationRead
+	revisionFact := app.EmailRouteFactSendScriptRevision
+	if reading {
+		revisionFact = app.EmailRouteFactReadScriptRevision
 	}
 	for _, key := range []string{
 		app.EmailRouteFactProvider, app.EmailRouteFactAccount, app.EmailRouteFactAccountHint,
 		app.EmailRouteFactSettingVersion, app.EmailRouteFactBrowserCredentialGeneration, app.EmailRouteFactProbeRevision,
-		app.EmailRouteFactSendScriptRevision, app.EmailRouteFactValidatedAt, app.EmailRouteFactInvocationID,
+		revisionFact, app.EmailRouteFactValidatedAt, app.EmailRouteFactInvocationID,
 	} {
 		if strings.TrimSpace(route.Facts[key]) == "" {
 			return app.IntentEnvelope{}, app.WorkflowPlan{}, errors.New("browser.email is missing fresh login admission")
@@ -57,16 +68,31 @@ func (p browserEmailProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "validated_at", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactValidatedAt},
 		{Capability: app.ToolCapabilityBrowserEmailSend, Argument: "invocation_id", ResourceKind: "email_admission", Source: app.ArgumentBindingRouteFact, SourceKey: app.EmailRouteFactInvocationID},
 	}
+	capability, stage, risk := app.ToolCapabilityBrowserEmailSend, "send_email", app.RiskDangerous
+	goal := "Send one exact approved plain-text email through the fresh Runtime-selected browser account"
+	if reading {
+		intent = singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRead, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopeLocal)
+		intent.Objectives[0].Output = app.OutputKindMessage
+		nodeID, capability, stage, risk = "email_read", app.ToolCapabilityBrowserEmailRead, "read_email", app.RiskRead
+		goal = "Capture exactly one unread email and its available attachments from the fresh Runtime-selected account into workspace source files. Return only the capture receipt; no model analysis or summary is implemented."
+		for index := range bindings {
+			bindings[index].Capability = capability
+			if bindings[index].Argument == "send_script_revision" {
+				bindings[index].Argument = "read_script_revision"
+				bindings[index].SourceKey = revisionFact
+			}
+		}
+	}
 	return intent, app.WorkflowPlan{
 		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), InitialNodeIDs: []app.WorkflowNodeID{nodeID},
 		Completion: app.CompletionEvidence, ResultProjection: app.WorkflowResultOutputsOnly,
 		Nodes: []app.WorkflowNode{{
-			ID: nodeID, InitialStage: "send_email",
-			Goal: app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Send one exact approved plain-text email through the fresh Runtime-selected browser account", Completion: app.CompletionEvidence},
+			ID: nodeID, InitialStage: stage,
+			Goal: app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: goal, Completion: app.CompletionEvidence},
 			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
-				Name: app.ToolCapabilityBrowserEmailSend, Qualifiers: map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationSend)},
+				Name: capability, Qualifiers: map[string]string{app.CapabilityQualifierOperation: string(route.Slots.Operation)},
 			}}},
-			ArgumentBindings: bindings, AllowedRisks: []app.RiskLevel{app.RiskDangerous}, MaxAttempts: 1,
+			ArgumentBindings: bindings, AllowedRisks: []app.RiskLevel{risk}, MaxAttempts: 1,
 		}},
 	}, nil
 }
@@ -79,14 +105,21 @@ func (browserEmailProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome)
 	assessment := baseNodeAssessment(outcome)
 	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalEmailSent) {
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "email_sent"
+	} else if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalEmailRead) {
+		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "email_read"
 	} else {
-		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "email_send_failed"
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "email_operation_failed"
 	}
 	return assessment
 }
 
 func (browserEmailProfile) StageContext(state *app.WorkflowState) workflowStageContext {
-	stage := workflowStageContextForState(state, "email_send", "email_send_receipt", "local", "", "Dispatched by the send-only browser.email Workflow contract.")
+	if state != nil && state.Nodes["email_read"].Stage == "read_email" {
+		stage := workflowStageContextForState(state, "email_read", "email_capture_receipt", "local", "", "Capture exactly one unread email and its available attachments. Supply no model parameters and report only the capture receipt; model analysis is not implemented.")
+		stage.EstimatedRisk = app.RiskRead
+		return stage
+	}
+	stage := workflowStageContextForState(state, "email_send", "email_send_receipt", "local", "", "Dispatched by the browser.email send contract.")
 	stage.EstimatedRisk = app.RiskDangerous
 	return stage
 }

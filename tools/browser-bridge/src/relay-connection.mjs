@@ -2,6 +2,7 @@
 // at 260eae31113073927b93c5c7591b5ae039952dd0. Apache-2.0.
 
 import { BACKGROUND_INPUT_EVALUATE_FUNCTION, HANDOFF_EVALUATE_FUNCTION, HANDOFF_MARKER } from "./protocol.mjs";
+import { TaskDownloads } from "./downloads.mjs";
 
 const WEBSOCKET_OPEN = 1;
 
@@ -11,6 +12,9 @@ const ALLOWED_COMMANDS = new Set([
   "chrome.debugger.sendCommand",
   "chrome.tabs.create",
   "chrome.tabs.remove",
+  "sparkclaw.downloads.configure",
+  "sparkclaw.downloads.cancel",
+  "sparkclaw.downloads.release",
 ]);
 const EVENT_METHODS = [
   "chrome.debugger.onEvent",
@@ -54,6 +58,8 @@ export class RelayConnection {
     this.ontabdetached = null;
     this.onhandoff = null;
     this.onhandoffcomplete = null;
+    this.downloads = new TaskDownloads({ chromeAPI, send: message => this.#send(message),
+      ownsTab: tabId => this.allowedTabs.has(tabId) && this.attachedTabs.has(tabId) });
     this.#installEventForwarders();
     this.webSocket.onmessage = (event) => {
       void this.#onMessage(event);
@@ -105,6 +111,7 @@ export class RelayConnection {
       throw new Error("Invalid bridge command");
     }
     const args = message.params ?? [];
+    if (message.method.startsWith("sparkclaw.downloads.")) return this.downloads.command(message.method, args);
     switch (message.method) {
       case "chrome.tabs.create":
         return this.#createTaskTab(args);
@@ -241,6 +248,7 @@ export class RelayConnection {
     const tabId = fullMethod === "chrome.tabs.onRemoved" ? args[0] : targetTabID(args[0]);
     if (!Number.isInteger(tabId) || !this.allowedTabs.has(tabId)) return;
     if (fullMethod.startsWith("chrome.debugger.") && !this.attachedTabs.has(tabId)) return;
+    if (fullMethod === "chrome.debugger.onEvent" && this.downloads.onPageEvent(args[0], args[1], args[2])) return;
     this.#send({ method: fullMethod, params: args });
     if (fullMethod === "chrome.debugger.onDetach") this.#markDetached(tabId);
     if (fullMethod === "chrome.tabs.onRemoved") this.#forgetTab(tabId);
@@ -271,6 +279,7 @@ export class RelayConnection {
   #onClose() {
     if (this.closed) return;
     this.closed = true;
+    this.downloads.close();
     for (const remove of this.eventListeners) remove();
     this.eventListeners = [];
     for (const tabId of [...this.attachedTabs]) {

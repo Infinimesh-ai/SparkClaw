@@ -29,7 +29,9 @@
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
 | [Host-CDP 浏览器设计](host-cdp-browser-design.md) | Playwright 切换前已退役 browserd/Host-CDP 实现的历史记录 |
 | [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |
-| [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 当前仅发送 Playwright Provider Handler、确定性 Admission、Exact-content Approval 与 Unknown-outcome 不变量 |
+| [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 单封未读邮件来源采集、发送邮件、确定性 Admission、发送审批与 Unknown-outcome 不变量 |
+| [邮件管理整体与阶段设计](email-management-design.md) | 实施契约：跨收件邮箱事项、有界接收、固定归属、逐封查看与五阶段验收 |
+| [邮件管理实施](email-management-implementation.md) | Runtime／接口／界面改动、真实服务商覆盖、工程证据和未完成发布门槛 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "provider": "outlook",
+  "invocation_id": "email_pinned_qualification_797a4dae4e28d0ea",
+  "selection": {
+    "account_address": "outlook_cb7fecbb00aba3cb@outlook.com",
+    "provider_selection_id": "AQQkADAwATM0MDAAMS01YzNiLTQyYjMtMDACLTAwCgAQAA5Uns458htFgOgaU0csbXg=",
+    "folder": "inbox"
+  },
+  "identity": {
+    "account_address": "outlook_CB7FECBB00ABA3CB@outlook.com",
+    "provider_message_id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhBGQAA",
+    "mailbox_id": "mb_c2323022ffbeeb782fd911146676162c",
+    "mail_id": "mail_d2341280b7f6b16345da22bd10b3ff4d"
+  },
+  "receipt": {
+    "schema_version": 1,
+    "status": "collected",
+    "provider": "outlook",
+    "capture": {
+      "manifest_path": "email/1a6804603eb28a06d8f50def7f7621edd7386f63d5ae32476a9932673134776a/mb_c2323022ffbeeb782fd911146676162c/mail_d2341280b7f6b16345da22bd10b3ff4d/source/cap_05038223020b079477645f70e7739b78/capture.json",
+      "manifest_sha256": "sha256:cc246ac68dbb896c3f5e46c123c7d5d67c387b263aa522c114520322b9b83e41",
+      "mailbox_id": "mb_c2323022ffbeeb782fd911146676162c",
+      "mail_id": "mail_d2341280b7f6b16345da22bd10b3ff4d",
+      "capture_id": "cap_05038223020b079477645f70e7739b78",
+      "attachments_count": 0,
+      "read_state": "unknown"
+    }
+  }
+}

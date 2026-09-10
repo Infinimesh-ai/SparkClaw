@@ -35,7 +35,7 @@ automation engine.
 | Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-The pinned compatibility set is Browser Bridge `1.0.20`, Playwright MCP
+The pinned compatibility set is Browser Bridge `1.0.22`, Playwright MCP
 `0.0.80`, Playwright CLI `0.1.19`, Playwright Library
 `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. The Bridge source
 closure is recorded in `configs/browser-bridge-artifacts.json`; installation
@@ -177,6 +177,19 @@ in place.
 
 ## Verification
 
+Bridge `1.0.21` connects native task-page download events to Playwright's
+`Download` artifacts. Controller installation applies a version-checked patch to
+the pinned Playwright Core relay; setup verification rejects a missing patch or
+upstream drift. The supported configuration is the persistent default context
+with `allowAndName`; additional browser contexts and other behaviors are rejected.
+The Bridge leaves browser-wide download preferences intact and resolves only a
+unique task-interval native download record. The host validates the regular file,
+copies it into a private artifact, then releases the native temporary file.
+Downloads are bounded at 110 MiB and existing destinations are never overwritten.
+Email scripts register `waitForEvent('download')` before export activation, route
+export popups within the task page, and call `saveAs()`; MIME bytes never travel through CLI text
+output. See [email data design](email-read-design.md) for verification and scope.
+
 ```bash
 python3 -m unittest scripts/test_browser_bridge.py
 npm test --prefix tools/browser-bridge
@@ -225,3 +238,5 @@ approval, one-attempt execution, and terminal unknown-outcome handling.
 See [Playwright Extension browser design](playwright-extension-browser-design.md)
 for the migration decisions and [Browser email Workflow](browser-email-workflow-design.md)
 for provider and approval semantics.
+
+Bridge `1.0.22` serializes task grouping and waits for pending grouping before close. Failed native tab removal preserves group ownership for bounded cleanup retries; active connections and tabs explicitly released by the owner are protected. Browser task-group count is not an active-job counter, and unverified groups restored from an earlier browser session are not deleted by title.

@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "SparkClaw Browser Bridge",
-  "version": "1.0.20",
+  "version": "1.0.22",
   "description": "Connects bounded SparkClaw tasks to task-owned browser tabs.",
   "permissions": [
     "debugger",
+    "downloads",
     "nativeMessaging",
     "storage",
     "tabs",
@@ -14,7 +15,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "src/bootstrap-1.0.20.mjs",
+    "service_worker": "src/bootstrap-1.0.22.mjs",
     "type": "module"
   },
   "action": {

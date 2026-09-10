@@ -20,21 +20,27 @@
 
 ## 浏览器邮箱
 
-浏览器邮箱是 QQ 邮箱、Outlook 和 Gmail 的活动仅发送集成。它不是消息 Connector，也不
+浏览器邮箱提供 QQ 邮箱、Outlook 和 Gmail 的发送能力与来源采集实现。新的未读采集尚未
+完整通过验收，当前限制记录在[来源设计](email-read-design.md)中。它不是消息 Connector，也不
 使用提供方 Credential、OAuth Token、IMAP、SMTP、Gmail API 或 Microsoft Graph。认证
 状态只保留在宿主机所有的 SparkClaw 专用 Chromium Profile 中。
 
 WebChat 在 `设置 > 连接 > 浏览器邮箱` 中提供三个 Provider。打开登录入口时会创建
-Task-owned Provider Tab，并显式 Handoff 给 Owner 手动登录。登录检查和发送使用独立的后台
+Task-owned Provider Tab，并显式 Handoff 给 Owner 手动登录。登录检查、读取和发送使用独立的后台
 Task-owned Tab，不会复用 Owner Tab、此前的 Login Tab 或其他 Idle Tab。
 
-每次发送请求都在 Workflow 创建前执行确定性登录探针。Runtime 选择请求中明确命名的提供方
+每次读取或发送请求都在 Workflow 创建前执行确定性登录探针。Runtime 选择请求中明确命名的提供方
 或唯一配置的默认项，并冻结 Provider Setting Version、Browser Control Credential
 Generation、Handler Revision、校验时间和 Invocation ID。模型只提供一个收件人、可选单行
 主题和纯文本正文。一次精确内容审批后才执行 Provider Handler；Handler 最多尝试一次
 “发送”。发送结果未知是终态，绝不自动重试。
 
-邮件读取、回复、草稿、附件、多收件人/账户和通用浏览器回退均不可用。QQ 邮箱不再是通用
+当前读取工作通过无发送权限的固定脚本，将一封未读邮件及范围内附件采集为工作区来源文件。
+有界回执返回采集状态、数量与清单相对引用，不等于 Gateway Store 提交或模型分析完成。
+仅在完整资料持久保存后显式标已读；打开即自动标已读以及效果不确定分别记录。
+限制与缺失资料须明确表达，见[来源设计](email-read-design.md)。
+
+回复、草稿、发送附件、多收件人/账户和通用浏览器回退均不可用。QQ 邮箱不再是通用
 浏览器注册站点。详见[浏览器邮箱 Workflow](browser-email-workflow-design.md)和
 [浏览器 Runtime](browser-runtime.md)。
 

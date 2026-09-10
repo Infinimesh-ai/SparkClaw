@@ -32,11 +32,19 @@ export function createRequestHandler(controller) {
       }
       if (request.method === "POST" && url.pathname === "/v1/run-script") {
         rejectQuery(url);
-        return writeJSON(
-          response,
-          200,
-          await controller.runScript(await readJSON(request, MAX_SCRIPT_REQUEST_BYTES)),
-        );
+        const abort = new AbortController();
+        const disconnected = () => {
+          if (!response.writableEnded) abort.abort();
+        };
+        response.once("close", disconnected);
+        try {
+          const input = await readJSON(request, MAX_SCRIPT_REQUEST_BYTES);
+          if (response.destroyed) abort.abort();
+          const result = await controller.runScript(input, { signal: abort.signal });
+          return writeJSON(response, 200, result);
+        } finally {
+          response.removeListener("close", disconnected);
+        }
       }
       if (request.method === "POST" && url.pathname === "/v1/open-provider-login") {
         rejectQuery(url);
@@ -106,6 +114,7 @@ function rejectQuery(url) {
 }
 
 function writeJSON(response, status, body) {
+  if (response.destroyed) return;
   const encoded = Buffer.from(`${JSON.stringify(body)}\n`);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",

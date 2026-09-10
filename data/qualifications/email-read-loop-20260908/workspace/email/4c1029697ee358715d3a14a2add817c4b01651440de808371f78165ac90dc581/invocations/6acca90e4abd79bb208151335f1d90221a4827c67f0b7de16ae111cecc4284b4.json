@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "provider": "qq_mail",
+  "invocation_id": "read-loop-qq_mail-1",
+  "receipt": {
+    "schema_version": 1,
+    "status": "empty",
+    "provider": "qq_mail",
+    "capture": null
+  }
+}

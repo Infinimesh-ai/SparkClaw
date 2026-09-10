@@ -194,8 +194,11 @@ func TestServiceCloseDoesNotWaitBehindABlockedAcquire(t *testing.T) {
 	if _, err := service.SaveToken(t.Context(), []byte("runtime-extension-token")); err != nil {
 		t.Fatal(err)
 	}
-	service.opMu.Lock()
-	defer service.opMu.Unlock()
+	release, lockErr := service.acquireOperations(t.Context(), true)
+	if lockErr != nil {
+		t.Fatal(lockErr)
+	}
+	defer release()
 
 	started := time.Now()
 	err := service.Close()

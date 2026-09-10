@@ -1,0 +1,26 @@
+{
+  "subject": "Better answers for everything you're curious about",
+  "from": [
+    {
+      "address": "team@mail.perplexity.ai",
+      "name": "Perplexity"
+    }
+  ],
+  "to": [
+    {
+      "address": "hsrr05901@gmail.com",
+      "name": ""
+    }
+  ],
+  "cc": [],
+  "reply_to": [
+    {
+      "address": "team@perplexity.ai",
+      "name": "Perplexity"
+    }
+  ],
+  "date": "2026-07-15T23:43:55.000Z",
+  "message_id": "<0100019f682a61dc-355c9fc3-db5d-4eb6-b2bd-053eda0c71be-000000@email.amazonses.com>",
+  "in_reply_to": null,
+  "references": []
+}

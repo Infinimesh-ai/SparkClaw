@@ -228,3 +228,79 @@ function deferred() {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+test("disconnect cancels only its script, keeps the provider reserved through cleanup and removes queued work", async t => {
+  const calls = [];
+  const scriptFactory = {
+    async openProviderLogin() {},
+    async runScript(options) {
+      const call = { ...options, gate: httpDeferred(), cleanup: httpDeferred() };
+      calls.push(call);
+      options.signal.addEventListener("abort", () => call.gate.resolve(), { once: true });
+      await call.gate.promise;
+      if (options.signal.aborted) await call.cleanup.promise;
+      return { state: "completed", sourceChecksum: `sha256:${"a".repeat(64)}`, result: {} };
+    },
+  };
+  const controller = new BrowserController({ clientFactory: new FakeFactory(), scriptFactory });
+  const server = http.createServer(createRequestHandler(controller));
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    for (const call of calls) { call.gate.resolve(); call.cleanup.resolve(); }
+    server.closeAllConnections();
+    await controller.shutdown();
+    await new Promise(resolve => server.close(resolve));
+  });
+  const start = provider => {
+    const request = http.request({ host: "127.0.0.1", port: server.address().port,
+      path: "/v1/run-script", method: "POST", headers: { "content-type": "application/json" } });
+    const result = new Promise(resolve => {
+      request.on("error", () => resolve(null));
+      request.on("response", response => { response.resume(); response.on("end", () => resolve(response.statusCode)); });
+    });
+    request.end(JSON.stringify({ profile_id: "default", task_id: `scan-${provider}`, credential_generation: 1,
+      token, provider, operation: "discover", script_id: `${provider}.discover`, revision: 1,
+      input: { schema_version: 1 }, wait_timeout_ms: 1000 }));
+    return { request, result };
+  };
+  const gmail = start("gmail");
+  const outlook = start("outlook");
+  await httpWaitFor(() => calls.length === 2);
+  const gmailCall = calls.find(call => call.provider === "gmail");
+  const outlookCall = calls.find(call => call.provider === "outlook");
+  const queued = start("gmail");
+  // A round trip ensures the queued request has reached the server.
+  await fetch(`http://127.0.0.1:${server.address().port}/v1/health`);
+  queued.request.destroy();
+  await queued.result;
+  gmail.request.destroy();
+  await gmail.result;
+  await httpWaitFor(() => gmailCall.signal.aborted);
+  assert.equal(outlookCall.signal.aborted, false);
+  const replacement = start("gmail");
+  await fetch(`http://127.0.0.1:${server.address().port}/v1/health`);
+  assert.equal(calls.length, 2, "canceled script must finish cleanup before same-provider admission");
+  outlookCall.gate.resolve();
+  assert.equal(await outlook.result, 200);
+  assert.equal(outlookCall.signal.aborted, false, "normal HTTP completion must not abort the script");
+  gmailCall.cleanup.resolve();
+  await httpWaitFor(() => calls.length === 3);
+  calls[2].gate.resolve();
+  assert.equal(await replacement.result, 200);
+  await httpWaitFor(() => !controller.health().active_session);
+  assert.equal(calls.length, 3, "disconnected queued request must never start");
+});
+
+function httpDeferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function httpWaitFor(predicate) {
+  const deadline = Date.now() + 1500;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("condition timed out");
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}

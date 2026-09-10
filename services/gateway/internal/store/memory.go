@@ -38,6 +38,7 @@ type MemoryStore struct {
 	reminders                         map[string]app.Reminder
 	reminderDelivery                  map[string]app.ReminderDelivery
 	connectorSettings                 map[string]app.ConnectorSetting
+	emailRecords                      map[string]EmailRecord
 	emailProviderSettings             map[string]app.EmailProviderSetting
 	notificationBindings              map[string]app.NotificationBinding
 	connectorSettingWriteHighWater    map[string]time.Time
@@ -110,6 +111,7 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 		reminders:                         map[string]app.Reminder{},
 		reminderDelivery:                  map[string]app.ReminderDelivery{},
 		connectorSettings:                 map[string]app.ConnectorSetting{},
+		emailRecords:                      map[string]EmailRecord{},
 		emailProviderSettings:             map[string]app.EmailProviderSetting{},
 		notificationBindings:              map[string]app.NotificationBinding{},
 		connectorSettingWriteHighWater:    map[string]time.Time{},

@@ -1,0 +1,24 @@
+{
+  "subject": "Re: 测试",
+  "from": [
+    {
+      "address": "1784407383@qq.com",
+      "name": "ABCDEG"
+    }
+  ],
+  "to": [
+    {
+      "address": "zjunsong04@outlook.com",
+      "name": "张 峻松"
+    }
+  ],
+  "cc": [],
+  "reply_to": [],
+  "date": "2026-09-08T07:13:41.000Z",
+  "message_id": "<tencent_E8D06573B93C34A78A1CC14EC3A324517A09@qq.com>",
+  "in_reply_to": "<PS2P216MB1043C8D093D9EBDC88720A3CECB12@PS2P216MB1043.KORP216.PROD.OUTLOOK.COM>",
+  "references": [
+    "<tencent_2861D9312E444DD12221B0B0704949CC9E07@qq.com>",
+    "<PS2P216MB1043C8D093D9EBDC88720A3CECB12@PS2P216MB1043.KORP216.PROD.OUTLOOK.COM>"
+  ]
+}

@@ -1,0 +1,13 @@
+{"method":"chrome.tabs.onCreated","tabId":2061404829}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"31108493F8746D77CC1397697E918985"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"31108493F8746D77CC1397697E918985"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"D7BCF4E6B9F6F91CAEDF3A01C2FE8637"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"3943DEBF90E3A2E0D4BD7FE84C86F046"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"EDB1078545262FF6DD170CD40E1CA736"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"A075C7081CD771076FFEE70350EFD4A4"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"C495CB503FDA672EB9D5152521C0EB22"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"05CCF552D3B6D4498D26482BFB48E9FA"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"A58E20AFCB3D83BA132B2014D3F7947A"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"09407CC62F6A7FEA705BE1E5113DEF7F"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404829,"frame":"7A8B12CF9165B56A20E12C4B55CB5817"}
+{"method":"chrome.debugger.onEvent","event":"Page.windowOpen","tabId":2061404829}

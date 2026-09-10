@@ -1,0 +1,524 @@
+{
+  "inputs": [
+    {
+      "type": "hidden",
+      "name": "at",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "submit",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "hist_state",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "q",
+      "aria": "Search mail",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Search Studio...",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "To recipients",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "subjectbox",
+      "aria": "Subject",
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "composeid",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "from",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "subject",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "draft",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "rt",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "lts",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "bwd",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "rm",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "ac",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "adc",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "ishtml",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "body",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "pte",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "pti",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "bpfs",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "uet",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "pbgt",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "pbgas",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "pbgir",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "msg_encrypt",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "signature",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "hidden",
+      "name": "securityindicator",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "file",
+      "name": "Filedata",
+      "aria": null,
+      "multiple": true
+    }
+  ],
+  "editors": [
+    {
+      "role": "combobox",
+      "aria": "Ask Gemini",
+      "class": "Pv5YRd TIYGAd VMkJgc"
+    },
+    {
+      "role": "textbox",
+      "aria": "Message Body",
+      "class": "Am aiL Al editable LW-avf tS-tW"
+    }
+  ],
+  "buttons": [
+    {
+      "text": "",
+      "aria": "Main menu",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Advanced search options",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Clear search",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Search mail",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Support",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Settings",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Ask Gemini",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Google apps",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Google Account: Srr H  \n(hsrr05901@gmail.com), Google membership",
+      "title": ""
+    },
+    {
+      "text": "Compose",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "More",
+      "aria": "More labels",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Create new label",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Select",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Refresh",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "More email options",
+      "title": ""
+    },
+    {
+      "text": "1–29 of 29",
+      "aria": "Show more messages",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Newer",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Older",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Not starred",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Hide side panel",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Minimise",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Full screen (Shift for pop-out)",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Save & close",
+      "title": ""
+    },
+    {
+      "text": "Send",
+      "aria": "Send ‪(Ctrl-Enter)‬",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "More send options",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Help me write (Alt + H)",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Attach files",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Insert link ‪(Ctrl-K)‬",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Insert emoji ‪(Ctrl-Shift-2)‬",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Insert files using Drive",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Insert photo",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Toggle confidential mode",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Insert signature",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "More options",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Discard draft ‪(Ctrl-Shift-D)‬",
+      "title": ""
+    }
+  ]
+}

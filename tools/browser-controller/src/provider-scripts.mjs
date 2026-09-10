@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {isManagedSend,validateManagedSend,MANAGED_SEND_SELECTOR} from "../../../scripts/email/lib/managed-send.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,9 +16,31 @@ import {
 import { probeQQMailLogin } from "../../../scripts/email/qqmail-login-probe.mjs";
 import { QQMAIL_SELECTORS, sendQQMail } from "../../../scripts/email/qqmail-send.mjs";
 import { ControllerError, invalidRequest } from "./errors.mjs";
+import { READ_PROVIDERS, readQQMail, readOutlook, readGmail, readEmail, discoverEmail, enumerateThread, markEmailRead, collectEmailPage } from "../../../scripts/email/read.mjs";
+import { validateCaptureInput } from "../../../scripts/email/lib/read-capture.mjs";
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SCRIPT_CODE_PATTERN = /^[a-z0-9_]{1,64}$/u;
+
+const readRegistrations = [
+  ...[
+    ["qq_mail", "qqmail.read", readQQMail],
+    ["outlook", "outlook.read", readOutlook],
+    ["gmail", "gmail.read", readGmail],
+  ].flatMap(([provider, scriptID, handler]) => ['read','discover','capture','enumerate_thread','mark_read','collect_page'].map(operation => registration({
+    provider, operation, scriptID:scriptID.replace(/read$/u,operation),
+    handler:operation==='read'?handler:(input,runtime)=>({discover:discoverEmail,capture:readEmail,enumerate_thread:enumerateThread,mark_read:markEmailRead,collect_page:collectEmailPage}[operation])(input,runtime,provider), revision: 1,
+    loginURL: READ_PROVIDERS[provider].url,
+    downloadOrigins: [...READ_PROVIDERS[provider].origins,
+      ...(provider === "gmail" ? ["https://mail-attachment.googleusercontent.com"] : [])],
+    origins: [...READ_PROVIDERS[provider].origins,
+      ...(provider === "gmail" ? ["https://accounts.google.com"] : []),
+      ...(provider === "outlook" ? ["https://login.live.com", "https://login.microsoftonline.com", "https://www.microsoft.com"] : [])],
+    ...(provider === "outlook" ? { signedOutURL: outlookSignedOutURL } : {}),
+    timeoutMS: operation === 'collect_page' ? 1_800_000 : 180_000,
+    sourceFiles: ["scripts/email/read.mjs", "scripts/email/lib/read-capture.mjs", "scripts/email/lib/gmail-list.mjs", "scripts/email/lib/outlook-list.mjs", "scripts/email/lib/qqmail-list.mjs", "scripts/email/lib/qqmail-detail.mjs"],
+  }))),
+];
 
 const registrations = [
   registration({
@@ -38,11 +61,12 @@ const registrations = [
   registration({
     provider: "qq_mail",
     operation: "send",
+    effectSelectors:[MANAGED_SEND_SELECTOR],
     scriptID: "qqmail.send",
     revision: 1,
     loginURL: "https://wx.mail.qq.com/",
     origins: ["https://mail.qq.com", "https://wx.mail.qq.com"],
-    timeoutMS: 90_000,
+    timeoutMS: 180_000,
     effectSelector: QQMAIL_SELECTORS.sendButton,
     handler: sendQQMail,
     sourceFiles: [
@@ -76,6 +100,7 @@ const registrations = [
   registration({
     provider: "outlook",
     operation: "send",
+    effectSelectors:[MANAGED_SEND_SELECTOR],
     scriptID: "outlook.send",
     revision: 1,
     loginURL: "https://outlook.live.com/mail/0/sentitems",
@@ -88,7 +113,7 @@ const registrations = [
       "https://www.microsoft.com",
     ],
     signedOutURL: outlookSignedOutURL,
-    timeoutMS: 90_000,
+    timeoutMS: 180_000,
     effectSelector: OUTLOOK_SEND_SELECTOR,
     handler: sendOutlook,
     sourceFiles: [
@@ -113,11 +138,12 @@ const registrations = [
   registration({
     provider: "gmail",
     operation: "send",
+    effectSelectors:[MANAGED_SEND_SELECTOR],
     scriptID: "gmail.send",
     revision: 1,
     loginURL: GMAIL_REGISTRATION_URL,
     origins: ["https://mail.google.com", "https://accounts.google.com"],
-    timeoutMS: 90_000,
+    timeoutMS: 180_000,
     effectSelector: GMAIL_SEND_SELECTORS.send,
     handler: sendGmail,
     sourceFiles: [
@@ -125,6 +151,7 @@ const registrations = [
       "scripts/email/gmail-browser.mjs",
     ],
   }),
+  ...readRegistrations,
 ];
 
 function outlookSignedOutURL(rawURL) {
@@ -137,7 +164,7 @@ function outlookSignedOutURL(rawURL) {
 
 // PROVIDER_SCRIPT_CONTRACT_PATH is the Gateway-embedded projection of this
 // registry: the script identity, revision, and budget the Go side binds each
-// probe and send call to. Regenerate it with `npm run sync:provider-contract`;
+// probe, send and intake call to. Regenerate it with `npm run sync:provider-contract`;
 // test/provider-script-contract.test.mjs fails when it drifts.
 export const PROVIDER_SCRIPT_CONTRACT_PATH = "services/gateway/internal/emailautomation/provider_scripts.json";
 
@@ -212,7 +239,7 @@ function registration(value) {
     ...value,
     validate: value.validate ?? ((input) => validateScriptInput(value.provider, value.operation, input)),
     origins: Object.freeze([...value.origins]),
-    sourceFiles: Object.freeze([...value.sourceFiles]),
+    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["scripts/email/lib/managed-send.mjs","scripts/email/lib/managed-send-dom.mjs","scripts/email/lib/send-journal.mjs","scripts/email/read.mjs","scripts/email/lib/read-capture.mjs","scripts/email/lib/gmail-list.mjs","scripts/email/lib/outlook-list.mjs","scripts/email/lib/qqmail-list.mjs","scripts/email/lib/qqmail-detail.mjs"]:[])])]),
   });
 }
 
@@ -237,6 +264,12 @@ async function checksumSourceClosure(sourceFiles) {
 }
 
 function validateScriptInput(provider, operation, input) {
+  if(operation==="send"&&isManagedSend(input)){validateManagedSend(input,provider);return;}
+  if (['read','discover','capture','enumerate_thread','mark_read','collect_page'].includes(operation)) {
+    if (input?.operation !== operation) throw invalidRequest();
+    validateCaptureInput(input,provider);
+    return;
+  }
   const common = ["account", "invocation_id", "operation", "provider", "schema_version"];
   requireKeys(input, operation === "send" ? [...common, "message"] : common);
   if (

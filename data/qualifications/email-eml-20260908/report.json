@@ -1,0 +1,198 @@
+{
+  "date": "2026-09-08",
+  "decision": "candidate_not_adopted",
+  "assessment": "sample_basic_information_capture_feasible",
+  "complete_read_workflow_qualified": false,
+  "production_path_changed": false,
+  "providers": {
+    "qq_mail": {
+      "reference_obtained": true,
+      "reference_integrity_verified": true,
+      "original_bytes": 38146,
+      "original_sha256": "375a6c6e7348620c1a310b344e5d441049625e19135119859fa8101076211988",
+      "observation_sha256": "c4b981c3d67f5cd9bf4d7798e1b80f9c0e1b16086725e9ece3d08f8348251948",
+      "acquisition": {
+        "mode": "provider_export_response",
+        "response": {
+          "status": 200,
+          "type": "application/octet-stream",
+          "redirected": false,
+          "origin": "https://wx.mail.qq.com"
+        },
+        "earlier_native_click_timeout": false
+      },
+      "account_matches": true,
+      "identity_matches": true,
+      "headers": {
+        "subject_matches": true,
+        "previously_captured_fields": [
+          "subject"
+        ],
+        "not_previously_captured": [
+          "from",
+          "to",
+          "cc",
+          "date",
+          "reply_to"
+        ],
+        "supplemental_observation_sha256": "ed51cc8b0b95b62a5f8a2b79d0d14738ed5cd5e0315a45e6538621e6d282207c",
+        "detail_expansions": 1,
+        "browser_timezone": "Asia/Shanghai",
+        "from": {
+          "reference_count": 1,
+          "field_observed": true,
+          "all_reference_addresses_present": true
+        },
+        "to": {
+          "reference_count": 1,
+          "field_observed": true,
+          "all_reference_addresses_present": true
+        },
+        "cc": {
+          "reference_count": 0,
+          "field_observed": false,
+          "all_reference_addresses_present": null
+        },
+        "reply-to": {
+          "reference_count": 1,
+          "field_observed": false,
+          "all_reference_addresses_present": false
+        },
+        "displayed_date_matches_to_minute": true,
+        "grouping_coverage": "one_sender_one_recipient_no_cc_only"
+      },
+      "body": {
+        "reference_kind": "independently_rendered_original_html",
+        "scripts_disabled": true,
+        "network_blocked": true,
+        "reference_visible_characters": 399,
+        "captured_visible_characters": 399,
+        "visible_text_matches": true,
+        "captured_html_visible_text_matches": true,
+        "current_body_matches_prior_capture": true,
+        "alternate_plain_text_matches": false,
+        "common_prefix_characters": 399,
+        "common_suffix_characters": 0,
+        "differing_reference_characters": 0,
+        "differing_capture_characters": 0,
+        "reference_links": 6,
+        "captured_links": 6,
+        "all_original_link_targets_preserved": true,
+        "missing_link_count": 0,
+        "reference_images": 3,
+        "captured_images": 3,
+        "reference_tables": 24,
+        "captured_tables": 24
+      },
+      "attachments": {
+        "original_mime_parts": 0,
+        "prior_dom_inventory_complete": false,
+        "live_attachment_download_qualified": false
+      },
+      "original_export_elapsed_ms": 22432
+    },
+    "gmail": {
+      "reference_obtained": true,
+      "reference_integrity_verified": true,
+      "original_bytes": 45731,
+      "original_sha256": "f6a72d81e490dbad1f216bdb6f281bac72d45a4f5db5b9c39fef5b20aa0a9a14",
+      "observation_sha256": "5ea76bc482a35aa2179fa73e38f24d07f590449228b7809deecae7ebcae6a18a",
+      "acquisition": {
+        "mode": "provider_export_response",
+        "response": {
+          "status": 200,
+          "type": "application/force-download; charset=utf-8",
+          "redirected": true,
+          "origin": "https://mail-attachment.googleusercontent.com"
+        },
+        "earlier_native_click_timeout": true
+      },
+      "account_matches": true,
+      "identity_matches": true,
+      "headers": {
+        "subject_matches": true,
+        "from": {
+          "reference_count": 1,
+          "field_observed": true,
+          "all_reference_addresses_present": true
+        },
+        "to": {
+          "reference_count": 1,
+          "field_observed": true,
+          "all_reference_addresses_present": true
+        },
+        "cc": {
+          "reference_count": 0,
+          "field_observed": false,
+          "all_reference_addresses_present": null
+        },
+        "reply-to": {
+          "reference_count": 1,
+          "field_observed": true,
+          "all_reference_addresses_present": true
+        },
+        "displayed_date_matches_to_minute": false,
+        "date_parse_available": true,
+        "browser_timezone": "Asia/Shanghai",
+        "current_displayed_date_matches_prior": true,
+        "displayed_minute_minus_date_header_seconds": 54,
+        "received_trace": [
+          {
+            "parsed": true,
+            "seconds_after_date_header": 106,
+            "matches_displayed_minute": true
+          },
+          {
+            "parsed": true,
+            "seconds_after_date_header": 106,
+            "matches_displayed_minute": true
+          },
+          {
+            "parsed": true,
+            "seconds_after_date_header": 0,
+            "matches_displayed_minute": false
+          }
+        ],
+        "displayed_time_semantics": "matches_received_trace_minute_but_provider_definition_not_proven"
+      },
+      "body": {
+        "reference_kind": "independently_rendered_original_html",
+        "scripts_disabled": true,
+        "network_blocked": true,
+        "reference_visible_characters": 765,
+        "captured_visible_characters": 765,
+        "visible_text_matches": true,
+        "captured_html_visible_text_matches": true,
+        "current_body_matches_prior_capture": true,
+        "alternate_plain_text_matches": false,
+        "common_prefix_characters": 765,
+        "common_suffix_characters": 0,
+        "differing_reference_characters": 0,
+        "differing_capture_characters": 0,
+        "reference_links": 10,
+        "captured_links": 10,
+        "all_original_link_targets_preserved": true,
+        "missing_link_count": 0,
+        "reference_images": 7,
+        "captured_images": 7,
+        "reference_tables": 15,
+        "captured_tables": 15
+      },
+      "attachments": {
+        "original_mime_parts": 0,
+        "prior_dom_inventory_complete": null,
+        "live_attachment_download_qualified": false
+      },
+      "original_export_elapsed_ms": 30888
+    }
+  },
+  "limitations": [
+    "Two existing pinned read samples only",
+    "No unread selection or read-state mutation qualification",
+    "Both original samples contain zero attachments; no live attachment download qualification",
+    "QQ expanded details do not expose Reply-To as a separate field",
+    "Gmail displayed time must not be treated as the original Date header",
+    "Normalized visible-text equality does not prove identical HTML or layout",
+    "Remote image bytes and complex quoted history were not qualified"
+  ]
+}

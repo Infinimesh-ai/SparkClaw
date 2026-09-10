@@ -24,8 +24,8 @@ Consumers depend on only the repositories they use; there is no broad
   `PassiveNotificationRepository`;
 - execution and governance: `RunRepository`, `ApprovalRepository`,
   `AuditRepository`, `MCPRepository`, and `ISCPOnboardingRepository`;
-- owner data: `DocumentRepository`, `MemoryRepository`, and
-  `ScheduleRepository`;
+- owner data: `DocumentRepository`, `MemoryRepository`,
+  `ScheduleRepository`, and `EmailRepository`;
 - support records: `EvaluationRepository`, `ArtifactMetadataRepository`, and
   `BrowserStateRepository`.
 
@@ -51,6 +51,14 @@ deletion is P0 because it closes dependent lifecycle state, while a session
 lookup is an ordinary read. Before adding a transaction, identify the exact
 records that must change together. Before adding idempotency or reconciliation,
 identify the stable operation or candidate identity that proves the outcome.
+
+Email management uses owner-scoped indexed records for mailboxes, source versions,
+threads, conversations, viewing receipts, durable jobs, dependency/refresh intents
+and command receipts. Only typed conditional commands publish model decisions;
+source/browser/model execution happens outside transactions. File uses the same
+engine under durable replacement; PostgreSQL selects the bounded required rows.
+See [email implementation](email-management-implementation.md) for recovery and
+three-backend qualification.
 
 ## Repository Contract
 

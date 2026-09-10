@@ -1,0 +1,60 @@
+{
+  "model_alias": "sparkclaw-fast",
+  "model_profile": "sparkclaw-product-v1",
+  "prompt_version": "email-presentation-v4",
+  "results": [
+    {
+      "entry": "notification",
+      "language": "zh",
+      "output": {
+        "purpose": "",
+        "service_label": "",
+        "requested_response": "",
+        "title": "CloudDesk 发货通知",
+        "summary": "CloudDesk 包裹已发货，此为状态通知，无需回复。",
+        "explanation": "该邮件被分类为通知，因为邮件正文明确指出这是状态通知且无需回复。",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "notification",
+      "language": "en",
+      "output": {
+        "purpose": "",
+        "service_label": "",
+        "requested_response": "",
+        "title": "CloudDesk Shipment Notification",
+        "summary": "CloudDesk has shipped the package; this is a status notification requiring no reply.",
+        "explanation": "The email is a status notification from CloudDesk confirming that the package has been shipped. The classification is based on the body evidence stating it is a status notification and no reply is needed.",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "interaction",
+      "language": "zh",
+      "output": {
+        "purpose": "确认是否接受CloudDesk服务的新交付日期。",
+        "service_label": "CloudDesk",
+        "requested_response": "确认接受修订后的交付日期。",
+        "title": "CloudDesk交付确认",
+        "summary": "CloudDesk请求确认是否接受9月18日的新交付日期。",
+        "explanation": "该邮件被归类为交互（interaction），因为正文中包含要求确认接受新交付日期的具体请求，且该请求直接来源于邮件正文内容。",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "interaction",
+      "language": "en",
+      "output": {
+        "purpose": "",
+        "service_label": "",
+        "requested_response": "Confirm acceptance of the revised delivery date.",
+        "title": "Confirmation of CloudDesk Delivery Date",
+        "summary": "The sender requests confirmation of acceptance for the new CloudDesk delivery date of September 18.",
+        "explanation": "The email is classified as an interaction because it contains a direct request for the recipient to confirm acceptance of a revised delivery date for CloudDesk, as stated in the message body.",
+        "concerns": []
+      }
+    }
+  ],
+  "source": "synthetic; no mail read or sent"
+}

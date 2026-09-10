@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "provider": "gmail",
+  "invocation_id": "read-loop-gmail-1",
+  "selection": {
+    "account_address": "hsrr05901@gmail.com",
+    "provider_selection_id": "19f682a65e3f930d"
+  },
+  "identity": {
+    "account_address": "hsrr05901@gmail.com",
+    "provider_message_id": "19f682a65e3f930d",
+    "mailbox_id": "mb_84f53a6ecdceeced328f5f0a0b31eb4b",
+    "mail_id": "mail_706eec057465ed5ea03b8302a5ff2fec"
+  },
+  "receipt": {
+    "schema_version": 1,
+    "status": "collected",
+    "provider": "gmail",
+    "capture": {
+      "manifest_path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_84f53a6ecdceeced328f5f0a0b31eb4b/mail_706eec057465ed5ea03b8302a5ff2fec/source/cap_d53f19ff580061c27989e1d3a59c0e3f/capture.json",
+      "manifest_sha256": "sha256:132e45f1c7481cfb4fd5f95286ee80b53a4dc74e025db89453d33a9d6d8ed982",
+      "mailbox_id": "mb_84f53a6ecdceeced328f5f0a0b31eb4b",
+      "mail_id": "mail_706eec057465ed5ea03b8302a5ff2fec",
+      "capture_id": "cap_d53f19ff580061c27989e1d3a59c0e3f",
+      "attachments_count": 0,
+      "read_state": "read"
+    }
+  }
+}

@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
+import path from "node:path";
 
 import { ControllerError } from "./errors.mjs";
 import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
 import { BACKGROUND_INPUT_EVALUATE_FUNCTION, BACKGROUND_INPUT_MARKER } from "../../browser-bridge/src/protocol.mjs";
 import { BACKGROUND_FOCUS_FUNCTION, BATCH_READ_FUNCTION, EDITOR_LINES_FUNCTION } from "./dom-actions.mjs";
 import { parseTabsMarkdown, renderTabLine } from "./playwright-output.mjs";
+import { downloadFromPage } from "./cli-download.mjs";
 import {
   MAX_CLI_OUTPUT_BYTES,
   clientContractError,
@@ -28,6 +30,7 @@ const CLI_COMMANDS = new Set([
   "fill",
   "goto",
   "press",
+  "run-code",
   "tab-close",
   "tab-list",
   "tab-select",
@@ -121,17 +124,19 @@ export class PlaywrightCLITask {
 
   async closeTaskPage() {
     if (!this.attached || this.taskIndex < 0) return;
+    this.cleanupDeadline ??= Date.now() + 20_000;
     const tabs = await this.#tabs();
-    this.#assertTopology(tabs);
-    try {
-      await this.#run([
-        "--raw",
-        `-s=${this.sessionName}`,
-        "tab-close",
-        String(this.taskIndex),
-      ]);
-    } catch (error) {
-      if (!isExpectedTaskPageClosure(error)) throw error;
+    // The current Bridge exposes only its task allowlist. In that topology,
+    // popups are task-owned too and must be closed even after a handler fails.
+    // Preserve strict fingerprints for legacy contexts containing owner pages.
+    if (this.ownerTabs.length) this.#assertTopology(tabs);
+    const indexes = this.ownerTabs.length ? [this.taskIndex] : tabs.map((_, index)=>index).reverse();
+    for (const index of indexes) {
+      try {
+        await this.#run(["--raw", `-s=${this.sessionName}`, "tab-close", String(index)]);
+      } catch (error) {
+        if (!isExpectedTaskPageClosure(error) || index !== indexes.at(-1)) throw error;
+      }
     }
     this.taskIndex = -1;
     this.taskReady = false;
@@ -139,6 +144,7 @@ export class PlaywrightCLITask {
 
   async stop() {
     if (!this.attached) return;
+    this.cleanupDeadline ??= Date.now() + 20_000;
     this.attached = false;
     const parsed = parseJSON(await this.#run(
       ["--json", `-s=${this.sessionName}`, "close"],
@@ -153,7 +159,7 @@ export class PlaywrightCLITask {
   }
 
   async prepareBackgroundPage() {
-    if (this.registration.operation !== "send") throw clientContractError();
+    if (!["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(this.registration.operation)) throw clientContractError();
     await this.#assertAllowedOrigin();
     if (await this.#evalJSON(BACKGROUND_INPUT_EVALUATE_FUNCTION) !== BACKGROUND_INPUT_MARKER) throw clientContractError();
     await this.#assertAllowedOrigin();
@@ -439,11 +445,29 @@ export class PlaywrightCLITask {
 
   async click(selector, expectedOrigin) {
     await this.currentURL(expectedOrigin);
-    if (selector === this.registration.effectSelector) this.effectAttempted = true;
+    if (selector === this.registration.effectSelector || this.registration.effectSelectors?.includes(selector)) this.effectAttempted = true;
     await this.#withTaskSelected(async () => {
       await this.#run(["--raw", `-s=${this.sessionName}`, "click", selector]);
     });
     await this.currentURL(expectedOrigin);
+  }
+
+  async runReadCode(code, timeoutMS = 30_000) {
+    if (!["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(this.registration.operation) || typeof code !== "string" || Buffer.byteLength(code) > 64 << 10 ||
+        !Number.isSafeInteger(timeoutMS) || timeoutMS < 1 || timeoutMS > 60_000) throw clientContractError();
+    const output = await this.#withTaskSelected(async tab => {
+      assertExpectedOrigin(tab.url, undefined, this.registration.origins);
+      this.#assertProviderURL(tab.url);
+      return this.#run(["--raw", `-s=${this.sessionName}`, "run-code", code], Math.max(this.actionTimeoutMS, timeoutMS));
+    });
+    await this.#assertAllowedOrigin();
+    return parseJSON(output);
+  }
+
+  async download(selector, destination, maxBytes) {
+    if (!["read", "capture", "collect_page"].includes(this.registration.operation) || typeof selector !== "string" || !selector ||
+        !path.isAbsolute(destination) || !Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > 110 << 20) throw clientContractError();
+    return downloadFromPage(this, selector, destination, maxBytes);
   }
 
   async fill(selector, value, expectedOrigin) {
@@ -634,8 +658,9 @@ export class PlaywrightCLITask {
   }
 
   async #run(args, requestedTimeoutMS = this.actionTimeoutMS, stdoutTransform) {
-    if (this.signal?.aborted) throw clientUnavailableError();
-    const remaining = this.deadline - Date.now();
+    const signal = this.cleanupDeadline === undefined ? this.signal : undefined;
+    if (signal?.aborted) throw clientUnavailableError();
+    const remaining = (this.cleanupDeadline ?? this.deadline) - Date.now();
     if (remaining <= 0) throw clientTimeoutError();
     const timeoutMS = Math.max(1, Math.min(requestedTimeoutMS, remaining));
     const env = scrubPlaywrightEnvironment({ ...process.env, ...this.extraEnv });
@@ -664,7 +689,7 @@ export class PlaywrightCLITask {
         forbiddenOutputValues: args.includes("eval")
           ? [this.token]
           : [...this.state.secretValues, this.token],
-        signal: this.signal,
+        signal,
         stdoutTransform,
       });
     } catch (error) {
@@ -709,6 +734,11 @@ async function abortableDelay(milliseconds, signal) {
 export function createProviderRuntime(client, registration) {
   return {
     timeoutMs: registration.timeoutMS,
+    prepareSendPage: async () => {
+      if(registration.operation!=="send")throw clientContractError();
+      await client.prepareBackgroundPage();
+    },
+    signal: client.signal,
     withTaskTab: async (operation, callback) => {
       if (operation !== registration.operation) throw clientContractError();
       return await callback(
@@ -716,6 +746,36 @@ export function createProviderRuntime(client, registration) {
       );
     },
     createOwnedTab: async () => client.gmailTab(),
+    withSendTab: async callback => {
+      if(registration.operation!=="send")throw clientContractError();
+      return callback({
+        inspect:expression=>client.gmailTab().inspect(expression),
+        click:selector=>client.click(selector),
+        fill:(selector,value)=>{
+          // Reply lookup uses only these fixed provider-owned folder queries;
+          // message fields always go through the private secret slots.
+          if(selector==='input[name="q"]'&&['in:inbox','in:sent','-in:trash -in:spam -in:drafts'].includes(value))return client.runReadCode(`async page=>{await page.locator('input[name="q"]').fill(${JSON.stringify(value)});return true}`);
+          return client.fill(selector,value);
+        },
+        focus:selector=>client.focus(selector),
+        press:key=>client.press(key),
+        readMany:commands=>client.readMany(commands),
+        runReadCode:code=>client.runReadCode(code),
+      });
+    },
+    withReadTab: async callback => {
+      if (!["read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(registration.operation)) throw clientContractError();
+      return await callback({
+        inspect: expression => client.gmailTab().inspect(expression),
+        click: selector => client.click(selector),
+        fill: (selector, value) => client.runReadCode(`async page => { await page.locator(${JSON.stringify(selector)}).fill(${JSON.stringify(value)}); return true; }`),
+        press: key => client.press(key),
+        navigate: url => client.navigate(url),
+        runReadCode: code => client.runReadCode(code),
+        download: (selector, destination, maxBytes) => client.download(selector, destination, maxBytes),
+      });
+    },
+    emailWorkspaceRoot: client.emailWorkspaceRoot,
   };
 }
 

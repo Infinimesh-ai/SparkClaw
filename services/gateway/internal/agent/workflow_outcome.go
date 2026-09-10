@@ -37,6 +37,7 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterBrowserTransition:   adaptBrowserTransitionOutcome,
 	app.OutcomeAdapterBrowserGoal:         adaptBrowserGoalOutcome,
 	app.OutcomeAdapterBrowserEmailSend:    adaptBrowserEmailSendOutcome,
+	app.OutcomeAdapterBrowserEmailRead:    adaptBrowserEmailReadOutcome,
 	app.OutcomeAdapterDocumentEdit:        adaptDocumentEditOutcome,
 	app.OutcomeAdapterScheduleList:        adaptScheduleListOutcome,
 	app.OutcomeAdapterScheduleChange:      adaptScheduleChangeOutcome,

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "provider": "outlook",
+  "invocation_id": "email_pinned_qualification_ceaabfbcd455adeb",
+  "selection": {
+    "account_address": "outlook_cb7fecbb00aba3cb@outlook.com",
+    "provider_selection_id": "AQQkADAwATM0MDAAMS01YzNiLTQyYjMtMDACLTAwCgAQAA5Uns458htFgOgaU0csbXg=",
+    "folder": "inbox"
+  },
+  "identity": {
+    "account_address": "outlook_CB7FECBB00ABA3CB@outlook.com",
+    "provider_message_id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhBGQAA",
+    "mailbox_id": "mb_c2323022ffbeeb782fd911146676162c",
+    "mail_id": "mail_d2341280b7f6b16345da22bd10b3ff4d"
+  },
+  "receipt": null
+}

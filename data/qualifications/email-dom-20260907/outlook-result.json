@@ -1,0 +1,157 @@
+{
+  "provider": "outlook",
+  "sample": "existing_pinned_read_message",
+  "body_count": 1,
+  "identity_matches": true,
+  "body_stable": true,
+  "body_characters": 523,
+  "eml_reference": true,
+  "subject_match": true,
+  "body_text_match": false,
+  "account_matches": true,
+  "from_header_present": true,
+  "to_header_present": true,
+  "recipient_control_count": 1,
+  "date_candidate_count": 1,
+  "reference_cc_count": 0,
+  "reference_attachments": 0,
+  "operations": 3,
+  "elapsed_ms": 23108,
+  "parents": [
+    {
+      "tag": "DIV",
+      "role": "document",
+      "class": "OuGoX BIZfh",
+      "bodyCount": 0
+    },
+    {
+      "tag": "DIV",
+      "role": null,
+      "class": "XbIp4 jmmB7 customScrollBar GNqVo allowTextSelection",
+      "bodyCount": 1
+    },
+    {
+      "tag": "DIV",
+      "role": null,
+      "class": "",
+      "bodyCount": 1
+    },
+    {
+      "tag": "DIV",
+      "role": null,
+      "class": "SlLx9 WWy1F byzS1 WWy1F",
+      "bodyCount": 1
+    },
+    {
+      "tag": "DIV",
+      "role": null,
+      "class": "wide-content-host",
+      "bodyCount": 1
+    },
+    {
+      "tag": "DIV",
+      "role": null,
+      "class": "fui-FluentProvider fui-FluentProviderr34 ___5n94it0 f19n0e5 f3rmtva fgusgyc fk6fouc fkhj508 figsok6 fytdu2e",
+      "bodyCount": 1
+    },
+    {
+      "tag": "DIV",
+      "role": null,
+      "class": "",
+      "bodyCount": 1
+    }
+  ],
+  "controls": [
+    {
+      "tag": "SPAN",
+      "class": "undefined lpcCommonWeb-hoverTarget container-192",
+      "attrs": [
+        "class",
+        "aria-label",
+        "data-lpc-hover-target-id",
+        "tabindex",
+        "role",
+        "aria-haspopup",
+        "data-is-focusable"
+      ],
+      "category": "other"
+    },
+    {
+      "tag": "SPAN",
+      "class": "o4zjZ ujrct lpcCommonWeb-hoverTarget container-192",
+      "attrs": [
+        "class",
+        "aria-label",
+        "data-lpc-hover-target-id",
+        "tabindex",
+        "role",
+        "aria-haspopup",
+        "data-is-focusable"
+      ],
+      "category": "from:"
+    },
+    {
+      "tag": "BUTTON",
+      "class": "fui-Button r1f29ykk tTMAm ___clxrxh0 fhovq9v f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb f1t94bn6 f1s2uweq fr80ssc f1ukrpxl fecsdlb fnwyq0v ft1hn21 fuxngvv fy5bs14 f1q1yqic fhvnf4x fb6swo4 f1klyf7k f232fm2 fwga7ee f1nhwcv0 f1gm6xmp f1xxsver f1v3eptx fivsta0 fd4bjan f3m6zum f18ktai2 fwbmr0d f44c6la",
+      "attrs": [
+        "type",
+        "class",
+        "aria-label",
+        "role",
+        "tabindex",
+        "aria-haspopup",
+        "id",
+        "data-overflow-menu"
+      ],
+      "category": "more"
+    },
+    {
+      "tag": "SPAN",
+      "class": "lpcWrapper lpcCommonWeb-hoverTarget container-192",
+      "attrs": [
+        "class",
+        "aria-label",
+        "data-lpc-hover-target-id",
+        "tabindex",
+        "role",
+        "aria-haspopup",
+        "data-is-focusable"
+      ],
+      "category": "other"
+    },
+    {
+      "tag": "BUTTON",
+      "class": "fui-Button r1f29ykk wD8TJ ___1cf351u f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la",
+      "attrs": [
+        "type",
+        "class",
+        "title",
+        "aria-label"
+      ],
+      "category": "other"
+    },
+    {
+      "tag": "BUTTON",
+      "class": "fui-Button r1f29ykk d5kvP xgQkx FGlQz r1io2nxp ___1kzo1mb f1c21dwh fjxutwb fkoldzo f1d2rq10 fses1vf",
+      "attrs": [
+        "type",
+        "aria-label",
+        "role",
+        "class"
+      ],
+      "category": "other"
+    },
+    {
+      "tag": "BUTTON",
+      "class": "fui-Button r1f29ykk d5kvP xgQkx FGlQz r1io2nxp ___1kzo1mb f1c21dwh fjxutwb fkoldzo f1d2rq10 fses1vf",
+      "attrs": [
+        "type",
+        "aria-label",
+        "role",
+        "class"
+      ],
+      "category": "other"
+    }
+  ],
+  "address_node_count": 1
+}

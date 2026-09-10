@@ -1,0 +1,19 @@
+{
+  "corpus_sha256": "f01dd704ef8b0cee697bd963cca7589bbab893b6daeb1b6839c988db8960d8a1",
+  "final_prompt_version": "email-management-v3-intent-evidence",
+  "final_prompt_sha256": "ed32be4363310637600caf99aaddc79dad1fba617803df37aa32a3975a117da5",
+  "model_profile": "sparkclaw-product-v1",
+  "model_alias": "sparkclaw-fast",
+  "model_checkpoint_pinned": false,
+  "baseline_report_sha256": "34021fd90b9548f817b723360f1d46bd07cc76cfd4b1f0d400a432f23bb15e9e",
+  "recheck_report_sha256": "960ec1a7ed684ea6671213038d63a755c2511ade266d8a848d42f48d60ce9f2b",
+  "limits": [
+    "Synthetic bilingual corpus, not production email distribution.",
+    "Recheck used the same frozen corpus after general prompt correction; not a blind held-out evaluation.",
+    "Provider labels are sample metadata, not native UI collection qualification.",
+    "Remote model alias does not identify an immutable checkpoint."
+  ],
+  "presentation_prompt_version": "email-presentation-v4",
+  "presentation_report_sha256": "034a5778aa6383f5534fea689f2cf9b22d2d11ea4af72bf4e24e2f7b6317e450",
+  "presentation_validation": "Four real Fast synthetic zh/en cases passed; Chinese titles and every nonempty generated prose field inspected. Subsequent deterministic, unit-tested cleanup removes exact redundant enum parentheses from generated Chinese explanation only; preserved real report is pre-cleanup."
+}

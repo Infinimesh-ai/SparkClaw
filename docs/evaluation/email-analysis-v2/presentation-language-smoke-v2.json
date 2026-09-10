@@ -1,0 +1,60 @@
+{
+  "model_alias": "sparkclaw-fast",
+  "model_profile": "sparkclaw-product-v1",
+  "prompt_version": "email-presentation-v2",
+  "results": [
+    {
+      "entry": "notification",
+      "language": "zh",
+      "output": {
+        "purpose": "通知用户CloudDesk包裹已发货，无需采取任何行动。",
+        "service_label": "CloudDesk",
+        "requested_response": "",
+        "title": "CloudDesk发货通知",
+        "summary": "CloudDesk包裹已发货，此为状态通知，无需回复。",
+        "explanation": "该邮件被分类为通知（notification），因为邮件正文明确指出“无需回复”（no reply is needed），且内容仅为包裹发货的状态更新。",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "notification",
+      "language": "en",
+      "output": {
+        "purpose": "To inform the recipient that their CloudDesk package has shipped.",
+        "service_label": "",
+        "requested_response": "",
+        "title": "CloudDesk delivery",
+        "summary": "Notification that the CloudDesk package has shipped.",
+        "explanation": "The email is a shipping status notification for 'CloudDesk' delivery. The body explicitly states 'no reply is needed', and the classification source is 'model' with reason code 'body_evidence'.",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "interaction",
+      "language": "zh",
+      "output": {
+        "purpose": "确认CloudDesk项目的新交付日期",
+        "service_label": "CloudDesk",
+        "requested_response": "确认是否接受修订后的交付日期。",
+        "title": "CloudDesk交付确认",
+        "summary": "CloudDesk请求确认是否接受9月18日的新交付日期。",
+        "explanation": "该邮件要求收件人确认是否接受CloudDesk项目新的交付日期（9月18日）。分类依据为邮件正文中的明确请求（'Please confirm...'），来源为模型生成，无不确定性。",
+        "concerns": []
+      }
+    },
+    {
+      "entry": "interaction",
+      "language": "en",
+      "output": {
+        "purpose": "To confirm acceptance of the revised delivery date for CloudDesk.",
+        "service_label": "CloudDesk",
+        "requested_response": "Confirm acceptance of the revised delivery date.",
+        "title": "CloudDesk delivery",
+        "summary": "The sender requests confirmation of the new delivery date of September 18 for CloudDesk.",
+        "explanation": "The email subject is 'CloudDesk delivery' and the body requests confirmation of a new delivery date of September 18. The classification is marked as 'interaction' with source 'model' and reason code 'body_evidence', indicating the system identified the intent based on the message content. The requested response is to confirm acceptance of the revised date.",
+        "concerns": []
+      }
+    }
+  ],
+  "source": "synthetic; no mail read or sent"
+}

@@ -8,6 +8,7 @@ import { probeQQMailLogin, QQMAIL_LOGIN_PROBE_SELECTORS as selectors } from "../
 function harness({
   accountPresent = true, accountVisible = true, loginVisible = false,
   accountText = "test@example.test", url = "https://wx.mail.qq.com/home/index",
+  loadingEvaluations = 0,
 } = {}) {
   let evaluations = 0;
   let reads = 0;
@@ -25,6 +26,7 @@ function harness({
   ]);
   task.evaluate = async (expression) => {
     evaluations += 1;
+    if(loadingEvaluations && evaluations>loadingEvaluations) elements.set(selectors.accountMarker,element(true,accountText));
     return vm.runInNewContext(`(${expression})()`, {
       URL, location: { href: url },
       document: {
@@ -41,7 +43,10 @@ function harness({
     task, evaluations: () => evaluations, reads: () => reads,
     probe: () => probeQQMailLogin({
       schema_version: 1, operation: "probe", provider: "qq_mail", account: "default", invocation_id: "batch-test",
-    }, { withTaskTab: async (_operation, callback) => callback(task.qqTask()) }),
+    }, { withTaskTab: async (_operation, callback) => {
+      const adapter=task.qqTask();
+      return callback({onTab:commands=>commands[0]?.[0]==='wait'?Promise.resolve([{success:true,result:{}}]):adapter.onTab(commands)});
+    } }),
   };
 }
 
@@ -50,6 +55,12 @@ test("QQ probe accepts a visible account header with one evaluation of two marke
   assert.equal((await h.probe()).account_hint, "te***@example.test");
   assert.equal(h.evaluations(), 1);
   assert.equal(h.reads(), 3);
+});
+
+test('QQ probe tolerates bounded account-header loading without accepting an unknown account',async()=>{
+ const h=harness({accountPresent:false,loadingEvaluations:2});
+ assert.equal((await h.probe()).account_hint,'te***@example.test');
+ assert.equal(h.evaluations(),3);
 });
 
 test("a visible login page requires login even when a stale account header remains", async () => {

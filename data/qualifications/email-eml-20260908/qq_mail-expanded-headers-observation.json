@@ -1,0 +1,251 @@
+{
+  "browser_timezone": "Asia/Shanghai",
+  "text": [
+    {
+      "tag": "SPAN",
+      "class": "mail-subject-text",
+      "text": "Steam 上有新的登录操作",
+      "title": null,
+      "label": null,
+      "parent_class": "mail-detail-subject",
+      "parent_text": "Steam 上有新的登录操作"
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "SPAN",
+      "class": "ui-avatar-text",
+      "text": "St",
+      "title": null,
+      "label": null,
+      "parent_class": "xmail-ui-avatar ui-avatar-size36 basic-avatar",
+      "parent_text": "St"
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "Steam Team",
+      "title": null,
+      "label": null,
+      "parent_class": "cmp-account-inner",
+      "parent_text": "Steam Team"
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "DIV",
+      "class": "action-divider",
+      "text": "",
+      "title": null,
+      "label": null,
+      "parent_class": "mail-detail-basic-action-bar",
+      "parent_text": "More options"
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "DIV",
+      "class": "ui-btn-text",
+      "text": "More options",
+      "title": null,
+      "label": null,
+      "parent_class": "xmail-ui-btn ui-btn-size24 ui-btn-them-clear-gray more-btn",
+      "parent_text": "More options"
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-label-align basic-item-name",
+      "text": "From",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-body-item",
+      "parent_text": "From\nSteam Team<noreply@steampowered.com>\nHide details"
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "Steam Team",
+      "title": null,
+      "label": null,
+      "parent_class": "cmp-account-inner",
+      "parent_text": "Steam Team<noreply@steampowered.com>"
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-email",
+      "text": "<noreply@steampowered.com>",
+      "title": null,
+      "label": null,
+      "parent_class": "cmp-account-inner",
+      "parent_text": "Steam Team<noreply@steampowered.com>"
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-hyperlink",
+      "text": "Hide details",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-time-wrap",
+      "parent_text": "Hide details"
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-label-align basic-item-name",
+      "text": "To",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-body-item",
+      "parent_text": "To\nzhishi-x<zhishi-x@qq.com>"
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "zhishi-x",
+      "title": null,
+      "label": null,
+      "parent_class": "cmp-account-inner",
+      "parent_text": "zhishi-x<zhishi-x@qq.com>"
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-email",
+      "text": "<zhishi-x@qq.com>",
+      "title": null,
+      "label": null,
+      "parent_class": "cmp-account-inner",
+      "parent_text": "zhishi-x<zhishi-x@qq.com>"
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-label-align basic-item-name",
+      "text": "Size",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-body-item",
+      "parent_text": "Size\n37K"
+    },
+    {
+      "tag": "DIV",
+      "class": "basic-item-text",
+      "text": "37K",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-body-item",
+      "parent_text": "Size\n37K"
+    },
+    {
+      "tag": "DIV",
+      "class": "xmail-ui-label-align basic-item-name",
+      "text": "Date",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-body-item",
+      "parent_text": "Date\nAug 11, 2026 19:31"
+    },
+    {
+      "tag": "DIV",
+      "class": "basic-item-text",
+      "text": "Aug 11, 2026 19:31",
+      "title": null,
+      "label": null,
+      "parent_class": "basic-body-item",
+      "parent_text": "Date\nAug 11, 2026 19:31"
+    },
+    {
+      "tag": "DIV",
+      "class": "mail-detail-divider",
+      "text": "",
+      "title": null,
+      "label": null,
+      "parent_class": "mail-list-page-reader-body reader-body-children",
+      "parent_text": "Steam 上有新的登录操作\nSt\nSteam Team\nMore options\nFrom\nSteam Team<noreply@steampowered.com>\nHide details\nTo\nzhishi-x<zhishi-x@qq.com>\nSize\n37K\nDate\nAug 11, 2026 19:31\n\n\nSteam 上有新的登录操作\n来自您的帐户“e3vnr2yz”\n登录地点：\nHangzhou, Zhejiang, CN\n授权方式：\nSteam 手机验证器确认\n如果以上详情看起来很熟悉，您可以安心地忽略此邮件。\n否则，请立即重置 Steam 的密码。\n\t\t\n祝您愉快，\nSteam 团队\n\n\n此通知已发送至与您的 Steam 帐户关联的电子邮件地址。\n\n这封电子邮件由系统自动生成，请勿回复。如果您需要额外帮助，请访问 Steam 客服。\n\nhttps://help.steampowered.com\n\n\n\t\t\n若要下载 Steam 桌面客户端并进一步了解 Steam，请访问“关于Steam”。\n\n关于 Steam\n\n\n\t\t\n© Valve Corporation\nPO Box 1688 Bellevue, WA 98009\n\n保留所有权利。所有商标均为其在美国及其他国家/地区的各自持有者所有。\n查看此消息时遇到问题？ 点击此处\nQuick reply to\nnoreply\nReply All\nForward"
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "SPAN",
+      "class": "",
+      "text": "Quick reply to",
+      "title": null,
+      "label": null,
+      "parent_class": "quick-reply-text",
+      "parent_text": "Quick reply to\nnoreply"
+    },
+    {
+      "tag": "SPAN",
+      "class": "cmp-account-nick",
+      "text": "noreply",
+      "title": null,
+      "label": null,
+      "parent_class": "cmp-account-inner",
+      "parent_text": "noreply"
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "DIV",
+      "class": "ui-btn-text",
+      "text": "Reply All",
+      "title": null,
+      "label": null,
+      "parent_class": "xmail-ui-btn ui-btn-size40 ui-btn-border ui-btn-them-gray item-btn",
+      "parent_text": "Reply All"
+    },
+    {
+      "tag": "path",
+      "class": {},
+      "title": null,
+      "label": null,
+      "parent_class": {}
+    },
+    {
+      "tag": "DIV",
+      "class": "ui-btn-text",
+      "text": "Forward",
+      "title": null,
+      "label": null,
+      "parent_class": "xmail-ui-btn ui-btn-size40 ui-btn-border ui-btn-them-gray item-btn",
+      "parent_text": "Forward"
+    }
+  ],
+  "controls": []
+}

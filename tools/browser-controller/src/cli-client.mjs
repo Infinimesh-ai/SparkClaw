@@ -27,6 +27,7 @@ const DIAGNOSTIC_REASONS = new Set([
   "output_overflow",
   "process_exit",
   "process_exit_action_timeout",
+  "process_exit_download_timeout",
   "process_exit_context_destroyed",
   "process_exit_invalid_arguments",
   "process_exit_page_closed",
@@ -57,6 +58,7 @@ const DIAGNOSTIC_COMMANDS = new Set([
   "fill",
   "goto",
   "press",
+  "run-code",
   "tab-close",
   "tab-list",
   "tab-select",
@@ -80,6 +82,7 @@ export class PlaywrightCLIClientFactory {
       "sparkclaw-browser-controller",
       "cli-runtime",
     );
+    this.emailWorkspaceRoot = options.emailWorkspaceRoot ?? "";
     this.registry = options.registry ?? new ProviderScriptRegistry();
     if (
       this.executablePath && !path.isAbsolute(this.executablePath) ||
@@ -129,6 +132,7 @@ export class PlaywrightCLIClientFactory {
         signal,
         executablePath: this.executablePath,
         userDataDir: this.userDataDir,
+        emailWorkspaceRoot: this.emailWorkspaceRoot,
       });
       phase = "attach";
       await client.attach();
@@ -136,7 +140,7 @@ export class PlaywrightCLIClientFactory {
       await client.createTaskPage();
       phase = "navigate";
       await client.navigate(registration.loginURL);
-      if (operation === "send") {
+      if (["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(operation)) {
         phase = "prepare_background_page";
         await client.prepareBackgroundPage();
       }

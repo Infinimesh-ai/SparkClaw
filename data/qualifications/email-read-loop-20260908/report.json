@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-08",
+  "results": {
+    "gmail": {
+      "status": "collected",
+      "read_state": "read",
+      "attachments": 0,
+      "files_verified": 4,
+      "original_bytes": 51459,
+      "original_sha256": "sha256:26d207ae8691cb130f91c1c8353a8a321c2f6e92d2baf93ff28ddef57ec1b071",
+      "initial_single_message_unread_evidence": true
+    },
+    "outlook": {
+      "status": "empty"
+    },
+    "outlook-known": {
+      "status": "collected",
+      "read_state": "read",
+      "attachments": 0,
+      "files_verified": 4,
+      "original_bytes": 58069,
+      "original_sha256": "sha256:d7f376f1a6cda71d6e417c3139bd021cdcee0c7b300ea67a86ac2343032633c8",
+      "independent_original_matches": true,
+      "sample": "existing_read_singleton_actual_item_id"
+    },
+    "qq_mail": {
+      "status": "empty"
+    }
+  },
+  "scope": "source_script_only",
+  "store_ingestion": false,
+  "model_analysis": false,
+  "limits": [
+    "Gmail and Outlook accept proven singleton conversations only; ambiguous lists fail before opening.",
+    "QQ and Outlook had no unread messages during qualification; fresh unread transitions are not live-qualified for them.",
+    "Real samples have no attachments. The previous native synthetic MIME attachment qualification remains applicable.",
+    "Opening a provider detail may automatically mark it read before persistence; explicit marking waits for verified complete capture."
+  ],
+  "cleanup": {
+    "runtime_empty": true,
+    "temporary_credential_bridge_removed": true
+  }
+}

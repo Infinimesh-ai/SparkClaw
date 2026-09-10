@@ -9,14 +9,21 @@ removed from the active SparkClaw architecture on 2026-07-16. They were
 cross-layer placeholders rather than complete product capabilities.
 
 On 2026-09-03, SparkClaw introduced a new and deliberately narrower active
-email slice: `browser.email` r1 can send one approved plain-text message through
+email slice: `browser.email` can send one approved plain-text message through
 a freshly validated configured QQ Mail, Outlook, or Gmail browser account. Its
 login, Browser Bridge provider-handler, approval, and unknown-outcome contracts are
 defined in [Browser email Workflow](browser-email-workflow-design.md).
 
-That send-only capability does not reactivate the old personal-data connector.
-Email reading and all broader mailbox operations remain deferred. Calendar and
-built-in workspace knowledge/RAG also remain deferred.
+Revision 2 adds single unread-message source capture, including in-scope
+attachments, through fixed browser scripts. Fresh unread capture is not yet fully
+qualified; see the [source design](email-read-design.md) for current provider limitations. These
+capabilities do not reactivate the old personal-data connector. General mailbox
+search, replies, drafts, and outgoing attachments remain deferred, as do Calendar and
+built-in workspace knowledge/RAG.
+
+The [email management implementation](email-management-implementation.md) now adds
+local search over committed mail, fixed topic membership and bounded background
+intake. It does not reactivate the retired connector or arbitrary remote mailbox search.
 
 The standalone Embedding lane remains active for semantic routing. It is not
 owned or extended by the removed knowledge prototype.
@@ -50,9 +57,9 @@ authorization, mailbox identity, pagination, MIME, attachments, draft state,
 delivery semantics, provider error mapping, or reconciliation after an unknown
 send result. Approval around a mock append did not make it a real email system.
 
-The active browser send slice closes only the bounded one-recipient send
-contract. It does not imply that inbox reading, search, replies, attachments,
-draft synchronization, or multi-account semantics have been designed.
+The active browser email slice defines single unread-message source capture and one-recipient
+send contracts. It does not imply that search, replies, outgoing attachments, draft
+synchronization, or multi-account semantics have been designed.
 
 ### Calendar
 

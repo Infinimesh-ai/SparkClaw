@@ -16,11 +16,12 @@ import (
 // around the script rather than the page contract, the input, or the send
 // verification. Every entry must still be emitted by some script.
 var providerUnavailableScriptCodes = map[string]bool{
+	"browser_extension_unavailable":   true,
 	"browser_runtime_unavailable":     true,
 	"email_browser_failed":            true,
 	"email_probe_configuration_error": true,
-	"email_send_configuration_error":  true,
 	"email_tab_cleanup_failed":        true,
+	"email_capture_unavailable":       true,
 	"login_probe_browser_failure":     true,
 	// The Controller envelope substitutes this code when a script error
 	// carries no well-formed code of its own.
@@ -39,7 +40,7 @@ func TestScriptErrorCodesCoverEveryEmittedCode(t *testing.T) {
 	scriptSources := readSources(t, filepath.Join(root, "scripts", "email"), ".mjs")
 	controllerDir := filepath.Join(root, "tools", "browser-controller", "src")
 	controllerSources := map[string]string{}
-	for _, name := range []string{"cli-task.mjs", "cli-client.mjs", "provider-scripts.mjs"} {
+	for _, name := range []string{"cli-task.mjs", "cli-client.mjs", "cli-download.mjs", "provider-scripts.mjs"} {
 		raw, err := os.ReadFile(filepath.Join(controllerDir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -107,10 +108,10 @@ func TestScriptErrorCodesCoverEveryEmittedCode(t *testing.T) {
 var (
 	scriptErrorConstructorPattern = regexp.MustCompile(`new (?:QQMailScriptError|OutlookCliError|GmailCliError)\(\s*"([a-z0-9_]+)"`)
 	scriptErrorTemplatePattern    = regexp.MustCompile("new QQMailScriptError\\(\\s*`([^`]*)`")
-	envelopeCodePattern           = regexp.MustCompile(`\bcode:\s*"([a-z0-9_]+)"`)
+	envelopeCodePattern           = regexp.MustCompile(`\b(?:code|error):\s*["']([a-z0-9_]+)["']`)
 	classifierReturnPattern       = regexp.MustCompile(`\breturn "([a-z0-9]+(?:_[a-z0-9]+)+)"`)
 	codeParameterHelperPattern    = regexp.MustCompile(`function (\w+)\(([^)]*)\)`)
-	codeParameterPattern          = regexp.MustCompile(`^(?:errorCode|invalidCode)(?:\s*=\s*"([a-z0-9_]+)")?$`)
+	codeParameterPattern          = regexp.MustCompile(`^(?:errorCode|invalidCode|code)(?:\s*=\s*"([a-z0-9_]+)")?$`)
 	literalArgumentPattern        = regexp.MustCompile(`^"([a-z0-9_]+)"$`)
 )
 
@@ -120,6 +121,9 @@ var (
 // passed to helpers whose trailing parameter names the code to throw.
 func scriptErrorCodeLiterals(source string) []string {
 	codes := []string{}
+	for _, match := range regexp.MustCompile(`\b(?:fail|error|managedSendError)\(\s*["']([a-z0-9_]+)["']`).FindAllStringSubmatch(source, -1) {
+		codes = append(codes, match[1])
+	}
 	for _, match := range scriptErrorConstructorPattern.FindAllStringSubmatch(source, -1) {
 		codes = append(codes, match[1])
 	}

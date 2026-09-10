@@ -18,7 +18,7 @@ func probeMemoryStore(store *MemoryStore) error {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	if store.sessions == nil || store.ownerProfiles == nil || store.clients == nil ||
-		store.approvals == nil || store.auditEvents == nil || store.mcpBindings == nil {
+		store.emailRecords == nil || store.approvals == nil || store.auditEvents == nil || store.mcpBindings == nil {
 		return errors.New("memory store maps are not initialized")
 	}
 	return nil

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import {isManagedSend,sendManagedMail} from "./lib/managed-send.mjs";
 import crypto from "node:crypto";
 
 import {
@@ -139,6 +140,7 @@ export const OUTLOOK_SEND_VERIFICATION_EXPRESSION = String.raw`(async (expected)
 })`;
 
 export async function sendOutlook(rawInput, runtime = {}) {
+  if(isManagedSend(rawInput))return sendManagedMail(rawInput,"outlook",runtime);
   let sendClickAttempted = false;
   try {
     const input = validateInput(rawInput);

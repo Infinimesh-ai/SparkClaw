@@ -260,6 +260,7 @@ var toolRegistry = func() map[string]toolRegistration {
 		"memory.propose":                 {run: ctxArgsSessionRun((*ToolHub).memoryWriteCandidate)},
 		"memory.write_sensitive":         {run: ctxArgsSessionRun((*ToolHub).memoryWriteSensitive)},
 		app.ToolEmailSend:                emailSendRegistration(),
+		app.ToolEmailRead:                emailReadRegistration(),
 		"browser.read":                   browserReadRegistration(),
 		"browser.identify_public_target": browserPublicTargetRegistration(),
 		"browser.visual_inspect":         browserVisualRegistration(),

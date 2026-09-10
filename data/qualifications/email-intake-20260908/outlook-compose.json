@@ -1,0 +1,508 @@
+{
+  "inputs": [
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Search for email, meetings, files and more.",
+      "multiple": false
+    },
+    {
+      "type": "file",
+      "name": "",
+      "aria": null,
+      "multiple": true
+    },
+    {
+      "type": "file",
+      "name": "",
+      "aria": null,
+      "multiple": true
+    },
+    {
+      "type": "file",
+      "name": "",
+      "aria": null,
+      "multiple": true
+    },
+    {
+      "type": "file",
+      "name": "",
+      "aria": null,
+      "multiple": true
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Font",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Font size",
+      "multiple": false
+    },
+    {
+      "type": "checkbox",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "checkbox",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "checkbox",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "checkbox",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": null,
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Subject",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Font",
+      "multiple": false
+    },
+    {
+      "type": "text",
+      "name": "",
+      "aria": "Font size",
+      "multiple": false
+    }
+  ],
+  "editors": [
+    {
+      "role": null,
+      "aria": "To",
+      "class": "___h7sz9k0 fwg0e2s f14t3ns0 f1e2ae29 f2hkw1w fsslvku f3w75mx f133ih0r f1jdsjjj fly5x3f fgr6219 f1ujusj6 f10jk5vf fcgxt0o f113hnb5 EditorClass"
+    },
+    {
+      "role": "textbox",
+      "aria": "Message body",
+      "class": "dFCbN customScrollBar dPKNh z8tsM DziEn"
+    }
+  ],
+  "buttons": [
+    {
+      "text": "",
+      "aria": "Calendar",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "People",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "To Do",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Word",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Excel",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "PowerPoint",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "More apps",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Hide navigation pane",
+      "title": ""
+    },
+    {
+      "text": "File",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "HomeHome",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "ViewView",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "HelpHelp",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "Message",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "InsertInsert",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "Format textFormat text",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "DrawDraw",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "OptionsOptions",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+Z)",
+      "aria": "Undo",
+      "title": ""
+    },
+    {
+      "text": "More options",
+      "aria": " Undo",
+      "title": ""
+    },
+    {
+      "text": "Add content on the Clipboard to your message. (Ctrl+V)",
+      "aria": "Paste",
+      "title": ""
+    },
+    {
+      "text": "More paste options",
+      "aria": " Paste",
+      "title": ""
+    },
+    {
+      "text": "Select the content with the formatting you want to copy and click on Format painter.\n\nSelect the other content you want apply the formatting to.",
+      "aria": "Format painter",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Open Font",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Open Font size",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+B)",
+      "aria": "Bold",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+I)",
+      "aria": "Italic",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+U)",
+      "aria": "Underline",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Strikethrough",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Text highlight color",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": " Text highlight color",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Font color",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": " Font color",
+      "title": ""
+    },
+    {
+      "text": "give your message a consistent, polished look.",
+      "aria": "Styles",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+Alt+4)",
+      "aria": "Quote",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+.)",
+      "aria": "Bullets",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+/)",
+      "aria": "Numbering",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Decrease indent",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Increase indent",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Align",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Spacing",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+Space)",
+      "aria": "Clear formatting",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Subscript",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Superscript",
+      "title": ""
+    },
+    {
+      "text": "Attach a file to this item.",
+      "aria": "Attach file",
+      "title": ""
+    },
+    {
+      "text": "Insert a hyperlink. (Ctrl+K)",
+      "aria": "Link",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": " Link",
+      "title": ""
+    },
+    {
+      "text": "Attach one of your email signatures to this message.",
+      "aria": "Signature",
+      "title": ""
+    },
+    {
+      "text": "Speak into the microphone to insert text. (Alt+`)",
+      "aria": "Dictate",
+      "title": ""
+    },
+    {
+      "text": "Enhance Outlook with apps.",
+      "aria": "Apps",
+      "title": ""
+    },
+    {
+      "text": "Set this item as high priority.",
+      "aria": "High importance",
+      "title": ""
+    },
+    {
+      "text": "Set this item as low priority.",
+      "aria": "Low importance",
+      "title": ""
+    },
+    {
+      "text": "Restrict permission to this item.",
+      "aria": "Encrypt",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Left-to-right",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Right-to-left",
+      "title": ""
+    },
+    {
+      "text": "(Ctrl+P)",
+      "aria": "Print draft",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "More options",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Switch layouts",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Favorite folder",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Select",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Jump to",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Filter",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Sorted: By Date",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": "Mark as unread"
+    },
+    {
+      "text": "This Month",
+      "aria": "This Month",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Header action menu",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": "Mark as unread"
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": "Mark as unread"
+    },
+    {
+      "text": "",
+      "aria": null,
+      "title": "Mark as unread"
+    },
+    {
+      "text": "Send",
+      "aria": "Send",
+      "title": "Send (Ctrl+Enter)"
+    },
+    {
+      "text": "",
+      "aria": "More send options",
+      "title": "More send options"
+    },
+    {
+      "text": "",
+      "aria": "Discard",
+      "title": "Discard (Esc)"
+    },
+    {
+      "text": "",
+      "aria": "Pop Out",
+      "title": "Open in new window"
+    },
+    {
+      "text": "To",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "Cc",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "Bcc",
+      "aria": null,
+      "title": ""
+    },
+    {
+      "text": "Select an item to read",
+      "aria": "Select an item to read",
+      "title": ""
+    },
+    {
+      "text": "(No subject)",
+      "aria": "Editing (No subject)",
+      "title": ""
+    },
+    {
+      "text": "",
+      "aria": "Close",
+      "title": ""
+    }
+  ]
+}

@@ -2,10 +2,27 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-email-workflow-design.md)
 
-Status: Implemented. QQ Mail, Outlook, and Gmail use deterministic Playwright
+The [management implementation](email-management-implementation.md) adds a
+separate default-off unified popup, cross-account topics and background thread
+synchronization. This page governs the explicit human Workflow entry.
+
+Status: Sending is implemented. The human reading entry implements the authorized
+[source foundation](email-read-design.md): one unread message per script invocation,
+workspace source files and a validated manifest. This human entry does not perform Gateway mail Store publication or model analysis. Fresh unread reading is not
+fully qualified; provider limitations and live evidence are recorded in the source
+design. Script completion does not
+establish those outcomes.
+QQ Mail, Outlook, and Gmail use deterministic Playwright
 CLI handlers through the production SparkClaw Browser Bridge. The Phase 6
-cutover removed the former Host-CDP runner without changing the send-only
-Workflow, approval, or unknown-outcome semantics.
+cutover removed the former Host-CDP runner. Revision 2 adds scripted inbox
+reading alongside sending, preserving send approval and unknown-outcome semantics.
+
+Background discovery, identity-based capture and independent model analysis now
+run under the dedicated `emailmanagement` service, with durable Store jobs and
+separate lifecycle. The human read Workflow still returns its source manifest;
+it does not accept an arbitrary target or automatically import historical captures.
+Provider qualification and remaining coverage gaps are recorded in the
+[implementation report](email-management-implementation.md).
 
 ## Decision
 
@@ -14,15 +31,16 @@ SparkClaw owns browser-backed email under the browser branch:
 ```text
 browser
 `- browser.email
+   |- browser.email#read
    `- browser.email#send
 ```
 
-`browser.email` has one Workflow Profile at revision 1 and one operation,
-`send`. Email reading is not registered. Requests to inspect an inbox, read an
-unread message, reply, forward, or manage drafts do not receive email tools.
+`browser.email` has one Workflow Profile at revision 2 with `read` and `send`
+operations. Inbox and unread-mail requests route to `read`. Reply, forwarding,
+and draft management remain unavailable.
 
-The model chooses only the supported function and supplies one recipient, an
-optional subject, and a plain-text body. Runtime owns provider and account
+The model chooses only the supported function. Reading takes no model parameters;
+sending takes one recipient, an optional subject and a plain-text body. Runtime owns provider and account
 selection, login admission, Browser control credential generation, provider
 script revision, approval, invocation identity, and result validation.
 
@@ -31,6 +49,7 @@ script revision, approval, invocation identity, and result validation.
 The current capability supports:
 
 - one new plain-text message to exactly one recipient;
+- scripted capture of one unread message and available in-scope binary parts;
 - an optional single-line subject;
 - one effective signed-in account per provider;
 - QQ Mail, Outlook, and Gmail;
@@ -38,17 +57,17 @@ The current capability supports:
 - deterministic read-only login probes and one-attempt send handlers;
 - one exact-content approval immediately before the external send effect.
 
-It does not support reading, search, listing, replies, forwarding, deletion,
-archive, read-state changes, reusable drafts, multiple recipients, CC/BCC,
-attachments, HTML authoring, signatures, or multiple accounts per provider.
+It does not support mailbox search, replies, forwarding, deletion,
+archive, explicit read-state management, reusable drafts, multiple recipients, CC/BCC,
+outgoing attachments, HTML authoring, signatures, or multiple accounts per provider.
 It does not use OAuth, IMAP, SMTP, Gmail API, Microsoft Graph, cookie export,
 profile copying, container Chromium, or a fallback browser backend.
 
 ## Routing And Provider Resolution
 
-The semantic graph contains one `browser.email` candidate for `send`. Hard
-negatives include inbox inspection, email reading, attachments, replies, login
-checks, and requests that merely open a provider website.
+The semantic graph contains `browser.email` candidates for `read` and `send`.
+Unsupported requests include sending attachments, replies, login checks, and requests
+that merely open a provider website.
 
 Provider selection is deterministic:
 
@@ -64,13 +83,34 @@ selectors live in the Controller provider registry. Runtime registration maps
 only those fixed handlers; callers cannot provide a script path or selector.
 The Gateway binds to that registry through a generated projection,
 `services/gateway/internal/emailautomation/provider_scripts.json`, that
-carries each provider's probe and send script ID, revision, and budget.
+carries each provider's probe, read, and send script ID, revision, and budget.
 `npm run sync:provider-contract --prefix tools/browser-controller` regenerates
 it and the Controller test suite fails when it drifts; the Gateway never
 restates login URLs or origins.
 
 QQ Mail is not a generic browser destination. A request that merely opens QQ
 Mail does not gain email-send authority.
+
+## Inbox Reading
+
+The fixed `qqmail.read`, `outlook.read`, and `gmail.read` scripts acquire one
+unread message under the existing configured account and fresh admission guards.
+The capture takes no model parameters. No send approval or send authority is involved.
+
+The script persists actual source material under the configured workspace and
+returns a bounded relative manifest reference, capture count and status. The
+manifest records immutable IDs, file sizes/hashes, coverage and missing material.
+Acquisition limits are 2 MiB of body, 20 binary parts, 25 MiB per part and 100 MiB
+of parts in total. Files are not inlined into the script result. Unsupported
+parts and incomplete capture remain explicit. A `script_capture` outcome is
+distinct from a Gateway Store-committed email or completed model analysis.
+
+Read scripts use background task tabs with ownership/origin guards; callers
+cannot supply arbitrary script paths or selectors. Mark-read is authorized only
+after complete durable capture, with its outcome tracked separately. Provider
+automatic marking on open remains observable and does not prove capture success.
+See the [source design](email-read-design.md) for the current implementation
+boundary. Reply, draft management and general mailbox search remain out of scope.
 
 ## Login Configuration
 
@@ -171,7 +211,7 @@ owner request
   -> semantic route: browser.email#send
   -> deterministic provider resolution
   -> fresh read-only login admission outside Workflow
-  -> browser.email r1 / email_send
+  -> browser.email r2 / email_send
        -> model supplies recipient, optional subject, and body
        -> Runtime restores all frozen admission bindings
        -> exact-content owner approval
@@ -349,11 +389,12 @@ payloads.
 
 ## Acceptance Boundary
 
-- Catalog and semantic routing expose send only; email reading stays unavailable.
+- Catalog and semantic routing expose separate read and send operations.
 - Provider resolution and admission facts remain Runtime-owned.
 - A fresh read-only probe succeeds before Workflow creation.
 - Workflow exposes one email tool and no generic browser tools.
-- Approval binds exact content and every frozen admission fact.
+- Send approval binds exact content and every frozen admission fact.
+- Read persists one message's source files and returns a bounded capture receipt without send approval.
 - Provider setting and credential generation are rechecked after approval.
 - Send is attempted at most once and unknown outcome is never retried.
 - Every provider operation uses one Bridge-allowlisted task tab.
@@ -362,6 +403,6 @@ payloads.
 - QQ Mail remains absent from the generic destination registry.
 - Provider settings behave identically in memory, file, and PostgreSQL stores.
 
-Email reading, attachments, replies, drafts, or multi-account support requires a
-separate capability and product contract. It must not be added as an unreviewed
-mode under `browser.email` r1.
+Outgoing attachments, replies, drafts, or multi-account support requires a separate
+capability and product contract. It must not be added as an unreviewed mode
+under `browser.email` r2.

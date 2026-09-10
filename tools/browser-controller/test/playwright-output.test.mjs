@@ -162,6 +162,7 @@ test("CLI exit classification matches recorded and pinned Playwright messages", 
       "process_exit_context_destroyed",
     ],
     ["ms exceeded.", "TimeoutError: Timeout 10000ms exceeded.", "process_exit_action_timeout"],
+    ["waiting for event", 'page.waitForEvent: Timeout 25000ms exceeded while waiting for event "download"', "process_exit_download_timeout"],
   ]) {
     assert.equal(bundle.includes(literal), true, literal);
     assert.equal(classifyProcessExit("", sample).reason, reason, literal);

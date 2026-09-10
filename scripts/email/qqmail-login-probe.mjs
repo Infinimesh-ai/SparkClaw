@@ -106,7 +106,9 @@ export async function probeQQMailLogin(rawInput, runtime = {}) {
   try {
     return await withQQMailTaskTab("probe", runtime, async (task) => {
       const phase = "login_probe_state";
-      const results = await task.onTab(
+      let results;
+      for (let attempt=0;attempt<6;attempt++) {
+      results = await task.onTab(
         [
           ["get", "url"],
           ["is", "visible", QQMAIL_LOGIN_PROBE_SELECTORS.loginPage],
@@ -115,6 +117,10 @@ export async function probeQQMailLogin(rawInput, runtime = {}) {
         ],
         phase,
       );
+      const current=parseQQMailURL(resultAt(results,0,phase).url,"login_probe_invalid_output");
+      if (visibleAt(results,1,phase) || visibleAt(results,2,phase) || !['/','/home/index'].includes(current.pathname) || attempt===5) break;
+      await task.onTab([["wait","200"]],"login_probe_loading");
+      }
       const location = parseQQMailURL(
         resultAt(results, 0, phase).url,
         "login_probe_invalid_output",

@@ -1,0 +1,35 @@
+{
+  "url": "https://outlook.live.com/mail/0/inbox/id/AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAPJApIGWnwpCiqJwLFuEeRM%3D",
+  "items": [],
+  "bodies": [
+    {
+      "attrs": {
+        "tabindex": "0",
+        "aria-label": "Message body",
+        "role": "document",
+        "aria-live": "polite",
+        "aria-atomic": "false",
+        "class": "OuGoX BIZfh",
+        "id": "UniqueMessageBody_1"
+      }
+    }
+  ],
+  "ids": [
+    {
+      "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAPJApIGWnwpCiqJwLFuEeRM=",
+      "data-focusable-row": "true"
+    },
+    {
+      "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAPNkhNJoV2hJkmUhsb6HLR4=",
+      "data-focusable-row": "true"
+    },
+    {
+      "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQAC0yVvC9aqJIsmKaxMoVonY=",
+      "data-focusable-row": "true"
+    },
+    {
+      "data-convid": "AQQkADAwATNiZmYAZS05NDYyLWJlMTYtMDACLTAwCgAQALDcPV5D2gpIsvtvRYVSY6U=",
+      "data-focusable-row": "true"
+    }
+  ]
+}

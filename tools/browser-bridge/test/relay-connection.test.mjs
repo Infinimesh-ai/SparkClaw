@@ -173,12 +173,40 @@ test("only same-window children of allowed tabs enter the task allowlist", async
   assert.deepEqual(fixture.calls.remove, [5]);
 });
 
+test("concurrent relay groups isolate events, popups and disconnect cleanup", async () => {
+  const fixture = createFixture();
+  const first = new RelayConnection(fixture.options);
+  const socket = createFixture().webSocket;
+  const second = new RelayConnection({ ...fixture.options, webSocket: socket,
+    initialTab: { ...fixture.taskTab, id: 20 } });
+  await first.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+  await second.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 20 }, "1.3"] });
+  fixture.events.debuggerEvent.emit({ tabId: 2 }, "Page.loadEventFired", { timestamp: 1 });
+  fixture.events.debuggerEvent.emit({ tabId: 20 }, "Page.loadEventFired", { timestamp: 2 });
+  assert.deepEqual(fixture.webSocket.sent.map(JSON.parse).map(item => item.params[0].tabId), [2]);
+  assert.deepEqual(socket.sent.map(JSON.parse).map(item => item.params[0].tabId), [20]);
+  fixture.events.tabsCreated.emit({ id: 21, windowId: 7, openerTabId: 20, active: false });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(first.connectedTabIds(), [2]);
+  assert.deepEqual(second.connectedTabIds(), [20, 21]);
+  await assert.rejects(first.handleCommand({ id: 2, method: "chrome.tabs.remove", params: [20] }), /outside the task allowlist/);
+  first.close("first mailbox stopped");
+  assert.deepEqual(fixture.calls.detach, [[{ tabId: 2 }]]);
+  assert.equal(second.closed, false);
+  await second.handleCommand({ id: 2, method: "chrome.debugger.sendCommand", params: [{ tabId: 20 }, "Runtime.evaluate", { expression: "1" }] });
+  assert.equal(fixture.calls.sendCommand.length, 1);
+  fixture.events.debuggerEvent.emit({ tabId: 20 }, "Page.loadEventFired", { timestamp: 3 });
+  assert.equal(socket.sent.map(JSON.parse).at(-1).params[2].timestamp, 3);
+  second.close("finished");
+});
+
 function createFixture() {
   const events = {
     debuggerEvent: event(), debuggerDetach: event(), tabsCreated: event(), tabsRemoved: event(),
   };
   const calls = { attach: [], detach: [], sendCommand: [], create: [], remove: [], update: [] };
   const chromeAPI = {
+    downloads: { onCreated: event() },
     debugger: {
       onEvent: events.debuggerEvent,
       onDetach: events.debuggerDetach,

@@ -1,0 +1,11 @@
+{"method":"chrome.tabs.onCreated","tabId":2061404826}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404826,"frame":"5C39A3CE098EA7765330C2CA61AC49CC"}
+{"method":"chrome.debugger.onEvent","event":"Page.frameNavigated","tabId":2061404826,"frame":"5C39A3CE098EA7765330C2CA61AC49CC"}
+{"method":"sparkclaw.downloadWillBegin","frame":"5C39A3CE098EA7765330C2CA61AC49CC","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"inProgress"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"inProgress"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"inProgress"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"inProgress"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"inProgress"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"inProgress"}
+{"method":"sparkclaw.downloadProgress","guid":"ceaa6eac-7188-48a1-b1d9-01872d402d2b","state":"completed"}

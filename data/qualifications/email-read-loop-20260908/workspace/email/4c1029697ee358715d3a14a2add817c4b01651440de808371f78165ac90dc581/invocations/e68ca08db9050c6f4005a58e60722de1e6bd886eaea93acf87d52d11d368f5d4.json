@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "provider": "outlook",
+  "invocation_id": "read-loop-outlook-1",
+  "receipt": {
+    "schema_version": 1,
+    "status": "empty",
+    "provider": "outlook",
+    "capture": null
+  }
+}

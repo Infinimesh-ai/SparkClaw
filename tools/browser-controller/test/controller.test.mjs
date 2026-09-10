@@ -489,3 +489,166 @@ async function waitFor(predicate, timeoutMS) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+class ControlledScripts extends FakeScriptFactory {
+  async runScript(options) {
+    const gate = deferred();
+    const cleanup = deferred();
+    const call = { ...options, gate, cleanup, aborted: false };
+    this.calls.push(call);
+    options.signal.addEventListener("abort", () => {
+      call.aborted = true;
+      gate.resolve();
+    }, { once: true });
+    await gate.promise;
+    if (call.aborted) await cleanup.promise;
+    if (call.fail) throw new Error("script failed");
+    return { state: "completed", sourceChecksum: `sha256:${"a".repeat(64)}`, result: {} };
+  }
+}
+
+function parallelController() {
+  const scripts = new ControlledScripts();
+  const controller = new BrowserController({ clientFactory: new FakeFactory(), scriptFactory: scripts });
+  return { controller, scripts };
+}
+
+function providerInput(provider, overrides = {}) {
+  return runScriptInput({ provider, operation: "discover", script_id: `${provider}.discover`,
+    input: { schema_version: 1, operation: "discover", invocation_id: `scan-${provider}`, provider, account: "default" },
+    ...overrides });
+}
+
+test("three providers overlap, while same-provider work waits without blocking free providers", async () => {
+  const { controller, scripts } = parallelController();
+  const first = controller.runScript(providerInput("gmail"));
+  await waitFor(() => scripts.calls.length === 1, 500);
+  const second = controller.runScript(providerInput("gmail", { wait_timeout_ms: 1000 }));
+  const qq = controller.runScript(providerInput("qq_mail"));
+  const outlook = controller.runScript(providerInput("outlook"));
+  await waitFor(() => scripts.calls.length === 3, 500);
+  assert.deepEqual(scripts.calls.map(c => c.provider).sort(), ["gmail", "outlook", "qq_mail"]);
+  assert.equal(new Set(scripts.calls.map(c => c.sessionID)).size, 3);
+  assert.equal(controller.health().active_session, true);
+  scripts.calls[0].gate.resolve();
+  await first;
+  await waitFor(() => scripts.calls.length === 4, 500);
+  assert.equal(scripts.calls[3].provider, "gmail");
+  assert.equal(scripts.calls[1].signal.aborted, false);
+  assert.equal(controller.health().state, "busy");
+  for (const call of scripts.calls) call.gate.resolve();
+  await Promise.all([second, qq, outlook]);
+  assert.equal(controller.health().state, "ready");
+});
+
+test("exclusive MCP, validation, login and send cannot overlap receiving", async () => {
+  const { controller, scripts } = parallelController();
+  const running = controller.runScript(providerInput("gmail"));
+  await waitFor(() => scripts.calls.length === 1, 500);
+  for (const action of [
+    () => controller.acquire(acquireInput()),
+    () => controller.validateToken({ profile_id: "default", token }),
+    () => controller.openProviderLogin({ profile_id: "default", task_id: "login", provider: "outlook" }),
+    () => controller.runScript(providerInput("outlook", { operation: "send" })),
+  ]) await assert.rejects(action(), error => error.code === "browser_busy");
+  scripts.calls[0].gate.resolve();
+  await running;
+  const send = controller.runScript(providerInput("outlook", { operation: "send" }));
+  await waitFor(() => scripts.calls.length === 2, 500);
+  await assert.rejects(controller.runScript(providerInput("gmail")), error => error.code === "browser_busy");
+  scripts.calls[1].gate.resolve();
+  await send;
+});
+
+test("waiting exclusive work gets a turn before new provider scans", async () => {
+  const { controller, scripts } = parallelController();
+  const running = controller.runScript(providerInput("gmail"));
+  await waitFor(() => scripts.calls.length === 1, 500);
+  const exclusive = controller.acquire(acquireInput({ wait_timeout_ms: 1000 }));
+  const later = controller.runScript(providerInput("outlook", { wait_timeout_ms: 1000 }));
+  await assert.rejects(controller.runScript(providerInput("qq_mail")), error => error.code === "browser_busy");
+  scripts.calls[0].gate.resolve();
+  await running;
+  const lease = await exclusive;
+  assert.equal(scripts.calls.length, 1);
+  await controller.release({ session_id: lease.session_id, controller_generation: lease.controller_generation, session_generation: lease.session_generation });
+  await waitFor(() => scripts.calls.length === 2, 500);
+  scripts.calls[1].gate.resolve();
+  await later;
+});
+
+test("wait timeout is bounded despite unrelated provider completions", async () => {
+  const { controller, scripts } = parallelController();
+  const running = controller.runScript(providerInput("gmail"));
+  await waitFor(() => scripts.calls.length === 1, 500);
+  const start = Date.now();
+  const waiting = assert.rejects(controller.runScript(providerInput("gmail", { wait_timeout_ms: 60 })), error => error.code === "browser_busy");
+  for (let i = 0; i < 4; i++) {
+    const other = controller.runScript(providerInput("outlook"));
+    await waitFor(() => scripts.calls.length === i + 2, 500);
+    scripts.calls.at(-1).gate.resolve();
+    await other;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  // Keep a referenced timer alive because reservation timeout timers are unref'ed.
+  await Promise.all([waiting, new Promise(resolve => setTimeout(resolve, 70))]);
+  assert.ok(Date.now() - start < 500);
+  scripts.calls[0].gate.resolve();
+  await running;
+});
+
+test("failed provider frees only its own reservation", async () => {
+  const { controller, scripts } = parallelController();
+  const first = controller.runScript(providerInput("gmail"));
+  const failed = assert.rejects(first, error => error.code === "browser_extension_unavailable");
+  const other = controller.runScript(providerInput("outlook"));
+  await waitFor(() => scripts.calls.length === 2, 500);
+  scripts.calls[0].fail = true;
+  scripts.calls[0].gate.resolve();
+  await failed;
+  assert.equal(controller.health().state, "busy");
+  assert.equal(scripts.calls[1].signal.aborted, false);
+  const retry = controller.runScript(providerInput("gmail"));
+  await waitFor(() => scripts.calls.length === 3, 500);
+  scripts.calls[1].gate.resolve();
+  scripts.calls[2].gate.resolve();
+  await Promise.all([other, retry]);
+});
+
+test("shutdown aborts every provider, rejects queued work and waits for each cleanup", async () => {
+  const { controller, scripts } = parallelController();
+  const running = ["qq_mail", "gmail", "outlook"].map(provider => controller.runScript(providerInput(provider)));
+  await waitFor(() => scripts.calls.length === 3, 500);
+  const queued = assert.rejects(controller.runScript(providerInput("gmail", { wait_timeout_ms: 1000 })), error => error.code === "browser_controller_stopping");
+  let stopped = false;
+  const stop = controller.shutdown().then(() => { stopped = true; });
+  const stopAgain = controller.shutdown();
+  await queued;
+  assert.ok(scripts.calls.every(call => call.aborted));
+  assert.equal(stopped, false);
+  scripts.calls[0].cleanup.resolve();
+  await running[0];
+  assert.equal(controller.health().active_session, true);
+  assert.equal(stopped, false);
+  for (const call of scripts.calls) call.cleanup.resolve();
+  await Promise.all([...running, stop, stopAgain]);
+  assert.equal(controller.health().active_session, false);
+  assert.equal(controller.health().state, "stopping");
+});
+
+test("shutdown waits for MCP startup and closes its late task page", async () => {
+  const opened = deferred();
+  const factory = new FakeFactory();
+  const originalOpen = factory.open.bind(factory);
+  factory.open = async options => { await opened.promise; return originalOpen(options); };
+  const controller = new BrowserController({ clientFactory: factory });
+  const acquiring = assert.rejects(controller.acquire(acquireInput()), error => error.code === "browser_controller_stopping");
+  await waitFor(() => controller.health().active_session, 500);
+  let stopped = false;
+  const stop = controller.shutdown().then(() => { stopped = true; });
+  assert.equal(stopped, false);
+  opened.resolve();
+  await Promise.all([acquiring, stop]);
+  assert.deepEqual(factory.clients[0].events, ["page:new", "page:close", "client:close"]);
+  assert.equal(controller.health().active_session, false);
+});

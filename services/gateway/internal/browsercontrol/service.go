@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -50,10 +51,10 @@ type Service struct {
 	now          func() time.Time
 	closeTimeout time.Duration
 
-	opMu   sync.Mutex
-	mu     sync.RWMutex
-	state  Status
-	active *RuntimeSession
+	operations *semaphore.Weighted
+	mu         sync.RWMutex
+	state      Status
+	active     *RuntimeSession
 }
 
 func New(vault BindingVault, client ControllerClient, profileID string) *Service {
@@ -64,6 +65,7 @@ func New(vault BindingVault, client ControllerClient, profileID string) *Service
 	service := &Service{
 		vault: vault, client: client, profileID: profileID, now: func() time.Time { return time.Now().UTC() },
 		closeTimeout: defaultCloseTimeout,
+		operations:   semaphore.NewWeighted(exclusiveOperationWeight),
 		state:        Status{State: app.IntegrationStateNotConfigured, ProfileID: profileID},
 	}
 	if vault == nil || vault.Ready() != nil {
@@ -74,8 +76,11 @@ func New(vault BindingVault, client ControllerClient, profileID string) *Service
 }
 
 func (s *Service) Initialize(ctx context.Context) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, true)
+	if err != nil {
+		return
+	}
+	defer release()
 	if s.vault == nil || s.vault.Ready() != nil {
 		s.publishFailure(app.IntegrationStateVaultUnavailable, CodeVaultUnavailable)
 		return
@@ -109,8 +114,11 @@ func (s *Service) Status(context.Context) Status {
 }
 
 func (s *Service) SaveToken(ctx context.Context, candidate []byte) (Status, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, true)
+	if err != nil {
+		return s.Status(ctx), err
+	}
+	defer release()
 	if err := validateToken(candidate); err != nil {
 		return s.Status(ctx), err
 	}
@@ -156,8 +164,11 @@ func (s *Service) SaveToken(ctx context.Context, candidate []byte) (Status, erro
 }
 
 func (s *Service) Check(ctx context.Context) (Status, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, true)
+	if err != nil {
+		return s.Status(ctx), err
+	}
+	defer release()
 	if s.vault == nil || s.vault.Ready() != nil {
 		err := newError(CodeVaultUnavailable, false, errors.New("credential vault is unavailable"))
 		s.publishFailure(app.IntegrationStateVaultUnavailable, err.Code)
@@ -196,8 +207,11 @@ func (s *Service) Check(ctx context.Context) (Status, error) {
 }
 
 func (s *Service) Remove(ctx context.Context) (Status, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
+	release, err := s.acquireOperations(ctx, true)
+	if err != nil {
+		return s.Status(ctx), err
+	}
+	defer release()
 	if s.vault == nil || s.vault.Ready() != nil {
 		err := newError(CodeVaultUnavailable, false, errors.New("credential vault is unavailable"))
 		s.publishFailure(app.IntegrationStateVaultUnavailable, err.Code)

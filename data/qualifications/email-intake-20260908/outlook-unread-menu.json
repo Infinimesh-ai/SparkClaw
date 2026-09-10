@@ -1,0 +1,90 @@
+[
+  {
+    "text": "",
+    "aria": null
+  },
+  {
+    "text": "",
+    "aria": null
+  },
+  {
+    "text": "Reply",
+    "aria": null
+  },
+  {
+    "text": "Reply all",
+    "aria": null
+  },
+  {
+    "text": "Forward",
+    "aria": null
+  },
+  {
+    "text": "Delete",
+    "aria": null
+  },
+  {
+    "text": "Archive",
+    "aria": null
+  },
+  {
+    "text": "Move",
+    "aria": "Move"
+  },
+  {
+    "text": "Copy",
+    "aria": "Copy"
+  },
+  {
+    "text": "Mark as unread",
+    "aria": null
+  },
+  {
+    "text": "Pin",
+    "aria": null
+  },
+  {
+    "text": "Categorize",
+    "aria": "Categorize"
+  },
+  {
+    "text": "Flag",
+    "aria": "Flag"
+  },
+  {
+    "text": "Snooze",
+    "aria": "Snooze"
+  },
+  {
+    "text": "Rules",
+    "aria": "Rules"
+  },
+  {
+    "text": "Report",
+    "aria": "Report"
+  },
+  {
+    "text": "Block",
+    "aria": "Block"
+  },
+  {
+    "text": "Ignore",
+    "aria": null
+  },
+  {
+    "text": "Download",
+    "aria": "Download"
+  },
+  {
+    "text": "Find related",
+    "aria": "Find related"
+  },
+  {
+    "text": "View",
+    "aria": "View"
+  },
+  {
+    "text": "Advanced actions",
+    "aria": "Advanced actions"
+  }
+]

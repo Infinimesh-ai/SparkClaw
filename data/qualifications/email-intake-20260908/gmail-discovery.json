@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "provider": "gmail",
+  "status": "listed",
+  "account_address": "hsrr05901@gmail.com",
+  "candidates": [
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "1a07fa2d841b9c8c",
+      "provider_selection_id": "1a07fa2d841b9c8c"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f5ff64cf406f97",
+      "provider_selection_id": "19f5ff64cf406f97"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f5ddda726a88ec",
+      "provider_selection_id": "19f5ddda726a88ec"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f5ad00289d1f22",
+      "provider_selection_id": "19f5ad00289d1f22"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f58b74befb0ed3",
+      "provider_selection_id": "19f58b74befb0ed3"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f55a9c33611b75",
+      "provider_selection_id": "19f55a9c33611b75"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f50837e822319f",
+      "provider_selection_id": "19f50837e822319f"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f5072038a27cf2",
+      "provider_selection_id": "19f5072038a27cf2"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f4e6a8fc038bbf",
+      "provider_selection_id": "19f4e6a8fc038bbf"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f4b5d2f83cb05c",
+      "provider_selection_id": "19f4b5d2f83cb05c"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f4625365f7abde",
+      "provider_selection_id": "19f4625365f7abde"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f40f380181af36",
+      "provider_selection_id": "19f40f380181af36"
+    },
+    {
+      "account_address": "hsrr05901@gmail.com",
+      "provider_message_id": "19f4089958a74bdf",
+      "provider_selection_id": "19f4089958a74bdf"
+    }
+  ],
+  "coverage": {
+    "scope": "inbox_unread",
+    "scan_complete": false,
+    "scanned_rows": 13,
+    "unsupported_rows": 0,
+    "limited": true
+  },
+  "observed_at": "2026-09-08T06:15:07.005Z"
+}

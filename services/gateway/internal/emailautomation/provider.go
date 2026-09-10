@@ -54,11 +54,17 @@ type Script struct {
 // Login URL and allowed origins live only in the Controller registry, which
 // resolves them from the provider ID at run time.
 type Provider struct {
-	ID          string
-	DisplayName string
-	Aliases     []string
-	Probe       Script
-	Send        Script
+	ID              string
+	DisplayName     string
+	Aliases         []string
+	Probe           Script
+	Send            Script
+	Read            Script
+	Discover        Script
+	EnumerateThread Script
+	MarkRead        Script
+	Capture         Script
+	CollectPage     Script
 }
 
 type Registry struct {
@@ -85,6 +91,24 @@ func NewRegistry(providers []Provider) (Registry, error) {
 			return Registry{}, err
 		}
 		if err := validateScript(provider.Send); err != nil {
+			return Registry{}, err
+		}
+		if err := validateScript(provider.Read); err != nil {
+			return Registry{}, err
+		}
+		if err := validateScript(provider.Discover); err != nil {
+			return Registry{}, err
+		}
+		if err := validateScript(provider.Capture); err != nil {
+			return Registry{}, err
+		}
+		if err := validateScript(provider.EnumerateThread); err != nil {
+			return Registry{}, err
+		}
+		if err := validateScript(provider.MarkRead); err != nil {
+			return Registry{}, err
+		}
+		if err := validateScript(provider.CollectPage); err != nil {
 			return Registry{}, err
 		}
 		provider.Aliases = append([]string{provider.ID, provider.DisplayName}, provider.Aliases...)
@@ -126,7 +150,7 @@ func registryFromContract(raw []byte) (Registry, error) {
 	}
 	scripts := map[string]Script{}
 	for _, entry := range contract.Scripts {
-		if !app.KnownEmailProvider(entry.Provider) || entry.Operation != "probe" && entry.Operation != "send" {
+		if !app.KnownEmailProvider(entry.Provider) || entry.Operation != "probe" && entry.Operation != "send" && entry.Operation != "read" && entry.Operation != "discover" && entry.Operation != "capture" && entry.Operation != "enumerate_thread" && entry.Operation != "mark_read" && entry.Operation != "collect_page" {
 			return Registry{}, fmt.Errorf("email provider script contract lists unknown %s %s", entry.Provider, entry.Operation)
 		}
 		key := entry.Provider + ":" + entry.Operation
@@ -139,15 +163,21 @@ func registryFromContract(raw []byte) (Registry, error) {
 	for _, id := range app.EmailProviderIDs() {
 		probe, probeOK := scripts[id+":probe"]
 		send, sendOK := scripts[id+":send"]
-		if !probeOK || !sendOK {
-			return Registry{}, fmt.Errorf("email provider script contract has no probe and send scripts for %s", id)
+		read, readOK := scripts[id+":read"]
+		discover, discoverOK := scripts[id+":discover"]
+		capture, captureOK := scripts[id+":capture"]
+		enumerate, enumerateOK := scripts[id+":enumerate_thread"]
+		markRead, markReadOK := scripts[id+":mark_read"]
+		collectPage, collectPageOK := scripts[id+":collect_page"]
+		if !probeOK || !sendOK || !readOK || !discoverOK || !captureOK || !enumerateOK || !markReadOK || !collectPageOK {
+			return Registry{}, fmt.Errorf("email provider script contract has no probe, send, or read script for %s", id)
 		}
 		providers = append(providers, Provider{
 			ID: id, DisplayName: app.EmailProviderDisplayName(id), Aliases: providerAliases[id],
-			Probe: probe, Send: send,
+			Probe: probe, Send: send, Read: read, Discover: discover, Capture: capture, EnumerateThread: enumerate, MarkRead: markRead, CollectPage: collectPage,
 		})
 	}
-	if len(scripts) != 2*len(providers) {
+	if len(scripts) != 8*len(providers) {
 		return Registry{}, errors.New("email provider script contract lists scripts for an unregistered provider")
 	}
 	return NewRegistry(providers)

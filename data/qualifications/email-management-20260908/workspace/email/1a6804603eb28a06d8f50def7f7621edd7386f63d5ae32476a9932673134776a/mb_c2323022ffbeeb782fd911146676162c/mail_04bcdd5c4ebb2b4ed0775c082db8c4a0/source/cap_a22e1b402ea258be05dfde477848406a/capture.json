@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "stage": "script_capture",
+  "provider": "outlook",
+  "account_address": "outlook_CB7FECBB00ABA3CB@outlook.com",
+  "provider_message_id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhBKgAA",
+  "mailbox_id": "mb_c2323022ffbeeb782fd911146676162c",
+  "mail_id": "mail_04bcdd5c4ebb2b4ed0775c082db8c4a0",
+  "capture_id": "cap_a22e1b402ea258be05dfde477848406a",
+  "invocation_id": "email_pinned_qualification_ffff72b889d71b6e",
+  "captured_at": "2026-09-08T09:55:59.147Z",
+  "acquisition": "rfc822",
+  "status": "collected",
+  "metadata": {
+    "subject": "Re: 测试",
+    "from": [
+      {
+        "address": "zjunsong04@outlook.com",
+        "name": "张 峻松"
+      }
+    ],
+    "to": [
+      {
+        "address": "1784407383@qq.com",
+        "name": "张 峻松"
+      }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "date": "2026-09-08T07:21:54.000Z",
+    "message_id": "<PS2P216MB1043502D88524D1FF737CEAFECB12@PS2P216MB1043.KORP216.PROD.OUTLOOK.COM>",
+    "in_reply_to": "<tencent_E8D06573B93C34A78A1CC14EC3A324517A09@qq.com>",
+    "references": [
+      "<tencent_2861D9312E444DD12221B0B0704949CC9E07@qq.com>",
+      "<PS2P216MB1043C8D093D9EBDC88720A3CECB12@PS2P216MB1043.KORP216.PROD.OUTLOOK.COM>",
+      "<tencent_E8D06573B93C34A78A1CC14EC3A324517A09@qq.com>"
+    ]
+  },
+  "attachments": [],
+  "files": [
+    {
+      "path": "email/1a6804603eb28a06d8f50def7f7621edd7386f63d5ae32476a9932673134776a/mb_c2323022ffbeeb782fd911146676162c/mail_04bcdd5c4ebb2b4ed0775c082db8c4a0/source/cap_a22e1b402ea258be05dfde477848406a/message.eml",
+      "bytes": 5534,
+      "sha256": "sha256:bd03e6a46f15d07d4234714b72106b12c05a9e1e6554f4f95b248663df100b7e"
+    },
+    {
+      "path": "email/1a6804603eb28a06d8f50def7f7621edd7386f63d5ae32476a9932673134776a/mb_c2323022ffbeeb782fd911146676162c/mail_04bcdd5c4ebb2b4ed0775c082db8c4a0/source/cap_a22e1b402ea258be05dfde477848406a/body.txt",
+      "bytes": 526,
+      "sha256": "sha256:a21bb5bcc5d271b9a6e9715c572c2da4ff346c476189522d030c19fc592b3fb7"
+    },
+    {
+      "path": "email/1a6804603eb28a06d8f50def7f7621edd7386f63d5ae32476a9932673134776a/mb_c2323022ffbeeb782fd911146676162c/mail_04bcdd5c4ebb2b4ed0775c082db8c4a0/source/cap_a22e1b402ea258be05dfde477848406a/body.html",
+      "bytes": 3109,
+      "sha256": "sha256:88fb901eec8639d61f4a81b339007fc1766b1c13fd85a652ff5d202282b806ed"
+    },
+    {
+      "path": "email/1a6804603eb28a06d8f50def7f7621edd7386f63d5ae32476a9932673134776a/mb_c2323022ffbeeb782fd911146676162c/mail_04bcdd5c4ebb2b4ed0775c082db8c4a0/source/cap_a22e1b402ea258be05dfde477848406a/headers.json",
+      "bytes": 693,
+      "sha256": "sha256:a9f2ce1e6b683929301abd5ca2bcb5cd887ce0ff00353903ce557c4d234eb8db"
+    }
+  ],
+  "coverage": {
+    "body": "available",
+    "inventory_complete": true,
+    "attachments_complete": true,
+    "skipped_parts": 0
+  }
+}

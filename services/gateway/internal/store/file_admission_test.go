@@ -78,7 +78,8 @@ var migratedFileAdmissions = map[string]string{
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 	accepted := map[string]struct{}{}
-	for _, methods := range s0RepositoryMethods {
+	for _, spec := range operationSpecs {
+		methods := []string{spec.Method}
 		for _, method := range methods {
 			if _, exists := accepted[method]; exists {
 				t.Fatalf("duplicate accepted FileStore method %s", method)
@@ -86,8 +87,13 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			accepted[method] = struct{}{}
 		}
 	}
-	if len(accepted) != 152 {
-		t.Fatalf("accepted FileStore method count = %d, want 152", len(accepted))
+	if len(accepted) != len(operationSpecs) {
+		t.Fatalf("accepted FileStore method count = %d, want %d", len(accepted), len(operationSpecs))
+	}
+	for _, spec := range operationSpecs {
+		if spec.Repository == "EmailRepository" || spec.Repository == "EmailPresentationRepository" {
+			migratedFileAdmissions[spec.Method] = "admitMigrated"
+		}
 	}
 	for method := range migratedFileAdmissions {
 		if _, exists := accepted[method]; !exists {

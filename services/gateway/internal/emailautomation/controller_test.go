@@ -10,12 +10,26 @@ import (
 )
 
 type fakeScriptRunner struct {
-	probeResult ProbeResult
-	probeErr    error
-	probeCalls  []string
-	sendResult  SendResult
-	sendErr     error
-	sendCalls   []SendRequest
+	probeResult    ProbeResult
+	probeErr       error
+	probeCalls     []string
+	sendResult     SendResult
+	sendErr        error
+	sendCalls      []SendRequest
+	readResult     ReadResult
+	readErr        error
+	readCalls      []ReadRequest
+	discoveryCalls []ReadRequest
+}
+
+func (f *fakeScriptRunner) Read(_ context.Context, _ Provider, request ReadRequest) (ReadResult, error) {
+	f.readCalls = append(f.readCalls, request)
+	return f.readResult, f.readErr
+}
+
+func (f *fakeScriptRunner) Discover(_ context.Context, _ Provider, request ReadRequest) (app.EmailDiscoveryResult, error) {
+	f.discoveryCalls = append(f.discoveryCalls, request)
+	return app.EmailDiscoveryResult{}, nil
 }
 
 type fakeLoginBrowser struct {
@@ -152,3 +166,14 @@ func TestControllerRejectsAmbiguousInvalidAndStaleAdmission(t *testing.T) {
 }
 
 func boolPointer(value bool) *bool { return &value }
+
+func (f *fakeScriptRunner) EnumerateThread(_ context.Context, _ Provider, _ app.EmailThreadRequest) (app.EmailThreadResult, error) {
+	return app.EmailThreadResult{}, nil
+}
+func (f *fakeScriptRunner) MarkRead(_ context.Context, _ Provider, _ app.EmailMarkReadRequest) (app.EmailMarkReadResult, error) {
+	return app.EmailMarkReadResult{}, nil
+}
+
+func (f *fakeScriptRunner) CollectPage(context.Context, Provider, ReadRequest) (app.EmailPageResult, error) {
+	return app.EmailPageResult{}, nil
+}

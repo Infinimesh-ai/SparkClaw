@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "stage": "script_capture",
+  "provider": "qq_mail",
+  "account_address": "zhishi-x@qq.com",
+  "provider_message_id": "ZL0008_~sjNZCmMCLEuE2oAdntk410",
+  "mailbox_id": "mb_b6a884bd4a2b660a14ea81b9a23ac3ab",
+  "mail_id": "mail_cd5f5c080692399b0c114ed34f81d411",
+  "capture_id": "cap_e5c6efa8cbf5a3b7f4ec22086226238d",
+  "invocation_id": "intake-qq_mail-capture-1",
+  "captured_at": "2026-09-08T06:06:32.344Z",
+  "acquisition": "rfc822",
+  "status": "collected",
+  "metadata": {
+    "subject": "SparkClaw intake attachment verification 20260908-A",
+    "from": [
+      {
+        "address": "zhishi-x@qq.com",
+        "name": "zhishi-x"
+      }
+    ],
+    "to": [
+      {
+        "address": "zhishi-x@qq.com",
+        "name": "zhishi-x"
+      }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "date": "2026-09-08T06:02:44.000Z",
+    "message_id": "<tencent_6621682CF09D38296F41FC0D37CA5F0F8409@qq.com>",
+    "in_reply_to": null,
+    "references": []
+  },
+  "attachments": [
+    {
+      "part_id": "part_0",
+      "name": "sparkclaw-验证.txt",
+      "original_name": "sparkclaw-验证.txt",
+      "disposition": "attachment",
+      "content_id": null,
+      "declared_type": "text/plain",
+      "detected_type": null,
+      "status": "available",
+      "path": "parts/part_0/sparkclaw-验证.txt",
+      "bytes": 59,
+      "sha256": "sha256:c28597c8da33e821fd150f6bf666f9405c42cb227f2909ea0d87ecf928aac1de"
+    }
+  ],
+  "files": [
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_b6a884bd4a2b660a14ea81b9a23ac3ab/mail_cd5f5c080692399b0c114ed34f81d411/source/cap_e5c6efa8cbf5a3b7f4ec22086226238d/message.eml",
+      "bytes": 3322,
+      "sha256": "sha256:c922a1b731edf9e8d7b41b31a37af54a1dc7b86dc354509c95a72a47711f9f97"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_b6a884bd4a2b660a14ea81b9a23ac3ab/mail_cd5f5c080692399b0c114ed34f81d411/source/cap_e5c6efa8cbf5a3b7f4ec22086226238d/parts/part_0/sparkclaw-验证.txt",
+      "bytes": 59,
+      "sha256": "sha256:c28597c8da33e821fd150f6bf666f9405c42cb227f2909ea0d87ecf928aac1de"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_b6a884bd4a2b660a14ea81b9a23ac3ab/mail_cd5f5c080692399b0c114ed34f81d411/source/cap_e5c6efa8cbf5a3b7f4ec22086226238d/body.txt",
+      "bytes": 111,
+      "sha256": "sha256:638a89ebe91ea47065fe40bc60464555952ac761324000d8482c73e806f051d5"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_b6a884bd4a2b660a14ea81b9a23ac3ab/mail_cd5f5c080692399b0c114ed34f81d411/source/cap_e5c6efa8cbf5a3b7f4ec22086226238d/body.html",
+      "bytes": 340,
+      "sha256": "sha256:359e67319fe7db66f7bccebc5621744a5e17fb67756546959648900639ba8d9b"
+    },
+    {
+      "path": "email/4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581/mb_b6a884bd4a2b660a14ea81b9a23ac3ab/mail_cd5f5c080692399b0c114ed34f81d411/source/cap_e5c6efa8cbf5a3b7f4ec22086226238d/headers.json",
+      "bytes": 433,
+      "sha256": "sha256:ac1a8ac9c461be866dcc16148fb709cebb213e6410f381c4ba8ee1bfe3c5f584"
+    }
+  ],
+  "coverage": {
+    "body": "available",
+    "inventory_complete": true,
+    "attachments_complete": true,
+    "skipped_parts": 0
+  }
+}

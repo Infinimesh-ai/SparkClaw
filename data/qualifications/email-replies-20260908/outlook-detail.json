@@ -1,0 +1,1131 @@
+{
+  "url": "https://outlook.live.com/mail/0/inbox/id/AQQkADAwATM0MDAAMS01YzNiLTQyYjMtMDACLTAwCgAQAA5Uns458htFgOgaU0csbXg%3D",
+  "bodies": [
+    {
+      "html": "<div tabindex=\"0\" aria-label=\"邮件正文\" role=\"document\" aria-live=\"polite\" aria-atomic=\"false\" class=\"OuGoX BIZfh\" id=\"UniqueMessageBody_2\"><div visibility=\"hidden\"><div>\n<div dir=\"ltr\">\n<div>\n<div style=\"color:black;font-size:14px;font-family:-apple-system,system-ui;line-height:1.43;\">3333</div>\n<div style=\"line-height:1.43;\"><br>\n</div>\n<div style=\"padding-top:8px;align-items:center;\">\n<div style=\"color:#959DA6;font-size:12px;line-height:30px;\">Original</div>\n<hr style=\"margin-left:8px;border-width:1px 4px 4px 4px;border-style:solid none none none;border-top-color:rgba(21,46,74,0.14);flex-grow:1;\"></div><div class=\"R1UVb\" style=\"width: 100%;\"><div class=\"qF8_5\"><button type=\"button\" class=\"fui-Button r1f29ykk wD8TJ ___1cf351u f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la\" title=\"显示原始尺寸\" aria-label=\"显示原始尺寸\"><span class=\"fui-Button__icon rywnvv2\"><i class=\"fui-Icon-font ___qaf4230 f14t3ns0 fne0op0 fmd4ok8 f303qgw f1sxfq9t\" fill=\"currentColor\" aria-hidden=\"true\"></i></span></button></div><table data-uneditable=\"true\" style=\"background-color:rgba(20,46,77,0.14);width:100%;border-radius:6px;margin:0;line-height:20px;\">\n<tbody><tr>\n<td style=\"padding:8px;line-height:20px;\">\n<div style=\"font-size:12px;line-height:20px;\"><span style=\"color:#5C6166;\">From: </span><span style=\"color:black;\">张 峻松</span> <span style=\"color:#959DA6;\">&lt;zjunsong04@outlook.com&gt;</span></div>\n<div style=\"font-size:12px;line-height:20px;\"><span style=\"color:#5C6166;\">Date: </span><span style=\"color:black;\">Sep 8, 2026 15:12</span></div>\n<div style=\"font-size:12px;line-height:20px;\"><span style=\"color:#5C6166;\">To: </span><span style=\"color:black;\">ABCDEG</span> <span style=\"color:#959DA6;\">&lt;1784407383@qq.com&gt;</span></div>\n<div style=\"font-size:12px;line-height:20px;\"><span style=\"color:#5C6166;\">Subject: </span><span style=\"color:black;\">Re: 测试</span></div></td></tr></tbody></table></div>\n<div><br>\n</div>\n<div style=\"color:black;font-size:12pt;font-family:Aptos,Aptos_EmbeddedFont,Aptos_MSFontService,Calibri,Helvetica,sans-serif;\">2222</div></div></div></div>\n</div></div>",
+      "parents": [
+        {
+          "tag": "DIV",
+          "attrs": {
+            "class": "XbIp4 jmmB7 customScrollBar GNqVo allowTextSelection"
+          }
+        },
+        {
+          "tag": "DIV",
+          "attrs": {
+            "data-test-id": "mailMessageBodyContainer"
+          }
+        },
+        {
+          "tag": "DIV",
+          "attrs": {
+            "tabindex": "-1",
+            "id": "focused",
+            "aria-label": "电子邮件",
+            "class": "SlLx9 WWy1F byzS1 WWy1F"
+          }
+        }
+      ]
+    },
+    {
+      "html": "<div tabindex=\"0\" aria-label=\"邮件正文\" role=\"document\" aria-live=\"polite\" aria-atomic=\"false\" class=\"OuGoX BIZfh\" id=\"UniqueMessageBody_2\"><div visibility=\"hidden\"></div></div>",
+      "parents": [
+        {
+          "tag": "DIV",
+          "attrs": {
+            "class": "XbIp4 jmmB7 customScrollBar GNqVo allowTextSelection"
+          }
+        },
+        {
+          "tag": "DIV",
+          "attrs": {
+            "data-test-id": "mailMessageBodyContainer"
+          }
+        },
+        {
+          "tag": "DIV",
+          "attrs": {
+            "tabindex": "-1",
+            "aria-label": "电子邮件",
+            "class": "SlLx9 WWy1F WWy1F"
+          }
+        }
+      ]
+    }
+  ],
+  "buttons": [
+    {
+      "aria": "跳到主要内容",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "ms-Button ms-Button--default J5ft5 root-101",
+        "role": "link",
+        "aria-label": "跳到主要内容",
+        "data-is-focusable": "true"
+      }
+    },
+    {
+      "aria": "应用启动器",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "owaAppLauncherBtn_container",
+        "aria-label": "应用启动器",
+        "class": "fui-Button r1f29ykk TXRvx ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "role": "button",
+        "tabindex": "0",
+        "data-tabster": "{\"restorer\":{\"type\":1}}",
+        "aria-expanded": "false"
+      }
+    },
+    {
+      "aria": "我的一天",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "owaTimePanelBtn_container",
+        "aria-label": "我的一天",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk TXRvx qJDsp ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "aria-describedby": "tooltip-r2",
+        "data-overflow-item": ""
+      }
+    },
+    {
+      "aria": "购买 Microsoft 365",
+      "text": "购买 Microsoft 365",
+      "attrs": {
+        "type": "button",
+        "id": "owaBuyMicrosoft365Btn_container",
+        "aria-label": "购买 Microsoft 365",
+        "class": "fui-Button r1f29ykk TXRvx qJDsp IIaLq",
+        "aria-describedby": "tooltip-r3",
+        "data-overflow-item": "",
+        "style": "max-width: 208px;"
+      }
+    },
+    {
+      "aria": "通知",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "owaActivityFeedButton_container",
+        "aria-label": "通知",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk TXRvx qJDsp ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "aria-describedby": "tooltip-r4",
+        "data-overflow-item": ""
+      }
+    },
+    {
+      "aria": "设置",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "owaSettingsBtn_container",
+        "aria-label": "设置",
+        "class": "fui-Button r1f29ykk TXRvx qJDsp ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "aria-describedby": "tooltip-r5",
+        "data-overflow-item": ""
+      }
+    },
+    {
+      "aria": "张 峻松",
+      "text": "",
+      "attrs": {
+        "class": "qeGMt",
+        "aria-label": "张 峻松",
+        "type": "button"
+      }
+    },
+    {
+      "aria": "邮件",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "ddea774c-382b-47d7-aab5-adc2139a802b",
+        "data-tid": "ddea774c-382b-47d7-aab5-adc2139a802b",
+        "aria-label": "邮件",
+        "aria-pressed": "true",
+        "aria-describedby": "readerBox-ddea774c-382b-47d7-aab5-adc2139a802b",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___a8jegk0 f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f198j0k f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y f1h3a8gf f1nz3ub2"
+      }
+    },
+    {
+      "aria": "日历",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "8cbeb86f-83e1-43b5-aaba-cd3514322f0b",
+        "data-tid": "8cbeb86f-83e1-43b5-aaba-cd3514322f0b",
+        "aria-label": "日历",
+        "aria-pressed": "false",
+        "aria-describedby": "readerBox-8cbeb86f-83e1-43b5-aaba-cd3514322f0b",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___1c1syfs f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f1c21dwh f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y"
+      }
+    },
+    {
+      "aria": "人员",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "355fbd79-3ba2-4554-8f2d-0300fde91f30",
+        "data-tid": "355fbd79-3ba2-4554-8f2d-0300fde91f30",
+        "aria-label": "人员",
+        "aria-pressed": "false",
+        "aria-describedby": "readerBox-355fbd79-3ba2-4554-8f2d-0300fde91f30",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___1c1syfs f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f1c21dwh f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y"
+      }
+    },
+    {
+      "aria": "To Do",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "0d5c91ee-5be2-4b79-81ed-23e6c4580427",
+        "data-tid": "0d5c91ee-5be2-4b79-81ed-23e6c4580427",
+        "aria-label": "To Do",
+        "aria-pressed": "false",
+        "aria-describedby": "readerBox-0d5c91ee-5be2-4b79-81ed-23e6c4580427",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___1c1syfs f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f1c21dwh f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y"
+      }
+    },
+    {
+      "aria": "Word",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "34318026-c018-414b-abb3-3e32dfb9cc4c",
+        "data-tid": "34318026-c018-414b-abb3-3e32dfb9cc4c",
+        "aria-label": "Word",
+        "aria-pressed": "false",
+        "aria-describedby": "readerBox-34318026-c018-414b-abb3-3e32dfb9cc4c",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___1c1syfs f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f1c21dwh f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y"
+      }
+    },
+    {
+      "aria": "Excel",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "c5251a9b-a95d-4595-91ee-a39e6eed3db2",
+        "data-tid": "c5251a9b-a95d-4595-91ee-a39e6eed3db2",
+        "aria-label": "Excel",
+        "aria-pressed": "false",
+        "aria-describedby": "readerBox-c5251a9b-a95d-4595-91ee-a39e6eed3db2",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___1c1syfs f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f1c21dwh f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y"
+      }
+    },
+    {
+      "aria": "PowerPoint",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "id": "48cb9ead-1c19-4e1f-8ed9-3d60a7e52b18",
+        "data-tid": "48cb9ead-1c19-4e1f-8ed9-3d60a7e52b18",
+        "aria-label": "PowerPoint",
+        "aria-pressed": "false",
+        "aria-describedby": "readerBox-48cb9ead-1c19-4e1f-8ed9-3d60a7e52b18",
+        "role": "button",
+        "data-clicklog": "custom",
+        "data-pinned": "true",
+        "class": "fui-Button r1f29ykk ___1c1syfs f1brlhvm f10xn8zz f136y8j8 f1sl3k7w f18ktai2 f12clzc2 fjy1crr fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f4gg0ds fstwlwf figsok6 f1c21dwh f1xqy1su f1sdsnyy ftqa4ok f2hkw1w f8hki3x f1d2448m f1bjia2o ffh67wi f1j6vpng f1pniga2 f987i1v f1ffjurs f15bsgw9 f14e48fq f18yb2kv fd6o370 ffwy5si f3znvyf f1mywlt f1njr18z fiwyskv f1o5h46z f14vf7cg fj239l f1tx4pjd f1q3txrk f1s2uweq fr80ssc f1ukrpxl fecsdlb f1wzlk2i f1xvs2q5 f89q0t6 feepzgm f1srymw7 flx3s7b frkp0ho f1o7qkhw ffo4vs f1gm94m1 fdgk4ew fstat9y"
+      }
+    },
+    {
+      "aria": "更多应用",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "data-tid": "appbar-flyout-button",
+        "aria-haspopup": "dialog",
+        "aria-label": "更多应用",
+        "tabindex": "0",
+        "class": "fui-Button r1f29ykk ___1kuryou f18ktai2 f12clzc2 f44c6la fre7gi1 f1358rze fqdk4by f1rvrf73 fbhnoac feqmc2u f1couhl3 fhovq9v figsok6 f11uhznr f1u8i3ug fvi4nxw fz7cnr3 f1o7qkhw fzpis3h f1q3txrk fj239l f1tx4pjd f1xqy1su",
+        "data-tabster": "{\"restorer\":{\"type\":1}}"
+      }
+    },
+    {
+      "aria": "隐藏导航窗格",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk ___115c2ep f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb f1uvynv3 f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f12onbmq fwbmr0d fhl27e0 f1d2rq10 f129ffqk",
+        "aria-label": "隐藏导航窗格"
+      }
+    },
+    {
+      "aria": null,
+      "text": "文件",
+      "attrs": {
+        "type": "button",
+        "data-ktp-target": "ktp-f",
+        "data-ktp-execute-target": "ktp-f",
+        "aria-describedby": "ktp-layer-id ktp-f",
+        "class": "fui-Button r1f29ykk ___1sc6jkt f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb f1uvynv3 f1s2uweq fr80ssc f1ukrpxl fecsdlb fax3udt ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan figsok6 fyjnmpg feldc88 f1mqlotw fgfkb25 f1s2mk85",
+        "role": "button",
+        "tabindex": "0",
+        "aria-haspopup": "menu",
+        "id": "menura"
+      }
+    },
+    {
+      "aria": null,
+      "text": "主页",
+      "attrs": {
+        "data-tabster": "{\"focusable\":{\"isDefault\":true}}",
+        "role": "tab",
+        "type": "SingleLine",
+        "aria-selected": "true",
+        "value": "1",
+        "id": "1",
+        "controlgroups": "[object Object]",
+        "initialscalingsteps": "[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object]",
+        "scalingsteps": "[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object]",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "data-unique-id": "1",
+        "aria-controls": "1-tabpanel",
+        "class": "pivot-header-root fui-Tab ___gybajp0 f38a7jb fmnzpld frqbfng f14rdt9 f1hzsgrp f9ql6rf fgj9um3 f122n59 f3bhgqh ft85np5 f1k6fduh f13qh94s fi64zpg f1u07yai frn2hmy f1olsevy fk6fouc f1i3iumi f1s6fcnf f10pi13n f1gl81tg f1cxpek8 f4d9j23 f14mj54c f1wmopi4 f8hki3x f1d2448m f1bjia2o ffh67wi f1p7hgxw f1way5bb f9znhxp fqa318h f1vjpng2 fhovq9v f1bifk9c fo6hitd f1cadz5z fwhdxxj fintccb ffplhdr fjo17wb f148789c fhw179n fg9j5n4 f1kmhr4c fl1ydde f1y7maxz fceyvr4 f16cxu0 f1nwgacf fm6alxz fhx32z1 fchca7p f1r53b5e f1s6rxz5 fo35v8s f1ksivud f3b9emi f13zj6fq f1mdlcz9 f1476jrx f18q216b f1wf6u82 f1xwit7m f1ksfgwi fo72kxq f9bb2ob f1q70ajw f18rbzdx fhwpy7i f6zz20j f1ai4sc1 f1rnm8gg f1x3cmqg fug4aj8 f1q7ujh",
+        "data-ktp-target": "ktp-h",
+        "data-ktp-execute-target": "ktp-h",
+        "aria-describedby": "ktp-layer-id ktp-h",
+        "style": "--fui-Tab__indicator--offset: 0px; --fui-Tab__indicator--scale: 1; --acui-ribbon-tab--height: 27px;"
+      }
+    },
+    {
+      "aria": null,
+      "text": "查看查看",
+      "attrs": {
+        "data-tabster": "{\"focusable\":{\"isDefault\":false}}",
+        "role": "tab",
+        "type": "SingleLine",
+        "aria-selected": "false",
+        "value": "3",
+        "id": "3",
+        "controlgroups": "[object Object]",
+        "initialscalingsteps": "[object Object],[object Object],[object Object]",
+        "scalingsteps": "[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object]",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "data-unique-id": "3",
+        "class": "pivot-header-root fui-Tab ___1n1jw41 f38a7jb fmnzpld frqbfng f14rdt9 f1hzsgrp f9ql6rf fgj9um3 f122n59 f3bhgqh ft85np5 f1k6fduh f13qh94s fi64zpg f1u07yai frn2hmy f1olsevy fk6fouc f1i3iumi f1s6fcnf f10pi13n f1a3p1vp f1cxpek8 f4d9j23 f14mj54c f1wmopi4 f8hki3x f1d2448m f1bjia2o ffh67wi f1p7hgxw f1way5bb f9znhxp fqa318h f1vjpng2 fhovq9v f1bifk9c fo6hitd fmmjozx fqhzt5g f7l5cgy fpkze5g f1iywnoi f9n45c4 fhw179n fg9j5n4 f1kmhr4c fl1ydde f1y7maxz fceyvr4 f16cxu0 f1nwgacf fm6alxz fhx32z1 fchca7p f1r53b5e f1s6rxz5 fo35v8s",
+        "data-ktp-target": "ktp-v",
+        "data-ktp-execute-target": "ktp-v",
+        "aria-describedby": "ktp-layer-id ktp-v",
+        "style": "--fui-Tab__indicator--offset: 0px; --fui-Tab__indicator--scale: 1; --acui-ribbon-tab--height: 27px;"
+      }
+    },
+    {
+      "aria": null,
+      "text": "帮助帮助",
+      "attrs": {
+        "data-tabster": "{\"focusable\":{\"isDefault\":false}}",
+        "role": "tab",
+        "type": "SingleLine",
+        "aria-selected": "false",
+        "value": "11000",
+        "id": "11000",
+        "controlgroups": "[object Object]",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "data-unique-id": "11000",
+        "class": "pivot-header-root fui-Tab ___1n1jw41 f38a7jb fmnzpld frqbfng f14rdt9 f1hzsgrp f9ql6rf fgj9um3 f122n59 f3bhgqh ft85np5 f1k6fduh f13qh94s fi64zpg f1u07yai frn2hmy f1olsevy fk6fouc f1i3iumi f1s6fcnf f10pi13n f1a3p1vp f1cxpek8 f4d9j23 f14mj54c f1wmopi4 f8hki3x f1d2448m f1bjia2o ffh67wi f1p7hgxw f1way5bb f9znhxp fqa318h f1vjpng2 fhovq9v f1bifk9c fo6hitd fmmjozx fqhzt5g f7l5cgy fpkze5g f1iywnoi f9n45c4 fhw179n fg9j5n4 f1kmhr4c fl1ydde f1y7maxz fceyvr4 f16cxu0 f1nwgacf fm6alxz fhx32z1 fchca7p f1r53b5e f1s6rxz5 fo35v8s",
+        "data-ktp-target": "ktp-e",
+        "data-ktp-execute-target": "ktp-e",
+        "aria-describedby": "ktp-layer-id ktp-e",
+        "style": "--fui-Tab__indicator--offset: 0px; --fui-Tab__indicator--scale: 1; --acui-ribbon-tab--height: 27px;"
+      }
+    },
+    {
+      "aria": "新邮件",
+      "text": "新邮件创建新的电子邮件。 (N)",
+      "attrs": {
+        "type": "button",
+        "label": "新邮件",
+        "iconset": "[object Object]",
+        "iconcolor": "inherit",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menubutton": "[object Object]",
+        "primaryactionbutton": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "创建新的电子邮件。 (N)",
+        "splitbuttonarialabel": "展开以查看更多新选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "root": "[object Object]",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext fui-SplitButton__primaryActionButton fECYs kXMGw ___yzc5gd0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f107v6xj f1sbtcvk f12huiiw fdghr9 f15vdbe4 f1orqat1 fcep1m2 f1x37qnr fn4c73s f15wtks5 fu319zo",
+        "aria-label": "新邮件",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-588",
+        "aria-describedby": "fui-ro "
+      }
+    },
+    {
+      "aria": " 展开以查看更多新选项",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "label": "新邮件",
+        "iconset": "[object Object]",
+        "iconcolor": "inherit",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menubutton": "[object Object]",
+        "primaryactionbutton": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "新邮件",
+        "splitbuttonarialabel": "展开以查看更多新选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "arialabel": " 展开以查看更多新选项",
+        "data-ktp-execute-target": "ktp-h-n",
+        "data-ktp-aria-target": "data-ktp-aria-target",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext fui-SplitButton__menuButton fECYs PuJ8v ___xkqquz0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f17fgpbq fq4mcun f1mk8lai frrbwxo f1um7c6d f6pwzcr f15wtks5 fu319zo",
+        "aria-expanded": "false",
+        "aria-label": " 展开以查看更多新选项",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-588-Menu",
+        "aria-describedby": "fui-rp  ktp-layer-id ktp-h-n",
+        "aria-haspopup": "true"
+      }
+    },
+    {
+      "aria": "删除",
+      "text": "删除此消息。 (Delete)",
+      "attrs": {
+        "type": "button",
+        "label": "删除",
+        "iconset": "[object Object]",
+        "iconcolor": "#616161",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "删除此消息。 (Delete)",
+        "splitbuttonarialabel": "展开以查看删除选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "root": "[object Object]",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext fui-SplitButton__primaryActionButton ___yzc5gd0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f107v6xj f1sbtcvk f12huiiw fdghr9 f15vdbe4 f1orqat1 fcep1m2 f1x37qnr fn4c73s f15wtks5 fu319zo",
+        "aria-label": "删除",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-519",
+        "aria-describedby": "fui-ru "
+      }
+    },
+    {
+      "aria": " 展开以查看删除选项",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "label": "删除",
+        "iconset": "[object Object]",
+        "iconcolor": "#616161",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "删除",
+        "splitbuttonarialabel": "展开以查看删除选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "arialabel": " 展开以查看删除选项",
+        "data-ktp-execute-target": "ktp-h-d",
+        "data-ktp-aria-target": "data-ktp-aria-target",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext fui-SplitButton__menuButton ___xkqquz0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f17fgpbq fq4mcun f1mk8lai frrbwxo f1um7c6d f6pwzcr f15wtks5 fu319zo",
+        "aria-label": " 展开以查看删除选项",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-519-Menu",
+        "aria-describedby": "fui-rv  ktp-layer-id ktp-h-d",
+        "aria-haspopup": "true"
+      }
+    },
+    {
+      "aria": "存档",
+      "text": "存档将邮件移动到存档文件夹。 (E)",
+      "attrs": {
+        "type": "button",
+        "id": "505",
+        "label": "存档",
+        "iconset": "[object Object]",
+        "iconcolor": "#498205",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext ___rko0r00 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fwbmr0d f1sbtcvk fwiuce9 fdghr9 f15vdbe4",
+        "keytipprops": "[object Object]",
+        "customtooltip": "将邮件移动到存档文件夹。 (E)",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonButton",
+        "aria-label": "存档",
+        "data-automation-type": "RibbonButton",
+        "data-unique-id": "Ribbon-505",
+        "aria-describedby": "fui-r12  ktp-layer-id ktp-h-o",
+        "data-ktp-target": "ktp-h-o",
+        "data-ktp-execute-target": "ktp-h-o"
+      }
+    },
+    {
+      "aria": "报告",
+      "text": "报告将此邮件报告为网络钓鱼。",
+      "attrs": {
+        "type": "button",
+        "label": "报告",
+        "iconset": "[object Object]",
+        "iconcolor": "#A4262C",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "将此邮件报告为网络钓鱼。",
+        "splitbuttonarialabel": "展开以查看更多报告选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "root": "[object Object]",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext fui-SplitButton__primaryActionButton ___yzc5gd0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f107v6xj f1sbtcvk f12huiiw fdghr9 f15vdbe4 f1orqat1 fcep1m2 f1x37qnr fn4c73s f15wtks5 fu319zo",
+        "aria-label": "报告",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-657",
+        "aria-describedby": "fui-r17 "
+      }
+    },
+    {
+      "aria": " 展开以查看更多报告选项",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "label": "报告",
+        "iconset": "[object Object]",
+        "iconcolor": "#A4262C",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "报告",
+        "splitbuttonarialabel": "展开以查看更多报告选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "arialabel": " 展开以查看更多报告选项",
+        "data-ktp-execute-target": "ktp-h-r-e",
+        "data-ktp-aria-target": "data-ktp-aria-target",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext fui-SplitButton__menuButton ___xkqquz0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f17fgpbq fq4mcun f1mk8lai frrbwxo f1um7c6d f6pwzcr f15wtks5 fu319zo",
+        "aria-label": " 展开以查看更多报告选项",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-657-Menu",
+        "aria-describedby": "fui-r18  ktp-layer-id ktp-h-r-e",
+        "aria-haspopup": "true"
+      }
+    },
+    {
+      "aria": "移至",
+      "text": "移至文件夹。 (V)",
+      "attrs": {
+        "type": "button",
+        "id": "540",
+        "label": "移至",
+        "keytipprops": "[object Object]",
+        "iconset": "[object Object]",
+        "iconcolor": "#0078D4",
+        "menudefinition": "[object Object]",
+        "customtooltip": "移至文件夹。 (V)",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonFlyoutAnchor",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext ___1k32lb0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fwbmr0d f1sbtcvk f6zblan fdghr9 f15vdbe4",
+        "aria-label": "移至",
+        "data-automation-type": "RibbonFlyoutAnchor",
+        "data-unique-id": "Ribbon-540",
+        "aria-describedby": "fui-r1c  ktp-layer-id ktp-h-m-v",
+        "aria-haspopup": "true",
+        "data-ktp-target": "ktp-h-m-v",
+        "data-ktp-execute-target": "ktp-h-m-v"
+      }
+    },
+    {
+      "aria": "全部答复",
+      "text": "全部答复按“全部答复”来答复此邮件。 (Shift+R / Ctrl+Shift+R)",
+      "attrs": {
+        "type": "button",
+        "label": "全部答复",
+        "iconset": "[object Object]",
+        "iconcolor": "#881798",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "按“全部答复”来答复此邮件。 (Shift+R / Ctrl+Shift+R)",
+        "splitbuttonarialabel": "展开以查看更多响应选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "root": "[object Object]",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext fui-SplitButton__primaryActionButton ___yzc5gd0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f107v6xj f1sbtcvk f12huiiw fdghr9 f15vdbe4 f1orqat1 fcep1m2 f1x37qnr fn4c73s f15wtks5 fu319zo",
+        "aria-label": "全部答复",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-678",
+        "aria-describedby": "fui-r1h "
+      }
+    },
+    {
+      "aria": " 展开以查看更多响应选项",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "label": "全部答复",
+        "iconset": "[object Object]",
+        "iconcolor": "#881798",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "全部答复",
+        "splitbuttonarialabel": "展开以查看更多响应选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "arialabel": " 展开以查看更多响应选项",
+        "data-ktp-execute-target": "ktp-h-r-r",
+        "data-ktp-aria-target": "data-ktp-aria-target",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext fui-SplitButton__menuButton ___xkqquz0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f17fgpbq fq4mcun f1mk8lai frrbwxo f1um7c6d f6pwzcr f15wtks5 fu319zo",
+        "aria-label": " 展开以查看更多响应选项",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-678-Menu",
+        "aria-describedby": "fui-r1i  ktp-layer-id ktp-h-r-r",
+        "aria-haspopup": "true"
+      }
+    },
+    {
+      "aria": "已读/未读",
+      "text": "已读/未读将此邮件标记为已读/未读。 (Ctrl+Q / Ctrl+U)",
+      "attrs": {
+        "type": "button",
+        "id": "552",
+        "label": "已读/未读",
+        "iconset": "[object Object]",
+        "iconcolor": "#616161",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext ___rko0r00 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fwbmr0d f1sbtcvk fwiuce9 fdghr9 f15vdbe4",
+        "keytipprops": "[object Object]",
+        "customtooltip": "将此邮件标记为已读/未读。 (Ctrl+Q / Ctrl+U)",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonButton",
+        "aria-label": "已读/未读",
+        "data-automation-type": "RibbonButton",
+        "data-unique-id": "Ribbon-552",
+        "aria-describedby": "ktp-layer-id ktp-h-w",
+        "data-ktp-target": "ktp-h-w",
+        "data-ktp-execute-target": "ktp-h-w"
+      }
+    },
+    {
+      "aria": "标记/取消标记",
+      "text": "标记/取消标记标记或取消标记此消息。",
+      "attrs": {
+        "type": "button",
+        "label": "标记/取消标记",
+        "iconset": "[object Object]",
+        "iconcolor": "#A4262C",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "标记或取消标记此消息。",
+        "splitbuttonarialabel": "展开以查看标志选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "root": "[object Object]",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext fui-SplitButton__primaryActionButton ___yzc5gd0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f107v6xj f1sbtcvk f12huiiw fdghr9 f15vdbe4 f1orqat1 fcep1m2 f1x37qnr fn4c73s f15wtks5 fu319zo",
+        "aria-label": "标记/取消标记",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-527",
+        "aria-describedby": "fui-r1q "
+      }
+    },
+    {
+      "aria": " 展开以查看标志选项",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "label": "标记/取消标记",
+        "iconset": "[object Object]",
+        "iconcolor": "#A4262C",
+        "keytipprops": "[object Object]",
+        "styles": "[object Object]",
+        "menudefinition": "[object Object]",
+        "customtooltip": "标记/取消标记",
+        "splitbuttonarialabel": "展开以查看标志选项",
+        "downchevronicon": "[object Object]",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonSplitButton",
+        "arialabel": " 展开以查看标志选项",
+        "data-ktp-execute-target": "ktp-h-u",
+        "data-ktp-aria-target": "data-ktp-aria-target",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext fui-SplitButton__menuButton ___xkqquz0 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 f17fgpbq fq4mcun f1mk8lai frrbwxo f1um7c6d f6pwzcr f15wtks5 fu319zo",
+        "aria-label": " 展开以查看标志选项",
+        "data-automation-type": "RibbonSplitButton",
+        "data-unique-id": "Ribbon-527-Menu",
+        "aria-describedby": "fui-r1r  ktp-layer-id ktp-h-u",
+        "aria-haspopup": "true"
+      }
+    },
+    {
+      "aria": "更多应用",
+      "text": "通过应用增强 Outlook。",
+      "attrs": {
+        "type": "button",
+        "id": "7016",
+        "label": "更多应用",
+        "iconset": "[object Object]",
+        "iconcolor": "#616161",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext ___17banwx f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2aq7o fdrzuqr f15x8b5r fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb fvgxktp fphbwmw f19vpps7 fv5swzo f1al02dq f1jct5ie f13txml0 f1ncddno f1z04ada f1axfvow f1uhomfy fy9mucy f1g9va8i fwgvudy fom6jww f14ptb23 f9dbb4x f3qs60o fwd1oij f5u9ap2 f1cyfu5x f127ot8j f19etb0b f4f984j f3d22hf fw441p0 fj8k9ua f8gmj8i f1ap8nzx f1igan7k fjag8bx fa9u7a5 f1m71e0y fw24f3 f1nznrny fq8nxuu ftoixeo f1ao3jkc fpmuzpx f168odog fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fwbmr0d f1sbtcvk fwiuce9 fdghr9 f15vdbe4 f1aehjj5 fwiml72",
+        "keytipprops": "[object Object]",
+        "customtooltip": "通过应用增强 Outlook。",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonButton",
+        "aria-disabled": "true",
+        "aria-label": "更多应用",
+        "data-automation-type": "RibbonButton",
+        "data-unique-id": "Ribbon-7016",
+        "aria-describedby": "fui-r1u  ktp-layer-id ktp-h-m-e",
+        "data-ktp-target": "ktp-h-m-e",
+        "data-ktp-execute-target": "ktp-h-m-e"
+      }
+    },
+    {
+      "aria": "发现组",
+      "text": "发现组浏览查找现有组。组是共享电子邮件、文档和日历事件的工作区。",
+      "attrs": {
+        "type": "button",
+        "id": "508",
+        "label": "发现组",
+        "iconset": "[object Object]",
+        "iconcolor": "#616161",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext ___rko0r00 fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fwbmr0d f1sbtcvk fwiuce9 fdghr9 f15vdbe4",
+        "keytipprops": "[object Object]",
+        "customtooltip": "浏览查找现有组。组是共享电子邮件、文档和日历事件的工作区。",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonButton",
+        "aria-label": "发现组",
+        "data-automation-type": "RibbonButton",
+        "data-unique-id": "Ribbon-508",
+        "aria-describedby": "fui-r21  ktp-layer-id ktp-h-b",
+        "data-ktp-target": "ktp-h-b",
+        "data-ktp-execute-target": "ktp-h-b"
+      }
+    },
+    {
+      "aria": "撤消",
+      "text": "撤消上一个操作。 (Ctrl+Z / Alt+Backspace)",
+      "attrs": {
+        "type": "button",
+        "id": "580",
+        "label": "撤消",
+        "iconset": "[object Object]",
+        "iconcolor": "#616161",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext ___17banwx f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2aq7o fdrzuqr f15x8b5r fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb fvgxktp fphbwmw f19vpps7 fv5swzo f1al02dq f1jct5ie f13txml0 f1ncddno f1z04ada f1axfvow f1uhomfy fy9mucy f1g9va8i fwgvudy fom6jww f14ptb23 f9dbb4x f3qs60o fwd1oij f5u9ap2 f1cyfu5x f127ot8j f19etb0b f4f984j f3d22hf fw441p0 fj8k9ua f8gmj8i f1ap8nzx f1igan7k fjag8bx fa9u7a5 f1m71e0y fw24f3 f1nznrny fq8nxuu ftoixeo f1ao3jkc fpmuzpx f168odog fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fwbmr0d f1sbtcvk fwiuce9 fdghr9 f15vdbe4 f1aehjj5 fwiml72",
+        "keytipprops": "[object Object]",
+        "customtooltip": "撤消上一个操作。 (Ctrl+Z / Alt+Backspace)",
+        "location": "Ribbon",
+        "dataautomationtype": "RibbonButton",
+        "aria-disabled": "true",
+        "aria-label": "撤消",
+        "data-automation-type": "RibbonButton",
+        "data-unique-id": "Ribbon-580",
+        "aria-describedby": "fui-r24  ktp-layer-id ktp-h-z",
+        "data-ktp-target": "ktp-h-z",
+        "data-ktp-execute-target": "ktp-h-z"
+      }
+    },
+    {
+      "aria": "更多选项",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "legacyref": "[object Object]",
+        "id": "RibbonOverflowMenu-overflow",
+        "variant": "overflowButton",
+        "menudefinition": "[object Object]",
+        "directionalhint": "4",
+        "label": "更多选项",
+        "styles": "[object Object]",
+        "location": "Overflow",
+        "keytipprops": "[object Object]",
+        "downchevronicon": "MoreHorizontalRegular",
+        "dataautomationtype": "RibbonFlyoutAnchor",
+        "aria-expanded": "false",
+        "class": "fui-Button r1f29ykk fui-MenuButton ms-Button ms-ButtonNext ___37ghaa0 fdghr9 f15vdbe4 fwiuce9 f1sbtcvk f18ktai2 fwbmr0d f44c6la fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47",
+        "aria-label": "更多选项",
+        "data-automation-type": "RibbonFlyoutAnchor",
+        "data-unique-id": "Overflow-RibbonOverflowMenu-overflow",
+        "aria-haspopup": "true",
+        "data-ktp-target": "ktp-h-0-0",
+        "data-ktp-execute-target": "ktp-h-0-0",
+        "aria-describedby": "ktp-layer-id ktp-h-0-0"
+      }
+    },
+    {
+      "aria": "切换布局",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "label": "切换布局",
+        "id": "RibbonModeToggle",
+        "variant": "ribbonModeButton",
+        "variantid": "ribbonModeButtonSingleLine",
+        "styles": "[object Object]",
+        "keytipprops": "[object Object]",
+        "dataautomationtype": "RibbonButton",
+        "aria-label": "切换布局",
+        "data-automation-type": "RibbonButton",
+        "data-unique-id": "RibbonModeToggle",
+        "class": "fui-Button r1f29ykk ms-Button ms-ButtonNext ms-RibbonButton--ribbonMode ___1w30q4p fqrbt79 fepn2xe f1jkagg5 f1osuteh fi2ljxd f62i5r0 figsok6 f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1s2uweq fr80ssc f1ukrpxl fecsdlb f8gmj8i f1ap8nzx f1igan7k fjag8bx f1h0usnq fs4ktlq f16h9ulv fx2bmrt f1r9enuy fdvt4n0 f1l34yyb f1grx941 fvu92y3 f1inhm4x f1dk6j8u foby26i fmut7hd fyp0hol f1o7mrt1 fcdmgxe fiwhxet f1aopgo3 fzbde9z f12na9cb f95gxuk f1n5876c fj41uil f1it5djm f1e0lx47 fq4mcun f17fgpbq f1pha7fy frvgh55",
+        "data-ktp-target": "ktp-z-r",
+        "data-ktp-execute-target": "ktp-z-r",
+        "aria-describedby": "ktp-layer-id ktp-z-r"
+      }
+    },
+    {
+      "aria": null,
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "data-is-focusable": "false",
+        "tabindex": "-1",
+        "class": "fui-Button r1f29ykk gJcOF x47ff ___ltdxof0 f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f17fgpbq fu97m5z ft85np5 fy9rknc figsok6 fwrc4pm fazmxh f1jt17bm",
+        "role": "button",
+        "aria-hidden": "true"
+      }
+    },
+    {
+      "aria": null,
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "data-is-focusable": "false",
+        "tabindex": "-1",
+        "class": "fui-Button r1f29ykk gJcOF x47ff ___ltdxof0 f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f17fgpbq fu97m5z ft85np5 fy9rknc figsok6 fwrc4pm fazmxh f1jt17bm",
+        "role": "button",
+        "aria-hidden": "true"
+      }
+    },
+    {
+      "aria": null,
+      "text": "重点重点",
+      "attrs": {
+        "data-tabster": "{\"focusable\":{\"isDefault\":true}}",
+        "role": "tab",
+        "type": "button",
+        "aria-selected": "true",
+        "value": "focused",
+        "class": "fui-Tab US2jH ___xfjz3i0 f122n59 f3bhgqh ft85np5 f1k6fduh f13qh94s fi64zpg f1u07yai frn2hmy f1olsevy fk6fouc f1i3iumi f1s6fcnf f10pi13n f1gl81tg f1cxpek8 f4d9j23 f1rjii52 f1w08f2p f8hki3x f1d2448m f1bjia2o ffh67wi f1p7hgxw f1way5bb f9znhxp fqa318h f1vjpng2 f1c21dwh f9rvdkv f1051ucx f1cadz5z fwhdxxj fintccb ffplhdr fjo17wb f148789c fhw179n fg9j5n4 f1kmhr4c fl1ydde f1y7maxz fceyvr4 f16cxu0 f1nwgacf fm6alxz fhx32z1 fchca7p f1s2r9ax f1o0nnkk fxb7rol f1ksivud f3b9emi f13zj6fq f1mdlcz9 f1476jrx f18q216b f1wf6u82 f1xwit7m f1ksfgwi fo72kxq f1vx7lu8 fna7m5n f1oxpfwv fhwpy7i f6zz20j f1ai4sc1 f1rnm8gg f1x3cmqg fug4aj8 f1q7ujh",
+        "style": "--fui-Tab__indicator--offset: 0px; --fui-Tab__indicator--scale: 1;"
+      }
+    },
+    {
+      "aria": null,
+      "text": "其他其他",
+      "attrs": {
+        "data-tabster": "{\"focusable\":{\"isDefault\":false}}",
+        "role": "tab",
+        "type": "button",
+        "aria-selected": "false",
+        "value": "other",
+        "class": "fui-Tab US2jH ___vab22l0 f122n59 f3bhgqh ft85np5 f1k6fduh f13qh94s fi64zpg f1u07yai frn2hmy f1olsevy fk6fouc f1i3iumi f1s6fcnf f10pi13n f1a3p1vp f1cxpek8 f4d9j23 f1rjii52 f1w08f2p f8hki3x f1d2448m f1bjia2o ffh67wi f1p7hgxw f1way5bb f9znhxp fqa318h f1vjpng2 f1c21dwh f9rvdkv f1051ucx fmmjozx fqhzt5g f7l5cgy fpkze5g f1iywnoi f9n45c4 fhw179n fg9j5n4 f1kmhr4c fl1ydde f1y7maxz fceyvr4 f16cxu0 f1nwgacf fm6alxz fhx32z1 fchca7p f1s2r9ax f1o0nnkk fxb7rol",
+        "style": "--fui-Tab__indicator--offset: 0px; --fui-Tab__indicator--scale: 1;"
+      }
+    },
+    {
+      "aria": "选择",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk G9d_n ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "aria-label": "选择",
+        "aria-pressed": "false"
+      }
+    },
+    {
+      "aria": "跳转到",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk NBXW3 exIKM ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "role": "button",
+        "tabindex": "0",
+        "data-tabster": "{\"restorer\":{\"type\":1}}",
+        "aria-expanded": "false",
+        "aria-label": "跳转到"
+      }
+    },
+    {
+      "aria": "筛选器",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk fui-MenuButton MnAha N2jvR css-146 ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "id": "mailListFilterMenu",
+        "aria-haspopup": "menu",
+        "aria-expanded": "false",
+        "aria-label": "筛选器"
+      }
+    },
+    {
+      "aria": "已排序: 由 日期 提供",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk fui-MenuButton EzCrC w91i7 css-146 ___1j82qye f18ktai2 fwbmr0d f44c6la",
+        "id": "mailListSortMenu",
+        "aria-haspopup": "menu",
+        "aria-expanded": "false",
+        "aria-label": "已排序: 由 日期 提供"
+      }
+    },
+    {
+      "aria": null,
+      "text": "",
+      "attrs": {
+        "tabindex": "-1",
+        "class": "Es7y_",
+        "title": "标记为未读"
+      }
+    },
+    {
+      "aria": "展开对话",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "aria-expanded": "false",
+        "aria-label": "展开对话",
+        "class": "ms-Button ms-Button--icon Bz2lH LBWPt PWvS4 root-150",
+        "tabindex": "-1",
+        "data-is-focusable": "true"
+      }
+    },
+    {
+      "aria": "自定义操作",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "自定义操作",
+        "title": "自定义操作",
+        "class": "fui-Button r1f29ykk N95kH XeV7I ___159doh7 f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f f1jpd6y0 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la f16u1re f1rw4040 f6it2jf f1gafliq f14hb62w f5voelv f1j98vj9"
+      }
+    },
+    {
+      "aria": "标记此邮件",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "标记此邮件",
+        "title": "标记此邮件",
+        "class": "fui-Button r1f29ykk N95kH DEQdJ ___159doh7 f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f f1jpd6y0 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la f16u1re f1rw4040 f6it2jf f1gafliq f14hb62w f5voelv f1j98vj9"
+      }
+    },
+    {
+      "aria": "让此邮件保持在文件夹顶部",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "让此邮件保持在文件夹顶部",
+        "title": "让此邮件保持在文件夹顶部",
+        "class": "fui-Button r1f29ykk N95kH iW_V0 ___159doh7 f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f f1jpd6y0 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la f16u1re f1rw4040 f6it2jf f1gafliq f14hb62w f5voelv f1j98vj9"
+      }
+    },
+    {
+      "aria": "More items",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk tTMAm ___clxrxh0 fhovq9v f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb f1t94bn6 f1s2uweq fr80ssc f1ukrpxl fecsdlb fnwyq0v ft1hn21 fuxngvv fy5bs14 f1q1yqic fhvnf4x fb6swo4 f1klyf7k f232fm2 fwga7ee f1nhwcv0 f1gm6xmp f1xxsver f1v3eptx fivsta0 fd4bjan f3m6zum f18ktai2 fwbmr0d f44c6la",
+        "aria-label": "More items",
+        "role": "button",
+        "tabindex": "0",
+        "aria-haspopup": "menu",
+        "id": "menur59",
+        "data-overflow-menu": ""
+      }
+    },
+    {
+      "aria": null,
+      "text": "翻译至 ",
+      "attrs": {
+        "type": "button",
+        "tabindex": "0",
+        "class": "fui-Button r1f29ykk OD7HG css-179 aA_Zj svu1P ___xyecdr0 fh7ncta fneth5b ft85np5 fy9rknc figsok6 fwrc4pm fazmxh",
+        "role": "button"
+      }
+    },
+    {
+      "aria": null,
+      "text": "始终不翻译 英语",
+      "attrs": {
+        "type": "button",
+        "tabindex": "0",
+        "class": "fui-Button r1f29ykk OD7HG css-179 aA_Zj svu1P ___xyecdr0 fh7ncta fneth5b ft85np5 fy9rknc figsok6 fwrc4pm fazmxh",
+        "role": "button"
+      }
+    },
+    {
+      "aria": "显示原始尺寸",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "class": "fui-Button r1f29ykk wD8TJ ___1cf351u f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la",
+        "title": "显示原始尺寸",
+        "aria-label": "显示原始尺寸"
+      }
+    },
+    {
+      "aria": "显示邮件历史记录",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "title": "显示邮件历史记录",
+        "aria-label": "显示邮件历史记录",
+        "class": "fui-Button r1f29ykk nHcPi ___1cf351u f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la"
+      }
+    },
+    {
+      "aria": "继续编辑",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "aria-label": "继续编辑",
+        "class": "fui-Button r1f29ykk k3EkK ___clxrxh0 fhovq9v f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb f1t94bn6 f1s2uweq fr80ssc f1ukrpxl fecsdlb fnwyq0v ft1hn21 fuxngvv fy5bs14 f1q1yqic fhvnf4x fb6swo4 f1klyf7k f232fm2 fwga7ee f1nhwcv0 f1gm6xmp f1xxsver f1v3eptx fivsta0 fd4bjan f3m6zum f18ktai2 fwbmr0d f44c6la"
+      }
+    },
+    {
+      "aria": "放弃",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "aria-label": "放弃",
+        "class": "fui-Button r1f29ykk k3EkK ___clxrxh0 fhovq9v f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb f1t94bn6 f1s2uweq fr80ssc f1ukrpxl fecsdlb fnwyq0v ft1hn21 fuxngvv fy5bs14 f1q1yqic fhvnf4x fb6swo4 f1klyf7k f232fm2 fwga7ee f1nhwcv0 f1gm6xmp f1xxsver f1v3eptx fivsta0 fd4bjan f3m6zum f18ktai2 fwbmr0d f44c6la"
+      }
+    },
+    {
+      "aria": "显示邮件历史记录",
+      "text": "",
+      "attrs": {
+        "type": "button",
+        "title": "显示邮件历史记录",
+        "aria-label": "显示邮件历史记录",
+        "class": "fui-Button r1f29ykk nHcPi ___1cf351u f1c21dwh f1p3nwhy f11589ue f1q5o8ev f1pdflbu fkfq4zb fjxutwb f1s2uweq fr80ssc f1ukrpxl fecsdlb f139oj5f ft1hn21 fuxngvv fkoldzo fhvnf4x fb6swo4 f1klyf7k f232fm2 f1l983o9 f1nhwcv0 f1gm6xmp fxoo9op f1v3eptx f1i0gk12 fd4bjan f18ktai2 fwbmr0d f44c6la"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "ConversationId": {
+        "__type": "ItemId:#Exchange",
+        "Id": "AQQkADAwATM0MDAAMS01YzNiLTQyYjMtMDACLTAwCgAQAA5Uns458htFgOgaU0csbXg="
+      },
+      "ConversationTopic": "测试",
+      "LastDeliveryTime": "2026-09-08T15:13:50+08:00",
+      "HasAttachments": false,
+      "MessageCount": 2,
+      "GlobalMessageCount": 6,
+      "UnreadCount": 0,
+      "GlobalUnreadCount": 0,
+      "Size": 97249,
+      "ItemClasses": [
+        "IPM.Note"
+      ],
+      "Importance": "Normal",
+      "ItemIds": [
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhBGQAA"
+        },
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUg1QwAA"
+        }
+      ],
+      "GlobalItemIds": [
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhJBQAA"
+        },
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhBKgAA"
+        },
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhBGQAA"
+        },
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUg9IQAA"
+        },
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUg9GwAA"
+        },
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAAA==",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUg1QwAA"
+        }
+      ],
+      "LastModifiedTime": "2026-09-08T15:22:37+08:00",
+      "InstanceKey": "AQAAAgvo7B8BAAADAUg1RAAAAAA=",
+      "IconIndex": "MailReplied",
+      "GlobalIconIndex": "MailReplied",
+      "DraftItemIds": [
+        {
+          "__type": "ItemId:#Exchange",
+          "ChangeKey": "CQAAABYAAACBcYZe8D5IR5XIxOVgiDB0AAMBJ/a6",
+          "Id": "AAkALgAAAAAAHYQDEapmEc2byACqAC/EWg0AgXGGXvA+SEeVyMTlYIgwdAADAUhJBQAA"
+        }
+      ],
+      "HasIrm": false,
+      "IsLocked": false,
+      "FamilyId": {
+        "__type": "ItemId:#Exchange",
+        "Id": "AQQkADAwATM0MDAAMS01YzNiLTQyYjMtMDACLTAwCgAQAA5Uns458htFgOgaU0csbXg="
+      },
+      "LastDeliveryOrRenewTime": "2026-09-08T15:13:50+08:00",
+      "LastSentTime": "2026-09-08T15:13:41+08:00",
+      "ConversationToMe": true,
+      "ConversationCcMe": false,
+      "ConversationFlagReminderIsSet": false,
+      "ConversationCopilotNeedsReply": false,
+      "ConversationCopilotPriorityIsUserAdjusted": false
+    }
+  ]
+}

@@ -39,8 +39,10 @@ export async function exportTimeline({ context, provider, workspaceRoot, account
     timer = setTimeout(abort, timeoutMS);
     async function command(id) {
       check();
-      await page.locator('#' + id).click({ timeout: Math.min(30000, deadline - Date.now()) });
-      await page.waitForFunction(() => ['ready', 'failed'].includes(document.querySelector('#sparkclaw-batch-status')?.dataset.state), null, { timeout: deadline - Date.now() });
+      await page.locator('#' + id).waitFor({ state: 'attached', timeout: Math.min(30000, deadline - Date.now()) });
+      // Bridge task pages stay hidden: pointer stability and rAF polling stall.
+      await page.locator('#' + id).evaluate(node => node.click());
+      await page.waitForFunction(() => ['ready', 'failed'].includes(document.querySelector('#sparkclaw-batch-status')?.dataset.state), null, { polling: 250, timeout: deadline - Date.now() });
       if (await page.locator('#sparkclaw-batch-status').getAttribute('data-state') !== 'ready') throw new Error(await page.locator('#sparkclaw-batch-status').innerText());
       return page.locator('#sparkclaw-batch-output').inputValue();
     }

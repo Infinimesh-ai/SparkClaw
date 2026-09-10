@@ -1,6 +1,6 @@
 # Export AI platform conversations: login, script control and workspace persistence
 
-> 2026-09-10 update: see [RevivalStack timeline batch export](ai-conversation-batch-export.md) for the four-platform visible-history userscript fork and separate automation runner. Account-wide completeness and Gateway batch routing remain unqualified; earlier single-conversation scope below is historical for that workflow.
+> 2026-09-10 update: see [RevivalStack timeline batch export](ai-conversation-batch-export.md) for the four-platform visible-history userscript fork and separate automation runner. Four-platform short samples have now passed [real dedicated-browser evaluation](ai-conversation-live-eval-20260910.md); account-wide completeness and Gateway batch routing remain unqualified; earlier single-conversation scope below is historical for that workflow.
 
 
 > Language: English | [简体中文](../zh-cn/docs/ai-conversation-export-design.md)

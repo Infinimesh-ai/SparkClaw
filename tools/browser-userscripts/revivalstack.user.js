@@ -53,7 +53,7 @@ async function scanBatchTimeline(provider, io) {
       else if (updated && (!rows.get(ref.id).updated || updated > rows.get(ref.id).updated)) rows.get(ref.id).updated = updated;
     }
     if (snapshot.end && !added && !snapshot.busy) stable++; else stable = 0;
-    if (stable >= 5) {
+    if (stable >= 5 && (rows.size || snapshot.empty || step >= 29)) {
       if (!rows.size && !snapshot.empty) throw new Error('timeline_not_found');
       return { schema: 'sparkclaw.timeline.v1', provider, coverage: 'visible-history', complete: false,
         warning: 'UI exhaustion cannot prove account-wide coverage; archived/project/hidden conversations may be absent.',
@@ -65,7 +65,11 @@ async function scanBatchTimeline(provider, io) {
 }
 // Reads only rendered UI. No private website API, token, or cookie dependencies.
 function batchTimelineSnapshot(provider, doc = document) {
-  const roots = [...doc.querySelectorAll('nav, [role="navigation"], aside, side-navigation'), /\/recents|\/history/.test(doc.location.pathname) ? doc.querySelector('main') : null].filter(Boolean).filter((root, index, all) => !all.some((other, i) => i !== index && other.contains(root)));
+  const visible = node => {
+    const rect = node.getBoundingClientRect(), style = doc.defaultView.getComputedStyle(node);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+  const roots = [...doc.querySelectorAll('nav, [role="navigation"], aside, side-navigation, [data-sidebar="sidebar"]'), /\/recents|\/history/.test(doc.location.pathname) ? doc.querySelector('main') : null].filter(Boolean).filter((root, index, all) => !all.some((other, i) => i !== index && other.contains(root)));
   const items = [];
   for (const root of roots) {
     for (const node of root.querySelectorAll('a[href], [data-conversation-id]')) {
@@ -77,9 +81,9 @@ function batchTimelineSnapshot(provider, doc = document) {
     }
   }
   const scrollers = roots.flatMap(root => [root, ...root.querySelectorAll('*')]).filter(node => node.scrollHeight > node.clientHeight + 4 && node.clientHeight > 0 && /auto|scroll/.test(doc.defaultView.getComputedStyle(node).overflowY));
-  const more = roots.flatMap(root => [...root.querySelectorAll('button')]).find(node => /^(load more|show more|加载更多|显示更多)$/i.test(node.textContent.trim()) && !node.disabled);
+  const more = roots.flatMap(root => [...root.querySelectorAll('button')]).find(node => /^(load more|show more|加载更多|显示更多)$/i.test(node.textContent.trim()) && !node.disabled && node.getAttribute('aria-disabled') !== 'true' && visible(node));
   return { items, end: !more && scrollers.every(node => node.scrollTop + node.clientHeight >= node.scrollHeight - 4),
-    busy: roots.some(root => root.querySelector('[aria-busy="true"], [role="progressbar"]')),
+    busy: roots.some(root => [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some(visible)),
     empty: roots.some(root => /^(no conversations|no chats|暂无对话|暂无聊天)$/i.test(root.textContent.trim())),
     blocked: !!doc.querySelector('input[type="password"]'), scrollers, more };
 }

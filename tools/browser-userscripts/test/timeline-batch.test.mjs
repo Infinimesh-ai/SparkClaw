@@ -49,3 +49,9 @@ test('checkpoint failure does not mark export complete', async () => {
   const result=await runTimelineBatch({provider:'grok',timeline:{provider:'grok',conversations:[{id:'one',url:urls.grok}]},ledger,check(){},capture:async()=>JSON.stringify({author:'grok',url:urls.grok,exporter:'fixture',messages:[{author:'user',content:'hello'}]}),save:async()=>({path:'file.json'}),verify:async()=>true,commit:async()=>{throw new Error('checkpoint disk full');}});
   assert.equal(result.failed.length,1);assert.equal(ledger.one,undefined);
 });
+
+test('delayed website hydration is not mistaken for an empty history', async () => {
+  let step=0;
+  const result=await scanBatchTimeline('grok',{check(){},snapshot:async()=>({end:true,items:step<10?[]:[{url:urls.grok}]}),advance:async()=>{step++;}});
+  assert.equal(result.conversations.length,1);
+});

@@ -1,6 +1,6 @@
 # 导出 AI 平台对话：登录、脚本控制与 workspace 保存设计
 
-> 2026-09-10 更新：新增 [RevivalStack 四平台时间线批量导出](../../docs/ai-conversation-batch-export.md)脚本及独立自动化入口；当前覆盖可见历史，未证明账号全部历史完整性，尚未接入 Gateway 自然语言批量路由。下文单条范围继续描述原有工作流。
+> 2026-09-10 更新：新增 [RevivalStack 四平台时间线批量导出](../../docs/ai-conversation-batch-export.md)脚本及独立自动化入口；已通过[四平台真实短对话评测](../../docs/ai-conversation-live-eval-20260910.md)，当前覆盖可见历史，未证明账号全部历史完整性，尚未接入 Gateway 自然语言批量路由。下文单条范围继续描述原有工作流。
 
 
 > 语言：简体中文 | [English](../../docs/ai-conversation-export-design.md)

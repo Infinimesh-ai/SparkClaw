@@ -20,8 +20,10 @@ test('four-platform real Chromium: userscript discovery, capture, workspace save
   try {
     for (const [provider, f] of Object.entries(fixtures)) {
       const context=await browser.newContext();
-      await context.route('**/*', route=>route.fulfill({contentType:'text/html',body:`<!doctype html><title>Fixture</title><nav><a href="${f.prefix}two">Newer</a><a href="${f.prefix}one">Older</a></nav><main>${f.body}</main>`}));
-      await context.addInitScript(() => { window.GM_getValue=(_,value)=>value;window.GM_setValue=()=>{};window.GM_registerMenuCommand=()=>{}; });
+      const historyOpen = provider === 'grok' ? '<div data-sidebar="sidebar">' : '<nav>';
+      const historyClose = provider === 'grok' ? '</div>' : '</nav>';
+      await context.route('**/*', route=>route.fulfill({contentType:'text/html',body:`<!doctype html><title>Fixture</title>${historyOpen}<div hidden><span role="progressbar"></span><button>Load more</button></div><a href="${f.prefix}two">Newer</a><a href="${f.prefix}one">Older</a>${historyClose}<main>${f.body}</main>`}));
+      await context.addInitScript(() => { window.GM_getValue=(_,value)=>value;window.GM_setValue=()=>{};window.GM_registerMenuCommand=()=>{}; window.requestAnimationFrame=()=>0; });
       await context.addInitScript({content:source});
       const original=await context.newPage(); await original.goto('https://'+f.host+'/unrelated-email-test');
       const opts={context,provider,workspaceRoot,accountScope:'fixture',timeoutMS:60000};

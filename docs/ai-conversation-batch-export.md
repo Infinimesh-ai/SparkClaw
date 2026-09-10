@@ -36,13 +36,15 @@ node scripts/ai-chat/export-batch.mjs --provider chatgpt \
 
 Run separately for each provider (or call the function sequentially). This command does not install/update the script, start a browser, change a browser profile, or restart services. It requires the browser-controller Playwright dependency. Its fixed DOM control IDs are `sparkclaw-batch-scan`, `sparkclaw-batch-capture`, `sparkclaw-batch-status` and `sparkclaw-batch-output`. These are data/capture controls, not an arbitrary-code bridge.
 
+For the native SparkClaw Browser Bridge (which does not expose a normal CDP port), use `scripts/ai-chat/qualify-bridge.mjs --help`. This qualification entry temporarily loads the candidate into owned pages, samples at most two conversations per provider, and uses the existing background-rendering marker. Supply its browser-control credential through the configured environment, never a command argument. It does not update the installed userscript.
+
 The existing `ai_chat.export` Gateway workflow remains the single-conversation native-download workflow. This batch runner is an additional callable/CLI, **not yet routed from the Gateway's natural-language capability**. Integrating that workflow is separate from the userscript and must retain session workspace and task ownership.
 
 ## Coverage and qualification
 
 **This implements visible-history batch export; it does not yet establish retrieval of every conversation in an account.** Scrolling to a stable end is not proof that archived, project-only or hidden conversations were included. Reports retain `complete:false`, `coverage:unknown` and `saved_visible_history`/`partial`, never a claim of account-wide completeness. Empty/blocked lists and scan limits fail explicitly. The UI selectors must be qualified against the current signed-in websites; a collapsed sidebar, changed DOM or login redirect can prevent enumeration. Conversation-body stability likewise does not prove full historical body coverage.
 
-Offline tests cover four-provider URL isolation, virtualized enumeration, chronological ordering, failed-save/checkpoint recovery, unchanged/updated content, missing files and cancellation. Isolated Chromium fixtures exercise the full bundled userscript, filesystem runner, rerun and preservation of an unrelated existing tab. These are synthetic pages, not live four-account qualification. No shared-browser deployment is performed by the tests.
+Offline tests cover four-provider URL isolation, virtualized enumeration, chronological ordering, failed-save/checkpoint recovery, unchanged/updated content, missing files and cancellation. Isolated Chromium fixtures exercise the full bundled userscript, filesystem runner, rerun and preservation of an unrelated existing tab. These fixtures remain synthetic. Additional [real dedicated-browser evaluation on 2026-09-10](ai-conversation-live-eval-20260910.md) exported seven existing conversations across all four platforms and verified saved hashes and source role counts. Account-wide and long-history coverage remain unqualified. No shared-browser deployment was performed.
 
 ## Maintenance and integration
 

@@ -899,3 +899,11 @@ filesystem state 最好在 Gateway 停止后复制。
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |
 | Postgres vector extension unavailable | SparkClaw fallback 到 JSON vectors 和 Gateway-side hybrid scoring。 |
 | 128K fast+deep does not fit | 一次运行一个 chat lane，或降低 context/MTP 后重新 benchmark。 |
+
+### 受管浏览器组件
+
+油猴和 AI 对话导出用户脚本是 SparkClaw 必需的产品组件。Local 和 Remote 部署都通过统一浏览器安装流程，为每个部署用户安装、同步；它们不是个性化配置。`configs/browser-components.json` 固定上游与产品版本、来源 URL、SHA-256 以及脚本依赖。启动始终加载 Browser Bridge 和 `/opt/sparkclaw/tampermonkey` 中的产品油猴。
+
+安装器下载校验固定官方 CRX，应用明确的 Chromium 受管策略启动兼容补丁，安装校验后的产品产物，再通过油猴原生受管 `jsonImport` 下发两种导出脚本。源码及依赖随仓库保存并保留上游声明。受管脚本启用且关闭独立自动更新；修改 pin 属于产品发布。就绪检查核对真实导入的部署代次、enabled/system 状态、源码及依赖哈希和专用 profile 的用户脚本权限；脚本缺失或落后会使部署就绪失败。
+
+此前的 `browser-extensions.json` 临时方案已退役。安装、迁移、验证与版本升级见[浏览器组件管理](browser-components.md)。

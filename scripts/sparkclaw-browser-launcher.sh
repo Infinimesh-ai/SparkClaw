@@ -47,13 +47,14 @@ display_info="$(bash "$resolver")" || exit 1
 display="${display_info%%$'\n'*}"
 xauthority="${display_info#*$'\n'}"
 browser_sandbox="$(dirname "$browser_executable")/chrome_sandbox"
+extension_paths="$(python3 "$(dirname "${BASH_SOURCE[0]}")/browser_extensions.py" "$config_path" "$bridge_dir")"
 
 browser_args=(
   --ozone-platform=x11
   --force-renderer-accessibility
   --user-data-dir="$profile_dir"
-  --disable-extensions-except="$bridge_dir"
-  --load-extension="$bridge_dir"
+  --disable-extensions-except="$extension_paths"
+  --load-extension="$extension_paths"
 )
 
 if [[ "$mode" == "open" ]]; then

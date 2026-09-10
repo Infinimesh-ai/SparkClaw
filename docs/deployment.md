@@ -1027,3 +1027,11 @@ For filesystem state, stop Gateway before copying state files if possible.
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |
 | Postgres vector extension unavailable | SparkClaw falls back to JSON vectors and Gateway-side hybrid scoring. |
 | 128K fast+deep does not fit | Run one chat lane at a time or lower context/MTP and re-benchmark. |
+
+### Managed browser components
+
+Tampermonkey and the AI conversation exporter userscripts are mandatory SparkClaw product components. Both Local and Remote deployment install and reconcile them for every deployment user through the shared browser setup. They are not personal configuration. `configs/browser-components.json` fixes upstream and product versions, source URLs, SHA-256 pins, and userscript dependencies. Startup always loads Browser Bridge and the product Tampermonkey at `/opt/sparkclaw/tampermonkey`.
+
+The installer downloads the official pinned Tampermonkey CRX, applies the explicit Chromium managed-policy startup compatibility patch, installs the verified product artifact, and supplies both exporters through Tampermonkey's native managed `jsonImport`. Source and dependency bytes are bundled with their upstream notices. Managed scripts are enabled and cannot independently auto-update; changing a pin is a product release. Readiness checks the actual imported generation, enabled/system status, exact source and dependency hashes, and the dedicated profile's userScripts permission. Missing or stale scripts fail deployment readiness.
+
+The former `browser-extensions.json` workaround is retired. See [browser component management](browser-components.md) for installation, migration, verification, and version updates.

@@ -97,8 +97,8 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
     def test_persistent_browser_uses_only_profile_and_bridge_startup_flags(self) -> None:
         script = LAUNCHER.read_text(encoding="utf-8")
         self.assertIn('--user-data-dir="$profile_dir"', script)
-        self.assertIn('--disable-extensions-except="$bridge_dir"', script)
-        self.assertIn('--load-extension="$bridge_dir"', script)
+        self.assertIn('--disable-extensions-except="$extension_paths"', script)
+        self.assertIn('--load-extension="$extension_paths"', script)
         for forbidden in ("--remote-debugging-", "--enable-automation", "--headless"):
             self.assertNotIn(forbidden, script)
 

@@ -85,6 +85,7 @@ browser_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser"
 browser_bin_dir="$browser_data_dir/bin"
 launcher="$browser_bin_dir/sparkclaw-browser"
 resolver="$browser_bin_dir/resolve-browser-display.sh"
+extensions_helper="$browser_bin_dir/browser_extensions.py"
 BROWSER_VERSION_TEXT=""
 
 set_env_value() {
@@ -144,6 +145,7 @@ PY
 }
 
 verify_runtime() {
+  bash "$ROOT/scripts/install-browser-components.sh" --check
   bash "$ROOT/scripts/install-browser-bridge.sh" --check >/dev/null
   bash "$ROOT/scripts/resolve-browser-display.sh" >/dev/null || fail "an active owner X11/XWayland session is required"
   for item in "$profile_dir" "$controller_runtime_dir"; do
@@ -152,6 +154,7 @@ verify_runtime() {
   [[ -x "$launcher" && -x "$resolver" && -r "$config_path" && -r "$unit_path" && -r "$desktop_path" ]] || fail "browser runtime files are incomplete"
   cmp -s "$ROOT/scripts/sparkclaw-browser-launcher.sh" "$launcher" || fail "installed browser launcher is stale"
   cmp -s "$ROOT/scripts/resolve-browser-display.sh" "$resolver" || fail "installed display resolver is stale"
+  cmp -s "$ROOT/scripts/browser_extensions.py" "$extensions_helper" || fail "installed extension resolver is stale"
   python3 - "$config_path" "$INSTALL_ROOT/chrome" "$profile_dir" "$BRIDGE_ROOT" "$BROWSER_VERSION_TEXT" "$BRIDGE_VERSION" <<'PY'
 import json
 from pathlib import Path
@@ -167,7 +170,8 @@ PY
   systemctl --user is-active --quiet sparkclaw-browser.service || fail "sparkclaw-browser is not active"
   main_pid="$(systemctl --user show --property MainPID --value sparkclaw-browser.service)"
   [[ "$main_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$main_pid/cmdline" ]] || fail "SparkClaw browser PID is unavailable"
-  python3 - "/proc/$main_pid/cmdline" "$INSTALL_ROOT/chrome" "$profile_dir" "$BRIDGE_ROOT" <<'PY'
+  extension_paths="$(python3 "$extensions_helper" "$config_path" "$BRIDGE_ROOT")" || fail "invalid owner extension configuration"
+  python3 - "/proc/$main_pid/cmdline" "$INSTALL_ROOT/chrome" "$profile_dir" "$extension_paths" <<'PY'
 from pathlib import Path
 import sys
 parts = [item.decode("utf-8") for item in Path(sys.argv[1]).read_bytes().split(b"\0") if item]
@@ -214,7 +218,7 @@ sudo env DEBIAN_FRONTEND=noninteractive apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   ca-certificates curl file python3 unzip fonts-noto-cjk fonts-noto-color-emoji "$audio_package" \
   libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 \
-  libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 \
+  libleveldb1d libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 \
   libxfixes3 libxkbcommon0 libxrandr2 libxshmfence1
 
 if [[ ! -x "$INSTALL_ROOT/chrome" || ! -r "$INSTALL_ROOT/sparkclaw-manifest.json" ]]; then
@@ -242,12 +246,14 @@ PY
 fi
 verify_browser
 bash "$ROOT/scripts/install-browser-bridge.sh"
+bash "$ROOT/scripts/install-browser-components.sh"
 bash "$ROOT/scripts/resolve-browser-display.sh" >/dev/null || fail "an active owner X11/XWayland session is required"
 
 mkdir -p "$controller_runtime_dir" "$profile_dir" "$config_dir" "$systemd_dir" "$applications_dir" "$browser_bin_dir"
 chmod 700 "$controller_runtime_dir" "$profile_dir" "$config_dir" "$browser_data_dir" "$browser_bin_dir"
 install -m 700 "$ROOT/scripts/sparkclaw-browser-launcher.sh" "$launcher"
 install -m 700 "$ROOT/scripts/resolve-browser-display.sh" "$resolver"
+install -m 700 "$ROOT/scripts/browser_extensions.py" "$extensions_helper"
 python3 - "$config_path" "$INSTALL_ROOT/chrome" "$profile_dir" "$BRIDGE_ROOT" "$BROWSER_VERSION_TEXT" "$BRIDGE_VERSION" <<'PY'
 import json
 from pathlib import Path

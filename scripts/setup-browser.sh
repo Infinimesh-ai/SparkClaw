@@ -19,4 +19,8 @@ fi
 bash "$ROOT/scripts/install-browser.sh" "${mode[@]}" --env-file "$ENV_FILE"
 bash "$ROOT/scripts/setup-browser-controller.sh" "${mode[@]}" --env-file "$ENV_FILE"
 
-echo "SparkClaw Browser and Browser Bridge ready"
+if [[ ${#mode[@]} -eq 0 ]]; then
+  python3 "$ROOT/scripts/browser_components.py" wait-profile "${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser/default/user-data"
+fi
+
+echo "SparkClaw Browser, Browser Bridge, Tampermonkey, and managed userscripts ready"

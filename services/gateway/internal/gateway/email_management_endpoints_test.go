@@ -251,14 +251,19 @@ func TestEmailManagementHTTPViewGapPendingAndReanalysis(t *testing.T) {
 	}
 	jobs, err := f.repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: f.owner, Limit: 100})
 	f.must(err)
-	relationship := false
+	classification := false
 	for _, job := range jobs {
-		if job.TargetID == newer.ID && job.Kind == app.EmailJobRelationshipCheck {
-			relationship = true
+		if job.TargetID == newer.ID && job.Kind == app.EmailJobClassification && job.State == app.EmailJobQueued {
+			classification = true
 		}
 	}
-	if !relationship || f.browser.calls != 0 {
-		t.Fatalf("relationship=%v browser calls=%d", relationship, f.browser.calls)
+	if !classification || f.browser.calls != 0 {
+		t.Fatalf("classification=%v browser calls=%d", classification, f.browser.calls)
+	}
+	_, claimed, err := f.repo.ClaimEmailJob(t.Context(), store.EmailJobClaim{OwnerID: f.owner, Kinds: []string{app.EmailJobRelationshipCheck}, LeaseDuration: time.Minute})
+	f.must(err)
+	if claimed {
+		t.Fatal("reanalysis revived disabled relationship generation")
 	}
 }
 
@@ -388,20 +393,35 @@ func TestEmailManagementHTTPSourceSearchAndConcerns(t *testing.T) {
 	}
 }
 
-func TestEmailManagementHTTPShowsFailedSummaryAndRearmsIt(t *testing.T) {
+func TestEmailManagementHTTPReanalysisRetainsHistoryWithoutSummaryResurrection(t *testing.T) {
 	f := newEmailHTTPFixture(t)
-	mail := f.receive("failure", time.Now())
+	mail := f.receive("historical-summary", time.Now())
 	job := f.claim(app.EmailJobMessageSummary)
-	_, err := f.repo.FinishEmailJob(t.Context(), store.EmailJobFinish{EmailJobLease: f.lease(job), ErrorCode: "model_unavailable"})
+	summary, err := f.repo.PublishEmailSummary(t.Context(), store.EmailSummaryCommand{EmailCommand: f.command(), Lease: f.lease(job), Summary: app.EmailSummary{ID: "historical-output", TargetKind: job.Kind, TargetID: mail.ID, Text: "Historical generated output", ModelVersion: "fixture", PromptVersion: "legacy", Generation: job.Generation, InputFingerprint: job.InputFingerprint}})
 	f.must(err)
-	failed := emailDecode[emailmanagement.MessagesView](t, f.request("GET", "/api/email/interaction-mails", ""), 200)
-	if len(failed.Messages) != 1 || failed.Messages[0].SummaryState != app.EmailSummaryFailed {
-		t.Fatalf("failed summary projection=%+v", failed)
+	f.finish(job)
+	if !summary.Current {
+		t.Fatal("historical fixture was not current")
 	}
 	emailDecode[emailmanagement.ScheduleResult](t, f.request("POST", "/api/email/messages/"+mail.ID+"/reanalyze", "{}"), 202)
-	retry := emailDecode[emailmanagement.MessagesView](t, f.request("GET", "/api/email/interaction-mails", ""), 200)
-	if retry.Messages[0].SummaryState != app.EmailSummaryPending {
-		t.Fatalf("rearmed summary state=%q", retry.Messages[0].SummaryState)
+	current, found, err := f.repo.GetEmailMail(t.Context(), f.owner, mail.ID)
+	f.must(err)
+	if !found || current.Summary == nil || current.Summary.Text != summary.Text {
+		t.Fatal("reanalysis deleted historical output")
+	}
+	view := emailDecode[emailmanagement.MessageView](t, f.request("GET", "/api/email/messages/"+mail.ID, ""), 200)
+	if view.BodyText != "unique-contract-term-historical-summary" || !view.OriginalAvailable {
+		t.Fatalf("reading depends on generated summary: %+v", view)
+	}
+	_, claimed, err := f.repo.ClaimEmailJob(t.Context(), store.EmailJobClaim{OwnerID: f.owner, Kinds: []string{app.EmailJobMessageSummary, app.EmailJobConversationSummary, app.EmailJobRelationshipCheck, app.EmailJobPresentation}, LeaseDuration: time.Minute})
+	f.must(err)
+	if claimed || f.browser.calls != 0 {
+		t.Fatalf("disabled generation claimed=%v browser=%d", claimed, f.browser.calls)
+	}
+	classification, found, err := f.repo.ClaimEmailJob(t.Context(), store.EmailJobClaim{OwnerID: f.owner, Kinds: []string{app.EmailJobClassification}, LeaseDuration: time.Minute})
+	f.must(err)
+	if !found || classification.TargetID != mail.ID {
+		t.Fatal("explicit reanalysis did not schedule classification")
 	}
 }
 

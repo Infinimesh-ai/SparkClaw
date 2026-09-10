@@ -72,6 +72,24 @@ func emailPostgresQuery(owner string, q emailRowsQuery, ordered bool) (string, [
 	if q.UnassignedOnly {
 		sql += ` AND related=''`
 	}
+	if q.NonemptyEvents {
+		sql += ` AND EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.id AND COALESCE(member.payload->>'superseded_by_mail_id','')='')`
+	}
+	if q.EventEntry != "" {
+		column := "id"
+		if q.Kind == "mail" {
+			column = "related"
+		}
+		match := `EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.` + column + ` AND COALESCE(member.payload->>'superseded_by_mail_id','')='' AND COALESCE(member.payload->'classification'->>'effective_entry','interaction')='interaction')`
+		if q.Kind == "mail" {
+			match = `((related='' AND COALESCE(payload->'classification'->>'effective_entry','interaction')='interaction') OR (related<>'' AND ` + match + `))`
+		}
+		if q.EventEntry == "notification" {
+			sql += " AND NOT (" + match + ")"
+		} else {
+			sql += " AND (" + match + ")"
+		}
+	}
 	if q.InteractionConversation {
 		sql += ` AND EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.id AND COALESCE(member.payload->'classification'->>'effective_entry','interaction')='interaction')`
 	}
@@ -103,13 +121,17 @@ func emailPostgresQuery(owner string, q emailRowsQuery, ordered bool) (string, [
 		add(` AND state=ANY($%d)`, q.States)
 	}
 	if q.ConversationMailbox != "" {
-		add(` AND EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.id AND member.parent=$%d)`, q.ConversationMailbox)
+		add(` AND EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.id AND member.parent=$%d AND COALESCE(member.payload->>'superseded_by_mail_id','')='')`, q.ConversationMailbox)
 	}
 	if q.Search != "" {
-		if q.ConversationSearch {
+		if q.EventSearch {
 			args = append(args, q.Search)
 			n := len(args)
-			sql += fmt.Sprintf(` AND (strpos(search_text,lower($%d))>0 OR EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.id AND strpos(member.search_text,lower($%d))>0))`, n, n)
+			sql += fmt.Sprintf(` AND (strpos(search_text,lower($%d))>0 OR (related<>'' AND (EXISTS(SELECT 1 FROM email_management_records event WHERE event.owner_id=email_management_records.owner_id AND event.kind='conversation' AND event.id=email_management_records.related AND strpos(event.search_text,lower($%d))>0) OR EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.related AND COALESCE(member.payload->>'superseded_by_mail_id','')='' AND strpos(member.search_text,lower($%d))>0))))`, n, n, n)
+		} else if q.ConversationSearch {
+			args = append(args, q.Search)
+			n := len(args)
+			sql += fmt.Sprintf(` AND (strpos(search_text,lower($%d))>0 OR EXISTS(SELECT 1 FROM email_management_records member WHERE member.owner_id=email_management_records.owner_id AND member.kind='mail' AND member.related=email_management_records.id AND COALESCE(member.payload->>'superseded_by_mail_id','')='' AND strpos(member.search_text,lower($%d))>0))`, n, n)
 		} else {
 			add(` AND strpos(search_text,lower($%d))>0`, q.Search)
 		}

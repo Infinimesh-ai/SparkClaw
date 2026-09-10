@@ -34,6 +34,9 @@ const emailPageBatchSuperseded = "email_page_batch_superseded"
 
 func emailSupersedeLegacyBrowserJobs(e *emailEngine, mailboxID string) {
 	for _, kind := range []string{app.EmailJobCapture, app.EmailJobMarkRead, app.EmailJobThreadSync} {
+		if emailEvents(e) {
+			continue
+		}
 		query := emailRowsQuery{Kind: "job", Parent: mailboxID, Related: kind, States: []string{app.EmailJobQueued, app.EmailJobRetryWait, app.EmailJobRunning, app.EmailJobPaused}, Limit: 100, ExcludePageBatchSuperseded: true}
 		for {
 			jobs := emailList[app.EmailJob](e, query)
@@ -80,6 +83,17 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			}
 		}
 	}
+	if emailEvents(e) && (c.Kind == app.EmailJobClassification || c.Kind == app.EmailJobAssignment) {
+		clean := []string{}
+		if c.Kind == app.EmailJobAssignment {
+			for _, ref := range selected {
+				if strings.HasPrefix(ref, "source:") || strings.HasPrefix(ref, "mapping:") || strings.HasPrefix(ref, "members:") {
+					clean = append(clean, ref)
+				}
+			}
+		}
+		selected = clean
+	}
 	selected = emailUnique(selected)
 	refs := append([]string{}, selected...)
 	if c.Kind == app.EmailJobConversationSummary {
@@ -104,13 +118,13 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			priority = app.EmailJobPriorityHistory
 		}
 		refs = append(refs, "mail:"+m.ID)
-		if c.Kind == app.EmailJobAssignment && (m.ConversationID != "" || emailEffectiveEntry(m) == "notification") {
+		if c.Kind == app.EmailJobAssignment && (m.ConversationID != "" || (!emailEvents(e) && emailEffectiveEntry(m) == "notification")) {
 			return zero, errEmailConflict
 		}
 		if c.Kind == app.EmailJobRelationshipCheck && m.ConversationID == "" {
 			return zero, errEmailConflict
 		}
-		if emailAnalysisKind(c.Kind) {
+		if emailAnalysisKind(c.Kind) && !(emailEvents(e) && c.Kind == app.EmailJobClassification) {
 			if m.ReplyMailID != "" {
 				refs = append(refs, "mail:"+m.ReplyMailID)
 			}
@@ -120,7 +134,7 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			if m.ProviderThreadID != "" {
 				refs = append(refs, "thread:"+m.MailboxID+":"+m.ProviderThreadID)
 			}
-			if m.ContextID != "" {
+			if m.ContextID != "" && !emailEvents(e) {
 				v, _ := emailGet[app.EmailContextVersion](e, "context", m.ContextID)
 				for _, id := range v.RelatedMailIDs {
 					refs = append(refs, "mail:"+id)
@@ -134,6 +148,18 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			refs = append(refs, "search")
 		}
 	}
+	if emailEvents(e) && (c.Kind == app.EmailJobClassification || c.Kind == app.EmailJobAssignment) {
+		clean := []string{"source:" + c.TargetID}
+		if c.Kind == app.EmailJobAssignment {
+			clean = append(clean, "mapping:"+c.TargetID)
+			for _, ref := range refs {
+				if strings.HasPrefix(ref, "source:") || strings.HasPrefix(ref, "mapping:") || strings.HasPrefix(ref, "members:") || strings.HasPrefix(ref, "reply:") || strings.HasPrefix(ref, "thread:") {
+					clean = append(clean, ref)
+				}
+			}
+		}
+		refs = clean
+	}
 	refs = emailUnique(refs)
 	if len(refs) > 200 {
 		return zero, errEmailInvalid
@@ -142,6 +168,9 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 		if err := emailValidateDependency(e, c.Kind, c.TargetID, ref); err != nil {
 			return zero, err
 		}
+	}
+	if emailEvents(e) && emailAnalysisKind(c.Kind) {
+		refs = append(refs, "policy:"+EmailEventPolicyVersion)
 	}
 	inputs := map[string]int64{}
 	for _, ref := range refs {
@@ -208,6 +237,9 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			j.UpdatedAt = e.now
 			emailSaveJob(e, j)
 		}
+		if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
+			return j, e.err
+		}
 		if c.Rearm && (j.State == app.EmailJobFailed || j.State == app.EmailJobSucceeded || j.State == app.EmailJobPaused) {
 			if c.RepeatInterval > 0 && j.State == app.EmailJobFailed {
 				return j, e.err
@@ -218,7 +250,7 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 				// interval cannot make the next attempt eligible too early.
 				repeatAfter = postgresTime(j.UpdatedAt.Add(c.RepeatInterval + time.Microsecond - time.Nanosecond))
 			}
-			if emailAnalysisKind(c.Kind) {
+			if emailAnalysisKind(c.Kind) && !(emailEvents(e) && c.Kind == app.EmailJobClassification) {
 				t, ok := emailGet[app.EmailAnalysisTarget](e, "target", c.Kind+":"+c.TargetID)
 				if ok {
 					if !c.ForceAnalysis && j.State == app.EmailJobSucceeded && t.State == app.EmailSummaryCurrent && emailFingerprint(e, t.Inputs) == t.InputFingerprint {
@@ -254,6 +286,13 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 		at = e.now
 	}
 	j = app.EmailJob{Priority: priority, ID: id, OwnerID: e.owner, Kind: c.Kind, TargetID: c.TargetID, MailboxID: c.MailboxID, BindingGeneration: c.BindingGeneration, InputFingerprint: fingerprint, Generation: generation, State: app.EmailJobQueued, MaxAttempts: 5, NextAttemptAt: postgresTime(at), CreatedAt: e.now, UpdatedAt: e.now}
+	if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
+		j.State = app.EmailJobPaused
+		j.ErrorCode = emailEventSuspended
+	}
+	if emailEvents(e) && emailAnalysisKind(j.Kind) {
+		j.MaxAttempts = 2
+	}
 	emailSaveJob(e, j)
 	return j, e.err
 }
@@ -262,6 +301,16 @@ func emailLeaseCheck(e *emailEngine, l EmailJobLease, kind, target string) error
 	if !ok {
 		return errEmailNotFound
 	}
+	if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
+		return errEmailConflict
+	}
+	if emailEvents(e) && emailAnalysisKind(j.Kind) {
+		t, _ := emailGet[app.EmailAnalysisTarget](e, "target", j.Kind+":"+j.TargetID)
+		if _, ok := t.Inputs["policy:"+EmailEventPolicyVersion]; !ok {
+			return errEmailConflict
+		}
+	}
+
 	if l.OwnerID != "" && normalizeConnectorOwner(l.OwnerID) != e.owner {
 		return errEmailInvalid
 	}
@@ -314,6 +363,9 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 	}
 	jobs := []app.EmailJob{}
 	for _, kind := range kinds {
+		if emailEvents(e) && emailDisabledAnalysis(kind) {
+			continue
+		}
 		parents := []string{""}
 		if emailBrowserKind(kind) {
 			parents = nil
@@ -404,7 +456,7 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 			}
 			if j.Kind == app.EmailJobAssignment {
 				m, _ := emailGet[app.EmailMail](e, "mail", j.TargetID)
-				if emailEffectiveEntry(m) == "notification" {
+				if m.ConversationID != "" || (!emailEvents(e) && emailEffectiveEntry(m) == "notification") {
 					j.State = app.EmailJobSucceeded
 					j.ErrorCode = "notification_routed"
 					j.LeaseToken = ""
@@ -412,6 +464,20 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 					continue
 				}
 			}
+			if emailEvents(e) && emailAnalysisKind(j.Kind) {
+				t, _ := emailGet[app.EmailAnalysisTarget](e, "target", j.Kind+":"+j.TargetID)
+				if _, ok := t.Inputs["policy:"+EmailEventPolicyVersion]; !ok {
+					if _, err := emailRequest(e, EmailJobRequest{Kind: j.Kind, TargetID: j.TargetID, Dependencies: []string{}}); err != nil {
+						return app.EmailJob{}, false, err
+					}
+					j.State = app.EmailJobSucceeded
+					j.ErrorCode = "superseded"
+					j.LeaseToken = ""
+					emailSaveJob(e, j)
+					continue
+				}
+			}
+
 			if emailAnalysisKind(j.Kind) {
 				t, _ := emailGet[app.EmailAnalysisTarget](e, "target", j.Kind+":"+j.TargetID)
 				if t.Generation != j.Generation || t.InputFingerprint != j.InputFingerprint || emailFingerprint(e, t.Inputs) != j.InputFingerprint {
@@ -436,6 +502,13 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 			j.LeaseExpiresAt = postgresTime(now.Add(duration))
 			j.NextAttemptAt = j.LeaseExpiresAt
 			j.UpdatedAt = e.now
+			if j.Kind == app.EmailJobThreadSync {
+				thread, found := emailGet[app.EmailProviderThread](e, "thread", j.TargetID)
+				if found && thread.ErrorCode != "" {
+					thread.ErrorCode = ""
+					emailPut(e, "thread", thread.ID, thread.MailboxID, "", "", "", emailOrder(thread.LastCheckedAt, thread.ID), thread)
+				}
+			}
 			emailSaveJob(e, j)
 			return j, true, e.err
 		}
@@ -541,6 +614,13 @@ func emailFailureProjection(e *emailEngine, j app.EmailJob) {
 			box.ErrorCode = j.ErrorCode
 			box.UpdatedAt = e.now
 			emailSaveMailbox(e, box)
+			if j.Kind == app.EmailJobThreadSync {
+				thread, found := emailGet[app.EmailProviderThread](e, "thread", j.TargetID)
+				if found && thread.MailboxID == box.ID {
+					thread.ErrorCode = j.ErrorCode
+					emailPut(e, "thread", thread.ID, box.ID, "", "", "", emailOrder(thread.LastCheckedAt, thread.ID), thread)
+				}
+			}
 		}
 		return
 	}
@@ -591,6 +671,14 @@ func emailValidateDependency(e *emailEngine, kind, targetID, ref string) error {
 		return errEmailInvalid
 	}
 	switch {
+	case ref == "policy:"+EmailEventPolicyVersion:
+	case strings.HasPrefix(ref, "source:"), strings.HasPrefix(ref, "mapping:"):
+		_, err := emailMail(e, strings.SplitN(ref, ":", 2)[1])
+		return err
+	case strings.HasPrefix(ref, "members:"):
+		if _, ok := emailGet[app.EmailConversation](e, "conversation", strings.TrimPrefix(ref, "members:")); !ok {
+			return errEmailNotFound
+		}
 	case ref == "search":
 		if kind == app.EmailJobMessageSummary || kind == app.EmailJobConversationSummary {
 			return errEmailInvalid

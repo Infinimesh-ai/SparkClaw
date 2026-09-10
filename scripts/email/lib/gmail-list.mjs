@@ -73,7 +73,8 @@ export async function gmailUnreadEvidence(tab, selectUnread, options = {}) {
       const proven=Boolean(row.single_message_row && evidence.filter(item =>
         item.provider_message_id === row.provider_message_id && item.provider_thread_id === row.provider_thread_id &&
         item.unread===row.unread && (options.folder==='sent'?item.sent:options.folder==='all'?true:item.inbox) && !item.draft).length === 1);
-      return {...row,single_message_proven:proven,single_unread_proven:proven&&row.unread,members};
+      return {...row,single_message_proven:proven,single_unread_proven:proven&&row.unread,members,
+        inventory_complete:members.length>0 && members.every(member=>member.observed_message_count===members.length)};
     }) };
   } finally {
     await tab.runReadCode(`async page=>page.evaluate(()=>{const key=${JSON.stringify(key)};globalThis[key]?.restore();delete globalThis[key];return true;})`).catch(()=>{});

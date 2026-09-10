@@ -35,6 +35,7 @@ import { ExternalMCPSettings } from "../externalMCPSettings";
 import { SectionHeader } from "./primitives";
 import { ConnectorBindingSettings } from "./settingsBindings";
 import { PairedClientsSettings } from "./settingsClients";
+import { AIPlatformLoginSettings } from "./settingsAIPlatforms";
 import { BrowserEmailSettings } from "./settingsEmail";
 import { BrowserControlSettings } from "./settingsBrowserControl";
 import { IntegrationCredentialSettings } from "./settingsIntegrations";
@@ -47,6 +48,7 @@ type SettingsDetail =
   | "clients"
   | "messaging"
   | "browser-control"
+  | "ai-platform-login"
   | "browser-email"
   | "info"
   | "localmind"
@@ -188,6 +190,7 @@ export function SettingsPanel({
             />
           )}
           {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
+          {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} />}
           {detail === "browser-email" && <BrowserEmailSettings text={text} />}
           {detail === "info" && (
             <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} />
@@ -313,6 +316,7 @@ export function SettingsPanel({
             <>
               <DirectoryRow icon={<MessageSquare size={17} />} title={text.settings.messaging} status={connectionCountLabel(connectors, text)} onClick={() => setDetail("messaging")} />
               <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.browserBridge} onClick={() => setDetail("browser-control")} />
+              <DirectoryRow icon={<Bot size={17} />} title={text.settings.aiPlatformLogin} status={text.settings.aiPlatformNames} onClick={() => setDetail("ai-platform-login")} />
               <DirectoryRow icon={<Mail size={17} />} title={text.settings.browserEmail} status={text.settings.browserEmailProviders} onClick={() => setDetail("browser-email")} />
               <DirectoryRow icon={<DatabaseZap size={17} />} title={text.settings.info} status={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} onClick={() => setDetail("info")} />
               <DirectoryRow icon={<Network size={17} />} title={text.settings.localMind} status={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} onClick={() => setDetail("localmind")} />
@@ -352,6 +356,7 @@ function settingsDetailTitle(detail: SettingsDetail, text: CopyText) {
     clients: text.settings.pairedClients,
     messaging: text.settings.messaging,
     "browser-control": text.settings.browserControl,
+    "ai-platform-login": text.settings.aiPlatformLogin,
     "browser-email": text.settings.browserEmail,
     info: text.settings.info,
     localmind: text.settings.localMind,

@@ -92,7 +92,7 @@ func (s *Service) Start(parent context.Context) {
 		// provider admission also protects the shared account's browser effects.
 		browserKinds := []string{app.EmailJobDiscover, app.EmailJobCapture, app.EmailJobMarkRead, app.EmailJobCapture, app.EmailJobThreadSync, app.EmailJobCapture}
 		if _, pageMode := s.browser.(PageBrowser); pageMode {
-			browserKinds = []string{app.EmailJobDiscover}
+			browserKinds = []string{app.EmailJobDiscover, app.EmailJobThreadSync, app.EmailJobCapture, app.EmailJobMarkRead}
 		}
 		for range s.registry.List() {
 			start(browserKinds)
@@ -151,6 +151,9 @@ func (s *Service) plan(ctx context.Context) error {
 		return err
 	}
 	for _, owner := range owners {
+		if _, err := s.repository.ActivateEmailEventPolicy(ctx, command(owner.ID, "activate-source-events-v4")); err != nil {
+			return err
+		}
 		mailboxes, err := s.repository.ListEmailMailboxes(ctx, owner.ID)
 		if err != nil {
 			return err
@@ -213,6 +216,9 @@ func (s *Service) workOne(ctx context.Context, kinds []string) (bool, error) {
 	start := int(s.ownerTurn.Add(1)-1) % len(owners)
 	for offset := range owners {
 		owner := owners[(start+offset)%len(owners)]
+		if _, err := s.repository.ActivateEmailEventPolicy(ctx, command(owner.ID, "activate-source-events-v4")); err != nil {
+			return false, err
+		}
 		// A single-kind claim keeps a historical capture backlog from delaying
 		// discovery, remote read effects, or the other semantic job classes.
 		for _, kind := range kinds {
@@ -324,6 +330,11 @@ func safeCode(err error) string {
 	}
 	if code := emailautomation.ErrorCode(err); code != "" {
 		return string(code)
+	}
+	for _, code := range []string{"email_model_unavailable", "email_model_mock_unqualified", "email_model_output_invalid", "email_model_evidence_invalid", "email_model_input_limit", "email_representation_missing", "email_mail_not_found"} {
+		if err.Error() == code {
+			return code
+		}
 	}
 	// Internal diagnostics are deliberately not copied into durable/UI error text.
 	return "email_processing_failed"

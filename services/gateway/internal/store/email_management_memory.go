@@ -89,7 +89,9 @@ func (m *emailMemoryRecords) list(q emailRowsQuery) ([]EmailRecord, error) {
 	out := []EmailRecord{}
 	mailboxMatches := map[string]bool{}
 	searchMatches := map[string]bool{}
+	eventTitleMatches := map[string]bool{}
 	interactionMatches := map[string]bool{}
+	memberMatches := map[string]bool{}
 	each := func(visit func(EmailRecord)) {
 		for key, r := range m.records {
 			if current, ok := m.writes[key]; ok {
@@ -103,10 +105,17 @@ func (m *emailMemoryRecords) list(q emailRowsQuery) ([]EmailRecord, error) {
 			}
 		}
 	}
-	if q.InteractionConversation || q.ConversationMailbox != "" || (q.ConversationSearch && q.Search != "") {
+	if q.EventSearch || q.EventEntry != "" || q.NonemptyEvents || q.InteractionConversation || q.ConversationMailbox != "" || (q.ConversationSearch && q.Search != "") {
 		each(func(r EmailRecord) {
+			if r.Owner == m.owner && r.Kind == "conversation" && strings.Contains(r.Search, strings.ToLower(q.Search)) {
+				eventTitleMatches[r.ID] = true
+			}
 			if r.Owner == m.owner && r.Kind == "mail" && r.Related != "" {
 				var member app.EmailMail
+				if json.Unmarshal(r.Data, &member) != nil || member.SupersededByMailID != "" {
+					return
+				}
+				memberMatches[r.Related] = true
 				if json.Unmarshal(r.Data, &member) == nil && emailEffectiveEntry(member) == "interaction" {
 					interactionMatches[r.Related] = true
 				}
@@ -120,17 +129,43 @@ func (m *emailMemoryRecords) list(q emailRowsQuery) ([]EmailRecord, error) {
 		})
 	}
 	base := q
-	if q.ConversationSearch {
+	if q.ConversationSearch || q.EventSearch {
 		base.Search = ""
 	}
 	each(func(r EmailRecord) {
 		if !emailRowMatches(r, m.owner, base) {
 			return
 		}
+		if q.NonemptyEvents && !memberMatches[r.ID] {
+			return
+		}
+		if q.EventEntry != "" {
+			entry := "notification"
+			id := r.ID
+			if r.Kind == "mail" {
+				id = r.Related
+				if id == "" {
+					var mail app.EmailMail
+					if json.Unmarshal(r.Data, &mail) != nil {
+						return
+					}
+					entry = emailEffectiveEntry(mail)
+				}
+			}
+			if id != "" && interactionMatches[id] {
+				entry = "interaction"
+			}
+			if entry != q.EventEntry {
+				return
+			}
+		}
 		if q.InteractionConversation && !interactionMatches[r.ID] {
 			return
 		}
 		if q.ConversationMailbox != "" && !mailboxMatches[r.ID] {
+			return
+		}
+		if q.EventSearch && q.Search != "" && !strings.Contains(r.Search, strings.ToLower(q.Search)) && !eventTitleMatches[r.Related] && !searchMatches[r.Related] {
 			return
 		}
 		if q.ConversationSearch && q.Search != "" && !strings.Contains(r.Search, strings.ToLower(q.Search)) && !searchMatches[r.ID] {
@@ -187,6 +222,19 @@ func cloneEmailRecords(in map[string]EmailRecord) map[string]EmailRecord {
 func (m *emailMemoryRecords) changed() bool { return len(m.writes) > 0 }
 
 func (m *emailMemoryRecords) count(q emailRowsQuery) (EmailScopeCounts, error) {
+	if q.EventEntry != "" {
+		q.After = ""
+		q.Limit = int(^uint(0) >> 1)
+		rows, err := m.list(q)
+		out := EmailScopeCounts{}
+		for _, r := range rows {
+			out.Total++
+			if _, seen, _ := m.get("view", r.ID); !seen {
+				out.Unseen++
+			}
+		}
+		return out, err
+	}
 	q.After = ""
 	out := EmailScopeCounts{}
 	visit := func(r EmailRecord) {

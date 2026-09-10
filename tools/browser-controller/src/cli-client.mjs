@@ -1,3 +1,4 @@
+import {AI_PLATFORM_URLS} from './ai-platform-login.mjs';
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -246,7 +247,7 @@ export class PlaywrightCLIClientFactory {
   }
 
   async openProviderLogin(provider) {
-    const registration = this.registry.provider(provider);
+    const registration = Object.hasOwn(AI_PLATFORM_URLS, provider) ? {loginURL:AI_PLATFORM_URLS[provider]} : this.registry.provider(provider);
     if (
       !this.executablePath ||
       !path.isAbsolute(this.executablePath) ||

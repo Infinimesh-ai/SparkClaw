@@ -261,6 +261,7 @@ var toolRegistry = func() map[string]toolRegistration {
 		"memory.write_sensitive":         {run: ctxArgsSessionRun((*ToolHub).memoryWriteSensitive)},
 		app.ToolEmailSend:                emailSendRegistration(),
 		app.ToolEmailRead:                emailReadRegistration(),
+		"ai_chat.export":                 aiChatRegistration(),
 		"browser.read":                   browserReadRegistration(),
 		"browser.identify_public_target": browserPublicTargetRegistration(),
 		"browser.visual_inspect":         browserVisualRegistration(),

@@ -1,0 +1,384 @@
+{
+  "assignment_prompt_sha256": "sha256:9ecd0e3a2835d821c786d383baf6b167318a046dfd30b7a0a0ea6705f70d9684",
+  "corpus": "source-events-independent-synthetic-v1",
+  "fresh_after_prompt_revision": false,
+  "model_checkpoint_pinned": false,
+  "prompt_sha256": "sha256:0cc88a980bfe4d04b77ea5b7337bcdc61f56821514ad22f8621e54674d675491",
+  "prompt_version": "email-management-v4-source-events",
+  "results": [
+    {
+      "id": "e1",
+      "expected": "append",
+      "actual": "append",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 3916,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "e1",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:e1:body",
+            "text": "Shipment update for microscope order MX-614: the same replacement lens we confirmed yesterday is now out for delivery."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "We confirm replacement lens order MX-614 for your microscope. Shipping updates will follow."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "append",
+        "target_conversation_id": "candidate",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:e1:body",
+          "representation:prior:body"
+        ],
+        "reason": "same_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "e2",
+      "expected": "new",
+      "actual": "new",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 8529,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "e2",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:e2:body",
+            "text": "Replying in this old microscope order thread for convenience. This is a separate request: book a training session for the new technicians."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "We confirm replacement lens order MX-614 for your microscope."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "new",
+        "target_conversation_id": "",
+        "title": "Book training session for new technicians",
+        "summary": "",
+        "evidence_refs": [
+          "representation:e2:body"
+        ],
+        "reason": "distinct_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "e3",
+      "expected": "append",
+      "actual": "append",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 5553,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "e3",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:e3:body",
+            "text": "我是接手的物流联系人。继续上一封确认的 MX-614 显微镜镜头订单，配送改为周五。"
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "已确认 MX-614 显微镜替换镜头订单，等待配送。"
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "append",
+        "target_conversation_id": "candidate",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:e3:body",
+          "representation:prior:body"
+        ],
+        "reason": "same_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "e4",
+      "expected": "new",
+      "actual": "new",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 1361,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "e4",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:e4:body",
+            "text": "Your sign-in code for a new login attempt at 18:47 is 196403."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "Your sign-in code for the previous attempt at 09:02 was 751829."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "new",
+        "target_conversation_id": "",
+        "title": "Login attempt at 18:47",
+        "summary": "",
+        "evidence_refs": [
+          "representation:e4:body"
+        ],
+        "reason": "distinct_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "e5",
+      "expected": "pending",
+      "actual": "pending",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 1298,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "e5",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:e5:body",
+            "text": "Please handle the thing we discussed; the details are in the missing attachment."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "A different discussion of microscope order MX-614."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "insufficient_context",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "pending",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:e5:body"
+        ],
+        "reason": "insufficient_context",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "e6",
+      "expected": "pending",
+      "actual": "pending",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 13790,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "e6",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:e6:body",
+            "text": "Two independent requests: approve microscope order MX-614 and separately book the December training course."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "Please review microscope order MX-614."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "multiple_events",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "pending",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:e6:body"
+        ],
+        "reason": "multiple_events",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    }
+  ]
+}

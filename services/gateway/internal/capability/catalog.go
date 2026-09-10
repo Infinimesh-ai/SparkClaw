@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-09-03.v25"
+	DefaultCatalogRevision = "2026-09-10.v27"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -159,6 +159,11 @@ func DefaultCatalog() (Catalog, error) {
 		leafRevision(string(app.CapabilityBrowserEmail), "browser", "Capture one unread inbox email and its attachments into the local workspace, or send one new plain-text email through a freshly validated configured QQ Mail, Outlook, or Gmail browser account.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSend, app.RouteOperationRead}, RequireQuery: true,
 		}),
+		branch("ai_chat", string(RootID), "导出 AI 平台对话：导出 ChatGPT、Claude、Gemini、Grok 网站已有对话的原始 JSON 到当前 workspace。Export AI platform conversations; not ordinary chat, asking an AI question, or simply opening a website."),
+		leaf("ai_chat.chatgpt", "ai_chat", "Export one existing chatgpt conversation through RevivalStack and save original JSON into workspace. Do not send prompts or generate summaries.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url"}, RequireTarget: true}),
+		leaf("ai_chat.claude", "ai_chat", "Export one existing claude conversation through RevivalStack and save original JSON into workspace. Do not send prompts or generate summaries.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url"}, RequireTarget: true}),
+		leaf("ai_chat.gemini", "ai_chat", "Export one existing gemini conversation through RevivalStack and save original JSON into workspace. Do not send prompts or generate summaries.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url"}, RequireTarget: true}),
+		leaf("ai_chat.grok", "ai_chat", "Export one existing grok conversation through RevivalStack and save original JSON into workspace. Do not send prompts or generate summaries.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url"}, RequireTarget: true}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
 		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireQuery: true, RequireTarget: true, RequiredFacts: []string{"path"},

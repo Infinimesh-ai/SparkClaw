@@ -365,6 +365,10 @@ var _ PassiveNotificationRepository = (*PostgresStore)(nil)
 // EmailRepository is the durable email-management aggregate, independent of
 // Agent conversations and provider send settings.
 type EmailRepository interface {
+	ActivateEmailEventPolicy(context.Context, EmailCommand) (EmailEventPolicy, error)
+	ChangeEmailAssignment(context.Context, EmailManualAssignment) (app.EmailMail, error)
+	RenameEmailConversation(context.Context, EmailConversationRename) (app.EmailConversation, error)
+
 	ListEmailDraftPage(context.Context, EmailQuery) (EmailDraftPage, error)
 	ChangeEmailDraft(context.Context, EmailDraftCommand) (EmailDraftResult, error)
 	ListEmailDrafts(context.Context, string, string) ([]EmailDraft, error)

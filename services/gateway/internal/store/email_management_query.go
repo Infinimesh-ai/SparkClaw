@@ -44,6 +44,7 @@ func emailGetConversation(e *emailEngine, id string) (emailOptional[app.EmailCon
 	if ok {
 		v.Summary = emailProjectSummary(e, app.EmailJobConversationSummary, id)
 		v.HistoricalMixed = emailConversationMixed(e, id)
+		v.EffectiveEntry = emailEventEntry(e, id)
 	}
 	return emailOptional[app.EmailConversation]{v, ok}, e.err
 }
@@ -51,6 +52,11 @@ func emailGetTarget(e *emailEngine, kind, id string) (emailOptional[app.EmailAna
 	t, ok := emailGet[app.EmailAnalysisTarget](e, "target", kind+":"+id)
 	if ok && emailFingerprint(e, t.Inputs) != t.InputFingerprint {
 		t.State = app.EmailSummaryStale
+	}
+	if ok {
+		if job, found := emailGet[app.EmailJob](e, "job", emailID(kind, id, t.InputFingerprint, "", "0")); found {
+			t.CurrentJob = &job
+		}
 	}
 	return emailOptional[app.EmailAnalysisTarget]{t, ok}, e.err
 }
@@ -62,7 +68,7 @@ func emailMails(e *emailEngine, q EmailQuery) (EmailMailPage, error) {
 		return EmailMailPage{}, err
 	}
 	limit := emailLimit(q.Limit)
-	r := emailRowsQuery{Kind: "mail", Direction: q.Direction, RequireNativeCapture: q.RequireNativeCapture, Validity: q.Validity, AsOf: q.AsOf, Entry: q.Entry, NotificationSubtype: q.NotificationSubtype, PendingOnly: q.PendingOnly, UnassignedOnly: q.UnassignedOnly, CapturedOnly: q.CapturedOnly, Parent: q.MailboxID, Related: q.ConversationID, Search: q.Search, After: q.After, Limit: limit + 1}
+	r := emailRowsQuery{Kind: "mail", MailMessageID: q.MailMessageID, MailThreadID: q.MailThreadID, Direction: q.Direction, RequireNativeCapture: q.RequireNativeCapture, Validity: q.Validity, AsOf: q.AsOf, Entry: q.Entry, NotificationSubtype: q.NotificationSubtype, PendingOnly: q.PendingOnly, UnassignedOnly: q.UnassignedOnly, CapturedOnly: q.CapturedOnly, Parent: q.MailboxID, Related: q.ConversationID, Search: q.Search, After: q.After, Limit: limit + 1}
 	rows := emailList[app.EmailMail](e, r)
 	out := EmailMailPage{Items: []app.EmailMail{}, ServerNow: e.now}
 	if q.Entry != "" {
@@ -90,10 +96,25 @@ func emailConversations(e *emailEngine, q EmailQuery) (EmailConversationPage, er
 		return EmailConversationPage{}, err
 	}
 	limit := emailLimit(q.Limit)
-	rows := emailList[app.EmailConversation](e, emailRowsQuery{Kind: "conversation", InteractionConversation: q.Entry == "interaction", ConversationMailbox: q.MailboxID, ConversationSearch: true, Search: q.Search, After: q.After, Limit: limit + 1})
+	rq := emailRowsQuery{Kind: "conversation", InteractionConversation: q.Entry == "interaction", ConversationMailbox: q.MailboxID, ConversationSearch: true, Search: q.Search, After: q.After, Limit: limit + 1}
+	if emailEvents(e) {
+		rq.InteractionConversation = false
+		rq.EventEntry = q.Entry
+		rq.NonemptyEvents = true
+	} else if q.Entry == "notification" {
+		rq.EventEntry = q.Entry
+		rq.NonemptyEvents = true
+	}
+	rows := emailList[app.EmailConversation](e, rq)
 	out := EmailConversationPage{Items: []app.EmailConversation{}}
-	if q.Entry == "interaction" {
-		counts, err := e.db.count(emailRowsQuery{Kind: "mail", Entry: "interaction", CapturedOnly: true, Parent: q.MailboxID, Search: q.Search, AsOf: e.now})
+	if q.Entry != "" {
+		cq := emailRowsQuery{Kind: "mail", Entry: q.Entry, CapturedOnly: true, Parent: q.MailboxID, Search: q.Search, AsOf: e.now}
+		if emailEvents(e) {
+			cq.Entry = ""
+			cq.EventEntry = q.Entry
+			cq.EventSearch = true
+		}
+		counts, err := e.db.count(cq)
 		if err != nil {
 			return out, err
 		}
@@ -107,6 +128,7 @@ func emailConversations(e *emailEngine, q EmailQuery) (EmailConversationPage, er
 	for _, v := range rows {
 		v.Summary = emailProjectSummary(e, app.EmailJobConversationSummary, v.ID)
 		v.HistoricalMixed = emailConversationMixed(e, v.ID)
+		v.EffectiveEntry = emailEventEntry(e, v.ID)
 		out.Items = append(out.Items, v)
 	}
 	return out, e.err
@@ -143,4 +165,22 @@ func emailConversationMixed(e *emailEngine, id string) bool {
 		return false
 	}
 	return interactions
+}
+
+func emailEventEntry(e *emailEngine, id string) string {
+	q := emailRowsQuery{Kind: "mail", Related: id, Limit: 100}
+	for {
+		rows := emailList[app.EmailMail](e, q)
+		for _, m := range rows {
+			if emailEffectiveEntry(m) == "interaction" {
+				return "interaction"
+			}
+		}
+		if len(rows) < q.Limit || e.err != nil {
+			break
+		}
+		last := rows[len(rows)-1]
+		q.After = emailOrder(last.SourceTime, last.ID)
+	}
+	return "notification"
 }

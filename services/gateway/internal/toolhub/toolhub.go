@@ -41,6 +41,7 @@ type Repository interface {
 }
 
 type ToolHub struct {
+	aiChatExporter        AIChatExporter
 	cfg                   config.Config
 	store                 Repository
 	registry              *runtimeToolRegistry

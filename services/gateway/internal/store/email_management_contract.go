@@ -155,6 +155,8 @@ type EmailRefreshResult struct {
 	Remaining bool `json:"remaining"`
 }
 type EmailQuery struct {
+	MailMessageID        string
+	MailThreadID         string
 	CursorKind           string
 	Direction            string
 	RequireNativeCapture bool

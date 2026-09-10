@@ -82,7 +82,7 @@ func TestOutageKeepsSourcesAndTerminatesRetries(t *testing.T) {
 		if err := s.plan(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobMessageSummary}); err != nil {
+		if _, err := s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobAssignment}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -94,7 +94,7 @@ func TestOutageKeepsSourcesAndTerminatesRetries(t *testing.T) {
 	if mail.CaptureID == "" || mail.RepresentationID == "" {
 		t.Fatal("outage discarded source")
 	}
-	target, found, err := repo.GetEmailAnalysisTarget(t.Context(), "email-owner", app.EmailJobMessageSummary, mail.ID)
+	target, found, err := repo.GetEmailAnalysisTarget(t.Context(), "email-owner", app.EmailJobClassification, mail.ID)
 	if err != nil || !found || target.State != app.EmailSummaryFailed {
 		t.Fatalf("outage not explicit: %+v %v", target, err)
 	}
@@ -106,13 +106,13 @@ func TestOutageKeepsSourcesAndTerminatesRetries(t *testing.T) {
 		if err := s.plan(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobMessageSummary}); err != nil {
+		if _, err := s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobAssignment}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	mail, _, err = repo.GetEmailMail(t.Context(), "email-owner", mail.ID)
-	if err != nil || mail.Summary == nil || !mail.Summary.Current {
-		t.Fatalf("retry after recovery: %+v %v", mail.Summary, err)
+	if err != nil || mail.Classification == nil || mail.ConversationID == "" || mail.Summary != nil {
+		t.Fatalf("retry after recovery: %+v %v", mail.Classification, err)
 	}
 }
 

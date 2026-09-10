@@ -28,6 +28,9 @@ type EmailRecord struct {
 	Data    json.RawMessage `json:"data"`
 }
 type emailRowsQuery struct {
+	EventSearch                                 bool
+	EventEntry                                  string
+	NonemptyEvents                              bool
 	Direction                                   string
 	RequireNativeCapture                        bool
 	Validity                                    string

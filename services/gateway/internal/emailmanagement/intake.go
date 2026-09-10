@@ -105,7 +105,12 @@ type discoveryCursor struct {
 
 func (s *Service) discover(ctx context.Context, job app.EmailJob) error {
 	if browser, ok := s.browser.(PageBrowser); ok {
-		return s.collectPages(ctx, job, browser)
+		collectErr := s.collectPages(ctx, job, browser)
+		mailbox, err := s.activeMailbox(ctx, job)
+		if err == nil {
+			err = s.scheduleThreads(ctx, job, mailbox)
+		}
+		return errors.Join(collectErr, err)
 	}
 	mailbox, err := s.activeMailbox(ctx, job)
 	if err != nil {
@@ -222,24 +227,77 @@ func (s *Service) admitDiscovery(ctx context.Context, job app.EmailJob, mailbox 
 }
 
 func (s *Service) scheduleThreads(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox) error {
-	threads, err := s.repository.ListEmailThreads(ctx, store.EmailQuery{OwnerID: job.OwnerID, MailboxID: mailbox.ID, Limit: 50})
-	if err != nil {
-		return err
-	}
-	for _, thread := range threads {
-		interval := s.opts.ScanInterval
-		if thread.Coverage == "complete_for_observation" && s.now().Sub(thread.LastCheckedAt) < 10*time.Minute {
-			continue
-		}
-		if thread.Coverage == "complete_for_observation" {
-			interval = 10 * time.Minute
-		}
-		_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(job.OwnerID, fmt.Sprintf("thread:%s:%d:%d", thread.ID, mailbox.BindingGeneration, s.now().Unix()/60)), Kind: app.EmailJobThreadSync, TargetID: thread.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RepeatInterval: interval})
+	// Do not let the first batch of unavailable/paused threads starve later
+	// encountered events. Only schedule known local identities; this does not
+	// discover or scan any additional remote mailbox history.
+	cursor := ""
+	for {
+		threads, err := s.repository.ListEmailThreads(ctx, store.EmailQuery{OwnerID: job.OwnerID, MailboxID: mailbox.ID, After: cursor, Limit: 100})
 		if err != nil {
 			return err
 		}
+		for _, thread := range threads {
+			interval := s.opts.ScanInterval
+			if thread.Coverage == "complete_for_observation" && s.now().Sub(thread.LastCheckedAt) < 10*time.Minute {
+				continue
+			}
+			if thread.Coverage == "complete_for_observation" {
+				interval = 10 * time.Minute
+			}
+			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(job.OwnerID, fmt.Sprintf("thread:%s:%d:%d", thread.ID, mailbox.BindingGeneration, s.now().Unix()/60)), Kind: app.EmailJobThreadSync, TargetID: thread.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RepeatInterval: interval})
+			if err != nil {
+				return err
+			}
+		}
+		if len(threads) < 100 {
+			break
+		}
+		cursor = store.EmailThreadCursor(threads[len(threads)-1])
 	}
 	return nil
+}
+
+// retryKnownHistory is reserved for an explicit user sync. Periodic scheduling
+// keeps exhausted jobs stopped; a user retry preserves current leases/backoff
+// while rearming terminal failures against known native identities only.
+func (s *Service) retryKnownHistory(ctx context.Context, owner string, mailbox app.EmailMailbox) error {
+	cursor := ""
+	for {
+		threads, err := s.repository.ListEmailThreads(ctx, store.EmailQuery{OwnerID: owner, MailboxID: mailbox.ID, After: cursor, Limit: 100})
+		if err != nil {
+			return err
+		}
+		for _, thread := range threads {
+			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_history_retry")), Kind: app.EmailJobThreadSync, TargetID: thread.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true})
+			if err != nil {
+				return err
+			}
+			memberCursor := ""
+			for {
+				members, err := s.repository.ListEmailMails(ctx, store.EmailQuery{OwnerID: owner, MailboxID: mailbox.ID, MailThreadID: thread.ProviderThreadID, After: memberCursor, Limit: 100})
+				if err != nil {
+					return err
+				}
+				for _, member := range members.Items {
+					if member.CaptureState == app.EmailCaptureComplete || member.ProviderMessageID == "" || member.ProviderSelectionID == "" {
+						continue
+					}
+					_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_history_capture_retry")), Kind: app.EmailJobCapture, TargetID: member.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true})
+					if err != nil {
+						return err
+					}
+				}
+				if members.NextCursor == "" {
+					break
+				}
+				memberCursor = members.NextCursor
+			}
+		}
+		if len(threads) < 100 {
+			return nil
+		}
+		cursor = store.EmailThreadCursor(threads[len(threads)-1])
+	}
 }
 
 func (s *Service) capture(ctx context.Context, job app.EmailJob) error {
@@ -345,44 +403,72 @@ func (s *Service) markRead(ctx context.Context, job app.EmailJob) error {
 	return err
 }
 
+// A bounded number of pages per lease lets unrelated mailbox work proceed.
+// Every page is durably admitted before advancing, so retries resume at the
+// saved cursor and already captured sources are reused by the Store.
+const threadPagesPerRun = 4
+
 func (s *Service) syncThread(ctx context.Context, job app.EmailJob) error {
-	mailbox, err := s.activeMailbox(ctx, job)
-	if err != nil {
-		return err
-	}
-	thread, found, err := s.repository.GetEmailThread(ctx, job.OwnerID, job.TargetID)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return errors.New("email_thread_missing")
-	}
-	request, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, app.NewID("email_thread"), app.EmailJobThreadSync)
-	if err != nil {
-		return err
-	}
-	result, err := s.browser.EnumerateThreadForOwner(ctx, job.OwnerID, app.EmailThreadRequest{Binding: request, Thread: app.EmailThreadTarget{AccountAddress: mailbox.Address, ProviderThreadID: thread.ProviderThreadID, ProviderSelectionID: thread.ProviderSelectionID, Folder: thread.Folder}, Continuation: thread.Cursor, Limit: 50})
-	if err != nil {
-		return err
-	}
-	if !strings.EqualFold(result.Thread.AccountAddress, mailbox.Address) || result.Thread.ProviderThreadID != thread.ProviderThreadID {
-		return errors.New("email_thread_identity")
-	}
-	input := store.EmailDiscoveryCommand{MaxPendingJobs: 1000, Lease: lease(job, s.now()), EmailCommand: command(job.OwnerID, request.InvocationID+":admit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, ThreadID: thread.ProviderThreadID, ProviderSelectionID: thread.ProviderSelectionID, Folder: thread.Folder, Cursor: result.Coverage.Continuation, Coverage: "partial", Trigger: app.EmailJobThreadSync, ObservedAt: result.ObservedAt}
-	if result.Coverage.ScanComplete {
-		input.Coverage = "complete_for_observation"
-	}
-	if result.Coverage.Reason != "" {
-		input.Gaps = []string{result.Coverage.Reason}
-	}
-	for _, member := range result.Members {
-		if !strings.EqualFold(member.Target.AccountAddress, mailbox.Address) {
-			return errors.New("email_account_changed")
+	seen := map[string]bool{}
+	for page := 0; page < threadPagesPerRun; page++ {
+		mailbox, err := s.activeMailbox(ctx, job)
+		if err != nil {
+			return err
 		}
-		input.Members = append(input.Members, store.EmailDiscoveryMember{ProviderMessageID: member.Target.ProviderMessageID, ProviderSelectionID: member.Target.ProviderSelectionID, ProviderThreadID: thread.ProviderThreadID, Folder: member.Target.Folder, Direction: member.Direction, Reason: app.EmailJobThreadSync, RemoteReadState: member.ReadState, Draft: member.Draft})
+		thread, found, err := s.repository.GetEmailThread(ctx, job.OwnerID, job.TargetID)
+		if err != nil {
+			return err
+		}
+		if !found || thread.MailboxID != mailbox.ID {
+			return errors.New("email_thread_missing")
+		}
+		if seen[thread.Cursor] {
+			return errors.New("email_thread_cursor_stalled")
+		}
+		seen[thread.Cursor] = true
+		request, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, app.NewID("email_thread"), app.EmailJobThreadSync)
+		if err != nil {
+			return err
+		}
+		target := app.EmailThreadTarget{AccountAddress: mailbox.Address, ProviderThreadID: thread.ProviderThreadID, ProviderSelectionID: thread.ProviderSelectionID, Folder: thread.Folder}
+		result, err := s.browser.EnumerateThreadForOwner(ctx, job.OwnerID, app.EmailThreadRequest{Binding: request, Thread: target, Continuation: thread.Cursor, Limit: 50})
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(result.Thread.AccountAddress, mailbox.Address) || result.Thread.ProviderThreadID != thread.ProviderThreadID || result.Thread.ProviderSelectionID != thread.ProviderSelectionID || result.Thread.Folder != thread.Folder {
+			return errors.New("email_thread_identity")
+		}
+		if result.Coverage.ScanComplete && (result.Coverage.Continuation != "" || result.Coverage.Reason != "") {
+			return errors.New("email_thread_coverage_invalid")
+		}
+		input := store.EmailDiscoveryCommand{MaxPendingJobs: 1000, Lease: lease(job, s.now()), EmailCommand: command(job.OwnerID, request.InvocationID+":admit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, ThreadID: thread.ProviderThreadID, ProviderSelectionID: thread.ProviderSelectionID, Folder: thread.Folder, Cursor: result.Coverage.Continuation, Coverage: "partial", Trigger: app.EmailJobThreadSync, ObservedAt: result.ObservedAt}
+		if result.Coverage.ScanComplete {
+			input.Coverage = "complete_for_observation"
+		}
+		if result.Coverage.Reason != "" {
+			input.Gaps = []string{result.Coverage.Reason}
+		}
+		memberIDs := map[string]bool{}
+		for _, member := range result.Members {
+			if !strings.EqualFold(member.Target.AccountAddress, mailbox.Address) || member.Target.ProviderThreadID != thread.ProviderThreadID || member.Target.ProviderSelectionID != thread.ProviderSelectionID || member.Target.ProviderMessageID == "" || memberIDs[member.Target.ProviderMessageID] {
+				return errors.New("email_thread_identity")
+			}
+			memberIDs[member.Target.ProviderMessageID] = true
+			direction := member.Direction
+			if direction == "outbound" {
+				direction = "sent"
+			}
+			input.Members = append(input.Members, store.EmailDiscoveryMember{ProviderMessageID: member.Target.ProviderMessageID, ProviderSelectionID: member.Target.ProviderSelectionID, ProviderThreadID: thread.ProviderThreadID, Folder: member.Target.Folder, Direction: direction, Reason: app.EmailJobThreadSync, RemoteReadState: member.ReadState, Draft: member.Draft})
+		}
+		_, err = s.repository.AdmitEmailDiscovery(ctx, input)
+		if err = s.reconcileError(ctx, input.EmailCommand, err); err != nil {
+			return err
+		}
+		if result.Coverage.ScanComplete || result.Coverage.Continuation == "" {
+			return nil
+		}
 	}
-	_, err = s.repository.AdmitEmailDiscovery(ctx, input)
-	return err
+	return nil
 }
 
 func (s *Service) committed(ctx context.Context, cmd store.EmailCommand) (bool, error) {

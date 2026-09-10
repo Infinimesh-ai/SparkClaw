@@ -98,6 +98,13 @@ export function providerDOM(provider, phase, expected = {}, qqIdentity = null) {
     // Prove exhaustion against the mailbox total, never just a virtual page.
     return result({ account_address: account, total_count: total === undefined ? null : Number(total), empty: total !== undefined && Number(total) === rows.length && values.every(row => !row.unread), rows: values });
   }
+  if (phase === "thread_members" && provider === "gmail") {
+    const messages = all('.adn[data-legacy-message-id]').filter(node=>all('.a3s',node).length===1);
+    const ids = messages.map(node=>node.getAttribute('data-legacy-message-id'));
+    if (!ids.includes(expected.provider_message_id)) return null;
+    if (!account || !ids.length || ids.length>1000 || ids.some(id=>!/^[a-f0-9]{1,32}$/u.test(id)) || new Set(ids).size!==ids.length) return result({error:"email_message_identity_ambiguous"});
+    return result({account_address:account,ids});
+  }
   if (phase === "detail") {
     if (provider === "gmail") {
       const allMessages = all('.adn[data-legacy-message-id]');
@@ -334,6 +341,16 @@ async function collectListed(tab, provider, options, listed) {
       if(!pinned && !selected && Number.isInteger(listed.total_count) && seen.size===listed.total_count) return {status:'empty'};
     }
   }
+  if (!selected && provider === 'gmail' && options.pinned_message_id && options.account_address && /^[a-f0-9]{1,32}$/u.test(options.pinned_message_id)) {
+    // The route and individual message marker are already used by native
+    // capture. A missing list row must not hide an explicitly indexed source.
+    await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(`${READ_PROVIDERS.gmail.url.split('#')[0]}#all/${encodeURIComponent(options.pinned_message_id)}`)});return true;}`);
+    const detail = await inspect(tab,provider,'detail',{provider_message_id:options.pinned_message_id});
+    if (detail.account_address?.toLowerCase() !== options.account_address.toLowerCase()) throw fail('email_account_identity_mismatch');
+    selected = {provider_message_id:options.pinned_message_id,provider_selection_id:options.pinned_selection_id,
+      individual_message_proven:true};
+    listed = {...listed,account_address:detail.account_address};
+  }
   if (!selected) {
     if (pinned) throw fail("email_pinned_message_unavailable");
     throw fail("email_page_contract_changed");
@@ -504,6 +521,16 @@ export async function enumerateThread(input,runtime,provider) {
     if (listed.account_address?.toLowerCase() !== input.thread.account_address.toLowerCase()) throw fail('email_account_identity_mismatch');
     const rows = listed.rows.filter(row=>row.provider_selection_id===input.thread.provider_selection_id || provider==='gmail' && row.provider_thread_id===input.thread.provider_selection_id);
     const members = [];
+    let directInventory = false;
+    if (provider === 'gmail' && rows.length === 0 && /^[a-f0-9]{1,32}$/u.test(input.thread.provider_selection_id)) {
+      await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(`${READ_PROVIDERS.gmail.url.split('#')[0]}#all/${encodeURIComponent(input.thread.provider_selection_id)}`)});return true;}`);
+      const detail = await inspect(tab,provider,'thread_members',{provider_message_id:input.thread.provider_selection_id});
+      if (detail.account_address?.toLowerCase() !== input.thread.account_address.toLowerCase()) throw fail('email_account_identity_mismatch');
+      for (const id of detail.ids) members.push({target:{account_address:input.thread.account_address,provider_message_id:id,
+        provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder:'all'},
+        direction:'unknown',draft:false,read_state:'unknown'});
+      directInventory = true;
+    }
     if (provider === 'gmail' && rows.length === 1 && rows[0].members?.length) {
       for (const member of rows[0].members) {
         const folder=member.inbox?'inbox':member.sent?'sent':'all';
@@ -531,10 +558,10 @@ export async function enumerateThread(input,runtime,provider) {
     const offset = prior === digest ? Number(offsetText) || 0 : 0;
     const page = members.slice(offset,offset+input.limit);
     const continuation = offset+page.length < members.length ? `${digest}:${offset+page.length}` : '';
-    const complete = provider !== 'qq_mail' && members.length>0 && !continuation && (rows[0].single_message_proven || rows[0].inventory_complete);
+    const complete = !directInventory && provider !== 'qq_mail' && members.length>0 && !continuation && (rows[0].single_message_proven || rows[0].inventory_complete);
     return {schema_version:1,provider,status:complete?'complete_for_observation':'partial',thread:input.thread,members:page,
       coverage:{scope:'thread',scan_complete:complete,scanned_rows:Math.max(rows.length,members.length),unsupported_rows:members.length?0:rows.length,
-        limited:!complete,...(continuation?{continuation}:{}),...(complete?{}:{reason:continuation?'batch_limit':provider==='qq_mail'?'reply_relationships_unqualified':'individual_thread_members_unqualified'})},observed_at:new Date().toISOString()};
+        limited:!complete,...(continuation?{continuation}:{}),...(complete?{}:{reason:continuation?'batch_limit':directInventory?'rendered_thread_inventory_partial':provider==='qq_mail'?'reply_relationships_unqualified':'individual_thread_members_unqualified'})},observed_at:new Date().toISOString()};
   });
 }
 

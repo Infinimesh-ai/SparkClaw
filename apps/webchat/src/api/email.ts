@@ -9,6 +9,9 @@ export type EmailConcern = {
 };
 
 export type EmailConversation = {
+  effective_entry?: EmailEntry;
+  title_state?: "ready" | "source_fallback" | "pending";
+  member_count?: number;
   historical_mixed?: boolean;
   id: string;
   version: number;
@@ -23,6 +26,10 @@ export type EmailConversation = {
 };
 
 export type EmailMessage = {
+  classification_state?: string;
+  assignment_state?: string;
+  history_state?: "complete" | "pending" | "partial" | "paused" | "failed";
+  history_reason?: string;
   confirmation_source?: string;
   local_send_id?: string;
   reply_mail_id?: string;
@@ -76,7 +83,7 @@ export type EmailSyncStatus = {
   pending_count: number;
 };
 
-export type EmailFilters = { mailbox_id?: string; q?: string; cursor?: string; limit?: number; subtype?: string; validity?: string };
+export type EmailFilters = { entry?: EmailEntry; unassigned_only?: boolean; mailbox_id?: string; q?: string; cursor?: string; limit?: number; subtype?: string; validity?: string };
 export type EmailConversationPage = { counts?: { total: number; unseen: number }; version: number; conversations: EmailConversation[]; next_cursor?: string };
 export type EmailMessagePage = { version: number; messages: EmailMessage[]; counts?: { total: number; unseen: number }; server_now?: string; next_cursor?: string };
 
@@ -98,6 +105,7 @@ export type EmailClassification = {
   revision: number;
   reason_code?: string;
   evidence_refs?: string[];
+  evidence?: { ref: string; text: string }[];
   uncertainty?: boolean;
   sender_address?: string;
   rule_revision?: number;

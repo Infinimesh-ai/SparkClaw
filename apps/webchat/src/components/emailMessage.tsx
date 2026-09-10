@@ -7,7 +7,7 @@ import { EmailVerification } from "./emailVerification";
 import { EmailClassificationControls } from "./emailClassification";
 import { EmailProgress } from "./emailCommon";
 
-export function EmailMessageCard({ mail, viewed, text, language, busy, onReanalyze, onError, presentation, onClassify, onReply, onRetryPresentation, onOpenConversation, onOpenMail }: {
+export function EmailMessageCard({ mail, viewed, text, language, busy, onReanalyze, onError, presentation, onClassify, onReply, onOpenConversation, onOpenMail }: {
   mail: EmailMessage; viewed: boolean; text: Copy; language: Language; busy: boolean;
   onReanalyze: (id: string) => void; onError: (reason: unknown) => void;
   presentation?: EmailPresentation;
@@ -26,6 +26,7 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
         {!viewed && <span className="emailUnseen">{text.email.unseen}</span>}
         <time dateTime={time}>{!mail.sent_at && `${text.email.arrivalTime}: `}{formatDateTime(time, language)}</time>
       </header>
+      {mail.history_state && mail.history_state !== "complete" && <p className="emailWarning" role="status">{mail.history_state === "pending" ? text.email.historyPending : mail.history_state === "failed" ? text.email.historyFailed : text.email.historyMissing}</p>}
       {mail.local_send_id && !mail.original_available && <p className="emailNotice">{mail.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed : text.email.sendSucceeded} · {text.email.sendEvidencePending}</p>}
       {presentation?.state === "ready" && presentation.service_label && <strong>{presentation.service_label}</strong>}
       <small>{mail.local_send_id && !mail.original_available ? text.email.subject : text.email.originalSubject}</small><h3>{mail.subject || text.email.untitled}</h3>
@@ -35,17 +36,10 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
         {(mail.cc ?? []).length > 0 && <><dt>{text.email.cc}</dt><dd>{mail.cc.join(", ")}</dd></>}
         <dt>{text.email.receivingAddress}</dt><dd>{mail.receiving_address}</dd>
       </dl>
-      <div className="emailSummary">
-        <strong>{text.email.messageSummary}</strong>
-        <EmailProgress state={presentation?.state} text={text} />
-        <p>{presentation?.state === "ready" ? presentation.summary || text.email.summaryWaiting : presentation?.state === "failed" ? text.email.presentationFailed : text.email.presentationWaiting}</p>
-        {presentation?.state === "failed" && <button className="emailTextButton" onClick={onRetryPresentation}>{text.email.retryPresentation}</button>}
-      </div>
-      {presentation?.state === "ready" && presentation.requested_response && <section className="emailRequestedResponse"><strong>{text.email.requestedResponse}</strong><p>{presentation.requested_response}</p></section>}
       {mail.verification && <EmailVerification mailId={mail.id} value={mail.verification} purpose={presentation?.state === "ready" ? presentation.purpose : undefined} text={text} language={language} />}
       {onClassify && <EmailClassificationControls mail={mail} presentation={presentation} text={text} busy={busy} onChange={onClassify} />}
       {(mail.attachments ?? []).length > 0 && <p className="emailWarning">{text.email.attachmentNotAnalyzed}</p>}
-      {mail.body_text && <details className="emailBody"><summary>{text.email.body}</summary><pre>{mail.body_text}</pre></details>}
+      {mail.body_text && <details className="emailBody" open><summary>{text.email.body}</summary><pre>{mail.body_text}</pre></details>}
       <div className="emailMessageActions">
         {mail.reply_mail_id && onOpenMail && <button className="emailTextButton" onClick={() => onOpenMail(mail.reply_mail_id!)}>{text.email.openReplyOriginal}</button>}
         {mail.conversation_id && onOpenConversation && <button className="emailTextButton" onClick={() => onOpenConversation(mail.conversation_id!)}>{text.email.relatedConversation}</button>}

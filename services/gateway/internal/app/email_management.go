@@ -47,6 +47,8 @@ type EmailMailbox struct {
 }
 
 type EmailMail struct {
+	AssignmentSource       string               `json:"assignment_source,omitempty"`
+	AssignmentRevision     int64                `json:"assignment_revision,omitempty"`
 	SendConfirmationSource string               `json:"send_confirmation_source,omitempty"`
 	SupersededByMailID     string               `json:"superseded_by_mail_id,omitempty"`
 	LocalSendID            string               `json:"local_send_id,omitempty"`
@@ -139,6 +141,8 @@ type EmailContextVersion struct {
 }
 
 type EmailConversation struct {
+	TitleState        string        `json:"title_state,omitempty"`
+	EffectiveEntry    string        `json:"effective_entry,omitempty"`
 	HistoricalMixed   bool          `json:"historical_mixed"`
 	ID                string        `json:"id"`
 	OwnerID           string        `json:"owner_id"`
@@ -214,6 +218,7 @@ type EmailSummary struct {
 // References use mail:<id>, conversation:<id>, reply:<RFC Message-ID>,
 // thread:<mailbox-id>:<provider-thread-id>, or summary:<kind>:<target-id>.
 type EmailAnalysisTarget struct {
+	CurrentJob           *EmailJob        `json:"-"`
 	SelectedDependencies []string         `json:"selected_dependencies"`
 	ConcernID            string           `json:"concern_id,omitempty"`
 	Kind                 string           `json:"kind"`
@@ -247,6 +252,7 @@ type EmailJob struct {
 }
 
 type EmailProviderThread struct {
+	ErrorCode           string    `json:"error_code,omitempty"`
 	Gaps                []string  `json:"gaps,omitempty"`
 	ProviderSelectionID string    `json:"provider_selection_id"`
 	ID                  string    `json:"id"`

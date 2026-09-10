@@ -27,14 +27,14 @@ export class StdioJSONRPC {
     });
   }
 
-  request(method, params) {
+  request(method, params, timeoutMS = this.requestTimeoutMS) {
     if (this.failure) return Promise.reject(this.failure);
     const id = this.nextID++;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`MCP request timed out: ${method}`));
-      }, this.requestTimeoutMS);
+      }, timeoutMS);
       timeout.unref?.();
       this.pending.set(id, { resolve, reject, timeout });
       this.#write({ jsonrpc: "2.0", id, method, params });

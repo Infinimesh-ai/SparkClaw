@@ -38,11 +38,14 @@ func emailSaveMail(e *emailEngine, m app.EmailMail) {
 		if ok {
 			search += " " + v.BodyText
 			for _, a := range v.Attachments {
+				if emailEvents(e) {
+					continue
+				}
 				search += " " + a.Name + " " + a.Text
 			}
 		}
 	}
-	if summary := emailProjectSummary(e, app.EmailJobMessageSummary, m.ID); summary != nil {
+	if summary := emailProjectSummary(e, app.EmailJobMessageSummary, m.ID); summary != nil && !emailEvents(e) {
 		search += " " + summary.Text
 	}
 	if m.Verification != nil || (m.Classification != nil && m.Classification.NotificationSubtype == "verification") {
@@ -294,6 +297,9 @@ func emailAdmit(e *emailEngine, c EmailDiscoveryCommand) (EmailDiscoveryAdmissio
 			thread.ProviderSelectionID = c.ProviderSelectionID
 		}
 		thread.Folder = c.Folder
+		if c.Trigger == app.EmailJobThreadSync {
+			thread.ErrorCode = ""
+		}
 		if !(existed && c.Trigger == "thread_discovery") {
 			thread.Cursor = c.Cursor
 			thread.Coverage = c.Coverage
@@ -425,6 +431,7 @@ func emailRepresentation(e *emailEngine, c EmailRepresentationCommand) (app.Emai
 	m.InputVersion++
 	emailSaveMail(e, m)
 	emailChangedMail(e, m)
+	emailTouch(e, "source:"+m.ID)
 	if v.MessageID != "" {
 		emailTouch(e, "reply:"+v.MessageID)
 	}
@@ -450,6 +457,12 @@ func emailContext(e *emailEngine, c EmailContextCommand) (app.EmailMail, error) 
 	for _, id := range v.RelatedMailIDs {
 		if _, err = emailMail(e, id); err != nil {
 			return m, err
+		}
+	}
+	if m.ContextID != "" {
+		old, ok := emailGet[app.EmailContextVersion](e, "context", m.ContextID)
+		if ok && slices.Equal(emailUnique(old.RelatedMailIDs), emailUnique(v.RelatedMailIDs)) && slices.Equal(emailUnique(old.UnresolvedReferences), emailUnique(v.UnresolvedReferences)) && old.Coverage == v.Coverage {
+			return m, e.err
 		}
 	}
 	v.CreatedAt = e.now
@@ -478,7 +491,7 @@ func emailViewed(e *emailEngine, c EmailViewedCommand) ([]app.EmailViewReceipt, 
 		if !ok {
 			v = app.EmailViewReceipt{MailID: id, FirstViewedAt: postgresTime(at)}
 			emailPut(e, "view", id, "", "", "", "", id, v)
-			if m.ConversationID != "" && emailEffectiveEntry(m) == "interaction" {
+			if m.ConversationID != "" && (emailEvents(e) || emailEffectiveEntry(m) == "interaction") {
 				conv, _ := emailGet[app.EmailConversation](e, "conversation", m.ConversationID)
 				if conv.UnseenCount > 0 {
 					conv.UnseenCount--

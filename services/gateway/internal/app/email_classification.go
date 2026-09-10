@@ -5,6 +5,15 @@ import "time"
 const EmailJobClassification = "classification"
 
 type EmailClassification struct {
+	ID            string `json:"id,omitempty"`
+	InputPath     string `json:"input_path,omitempty"`
+	InputSHA256   string `json:"input_sha256,omitempty"`
+	OutputPath    string `json:"output_path,omitempty"`
+	OutputSHA256  string `json:"output_sha256,omitempty"`
+	ModelVersion  string `json:"model_version,omitempty"`
+	PromptVersion string `json:"prompt_version,omitempty"`
+	Stage         string `json:"stage,omitempty"`
+
 	RequestedResponse   string                        `json:"requested_response,omitempty"`
 	Purpose             string                        `json:"purpose,omitempty"`
 	ServiceLabel        string                        `json:"service_label,omitempty"`

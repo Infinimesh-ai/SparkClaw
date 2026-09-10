@@ -27,6 +27,9 @@ type ConcernView struct {
 	Version                int64    `json:"version"`
 }
 type ConversationView struct {
+	TitleState      string        `json:"title_state"`
+	EffectiveEntry  string        `json:"effective_entry"`
+	MemberCount     int           `json:"member_count"`
 	HistoricalMixed bool          `json:"historical_mixed"`
 	ID              string        `json:"id"`
 	Version         int64         `json:"version"`
@@ -46,6 +49,11 @@ type AttachmentView struct {
 	Available bool   `json:"available"`
 }
 type MessageView struct {
+	ClassificationState       string                   `json:"classification_state"`
+	AssignmentState           string                   `json:"assignment_state"`
+	HistoryState              string                   `json:"history_state"`
+	HistoryReason             string                   `json:"history_reason,omitempty"`
+	AssignmentSource          string                   `json:"assignment_source,omitempty"`
 	ConfirmationSource        string                   `json:"confirmation_source,omitempty"`
 	LocalSendID               string                   `json:"local_send_id,omitempty"`
 	ReplyMailID               string                   `json:"reply_mail_id,omitempty"`
@@ -199,7 +207,7 @@ func (s *Service) Conversation(ctx context.Context, owner, id string) (Conversat
 	})
 }
 func (s *Service) conversationView(ctx context.Context, owner string, row app.EmailConversation, version int64) (ConversationView, error) {
-	out := ConversationView{HistoricalMixed: row.HistoricalMixed, ID: row.ID, Version: version, Title: row.Title, Participants: nonNilStrings(row.Participants), UnseenCount: row.UnseenCount, LastActivityAt: emailTime(row.UpdatedAt), Concerns: []ConcernView{}, ProcessingState: "ready"}
+	out := ConversationView{TitleState: row.TitleState, EffectiveEntry: row.EffectiveEntry, MemberCount: row.MemberCount, HistoricalMixed: row.HistoricalMixed, ID: row.ID, Version: row.InputVersion, Title: row.Title, Participants: nonNilStrings(row.Participants), UnseenCount: row.UnseenCount, LastActivityAt: emailTime(row.UpdatedAt), Concerns: []ConcernView{}, ProcessingState: "ready"}
 	target, found, err := s.repository.GetEmailAnalysisTarget(ctx, owner, app.EmailJobConversationSummary, row.ID)
 	if err != nil {
 		return out, err
@@ -218,7 +226,7 @@ func (s *Service) conversationView(ctx context.Context, owner string, row app.Em
 		}
 		out.Concerns = append(out.Concerns, ConcernView{ID: concern.ID, Kind: concern.Kind, Evidence: concern.Reason, RelatedConversationIDs: related, Version: concern.Version})
 	}
-	out.ProcessingState = out.SummaryState
+	out.ProcessingState = "ready"
 	return out, nil
 }
 func projectSummary(summary *app.EmailSummary, target app.EmailAnalysisTarget, found bool) (string, string) {
@@ -282,7 +290,18 @@ func (s *Service) Pending(ctx context.Context, q store.EmailQuery) (MessagesView
 	return s.Messages(ctx, q)
 }
 func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMail, version int64) (MessageView, error) {
-	out := MessageView{ConfirmationSource: row.SendConfirmationSource, LocalSendID: row.LocalSendID, ReplyMailID: row.ReplyMailID, SourceState: row.CaptureState, Classification: row.Classification, ConversationID: row.ConversationID, ID: row.ID, Version: version, MailboxID: row.MailboxID, Direction: row.Direction, Subject: row.Subject, SentAt: emailTime(row.SourceTime), ArrivedAt: emailTime(row.DiscoveredAt), Viewed: row.ViewedAt != nil, To: []string{}, CC: []string{}, Attachments: []AttachmentView{}, ProcessingState: row.AssignmentState}
+	var historyErr error
+	out := MessageView{AssignmentSource: row.AssignmentSource, ConfirmationSource: row.SendConfirmationSource, LocalSendID: row.LocalSendID, ReplyMailID: row.ReplyMailID, SourceState: row.CaptureState, Classification: row.Classification, ConversationID: row.ConversationID, ID: row.ID, Version: row.InputVersion, MailboxID: row.MailboxID, Direction: row.Direction, Subject: row.Subject, SentAt: emailTime(row.SourceTime), ArrivedAt: emailTime(row.DiscoveredAt), Viewed: row.ViewedAt != nil, To: []string{}, CC: []string{}, Attachments: []AttachmentView{}, ProcessingState: row.AssignmentState}
+	if out.Classification != nil {
+		copy := *out.Classification
+		copy.InputPath = ""
+		copy.OutputPath = ""
+		out.Classification = &copy
+	}
+	out.HistoryState, out.HistoryReason, historyErr = s.mailHistory(ctx, owner, row)
+	if historyErr != nil {
+		return out, historyErr
+	}
 	mailbox, found, err := s.repository.GetEmailMailbox(ctx, owner, row.MailboxID)
 	if err != nil {
 		return out, err
@@ -366,7 +385,47 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 	case row.ParseState == app.EmailParsePartial || row.CaptureState == app.EmailCapturePartial:
 		out.ProcessingState = "partial"
 	case row.ConversationID != "":
-		out.ProcessingState = out.SummaryState
+		out.ProcessingState = "ready"
+	}
+	state := func(kind string) (string, error) {
+		t, ok, err := s.repository.GetEmailAnalysisTarget(ctx, owner, kind, row.ID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "waiting_source", nil
+		}
+		if t.CurrentJob != nil {
+			return t.CurrentJob.State, nil
+		}
+		return t.State, nil
+	}
+	out.ClassificationState, err = state(app.EmailJobClassification)
+	if err != nil {
+		return out, err
+	}
+	if row.Classification != nil && (row.Classification.Source == "manual" || row.Classification.Source == "rule") {
+		out.ClassificationState = "ready"
+	}
+	out.AssignmentState = row.AssignmentState
+	if row.ConversationID != "" {
+		out.AssignmentState = "ready"
+	} else {
+		out.AssignmentState, err = state(app.EmailJobAssignment)
+		if err != nil {
+			return out, err
+		}
+		if out.AssignmentState == "succeeded" || out.AssignmentState == "current" {
+			out.AssignmentState = "needs_review"
+		}
+	}
+	if row.RepresentationID != "" && row.ConversationID == "" {
+		out.ProcessingState = out.AssignmentState
+		if out.ClassificationState == "failed" {
+			out.ProcessingState = "failed"
+		} else if row.Classification == nil {
+			out.ProcessingState = out.ClassificationState
+		}
 	}
 	return out, nil
 }
@@ -438,6 +497,9 @@ func (s *Service) Sync(ctx context.Context, owner, mailboxID string) (ScheduleRe
 		if err != nil {
 			return ScheduleResult{}, err
 		}
+		if err = s.retryKnownHistory(ctx, owner, mailbox); err != nil {
+			return ScheduleResult{}, err
+		}
 		scheduled = true
 	}
 	if !found {
@@ -460,26 +522,18 @@ func (s *Service) Reanalyze(ctx context.Context, owner, id string) (ScheduleResu
 	if mail.CaptureID == "" {
 		return s.Sync(ctx, owner, mail.MailboxID)
 	}
+	if _, err = s.repository.ActivateEmailEventPolicy(ctx, command(owner, "activate-source-events-v4")); err != nil {
+		return ScheduleResult{}, err
+	}
 	kinds := []string{app.EmailJobClassification}
-	if mail.Classification != nil && mail.Classification.EffectiveEntry == "interaction" {
-		kinds = append(kinds, app.EmailJobMessageSummary)
-		if mail.ConversationID != "" {
-			kinds = append(kinds, app.EmailJobRelationshipCheck)
-		} else {
-			kinds = append(kinds, app.EmailJobAssignment)
-		}
+	if mail.ConversationID == "" && mail.Classification != nil {
+		kinds = append(kinds, app.EmailJobAssignment)
 	}
 	if mail.RepresentationID == "" || mail.ParseState == app.EmailParseFailed || mail.ParseState == app.EmailParsePartial || mail.ParseState == app.EmailParseUnsupported {
 		kinds = []string{app.EmailJobParse}
 	}
 	for _, kind := range kinds {
 		_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_reanalyze")), Kind: kind, TargetID: id, Rearm: true, ForceAnalysis: kind != app.EmailJobParse})
-		if err != nil {
-			return ScheduleResult{}, err
-		}
-	}
-	if mail.ConversationID != "" {
-		_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_reanalyze")), Kind: app.EmailJobConversationSummary, TargetID: mail.ConversationID, Rearm: true, ForceAnalysis: true})
 		if err != nil {
 			return ScheduleResult{}, err
 		}

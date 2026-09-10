@@ -33,7 +33,9 @@ func emailCandidates(e *emailEngine, q EmailCandidateQuery) (EmailCandidateSet, 
 			return
 		}
 		query.Kind = "mail"
-		query.Entry = "interaction"
+		if !emailEvents(e) {
+			query.Entry = "interaction"
+		}
 		// One extra row allows the source itself without consuming a candidate.
 		query.Limit = limit + 1
 		for _, other := range emailList[app.EmailMail](e, query) {
@@ -45,6 +47,13 @@ func emailCandidates(e *emailEngine, q EmailCandidateQuery) (EmailCandidateSet, 
 				out.RelatedMails = append(out.RelatedMails, emailProjectMail(e, other))
 			}
 			addConversation(other.ConversationID)
+		}
+	}
+	if m.ReplyMailID != "" && m.ReplyMailID != m.ID {
+		if original, ok := emailGet[app.EmailMail](e, "mail", m.ReplyMailID); ok {
+			seenMail[original.ID] = true
+			out.RelatedMails = append(out.RelatedMails, emailProjectMail(e, original))
+			addConversation(original.ConversationID)
 		}
 	}
 	// Preserve evidence tiers and closest-parent ordering; canonical set sorting

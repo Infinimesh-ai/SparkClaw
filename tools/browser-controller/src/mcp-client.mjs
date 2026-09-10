@@ -1,3 +1,5 @@
+import {aiPlatformURL, inspectAILoginPage, classifyAILogin} from './ai-platform-login.mjs';
+import { captureAIChat } from './ai-chat-export.mjs';
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -219,6 +221,24 @@ export class PlaywrightMCPClient {
 
   async execute(operation, args) {
     switch (operation) {
+      case "ai_platform.check": {
+        exactArgs(args, ["provider"], ["page_id"]);
+        const url = aiPlatformURL(args.provider);
+        const page = await this.#selectPage(optionalPageID(args.page_id));
+        await this.#navigate(page.pageID, url);
+        let state = "unconfirmed";
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const evidence = await this.#evaluate(inspectAILoginPage.toString());
+          state = classifyAILogin(args.provider, evidence);
+          if (state !== "unconfirmed" || attempt === 4) break;
+          await this.#callJSONTool("browser_wait_for", {time: 0.75});
+        }
+        return {provider: args.provider, state};
+      }
+      case "ai_chat.export":
+        exactArgs(args, ["provider", "url"], ["page_id"]);
+        await this.#selectPage(optionalPageID(args.page_id));
+        return captureAIChat({provider: args.provider, url: args.url, outputDir: this.outputDir, runCode: code => this.#callJSONTool("browser_run_code_unsafe", {code}, 60000)});
       case "tabs.list":
         exactArgs(args, []);
         return this.#listOwnedPages();
@@ -547,8 +567,8 @@ export class PlaywrightMCPClient {
     for (const page of this.pages.values()) page.refs = null;
   }
 
-  async #callJSONTool(name, args) {
-    const result = await this.#callTool(name, { ...args, _meta: { json: true } });
+  async #callJSONTool(name, args, timeoutMS) {
+    const result = await this.#callTool(name, { ...args, _meta: { json: true } }, timeoutMS);
     const text = result?.content?.find((item) => item?.type === "text")?.text;
     if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > MAX_MCP_RESPONSE_BYTES) {
       throw clientContractError();
@@ -566,8 +586,8 @@ export class PlaywrightMCPClient {
     return { payload, images };
   }
 
-  async #callTool(name, args) {
-    const result = await this.rpc.request("tools/call", { name, arguments: args });
+  async #callTool(name, args, timeoutMS) {
+    const result = await this.rpc.request("tools/call", { name, arguments: args }, timeoutMS);
     if (result?.isError) {
       throw new ControllerError("browser_extension_unavailable", "browser extension is unavailable", {
         status: 503,

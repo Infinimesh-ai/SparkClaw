@@ -80,10 +80,18 @@ func (f *analyzerFixture) Analyze(_ context.Context, input AnalysisInput) (Analy
 	for _, e := range input.Evidence {
 		output.EvidenceRefs = append(output.EvidenceRefs, e.Ref)
 	}
+	if input.PolicyVersion == analysisPromptVersion {
+		output.Summary = ""
+		output.Title = ""
+		if input.Kind == app.EmailJobAssignment {
+			output.Title = "Approve fixture purchase"
+		}
+	}
 	if input.Kind == app.EmailJobClassification {
 		output.Category = "interaction"
 	}
 	if input.Kind == app.EmailJobAssignment {
+		output.EventScope = "single_event"
 		output.Action = "new"
 	}
 	return output, nil
@@ -158,13 +166,13 @@ func TestTimerToDurableConversationAndOwnerDownload(t *testing.T) {
 		}
 		if len(page.Items) == 1 {
 			mail = page.Items[0]
-			if mail.ConversationID != "" && mail.Summary != nil && mail.Summary.Current && mail.RemoteReadState == "read" {
+			if mail.ConversationID != "" && mail.Classification != nil && mail.Summary == nil && mail.RemoteReadState == "read" {
 				break
 			}
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	if mail.ConversationID == "" || mail.Summary == nil || !mail.Summary.Current || mail.RemoteReadState != "read" {
+	if mail.ConversationID == "" || mail.Classification == nil || mail.Summary != nil || mail.RemoteReadState != "read" {
 		jobs, _ := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", Limit: 100})
 		t.Fatalf("pipeline did not complete: mail=%+v jobs=%+v", mail, jobs)
 	}

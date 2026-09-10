@@ -130,12 +130,12 @@ func TestProductionParseNeverExtractsAttachmentsAndKeepsDownloads(t *testing.T) 
 		if err = s.plan(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = s.workOne(t.Context(), []string{app.EmailJobMessageSummary, app.EmailJobRelationshipCheck, app.EmailJobConversationSummary}); err != nil {
+		if _, err = s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobAssignment}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	after, _, err = repo.GetEmailMail(t.Context(), "email-owner", mail.ID)
-	if err != nil || after.Summary == nil || !after.Summary.Current {
-		t.Fatal("body-only summary unavailable")
+	if err != nil || after.Summary != nil || after.Classification == nil || after.ConversationID != mail.ConversationID {
+		t.Fatal("source-only classification or preserved event unavailable")
 	}
 }

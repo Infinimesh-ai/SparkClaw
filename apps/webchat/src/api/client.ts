@@ -1,5 +1,7 @@
 import type {
   AgentResult,
+  AIPlatform,
+  AIPlatformLoginOverview,
   ArtifactObject,
   AuditEvent,
   Approval,
@@ -375,6 +377,10 @@ export const api = {
   emailSenderRules: (signal?: AbortSignal, cursor = "") => request<{ rules: EmailSenderRule[]; next_cursor?: string }>(`/api/email/sender-rules${emailQuery({ cursor, limit: 100 })}`, { signal }),
   classifyEmail: (id: string, body: { entry: EmailEntry; expected_version: number; remember_sender: boolean; expected_rule_version: number; command_key: string }) =>
     request<{ classification: EmailClassification }>(`/api/email/messages/${encodeURIComponent(id)}/classification`, { method: "POST", body: JSON.stringify(body) }),
+  assignEmailEvent: (id: string, body: { conversation_id?: string; title?: string; expected_version: number; command_key: string }) =>
+    request<{ conversation_id: string }>(`/api/email/messages/${encodeURIComponent(id)}/assignment`, { method: "POST", body: JSON.stringify(body) }),
+  renameEmailEvent: (id: string, body: { title: string; expected_version: number; command_key: string }) =>
+    request<{ conversation: EmailConversation }>(`/api/email/conversations/${encodeURIComponent(id)}/rename`, { method: "POST", body: JSON.stringify(body) }),
   updateEmailSenderRule: (id: string, body: { entry: EmailEntry; enabled: boolean; expected_version: number; command_key: string }) =>
     request<{ rule: EmailSenderRule }>(`/api/email/sender-rules/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify(body) }),
   emailPresentations: (kind: "mail" | "conversation", ids: string[], language: "en" | "zh", signal?: AbortSignal) => {
@@ -408,6 +414,9 @@ export const api = {
     request<{ mailbox: EmailMailbox }>(`/api/email/providers/${encodeURIComponent(provider)}`, {
       method: "PATCH", body: JSON.stringify({ intake_enabled: intakeEnabled, expected_mailbox_version: mailboxVersion })
     }),
+  aiPlatformLogins: () => request<AIPlatformLoginOverview>("/api/browser/extension/ai-platforms"),
+  openAIPlatformLogin: (provider: AIPlatform) => request<AIPlatformLoginOverview>(`/api/browser/extension/ai-platforms/${provider}/login`, {method: "POST", body: "{}"}),
+  checkAIPlatformLogin: (provider: AIPlatform) => request<AIPlatformLoginOverview>(`/api/browser/extension/ai-platforms/${provider}/check`, {method: "POST", body: "{}"}),
   browserExtension: () => request<BrowserExtensionStatus>("/api/browser/extension"),
   saveBrowserExtensionToken: (token: string) => request<BrowserExtensionStatus>("/api/browser/extension/token", {
     method: "PUT",

@@ -85,7 +85,7 @@ func emailUpdateStatus(e *emailEngine, r EmailRecord) {
 			}
 		}
 		backlog := func(j app.EmailJob) int {
-			if j.State == app.EmailJobPaused && j.ErrorCode == emailPageBatchSuperseded {
+			if j.State == app.EmailJobPaused && (j.ErrorCode == emailPageBatchSuperseded || j.ErrorCode == emailEventSuspended) {
 				return 0
 			}
 			if containsEmail([]string{app.EmailJobQueued, app.EmailJobRetryWait, app.EmailJobRunning, app.EmailJobPaused}, j.State) {

@@ -222,6 +222,10 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
+		aiChatProfile{provider: "chatgpt"},
+		aiChatProfile{provider: "claude"},
+		aiChatProfile{provider: "gemini"},
+		aiChatProfile{provider: "grok"},
 		conversationAnswerProfileV1{},
 		conversationAnswerProfileV2{},
 		conversationAnswerProfile{},

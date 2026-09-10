@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/aichatexport"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
@@ -82,6 +83,7 @@ type Server struct {
 	integrations             IntegrationController
 	email                    EmailController
 	emailManagement          *emailmanagement.Service
+	aiPlatformLogin          *aichatexport.LoginManager
 	browserControl           BrowserControlController
 	mcpAccess                *mcpaccess.Service
 	iscpPairing              *iscppairing.Service
@@ -195,6 +197,10 @@ func WithEmailController(controller EmailController) Option {
 
 func WithEmailManagement(service *emailmanagement.Service) Option {
 	return func(server *Server) { server.emailManagement = service }
+}
+
+func WithAIPlatformLogin(manager *aichatexport.LoginManager) Option {
+	return func(s *Server) { s.aiPlatformLogin = manager }
 }
 
 func WithBrowserControlController(controller BrowserControlController) Option {
@@ -427,6 +433,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/email/messages/{mail}/verification", s.revealEmailVerification)
 	s.mux.HandleFunc("GET /api/email/messages/{mail}", s.getEmailSingleMessage)
 	s.mux.HandleFunc("POST /api/email/messages/{mail}/classification", s.changeEmailClassification)
+	s.mux.HandleFunc("POST /api/email/messages/{mail}/assignment", s.changeEmailAssignment)
+	s.mux.HandleFunc("POST /api/email/conversations/{conversation}/rename", s.renameEmailConversation)
 	s.mux.HandleFunc("GET /api/email/sender-rules", s.emailSenderRules)
 	s.mux.HandleFunc("POST /api/email/sender-rules/{rule}", s.updateEmailSenderRule)
 	s.mux.HandleFunc("GET /api/email/conversations", s.listEmailConversations)
@@ -438,6 +446,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/email/messages/viewed", s.markEmailMessagesViewed)
 	s.mux.HandleFunc("POST /api/email/messages/{mail}/reanalyze", s.reanalyzeEmailMessage)
 	s.mux.HandleFunc("GET /api/email/messages/{mail}/file", s.getEmailMessageFile)
+	s.mux.HandleFunc("GET /api/browser/extension/ai-platforms", s.getAIPlatformLogin)
+	s.mux.HandleFunc("POST /api/browser/extension/ai-platforms/{provider}/login", s.openAIPlatformLogin)
+	s.mux.HandleFunc("POST /api/browser/extension/ai-platforms/{provider}/check", s.checkAIPlatformLogin)
 	s.mux.HandleFunc("GET /api/browser/extension", s.getBrowserExtension)
 	s.mux.HandleFunc("PUT /api/browser/extension/token", s.putBrowserExtensionToken)
 	s.mux.HandleFunc("POST /api/browser/extension/check", s.checkBrowserExtension)

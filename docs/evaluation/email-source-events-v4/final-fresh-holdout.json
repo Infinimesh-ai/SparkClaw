@@ -1,0 +1,708 @@
+{
+  "assignment_prompt_sha256": "sha256:4ca3f40654d7c2501c5488f131cc772bbf6e46f4aa467fe4ca997efa8879a946",
+  "corpus": "source-events-independent-synthetic-v1",
+  "fresh_after_prompt_revision": "2",
+  "model_checkpoint_pinned": false,
+  "prompt_sha256": "sha256:db1427510392f14210f73a73305e951cd51fb36a11938515aa2a78d99c8e1604",
+  "prompt_version": "email-management-v4-source-events",
+  "results": [
+    {
+      "id": "g-c1",
+      "expected": "notification",
+      "actual": "notification",
+      "model": "sparkclaw-fast",
+      "calls": 2,
+      "latency_ms": 24369,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "classification_stage": "body",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "classification",
+        "target_id": "g-c1",
+        "current_conversation_id": "",
+        "subject": "夏季课程促销",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-c1:subject",
+            "text": "夏季课程促销"
+          },
+          {
+            "ref": "representation:g-c1:body",
+            "text": "仅本周课程七折。回复本邮件即可领取公开优惠码，欢迎报名。"
+          }
+        ],
+        "candidates": null,
+        "missing_context": null
+      },
+      "output": {
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "notification",
+        "notification_subtype": "promotion",
+        "uncertainty": false,
+        "action": "none",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-c1:body"
+        ],
+        "reason": "information_only",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-c2",
+      "expected": "notification",
+      "actual": "notification",
+      "model": "sparkclaw-fast",
+      "calls": 2,
+      "latency_ms": 14565,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "classification_stage": "body",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "classification",
+        "target_id": "g-c2",
+        "current_conversation_id": "",
+        "subject": "Member offers",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-c2:subject",
+            "text": "Member offers"
+          },
+          {
+            "ref": "representation:g-c2:body",
+            "text": "Subscribe today, click to shop, or reply SAVE for a coupon. This is our weekly public promotion."
+          }
+        ],
+        "candidates": null,
+        "missing_context": null
+      },
+      "output": {
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "notification",
+        "notification_subtype": "promotion",
+        "uncertainty": false,
+        "action": "none",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-c2:body"
+        ],
+        "reason": "information_only",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-c3",
+      "expected": "interaction",
+      "actual": "interaction",
+      "model": "sparkclaw-fast",
+      "calls": 2,
+      "latency_ms": 19590,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "classification_stage": "body",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "classification",
+        "target_id": "g-c3",
+        "current_conversation_id": "",
+        "subject": "Expense review",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-c3:subject",
+            "text": "Expense review"
+          },
+          {
+            "ref": "representation:g-c3:body",
+            "text": "Please approve the reimbursement for the field technician's train ticket, GBP 86."
+          }
+        ],
+        "candidates": null,
+        "missing_context": null
+      },
+      "output": {
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "interaction",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "none",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-c3:body"
+        ],
+        "reason": "concrete_request",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-c4",
+      "expected": "interaction",
+      "actual": "interaction",
+      "model": "sparkclaw-fast",
+      "calls": 2,
+      "latency_ms": 26105,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "classification_stage": "body",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "classification",
+        "target_id": "g-c4",
+        "current_conversation_id": "",
+        "subject": "仓储地址确认",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-c4:subject",
+            "text": "仓储地址确认"
+          },
+          {
+            "ref": "representation:g-c4:body",
+            "text": "新仪器准备出库，请回复确认送到南区库房还是北区实验室。"
+          }
+        ],
+        "candidates": null,
+        "missing_context": null
+      },
+      "output": {
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "interaction",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "none",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-c4:body"
+        ],
+        "reason": "concrete_request",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-c5",
+      "expected": "notification",
+      "actual": "notification",
+      "model": "sparkclaw-fast",
+      "calls": 2,
+      "latency_ms": 26442,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "classification_stage": "body",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "classification",
+        "target_id": "g-c5",
+        "current_conversation_id": "",
+        "subject": "园区停水通知",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-c5:subject",
+            "text": "园区停水通知"
+          },
+          {
+            "ref": "representation:g-c5:body",
+            "text": "周日凌晨两点至四点进行水管维护，园区将短暂停水，无需回复。"
+          }
+        ],
+        "candidates": null,
+        "missing_context": null
+      },
+      "output": {
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "notification",
+        "notification_subtype": "general",
+        "uncertainty": false,
+        "action": "none",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-c5:subject",
+          "representation:g-c5:body"
+        ],
+        "reason": "information_only",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-c6",
+      "expected": "unknown",
+      "actual": "unknown",
+      "model": "sparkclaw-fast",
+      "calls": 2,
+      "latency_ms": 17845,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "classification_stage": "body",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "classification",
+        "target_id": "g-c6",
+        "current_conversation_id": "",
+        "subject": "Re: earlier task",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-c6:subject",
+            "text": "Re: earlier task"
+          },
+          {
+            "ref": "representation:g-c6:body",
+            "text": "Please proceed according to the specific instructions that are only in the missing attached file."
+          }
+        ],
+        "candidates": null,
+        "missing_context": null
+      },
+      "output": {
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "unknown",
+        "notification_subtype": "",
+        "uncertainty": true,
+        "action": "none",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-c6:body"
+        ],
+        "reason": "insufficient_context",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-e1",
+      "expected": "new",
+      "actual": "new",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 24676,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "g-e1",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-e1:body",
+            "text": "Your current account recovery attempt has one-time code 840719. A separate recovery attempt was made yesterday; this email is for today's new attempt."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "Yesterday's account recovery attempt had one-time code 327568."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "new",
+        "target_conversation_id": "",
+        "title": "Account recovery attempt",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-e1:body"
+        ],
+        "reason": "distinct_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-e2",
+      "expected": "new",
+      "actual": "new",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 23064,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "g-e2",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-e2:body",
+            "text": "为本次新的网页登录签发验证码 D4H8J2；这不是昨天的登录请求。"
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "昨天那次网页登录的验证码是 B3F7L9。"
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "new",
+        "target_conversation_id": "",
+        "title": "网页登录验证码签发",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-e2:body"
+        ],
+        "reason": "distinct_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-e3",
+      "expected": "append",
+      "actual": "append",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 4257,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "g-e3",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-e3:body",
+            "text": "Delivery confirmation: the laser safety goggles for order SG-382 have reached the same university laboratory named in our confirmation."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "We confirmed laser safety goggles order SG-382 for your university laboratory."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "append",
+        "target_conversation_id": "candidate",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-e3:body",
+          "representation:prior:body"
+        ],
+        "reason": "same_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-e4",
+      "expected": "new",
+      "actual": "new",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 3800,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "g-e4",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-e4:body",
+            "text": "I am replying to the old maintenance thread only to reach you. Please open a separate quotation for acoustic wall panels for our new meeting room."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "We serviced the air conditioner last quarter."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "single_event",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "new",
+        "target_conversation_id": "",
+        "title": "Request for quotation for acoustic wall panels",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-e4:body"
+        ],
+        "reason": "distinct_event",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-e5",
+      "expected": "pending",
+      "actual": "pending",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 10540,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "g-e5",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-e5:body",
+            "text": "请处理两个独立事项：为访客办理临时门禁卡，以及为外地培训申请差旅报销。"
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "访客下周二到访。"
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "multiple_events",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "pending",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-e5:body"
+        ],
+        "reason": "multiple_events",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    },
+    {
+      "id": "g-e6",
+      "expected": "pending",
+      "actual": "pending",
+      "model": "sparkclaw-fast",
+      "calls": 1,
+      "latency_ms": 11218,
+      "input": {
+        "policy_version": "email-management-v4-source-events",
+        "source_time": "0001-01-01T00:00:00Z",
+        "output_language": "source",
+        "kind": "assignment",
+        "target_id": "g-e6",
+        "current_conversation_id": "",
+        "subject": "",
+        "participants": null,
+        "evidence": [
+          {
+            "ref": "representation:g-e6:body",
+            "text": "The identifying details are in an earlier conversation that is not included. Please continue that matter."
+          }
+        ],
+        "candidates": [
+          {
+            "id": "candidate",
+            "title": "",
+            "participants": null,
+            "evidence": [
+              {
+                "ref": "representation:prior:body",
+                "text": "We once discussed a boiler inspection."
+              }
+            ]
+          }
+        ],
+        "missing_context": null
+      },
+      "output": {
+        "event_scope": "insufficient_context",
+        "requested_response": "",
+        "purpose": "",
+        "service_label": "",
+        "verification_code": "",
+        "verification_purpose": "",
+        "verification_evidence_ref": "",
+        "verification_expiry_evidence": "",
+        "category": "",
+        "notification_subtype": "",
+        "uncertainty": false,
+        "action": "pending",
+        "target_conversation_id": "",
+        "title": "",
+        "summary": "",
+        "evidence_refs": [
+          "representation:g-e6:body"
+        ],
+        "reason": "insufficient_context",
+        "missing_context": null,
+        "concern": "none",
+        "related_conversation_ids": null
+      }
+    }
+  ]
+}

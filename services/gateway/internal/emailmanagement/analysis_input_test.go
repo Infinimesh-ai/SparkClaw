@@ -10,7 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestLongReplyHistoryCanPublishContextAndCompleteAnalysis(t *testing.T) {
+func TestLongReplyHistoryLeavesContextUnchangedAndCompletesEvents(t *testing.T) {
 	repo := store.NewMemoryStore()
 	s, _, _ := newFixtureService(t, repo)
 	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
@@ -46,7 +46,7 @@ func TestLongReplyHistoryCanPublishContextAndCompleteAnalysis(t *testing.T) {
 	if _, err = repo.FinishEmailJob(t.Context(), store.EmailJobFinish{EmailJobLease: lease(job, s.now())}); err != nil {
 		t.Fatal(err)
 	}
-	input, _, _, err := s.buildAnalysis(t.Context(), app.EmailJob{OwnerID: "email-owner", TargetID: mail.ID, Kind: app.EmailJobMessageSummary})
+	input, _, _, err := s.buildAnalysis(t.Context(), app.EmailJob{OwnerID: "email-owner", TargetID: mail.ID, Kind: app.EmailJobAssignment})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +57,15 @@ func TestLongReplyHistoryCanPublishContextAndCompleteAnalysis(t *testing.T) {
 		t.Fatal("model headers did not prioritize recent reply evidence")
 	}
 	mail, _, _ = repo.GetEmailMail(t.Context(), "email-owner", mail.ID)
-	contextVersion, found, err := repo.GetEmailContext(t.Context(), "email-owner", mail.ContextID)
-	if err != nil || !found || len(contextVersion.UnresolvedReferences) != app.EmailAnalysisReferenceLimit ||
-		!slices.Contains(contextVersion.UnresolvedReferences, references[239]) || slices.Contains(contextVersion.UnresolvedReferences, references[0]) {
-		t.Fatalf("bounded context unavailable: %+v %v", contextVersion, err)
+	if mail.ContextID != "" {
+		t.Fatal("read-only event input published context")
 	}
+	for _, reference := range app.EmailAnalysisReferences(references) {
+		if !slices.Contains(input.MissingContext, "unresolved_reply:"+reference) && !slices.Contains(input.MissingContext, "additional_source_gaps") {
+			t.Fatal("missing reply gap concealed")
+		}
+	}
+
 	source, _, err := repo.GetEmailRepresentation(t.Context(), "email-owner", mail.RepresentationID)
 	if err != nil || !slices.Equal(source.ReplyReferences, references) || !slices.Equal(mail.ReplyReferences, references) {
 		t.Fatal("analysis truncation changed source facts")
@@ -70,16 +74,16 @@ func TestLongReplyHistoryCanPublishContextAndCompleteAnalysis(t *testing.T) {
 		if err = s.plan(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobMessageSummary}); err != nil {
+		if _, err = s.workOne(t.Context(), []string{app.EmailJobClassification, app.EmailJobAssignment}); err != nil {
 			t.Fatal(err)
 		}
 		mail, _, err = repo.GetEmailMail(t.Context(), "email-owner", mail.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if mail.Summary != nil && mail.Summary.Current {
+		if mail.ConversationID != "" && mail.Classification != nil && mail.Summary == nil {
 			return
 		}
 	}
-	t.Fatal("long references prevented summary publication")
+	t.Fatal("long references prevented classification and event assignment")
 }

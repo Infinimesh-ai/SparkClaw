@@ -804,6 +804,13 @@ test("provider login launcher uses only the fixed executable, profile, and regis
   ]);
   assert.equal(calls[0].options.detached, true);
   assert.equal("PLAYWRIGHT_MCP_EXTENSION_TOKEN" in calls[0].options.env, false);
+  for (const [provider, url] of Object.entries({chatgpt:"https://chatgpt.com/",claude:"https://claude.ai/",gemini:"https://gemini.google.com/",grok:"https://grok.com/"})) {
+    await factory.openProviderLogin(provider);
+    const last = calls.at(-1);
+    assert.equal(last.executable, calls[0].executable);
+    assert.deepEqual(last.args, ["--user-data-dir=/home/owner/browser-profile", url]);
+    assert.equal("PLAYWRIGHT_MCP_EXTENSION_TOKEN" in last.options.env, false);
+  }
 });
 
 test("read CLI initializes background input and downloads owned bytes without a handoff", async t => {

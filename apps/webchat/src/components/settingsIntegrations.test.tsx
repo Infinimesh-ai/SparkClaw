@@ -195,7 +195,8 @@ describe("Settings directory navigation", () => {
         />
       );
     });
-    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(6);
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    expect(container.textContent).toContain(dictionaries.en.settings.aiPlatformLogin);
     expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
     expect(container.textContent).not.toContain(dictionaries.en.settings.licenseId);
 

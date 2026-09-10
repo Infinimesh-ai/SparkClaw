@@ -50,6 +50,9 @@ const (
 	OperationCommitEmailAssignment       StoreOperation = "email_management.CommitEmailAssignment"
 	OperationPublishEmailConcern         StoreOperation = "email_management.PublishEmailConcern"
 	OperationPublishEmailClassification  StoreOperation = "email_management.PublishEmailClassification"
+	OperationActivateEmailEventPolicy    StoreOperation = "email_management.ActivateEmailEventPolicy"
+	OperationChangeEmailAssignment       StoreOperation = "email_management.ChangeEmailAssignment"
+	OperationRenameEmailConversation     StoreOperation = "email_management.RenameEmailConversation"
 	OperationOverrideEmailClassification StoreOperation = "email_management.OverrideEmailClassification"
 	OperationUpdateEmailSenderRule       StoreOperation = "email_management.UpdateEmailSenderRule"
 	OperationListEmailSenderRules        StoreOperation = "email_management.ListEmailSenderRules"
@@ -313,6 +316,9 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationCommitEmailAssignment:       {ID: OperationCommitEmailAssignment, Repository: "EmailRepository", Method: "CommitEmailAssignment", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPublishEmailConcern:         {ID: OperationPublishEmailConcern, Repository: "EmailRepository", Method: "PublishEmailConcern", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPublishEmailClassification:  {ID: OperationPublishEmailClassification, Repository: "EmailRepository", Method: "PublishEmailClassification", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationActivateEmailEventPolicy:    {ID: OperationActivateEmailEventPolicy, Repository: "EmailRepository", Method: "ActivateEmailEventPolicy", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationChangeEmailAssignment:       {ID: OperationChangeEmailAssignment, Repository: "EmailRepository", Method: "ChangeEmailAssignment", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationRenameEmailConversation:     {ID: OperationRenameEmailConversation, Repository: "EmailRepository", Method: "RenameEmailConversation", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationOverrideEmailClassification: {ID: OperationOverrideEmailClassification, Repository: "EmailRepository", Method: "OverrideEmailClassification", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationUpdateEmailSenderRule:       {ID: OperationUpdateEmailSenderRule, Repository: "EmailRepository", Method: "UpdateEmailSenderRule", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationListEmailSenderRules:        {ID: OperationListEmailSenderRules, Repository: "EmailRepository", Method: "ListEmailSenderRules", Mode: operationRead, Timeout: timeoutRead},

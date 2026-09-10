@@ -913,3 +913,17 @@ export type TraceMetadata = {
   artifact_uri?: string;
   artifact_path?: string;
 };
+
+export type AIPlatform = "chatgpt" | "claude" | "gemini" | "grok";
+export type AIPlatformLoginState = "unchecked" | "signed_in" | "signed_out" | "user_action_required" | "unconfirmed";
+export interface AIPlatformLoginStatus {
+  provider: AIPlatform;
+  state: AIPlatformLoginState;
+  checked_at?: string;
+  error_code?: string;
+}
+export interface AIPlatformLoginOverview {
+  browser_state: IntegrationState;
+  profile_id: string;
+  providers: AIPlatformLoginStatus[];
+}

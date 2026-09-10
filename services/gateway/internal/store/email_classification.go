@@ -50,6 +50,19 @@ func emailApplyRule(e *emailEngine, m *app.EmailMail) {
 	}
 }
 func emailSaveClassification(e *emailEngine, m app.EmailMail) error {
+	if emailEvents(e) {
+		emailSaveMail(e, m)
+		if m.ConversationID != "" {
+			c, _ := emailGet[app.EmailConversation](e, "conversation", m.ConversationID)
+			emailRecountEvent(e, &c)
+			emailSaveConversation(e, c)
+		}
+		if m.RepresentationID != "" && m.ConversationID == "" {
+			_, err := emailRequest(e, EmailJobRequest{Kind: app.EmailJobAssignment, TargetID: m.ID})
+			return err
+		}
+		return e.err
+	}
 	// Membership remains immutable; only routed interaction members count as unseen.
 	previous, _ := emailGet[app.EmailMail](e, "mail", m.ID)
 	if m.ConversationID != "" && emailEffectiveEntry(previous) != emailEffectiveEntry(m) {
@@ -106,6 +119,12 @@ func emailClassification(e *emailEngine, c EmailClassificationCommand) (app.Emai
 		}
 	}
 	v := c.Classification
+	if v.InputPath != "" && (!emailSafePath(v.InputPath) || !emailHashValid(v.InputSHA256)) {
+		return m, errEmailInvalid
+	}
+	if v.OutputPath != "" && (!emailSafePath(v.OutputPath) || !emailHashValid(v.OutputSHA256)) {
+		return m, errEmailInvalid
+	}
 	if len(v.RequestedResponse) > 1000 || len(v.Purpose) > 512 || len(v.ServiceLabel) > 256 || len(v.Reason) > 2000 || len(v.Evidence) > 3 {
 		return m, errEmailInvalid
 	}
@@ -145,7 +164,9 @@ func emailClassification(e *emailEngine, c EmailClassificationCommand) (app.Emai
 			return m, errEmailInvalid
 		}
 		m.Classification = &v
-		m.Verification = c.Verification
+		if c.Verification != nil || !emailEvents(e) {
+			m.Verification = c.Verification
+		}
 		if m.Verification != nil {
 			m.Verification.Revision = v.Revision
 		}

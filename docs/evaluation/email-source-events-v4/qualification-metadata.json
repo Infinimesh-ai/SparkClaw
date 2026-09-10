@@ -1,0 +1,53 @@
+{
+  "prompt_version": "email-management-v4-source-events",
+  "classification_prompt_sha256": "sha256:db1427510392f14210f73a73305e951cd51fb36a11938515aa2a78d99c8e1604",
+  "assignment_prompt_sha256": "sha256:4ca3f40654d7c2501c5488f131cc772bbf6e46f4aa467fe4ca997efa8879a946",
+  "model_alias": [
+    "sparkclaw-fast"
+  ],
+  "model_checkpoint_pinned": false,
+  "final_fresh_sample_count": 12,
+  "classification": {
+    "correct": 6,
+    "samples": 6,
+    "subject_only_completions": 0,
+    "body_escalations": 6,
+    "unknown": 1,
+    "median_case_latency_ms": 21979.5
+  },
+  "events": {
+    "correct_decisions": 6,
+    "samples": 6,
+    "automatically_assigned": 4,
+    "pending": 2,
+    "wrong_merge": 0,
+    "wrong_split": 0,
+    "median_case_latency_ms": 10879.0
+  },
+  "reports": {
+    "baseline.json": {
+      "sha256": "9205c2a8a13d261f5f3e1508f562021b01292e774c31f4fb60f54216aa6cd4bc"
+    },
+    "baseline-diagnosis.json": {
+      "sha256": "c7925c3fc7ecda34d46261b67f234f1f073b3b6b5625a9d9cd85ddff8cd822eb"
+    },
+    "recheck.json": {
+      "sha256": "c573ca10a38119c3374dfdfd7d05d08efc8119ef550168a3f4039def3f93e839"
+    },
+    "fresh-holdout.json": {
+      "sha256": "ff0b13dce2c56e231b22810ff41fd2a66160bde1fad9a16e3987c8e09254d479"
+    },
+    "final-fresh-holdout.json": {
+      "sha256": "7bd82ec74f69b7d99b5a10f1aba44d63543dbe045bbec6527ed6f772a703abfb"
+    }
+  },
+  "limits": [
+    "Small synthetic samples cannot establish the proposed production accuracy thresholds or a 1% error bound.",
+    "The model alias is not an immutable checkpoint.",
+    "baseline.json and fresh-holdout.json contain retained failures; recheck.json is in-sample after the first prompt revision.",
+    "final-fresh-holdout.json uses 12 newly written frozen samples after the final prompt revision; it is not the earlier tuned corpus.",
+    "Subject-first completed zero sampled classifications without body escalation; no efficiency benefit has been demonstrated.",
+    "Verification append without a shared explicit non-secret occurrence identifier becomes pending; this prevents unsafe merges but may reduce automatic coverage.",
+    "The report evaluates model decisions and local guards, not native provider collection, historical completeness or end-to-end production behavior."
+  ]
+}

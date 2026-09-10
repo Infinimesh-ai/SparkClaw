@@ -32,6 +32,16 @@ func emailRequestQuery(r *http.Request) (store.EmailQuery, error) {
 			return q, emailmanagement.ErrInvalidInput
 		}
 		switch key {
+		case "entry":
+			if values[0] != "notification" && values[0] != "interaction" {
+				return q, emailmanagement.ErrInvalidInput
+			}
+			q.Entry = values[0]
+		case "unassigned_only":
+			if values[0] != "true" && values[0] != "false" {
+				return q, emailmanagement.ErrInvalidInput
+			}
+			q.UnassignedOnly = values[0] == "true"
 		case "mailbox_id":
 			q.MailboxID = values[0]
 		case "q":
@@ -59,7 +69,6 @@ func (s *Server) listEmailConversations(w http.ResponseWriter, r *http.Request) 
 		writeEmailManagementError(w, err)
 		return
 	}
-	q.Entry = "interaction"
 	out, err := s.emailManagement.QueryConversations(r.Context(), q)
 	if err != nil {
 		writeEmailManagementError(w, err)

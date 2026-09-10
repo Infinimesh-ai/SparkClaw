@@ -170,6 +170,7 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 	return []app.ToolDefinition{
 		emailSendDefinition(),
 		emailReadDefinition(),
+		aiChatDefinition(),
 		{
 			Name:        "memory.search",
 			Description: "Search accepted private memories.",

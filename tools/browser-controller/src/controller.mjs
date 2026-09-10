@@ -16,6 +16,8 @@ import {
 
 const DEFAULT_SESSION_TTL_MS = 2 * 60_000;
 const GENERIC_OPERATIONS = new Set([
+  "ai_chat.export",
+  "ai_platform.check",
   "page.click",
   "page.fill",
   "page.info",
@@ -32,6 +34,8 @@ const GENERIC_OPERATIONS = new Set([
   "tabs.new",
 ]);
 const PAGE_MUTATING_OPERATIONS = new Set([
+  "ai_chat.export",
+  "ai_platform.check",
   "page.click",
   "page.fill",
   "page.navigate",

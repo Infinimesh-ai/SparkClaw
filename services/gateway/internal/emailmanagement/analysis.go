@@ -103,6 +103,20 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 	if s.analyzer == nil {
 		return errors.New("email_model_unavailable")
 	}
+	bodyInput := input
+	if input.Kind == app.EmailJobClassification && input.PolicyVersion == analysisPromptVersion {
+		input.ClassificationStage = "subject"
+		input.Evidence = []Evidence{{Ref: "mail:" + input.TargetID + ":subject", Text: input.Subject}}
+		// Keep an explicit subject source location independent of optional headers.
+		for _, e := range bodyInput.Evidence {
+			if strings.HasSuffix(e.Ref, ":body") {
+				input.Evidence[0].Ref = strings.TrimSuffix(e.Ref, ":body") + ":subject"
+				break
+			}
+		}
+		input.Participants = nil
+		input.MissingContext = nil
+	}
 	artifactID := app.NewID("analysis")
 	directory := path.Join("email", ownerScope(job.OwnerID), "analysis", artifactID)
 	inputPath, outputPath := path.Join(directory, "input.json"), path.Join(directory, "output.json")
@@ -125,13 +139,44 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 	if modelErr == nil && (output.Mock || output.ModelVersion == "") {
 		modelErr = errors.New("email_model_mock_unqualified")
 	}
-	s.recordAnalysis(ctx, started, output, modelErr)
-	if modelErr != nil {
-		return modelErr
+	if auditErr := s.recordAnalysisArtifact(ctx, directory, input.ClassificationStage, started, output, modelErr); auditErr != nil {
+		return auditErr
 	}
+	// Preserve unsuccessful output as well as successful calls for audit.
 	if err = publishJSON(ctx, s.opts.WorkspaceRoot, outputPath, output); err != nil {
 		return err
 	}
+	if modelErr != nil {
+		return modelErr
+	}
+	if input.ClassificationStage == "subject" && (output.Category != "interaction" || output.Uncertainty) {
+		// A notification-looking subject cannot rule out a concrete request in
+		// the body. Confirm notification decisions with bounded body evidence.
+		input = bodyInput
+		inputPath, outputPath = path.Join(directory, "body-input.json"), path.Join(directory, "body-output.json")
+		artifact.Analysis = input
+		if err = publishJSON(ctx, s.opts.WorkspaceRoot, inputPath, artifact); err != nil {
+			return err
+		}
+		started = s.now()
+		output, modelErr = s.analyzer.Analyze(ctx, input)
+		if modelErr == nil {
+			modelErr = validateAnalysis(input, output)
+		}
+		if modelErr == nil && (output.Mock || output.ModelVersion == "") {
+			modelErr = errors.New("email_model_mock_unqualified")
+		}
+		if auditErr := s.recordAnalysisArtifact(ctx, directory, input.ClassificationStage, started, output, modelErr); auditErr != nil {
+			return auditErr
+		}
+		if err = publishJSON(ctx, s.opts.WorkspaceRoot, outputPath, output); err != nil {
+			return err
+		}
+		if modelErr != nil {
+			return modelErr
+		}
+	}
+
 	inputRaw, _ := json.Marshal(artifact)
 	outputRaw, _ := json.Marshal(output)
 	inputHash, outputHash := sourceHash(inputRaw), sourceHash(outputRaw)
@@ -141,12 +186,18 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 	}
 	switch job.Kind {
 	case app.EmailJobClassification:
-		verification, _ := verificationFromOutput(input, output)
+		var verification *app.EmailVerification
+		if input.PolicyVersion != analysisPromptVersion {
+			verification, _ = verificationFromOutput(input, output)
+		}
 		reason := "body_evidence"
+		if input.ClassificationStage == "subject" {
+			reason = "subject_evidence"
+		}
 		if output.Category == "unknown" || output.Uncertainty {
 			reason = "classification_uncertain"
 		}
-		_, err = s.repository.PublishEmailClassification(ctx, store.EmailClassificationCommand{EmailCommand: cmd, Lease: lease(job, s.now()), MailID: job.TargetID, Generation: job.Generation, Verification: verification, Classification: app.EmailClassification{RequestedResponse: output.RequestedResponse, Purpose: output.Purpose, ServiceLabel: output.ServiceLabel, Reason: output.Reason, Evidence: classificationEvidence(input, output), Category: output.Category, NotificationSubtype: output.NotificationSubtype, Uncertainty: output.Uncertainty, ReasonCode: reason, EvidenceRefs: output.EvidenceRefs, InputFingerprint: job.InputFingerprint}})
+		_, err = s.repository.PublishEmailClassification(ctx, store.EmailClassificationCommand{EmailCommand: cmd, Lease: lease(job, s.now()), MailID: job.TargetID, Generation: job.Generation, Verification: verification, Classification: app.EmailClassification{ID: artifactID, InputPath: inputPath, InputSHA256: inputHash, OutputPath: outputPath, OutputSHA256: outputHash, ModelVersion: output.ModelVersion, PromptVersion: analysisPromptVersion, Stage: input.ClassificationStage, RequestedResponse: output.RequestedResponse, Purpose: output.Purpose, ServiceLabel: output.ServiceLabel, Reason: output.Reason, Evidence: classificationEvidence(input, output), Category: output.Category, NotificationSubtype: output.NotificationSubtype, Uncertainty: output.Uncertainty, ReasonCode: reason, EvidenceRefs: output.EvidenceRefs, InputFingerprint: job.InputFingerprint}})
 
 	case app.EmailJobAssignment:
 		_, err = s.repository.CommitEmailAssignment(ctx, store.EmailAssignmentCommand{EmailCommand: cmd, Lease: lease(job, s.now()), Generation: job.Generation, CandidateConversationIDs: candidateIDs,
@@ -170,7 +221,7 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 	return s.reconcileError(ctx, cmd, err)
 }
 
-func (s *Service) recordAnalysis(ctx context.Context, started time.Time, output AnalysisOutput, modelErr error) {
+func (s *Service) recordAnalysis(ctx context.Context, started time.Time, output AnalysisOutput, modelErr error) string {
 	ended := s.now()
 	status := app.ModelCallStatusCompleted
 	if modelErr != nil {
@@ -183,16 +234,27 @@ func (s *Service) recordAnalysis(ctx context.Context, started time.Time, output 
 	if _, err := s.repository.SaveModelCall(recordCtx, record); err != nil {
 		slog.Warn("email model telemetry unavailable", "code", safeCode(err))
 	}
+	return record.ID
+}
+
+func (s *Service) recordAnalysisArtifact(ctx context.Context, directory, stage string, started time.Time, output AnalysisOutput, modelErr error) error {
+	id := s.recordAnalysis(ctx, started, output, modelErr)
+	if stage == "" {
+		stage = "event"
+	}
+	metadata := map[string]any{"raw_output": output.RawOutput, "model_call_id": id, "stage": stage, "model_version": output.ModelVersion, "model_checkpoint_pinned": false, "prompt_version": analysisPromptVersion, "prompt_tokens": output.PromptTokens, "response_tokens": output.ResponseTokens, "total_tokens": output.TotalTokens, "started_at": started, "completed_at": s.now(), "error_code": safeCode(modelErr)}
+	return publishJSON(ctx, s.opts.WorkspaceRoot, path.Join(directory, stage+"-execution.json"), metadata)
 }
 
 func classificationEvidence(input AnalysisInput, output AnalysisOutput) []app.EmailClassificationEvidence {
 	out := []app.EmailClassificationEvidence{}
 	for _, ref := range output.EvidenceRefs {
 		for _, e := range input.Evidence {
-			if e.Ref != ref || !strings.HasSuffix(ref, ":body") {
+			if e.Ref != ref || (!strings.HasSuffix(ref, ":body") && !strings.HasSuffix(ref, ":subject")) {
 				continue
 			}
 			text, _ := boundedUTF8(e.Text, 500)
+			text = redactVerificationTokens(input, text)
 			if output.VerificationCode != "" {
 				text = strings.ReplaceAll(text, output.VerificationCode, "[verification code]")
 			}

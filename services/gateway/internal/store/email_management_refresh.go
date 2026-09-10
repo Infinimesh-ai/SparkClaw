@@ -16,6 +16,24 @@ type emailRefreshIntent struct {
 }
 
 func emailRef(e *emailEngine, ref string) int64 {
+	for _, prefix := range []string{"source:", "mapping:", "members:"} {
+		if strings.HasPrefix(ref, prefix) {
+			id := strings.TrimPrefix(ref, prefix)
+			var data []byte
+			if prefix == "members:" {
+				c, _ := emailGet[app.EmailConversation](e, "conversation", id)
+				return c.MembershipVersion
+			}
+			m, _ := emailGet[app.EmailMail](e, "mail", id)
+			if prefix == "source:" {
+				data = emailJSON([]string{m.ID, m.CaptureID, m.RepresentationID, m.Subject})
+			} else {
+				data = emailJSON([]any{m.ConversationID, m.AssignmentRevision})
+			}
+			digest := sha256.Sum256(data)
+			return int64(binary.BigEndian.Uint64(digest[:8]) & 0x7fffffffffffffff)
+		}
+	}
 	if strings.HasPrefix(ref, "mail:") {
 		m, _ := emailGet[app.EmailMail](e, "mail", strings.TrimPrefix(ref, "mail:"))
 		return m.InputVersion
@@ -42,7 +60,7 @@ func emailRef(e *emailEngine, ref string) int64 {
 }
 func emailTouch(e *emailEngine, ref string) {
 	version := int64(0)
-	if strings.HasPrefix(ref, "mail:") || strings.HasPrefix(ref, "conversation:") {
+	if strings.HasPrefix(ref, "mail:") || strings.HasPrefix(ref, "conversation:") || strings.HasPrefix(ref, "source:") || strings.HasPrefix(ref, "mapping:") || strings.HasPrefix(ref, "members:") {
 		version = emailRef(e, ref)
 	} else {
 		previous, _ := emailGet[struct{ Version int64 }](e, "reference", ref)
@@ -60,6 +78,9 @@ func emailFingerprint(e *emailEngine, inputs map[string]int64) string {
 	return emailID(string(emailJSON(current)))
 }
 func emailChangedMail(e *emailEngine, m app.EmailMail) {
+	if emailEvents(e) {
+		emailTouch(e, "source:"+m.ID)
+	}
 	emailTouch(e, "mail:"+m.ID)
 	if m.ConversationID != "" {
 		conv, _ := emailGet[app.EmailConversation](e, "conversation", m.ConversationID)
@@ -72,6 +93,15 @@ func emailChangedMail(e *emailEngine, m app.EmailMail) {
 func emailExpand(e *emailEngine, c EmailRefreshCommand) (EmailRefreshResult, error) {
 	out := EmailRefreshResult{}
 	limit := emailLimit(c.Limit)
+	if emailEvents(e) {
+		n, more, err := emailMigrateEvents(e, limit)
+		if err != nil {
+			return out, err
+		}
+		if more || n > 0 {
+			return EmailRefreshResult{Processed: n, Remaining: more}, nil
+		}
+	}
 	n, more, backfillErr := emailBackfillClassifications(e, limit)
 	if backfillErr != nil {
 		return out, backfillErr
@@ -93,8 +123,10 @@ func emailExpand(e *emailEngine, c EmailRefreshCommand) (EmailRefreshResult, err
 		if i == limit {
 			break
 		}
+		intent.Cursor = emailID(d.Reference, d.Target)
+		out.Processed++
 		t, ok := emailGet[app.EmailAnalysisTarget](e, "target", d.Target)
-		if ok {
+		if ok && !(emailEvents(e) && emailDisabledAnalysis(t.Kind)) {
 			if _, selected := t.Inputs[intent.Reference]; selected && emailFingerprint(e, t.Inputs) != t.InputFingerprint {
 				refs := []string{}
 				for ref := range t.Inputs {
@@ -103,7 +135,10 @@ func emailExpand(e *emailEngine, c EmailRefreshCommand) (EmailRefreshResult, err
 				kind := t.Kind
 				if kind == app.EmailJobAssignment {
 					m, _ := emailGet[app.EmailMail](e, "mail", t.TargetID)
-					if emailEffectiveEntry(m) == "notification" {
+					if emailEvents(e) && m.ConversationID != "" {
+						continue
+					}
+					if !emailEvents(e) && emailEffectiveEntry(m) == "notification" {
 						continue
 					}
 					if m.ConversationID != "" {
@@ -115,8 +150,6 @@ func emailExpand(e *emailEngine, c EmailRefreshCommand) (EmailRefreshResult, err
 				}
 			}
 		}
-		intent.Cursor = emailID(d.Reference, d.Target)
-		out.Processed++
 	}
 	intent.Done = len(deps) <= limit
 	state := "pending"
@@ -133,7 +166,7 @@ func emailExpand(e *emailEngine, c EmailRefreshCommand) (EmailRefreshResult, err
 func emailSaveConversation(e *emailEngine, c app.EmailConversation) {
 	c.Summary = nil
 	search := c.Title + " " + strings.Join(c.Participants, " ")
-	if summary := emailProjectSummary(e, app.EmailJobConversationSummary, c.ID); summary != nil {
+	if summary := emailProjectSummary(e, app.EmailJobConversationSummary, c.ID); summary != nil && !emailEvents(e) {
 		search += " " + summary.Text
 	}
 	emailPut(e, "conversation", c.ID, "", "", "", search, emailOrder(c.UpdatedAt, c.ID), c)
@@ -144,7 +177,7 @@ func emailAssignment(e *emailEngine, c EmailAssignmentCommand) (app.EmailMail, e
 	if err != nil {
 		return m, err
 	}
-	if m.ConversationID != "" || emailEffectiveEntry(m) == "notification" {
+	if m.ConversationID != "" || (!emailEvents(e) && emailEffectiveEntry(m) == "notification") {
 		return m, errEmailConflict
 	}
 	if err = emailLeaseCheck(e, c.Lease, app.EmailJobAssignment, m.ID); err != nil {
@@ -167,10 +200,20 @@ func emailAssignment(e *emailEngine, c EmailAssignmentCommand) (app.EmailMail, e
 	switch d.Action {
 	case "pending":
 	case "new":
-		if strings.TrimSpace(d.Title) == "" || d.ConversationID != "" {
+		if (!emailEvents(e) && strings.TrimSpace(d.Title) == "") || d.ConversationID != "" {
 			return m, errEmailInvalid
 		}
-		conv = app.EmailConversation{ID: emailID(e.owner, "conversation", c.CommandKey), OwnerID: e.owner, Title: d.Title, CreatedAt: e.now}
+		conv = app.EmailConversation{ID: emailID(e.owner, "conversation", c.CommandKey), OwnerID: e.owner, Title: d.Title, TitleState: "ready", CreatedAt: e.now}
+		if strings.TrimSpace(conv.Title) == "" {
+			conv.Title = m.Subject
+			if m.Classification != nil && m.Classification.NotificationSubtype == "verification" {
+				conv.Title = ""
+			}
+			conv.TitleState = "source_fallback"
+			if strings.TrimSpace(conv.Title) == "" {
+				conv.TitleState = "pending"
+			}
+		}
 		d.ConversationID = conv.ID
 	case "append":
 		if !containsEmail(c.CandidateConversationIDs, d.ConversationID) {
@@ -191,6 +234,8 @@ func emailAssignment(e *emailEngine, c EmailAssignmentCommand) (app.EmailMail, e
 	if d.Action != "pending" {
 		m.ConversationID = conv.ID
 		m.AssignmentState = app.EmailAssignmentAssigned
+		m.AssignmentSource = "model"
+		m.AssignmentRevision++
 		m.InputVersion++
 		conv.MemberCount++
 		conv.MembershipVersion++
@@ -204,10 +249,14 @@ func emailAssignment(e *emailEngine, c EmailAssignmentCommand) (app.EmailMail, e
 		emailSaveMail(e, m)
 		emailSaveConversation(e, conv)
 		emailCounter(e, "assignment_epoch", true)
+		emailTouch(e, "mapping:"+m.ID)
+		emailTouch(e, "members:"+conv.ID)
 		emailTouch(e, "mail:"+m.ID)
 		emailTouch(e, "search")
 		emailTouch(e, "conversation:"+conv.ID)
-		_, err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobConversationSummary, TargetID: conv.ID})
+		if !emailEvents(e) {
+			_, err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobConversationSummary, TargetID: conv.ID})
+		}
 	}
 	return m, err
 }

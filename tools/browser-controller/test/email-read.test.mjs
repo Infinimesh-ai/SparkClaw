@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
-import { providerDOM, collectUnread, markRead, discoverEmail, READ_PROVIDERS } from "../../../scripts/email/read.mjs";
+import { providerDOM, collectUnread, markRead, discoverEmail, enumerateThread, READ_PROVIDERS } from "../../../scripts/email/read.mjs";
 
 test('discovery returns multiple targets without opening, marking or leaking subjects',async()=>{
  const url=READ_PROVIDERS.qq_mail.url;
@@ -360,4 +360,39 @@ test('Gmail accepts the observed empty-search sentence only in its visible resul
  assert.equal(evaluate('gmail','list',{filtered:true},{nodes,url}),null,'busy main region cannot confirm stale emptiness');
  delete nodes['[role="main"][aria-busy="true"], [role="main"] [role="progressbar"]'];
  assert.equal(evaluate('gmail','list',{filtered:true},{nodes,url:READ_PROVIDERS.gmail.url}),null,'query route must match');
+});
+
+
+test('Gmail direct thread inventory requires the indexed anchor and keeps partial coverage',async()=>{
+ const url=READ_PROVIDERS.gmail.url, events=[];
+ const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return true;},
+  inspect:async({})=>{const detail=events.some(code=>code.includes('#all/abc'));return {origin:url,result:detail?{url,account_address:'owner@example.test',ids:['abc','def']}:{url,account_address:'owner@example.test',empty:true,rows:[]}};}};
+ const input={schema_version:1,operation:'enumerate_thread',provider:'gmail',account:'default',owner_scope:'a'.repeat(64),invocation_id:'history-1',
+  thread:{account_address:'owner@example.test',provider_thread_id:'thread-f:2748',provider_selection_id:'abc',folder:'inbox'},continuation:'',limit:50};
+ const result=await enumerateThread(input,{withReadTab:fn=>fn(tab)},'gmail');
+ assert.deepEqual(result.members.map(member=>member.target.provider_message_id),['abc','def']);
+ assert.equal(result.coverage.scan_complete,false);
+ assert.equal(result.coverage.reason,'rendered_thread_inventory_partial');
+ assert.ok(result.members.every(member=>member.direction==='unknown'&&member.target.folder==='all'));
+});
+
+test('Gmail direct rendered inventory rejects an absent anchor or duplicate native IDs',()=>{
+ const nodes={'.adn[data-legacy-message-id]':[element('',{'data-legacy-message-id':'abc'},{'.a3s':[element('first')]}),element('',{'data-legacy-message-id':'def'},{'.a3s':[element('second')]})],
+  '[aria-label^="Google Account:"]':[element('',{'aria-label':'Google Account: Owner (owner@example.test)'})]};
+ assert.equal(evaluate('gmail','thread_members',{provider_message_id:'123'},{nodes}),null);
+ assert.deepEqual(Array.from(evaluate('gmail','thread_members',{provider_message_id:'abc'},{nodes}).ids),['abc','def']);
+ nodes['.adn[data-legacy-message-id]'].push(nodes['.adn[data-legacy-message-id]'][0]);
+ assert.equal(evaluate('gmail','thread_members',{provider_message_id:'abc'},{nodes}).error,'email_message_identity_ambiguous');
+});
+
+
+test('Gmail exact indexed capture can open a source absent from the loaded folder',async()=>{
+ const url=READ_PROVIDERS.gmail.url, events=[];
+ const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return true;},
+  inspect:async()=>({origin:url,result:events.some(code=>code.includes('#all/abc'))?
+   {url,account_address:'owner@example.test',provider_message_id:'abc',body_text:'source'}:
+   {url,account_address:'owner@example.test',empty:true,rows:[]}})};
+ const result=await collectUnread(tab,'gmail',{account_address:'owner@example.test',pinned_message_id:'abc',pinned_selection_id:'def',capture_required:false,onSelected:async selected=>events.push(`selected:${selected.provider_message_id}`)});
+ assert.equal(result.provider_message_id,'abc');
+ assert.ok(events.includes('selected:abc'));
 });

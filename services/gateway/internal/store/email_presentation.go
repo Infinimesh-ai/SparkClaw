@@ -78,6 +78,11 @@ func emailPresentationCurrent(e *emailEngine, q EmailPresentationQuery, id strin
 	if !ok {
 		p = app.EmailLocalizedPresentation{ID: key, TargetKind: q.TargetKind, TargetID: id, Language: q.Language, State: "missing", AnalysisRevision: revision, PromptVersion: app.EmailPresentationPromptVersion}
 	}
+	if emailEvents(e) {
+		p.State = "suspended"
+		p.ErrorCode = emailEventSuspended
+		return p, e.err
+	}
 	if p.State != "ready" && p.State != "missing" {
 		if j, ok := emailGet[app.EmailJob](e, "job", emailID(app.EmailJobPresentation, key)); ok {
 			switch j.State {

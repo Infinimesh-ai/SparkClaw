@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/aichatexport"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
@@ -88,6 +89,7 @@ func newGatewayServices(
 	}
 	tools.WithEmailSender(emailController)
 	tools.WithEmailReader(emailController)
+	tools.WithAIChatExporter(&aichatexport.Exporter{Controller: browserControl})
 	runtime = runtime.WithEmailAdmission(emailController)
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
@@ -147,6 +149,7 @@ func newGatewayServices(
 			gateway.WithEmailController(emailController),
 			gateway.WithEmailManagement(emailManagement),
 			gateway.WithBrowserControlController(browserControl),
+			gateway.WithAIPlatformLogin(aichatexport.NewLoginManager(browserControl)),
 			gateway.WithISCPPairing(iscpPairing),
 			gateway.WithExternalApprovalResolver(happyApprovals),
 			gateway.WithManagedBrowserWindows(tools),

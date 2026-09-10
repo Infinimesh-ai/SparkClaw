@@ -63,6 +63,8 @@ node --test tools/browser-userscripts/test/*.test.mjs
 python3 -m unittest discover -s scripts -p test_browser_components.py
 ```
 
-构建将源码嵌入 userscript、生成 `timeline-core.mjs` 并更新清单 SHA-256；`--check` 校验生成物。浏览器测试需要 `SPARKCLAW_TEST_PLAYWRIGHT` 和 `SPARKCLAW_TEST_CHROMIUM`，原生组件生命周期另设 `SPARKCLAW_TEST_COMPONENT_LIFECYCLE=1`。
+构建将源码嵌入 userscript、生成 `timeline-core.mjs` 并更新清单 SHA-256；`--check` 校验生成物。浏览器测试需要 `SPARKCLAW_TEST_PLAYWRIGHT` 和 `SPARKCLAW_TEST_CHROMIUM`，原生组件生命周期另设 `SPARKCLAW_TEST_COMPONENT_LIFECYCLE=1`；设置 `SPARKCLAW_TEST_NATIVE_BRIDGE=1` 和 `SPARKCLAW_TEST_CLI` 可验证完整安装脚本经真实 Bridge 执行，命令见评测报告。
 
 由原整合任务合并此 worktree，注意与邮件任务共享的组件清单和安装测试。保留 RevivalStack UUID。迁移只通过 Tampermonkey 原生接口淘汰 UUID `c6378bd8-6136-4f1b-81be-2c0fed94baf3` 且 `system=true` 的旧脚本，保留用户副本，包括同名脚本。检查器验证当前受管 UUID 并拒绝残留旧受管身份。本次不修改邮件 provider/controller 注册。
+
+组件 r8 在原生首次安装来源检查中识别清单固定的受管 UUID/源码哈希，避免刚导入的合法脚本被误判为来源不明；检查器拒绝仍有来源/黑名单阻断标记的脚本。隔离完整安装执行已通过真实 Bridge 短对话导出和重跑验证，未更新共享安装。

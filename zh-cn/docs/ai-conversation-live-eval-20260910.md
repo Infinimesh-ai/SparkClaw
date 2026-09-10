@@ -51,4 +51,30 @@ node scripts/ai-chat/qualify-bridge.mjs \
 
 最终隔离组合测试 18 项通过，包括原生 Tampermonkey 首次导入、升级淘汰、用户副本保留及再次部署。原生生命周期只替换 managed-policy 测试传输，保留原生下载、哈希检查及导入行为。组件检查 10 项、权威文档检查 77 份 Markdown 通过；后续强化的 Bridge 所有权回归也通过，额外弹窗及目标页丢失均不会使导航或清理转移到其他页面。
 
-手动路径模拟页使用完整脚本初始化、真实弹窗和真实 OPFS 文件写入，但文件夹选择及取消使用替身。另一次原生安装后控件探针在导入和 bootstrap 注册成功后仍超时，完整安装执行验收尚未通过，不能用模拟初始化替代。
+手动路径模拟页使用完整脚本初始化、真实弹窗和真实 OPFS 文件写入，但文件夹选择及取消使用替身。另一次原生安装后控件探针在导入和 bootstrap 注册成功后仍超时，该失败随后按下文查明并修复；未以模拟初始化替代安装执行验收。
+
+## 完整安装执行验收补充
+
+根因是产品初始化时序：新安装 unpacked 油猴扩展时，原生 `onInstalled` 来源检查晚于受管导入，把刚导入的脚本标为 `evilness=12`（来源不明），因此数据库中虽然启用，却不进入实际执行列表。原生 userScripts 权限和注册均正常；拦截式测试页面和本地 HTTPS 页面都能复现。
+
+组件 r8 只把 UUID、`system=true`、UTF-8 源码 SHA-256 三者同时匹配清单的脚本认作已知受管来源。其他脚本仍接受原生来源检查，其他黑名单检查保持有效。profile 检查现在拒绝非零 `evilness`，不再仅凭启用/版本/源码哈希判定就绪。
+
+更新后的原生生命周期测试保留同一安装路径和浏览器 profile 来模拟升级，每次新导航都必须实际出现控件；还验证旧来源标记恢复、淘汰旧受管 UUID、保留用户副本及再次部署。
+
+新增 `installed-bridge.test.mjs` 在独立 Chromium 内使用真实油猴、真实 SparkClaw Browser Bridge 扩展和真实 native-host/launcher，经正式 `connectBatchBridge()`、`exportTimeline()` 导出 ChatGPT 短对话测试页中的两条消息，核对文件哈希及消息文本，再次运行跳过未变内容，并保留原 owner 页面。没有注入 userscript、替换 `UIManager.init()` 或 GM API。测试还加入一个不在产品清单中的 system 脚本，要求原生来源保护仍标为 12。另一个原生负例保留已知受管 UUID 但改变源码字节，仍必须被拒绝。生命周期测试按当前 manifest 的完整受管 UUID 集合断言，可与邮件脚本清单组合。
+
+仅 managed-policy 测试传输和网页内容使用 fixture；profile、凭据与 Unix socket 全部独立，不改共享浏览器或邮箱安装。这补齐了隔离安装执行证据，不增加此前真实登录网站的七条对话样本数。
+
+```sh
+SPARKCLAW_TEST_PLAYWRIGHT=/absolute/playwright/index.mjs \
+SPARKCLAW_TEST_CHROMIUM=/absolute/chromium/chrome \
+SPARKCLAW_TEST_CLI=/absolute/@playwright/cli/playwright-cli.js \
+SPARKCLAW_TEST_COMPONENT_LIFECYCLE=1 \
+SPARKCLAW_TEST_NATIVE_BRIDGE=1 \
+node --test tools/browser-userscripts/test/component-lifecycle.test.mjs \
+  tools/browser-userscripts/test/installed-bridge.test.mjs
+```
+
+测试仅在临时 profile 内注册原生消息宿主，无需修改用户的宿主注册、控制凭据或 Controller socket。共享安装升级、OS 原生目录对话框、隐藏历史、超长正文和自然语言批量路由的既有边界仍保留。
+
+最终针对性验收：原生测试 3/3、组件检查 10/10、权威文档检查 77 份全部通过。

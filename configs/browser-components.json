@@ -5,8 +5,8 @@
     "url": "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=148.0.7778.0&acceptformat=crx3&x=id%3Ddhdgffkkebhmkfjojejmpbldmpobfkfo%26uc",
     "sha256": "bcaec082c439e11c4df683f43d07e9ac3d4439251d72b91c5b452f977dac15d5",
     "path": "/opt/sparkclaw/tampermonkey",
-    "productVersion": "5.5.0.7",
-    "patchRevision": 7
+    "productVersion": "5.5.0.8",
+    "patchRevision": 8
   },
   "scripts": [
     {

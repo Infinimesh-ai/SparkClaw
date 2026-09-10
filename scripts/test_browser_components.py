@@ -160,6 +160,8 @@ class BrowserComponentsTest(unittest.TestCase):
             'missing script': lambda s: s.pop(meta_key),
             'duplicate script': lambda s: s.update({'!extdb.@meta#duplicate': copy.deepcopy(s[meta_key])}),
             'disabled script': changed_meta('enabled', False),
+            'foisted script': changed_meta('evilness', 12),
+            'blacklisted script': changed_meta('evilness', 4),
             'non-system script': changed_meta('system', False),
             'wrong version': changed_meta('version', '0.0.0'),
             'uncontrolled updates': changed_meta('options', {'check_for_updates': True}),

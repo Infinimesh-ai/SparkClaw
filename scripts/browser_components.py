@@ -155,6 +155,18 @@ def stage(target):
     if source.count(retire_old) != 1:
         raise ValueError('Tampermonkey managed retirement patch no longer matches')
     source = source.replace(retire_old, retire_new)
+    # Native first-install inspection runs after managed imports and otherwise
+    # labels even policy-provisioned scripts as foisted. Recognize only the
+    # exact pinned system bytes; keep native inspection for every other script.
+    known = {entry['uuid']: entry['sha256'] for entry in m['scripts']}
+    unfamiliar_old = 't.script&&t.cond&&t.script.evilness!=Uc.SEVERITY_FOISTED_SCRIPT&&('
+    unfamiliar_new = ('t.script&&t.cond&&!(t.script.system===true&&'
+                      + json.dumps(known, separators=(',', ':'))
+                      + '[e]===Do(t.script.textContent,"UTF-8"))&&'
+                      't.script.evilness!=Uc.SEVERITY_FOISTED_SCRIPT&&(')
+    if source.count(unfamiliar_old) != 1:
+        raise ValueError('Tampermonkey pinned managed origin patch no longer matches')
+    source = source.replace(unfamiliar_old, unfamiliar_new)
     (extension / worker).write_text(source)
     extension_manifest = extension / 'manifest.json'
     meta = json.loads(extension_manifest.read_text())
@@ -280,7 +292,7 @@ def verify_profile(profile):
         if key != '!extdb.@meta#' + expected['uuid']:
             raise ValueError('managed script identity mismatch: ' + expected['name'])
         source = state.get('!extdb.@source#' + key.split('#', 1)[1], '')
-        if meta.get('enabled') is not True or meta.get('system') is not True or meta.get('version') != item['version'] or meta.get('options', {}).get('check_for_updates') is not False or digest(source.encode()) != item['sha256']:
+        if meta.get('evilness', 0) != 0 or meta.get('enabled') is not True or meta.get('system') is not True or meta.get('version') != item['version'] or meta.get('options', {}).get('check_for_updates') is not False or digest(source.encode()) != item['sha256']:
             raise ValueError('managed script is disabled, changed, or stale: ' + expected['name'])
         caches = [value for key_, value in state.items() if key_.startswith('!extdb.@ext#' + key.split('#', 1)[1] + ':')]
         for requirement in item['requires']:

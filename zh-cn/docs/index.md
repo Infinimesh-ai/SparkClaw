@@ -33,6 +33,7 @@
 | [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 单封未读邮件来源采集、发送邮件、确定性 Admission、发送审批与 Unknown-outcome 不变量 |
 | [邮件管理整体与阶段设计](email-management-design.md) | 实施契约：跨收件邮箱事项、有界接收、固定归属、逐封查看与五阶段验收 |
 | [邮件管理实施](email-management-implementation.md) | Runtime／接口／界面改动、真实服务商覆盖、工程证据和未完成发布门槛 |
+| [邮件全链路优化](email-pipeline-optimization-design.md) | 待实施：QQ／Gmail／Outlook 网络获取、油猴受管导入、可靠增量同步、摘要与正文按需阅读 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |

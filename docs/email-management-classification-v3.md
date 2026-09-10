@@ -4,6 +4,8 @@
 
 Status: updated 2026-09-10, **implemented and deployed through the remote profile at the owner’s request**. Section 8 records implementation evidence; section 9 records deployment checks. Proposed acceptance targets are not claims of achieved production quality.
 
+> 2026-09-10 follow-up: [Email pipeline optimization](email-pipeline-optimization-design.md) supersedes the future no-summary/default-expanded-body requirements and includes network capture scripts and incremental synchronization. That design is not implemented; historical implementation/deployment evidence below is unchanged.
+
 ## 1. Product Goal and Confirmed Scope
 
 Help users manage their own mail. This phase must both classify mail from its subject and body into notification/interaction and assign it correctly to an event conversation. **An event is the smallest conversation unit; each conversation concerns one event.** Separate different events from one sender; allow different participants in the same event.

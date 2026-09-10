@@ -84,7 +84,7 @@ class BrowserComponentsTest(unittest.TestCase):
         provision = components.make_provisioning(manifest)
         state = {'!misc.managed.consumed': {'1:current': 123}}
         for index, (entry, script) in enumerate(zip(manifest['scripts'], provision['scripts'])):
-            uid = f'fixture-{index}'
+            uid = entry['uuid']
             state['!extdb.@meta#' + uid] = {
                 'name': script['name'], 'version': entry['version'],
                 'enabled': True, 'system': True,
@@ -109,6 +109,19 @@ class BrowserComponentsTest(unittest.TestCase):
         state, policy = self.valid_state()
         self.verify_with_state(state, policy)
 
+    def test_retirement_checks_exact_managed_identity_and_preserves_user_copies(self):
+        state, policy = self.valid_state()
+        retired = components.RETIRED_MANAGED_UUIDS[0]
+        state['!extdb.@meta#user-copy'] = {'name': 'ChatGPT Exporter', 'system': False, 'enabled': True}
+        current = components.manifest()['scripts'][0]['uuid']
+        state['!extdb.@meta#user-fork'] = {**state['!extdb.@meta#' + current], 'system': False}
+        self.verify_with_state(state, policy)
+        state['!extdb.@meta#' + retired] = {'system': True, 'enabled': True}
+        with self.assertRaisesRegex(ValueError, 'retired managed'):
+            self.verify_with_state(state, policy)
+        state['!extdb.@meta#' + retired]['system'] = False
+        self.verify_with_state(state, policy)
+
     def test_missing_permission_fails_even_with_valid_database(self):
         state, policy = self.valid_state()
         self.prefs.write_text('{}')
@@ -124,8 +137,16 @@ class BrowserComponentsTest(unittest.TestCase):
             self.verify_with_state(state, policy)
 
     def test_receipt_metadata_sources_and_dependencies_fail_closed(self):
+        # Dependency validation remains covered even when the production fork
+        # is self-contained and no longer installs ChatGPT Exporter.
+        manifest = components.manifest()
+        data = (components.ROOT / 'tools/browser-userscripts/jszip.min.js').read_bytes()
+        manifest['scripts'][0]['requires'] = [{'file': 'jszip.min.js', 'url': 'https://example.test/jszip.js', 'sha256': components.digest(data)}]
+        override = patch.object(components, 'manifest', return_value=manifest)
+        override.start()
+        self.addCleanup(override.stop)
         valid, policy = self.valid_state()
-        meta_key = '!extdb.@meta#fixture-0'
+        meta_key = '!extdb.@meta#' + manifest['scripts'][0]['uuid']
         dependency_key = next(key for key in valid if key.startswith('!extdb.@ext#'))
 
         def changed_meta(field, value):
@@ -139,12 +160,14 @@ class BrowserComponentsTest(unittest.TestCase):
             'missing script': lambda s: s.pop(meta_key),
             'duplicate script': lambda s: s.update({'!extdb.@meta#duplicate': copy.deepcopy(s[meta_key])}),
             'disabled script': changed_meta('enabled', False),
+            'foisted script': changed_meta('evilness', 12),
+            'blacklisted script': changed_meta('evilness', 4),
             'non-system script': changed_meta('system', False),
             'wrong version': changed_meta('version', '0.0.0'),
             'uncontrolled updates': changed_meta('options', {'check_for_updates': True}),
             'missing update policy': changed_meta('options', {}),
-            'changed source': lambda s: s.update({'!extdb.@source#fixture-0': '// modified'}),
-            'missing source': lambda s: s.pop('!extdb.@source#fixture-0'),
+            'changed source': lambda s: s.update({'!extdb.@source#' + manifest['scripts'][0]['uuid']: '// modified'}),
+            'missing source': lambda s: s.pop('!extdb.@source#' + manifest['scripts'][0]['uuid']),
             'missing dependency': lambda s: s.pop(dependency_key),
             'duplicate dependency': lambda s: s.update({dependency_key + '-duplicate': copy.deepcopy(s[dependency_key])}),
             'changed dependency': lambda s: s[dependency_key].update({'resource': {'base': 'Y2hhbmdlZA=='}}),
@@ -184,7 +207,7 @@ class BrowserComponentsTest(unittest.TestCase):
                 if kind == 'script':
                     changed['scripts'][0]['sha256'] = '0' * 64
                 else:
-                    next(s for s in changed['scripts'] if s['requires'])['requires'][0]['sha256'] = '0' * 64
+                    changed['scripts'][0]['requires'] = [{'file': 'jszip.min.js', 'url': 'https://example.test/jszip.js', 'sha256': '0' * 64}]
                 with self.assertRaisesRegex(ValueError, 'checksum'):
                     components.make_provisioning(changed)
 

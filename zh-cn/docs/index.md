@@ -28,6 +28,7 @@
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
 | [导出 AI 平台对话：登录与 workspace 保存](ai-conversation-export-design.md) | 与浏览器／文档同级的四平台分支；监听油猴下载、原始 JSON 入 workspace 与文件回执 |
+| [AI 对话时间线批量导出](ai-conversation-batch-export.md) | RevivalStack 批量控件、原生 Bridge CLI、校验后的文件进度、集合检索与覆盖限制 |
 | [Host-CDP 浏览器设计](host-cdp-browser-design.md) | Playwright 切换前已退役 browserd/Host-CDP 实现的历史记录 |
 | [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |
 | [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 单封未读邮件来源采集、发送邮件、确定性 Admission、发送审批与 Unknown-outcome 不变量 |

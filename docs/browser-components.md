@@ -2,7 +2,7 @@
 
 [简体中文](../zh-cn/docs/browser-components.md)
 
-Tampermonkey, RevivalStack AI Chat Exporter, and ChatGPT Exporter are maintained SparkClaw product components. Every Local/Remote installation uses the same component manifest and shared setup; no user must manually install these assets or add extension paths. Account logins remain in each owner's dedicated Chromium profile.
+Tampermonkey and the userscripts listed in `configs/browser-components.json` are maintained SparkClaw product components. AI conversation export uses the SparkClaw RevivalStack fork, including its [timeline batch export](ai-conversation-batch-export.md). Every Local/Remote installation uses the same component manifest and shared setup; no user must manually install these assets or add extension paths. Account logins remain in each owner's dedicated Chromium profile.
 
 ## Release ownership
 
@@ -16,7 +16,9 @@ The installer supplies a narrowly scoped Chromium third-party policy for this pr
 
 Chromium 148 can defer managed-storage callbacks until policy initialization (observed around five seconds). Upstream Tampermonkey 5.5.0 gives up after one second. The product applies an exact-match compatibility patch extending the bounded wait to twenty seconds and waiting for the current deployment hash instead of accepting an empty object or an older cached policy. An unmatched patch aborts the build. The patched service worker uses a filename bound to the product version and deployment hash to invalidate Chromium caches on upgrade.  Its product version is distinct from upstream; full installed file hashes are recorded. This patch is source-controlled deployment logic, not a local launcher modification.
 
-Only the dedicated profile's product extension is granted the existing userScripts capability. Profile writes happen with its browser stopped. Readiness reads a temporary private snapshot of the extension's LevelDB, never edits its database, and checks the consumed generation, unique script membership, versions, enabled/system flags, disabled independent updates, source/dependency hashes and permission. Snapshot races fail/retry within a bounded window. This proves provisioning, not successful export on every provider website.
+The retired ChatGPT Exporter is removed through Tampermonkey's native import queue only when its exact retired UUID is a system script. Ordinary user copies remain intact. The r8 compatibility patch also handles native first-install inspection occurring after managed import: only scripts matching the manifest UUID, system flag and UTF-8 source SHA-256 are recognized as product-provisioned. Unknown identities and changed source bytes retain native rejection. Upgrades reconcile previously blocked pinned scripts.
+
+Only the dedicated profile's product extension is granted the existing userScripts capability. Profile writes happen with its browser stopped. Readiness reads a temporary private snapshot of the extension's LevelDB, never edits its database, and checks the consumed generation, exact script UUIDs, versions, enabled/system flags, zero native `evilness`, retired system-script absence, disabled independent updates, source/dependency hashes and permission. Snapshot races fail/retry within a bounded window. Installed execution is verified separately; the [acceptance report](ai-conversation-live-eval-20260910.md) distinguishes native installation and Bridge fixtures from live provider coverage.
 
 ## Operations
 

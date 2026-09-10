@@ -2,7 +2,7 @@
 
 [English](../../docs/browser-components.md)
 
-油猴、RevivalStack AI Chat Exporter 和 ChatGPT Exporter 是由 SparkClaw 长期管理的产品组件。所有 Local／Remote 安装使用相同组件清单与统一安装流程；用户无需手工安装这些组件或配置扩展路径。账号登录仍保存在各自专用 Chromium profile。
+油猴及 `configs/browser-components.json` 中列出的用户脚本是由 SparkClaw 长期管理的产品组件。AI 对话导出使用 SparkClaw RevivalStack 派生版本，包含[时间线批量导出](ai-conversation-batch-export.md)。所有 Local／Remote 安装使用相同组件清单与统一安装流程；用户无需手工安装这些组件或配置扩展路径。账号登录仍保存在各自专用 Chromium profile。
 
 ## 发布职责
 
@@ -16,7 +16,9 @@
 
 Chromium148 可能延迟 managed storage 回调，实测约五秒；上游油猴5.5.0 一秒即放弃。产品使用精确匹配补丁，将有界等待延长到二十秒，并等待当前部署哈希，避免空对象或旧策略缓存被判为就绪。补丁后的 Service Worker 使用绑定产品版本及部署哈希的文件名，确保升级使 Chromium 缓存失效。匹配失败则中止构建；产品版本与上游版本区分，记录完整安装文件哈希。该补丁属于受版本控制的部署逻辑，不是机器本地 launcher 改动。
 
-仅为专用 profile 中的产品扩展开启已有 userScripts 能力；停止浏览器后才写 profile。就绪检查读取扩展 LevelDB 的临时私有快照，不直接修改数据库；核对已消费代次、脚本唯一性、版本、enabled/system 标记、独立更新关闭、源码／依赖哈希及权限。快照竞争失败会有界重试。这证明配置下发，不代替每个平台真实对话导出验收。
+已停用的 ChatGPT Exporter 仅在精确旧 UUID 且属于系统脚本时，通过油猴原生导入队列移除；普通用户副本保留。r8 兼容补丁还处理原生首次安装检查晚于受管导入的时序：仅当 UUID、system 标记及源码 UTF-8 SHA-256 均与清单匹配时，才认定为产品下发来源。未知身份和被改动源码继续接受原生拒绝检查，升级会重新同步此前被阻止的固定脚本。
+
+仅为专用 profile 中的产品扩展开启已有 userScripts 能力；停止浏览器后才写 profile。就绪检查读取扩展 LevelDB 的临时私有快照，不直接修改数据库；核对已消费代次、精确脚本 UUID、版本、enabled/system 标记、原生 `evilness` 为零、旧受管脚本已移除、独立更新关闭、源码／依赖哈希及权限。快照竞争失败会有界重试。安装后的执行另行验证；[验收报告](ai-conversation-live-eval-20260910.md)区分原生安装与 Bridge 夹具证据，以及真实平台覆盖范围。
 
 ## 操作
 

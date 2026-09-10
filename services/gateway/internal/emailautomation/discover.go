@@ -16,13 +16,13 @@ import (
 var mailLocatorPattern = regexp.MustCompile(`^[A-Za-z0-9_+=:./~-]+$`)
 var mailAddressPattern = regexp.MustCompile(`^[^\x00-\x20\x7f@<>]+@[^\x00-\x20\x7f@<>]+\.[^\x00-\x20\x7f@<>]+$`)
 var qqMailFolderPattern = regexp.MustCompile(`^qq:[1-9][0-9]{3,9}$`)
-var intakeContinuationPattern = regexp.MustCompile(`^(?:[a-f0-9]{64}:[1-9][0-9]{0,3}|q1:[A-Za-z0-9_-]{1,1000})$`)
+var intakeContinuationPattern = regexp.MustCompile(`^(?:[a-f0-9]{64}:[1-9][0-9]{0,3}|(?:q1|n1):[A-Za-z0-9_-]{1,1000})$`)
 
 func validMailTarget(target app.EmailCaptureTarget) bool {
 	return len(target.AccountAddress) <= 320 && utf8.ValidString(target.AccountAddress) && mailAddressPattern.MatchString(target.AccountAddress) &&
 		len(target.ProviderMessageID) <= 1024 && len(target.ProviderSelectionID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderMessageID) && mailLocatorPattern.MatchString(target.ProviderSelectionID) &&
 		(target.ProviderThreadID == "" || len(target.ProviderThreadID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderThreadID)) &&
-		(target.Folder == "" || target.Folder == "inbox" || target.Folder == "sent" || target.Folder == "all" || qqMailFolderPattern.MatchString(target.Folder))
+		(target.Folder == "" || target.Folder == "inbox" || target.Folder == "sent" || target.Folder == "all" || qqMailFolderPattern.MatchString(target.Folder) || strings.HasPrefix(target.Folder, "outlook:") && len(target.Folder) <= 1032 && mailLocatorPattern.MatchString(strings.TrimPrefix(target.Folder, "outlook:")))
 }
 
 // DiscoverForOwner returns bounded discovery evidence without opening mail.
@@ -143,7 +143,7 @@ func decodeDiscoveryResult(raw []byte, provider Provider, request ReadRequest, m
 			return invalid()
 		}
 	case "listed":
-		if !coverage.Limited {
+		if !coverage.Limited && (request.Discovery == nil || request.Discovery.Lane != "recent_inbound" || !coverage.BoundaryQualified || coverage.UnsupportedRows != 0 || len(output.Candidates) == 0) {
 			return invalid()
 		}
 	case "partial":

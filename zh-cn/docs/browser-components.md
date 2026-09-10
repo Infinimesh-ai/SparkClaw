@@ -6,7 +6,7 @@
 
 ## 发布职责
 
-`configs/browser-components.json` 固定油猴上游／产品版本、官方 CRX 校验和、导出脚本源码及依赖。`tools/browser-userscripts/` 保存源码与许可证声明。官方专有扩展在安装时下载，不复制入本仓；官方内容变化导致校验失败时必须更新经审阅的 pin，不能直接接受 latest。已校验下载缓存在用户 XDG cache。
+`configs/browser-components.json` 固定油猴上游／产品版本、官方 CRX 校验和、用户脚本源码及依赖。`tools/browser-userscripts/` 保存源码与许可证声明。官方专有扩展在安装时下载，不复制入本仓；官方内容变化导致校验失败时必须更新经审阅的 pin，不能直接接受 latest。已校验下载缓存在用户 XDG cache。
 
 产品固定目录 `/opt/sparkclaw/tampermonkey` 对应固定 ID `dlgaaenljmglaedeiniphopajnkeakkf`，升级保持身份。此前用户的解压扩展和数据库保留供回退，其私人路径不用于其他部署。安装备份 profile 偏好与旧油猴数据库；产品数据库只通过原生系统脚本导入初始化，不能复制普通脚本以免重复注入。旧管理器数据保留在原身份下。
 
@@ -30,3 +30,9 @@ npm run start:remote -- --check
 ```
 
 start／预检验证已安装版本，deploy 安装并同步。升级必须同步清单、已审阅兼容补丁与源码，再执行组件测试、全新 profile 实机安装、重复安装与真实就绪检查。不要绕过脚本回执不匹配；旧 `browser-extensions.json` 个性化方案不再属于产品契约。
+
+## 受管邮件读取脚本
+
+组件清单还包含 QQ Mail、Gmail 和 Outlook Network Reader。可编辑源码位于 `scripts/email/userscripts/lib/`；运行 `node scripts/email/userscripts/build.mjs` 生成 `tools/browser-userscripts/` 中的三份固定脚本并更新清单哈希，`--check` 会拒绝过期产物。脚本在匹配的已登录邮箱页面向 Controller 提供只读操作，不自行调度同步。
+
+会话请求头、邮箱分页游标和已学习的原件下载地址仅保留在受控页面内存。Gateway 持久化绑定账号的收件时间区间与原件回执。由于 Outlook 可能在油猴异步注入完成前绑定传输对象，Controller 在页面创建时安装小型 Worker 观察桥，由已安装 Reader 消费观察结果并执行合格读取。脚本缺失或接口证据不足时保留原生采集回退。安装就绪不等于所有文件夹覆盖或原件采集通过，详见[邮件链路设计中的实现状态](email-pipeline-optimization-design.md)。

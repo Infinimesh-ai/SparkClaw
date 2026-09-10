@@ -133,8 +133,8 @@ func TestIntakeProbeCacheInvalidatesSettingChangesAndDisabledProviders(t *testin
 	if _, err := st.UpdateEmailProviderSetting(t.Context(), setting, setting.Version); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AdmitIntake(t.Context(), "owner", "gmail"); ErrorCode(err) != app.ToolErrorEmailNotConfigured || len(browser.requests) != 2 {
-		t.Fatalf("cached proof accepted login-required setting: %v", err)
+	if _, err := controller.AdmitIntake(t.Context(), "owner", "gmail"); err != nil || len(browser.requests) != 3 {
+		t.Fatalf("expired login was not revalidated with a fresh probe: %v", err)
 	}
 	setting, _, _ = st.GetEmailProviderSetting(t.Context(), "owner", "gmail")
 	setting.Enabled = false
@@ -142,7 +142,7 @@ func TestIntakeProbeCacheInvalidatesSettingChangesAndDisabledProviders(t *testin
 	if _, err := st.UpdateEmailProviderSetting(t.Context(), setting, setting.Version); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AdmitIntake(t.Context(), "owner", "gmail"); ErrorCode(err) != app.ToolErrorEmailNotConfigured || len(browser.requests) != 2 {
+	if _, err := controller.AdmitIntake(t.Context(), "owner", "gmail"); ErrorCode(err) != app.ToolErrorEmailNotConfigured || len(browser.requests) != 3 {
 		t.Fatalf("cached proof accepted disabled setting: %v", err)
 	}
 }

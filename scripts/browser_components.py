@@ -299,7 +299,7 @@ def verify_profile(profile):
             cached = [value for value in caches if value.get('url') == requirement['url']]
             if len(cached) != 1 or digest(base64.b64decode(cached[0].get('resource', {}).get('base', ''), validate=True)) != requirement['sha256']:
                 raise ValueError('managed script dependency is missing or changed: ' + requirement['file'])
-    print('Tampermonkey and configured managed export scripts are current, enabled, and imported')
+    print('Tampermonkey and', len(m['scripts']), 'managed scripts are current, enabled, and imported')
 
 
 def wait_profile(profile):

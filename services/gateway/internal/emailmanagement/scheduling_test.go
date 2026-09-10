@@ -59,7 +59,7 @@ func TestLongDiscoveryCompletionWaitsBeforeNextScanAndAcrossRestart(t *testing.T
 	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
 		t.Fatalf("initial scan: %v", err)
 	}
-	if browser.admissions.Load() != 2 || browser.scans.Load() != 2 {
+	if browser.admissions.Load() != 2 || browser.scans.Load() != 1 {
 		t.Fatal("scan lanes repeated login admission")
 	}
 	if err = s.plan(t.Context()); err != nil {

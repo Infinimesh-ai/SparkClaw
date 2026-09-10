@@ -36,6 +36,7 @@ type ConversationView struct {
 	Title           string        `json:"title"`
 	Participants    []string      `json:"participants"`
 	Summary         string        `json:"summary,omitempty"`
+	SummaryPartial  bool          `json:"summary_partial"`
 	SummaryState    string        `json:"summary_state"`
 	UnseenCount     int           `json:"unseen_count"`
 	LastActivityAt  string        `json:"last_activity_at,omitempty"`
@@ -75,7 +76,10 @@ type MessageView struct {
 	SentAt                    string                   `json:"sent_at,omitempty"`
 	ArrivedAt                 string                   `json:"arrived_at"`
 	Summary                   string                   `json:"summary,omitempty"`
+	SummaryPartial            bool                     `json:"summary_partial"`
 	SummaryState              string                   `json:"summary_state"`
+	BodyRevision              string                   `json:"body_revision,omitempty"`
+	BodyAvailable             bool                     `json:"body_available"`
 	BodyText                  string                   `json:"body_text,omitempty"`
 	Viewed                    bool                     `json:"viewed"`
 	OriginalAvailable         bool                     `json:"original_available"`
@@ -213,6 +217,7 @@ func (s *Service) conversationView(ctx context.Context, owner string, row app.Em
 		return out, err
 	}
 	out.Summary, out.SummaryState = projectSummary(row.Summary, target, found)
+	out.SummaryPartial = row.Summary != nil && row.Summary.Coverage != "complete_for_inputs"
 	rows, err := s.repository.ListEmailConcerns(ctx, store.EmailQuery{OwnerID: owner, ConversationID: row.ID, Limit: 100})
 	if err != nil {
 		return out, err
@@ -279,6 +284,7 @@ func (s *Service) Messages(ctx context.Context, q store.EmailQuery) (MessagesVie
 					view.Summary = ""
 				}
 			}
+			view.BodyText = "" // Full local body is available through the single-mail endpoint.
 			out.Messages = append(out.Messages, view)
 		}
 		return out, nil
@@ -352,6 +358,8 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 			return out, ErrNotFound
 		}
 		out.Subject, out.From, out.To, out.CC, out.BodyText = representation.Subject, strings.Join(representation.From, ", "), nonNilStrings(representation.To), nonNilStrings(representation.CC), representation.BodyText
+		out.BodyRevision = representation.ID
+		out.BodyAvailable = representation.BodyText != ""
 		out.SentAt = emailTime(representation.SourceTime)
 		if len(representation.From) == 1 {
 			if addr, err := mail.ParseAddress(representation.From[0]); err == nil {
@@ -379,6 +387,7 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 		return out, err
 	}
 	out.Summary, out.SummaryState = projectSummary(row.Summary, target, found)
+	out.SummaryPartial = row.Summary != nil && row.Summary.Coverage != "complete_for_inputs"
 	switch {
 	case row.ParseState == app.EmailParseFailed || row.CaptureState == app.EmailCaptureFailed:
 		out.ProcessingState = "failed"
@@ -437,6 +446,9 @@ func ProjectMailbox(mailbox app.EmailMailbox) MailboxView {
 	if mailbox.ErrorCode != "" {
 		out.State = "needs_attention"
 		out.Error = "Email receiving needs attention. Check the signed-in account and retry."
+	}
+	if mailbox.IntakeEnabled && mailbox.ErrorCode == string(app.ToolErrorEmailLoginRequired) {
+		out.State = app.EmailStateLoginRequired
 	}
 	if mailbox.Cursor != "" || (mailbox.Coverage != "" && mailbox.Coverage != "complete_for_observation" && mailbox.Coverage != "complete") {
 		out.Gap = "The admitted interval has not been fully scanned."

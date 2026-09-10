@@ -56,7 +56,7 @@ export function validateCaptureInput(input, provider) {
 }
 
 const validBatchLimit = value => Number.isInteger(value) && value >= 1 && value <= 100;
-const validContinuation = value => typeof value === 'string' && (value === '' || /^(?:[a-f0-9]{64}:[1-9][0-9]{0,3}|q1:[A-Za-z0-9_-]{1,1000})$/u.test(value));
+const validContinuation = value => typeof value === 'string' && (value === '' || /^(?:[a-f0-9]{64}:[1-9][0-9]{0,3}|(?:q1|n1):[A-Za-z0-9_-]{1,1000})$/u.test(value));
 
 export function validateMailTarget(target) {
   if (!target || Array.isArray(target) || Object.keys(target).some(key => !['account_address','provider_message_id','provider_selection_id','provider_thread_id','folder'].includes(key)) ||
@@ -64,7 +64,7 @@ export function validateMailTarget(target) {
       /[\x00-\x20\x7f]/u.test(target.account_address) ||
       !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/u.test(target.account_address) ||
       [target.provider_message_id,target.provider_selection_id,...(target.provider_thread_id === undefined ? [] : [target.provider_thread_id])].some(id=>typeof id!=='string'||!/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(id)) ||
-      target.folder !== undefined && !['inbox','sent','all'].includes(target.folder) && !/^qq:[1-9][0-9]{3,9}$/u.test(target.folder)) throw error('invalid_request');
+      target.folder !== undefined && !['inbox','sent','all'].includes(target.folder) && !/^qq:[1-9][0-9]{3,9}$/u.test(target.folder) && !/^outlook:[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(target.folder)) throw error('invalid_request');
 }
 
 async function directory(parent, name) {
@@ -233,7 +233,7 @@ export async function captureUnread(input, runtime, provider, adapter) {
     await replaceJSON(journalPath, journal);
   };
   return runtime.withReadTab(async tab => {
-    const message = await adapter.collectUnread(tab, provider, { account_address:journal?.identity?.account_address, folder:journal?.selection?.folder, pinned_message_id: journal?.identity?.provider_message_id, pinned_selection_id: journal?.selection?.provider_selection_id, capture_required: !journal?.receipt, onSelected });
+    let message = await adapter.collectUnread(tab, provider, { account_address:journal?.identity?.account_address, folder:journal?.selection?.folder, pinned_message_id: journal?.identity?.provider_message_id, pinned_selection_id: journal?.selection?.provider_selection_id, capture_required: !journal?.receipt, onSelected });
     if (message.status === "empty") {
       if (journal?.identity || journal?.selection) throw error("email_capture_invalid");
       const receipt = { schema_version: 1, status: "empty", provider, capture: null };
@@ -263,7 +263,23 @@ export async function captureUnread(input, runtime, provider, adapter) {
     await fs.rm(path.join(stagingParent, stagingName), { recursive: true, force: true });
     const staging = await directory(stagingParent, stagingName);
     try {
-      const captured = await collectFiles(tab, staging, message);
+      let captured;
+      try { captured = await collectFiles(tab, staging, message); }
+      catch (cause) {
+        // A short-lived native URL may expire independently of the mailbox.
+        // Retry once via the same pinned native target, never a new candidate.
+        if (!message.network_original || !(['email_capture_invalid','email_capture_unavailable','email_original_download_unavailable','browser_download_failed','browser_download_unavailable','browser_download_timeout'].includes(cause.code) || cause.diagnosticReason==='process_exit_download_timeout')) throw cause;
+        await fs.rm(staging, {recursive:true,force:true});
+        await directory(stagingParent,stagingName);
+        message = await adapter.collectUnread(tab,provider,{
+          account_address:identity.account_address,folder:journal.selection.folder,
+          pinned_message_id:identity.provider_message_id,pinned_selection_id:journal.selection.provider_selection_id,
+          capture_required:true,force_native:true,onSelected,
+        });
+        const retried=accountIdentity(provider,message);
+        if(retried.mail_id!==identity.mail_id || retried.mailbox_id!==identity.mailbox_id || message.network_original)throw error('email_capture_invalid');
+        captured = await collectFiles(tab,staging,message);
+      }
       const manifest = {
         schema_version: 1, stage: "script_capture", provider, ...identity, capture_id: captureID,
         invocation_id: input.invocation_id, captured_at: new Date().toISOString(), acquisition: captured.mode,
@@ -393,6 +409,9 @@ async function collectFiles(tab, staging, message) {
       const visible = normalized(message.body_text), original = normalized(body);
       if (!visible || original!==visible && !original.startsWith(`${visible} `)) throw error('email_capture_invalid');
     }
+    await tab.runReadCode?.(`async page=>page.evaluate(target=>{
+      window.SparkClawMailReader?.confirmOriginal(target);return true;
+    },${JSON.stringify({account_address:message.account_address,provider_message_id:message.provider_message_id})})`);
     metadata = { subject: parsed.subject ?? "", from: parsed.from.value, to: parsed.to?.value ?? [], cc: parsed.cc?.value ?? [], reply_to: parsed.replyTo?.value ?? [], date: parsed.date?.toISOString() ?? null, message_id: parsed.messageId ?? null, in_reply_to: parsed.inReplyTo ?? null, references: parsed.references ?? [] };
     complete = true; mode = "rfc822";
     skippedParts = Math.max(0, parsed.attachments.length - CAPTURE_LIMITS.parts);
@@ -466,7 +485,7 @@ export async function capturePage(input, runtime, provider, adapter) {
     // missing receipt/scope evidence must remain explicitly partial.
     const emptyBatch = !discovery.candidates.length && !captures.length && !failures.length && discovery.coverage?.unsupported_rows === 0 &&
       (discovery.status === 'empty' || discovery.status === 'partial' &&
-        ['loaded_rows_only','native_folder_scan_partial','folder_scope_and_pagination_unqualified'].includes(discovery.coverage.reason));
+        ['loaded_rows_only','native_folder_scan_partial','folder_scope_and_pagination_unqualified','network_page_continues','network_page_changed'].includes(discovery.coverage.reason));
     return {schema_version:1,provider,page_id,account_address:account,discovery,discovery_options,captures,failures,
       status:emptyBatch?'empty':failures.length || discovery.status==='partial' || captures.some(entry=>entry.result.status==='partial')?'partial':'collected',
       observed_at:checkpoint.observed_at};

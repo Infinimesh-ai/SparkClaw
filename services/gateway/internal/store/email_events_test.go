@@ -170,7 +170,7 @@ func TestEmailEventsPolicyFencesLegacyAndSurvivesFileRestart(t *testing.T) {
 	resumed, err := NewFileStore(filename)
 	f.must(err)
 	f.repo = resumed
-	for _, kind := range []string{app.EmailJobMessageSummary, app.EmailJobRelationshipCheck, app.EmailJobConversationSummary, app.EmailJobPresentation} {
+	for _, kind := range []string{app.EmailJobRelationshipCheck, app.EmailJobPresentation} {
 		_, found, err := resumed.ClaimEmailJob(t.Context(), EmailJobClaim{OwnerID: f.owner, Kinds: []string{kind}})
 		f.must(err)
 		if found {
@@ -185,8 +185,10 @@ func TestEmailEventsPolicyFencesLegacyAndSurvivesFileRestart(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		job, err := resumed.RequestEmailJob(t.Context(), EmailJobRequest{EmailCommand: f.command(), Kind: app.EmailJobMessageSummary, TargetID: m.ID, Rearm: true, ForceAnalysis: true})
 		f.must(err)
-		if job.State != app.EmailJobPaused {
-			t.Fatal("legacy summary revived")
+		target, _, err := resumed.GetEmailAnalysisTarget(t.Context(), f.owner, job.Kind, m.ID)
+		f.must(err)
+		if !emailHasSourceSummaryPolicy(target) || job.InputFingerprint == legacy.InputFingerprint {
+			t.Fatal("retry revived legacy summary dependencies")
 		}
 	}
 }

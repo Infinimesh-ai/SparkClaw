@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -56,6 +57,13 @@ class DeployRemoteTest(unittest.TestCase):
     ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], str, list[str]]:
         with tempfile.TemporaryDirectory() as directory:
             temp_path = Path(directory)
+            repository = temp_path / "repository"
+            for part in ("scripts", "docker", "configs"):
+                shutil.copytree(ROOT / part, repository / part, ignore=shutil.ignore_patterns("__pycache__"))
+            for part in ("workspaces", "memory", "traces", "artifacts", "logs", "eval"):
+                folder = repository / "data" / part
+                folder.mkdir(parents=True)
+                (folder / ".gitkeep").touch()
             private_env = temp_path / ".env.remote"
             private_env.write_text(private_text, encoding="utf-8")
             docker = temp_path / "docker"
@@ -82,8 +90,8 @@ class DeployRemoteTest(unittest.TestCase):
                 }
             )
             result = subprocess.run(
-                ["bash", str(SCRIPT), "--env-file", str(private_env), *args],
-                cwd=ROOT,
+                ["bash", str(repository / "scripts/deploy_remote.sh"), "--env-file", str(private_env), *args],
+                cwd=repository,
                 env=environment,
                 input=input_text,
                 check=False,
@@ -91,6 +99,11 @@ class DeployRemoteTest(unittest.TestCase):
                 text=True,
                 timeout=20,
             )
+            boundary = repository / "data/workspaces/.sparkclaw-deployment.json"
+            if result.returncode == 0 and "--check" not in args:
+                self.assertTrue(boundary.exists(), "fresh clone successful deployment records email baseline")
+            else:
+                self.assertFalse(boundary.exists(), "failed/check-only deployment cannot record success")
             docker_calls = []
             if docker_log.exists():
                 docker_calls = [json.loads(line) for line in docker_log.read_text().splitlines()]

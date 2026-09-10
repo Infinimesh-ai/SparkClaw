@@ -19,6 +19,7 @@ export type EmailConversation = {
   participants: string[];
   summary?: string;
   summary_state?: string;
+  summary_partial?: boolean;
   unseen_count: number;
   last_activity_at?: string;
   concerns: EmailConcern[];
@@ -52,7 +53,10 @@ export type EmailMessage = {
   arrived_at: string;
   summary?: string;
   summary_state?: string;
+  summary_partial?: boolean;
   body_text?: string;
+  body_available?: boolean;
+  body_revision?: string;
   viewed: boolean;
   original_path?: string;
   original_available?: boolean;

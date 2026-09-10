@@ -102,6 +102,15 @@ func emailExpand(e *emailEngine, c EmailRefreshCommand) (EmailRefreshResult, err
 			return EmailRefreshResult{Processed: n, Remaining: more}, nil
 		}
 	}
+	if emailEvents(e) {
+		n, more, err := emailBackfillSourceSummaries(e, limit)
+		if err != nil {
+			return out, err
+		}
+		if more || n > 0 {
+			return EmailRefreshResult{Processed: n, Remaining: more}, nil
+		}
+	}
 	n, more, backfillErr := emailBackfillClassifications(e, limit)
 	if backfillErr != nil {
 		return out, backfillErr
@@ -170,6 +179,9 @@ func emailSaveConversation(e *emailEngine, c app.EmailConversation) {
 		search += " " + summary.Text
 	}
 	emailPut(e, "conversation", c.ID, "", "", "", search, emailOrder(c.UpdatedAt, c.ID), c)
+	if emailEvents(e) && c.MemberCount > 0 && e.err == nil {
+		_, e.err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobConversationSummary, TargetID: c.ID, Dependencies: []string{}})
+	}
 }
 func emailAssignment(e *emailEngine, c EmailAssignmentCommand) (app.EmailMail, error) {
 	d := c.Decision
@@ -372,7 +384,7 @@ func emailSummary(e *emailEngine, c EmailSummaryCommand) (app.EmailSummary, erro
 		if t.Kind == app.EmailJobMessageSummary {
 			m, _ := emailGet[app.EmailMail](e, "mail", t.TargetID)
 			emailSaveMail(e, m)
-			if m.ConversationID != "" {
+			if m.ConversationID != "" && !emailEvents(e) {
 				conv, _ := emailGet[app.EmailConversation](e, "conversation", m.ConversationID)
 				conv.InputVersion++
 				conv.UpdatedAt = e.now

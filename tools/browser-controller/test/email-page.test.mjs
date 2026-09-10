@@ -166,7 +166,7 @@ test('production Gmail page adapter captures proven conversation members and exc
         phase==='menu'?{commands:['Download message','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;return code.includes('return state.records')?members:true;},
+    runReadCode:async code=>{if(code.includes('page.reload'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
     click:async()=>{},fill:async()=>{queries++;},press:async()=>{},
     download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };
@@ -322,4 +322,30 @@ test('unsupported or evidence-unavailable zero-candidate batches remain partial'
     assert.equal(result.discovery.coverage.reason,reason);
     assert.equal(result.discovery.coverage.unsupported_rows,unsupported);
   }
+});
+
+test('production Gmail page adapter filters historical, future, and unqualified members in a recent conversation',async t=>{
+  const {collectEmailPage,READ_PROVIDERS}=await import('../../../scripts/email/read.mjs');
+  const f=await fixture(t),url=READ_PROVIDERS.gmail.url;
+  const row={provider_message_id:'b',provider_selection_id:'b',provider_thread_id:'thread-f:10',unread:true,single_message_row:false,subject:'Fixture'};
+  const members=['a','b','c','d','e'].map(id=>({provider_message_id:id,provider_thread_id:'thread-f:10',unread:true,inbox:true,sent:false,draft:id==='c',observed_message_count:5,received_at:({a:"2026-08-01T00:00:00Z",b:"2026-09-10T01:00:00Z",c:"2026-09-10T01:00:00Z",d:"2026-09-11T00:00:00Z"})[id]}));
+  let setups=0,queries=0,tabs=0,downloads=0;
+  const tab={
+    inspect:async expression=>{
+      const call=expression.match(/\)\("gmail","([^"]+)",([^\n]*)\);/u);assert.ok(call);
+      const phase=call[1],expected=JSON.parse(call[2]);
+      const result=phase==='list'?{rows:[row],empty:false}:phase==='detail'?{...expected,subject:'Fixture',inventory_complete:true,attachments:[],body_text:'Body',read_state:'read'}:
+        phase==='menu'?{commands:['Download message','Mark as unread']}:{};
+      return {origin:url,result:{url,account_address:'owner@example.test',...result}};
+    },
+    runReadCode:async code=>{if(code.includes('page.reload'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
+    click:async()=>{},fill:async()=>{queries++;},press:async()=>{},
+    download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
+  };
+  const result=await collectEmailPage({...request(),discovery:{...request().discovery,lane:"recent_inbound",interval_start:"2026-09-10T00:00:00Z",interval_end:"2026-09-11T00:00:00Z"}},{emailWorkspaceRoot:f.root,withReadTab:async callback=>{tabs++;return callback(tab);}},'gmail');
+  assert.equal(setups,1);assert.equal(queries,1);assert.equal(tabs,1);assert.equal(downloads,1);
+  assert.deepEqual(result.failures,[]);
+  assert.deepEqual(result.captures.map(c=>c.target.provider_message_id),['b']);
+  assert.equal(result.discovery.coverage.unsupported_rows,1);
+  assert.equal(result.discovery.coverage.scan_complete,false);
 });

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {installOutlookEarlyBridge} from '../userscripts/lib/outlook-early-bridge.mjs';
 
 // A conversation is usable only when the provider explicitly reports exactly
 // one global item. A route/conversation ID is never promoted to a message ID.
@@ -41,6 +42,7 @@ export async function prepareOutlookList(tab) {
   // owned task page and reload that page to observe it from the beginning.
   await tab.runReadCode(`async page=>{
     await page.addInitScript(()=>{
+      (${installOutlookEarlyBridge.toString()})();
       const key=${JSON.stringify(key)},parse=value=>(${parseOutlookList.toString()})(value,true);
       const state={records:[],received:false};globalThis[key]=state;
       const allowed=value=>{try{const url=new URL(value,location.href);return url.origin===location.origin&&/^\\/owa\\/\\d+\\/(?:startupdata\\.ashx|service\\.svc)$/u.test(url.pathname);}catch{return false;}};

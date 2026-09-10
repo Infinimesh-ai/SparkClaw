@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -108,6 +109,19 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		if boundary.IsZero() {
 			boundary = e.now
 		}
+		// One durable lower bound per owner also covers mailboxes enabled later.
+		baseline, established := emailGet[struct{ StartedAt time.Time }](e, "counter", "email_deployment_boundary")
+		if !established {
+			// Existing bindings are authoritative on upgraded installations.
+			for _, existing := range emailList[app.EmailMailbox](e, emailRowsQuery{Kind: "mailbox", Limit: 100}) {
+				if !existing.ActivatedAt.IsZero() && existing.ActivatedAt.Before(boundary) {
+					boundary = existing.ActivatedAt
+				}
+			}
+			baseline.StartedAt = postgresTime(boundary)
+			emailPut(e, "counter", "email_deployment_boundary", "", "", "", "", "email_deployment_boundary", baseline)
+		}
+		boundary = baseline.StartedAt
 		m = app.EmailMailbox{ID: id, OwnerID: e.owner, Provider: c.Provider, Address: c.Address, NormalizedAddress: address, Boundary: postgresTime(boundary), ActivatedAt: postgresTime(boundary)}
 	}
 	m.BindingGeneration++
@@ -440,6 +454,9 @@ func emailRepresentation(e *emailEngine, c EmailRepresentationCommand) (app.Emai
 	emailSaveMail(e, m)
 	kind := app.EmailJobClassification
 	_, err = emailRequest(e, EmailJobRequest{Kind: kind, TargetID: m.ID})
+	if err == nil && emailEvents(e) {
+		_, err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobMessageSummary, TargetID: m.ID, Dependencies: []string{}})
+	}
 	return m, err
 }
 func emailContext(e *emailEngine, c EmailContextCommand) (app.EmailMail, error) {

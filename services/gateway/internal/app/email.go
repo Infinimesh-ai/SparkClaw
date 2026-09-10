@@ -193,10 +193,11 @@ type EmailThreadRequest struct {
 }
 
 type EmailThreadMember struct {
-	Target    EmailCaptureTarget `json:"target"`
-	Direction string             `json:"direction"`
-	Draft     bool               `json:"draft"`
-	ReadState string             `json:"read_state"`
+	ReceivedAt *time.Time         `json:"received_at,omitempty"`
+	Target     EmailCaptureTarget `json:"target"`
+	Direction  string             `json:"direction"`
+	Draft      bool               `json:"draft"`
+	ReadState  string             `json:"read_state"`
 }
 
 type EmailThreadResult struct {

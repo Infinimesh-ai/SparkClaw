@@ -24,7 +24,8 @@ func (b *historyBrowser) EnumerateThreadForOwner(_ context.Context, _ string, r 
 	if r.Continuation == "second" && b.failSecond {
 		return app.EmailThreadResult{}, errors.New("history unavailable")
 	}
-	member := app.EmailThreadMember{Target: app.EmailCaptureTarget{AccountAddress: r.Thread.AccountAddress, ProviderThreadID: r.Thread.ProviderThreadID, ProviderSelectionID: r.Thread.ProviderSelectionID, ProviderMessageID: "read-parent", Folder: "inbox"}, Direction: "inbound", ReadState: "read"}
+	receivedAt := time.Now().UTC()
+	member := app.EmailThreadMember{ReceivedAt: &receivedAt, Target: app.EmailCaptureTarget{AccountAddress: r.Thread.AccountAddress, ProviderThreadID: r.Thread.ProviderThreadID, ProviderSelectionID: r.Thread.ProviderSelectionID, ProviderMessageID: "read-parent", Folder: "inbox"}, Direction: "inbound", ReadState: "read"}
 	coverage := app.EmailDiscoveryCoverage{Scope: "thread", Continuation: "second", Reason: "batch_limit"}
 	if r.Continuation == "second" {
 		member.Target.ProviderMessageID = "sent-parent"

@@ -1,3 +1,4 @@
+import { prepareNetworkOriginal, armNetworkOriginal, networkListPage, warmOutlookNetwork, prepareNetworkFolder, recoverOutlookTarget } from './lib/network-reader.mjs';
 import { qqMailDetailIdentity, qqMailDetailDiagnostics } from './lib/qqmail-detail.mjs';
 import crypto from 'node:crypto';
 import { capturePage, captureUnread, markCapturedRead, validateCaptureInput, validateMailTarget } from "./lib/read-capture.mjs";
@@ -23,6 +24,7 @@ export function providerDOM(provider, phase, expected = {}, qqIdentity = null) {
   const text = node => (node?.innerText ?? node?.textContent ?? "").trim();
   const address = value => String(value ?? "").match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/u)?.[0] ?? "";
   const result = value => ({ url: location.href, ...value });
+  if (provider === 'qq_mail' && all('.login-page').length) return result({error:'email_login_required'});
   let account = "";
   if (provider === "gmail") account = address(document.querySelector('[aria-label^="Google Account:"]')?.getAttribute("aria-label"));
   if (provider === "qq_mail") account = address(text(document.querySelector('.frame-header .profile-user-info .user-email')));
@@ -122,10 +124,14 @@ export function providerDOM(provider, phase, expected = {}, qqIdentity = null) {
       const records=globalThis[expected.evidence_key]?.records;
       const proof=records?.filter(row=>row.provider_selection_id===expected.provider_selection_id &&
         (row.provider_message_id===expected.provider_message_id || expected.individual_message_proven && row.inventory_complete && row.members?.some(member=>member.provider_message_id===expected.provider_message_id && !member.draft)));
-      if(proof?.length!==1)return result({error:'email_message_identity_ambiguous'});
+      let networkProof=false;
+      if(expected.network_member_proven && window.SparkClawMailReader?.provider==='outlook') {
+        try{networkProof=window.SparkClawMailReader.verifyTarget({...expected,account_address:account});}catch{}
+      }
+      if(proof?.length!==1 && !networkProof)return result({error:'email_message_identity_ambiguous'});
       const selected = all('[role="option"][data-convid][aria-selected="true"]');
       if (selected.length!==1 || selected[0].getAttribute('data-convid') !== expected.provider_selection_id) return null;
-      const match = /^\/mail\/\d+\/(?:inbox|sentitems)\/id\/([^/]+)\/?$/u.exec(location.pathname);
+      const match = (expected.network_member_proven ? /^\/mail\/\d+\/[^/]+\/id\/([^/]+)\/?$/u : /^\/mail\/\d+\/(?:inbox|sentitems)\/id\/([^/]+)\/?$/u).exec(location.pathname);
       if (!match) return null;
       if (expected.individual_message_proven) {
         const host = document.getElementById(expected.provider_message_id);
@@ -180,6 +186,13 @@ export function inspectionDiagnostics(provider, phase, expected) {
     return {detail_identity_attr_count:attrMatches.length,decoded_route_target_matches:decodedMatches,selected_dom_count:domSelected.length,hidden_selection_matches:domSelected.length===1&&domSelected[0].getAttribute('data-mailid')===expected.provider_message_id,target_dom_count:target.length,target_visible:target.some(visible),route_target_matches:decodeURIComponent(location.hash).split(/[/?&=]/u).includes(expected.provider_message_id),selected_count:selected.length,selection_matches:selected.length===1&&selected[0].getAttribute('data-mailid')===expected.provider_message_id,
       subject_present:Boolean(subject),subject_matches:Boolean(subject)&&text(subject)===expected.subject,body_present:Boolean(body),body_visible:visible(body)};
   }
+  if(provider==='gmail'&&phase==='detail'){
+    const nodes=Array.from(document.querySelectorAll('[data-legacy-message-id]'));
+    const target=nodes.filter(node=>node.getAttribute('data-legacy-message-id')===expected.provider_message_id);
+    return {message_dom_count:nodes.length,target_dom_count:target.length,target_visible_count:target.filter(visible).length,
+      collapsed_count:target.filter(node=>node.classList.contains('kv')).length,expanded_count:target.filter(node=>node.classList.contains('adn')).length,
+      target_body_count:target.reduce((n,node)=>n+node.querySelectorAll('.a3s').length,0)};
+  }
   if(provider==='gmail'&&phase==='list'){
     const rows=all('tr.zA');
     let query_matches=false;
@@ -219,7 +232,7 @@ export function warnInspectionFailure(provider, phase, code, observed = {}) {
   const record={event:'email_inspection_failed',provider:READ_PROVIDERS[provider]?provider:'unknown',
     phase:['list','detail','menu','account','filter'].includes(phase)?phase:'unknown',
     error_code:['email_page_contract_changed','email_provider_origin_invalid','email_message_identity_ambiguous','email_message_identity_mismatch','email_account_identity_mismatch','email_account_identity_unavailable'].includes(code)?code:'email_page_contract_changed'};
-  for(const key of ['detail_identity_attr_count','selected_count','selected_dom_count','target_dom_count','rows','unread_rows','menu_count','main_count','tc_count','tc_visible'])if(Number.isInteger(observed?.[key])&&observed[key]>=0&&observed[key]<=10000)record[key]=observed[key];
+  for(const key of ['message_dom_count','target_visible_count','collapsed_count','expanded_count','target_body_count','detail_identity_attr_count','selected_count','selected_dom_count','target_dom_count','rows','unread_rows','menu_count','main_count','tc_count','tc_visible'])if(Number.isInteger(observed?.[key])&&observed[key]>=0&&observed[key]<=10000)record[key]=observed[key];
   for(const key of ['decoded_route_target_matches','hidden_selection_matches','target_visible','route_target_matches','selection_matches','subject_present','subject_matches','body_present','body_visible','query_matches','empty_marker','required_command_present','account_marker_present','document_complete','document_interactive','input_query_matches','visible_progress','visible_busy','empty_label_outside_tc','empty_label_in_main','empty_en_conversations_found','empty_en_messages_match','empty_en_conversations_match','empty_zh_matching_mail','empty_zh_matching_conversations','empty_zh_no_mail_found','empty_zh_no_conversations_found'])if(typeof observed?.[key]==='boolean')record[key]=observed[key];
   console.warn(JSON.stringify(record));
 }
@@ -229,13 +242,14 @@ export async function inspect(tab, provider, phase, expected = {}) {
   if(phase==='list')expected={...expected,required_account:true};
   const evidence = await tab.inspect(`async () => {
     if (!${JSON.stringify(config.origins)}.includes(location.origin)) return {url:location.href,error:'email_provider_origin_invalid'};
-    const deadline=Date.now()+5000;
+    const deadline=Date.now()+5000;let transitioning;
     do {
       const value=(${providerDOM.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)}${provider==='qq_mail'&&phase==='detail'?`,(${qqMailDetailIdentity.toString()})`:''});
+      if(value?.error==='email_message_identity_mismatch' && Date.now()<deadline){transitioning=value;await new Promise(resolve=>setTimeout(resolve,100));continue;}
       if(value) return value.error ? {...value,diagnostics:(${inspectionDiagnostics.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)})} : value;
       await new Promise(resolve=>setTimeout(resolve,100));
     }while(Date.now()<deadline);
-    return {url:location.href,error:'email_page_contract_changed',diagnostics:(${inspectionDiagnostics.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)})};
+    return {url:location.href,error:transitioning?.error||'email_page_contract_changed',diagnostics:(${inspectionDiagnostics.toString()})(${JSON.stringify(provider)},${JSON.stringify(phase)},${JSON.stringify(expected)})};
   }`);
   if (!evidence?.result || evidence.result.url !== evidence.origin) throw fail("email_provider_origin_invalid");
   const parsed = new URL(evidence.origin);
@@ -272,7 +286,7 @@ export async function collectUnread(tab, provider, options = {}) {
   if (folder !== 'inbox') {
     const url = provider === 'qq_mail' && (folder === 'sent' || /^qq:[1-9][0-9]{3,9}$/u.test(folder)) ? READ_PROVIDERS.qq_mail.url.replace('/list/1',`/list/${folder==='sent'?3:folder.slice(3)}`) :
       provider === 'outlook' && folder === 'sent' ? READ_PROVIDERS.outlook.url.replace('/inbox','/sentitems') :
-      provider === 'outlook' && folder === 'all' ? READ_PROVIDERS.outlook.url :
+      provider === 'outlook' && (folder === 'all' || folder.startsWith('outlook:')) ? READ_PROVIDERS.outlook.url :
       provider === 'gmail' ? READ_PROVIDERS.gmail.url.replace('#inbox',folder === 'sent' ? '#sent' : '#all') : null;
     if (!url) throw fail('email_pinned_message_unavailable');
     await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(url)});return true;}`);
@@ -301,6 +315,7 @@ export async function collectUnread(tab, provider, options = {}) {
   } else listed = await inspect(tab,provider,'list');
   if(provider==='outlook')listed=await outlookListEvidence(tab,outlookKey,listed);
   if(qqKey)listed=await qqMailListEvidence(tab,qqKey,listed,options.discovery_options,()=>inspect(tab,provider,'list'));
+  if(provider==='outlook' && options.pinned_message_id && options.account_address && options.folder!=='sent'){const recovered=await recoverOutlookTarget(tab,options,listed);if(recovered)listed=recovered;}
   if (options.inventory) return listed;
   if (options.discovery) return discoveryResult(tab, provider, listed, options.discovery_options);
   return collectListed(tab, provider, options, listed);
@@ -312,11 +327,11 @@ async function collectListed(tab, provider, options, listed) {
   if (listed.empty && !pinned) return {status:'empty'};
   if (!pinned && provider !== 'qq_mail' && !listed.rows.some(row=>row.single_unread_proven)) throw fail('email_message_identity_ambiguous');
   const matches = row => pinned ?
-    (!options.pinned_message_id || row.provider_message_id === options.pinned_message_id || provider==='gmail' && row.members?.some(member=>member.provider_message_id===options.pinned_message_id && !member.draft) || provider==='outlook' && row.inventory_complete &&
+    (!options.pinned_message_id || row.provider_message_id === options.pinned_message_id || provider==='gmail' && row.members?.some(member=>member.provider_message_id===options.pinned_message_id && !member.draft) || provider==='outlook' && (row.inventory_complete || row.network_member_proven) &&
       row.members?.some(member=>member.provider_message_id===options.pinned_message_id && !member.draft && (member.local || folder==='all'))) &&
       (!options.pinned_selection_id || row.provider_selection_id === options.pinned_selection_id || provider==='gmail' && row.provider_thread_id===options.pinned_selection_id) : row.unread && (provider==='qq_mail' || row.single_unread_proven);
   let selected = listed.rows.find(matches);
-  if (provider==='outlook' && selected && options.pinned_message_id && !selected.single_message_proven && selected.inventory_complete) {
+  if (provider==='outlook' && selected && options.pinned_message_id && !selected.single_message_proven && (selected.inventory_complete || selected.network_member_proven)) {
     selected={...selected,provider_message_id:options.pinned_message_id,individual_message_proven:true};
   }
   if (provider==='gmail' && selected && options.pinned_message_id && selected.members?.some(member=>member.provider_message_id===options.pinned_message_id && !member.draft)) {
@@ -371,11 +386,19 @@ async function collectListed(tab, provider, options, listed) {
     if (typeof id !== 'string' || !/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(id)) throw fail("email_message_identity_invalid");
   }
   await options.onSelected(selected);
+  if (options.capture_required !== false) {
+    const target = {account_address:account,provider_message_id:selected.provider_message_id};
+    const original = options.force_native ? null : await prepareNetworkOriginal(tab,provider,target);
+    if (original?.selector && original.provider_message_id===target.provider_message_id && original.account_address===account.toLowerCase()) {
+      return {...selected,original,network_original:true,read_state:'unknown'};
+    }
+  }
   if (provider === 'gmail') {
     if (options.pinned_message_id) {
       await tab.runReadCode(`async page => { await page.goto(${JSON.stringify(`${READ_PROVIDERS.gmail.url.split('#')[0]}#all/${encodeURIComponent(selected.provider_message_id)}`)}); return true; }`);
     } else await tab.click(`tr.zA:has([data-legacy-last-message-id="${selected.provider_message_id}"]):visible`);
   } else if (provider === 'outlook') {
+    if(selected.network_member_proven)await prepareNetworkFolder(tab,{account_address:account,folder});
     await tab.click(`[role="option"][data-convid="${selected.provider_selection_id}"]:visible`);
     if (selected.individual_message_proven) {
       await tab.runReadCode(`async page=>{await page.locator(${JSON.stringify(`[role="option"][data-convid="${selected.provider_selection_id}"] button[aria-expanded][aria-label="展开对话"], [role="option"][data-convid="${selected.provider_selection_id}"] button[aria-expanded][aria-label="Expand conversation"]`)}).evaluate(node=>{if(node.getAttribute('aria-expanded')!=='true')node.click();});return true;}`);
@@ -383,6 +406,17 @@ async function collectListed(tab, provider, options, listed) {
     }
   }
   else await tab.click(`.mail-list-page-item[data-mailid="${selected.provider_message_id}"]:visible`);
+  if(provider==='gmail' && options.pinned_message_id) {
+    // Native threads may initially omit older folded members entirely. Expand
+    // only the observed thread control, then still require the exact member ID.
+    const folded=await tab.runReadCode(`async page=>page.evaluate(id=>{
+      const visible=node=>Boolean(node.getClientRects().length);
+      const found=[...document.querySelectorAll('[data-legacy-message-id]')].some(node=>node.getAttribute('data-legacy-message-id')===id);
+      const controls=[...document.querySelectorAll('[aria-label="Expand all"], [data-tooltip="Expand all"], [aria-label="全部展开"], [data-tooltip="全部展开"]')].filter(visible);
+      return !found && controls.length===1;
+    },${JSON.stringify(selected.provider_message_id)})`);
+    if(folded===true)await tab.click('[aria-label="Expand all"]:visible, [data-tooltip="Expand all"]:visible, [aria-label="全部展开"]:visible, [data-tooltip="全部展开"]:visible');
+  }
   const detail = await inspect(tab,provider,'detail',selected);
   if (detail.account_address && detail.account_address.toLowerCase() !== account.toLowerCase()) throw fail("email_account_identity_mismatch");
   const message = {...selected,...detail,account_address:account};
@@ -403,11 +437,15 @@ async function collectListed(tab, provider, options, listed) {
   }
   else if (provider === 'qq_mail' && commands.some(command=>command==='Export as eml file')) message.original = {selector:'.xmail-ui-panel-item:has-text("Export as eml file"):visible'};
   else throw fail("email_original_download_unavailable");
+  // Arm after native navigation and menus, immediately before the download.
+  // A slow UI or a replaced document must not expire/lose the learning window.
+  await armNetworkOriginal(tab,provider,{account_address:account,provider_message_id:message.provider_message_id});
   return message;
 }
 
 export async function markRead(tab, provider, message) {
-  const identity = { provider_message_id:message.provider_message_id, provider_selection_id:message.provider_selection_id, subject:message.subject, evidence_key:message.evidence_key,individual_message_proven:message.individual_message_proven };
+  if (message.network_original) return 'unknown';
+  const identity = { provider_message_id:message.provider_message_id, provider_selection_id:message.provider_selection_id, subject:message.subject, evidence_key:message.evidence_key,network_member_proven:message.network_member_proven,individual_message_proven:message.individual_message_proven };
   const detail = await inspect(tab,provider,'detail',identity);
   if (detail.provider_message_id !== message.provider_message_id) throw fail("email_message_identity_mismatch");
   if (detail.account_address && detail.account_address.toLowerCase()!==message.account_address.toLowerCase()) throw fail("email_account_identity_mismatch");
@@ -456,6 +494,13 @@ async function discoveryResult(tab, provider, listed, options, includeMembers = 
     const members = includeMembers && (provider === 'gmail' || provider === 'outlook' && row.inventory_complete) && row.members?.length ? row.members.filter(member=>!member.draft) : null;
     if (!members && provider !== 'qq_mail' && !(recent ? row.single_message_proven : row.single_unread_proven)) { unsupported++; continue; }
     for (const member of members ?? [null]) {
+    // A recent thread does not make its historical members recent. Require
+    // individual receipt evidence before downloading any grouped original.
+    if (recent && member) {
+      const receipt = member.received_at ?? (members.length === 1 ? receivedAt(row) : null);
+      if (!receipt || !Number.isFinite(Date.parse(receipt))) { unsupported++; continue; }
+      if (!withinDate(receipt)) continue;
+    }
     const target = {account_address:account.toLowerCase(), provider_message_id:member?.provider_message_id ?? row.provider_message_id,
       provider_selection_id:options && provider==='gmail' ? row.provider_thread_id : row.provider_selection_id ?? row.provider_message_id,
       ...(options ? {folder:member ? (provider==='gmail' ? member.inbox?'inbox':member.sent?'sent':'all' : member.local ? row.folder ?? listed.folder_scope ?? 'inbox' : 'all') : row.folder ?? listed.folder_scope ?? (provider==='gmail' && recent?'all':'inbox'),provider_thread_id:row.provider_thread_id ?? row.provider_selection_id ?? row.provider_message_id} : {})};
@@ -509,7 +554,12 @@ async function discoveryResult(tab, provider, listed, options, includeMembers = 
 export async function discoverEmail(input, runtime, provider) {
   validateCaptureInput(input, provider);
   if (input.operation !== 'discover') throw fail('invalid_request');
-  return runtime.withReadTab(tab => collectUnread(tab, provider, {discovery:true,discovery_options:input.discovery,onSelected:async()=>{throw fail('invalid_request');}}));
+  return runtime.withReadTab(async tab => {
+    const listed=await collectUnread(tab,provider,{inventory:true,discovery_options:input.discovery,onSelected:async()=>{throw fail('invalid_request');}});
+    if(provider==='outlook'&&input.discovery?.lane==='recent_inbound')await warmOutlookNetwork(tab,input.discovery.account_address);
+    const network=await networkListPage(tab,provider,input.discovery,listed);
+    return network?.discovery??discoveryResult(tab,provider,listed,input.discovery);
+  });
 }
 
 export async function enumerateThread(input,runtime,provider) {
@@ -536,7 +586,7 @@ export async function enumerateThread(input,runtime,provider) {
         const folder=member.inbox?'inbox':member.sent?'sent':'all';
         members.push({target:{account_address:input.thread.account_address,provider_message_id:member.provider_message_id,
           provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder},
-          direction:member.inbox?'inbound':member.sent?'outbound':'unknown',draft:member.draft,read_state:member.unread?'unread':'read'});
+          direction:member.inbox?'inbound':member.sent?'outbound':'unknown',draft:member.draft,read_state:member.unread?'unread':'read',...(member.received_at?{received_at:member.received_at}:{})});
       }
     } else if (provider === 'outlook' && rows.length === 1 && rows[0].inventory_complete) {
       for (const member of rows[0].members) {
@@ -544,14 +594,14 @@ export async function enumerateThread(input,runtime,provider) {
         members.push({target:{account_address:input.thread.account_address,provider_message_id:member.provider_message_id,
           provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder},
           draft:member.draft,direction:member.local ? folder==='sent'?'outbound':'inbound' : 'unknown',
-          read_state:rows[0].global_unread_count===0?'read':'unknown'});
+          read_state:rows[0].global_unread_count===0?'read':'unknown',...(rows[0].members.length===1&&rows[0].last_delivery_time?{received_at:rows[0].last_delivery_time}:{})});
       }
     } else if (rows.length === 1 && (provider === 'qq_mail' || rows[0].single_message_proven)) {
       const row = rows[0];
       const target = {account_address:input.thread.account_address,provider_message_id:row.provider_message_id,
         provider_selection_id:input.thread.provider_selection_id,provider_thread_id:input.thread.provider_thread_id,folder:input.thread.folder};
       validateMailTarget(target);
-      members.push({target,direction:input.thread.folder==='sent'?'outbound':'inbound',draft:false,read_state:row.unread?'unread':'read'});
+      members.push({target,direction:input.thread.folder==='sent'?'outbound':'inbound',draft:false,read_state:row.unread?'unread':'read',...((row.received_at||row.last_delivery_time)?{received_at:row.received_at||row.last_delivery_time}:{})});
     }
     const digest = crypto.createHash('sha256').update(JSON.stringify([provider,input.thread,members.map(member=>member.target.provider_message_id)])).digest('hex');
     const [prior,offsetText] = input.continuation.split(':');
@@ -569,6 +619,9 @@ export async function enumerateThread(input,runtime,provider) {
 export const collectEmailPage = (input, runtime, provider) => capturePage(input, runtime, provider, {
   discover: async (tab, discoveryOptions) => {
     const listed = await collectUnread(tab, provider, {inventory:true,discovery_options:discoveryOptions,onSelected:async()=>{throw fail('invalid_request');}});
+    if(provider==='outlook'&&discoveryOptions.lane==='recent_inbound')await warmOutlookNetwork(tab,discoveryOptions.account_address);
+    const network = await networkListPage(tab,provider,discoveryOptions,listed);
+    if (network) return network;
     const discovery = await discoveryResult(tab,provider,listed,discoveryOptions,true);
     // Freeze this bounded observation until every acknowledged sub-page drains;
     // opening one conversation can remove all of its members from unread search.
@@ -596,6 +649,7 @@ export const collectEmailPage = (input, runtime, provider) => capturePage(input,
     // Crash recovery may need to locate a saved target in a new page. The live
     // path only rereads current row identity; it never initializes/reloads the list.
     if (recovering) return collectUnread(tab,sameProvider,options);
+    if (listed.network_reader && ['gmail','outlook'].includes(sameProvider)) return collectListed(tab,sameProvider,options,listed);
     const visible = await inspect(tab,sameProvider,'list');
     if (visible.account_address && visible.account_address.toLowerCase() !== options.account_address?.toLowerCase()) throw fail('email_account_identity_mismatch');
     const rows = visible.rows.map(row => {
@@ -614,6 +668,7 @@ export const collectEmailPage = (input, runtime, provider) => capturePage(input,
     const url = new URL(listed.url);
     if (!READ_PROVIDERS[sameProvider].origins.includes(url.origin) || url.username || url.password) throw fail('email_provider_origin_invalid');
     await tab.press('Escape');
+    if(listed.network_reader)return;
     const restored = await tab.runReadCode(`async page=>{const expected=${JSON.stringify(listed.url)};if(page.url()!==expected)await page.goBack({waitUntil:'domcontentloaded'});return page.url()===expected;}`);
     if (!restored) throw fail('email_page_contract_changed');
   },

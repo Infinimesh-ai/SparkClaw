@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,7 +42,10 @@ func (s *Service) Configure(ctx context.Context, owner, provider string, enabled
 		}
 		return paused, err
 	}
-	activation := s.now()
+	activation, err := s.deploymentBoundary()
+	if err != nil {
+		return current, err
+	}
 	request, err := s.browserBinding(ctx, owner, provider, app.NewID("email_bind"), app.EmailJobDiscover)
 	if err != nil {
 		return current, err
@@ -52,6 +56,10 @@ func (s *Service) Configure(ctx context.Context, owner, provider string, enabled
 	}
 	if observed.AccountAddress == "" {
 		return current, errors.New("email_account_unverified")
+	}
+	// Recovery must not silently switch the mailbox and abandon its retained gap.
+	if current.IntakeEnabled && current.ErrorCode == string(app.ToolErrorEmailLoginRequired) && !strings.EqualFold(observed.AccountAddress, current.Address) {
+		return current, ErrConflict
 	}
 	mailbox, err := s.repository.BindEmailMailbox(ctx, store.EmailBindCommand{EmailCommand: command(owner, request.InvocationID), Provider: provider, Address: observed.AccountAddress, Enabled: true, ExpectedVersion: expectedVersion, Boundary: activation})
 	if err == nil {
@@ -121,7 +129,7 @@ func (s *Service) discover(ctx context.Context, job app.EmailJob) error {
 		return err
 	}
 	var failures []error
-	for _, scan := range []string{"unread", "recent_observation", "recent_inbound"} {
+	for _, scan := range []string{"recent_observation", "recent_inbound"} {
 		mailbox, err := s.activeMailbox(ctx, job)
 		if err != nil {
 			return errors.Join(append(failures, err)...)
@@ -176,6 +184,9 @@ func (s *Service) discover(ctx context.Context, job app.EmailJob) error {
 
 func (s *Service) admitDiscovery(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, result app.EmailDiscoveryResult, position discoveryCursor, key string) error {
 	if !strings.EqualFold(result.AccountAddress, mailbox.Address) {
+		if mailbox.ErrorCode == string(app.ToolErrorEmailLoginRequired) {
+			return errors.New("email_login_required")
+		}
 		_, err := s.repository.PauseEmailMailbox(ctx, store.EmailPauseCommand{EmailCommand: command(job.OwnerID, key+":mismatch"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, ErrorCode: "email_account_changed"})
 		return errors.Join(errors.New("email_account_changed"), err)
 	}
@@ -454,6 +465,16 @@ func (s *Service) syncThread(ctx context.Context, job app.EmailJob) error {
 				return errors.New("email_thread_identity")
 			}
 			memberIDs[member.Target.ProviderMessageID] = true
+			if member.ReceivedAt == nil {
+				input.Coverage = "partial"
+				if !slices.Contains(input.Gaps, "thread_member_receipt_time_unqualified") {
+					input.Gaps = append(input.Gaps, "thread_member_receipt_time_unqualified")
+				}
+				continue
+			}
+			if member.ReceivedAt.Before(mailbox.ActivatedAt) {
+				continue
+			}
 			direction := member.Direction
 			if direction == "outbound" {
 				direction = "sent"

@@ -44,7 +44,7 @@ func emailActivateEvents(e *emailEngine, c EmailCommand) (EmailEventPolicy, erro
 	return p, e.err
 }
 func emailDisabledAnalysis(kind string) bool {
-	return containsEmail([]string{app.EmailJobMessageSummary, app.EmailJobConversationSummary, app.EmailJobRelationshipCheck, app.EmailJobPresentation}, kind)
+	return containsEmail([]string{app.EmailJobRelationshipCheck, app.EmailJobPresentation}, kind)
 }
 func EmailThreadCursor(t app.EmailProviderThread) string { return emailOrder(t.LastCheckedAt, t.ID) }
 

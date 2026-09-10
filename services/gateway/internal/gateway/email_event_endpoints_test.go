@@ -46,8 +46,12 @@ func TestEmailEventHTTPAssignmentAndRenameReplay(t *testing.T) {
 		t.Fatalf("detail depends on summary: %+v", detail)
 	}
 	timeline := emailDecode[emailmanagement.MessagesView](t, f.request("GET", "/api/email/conversations/"+first.ConversationID+"/messages", ""), 200)
-	if len(timeline.Messages) != 1 || timeline.Messages[0].BodyText != "unique-contract-term-manual-event" || timeline.Messages[0].Summary != "" {
+	if len(timeline.Messages) != 1 || timeline.Messages[0].BodyText != "" || !timeline.Messages[0].BodyAvailable || timeline.Messages[0].Summary != "" {
 		t.Fatalf("source timeline=%+v", timeline)
+	}
+	full := emailDecode[emailmanagement.MessageView](t, f.request("GET", "/api/email/messages/"+timeline.Messages[0].ID, ""), 200)
+	if full.BodyText != "unique-contract-term-manual-event" {
+		t.Fatal("on-demand source body missing")
 	}
 	path = "/api/email/conversations/" + first.ConversationID + "/rename"
 	body = fmt.Sprintf(`{"title":"Confirm delivery date","expected_version":%d,"command_key":"rename-event"}`, detail.Conversation.Version)

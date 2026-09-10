@@ -54,7 +54,7 @@ func (b *concurrentIntakeBrowser) DiscoverForOwner(ctx context.Context, _ string
 		return result, nil
 	}
 	result.Coverage = app.EmailDiscoveryCoverage{Lane: request.Discovery.Lane, ScanComplete: true, BoundaryQualified: request.Discovery.Lane == "recent_inbound"}
-	if request.Discovery.Lane != "unread" {
+	if request.Discovery.Lane != "recent_inbound" {
 		return result, nil
 	}
 	if err := b.block(ctx, browserCall{provider: request.Provider, operation: app.EmailJobDiscover}); err != nil {

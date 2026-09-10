@@ -400,3 +400,28 @@ test("capture input rejects old batch fields and an invalid owner scope", () => 
   assert.throws(() => validateCaptureInput({ ...input(), query: { limit: 1 } }, "gmail"), { code: "invalid_request" });
   assert.throws(() => validateCaptureInput({ ...input(), owner_scope: "../other" }, "gmail"), { code: "invalid_request" });
 });
+
+test('expired network original retries the same native target once and removes partial staging',async t=>{
+  const f=await fixture(t,{message:{original:{selector:'network'},network_original:true},
+    collect:async(message,selection)=>{
+      await selection.onSelected(message);
+      if(selection.force_native){
+        assert.equal(selection.pinned_message_id,message.provider_message_id);
+        assert.equal(selection.account_address,message.account_address);
+        return {...message,network_original:false,original:{selector:'original'}};
+      }
+      return message;
+    },
+    download:async(selector,target)=>{
+      if(selector==='network'){
+        await fs.writeFile(target,'partial',{flag:'wx',mode:0o600});
+        throw Object.assign(new Error('expired'),{code:'email_capture_unavailable'});
+      }
+      await fs.writeFile(target,eml,{flag:'wx',mode:0o600});
+    }});
+  const result=await f.run();
+  assert.equal(result.status,'collected');
+  assert.deepEqual(f.downloads.map(x=>x.selector),['network','original']);
+  assert.equal(f.events.filter(x=>x==='select').length,2);
+  await f.run();assert.equal(f.downloads.length,2);
+});

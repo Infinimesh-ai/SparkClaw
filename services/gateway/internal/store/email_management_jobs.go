@@ -160,6 +160,10 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 		}
 		refs = clean
 	}
+	if emailEvents(e) && emailSummaryKind(c.Kind) {
+		selected = []string{}
+		refs = emailSourceSummaryRefs(e, c.Kind, c.TargetID)
+	}
 	refs = emailUnique(refs)
 	if len(refs) > 200 {
 		return zero, errEmailInvalid
@@ -306,7 +310,7 @@ func emailLeaseCheck(e *emailEngine, l EmailJobLease, kind, target string) error
 	}
 	if emailEvents(e) && emailAnalysisKind(j.Kind) {
 		t, _ := emailGet[app.EmailAnalysisTarget](e, "target", j.Kind+":"+j.TargetID)
-		if _, ok := t.Inputs["policy:"+EmailEventPolicyVersion]; !ok {
+		if _, ok := t.Inputs["policy:"+EmailEventPolicyVersion]; !ok || (emailSummaryKind(j.Kind) && !emailHasSourceSummaryPolicy(t)) {
 			return errEmailConflict
 		}
 	}
@@ -426,7 +430,10 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 					emailSaveJob(e, j)
 					continue
 				}
-				_ = box
+				// Discovery may probe for recovery; other browser work waits for it.
+				if box.ErrorCode == string(app.ToolErrorEmailLoginRequired) && j.Kind != app.EmailJobDiscover {
+					continue
+				}
 			}
 			if j.Kind == app.EmailJobCapture || j.Kind == app.EmailJobMarkRead {
 				mail, err := emailMail(e, j.TargetID)
@@ -466,7 +473,7 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 			}
 			if emailEvents(e) && emailAnalysisKind(j.Kind) {
 				t, _ := emailGet[app.EmailAnalysisTarget](e, "target", j.Kind+":"+j.TargetID)
-				if _, ok := t.Inputs["policy:"+EmailEventPolicyVersion]; !ok {
+				if _, ok := t.Inputs["policy:"+EmailEventPolicyVersion]; !ok || (emailSummaryKind(j.Kind) && !emailHasSourceSummaryPolicy(t)) {
 					if _, err := emailRequest(e, EmailJobRequest{Kind: j.Kind, TargetID: j.TargetID, Dependencies: []string{}}); err != nil {
 						return app.EmailJob{}, false, err
 					}
@@ -605,13 +612,25 @@ func emailLeaseInputs(e *emailEngine, l EmailJobLease, generation int64, fingerp
 }
 
 func emailFailureProjection(e *emailEngine, j app.EmailJob) {
+	// Login expiry needs user action immediately, before retry exhaustion.
+	if emailBrowserKind(j.Kind) && j.ErrorCode == string(app.ToolErrorEmailLoginRequired) {
+		box, ok := emailGet[app.EmailMailbox](e, "mailbox", j.MailboxID)
+		if ok && box.BindingGeneration == j.BindingGeneration {
+			box.ErrorCode = j.ErrorCode
+			box.UpdatedAt = e.now
+			emailSaveMailbox(e, box)
+		}
+		return
+	}
 	if j.State != app.EmailJobFailed {
 		return
 	}
 	if j.Kind == app.EmailJobDiscover || j.Kind == app.EmailJobThreadSync {
 		box, ok := emailGet[app.EmailMailbox](e, "mailbox", j.MailboxID)
 		if ok && box.BindingGeneration == j.BindingGeneration {
-			box.ErrorCode = j.ErrorCode
+			if box.ErrorCode != string(app.ToolErrorEmailLoginRequired) {
+				box.ErrorCode = j.ErrorCode
+			}
 			box.UpdatedAt = e.now
 			emailSaveMailbox(e, box)
 			if j.Kind == app.EmailJobThreadSync {
@@ -671,7 +690,7 @@ func emailValidateDependency(e *emailEngine, kind, targetID, ref string) error {
 		return errEmailInvalid
 	}
 	switch {
-	case ref == "policy:"+EmailEventPolicyVersion:
+	case ref == "policy:"+EmailEventPolicyVersion || ref == EmailSourceSummaryPolicy:
 	case strings.HasPrefix(ref, "source:"), strings.HasPrefix(ref, "mapping:"):
 		_, err := emailMail(e, strings.SplitN(ref, ":", 2)[1])
 		return err

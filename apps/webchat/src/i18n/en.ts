@@ -40,6 +40,12 @@ export const en = {
       offline: "Offline"
     },
     email: {
+      summaryPartial: "Summary covers only the available source excerpts. Open the original mail for full context.",
+      loginExpired: "Mailbox login expired. Please sign in again.",
+      signInAgain: "Sign in again",
+      resumeAfterLogin: "Check login and resume",
+      loginRecoveryHelp: "After login is verified, missing mail will be synchronized automatically.",
+
       interactions: "Confirmation & interaction",
       information: "Information notices",
       verification: "Verification codes",

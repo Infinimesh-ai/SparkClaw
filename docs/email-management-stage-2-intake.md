@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-management-stage-2-intake.md)
 
+> 2026-09-10 follow-up requirement: [Email pipeline optimization](email-pipeline-optimization-design.md) replaces the future activation/unread-based intake scope with a fixed user deployment-time lower bound and read-state-independent capture. It also specifies an entry-button red dot for expired login and automatic full-gap catch-up after reauthentication. This follow-up is not implemented; existing implementation evidence below remains historical fact.
+
 Implementation contract, 2026-09-08. Code and engineering checks are in the worktree;
 real-provider and semantic release gates remain separate. See the
 [implementation report](email-management-implementation.md). Depends on [stage 1](email-management-stage-1-data.md).

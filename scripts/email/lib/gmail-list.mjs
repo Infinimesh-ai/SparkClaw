@@ -34,6 +34,25 @@ export function parseGmailList(value, includeThreads = false) {
   return result;
 }
 
+// Received-only network scans must not discard inbound siblings merely because
+// a sent reply in the same native thread uses Gmail's alternate msg-a identity.
+// Each admitted inbound member still passes the original identity/receipt parser.
+export function parseGmailReceivedList(value) {
+  const rows=[];
+  for(const batch of value?.[19]??[])for(const container of batch?.[1]??[]) {
+    const thread=container?.[0];
+    if(!Array.isArray(thread?.[4]))continue;
+    for(const message of thread[4]) {
+      const labels=message?.[10];
+      if(Array.isArray(labels)&&labels.every(label=>typeof label==='string')&&(labels.includes('^r')||labels.includes('^f')))continue;
+      const individual=[...thread];individual[4]=[message];
+      const source=[];source[19]=[[null,[[individual]]]];
+      for(const row of parseGmailList(source,true))rows.push({...row,native_message_id:message[0]});
+    }
+  }
+  return rows;
+}
+
 // Observe the UI's own request; this does not replay private provider APIs or
 // transport original email bytes. Always restore the task document's XHR hook.
 export async function gmailUnreadEvidence(tab, selectUnread, options = {}) {

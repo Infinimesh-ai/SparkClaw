@@ -2,6 +2,8 @@
 
 > Language: [English](../../docs/email-management-stage-2-intake.md) | 简体中文
 
+> 2026-09-10 后续要求：[邮件全链路优化](email-pipeline-optimization-design.md)将后续采集范围改为固定的用户部署时间下界，取消激活时间／未读作为获取标准，并定义登录失效入口红点与重新登录后自动补齐整个中断区间。该优化尚未实施；下文既有实现证据仍为历史事实。
+
 状态：2026-09-08 实施契约。代码与工程检查已进入工作区；真实邮箱和语义质量发布门槛另行记录，见[实施报告](email-management-implementation.md)。依赖[阶段 1](email-management-stage-1-data.md)的持久接纳契约。
 用户已确认：首次遇到线程补齐可取得的来信与已发送历史，此后增量同步；不扫描整个历史邮箱。
 

@@ -11,6 +11,7 @@ export const READ_PROVIDERS = Object.freeze({
   outlook: { url: "https://outlook.live.com/mail/0/inbox", origins: ["https://outlook.live.com", "https://outlook.office.com", "https://outlook.office365.com"], rows: '[role="option"][data-convid]' },
   gmail: { url: "https://mail.google.com/mail/u/0/#inbox", origins: ["https://mail.google.com"], rows: "tr.zA" },
 });
+export const QQ_MAIL_MORE_BUTTON_LABELS = Object.freeze(["More options", "更多", "更多选项", "更多操作"]);
 function fail(code = "email_page_contract_changed") { return Object.assign(new Error(code), { code }); }
 
 // Serialized into the Controller's guarded, owned-page inspection.
@@ -267,14 +268,27 @@ export async function inspect(tab, provider, phase, expected = {}) {
   return evidence.result;
 }
 
-async function openMessageMenu(tab, provider, id, individual = false) {
+export async function openMessageMenu(tab, provider, id, individual = false) {
   if (provider === 'gmail') {
     await tab.runReadCode(`async page => {
       await page.locator(${JSON.stringify(`[data-legacy-message-id="${id}"] button[aria-label="More message options"]`)}).evaluate(node=>node.click());
       return true;
     }`);
   } else if (provider === 'outlook') await tab.click(`${individual?'#focused ':''}button[aria-label="More items"]`);
-  else await tab.runReadCode(`async page => { await page.locator('.mail-detail-basic-action-bar .ui-btn-text:text-is("More options")').evaluate(node=>node.parentElement.click()); return true; }`);
+  else await tab.runReadCode(`async page => {
+    const labels = ${JSON.stringify(QQ_MAIL_MORE_BUTTON_LABELS)};
+    await page.locator('.mail-detail-basic-action-bar .ui-btn-text').evaluateAll((nodes, expected) => {
+      const visible = node => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const button = nodes.find(node => expected.includes((node.innerText ?? node.textContent ?? '').trim()) && visible(node));
+      if (!button) throw new Error('email_more_menu_button_not_found');
+      (button.parentElement ?? button).click();
+    }, labels);
+    return true;
+  }`);
 }
 
 export async function collectUnread(tab, provider, options = {}) {

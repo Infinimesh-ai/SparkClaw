@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
-import { providerDOM, collectUnread, markRead, discoverEmail, enumerateThread, READ_PROVIDERS } from "../../../scripts/email/read.mjs";
+import { providerDOM, collectUnread, markRead, discoverEmail, enumerateThread, openMessageMenu, READ_PROVIDERS, QQ_MAIL_MORE_BUTTON_LABELS } from "../../../scripts/email/read.mjs";
 
 test('discovery returns multiple targets without opening, marking or leaking subjects',async()=>{
  const url=READ_PROVIDERS.qq_mail.url;
@@ -94,6 +94,14 @@ test('QQ original acquisition recognizes the actual message options panel',()=>{
   const nodes={'[role="menu"], [role="menuitem"], [role="menuitemradio"], .xmail-ui-panel-item':[element('Export as eml file'),element('Original Format')]};
   assert.equal(evaluate('qq_mail','menu',{required:'Export as eml file'},{nodes}).commands.includes('Export as eml file'),true);
   assert.equal(evaluate('qq_mail','menu',{required:'Export as eml file'}),null);
+});
+
+test('QQ message menu supports localized More button labels',async()=>{
+  const calls=[];
+  await openMessageMenu({runReadCode:async code=>calls.push(code)},'qq_mail','message-1');
+  assert.equal(calls.length,1);
+  for(const label of QQ_MAIL_MORE_BUTTON_LABELS) assert.match(calls[0],new RegExp(label.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&')));
+  assert.match(calls[0],/email_more_menu_button_not_found/u);
 });
 
 test('Gmail scopes a reply thread to the exact message and rejects duplicate target IDs',()=>{

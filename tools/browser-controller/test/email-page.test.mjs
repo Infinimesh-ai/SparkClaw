@@ -137,8 +137,9 @@ test('production QQ page adapter initializes once and reads every selected origi
         phase==='menu'?{commands:['Export as eml file','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
+    navigate:async destination=>assert.equal(destination,url),
     runReadCode:async code=>{
-      if(code.includes('page.reload'))setups++;
+      if(code.includes('page.addInitScript'))setups++;
       if(code.includes('return state?'))return {rows,total_count:2,receipt_evidence:true,unsupported_rows:0,folders:{folders:[{id:1,folder:'inbox'}],unsupported:0}};
       assert.equal(code.includes('page.goto'),false,'live batch must not reload list for each mail');
       return true;
@@ -166,7 +167,8 @@ test('production Gmail page adapter captures proven conversation members and exc
         phase==='menu'?{commands:['Download message','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
+    navigate:async destination=>assert.equal(destination,url),
+    runReadCode:async code=>{if(code.includes('page.addInitScript'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
     click:async()=>{},fill:async()=>{queries++;},press:async()=>{},
     download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };
@@ -242,7 +244,8 @@ test('production Outlook page adapter proves an omitted list account through the
       if(phase==='account')accountChecks++;
       return {origin:url,result:{url,...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;return code.includes('return state?.records')?[record]:true;},
+    navigate:async destination=>assert.equal(destination,url),
+    runReadCode:async code=>{if(code.includes('page.addInitScript'))setups++;return code.includes('return state?.records')?[record]:true;},
     click:async()=>{},press:async()=>{},
     download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };
@@ -266,7 +269,8 @@ test('acknowledged sub-pages drain all51 frozen thread members after unread sear
         phase==='menu'?{commands:['Download message','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;return code.includes('return state.records')?members.map(m=>({...m,unread:!allRead})):true;},
+    navigate:async destination=>assert.equal(destination,url),
+    runReadCode:async code=>{if(code.includes('page.addInitScript'))setups++;return code.includes('return state.records')?members.map(m=>({...m,unread:!allRead})):true;},
     click:async()=>{},fill:async(_selector,value)=>{query=value;},press:async()=>{},
     download:async(_selector,destination)=>{allRead=true;downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };
@@ -338,7 +342,8 @@ test('production Gmail page adapter filters historical, future, and unqualified 
         phase==='menu'?{commands:['Download message','Mark as unread']}:{};
       return {origin:url,result:{url,account_address:'owner@example.test',...result}};
     },
-    runReadCode:async code=>{if(code.includes('page.reload'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
+    navigate:async destination=>assert.equal(destination,url),
+    runReadCode:async code=>{if(code.includes('page.addInitScript'))setups++;if(code.includes('window.SparkClawMailReader'))return null;return code.includes('return state.records')?members:true;},
     click:async()=>{},fill:async()=>{queries++;},press:async()=>{},
     download:async(_selector,destination)=>{downloads++;await fs.writeFile(destination,eml,{flag:'wx',mode:0o600});},
   };

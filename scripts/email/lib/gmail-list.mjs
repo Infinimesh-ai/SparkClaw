@@ -57,7 +57,9 @@ export function parseGmailReceivedList(value) {
 // transport original email bytes. Always restore the task document's XHR hook.
 export async function gmailUnreadEvidence(tab, selectUnread, options = {}) {
   const key = `__sparkclaw_mail_list_${crypto.randomUUID().replaceAll('-', '')}`;
-  await tab.runReadCode(`async page => {
+  if (typeof tab.navigate !== "function") throw Object.assign(new Error("browser_runtime_unavailable"), { code: "browser_runtime_unavailable" });
+  try {
+    await tab.runReadCode(`async page => {
     const install=()=>{
     if(window.top!==window || location.origin!=='https://mail.google.com')return;
     const key=${JSON.stringify(key)}, parse=value=>(${parseGmailList.toString()})(value,true);
@@ -77,9 +79,10 @@ export async function gmailUnreadEvidence(tab, selectUnread, options = {}) {
     state.restore=()=>{state.active=false;if(XMLHttpRequest.prototype.open===hooked)XMLHttpRequest.prototype.open=original;};
     globalThis[key]=state;XMLHttpRequest.prototype.open=hooked;
     };
-    await page.addInitScript(install);await page.reload();return true;
-  }`);
-  try {
+    await page.addInitScript(install);return true;
+    }`);
+    await tab.navigate("https://mail.google.com/mail/u/0/#inbox");
+    if (typeof options.beforeSelect === "function") await options.beforeSelect();
     const listed = await selectUnread();
     if (listed.empty) return listed;
     const evidence = await tab.runReadCode(`async page => page.evaluate(async () => {

@@ -115,7 +115,7 @@ test('Outlook retry requires the same singleton ItemId before opening its conver
     {url,commands:['Download']},
     {url,commands:['Download as EML','Download as MSG']},
   ];
-  const tab={inspect:async()=>({origin:url,result:evidence.shift()}),click:async selector=>events.push(selector),runReadCode:async code=>{events.push(code);return code.includes('return state?.records')?[{provider_selection_id:'thread-1',provider_message_id:'message-1',unread:false}]:true;}};
+  const tab={inspect:async()=>({origin:url,result:evidence.shift()}),click:async selector=>events.push(selector),navigate:async destination=>{assert.equal(destination,url);events.push(`navigate:${destination}`);},runReadCode:async code=>{events.push(code);return code.includes('return state?.records')?[{provider_selection_id:'thread-1',provider_message_id:'message-1',unread:false}]:true;}};
   await collectUnread(tab,'outlook',{pinned_message_id:'message-1',pinned_selection_id:'thread-1',onSelected:async()=>{}});
   assert.equal(events.some(event=>event==='[role="option"][data-convid="thread-1"]:visible'),true);
   assert.equal(events.some(event=>event.includes('page.goto(')),false);
@@ -181,7 +181,7 @@ test('Outlook fresh selection pins a proven ItemId before opening and selects EM
     {url,commands:['Download']},
     {url,commands:['Download as EML','Download as MSG']},
   ];
-  const tab={click:async selector=>events.push(selector),inspect:async()=>({origin:url,result:evidence[phase++]}),runReadCode:async code=>code.includes('return state?.records')?[{provider_selection_id:'thread-1',provider_message_id:'message-1',unread:true}]:true};
+  const tab={click:async selector=>events.push(selector),inspect:async()=>({origin:url,result:evidence[phase++]}),navigate:async destination=>assert.equal(destination,url),runReadCode:async code=>code.includes('return state?.records')?[{provider_selection_id:'thread-1',provider_message_id:'message-1',unread:true}]:true};
   const result=await collectUnread(tab,'outlook',{onSelected:async value=>events.push(`pin:${value.provider_message_id??value.provider_selection_id}`)});
   assert.ok(events.indexOf('pin:message-1')<events.indexOf('[role="option"][data-convid="thread-1"]:visible'));
   assert.equal(events.includes('pin:thread-1'),false);
@@ -191,7 +191,7 @@ test('Outlook fresh selection pins a proven ItemId before opening and selects EM
 test('Gmail and Outlook refuse unproven unread conversations before selecting or opening a message',async()=>{
   for(const provider of ['gmail','outlook']) {
     const url=READ_PROVIDERS[provider].url,events=[];
-    const tab={runReadCode:async()=>[],inspect:async()=>({origin:url,result:{url,empty:false,rows:[{provider_message_id:'message',provider_selection_id:'thread',unread:true}]}}),fill:async()=>{},press:async()=>{},click:async selector=>events.push(selector)};
+    const tab={navigate:async destination=>assert.equal(destination,url),runReadCode:async()=>[],inspect:async()=>({origin:url,result:{url,empty:false,rows:[{provider_message_id:'message',provider_selection_id:'thread',unread:true}]}}),fill:async()=>{},press:async()=>{},click:async selector=>events.push(selector)};
     await assert.rejects(collectUnread(tab,provider,{onSelected:async()=>assert.fail('must not select an unproven unread item')}),{code:'email_message_identity_ambiguous'});
     assert.equal(events.some(selector=>selector.includes('data-convid')||selector.includes('data-legacy-last-message-id')),false);
   }
@@ -235,7 +235,7 @@ const discoveryInput = (changes={})=>({schema_version:1,operation:'discover',pro
 test('bounded discovery continues more than 50 loaded rows and restarts overlap when the list changes',async()=>{
  const url=READ_PROVIDERS.qq_mail.url;
  let rows=Array.from({length:80},(_,i)=>({provider_message_id:`item-${i}`,provider_selection_id:`item-${i}`,unread:true}));
- const runtime={withReadTab:fn=>fn({runReadCode:async code=>code.includes('return state?')?{rows:rows.map(row=>({...row,folder:'inbox'})),total_count:rows.length,receipt_evidence:true,unsupported_rows:0}:true,inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows,empty:false}}),click:()=>assert.fail('discovery opened a message')})};
+ const runtime={withReadTab:fn=>fn({navigate:async destination=>assert.equal(destination,url),runReadCode:async code=>code.includes('return state?')?{rows:rows.map(row=>({...row,folder:'inbox'})),total_count:rows.length,receipt_evidence:true,unsupported_rows:0}:true,inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows,empty:false}}),click:()=>assert.fail('discovery opened a message')})};
  const first=await discoverEmail(discoveryInput(),runtime,'qq_mail');
  assert.equal(first.candidates.length,50);assert.ok(first.coverage.continuation);assert.equal(first.threads.length,50);
  const second=await discoverEmail(discoveryInput({continuation:first.coverage.continuation}),runtime,'qq_mail');
@@ -247,7 +247,7 @@ test('bounded discovery continues more than 50 loaded rows and restarts overlap 
 
 test('recent discovery never treats missing received ordering or an account switch as successful coverage',async()=>{
  const url=READ_PROVIDERS.qq_mail.url;
- const runtime={withReadTab:fn=>fn({runReadCode:async()=>null,inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:[{provider_message_id:'old',unread:false}],empty:true}})})};
+ const runtime={withReadTab:fn=>fn({navigate:async destination=>assert.equal(destination,url),runReadCode:async()=>null,inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:[{provider_message_id:'old',unread:false}],empty:true}})})};
  const result=await discoverEmail(discoveryInput({lane:'recent_inbound'}),runtime,'qq_mail');
  assert.equal(result.status,'partial');assert.equal(result.candidates.length,0);assert.equal(result.coverage.scan_complete,false);
  await assert.rejects(discoverEmail(discoveryInput({account_address:'other@example.test'}),runtime,'qq_mail'),{code:'email_account_identity_mismatch'});
@@ -258,7 +258,7 @@ test('QQ recent intake includes already-read inbound mail by receipt time and ro
  const url=READ_PROVIDERS.qq_mail.url,folders={folders:[{id:1,folder:'inbox'},{id:2000,folder:'qq:2000'}],unsupported:0};
  const rows=()=>[{provider_message_id:folder+'new',provider_selection_id:folder+'new',provider_thread_id:folder+'new',folder,unread:false,received_at:'2026-09-08T00:30:00Z'},
   {provider_message_id:folder+'old',provider_selection_id:folder+'old',provider_thread_id:folder+'old',folder,unread:false,received_at:'2026-09-07T00:30:00Z'}];
- const runtime={withReadTab:fn=>fn({navigate:async url=>{assert.match(url,/#\/list\/2000$/u);folder='qq:2000';},
+ const runtime={withReadTab:fn=>fn({navigate:async destination=>assert.equal(destination,url),
   runReadCode:async code=>{if(code.includes('page.goto')){assert.match(code,/#\/list\/2000/u);folder='qq:2000';}return code.includes('return state?')?{rows:rows(),total_count:2,receipt_evidence:true,folders,unsupported_rows:0}:true;},
   inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:rows(),empty:false}})})};
  const first=await discoverEmail(discoveryInput({lane:'recent_inbound'}),runtime,'qq_mail');
@@ -270,7 +270,7 @@ test('QQ recent intake includes already-read inbound mail by receipt time and ro
 test('QQ bounded output can drain more than 100 observed targets without pre-truncating its inventory',async()=>{
  const url=READ_PROVIDERS.qq_mail.url;
  const rows=Array.from({length:175},(_,i)=>({provider_message_id:`item-${i}`,provider_selection_id:`item-${i}`,folder:'inbox',unread:true}));
- const runtime={withReadTab:fn=>fn({runReadCode:async code=>code.includes('return state?')?{rows,total_count:rows.length,receipt_evidence:true,unsupported_rows:0}:true,
+ const runtime={withReadTab:fn=>fn({navigate:async destination=>assert.equal(destination,url),runReadCode:async code=>code.includes('return state?')?{rows,total_count:rows.length,receipt_evidence:true,unsupported_rows:0}:true,
   inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows,empty:false}})})};
  let continuation='';const ids=[];
  for(let batch=0;batch<4;batch++){
@@ -283,9 +283,9 @@ test('Gmail recent intake uses ordinary-mail search and admits read archive mail
  const url=READ_PROVIDERS.gmail.url,queries=[];
  const record={provider_message_id:'abc',provider_selection_id:'abc',provider_thread_id:'thread-f:2748',single_message_row:true,unread:false};
  const member={provider_message_id:'abc',provider_thread_id:'thread-f:2748',inbox:false,sent:false,draft:false,unread:false,received_at:'2026-09-08T00:30:00Z'};
- const runtime={withReadTab:fn=>fn({navigate:async url=>assert.ok(url.endsWith('#all')),fill:async(_selector,query)=>queries.push(query),press:async()=>{},
+ const runtime={withReadTab:fn=>fn({navigate:async destination=>assert.equal(destination,url),fill:async(_selector,query)=>queries.push(query),press:async()=>{},
   inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:[record],empty:false}}),
-  runReadCode:async code=>code.includes('window.SparkClawMailReader')?null:code.includes('return state.records')?[member]:true})};
+  runReadCode:async code=>{if(code.includes('page.goto'))assert.match(code,/#all/u);return code.includes('window.SparkClawMailReader')?null:code.includes('return state.records')?[member]:true;}})};
  const input=discoveryInput({lane:'recent_inbound'});input.provider='gmail';
  const result=await discoverEmail(input,runtime,'gmail');
  assert.equal(result.candidates.length,1);assert.equal(result.candidates[0].folder,'all');assert.equal(result.coverage.ordering,'gmail_internal_received');
@@ -296,7 +296,7 @@ test('Gmail recent intake uses ordinary-mail search and admits read archive mail
 
 test('background unread discovery accepts Go zero times or omitted times but recent discovery still requires an interval',async()=>{
  const url=READ_PROVIDERS.qq_mail.url;
- const runtime={withReadTab:fn=>fn({runReadCode:async()=>null,inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:[{provider_message_id:'unread',provider_selection_id:'unread',unread:true}],empty:false}})})};
+ const runtime={withReadTab:fn=>fn({navigate:async destination=>assert.equal(destination,url),runReadCode:async()=>null,inspect:async()=>({origin:url,result:{url,account_address:'owner@example.test',rows:[{provider_message_id:'unread',provider_selection_id:'unread',unread:true}],empty:false}})})};
  for(const timestamps of [{interval_start:undefined,interval_end:undefined},{interval_start:'0001-01-01T00:00:00Z',interval_end:'0001-01-01T00:00:00Z'}]){
   const input=discoveryInput(timestamps);for(const key of ['interval_start','interval_end'])if(input.discovery[key]===undefined)delete input.discovery[key];
   assert.equal((await discoverEmail(input,runtime,'qq_mail')).candidates.length,1);
@@ -365,7 +365,7 @@ test('Gmail accepts the observed empty-search sentence only in its visible resul
 
 test('Gmail direct thread inventory requires the indexed anchor and keeps partial coverage',async()=>{
  const url=READ_PROVIDERS.gmail.url, events=[];
- const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return !code.includes('controls.length===1');},
+ const tab={navigate:async destination=>assert.equal(destination,url),fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return !code.includes('controls.length===1');},
   inspect:async({})=>{const detail=events.some(code=>code.includes('#all/abc'));return {origin:url,result:detail?{url,account_address:'owner@example.test',ids:['abc','def']}:{url,account_address:'owner@example.test',empty:true,rows:[]}};}};
  const input={schema_version:1,operation:'enumerate_thread',provider:'gmail',account:'default',owner_scope:'a'.repeat(64),invocation_id:'history-1',
   thread:{account_address:'owner@example.test',provider_thread_id:'thread-f:2748',provider_selection_id:'abc',folder:'inbox'},continuation:'',limit:50};
@@ -388,7 +388,7 @@ test('Gmail direct rendered inventory rejects an absent anchor or duplicate nati
 
 test('Gmail exact indexed capture can open a source absent from the loaded folder',async()=>{
  const url=READ_PROVIDERS.gmail.url, events=[];
- const tab={fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return !code.includes('controls.length===1');},
+ const tab={navigate:async destination=>assert.equal(destination,url),fill:async()=>{},press:async()=>{},runReadCode:async code=>{events.push(code);return !code.includes('controls.length===1');},
   inspect:async()=>({origin:url,result:events.some(code=>code.includes('#all/abc'))?
    {url,account_address:'owner@example.test',provider_message_id:'abc',body_text:'source'}:
    {url,account_address:'owner@example.test',empty:true,rows:[]}})};

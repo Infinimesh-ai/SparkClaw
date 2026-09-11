@@ -115,6 +115,20 @@ test("all provider sends use the registered effect selector exactly once", async
   }
 });
 
+test("send runtime exposes separate mailbox navigation for reply target lookup", async () => {
+  const calls = [];
+  const registration = { operation: "send", provider: "gmail" };
+  const client = {
+    gmailTab: () => ({ inspect: async () => ({}) }),
+    runReadCode: async code => { calls.push(code); return true; },
+  };
+  const runtime = createProviderRuntime(client, registration);
+  const tab = await runtime.withSendTab(value => value);
+  await tab.navigate("https://mail.google.com/mail/u/0/#all");
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /page\.goto\("https:\/\/mail\.google\.com\/mail\/u\/0\/#all"\)/u);
+});
+
 test("QQ draft rejects extra recipients and changed body before Send", async () => {
   const registry = new ProviderScriptRegistry();
   await registry.prepare();

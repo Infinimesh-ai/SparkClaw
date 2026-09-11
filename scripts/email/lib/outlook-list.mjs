@@ -39,7 +39,9 @@ export function parseOutlookList(value, includeInventory = false) {
 export async function prepareOutlookList(tab) {
   const key=`__sparkclaw_mail_list_${crypto.randomUUID().replaceAll('-','')}`;
   // Startup data can arrive before the first DOM check; install only on the
-  // owned task page and reload that page to observe it from the beginning.
+  // owned task page, then navigate separately so setup stays within one short
+  // script call and the page load gets the controller's navigation budget.
+  if (typeof tab.navigate !== "function") throw Object.assign(new Error("browser_runtime_unavailable"), { code: "browser_runtime_unavailable" });
   await tab.runReadCode(`async page=>{
     await page.addInitScript(()=>{
       (${installOutlookEarlyBridge.toString()})();
@@ -65,8 +67,9 @@ export async function prepareOutlookList(tab) {
         return response;
       };
     });
-    await page.reload();return true;
+    return true;
   }`);
+  await tab.navigate("https://outlook.live.com/mail/0/inbox");
   return key;
 }
 

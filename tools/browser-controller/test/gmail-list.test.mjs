@@ -32,7 +32,7 @@ test('Gmail self-sent singleton uses observed legacy ID with thread-a/msg-a iden
 test('Gmail joins visible singleton evidence to exact IDs and rejects read, draft and conflicting responses', async () => {
   for (const records of [[],parseGmailList(response({labels:['^i']})),parseGmailList(response({labels:['^i','^u','^r']})),[...parseGmailList(response()),...parseGmailList(response())]]) {
     let calls=0;
-    const tab={runReadCode:async()=>++calls===2?records:true};
+    const tab={navigate:async url=>assert.equal(url,'https://mail.google.com/mail/u/0/#inbox'),runReadCode:async()=>++calls===2?records:true};
     const result=await gmailUnreadEvidence(tab,async()=>({rows:[{provider_message_id:'abc',provider_thread_id:'thread-f:2748',single_message_row:true,unread:true}]}));
     assert.equal(result.rows[0].single_unread_proven,false);
     assert.equal(calls,3,'observer must be restored');
@@ -41,7 +41,17 @@ test('Gmail joins visible singleton evidence to exact IDs and rejects read, draf
 
 test('Gmail observer restores the task page after list failure',async()=>{
   const code=[];
-  await assert.rejects(gmailUnreadEvidence({runReadCode:async value=>code.push(value)},async()=>{throw new Error('failed list');}),/failed list/);
+  await assert.rejects(gmailUnreadEvidence({navigate:async url=>assert.equal(url,'https://mail.google.com/mail/u/0/#inbox'),runReadCode:async value=>code.push(value)},async()=>{throw new Error('failed list');}),/failed list/);
+  assert.equal(code.length,2);
+  assert.match(code[1],/restore/);
+});
+
+test('Gmail observer cleanup runs when the separate navigation fails',async()=>{
+  const code=[];
+  await assert.rejects(gmailUnreadEvidence({
+    navigate:async()=>{throw new Error('navigation failed');},
+    runReadCode:async value=>{code.push(value);return true;},
+  },async()=>({rows:[]})),/navigation failed/);
   assert.equal(code.length,2);
   assert.match(code[1],/restore/);
 });

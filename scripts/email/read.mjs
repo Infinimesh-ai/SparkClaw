@@ -282,20 +282,25 @@ export async function collectUnread(tab, provider, options = {}) {
   const pinned = options.pinned_message_id || options.pinned_selection_id;
   const recent = options.discovery_options?.lane === 'recent_inbound';
   const folder = options.folder ?? (provider==='gmail' && recent ? 'all' : 'inbox');
+  const folderURL = folder !== 'inbox' ? provider === 'qq_mail' && (folder === 'sent' || /^qq:[1-9][0-9]{3,9}$/u.test(folder)) ? READ_PROVIDERS.qq_mail.url.replace('/list/1',`/list/${folder==='sent'?3:folder.slice(3)}`) :
+    provider === 'outlook' && folder === 'sent' ? READ_PROVIDERS.outlook.url.replace('/inbox','/sentitems') :
+    provider === 'outlook' && (folder === 'all' || folder.startsWith('outlook:')) ? READ_PROVIDERS.outlook.url :
+    provider === 'gmail' ? READ_PROVIDERS.gmail.url.replace('#inbox',folder === 'sent' ? '#sent' : '#all') : null : null;
+  const folderNeedsNavigation = Boolean(folderURL && folderURL !== READ_PROVIDERS[provider].url);
   let qqKey;
   if (folder !== 'inbox') {
-    const url = provider === 'qq_mail' && (folder === 'sent' || /^qq:[1-9][0-9]{3,9}$/u.test(folder)) ? READ_PROVIDERS.qq_mail.url.replace('/list/1',`/list/${folder==='sent'?3:folder.slice(3)}`) :
-      provider === 'outlook' && folder === 'sent' ? READ_PROVIDERS.outlook.url.replace('/inbox','/sentitems') :
-      provider === 'outlook' && (folder === 'all' || folder.startsWith('outlook:')) ? READ_PROVIDERS.outlook.url :
-      provider === 'gmail' ? READ_PROVIDERS.gmail.url.replace('#inbox',folder === 'sent' ? '#sent' : '#all') : null;
-    if (!url) throw fail('email_pinned_message_unavailable');
-    await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(url)});return true;}`);
+    if (!folderURL) throw fail('email_pinned_message_unavailable');
+    if (provider !== 'gmail' && folderNeedsNavigation) await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(folderURL)});return true;}`);
   }
   let outlookKey;
-  if(provider==='qq_mail' && options.discovery_options)qqKey=await prepareQQMailList(tab);
+  if(provider==='qq_mail' && options.discovery_options) {
+    qqKey=await prepareQQMailList(tab);
+    if (folderNeedsNavigation) await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(folderURL)});return true;}`);
+  }
   if(provider==='outlook') {
     if((pinned || recent) && (await inspect(tab,provider,'filter')).filtered)await tab.click('button:has-text("Clear filter")');
     outlookKey=await prepareOutlookList(tab);
+    if (folderNeedsNavigation) await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(folderURL)});return true;}`);
   }
   let listed;
   if (provider === 'gmail') {
@@ -305,7 +310,9 @@ export async function collectUnread(tab, provider, options = {}) {
       await tab.fill('input[name="q"]',query);
       await tab.press('Enter');
       return inspect(tab,provider,'list',{filtered:!pinned && !recent,query});
-    },{folder});
+    },{folder,beforeSelect: folderNeedsNavigation && provider === 'gmail' ? async () => {
+      await tab.runReadCode(`async page=>{await page.goto(${JSON.stringify(folderURL)});return true;}`);
+    } : undefined});
   } else if (provider === 'outlook' && !pinned && !recent) {
     if(!(await inspect(tab,provider,'filter')).filtered){
       await tab.click('button[aria-label="Filter"], button[aria-label="筛选器"]');

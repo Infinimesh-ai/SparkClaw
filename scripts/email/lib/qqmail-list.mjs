@@ -49,6 +49,7 @@ export function qqDiscoveryContinuation(position,digest,offset,more,folders){
 
 export async function prepareQQMailList(tab){
  const key=`__sparkclaw_qq_list_${crypto.randomUUID().replaceAll('-','')}`;
+ if(typeof tab.navigate!=='function')throw Object.assign(new Error('browser_runtime_unavailable'),{code:'browser_runtime_unavailable'});
  await tab.runReadCode(`async page=>{
   await page.addInitScript(()=>{
    if(window.top!==window || !['https://wx.mail.qq.com','https://mail.qq.com'].includes(location.origin))return;
@@ -62,8 +63,9 @@ export async function prepareQQMailList(tab){
    const open=XMLHttpRequest.prototype.open;
    XMLHttpRequest.prototype.open=function(method,url,...rest){this.addEventListener('load',()=>{if(this.status===200&&(!this.responseType||this.responseType==='text'))observe(url,this.responseText);},{once:true});return open.call(this,method,url,...rest);};
    const fetch=globalThis.fetch;globalThis.fetch=async function(...args){const r=await fetch.apply(this,args);if(r.ok&&new URL(r.url).origin===location.origin&&['/list/maillist','/home/home'].includes(new URL(r.url).pathname))void r.clone().text().then(text=>observe(r.url,text)).catch(()=>{});return r;};
-  });await page.reload();return true;
+  });return true;
  }`);
+ await tab.navigate('https://wx.mail.qq.com/home/index#/list/1');
  return key;
 }
 

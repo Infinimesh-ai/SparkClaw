@@ -7,6 +7,12 @@ for system ownership, [Workflow capabilities](workflow-capabilities.md) for the
 shipped user surface, and the relevant component guide from the
 [documentation index](index.md) before changing behavior.
 
+The managed AI conversation userscript must remain non-visual: provider pages
+receive no user-clickable export or batch controls. Single and batch export use
+the fixed-command hidden bridge documented in
+[AI conversation batch export](ai-conversation-batch-export.md); keep Controller,
+qualification adapter, bundled script, manifest hash, and browser tests aligned.
+
 Browser email `browser.email` r2 keeps separate human `read` and approval-gated
 `send` operations. Background receiving is independently default-off per verified
 owner/provider binding. `emailmanagement` now owns durable discovery, capture,
@@ -25,8 +31,9 @@ provider limitations and pending release gates; fixture tests do not qualify the
 For source capture, set host `SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT` to the
 existing directory shared with the Gateway workspace; relative source paths
 must identify the same files on both sides. The fixed scripts preserve original
-EML and decode MIME with `mailparser`; current provider adapters fail when original
-export is unavailable. Selection journals pin retries, immutable manifests verify source
+EML; the Gateway parses MIME after verified local capture. `mailparser` is now a
+development-only dependency for historical offline qualification tools, not the production
+reader. Current provider adapters fail when originals are unavailable. Timeline journals pin retries, immutable manifests verify source
 bytes, and mutable read-state records remain separate. A `partial` receipt is
 not complete collection, and receipt replay verifies files without consuming a
 new message. See [email source data](email-read-design.md) for limits and the

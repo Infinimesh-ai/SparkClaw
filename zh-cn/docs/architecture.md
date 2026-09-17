@@ -13,7 +13,7 @@ agent runtime。当前产品表面包括：
 - 本地文件、结构化文档和 approval-gated output-copy edit；
 - 公开搜索、直接天气卡片、托管浏览器 open/focus 与页面读取、受限验证 click 和经审批的
   可逆表单草稿；
-- 通过新鲜校验的已配置 QQ 邮箱、Outlook 或 Gmail 账户脚本采集一封未读邮件及附件，或执行经审批的发送操作；
+- 通过提供方网络接口增量采集上次完整获取之后的来信及附件，或执行经审批的发送操作；
 - 基于稳定请求/上下文证据的普通聊天回答；
 - 到期 payload 重新进入正常路由的定时消息；
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
@@ -23,7 +23,7 @@ agent runtime。当前产品表面包括：
 - 可选、按 workspace 限定的 LocalMind MCP 接入和被动 ISCP 提及收件箱；
 - trace、artifact、eval、Policy、approval、auth 和 durable state。
 
-准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。单封未读邮件来源采集与邮箱发送
+准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。增量网络邮件来源采集与邮箱发送
 是当前活动的有界能力；工作区新增默认关闭的后台邮件管理，使用 typed repository、有界 worker
 及 owner 鉴权弹窗，见[实施状态](email-management-implementation.md)。真实服务商／语义质量发布验收
 尚未完成。日历和内置 workspace knowledge/RAG 仍保持暂缓，见
@@ -231,7 +231,8 @@ worker 保持运行，并在 acquisition 与 dispatch 前通过 owner gate 过�
 
 浏览器使用 Checksum-pinned SparkClaw Browser Bridge、Owner-scoped Playwright Controller
 和一个持久 SparkClaw Chromium Profile，没有备用 Browser Backend。每个 Client 只控制
-Task-owned Tab；后台工作不聚焦 Owner Tab，显式 Handoff 可把 Task Tab 带到前台。现有
+Task-owned Tab；后台工作不聚焦 Owner Tab，显式 Handoff 可把 Task Tab 带到前台。受管 AI
+对话导出使用隐藏的固定命令 userscript 桥接点，不向服务商页面注入用户可点击控件。现有
 Destination Registry 是 Candidate-independent 的命名目标 Fast Path；它 Miss 且 Browser
 Leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 Semantic Classifier。
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseGmailList, gmailUnreadEvidence } from '../../../scripts/email/lib/gmail-list.mjs';
+import { parseGmailList } from '../../../scripts/email/lib/gmail-list.mjs';
 
 function response({ messages = 1, labels = ['^i', '^u'], id = 'abc', decimal = '2748' } = {}) {
   const message = [];
@@ -27,33 +27,6 @@ test('Gmail self-sent singleton uses observed legacy ID with thread-a/msg-a iden
  assert.equal(parseGmailList(value)[0].provider_thread_id,'thread-a:r-123');
  thread[4].push([...thread[4][0]]);assert.deepEqual(parseGmailList(value),[]);
  thread[4].pop();thread[4][0][0]='msg-f:2748';assert.deepEqual(parseGmailList(value),[]);
-});
-
-test('Gmail joins visible singleton evidence to exact IDs and rejects read, draft and conflicting responses', async () => {
-  for (const records of [[],parseGmailList(response({labels:['^i']})),parseGmailList(response({labels:['^i','^u','^r']})),[...parseGmailList(response()),...parseGmailList(response())]]) {
-    let calls=0;
-    const tab={navigate:async url=>assert.equal(url,'https://mail.google.com/mail/u/0/#inbox'),runReadCode:async()=>++calls===2?records:true};
-    const result=await gmailUnreadEvidence(tab,async()=>({rows:[{provider_message_id:'abc',provider_thread_id:'thread-f:2748',single_message_row:true,unread:true}]}));
-    assert.equal(result.rows[0].single_unread_proven,false);
-    assert.equal(calls,3,'observer must be restored');
-  }
-});
-
-test('Gmail observer restores the task page after list failure',async()=>{
-  const code=[];
-  await assert.rejects(gmailUnreadEvidence({navigate:async url=>assert.equal(url,'https://mail.google.com/mail/u/0/#inbox'),runReadCode:async value=>code.push(value)},async()=>{throw new Error('failed list');}),/failed list/);
-  assert.equal(code.length,2);
-  assert.match(code[1],/restore/);
-});
-
-test('Gmail observer cleanup runs when the separate navigation fails',async()=>{
-  const code=[];
-  await assert.rejects(gmailUnreadEvidence({
-    navigate:async()=>{throw new Error('navigation failed');},
-    runReadCode:async value=>{code.push(value);return true;},
-  },async()=>({rows:[]})),/navigation failed/);
-  assert.equal(code.length,2);
-  assert.match(code[1],/restore/);
 });
 
 test('Gmail thread inventory retains each proved message, Sent and draft evidence without promoting the thread ID',()=>{

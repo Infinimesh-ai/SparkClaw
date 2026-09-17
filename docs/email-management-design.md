@@ -110,8 +110,8 @@ does not establish continuity.
    existing conversations. Reanalysis does not merge or move them; no unconditional
    promise of duplicate-free grouping under disorder or missing context remains.
 
-Review amendments also require unread-independent discovery of inbound mail since
-activation, durable input invalidation and summary refresh, and one active account
+Review amendments also require unread-independent discovery of inbound mail after
+the last completed fetch, durable input invalidation and summary refresh, and one active account
 per owner/provider with safe binding switches. Stages 1–4 define these contracts;
 stage 5 sets explicit initial acceptance targets, not achieved qualification.
 
@@ -132,7 +132,7 @@ not complete storage or model stages. UI fixtures do not qualify real intake.
 ## Existing Problems In Context
 
 Stage 2 owns singleton restrictions, Outlook individual export, current languages
-and unread evidence. Stages 1/2 jointly prevent automatic-read job loss through
+and network read evidence. Stages 1/2 jointly prevent automatic-read job loss through
 durable inventory before opening; recent inbound scans also find new threads read
 before discovery. Stage 3 reuses membership and rejects stale proposals; it exposes
 later semantic conflicts without repairing established memberships. Stages 2/3 express

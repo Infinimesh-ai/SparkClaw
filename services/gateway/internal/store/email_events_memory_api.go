@@ -11,6 +11,13 @@ func (s *MemoryStore) ActivateEmailEventPolicy(ctx context.Context, c EmailComma
 	}
 	return emailMemoryRun(s, ctx, OperationActivateEmailEventPolicy, c.OwnerID, "", c, true, func(e *emailEngine) (EmailEventPolicy, error) { return emailActivateEvents(e, c) })
 }
+
+func (s *MemoryStore) ActivateEmailTimelinePolicy(ctx context.Context, c EmailCommand) (EmailTimelinePolicy, error) {
+	if c.CommandKey == "" {
+		return *new(EmailTimelinePolicy), errEmailCommandInvalid(ctx, OperationActivateEmailTimelinePolicy)
+	}
+	return emailMemoryRun(s, ctx, OperationActivateEmailTimelinePolicy, c.OwnerID, "", c, true, func(e *emailEngine) (EmailTimelinePolicy, error) { return emailActivateTimeline(e) })
+}
 func (s *MemoryStore) ChangeEmailAssignment(ctx context.Context, c EmailManualAssignment) (app.EmailMail, error) {
 	if c.CommandKey == "" {
 		return *new(app.EmailMail), errEmailCommandInvalid(ctx, OperationChangeEmailAssignment)

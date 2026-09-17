@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-
 // Observed Gmail /sync/u/<account>/i/bv response contract. Unknown shapes
 // supply no evidence. Only message identity/read labels leave the page.
 export function parseGmailList(value, includeThreads = false) {
@@ -51,54 +49,4 @@ export function parseGmailReceivedList(value) {
     }
   }
   return rows;
-}
-
-// Observe the UI's own request; this does not replay private provider APIs or
-// transport original email bytes. Always restore the task document's XHR hook.
-export async function gmailUnreadEvidence(tab, selectUnread, options = {}) {
-  const key = `__sparkclaw_mail_list_${crypto.randomUUID().replaceAll('-', '')}`;
-  if (typeof tab.navigate !== "function") throw Object.assign(new Error("browser_runtime_unavailable"), { code: "browser_runtime_unavailable" });
-  try {
-    await tab.runReadCode(`async page => {
-    const install=()=>{
-    if(window.top!==window || location.origin!=='https://mail.google.com')return;
-    const key=${JSON.stringify(key)}, parse=value=>(${parseGmailList.toString()})(value,true);
-    const original=XMLHttpRequest.prototype.open;
-    const state={records:[],received:false,active:true};
-    const hooked=function(method,value,...args) {
-      const url=new URL(value,location.href);
-      if(url.origin===location.origin && /^\\/sync\\/u\\/\\d+\\/i\\/bv$/u.test(url.pathname)) this.addEventListener('load',()=>{
-        if(!state.active || this.status!==200 || this.responseType && this.responseType!=='text') return;
-        try {
-          if(this.responseText.length>(2<<20)) return;
-          state.records=parse(JSON.parse(this.responseText));state.received=true;
-        } catch {}
-      },{once:true});
-      return original.call(this,method,value,...args);
-    };
-    state.restore=()=>{state.active=false;if(XMLHttpRequest.prototype.open===hooked)XMLHttpRequest.prototype.open=original;};
-    globalThis[key]=state;XMLHttpRequest.prototype.open=hooked;
-    };
-    await page.addInitScript(install);return true;
-    }`);
-    await tab.navigate("https://mail.google.com/mail/u/0/#inbox");
-    if (typeof options.beforeSelect === "function") await options.beforeSelect();
-    const listed = await selectUnread();
-    if (listed.empty) return listed;
-    const evidence = await tab.runReadCode(`async page => page.evaluate(async () => {
-      const state=globalThis[${JSON.stringify(key)}], deadline=Date.now()+5000;
-      while(!state.received && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
-      return state.records;
-    })`);
-    return { ...listed, rows: listed.rows.map(row => {
-      const members=evidence.filter(item=>item.provider_thread_id===row.provider_thread_id);
-      const proven=Boolean(row.single_message_row && evidence.filter(item =>
-        item.provider_message_id === row.provider_message_id && item.provider_thread_id === row.provider_thread_id &&
-        item.unread===row.unread && (options.folder==='sent'?item.sent:options.folder==='all'?true:item.inbox) && !item.draft).length === 1);
-      return {...row,single_message_proven:proven,single_unread_proven:proven&&row.unread,members,
-        inventory_complete:members.length>0 && members.every(member=>member.observed_message_count===members.length)};
-    }) };
-  } finally {
-    await tab.runReadCode(`async page=>page.evaluate(()=>{const key=${JSON.stringify(key)};globalThis[key]?.restore();delete globalThis[key];return true;})`).catch(()=>{});
-  }
 }

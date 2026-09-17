@@ -14,8 +14,9 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - local files, structured documents, and approval-gated output-copy edits;
 - public search, direct weather cards, managed browser open/focus and page
   reading, bounded verified clicks, and approval-gated reversible form drafts;
-- scripted capture of one unread email and its attachments, and approval-gated sending for a freshly validated configured QQ
-  Mail, Outlook, or Gmail account;
+- network-only incremental capture of received email and its attachments after the
+  last completed fetch, and approval-gated sending for a freshly validated
+  configured QQ Mail, Outlook, or Gmail account;
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
 - optional WebChat speech transcription, Telegram/Weixin messaging, and
@@ -28,8 +29,8 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - traces, artifacts, evals, policy, approval, auth, and durable state.
 
 The exact executable leaf set is listed in
-[Workflow capabilities](workflow-capabilities.md). Single unread-email source capture and
-email sending are active bounded capabilities. The worktree additionally implements
+[Workflow capabilities](workflow-capabilities.md). Incremental network email source
+capture and email sending are active bounded capabilities. The worktree additionally implements
 default-off background email management through a typed repository, bounded workers
 and an owner-authenticated popup; see [implementation status](email-management-implementation.md).
 Real-provider/semantic release qualification remains incomplete. Calendar and built-in
@@ -299,7 +300,9 @@ Browser execution uses the checksum-pinned SparkClaw Browser Bridge and an
 owner-scoped Playwright Controller with one persistent SparkClaw Chromium
 profile and no alternate backend. Each client is confined to a task-owned tab;
 background work does not focus owner tabs, while explicit handoff can foreground
-the task tab. The existing destination registry is the candidate-independent
+the task tab. Managed AI-conversation export uses a hidden fixed-command
+userscript bridge and never injects user-clickable controls into provider pages.
+The existing destination registry is the candidate-independent
 named-target fast path; after its miss and browser leaf selection, the Workflow
 may use Info's ordered structured URLs without another semantic classifier.
 

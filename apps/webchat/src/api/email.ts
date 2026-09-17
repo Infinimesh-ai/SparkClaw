@@ -60,9 +60,31 @@ export type EmailMessage = {
   viewed: boolean;
   original_path?: string;
   original_available?: boolean;
+  original_purged?: boolean;
   attachments: { id: string; name: string; path?: string; size?: number; available?: boolean }[];
   processing_state?: string;
 };
+
+// The safe reading surface for an original: a projection of the parsed
+// representation, never raw captured bytes, so it survives local cleanup.
+export type EmailPreview = {
+  version: number;
+  id: string;
+  subject: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  sent_at?: string;
+  body_text: string;
+  header_lines: string[];
+  attachments: { id: string; name: string; size?: number; available?: boolean }[];
+  original_available?: boolean;
+  original_purged?: boolean;
+};
+
+export type EmailCapacity = { state: "ok" | "warning" | "critical" | "unknown"; total_bytes: number; free_bytes: number; used_percent: number };
+export type EmailCleanupScope = "mail" | "date" | "mailbox" | "all";
+export type EmailCleanupResult = { scope: string; purged: number; freed_bytes: number; partial: boolean };
 
 export type EmailMailbox = {
   id: string;
@@ -72,19 +94,54 @@ export type EmailMailbox = {
   intake_enabled: boolean;
   active_binding: boolean;
   state: string;
+  scope_version?: string;
+  provider_mode?: "change_cursor" | "time_range" | "anchored_head" | "unqualified";
   last_sync_at?: string;
   coverage_start?: string;
   coverage_end?: string;
+  poll_through?: string;
+  inflight_until?: string;
+  pending_failure_count?: number;
+  suppressed_mail_count?: number;
+  coverage_gap_count?: number;
+  unacknowledged_warning_count?: number;
+  refresh_available?: boolean;
+  refresh_pending?: boolean;
+  refresh_request_id?: string;
   gap?: string;
   backlog?: number;
   error?: string;
 };
+
+export type EmailSyncWarning = {
+  id: string;
+  mailbox_id: string;
+  warning_ref: string;
+  stage: string;
+  scope: string;
+  error_code: string;
+  state: "suppressed" | "coverage_gap";
+  observed_at?: string;
+  attempt_count: number;
+  first_failed_at: string;
+  last_attempt_at: string;
+  acknowledged_at?: string;
+};
+
+export type EmailSyncWarningPage = { items: EmailSyncWarning[]; next_cursor?: string };
 
 export type EmailSyncStatus = {
   version: number;
   mailboxes: EmailMailbox[];
   backlog: number;
   pending_count: number;
+  captured_count?: number;
+  capacity?: EmailCapacity;
+};
+
+export type EmailSyncSchedule = {
+  scheduled: boolean;
+  refresh_requests?: { mailbox_id: string; refresh_request_id: string }[];
 };
 
 export type EmailFilters = { entry?: EmailEntry; unassigned_only?: boolean; mailbox_id?: string; q?: string; cursor?: string; limit?: number; subtype?: string; validity?: string };
@@ -103,7 +160,7 @@ export type EmailEntry = "notification" | "interaction";
 export type EmailClassification = {
   category: "notification" | "interaction" | "unknown";
   effective_entry: EmailEntry;
-  source: "manual" | "rule" | "model" | "fallback";
+  source: "manual" | "rule" | "model" | "fallback" | "pattern";
   notification_subtype?: string;
   state: string;
   revision: number;

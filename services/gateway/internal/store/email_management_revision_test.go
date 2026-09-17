@@ -175,9 +175,9 @@ func TestEmailManagementBindingResumeAndIndependentProgress(t *testing.T) {
 			t.Fatal("pinned work not rebound")
 		}
 		now := time.Now()
-		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "recent", ObservedAt: now, Coverage: "complete", CompletedBoundary: now, Cursor: "recent-progress"})
+		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "recent_inbound", ObservedAt: now, Coverage: "complete", CompletedBoundary: now, Cursor: "recent-progress"})
 		f.must(err)
-		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "unread", ObservedAt: now, Coverage: "partial", Cursor: "unread-progress"})
+		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "recent_observation", ObservedAt: now, Coverage: "partial", Cursor: "observation-progress"})
 		f.must(err)
 		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "thread", ThreadID: "empty-thread", ProviderSelectionID: "thread-locator", ObservedAt: now, Coverage: "partial", Cursor: "thread-progress"})
 		f.must(err)

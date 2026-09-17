@@ -11,6 +11,13 @@ func (s *PostgresStore) ActivateEmailEventPolicy(ctx context.Context, c EmailCom
 	}
 	return emailPostgresRun(s, ctx, OperationActivateEmailEventPolicy, c.OwnerID, "", c, true, func(e *emailEngine) (EmailEventPolicy, error) { return emailActivateEvents(e, c) })
 }
+
+func (s *PostgresStore) ActivateEmailTimelinePolicy(ctx context.Context, c EmailCommand) (EmailTimelinePolicy, error) {
+	if c.CommandKey == "" {
+		return *new(EmailTimelinePolicy), errEmailCommandInvalid(ctx, OperationActivateEmailTimelinePolicy)
+	}
+	return emailPostgresRun(s, ctx, OperationActivateEmailTimelinePolicy, c.OwnerID, "", c, true, func(e *emailEngine) (EmailTimelinePolicy, error) { return emailActivateTimeline(e) })
+}
 func (s *PostgresStore) ChangeEmailAssignment(ctx context.Context, c EmailManualAssignment) (app.EmailMail, error) {
 	if c.CommandKey == "" {
 		return *new(app.EmailMail), errEmailCommandInvalid(ctx, OperationChangeEmailAssignment)

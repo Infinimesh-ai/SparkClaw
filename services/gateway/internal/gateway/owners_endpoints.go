@@ -48,6 +48,47 @@ func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// updateOwnerLanguage persists the WebChat language as the default for future
+// generated work. Email summaries sample this preference when they execute;
+// this write intentionally has no email-analysis invalidation side effect.
+func (s *Server) updateOwnerLanguage(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Language string `json:"language"`
+	}
+	if err := readJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	input.Language = strings.ToLower(strings.TrimSpace(input.Language))
+	if input.Language != "zh" && input.Language != "en" {
+		writeError(w, http.StatusBadRequest, errors.New("language must be zh or en"))
+		return
+	}
+	ownerID := principalForRequest(r).OwnerID
+	profile, found, err := s.store.GetOwnerProfileByID(r.Context(), ownerID)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, errors.New("profile not found"))
+		return
+	}
+	preferences := make(map[string]string, len(profile.Preferences)+1)
+	for key, value := range profile.Preferences {
+		preferences[key] = value
+	}
+	preferences[app.OwnerPreferenceLanguage] = input.Language
+	profile.Preferences = preferences
+	updated, err := s.store.SaveOwnerProfile(r.Context(), profile)
+	updated, err = store.ReconcileOwnerProfileWrite(r.Context(), s.store, updated, err)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
 	profiles, err := s.store.ListOwnerProfiles(r.Context())
 	if err != nil {

@@ -46,15 +46,15 @@ async function qualify() {
   }
   const source=await fs.readFile(new URL('../../tools/browser-userscripts/revivalstack.user.js',import.meta.url),'utf8');
   if (source.split('UIManager.init();').length!==2) throw new Error('candidate_bootstrap_changed');
-  // Candidate extraction and batching are unchanged. Only initialization is
-  // scoped beside the installed 3.1.0 controls, with default GM settings.
-  const injection='(function(){const GM_getValue=(_,v)=>v;const GM_setValue=()=>{};const GM_registerMenuCommand=()=>{};\n'+source.replace('const EXPORT_CONTAINER_ID = "export-controls-container";','const EXPORT_CONTAINER_ID = "sparkclaw-live-export-controls";').replace('UIManager.init();','UIManager.addExportControls();')+'\n})();';
+  // Candidate extraction and batching are unchanged. Qualification gives the
+  // temporary candidate a separate hidden bridge from the installed script.
+  const injection='(function(){const GM_getValue=(_,v)=>v;const GM_setValue=()=>{};const GM_registerMenuCommand=()=>{};\n'+source.replaceAll('sparkclaw-ai-export-bridge','sparkclaw-live-ai-export-bridge').replace('UIManager.init();','UIManager.installAutomationBridge();')+'\n})();';
   const summary={schema:'sparkclaw.ai-chat.live-qualification.v1',candidate_sha256:crypto.createHash('sha256').update(source).digest('hex'),injection_sha256:crypto.createHash('sha256').update(injection).digest('hex'),sample_limit:2,temporary_injection:true,providers:[]};
   const reportPath=path.join(workspaceRoot,'live-qualification-'+crypto.randomUUID()+'.json');
   try {
     await cli(['attach','--extension=chromium']);attached=true;
     for(const provider of providers) {
-      let discovered=0, sourceURL='', lastControl='';
+      let discovered=0, sourceURL='', lastOperation='';
       const context={newPage:async()=>{
         await command('await page.context().newPage();return true;');
         return {
@@ -70,13 +70,13 @@ async function qualify() {
           url:()=>sourceURL,
           locator:selector=>({
             waitFor:async options=>command(`await p.locator(${JSON.stringify(selector)}).waitFor(${JSON.stringify(options)});return true;`),
-            evaluate:async fn=>{lastControl=selector;return command(`return await p.locator(${JSON.stringify(selector)}).evaluate(${fn.toString()});`);},
+            evaluate:async(fn,arg)=>{lastOperation=arg;return command(`return await p.locator(${JSON.stringify(selector)}).evaluate(${fn.toString()},${JSON.stringify(arg)});`);},
             getAttribute:async name=>command(`return await p.locator(${JSON.stringify(selector)}).getAttribute(${JSON.stringify(name)});`),
             innerText:async()=>command(`return await p.locator(${JSON.stringify(selector)}).innerText();`),
-            inputValue:async()=>{
-              let text=await command(`return await p.locator(${JSON.stringify(selector)}).inputValue();`);
+            textContent:async()=>{
+              let text=await command(`return await p.locator(${JSON.stringify(selector)}).textContent();`);
               if(typeof text!=='string') throw new Error('script_output_not_text');
-              if(lastControl==='#sparkclaw-batch-scan') {const index=JSON.parse(text);discovered=index.conversations.length;index.conversations=index.conversations.slice(0,2);text=JSON.stringify(index);}
+              if(lastOperation==='timeline.scan') {const index=JSON.parse(text);discovered=index.conversations.length;index.conversations=index.conversations.slice(0,2);text=JSON.stringify(index);}
               return text;
             }
           }),
@@ -86,7 +86,7 @@ async function qualify() {
       }};
       console.log(JSON.stringify({provider,phase:'begin'}));
       try {
-        const receipt=await exportTimeline({context,provider,workspaceRoot,accountScope:values.account,timeoutMS:240000});
+        const receipt=await exportTimeline({context,provider,workspaceRoot,accountScope:values.account,timeoutMS:240000,bridgeID:'sparkclaw-live-ai-export-bridge'});
         const result={provider,status:receipt.status,discovered,sampled:receipt.timeline.conversations.length,exported:receipt.exported.length,skipped:receipt.skipped.length,failed:receipt.failed.length,manifest:receipt.manifest_path};
         summary.providers.push(result);console.log(JSON.stringify(result));
         if(receipt.failed.length)process.exitCode=1;

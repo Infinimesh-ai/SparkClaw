@@ -13,7 +13,7 @@ type browserJobExecution struct {
 
 func (s *Service) trackBrowserJob(job app.EmailJob, cancel context.CancelFunc) func() {
 	switch job.Kind {
-	case app.EmailJobDiscover, app.EmailJobCapture, app.EmailJobMarkRead, app.EmailJobThreadSync:
+	case app.EmailJobDiscover:
 	default:
 		return func() {}
 	}

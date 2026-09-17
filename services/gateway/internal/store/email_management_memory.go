@@ -70,16 +70,17 @@ func emailRowMatches(r EmailRecord, owner string, q emailRowsQuery) bool {
 			return false
 		}
 	}
-	if q.RequireNativeCapture || q.Direction != "" || q.CapturedOnly || q.MailMessageID != "" || q.MailThreadID != "" {
+	if q.RequireNativeCapture || q.Direction != "" || q.CapturedOnly || q.UncapturedOnly || q.MailMessageID != "" || q.MailThreadID != "" {
 		var mail struct {
 			CaptureID        string `json:"capture_id"`
 			CaptureState     string `json:"capture_state"`
+			SyncState        string `json:"sync_state"`
 			LocalSendID      string `json:"local_send_id"`
 			Direction        string `json:"direction"`
 			MessageID        string `json:"message_id"`
 			ProviderThreadID string `json:"provider_thread_id"`
 		}
-		if json.Unmarshal(r.Data, &mail) != nil || (q.RequireNativeCapture && (mail.CaptureID == "" || mail.CaptureState != app.EmailCaptureComplete)) || (q.Direction != "" && mail.Direction != q.Direction) || (q.CapturedOnly && mail.CaptureID == "" && mail.LocalSendID == "") || (q.MailMessageID != "" && mail.MessageID != q.MailMessageID) || (q.MailThreadID != "" && mail.ProviderThreadID != q.MailThreadID) {
+		if json.Unmarshal(r.Data, &mail) != nil || (q.RequireNativeCapture && (mail.CaptureID == "" || mail.CaptureState != app.EmailCaptureComplete)) || (q.Direction != "" && mail.Direction != q.Direction) || (q.CapturedOnly && mail.CaptureID == "" && mail.LocalSendID == "") || (q.UncapturedOnly && (mail.CaptureID != "" || mail.LocalSendID != "" || mail.SyncState == app.EmailMailSyncSuppressed)) || (q.MailMessageID != "" && mail.MessageID != q.MailMessageID) || (q.MailThreadID != "" && mail.ProviderThreadID != q.MailThreadID) {
 			return false
 		}
 	}

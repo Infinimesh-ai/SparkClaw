@@ -47,6 +47,7 @@ export async function createInvocationState(runtimeRoot, sessionID, input, opera
     await fs.writeFile(secretsPath, JSON.stringify({ secrets }), { mode: 0o600, flag: "wx" });
   }
   const secretValues = Object.values(secrets ?? {}).filter(Boolean);
+  let cleanupSafe = false;
   return {
     sessionID,
     directory,
@@ -72,10 +73,19 @@ export async function createInvocationState(runtimeRoot, sessionID, input, opera
         { mode: 0o600, flag: "wx" },
       );
     },
+    async writeAttachIntent(sessionName, daemonEntry) {
+      // /proc ownership recovery is Linux-only; other platforms retain their
+      // existing metadata path, without introducing an unresolvable intent.
+      if (process.platform !== "linux") return;
+      if(!SESSION_NAME_PATTERN.test(sessionName)||!path.isAbsolute(daemonEntry))throw clientContractError();
+      await fs.writeFile(path.join(directory,'attach-intent.json'),JSON.stringify({session_name:sessionName,daemon_entry:daemonEntry}),{flag:'wx',mode:0o600});
+    },
     async reapDaemon() {
       await reapMetadataBoundDaemon(directory);
+      cleanupSafe = true;
     },
     async remove() {
+      if(!cleanupSafe)throw clientContractError();
       await fs.rm(directory, { recursive: true, force: true });
     },
   };
@@ -323,12 +333,43 @@ function validateRuntimeRoot(runtimeRoot) {
 }
 
 async function reconcileStaleInvocation(directory) {
-  try {
-    await reapMetadataBoundDaemon(directory);
-  } catch {
-    // The private invocation directory is still removed below.
-  }
+  // Keep the private evidence/fence when ownership cannot be proven.
+  await reapMetadataBoundDaemon(directory);
   await fs.rm(directory, { recursive: true, force: true });
+}
+
+async function reapPendingAttach(directory) {
+  let intent;
+  try {
+    const intentPath=path.join(directory,'attach-intent.json');
+    const stat=await fs.lstat(intentPath);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>8192||stat.uid!==process.getuid?.()||(stat.mode&0o077)!==0)throw clientContractError();
+    intent=JSON.parse(await fs.readFile(intentPath,'utf8'));
+  }
+  catch(error){if(error.code==='ENOENT')return;throw error;}
+  if(process.platform!=='linux'||!SESSION_NAME_PATTERN.test(intent.session_name)||!path.isAbsolute(intent.daemon_entry))throw clientContractError();
+  const cache=path.join(directory,'cache'),cwd=path.join(directory,'output');
+  const matching=[];
+  for(const entry of await fs.readdir('/proc')){
+    if(!/^[1-9][0-9]*$/.test(entry))continue;
+    const pid=Number(entry);
+    let procStat,args;
+    try{
+      procStat=await fs.stat(`/proc/${pid}`);if(procStat.uid!==process.getuid())continue;
+      args=(await fs.readFile(`/proc/${pid}/cmdline`)).toString().split('\0');
+    }catch(error){if(['ENOENT','ESRCH'].includes(error.code))continue;throw clientContractError();}
+    if(!args.includes(intent.session_name))continue;
+    try{
+      const environment=(await fs.readFile(`/proc/${pid}/environ`)).toString().split('\0');
+      // Exact source, invocation cache, session and cwd together identify only
+      // this launch's daemon. A same-name process with weaker evidence fences.
+      if(args[1]!==intent.daemon_entry||args[2]!==intent.session_name||
+          !environment.includes(`XDG_CACHE_HOME=${cache}`)||await fs.readlink(`/proc/${pid}/cwd`)!==cwd)throw clientContractError();
+      matching.push({pid,start:await processStart(pid)});
+    }catch(error){if(['ENOENT','ESRCH'].includes(error.code))continue;throw clientContractError();}
+  }
+  if(matching.length>1)throw clientContractError();
+  for(const {pid,start} of matching)await terminateProcess(pid,start);
 }
 
 async function reapMetadataBoundDaemon(directory) {
@@ -336,7 +377,7 @@ async function reapMetadataBoundDaemon(directory) {
   try {
     metadata = JSON.parse(await fs.readFile(path.join(directory, "metadata.json"), "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") return;
+    if (error?.code === "ENOENT") return reapPendingAttach(directory);
     throw error;
   }
   if (
@@ -360,7 +401,19 @@ async function reapMetadataBoundDaemon(directory) {
   await terminateProcess(metadata.pid);
 }
 
-async function terminateProcess(pid) {
+async function processStart(pid) {
+  try {
+    const stat=await fs.readFile(`/proc/${pid}/stat`,"utf8");
+    return stat.slice(stat.lastIndexOf(") ")+2).split(" ")[19];
+  } catch(error) {
+    if(error.code==="ENOENT"||error.code==="ESRCH")return null;
+    throw error;
+  }
+}
+
+async function terminateProcess(pid, expectedStart=undefined) {
+  const start=expectedStart??await processStart(pid);
+  if(start===null||await processStart(pid)!==start)return;
   try {
     process.kill(pid, "SIGTERM");
   } catch (error) {
@@ -368,28 +421,20 @@ async function terminateProcess(pid) {
     throw error;
   }
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (!await processExists(pid)) return;
+    if (await processStart(pid)!==start) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  if(await processStart(pid)!==start)return;
   try {
     process.kill(pid, "SIGKILL");
   } catch (error) {
     if (error?.code !== "ESRCH") throw error;
   }
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (!await processExists(pid)) return;
+    if (await processStart(pid)!==start) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw clientUnavailableError();
-}
-
-async function processExists(pid) {
-  try {
-    await fs.access(`/proc/${pid}`);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function messageSecrets(input) {

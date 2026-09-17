@@ -7,6 +7,10 @@ const coreRoot = path.join(packageRoot, 'node_modules/playwright-core');
 const expectedVersion = '1.63.0-alpha-2026-08-31';
 const patches = [
   [
+    'try {\n          await tab2.waitForCompletion(async () => {\n            context.__fn__ = import_vm.default.runInContext',
+    'try {\n          await require("../../../src/awaited-mail-read.cjs").waitForMailRead(tab2, params2, async () => {\n            context.__fn__ = import_vm.default.runInContext',
+  ],
+  [
     'this._handler.onExtensionDisconnect(reason);',
     'this._sparkclawDownloads.close();\n          this._handler.onExtensionDisconnect(reason);',
   ],

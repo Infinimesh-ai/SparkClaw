@@ -34,6 +34,38 @@ func (s *PostgresStore) GetEmailMailbox(ctx context.Context, ownerID, id string)
 	return pair.Value, pair.Found, err
 }
 
+func (s *PostgresStore) BeginEmailSync(ctx context.Context, c EmailSyncBeginCommand) (EmailSyncCheckpoint, error) {
+	if c.CommandKey == "" {
+		return EmailSyncCheckpoint{}, errEmailCommandInvalid(ctx, OperationBeginEmailSync)
+	}
+	return emailPostgresRun(s, ctx, OperationBeginEmailSync, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (EmailSyncCheckpoint, error) { return emailBeginSync(e, c) })
+}
+
+func (s *PostgresStore) CommitEmailSync(ctx context.Context, c EmailSyncCommitCommand) (EmailSyncCommitResult, error) {
+	if c.CommandKey == "" {
+		return EmailSyncCommitResult{}, errEmailCommandInvalid(ctx, OperationCommitEmailSync)
+	}
+	return emailPostgresRun(s, ctx, OperationCommitEmailSync, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (EmailSyncCommitResult, error) { return emailCommitSync(e, c) })
+}
+
+func (s *PostgresStore) ReportEmailSourceFailure(ctx context.Context, c EmailSourceFailureCommand) (app.EmailMail, error) {
+	if c.CommandKey == "" {
+		return app.EmailMail{}, errEmailCommandInvalid(ctx, OperationReportEmailSourceFailure)
+	}
+	return emailPostgresRun(s, ctx, OperationReportEmailSourceFailure, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailMail, error) { return emailReportSourceFailure(e, c) })
+}
+
+func (s *PostgresStore) ListEmailSyncWarnings(ctx context.Context, q EmailQuery) (EmailSyncWarningPage, error) {
+	return emailPostgresRun(s, ctx, OperationListEmailSyncWarnings, q.OwnerID, "", nil, false, func(e *emailEngine) (EmailSyncWarningPage, error) { return emailSyncWarnings(e, q) })
+}
+
+func (s *PostgresStore) AcknowledgeEmailSyncWarning(ctx context.Context, c EmailSyncWarningAck) (app.EmailSyncWarning, error) {
+	if c.CommandKey == "" {
+		return app.EmailSyncWarning{}, errEmailCommandInvalid(ctx, OperationAcknowledgeEmailSyncWarning)
+	}
+	return emailPostgresRun(s, ctx, OperationAcknowledgeEmailSyncWarning, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailSyncWarning, error) { return emailAcknowledgeSyncWarning(e, c) })
+}
+
 func (s *PostgresStore) AdmitEmailDiscovery(ctx context.Context, c EmailDiscoveryCommand) (EmailDiscoveryAdmission, error) {
 	if c.CommandKey == "" {
 		return *new(EmailDiscoveryAdmission), errEmailCommandInvalid(ctx, OperationAdmitEmailDiscovery)

@@ -14,6 +14,7 @@ import {
 } from "./cli-runtime.mjs";
 import { ControllerError } from "./errors.mjs";
 import { ProviderScriptRegistry, providerFailureEnvelope } from "./provider-scripts.mjs";
+import {MailReadPool} from './mail-read-pool.mjs';
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_CLI_ENTRY = path.join(
@@ -78,6 +79,9 @@ export class PlaywrightCLIClientFactory {
     this.spawn = options.spawn ?? spawn;
     this.extraEnv = options.extraEnv ?? {};
     this.diagnostic = options.diagnostic ?? (() => {});
+    this.timingDiagnostic = options.timingDiagnostic ?? (() => {});
+    this.captureTimingDiagnostic = options.captureTimingDiagnostic;
+    this.batchReadCommands = options.batchReadCommands !== false;
     this.runtimeRoot = options.runtimeRoot ?? path.join(
       os.tmpdir(),
       "sparkclaw-browser-controller",
@@ -85,6 +89,7 @@ export class PlaywrightCLIClientFactory {
     );
     this.emailWorkspaceRoot = options.emailWorkspaceRoot ?? "";
     this.registry = options.registry ?? new ProviderScriptRegistry();
+    this.mailReads = new MailReadPool({idleMS:options.mailReadIdleMS,dispose:lease=>this.#disposeMailRead(lease),diagnostic:this.diagnostic});
     if (
       this.executablePath && !path.isAbsolute(this.executablePath) ||
       this.userDataDir && !path.isAbsolute(this.userDataDir)
@@ -105,7 +110,14 @@ export class PlaywrightCLIClientFactory {
     await this.registry.prepare();
   }
 
-  async runScript({ token, sessionID, provider, operation, scriptID, revision, input, signal }) {
+  async runScript({ token, sessionID, provider, operation, scriptID, revision, input, signal, credentialGeneration }) {
+    const started = performance.now();
+    const timings = {};
+    const measure = async (name, action) => {
+      const start = performance.now();
+      try { return await action(); }
+      finally { timings[name] = Math.max(0, performance.now() - start); }
+    };
     let phase = "registry";
     let state;
     let client;
@@ -114,67 +126,127 @@ export class PlaywrightCLIClientFactory {
     let failure;
     let cleanupFailure;
     let cleanupPhase;
+    let poolKey;
+    let poolReserved = false;
+    let retained = false;
+    let lease;
     try {
       registration = this.registry.resolve({ provider, operation, scriptID, revision });
       registration.validate(input);
       phase = "runtime";
-      state = await createInvocationState(this.runtimeRoot, sessionID, input, operation);
-      client = new PlaywrightCLITask({
-        entryPoint: this.entryPoint,
-        browserChannel: this.browserChannel,
-        connectTimeoutMS: this.connectTimeoutMS,
-        actionTimeoutMS: this.actionTimeoutMS,
-        navigationTimeoutMS: this.navigationTimeoutMS,
-        spawn: this.spawn,
-        extraEnv: this.extraEnv,
-        registration,
-        state,
-        token,
-        signal,
-        executablePath: this.executablePath,
-        userDataDir: this.userDataDir,
-        emailWorkspaceRoot: this.emailWorkspaceRoot,
-      });
-      phase = "attach";
-      await client.attach();
-      phase = "create_task_page";
-      await client.createTaskPage();
-      phase = "navigate";
-      await client.navigate(registration.loginURL);
-      if (["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(operation)) {
-        phase = "prepare_background_page";
-        await client.prepareBackgroundPage();
+      poolKey = this.mailReads.identity({provider,operation,input,credentialGeneration,token,registration});
+      if (poolKey) {
+        lease = await this.mailReads.take(provider,poolKey);
+        poolReserved = true;
+        if (lease) {
+          ({state,client} = lease);
+          client.renewReadInvocation(registration,signal);
+          phase = 'resume_mail_round';
+          try {await measure(phase,()=>client.prepareMailRound(input.discovery.account_address,true));}
+          catch (error) {
+            // No provider query has run yet. Only a broken task/connection may
+            // be rebuilt once; an account/login failure is never papered over.
+            if (!(error instanceof ControllerError) || !['browser_page_stale','browser_extension_unavailable'].includes(error.code)) throw error;
+            await this.#disposeMailRead(lease);
+            state = client = lease = undefined;
+          }
+        }
+      }
+      if (!client) {
+        state = await createInvocationState(this.runtimeRoot, sessionID, input, operation);
+        client = new PlaywrightCLITask({
+          entryPoint: this.entryPoint,
+          browserChannel: this.browserChannel,
+          connectTimeoutMS: this.connectTimeoutMS,
+          actionTimeoutMS: this.actionTimeoutMS,
+          navigationTimeoutMS: this.navigationTimeoutMS,
+          spawn: this.spawn,
+          extraEnv: this.extraEnv,
+          registration,
+          state,
+          token,
+          signal,
+          executablePath: this.executablePath,
+          userDataDir: this.userDataDir,
+          emailWorkspaceRoot: this.emailWorkspaceRoot,
+          captureTimingDiagnostic: this.captureTimingDiagnostic,
+          batchReadCommands: this.batchReadCommands,
+        });
+        phase = "attach";
+        await measure("attach", () => client.attach());
+        phase = "create_task_page";
+        await measure("create_task_page", () => client.createTaskPage());
+        phase = "navigate";
+        await measure("navigate", () => client.navigate(registration.loginURL));
+        if (["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(operation)) {
+          phase = "prepare_background_page";
+          await measure("prepare_background_page", () => client.prepareBackgroundPage());
+        }
+        if(poolKey) {
+          phase = 'prepare_mail_round';
+          await measure(phase,()=>client.prepareMailRound(input.discovery.account_address));
+        }
+        lease = {state,client,createdAt:Date.now()};
       }
       phase = "provider_handler";
-      result = await registration.handler(input, createProviderRuntime(client, registration));
+      result = await measure("provider_handler", () => registration.handler(input, createProviderRuntime(client, registration)));
     } catch (error) {
       failure = error;
     } finally {
+      if(poolReserved && client && !failure && !signal?.aborted &&
+          ['collected','empty'].includes(result?.status) && !result?.failures?.length) {
+        try {
+          await measure('park_mail_round',()=>client.parkMailRound(input.discovery.account_address));
+          if(!signal?.aborted) retained = this.mailReads.keep(provider,lease);
+        } catch(error) {cleanupFailure=error;cleanupPhase='park_mail_round';}
+      }
+      if(poolReserved && !retained) {
+        if(state) {
+          lease??={state,client,createdAt:Date.now()};
+          try {
+            await measure('dispose_mail_round',()=>this.#disposeMailRead(lease));
+            this.mailReads.discard(provider);
+          } catch(error) {
+            cleanupFailure??=error;cleanupPhase??='dispose_mail_round';
+            this.mailReads.fenceFailedCleanup(provider,lease);
+          }
+        } else this.mailReads.discard(provider);
+      }
       try {
-        await client?.closeTaskPage();
+        if (client && !poolReserved) await measure("close_task_page", () => client.closeTaskPage());
       } catch (error) {
         cleanupFailure = error;
         cleanupPhase = "close_task_page";
       }
       try {
-        await client?.stop();
+        if (client && !poolReserved) await measure("stop_cli", () => client.stop());
       } catch (error) {
         cleanupFailure ??= error;
         cleanupPhase ??= "stop_cli";
       }
       try {
-        await state?.reapDaemon();
+        if (state && !poolReserved) await measure("reap_daemon", () => state.reapDaemon());
       } catch (error) {
         cleanupFailure ??= error;
         cleanupPhase ??= "reap_daemon";
       }
       try {
-        await state?.remove();
+        if (state && !poolReserved) await measure("remove_runtime", () => state.remove());
       } catch (error) {
         cleanupFailure ??= error;
         cleanupPhase ??= "remove_runtime";
       } finally {
         clearMessageInput(input);
+        // Independent opt-in telemetry: no IDs, URLs, input, output, or errors.
+        // Omitted stages were never entered; failed entered stages retain time.
+        try {
+          const record = {
+            provider: ["gmail", "qq_mail", "outlook"].includes(provider) ? provider : "unknown",
+            operation: ["probe", "send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(operation) ? operation : "unknown",
+            milliseconds: {...timings, total: Math.max(0, performance.now() - started)},
+          };
+          Promise.resolve(this.timingDiagnostic(record)).catch(() => {});
+        } catch { /* Timing callbacks must not affect execution or cleanup. */ }
       }
     }
 
@@ -245,6 +317,32 @@ export class PlaywrightCLIClientFactory {
       sourceChecksum: registration.sourceChecksum,
     };
   }
+
+  async #disposeMailRead(lease) {
+    const {client,state}=lease;
+    const cleanup=lease.cleanup??={};
+    if(cleanup.removed)return;
+    let failure;
+    const step=async(name,action)=>{
+      if(cleanup[name])return;
+      try{await action();cleanup[name]=true;}catch(error){failure??=error;}
+    };
+    if(!cleanup.reaped){
+      await step('pageClosed',()=>client?.closeTaskPage());
+      await step('cliStopped',()=>client?.stop());
+      await step('reaped',()=>state.reapDaemon());
+    }
+    if(cleanup.reaped){
+      // Reaping is the owned-process terminal fence. Preserve its metadata
+      // when it fails, and never relaunch CLI cleanup in a removed directory.
+      if(client){client.token='';client.signal=undefined;}
+      await step('removed',()=>state.remove());
+    }
+    if(failure)throw failure;
+  }
+
+  async drainIdleMailReads() {await this.mailReads.drain();}
+  async close() {await this.mailReads.close();}
 
   async openProviderLogin(provider) {
     const registration = Object.hasOwn(AI_PLATFORM_URLS, provider) ? {loginURL:AI_PLATFORM_URLS[provider]} : this.registry.provider(provider);

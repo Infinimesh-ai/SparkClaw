@@ -38,6 +38,8 @@ await appendLog({
   extension_token_present: Boolean(process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN),
   executable_path: process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH ?? "",
   user_data_dir: process.env.PLAYWRIGHT_MCP_USER_DATA_DIR ?? "",
+  settle_ms: process.env.PLAYWRIGHT_MCP_TIMEOUT_SETTLE,
+  awaited_mail_read: process.env.SPARKCLAW_AWAITED_MAIL_READ,
   secret_names: Object.keys(secrets).sort(),
   inherited_forbidden_env_present: Boolean(
     process.env.PLAYWRIGHT_MCP_HEADLESS || process.env.PLAYWRIGHT_CLI_SESSION,
@@ -171,8 +173,21 @@ switch (command) {
       clicked = true;
     };
     const page = {
+      addInitScript: async () => {},
       url: () => currentTab().url,
-      evaluate: async (callback, argument) => vm.runInNewContext(`(${callback.toString()})`, { URL, location: new URL(currentTab().url), window: {}, HTMLAnchorElement: class { click() {} } })(argument),
+      evaluate: async (callback, argument) => {
+        const window={__sparkclawMailDocument:state.mailDocumentNonce};
+        if(process.env.FAKE_CLI_MAIL_READER==='1') window.SparkClawMailReader={
+          provider:process.env.FAKE_CLI_MAIL_PROVIDER??'gmail',version:'0.2.0',resetRound:request=>{
+            if(state.mailAccountMismatch)throw Object.assign(new Error('account mismatch'),{code:'email_account_identity_mismatch'});
+            state.mailResets=(state.mailResets??0)+1;
+            return {provider:process.env.FAKE_CLI_MAIL_PROVIDER??'gmail',account_address:request.account_address.toLowerCase()};
+          },
+        };
+        const result=await vm.runInNewContext(`(${callback.toString()})`, { URL, setTimeout, location: new URL(currentTab().url), window, HTMLAnchorElement: class { click() {} } })(argument);
+        state.mailDocumentNonce=window.__sparkclawMailDocument;
+        return result;
+      },
       waitForTimeout: milliseconds => new Promise(resolve => setTimeout(resolve, Math.min(milliseconds, 1))),
       locator: selector => ({
         click: async () => click(selector),

@@ -32,12 +32,19 @@ func TestEmailLoginExpiryRetainsBoundaryBeforeRetriesExhaust(t *testing.T) {
 	}
 }
 
-func TestEmailDeploymentFallbackSharedByLaterMailbox(t *testing.T) {
+func TestEmailDeploymentBoundaryIgnoresOlderMailboxHistory(t *testing.T) {
 	repo := NewMemoryStore()
 	f := emailFixture(t, repo)
-	later, err := repo.BindEmailMailbox(t.Context(), EmailBindCommand{EmailCommand: f.command(), Provider: app.EmailProviderOutlook, Address: "other@example.test", Enabled: true, Boundary: time.Now().Add(time.Hour)})
+	// Upgraded installations can have mailbox rows without the newer owner-level
+	// deployment counter. The recorded deployment boundary, not that history,
+	// establishes the clean cutover.
+	repo.mu.Lock()
+	delete(repo.emailRecords, emailRecordKey(f.owner, "counter", "email_deployment_boundary"))
+	repo.mu.Unlock()
+	want := time.Now().Add(time.Hour)
+	later, err := repo.BindEmailMailbox(t.Context(), EmailBindCommand{EmailCommand: f.command(), Provider: app.EmailProviderOutlook, Address: "other@example.test", Enabled: true, Boundary: want})
 	f.must(err)
-	if !later.ActivatedAt.Equal(f.box.ActivatedAt) {
-		t.Fatalf("late mailbox reset deployment start: %v != %v", later.ActivatedAt, f.box.ActivatedAt)
+	if !later.ActivatedAt.Equal(postgresTime(want)) {
+		t.Fatalf("historical mailbox overrode deployment boundary: %v != %v", later.ActivatedAt, postgresTime(want))
 	}
 }

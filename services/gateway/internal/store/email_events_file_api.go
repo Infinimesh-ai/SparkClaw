@@ -16,6 +16,18 @@ func (s *FileStore) ActivateEmailEventPolicy(ctx context.Context, c EmailCommand
 	}
 	return emailFileRun(s, ctx, OperationActivateEmailEventPolicy, c.OwnerID, "", c, true, func(e *emailEngine) (EmailEventPolicy, error) { return emailActivateEvents(e, c) })
 }
+
+func (s *FileStore) ActivateEmailTimelinePolicy(ctx context.Context, c EmailCommand) (EmailTimelinePolicy, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationActivateEmailTimelinePolicy, fileAdmissionCapacity)
+	if err != nil {
+		return *new(EmailTimelinePolicy), err
+	}
+	defer release()
+	if c.CommandKey == "" {
+		return *new(EmailTimelinePolicy), errEmailCommandInvalid(ctx, OperationActivateEmailTimelinePolicy)
+	}
+	return emailFileRun(s, ctx, OperationActivateEmailTimelinePolicy, c.OwnerID, "", c, true, func(e *emailEngine) (EmailTimelinePolicy, error) { return emailActivateTimeline(e) })
+}
 func (s *FileStore) ChangeEmailAssignment(ctx context.Context, c EmailManualAssignment) (app.EmailMail, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationChangeEmailAssignment, fileAdmissionCapacity)
 	if err != nil {

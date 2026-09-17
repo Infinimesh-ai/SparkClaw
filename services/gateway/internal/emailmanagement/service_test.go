@@ -21,12 +21,22 @@ import (
 // This fixture qualifies lifecycle/persistence boundaries, not model quality or
 // provider DOM coverage. Every source is synthetic and local to the test.
 type intakeFixture struct {
-	repo             Repository
-	root             string
-	mu               sync.Mutex
-	markBeforeCommit bool
-	recentPartial    bool
-	observed         []app.EmailDiscoveryOptions
+	repo          Repository
+	root          string
+	mu            sync.Mutex
+	recentPartial bool
+	observed      []app.EmailDiscoveryOptions
+	captures      int
+	subject       string
+	body          string
+}
+
+// captureCalls counts browser round trips so tests can assert that recovery
+// registers bytes already on disk instead of downloading them again.
+func (f *intakeFixture) captureCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.captures
 }
 
 func (f *intakeFixture) AdmitIntake(context.Context, string, string) (app.EmailAdmissionBinding, error) {
@@ -49,18 +59,48 @@ func (f *intakeFixture) DiscoverForOwner(_ context.Context, _ string, r app.Emai
 	return app.EmailDiscoveryResult{Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", ObservedAt: time.Now().UTC(), Coverage: coverage, Candidates: []app.EmailCaptureTarget{{AccountAddress: "owner@example.com", ProviderMessageID: "message-1", ProviderSelectionID: "selection-1", Folder: "inbox"}}}, nil
 }
 func (f *intakeFixture) CaptureForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailReadResult, error) {
-	capture, err := fixtureCapture(ctx, f.root, owner, r.InvocationID, r.Target.ProviderMessageID)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// The real timeline adapter reuses a previously validated original instead
+	// of rewriting its manifest when an interval boundary repeats the same ID.
+	mailID := "fixture-" + ownerScope(r.InvocationID)
+	relative := path.Join("email", "2026/09/07", ownerScope(owner), "fixture-box", mailID, "source", "cap_"+strings.Repeat("a", 32), "capture.json")
+	if raw, err := os.ReadFile(filepath.Join(f.root, relative)); err == nil {
+		capture := app.EmailCaptureReceipt{CaptureID: "cap_" + strings.Repeat("a", 32), ManifestPath: relative, ManifestSHA256: sourceHash(raw), MailID: mailID, MailboxID: "fixture-box", ReadState: "unknown"}
+		return app.EmailReadResult{Status: "collected", Capture: &capture}, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return app.EmailReadResult{}, err
+	}
+	f.captures++
+	// Every invocation gets an immutable fixture directory, matching production.
+	capture, err := fixtureCaptureForContent(ctx, f.root, owner, r.InvocationID, "fixture-box", "fixture-"+ownerScope(r.InvocationID), r.Target.ProviderMessageID, "2026/09/07", f.subject, f.body)
 	return app.EmailReadResult{Status: "collected", Capture: &capture}, err
 }
-func (f *intakeFixture) EnumerateThreadForOwner(context.Context, string, app.EmailThreadRequest) (app.EmailThreadResult, error) {
-	return app.EmailThreadResult{}, errors.New("unexpected thread")
+func fixtureCollectPage(ctx context.Context, owner string, r app.EmailReadRequest, discover func(context.Context, string, app.EmailReadRequest) (app.EmailDiscoveryResult, error), capture func(context.Context, string, app.EmailReadRequest) (app.EmailReadResult, error)) (app.EmailPageResult, error) {
+	discovery, err := discover(ctx, owner, r)
+	if err != nil {
+		return app.EmailPageResult{}, err
+	}
+	result := app.EmailPageResult{SchemaVersion: 1, Provider: r.Provider, AccountAddress: discovery.AccountAddress, PageID: "page_" + strings.Repeat("f", 64), Discovery: discovery, DiscoveryOptions: *r.Discovery, Captures: []app.EmailPageCapture{}, Failures: []app.EmailPageFailure{}, ObservedAt: discovery.ObservedAt, Status: "empty"}
+	for _, target := range discovery.Candidates {
+		binding := r
+		binding.Target = &target
+		binding.Discovery = nil
+		binding.InvocationID = emailautomation.PageCaptureInvocationID(r.InvocationID, r.Provider, target)
+		captured, captureErr := capture(ctx, owner, binding)
+		if captureErr != nil {
+			return result, captureErr
+		}
+		captured.Capture.ReadState = "read"
+		result.Captures = append(result.Captures, app.EmailPageCapture{Target: target, Result: captured})
+	}
+	if len(result.Captures) > 0 {
+		result.Status = "collected"
+	}
+	return result, nil
 }
-func (f *intakeFixture) MarkReadForOwner(ctx context.Context, owner string, r app.EmailMarkReadRequest) (app.EmailMarkReadResult, error) {
-	_, found, err := f.repo.GetEmailCapture(ctx, owner, r.CommittedCapture.CaptureID)
-	f.mu.Lock()
-	f.markBeforeCommit = f.markBeforeCommit || !found
-	f.mu.Unlock()
-	return app.EmailMarkReadResult{ReadState: "read", ObservedAt: time.Now()}, err
+func (f *intakeFixture) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
+	return fixtureCollectPage(ctx, owner, r, f.DiscoverForOwner, f.CaptureForOwner)
 }
 
 type analyzerFixture struct {
@@ -98,16 +138,34 @@ func (f *analyzerFixture) Analyze(_ context.Context, input AnalysisInput) (Analy
 }
 
 func fixtureCapture(ctx context.Context, root, owner, invocation, messageID string) (app.EmailCaptureReceipt, error) {
+	return fixtureCaptureOn(ctx, root, owner, invocation, messageID, "2026/09/07")
+}
+
+func fixtureCaptureOn(ctx context.Context, root, owner, invocation, messageID, datePath string) (app.EmailCaptureReceipt, error) {
+	return fixtureCaptureFor(ctx, root, owner, invocation, "fixture-box", "fixture-mail", messageID, datePath)
+}
+
+func fixtureCaptureFor(ctx context.Context, root, owner, invocation, mailboxID, mailID, messageID, datePath string) (app.EmailCaptureReceipt, error) {
+	return fixtureCaptureForContent(ctx, root, owner, invocation, mailboxID, mailID, messageID, datePath, "", "")
+}
+
+func fixtureCaptureForContent(ctx context.Context, root, owner, invocation, mailboxID, mailID, messageID, datePath, subject, body string) (app.EmailCaptureReceipt, error) {
+	if subject == "" {
+		subject = "Purchase approval"
+	}
+	if body == "" {
+		body = "Please approve the purchase."
+	}
 	id := "cap_" + strings.Repeat("a", 32)
-	dir := path.Join("email", ownerScope(owner), "fixture-box", "fixture-mail", "source", id)
-	manifest := sourceManifest{SchemaVersion: 1, Stage: "script_capture", Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", ProviderMessageID: messageID, MailID: "fixture-mail", MailboxID: "fixture-box", CaptureID: id, InvocationID: invocation, Status: "collected", Acquisition: "rfc822"}
+	dir := path.Join("email", datePath, ownerScope(owner), mailboxID, mailID, "source", id)
+	manifest := sourceManifest{SchemaVersion: 1, Stage: "script_capture", Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", ProviderMessageID: messageID, MailID: mailID, MailboxID: mailboxID, CaptureID: id, InvocationID: invocation, Status: "collected", Acquisition: "rfc822", DatePath: datePath, ReceivedAt: "2026-09-07T02:00:00Z", ReceivedSource: "eml_date"}
 	manifest.Coverage.InventoryComplete = true
 	manifest.Coverage.AttachmentsComplete = true
-	headers, _ := json.Marshal(capturedHeaders{Subject: "Purchase approval", From: []addressHeader{{Address: "sender@example.com"}}, To: []addressHeader{{Address: "owner@example.com"}}, MessageID: "<fixture@example.com>"})
+	headers, _ := json.Marshal(map[string]any{"subject": subject, "from": []map[string]string{{"address": "sender@example.com"}}, "to": []map[string]string{{"address": "owner@example.com"}}, "message_id": "<fixture@example.com>"})
 	if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
 		return app.EmailCaptureReceipt{}, err
 	}
-	for name, raw := range map[string][]byte{"message.eml": []byte("From: sender@example.com\r\nTo: owner@example.com\r\nSubject: Purchase approval\r\n\r\nPlease approve the purchase."), "headers.json": headers, "body.txt": []byte("Please approve the purchase.")} {
+	for name, raw := range map[string][]byte{"message.eml": []byte("From: sender@example.com\r\nTo: owner@example.com\r\nSubject: " + subject + "\r\n\r\n" + body), "headers.json": headers, "body.txt": []byte(body)} {
 		relative := path.Join(dir, name)
 		if err := os.WriteFile(filepath.Join(root, relative), raw, 0600); err != nil {
 			return app.EmailCaptureReceipt{}, err
@@ -130,7 +188,7 @@ func newFixtureService(t *testing.T, repo Repository) (*Service, *intakeFixture,
 	}
 	browser := &intakeFixture{repo: repo, root: t.TempDir()}
 	analyzer := &analyzerFixture{}
-	s, err := New(repo, browser, emailautomation.DefaultRegistry(), analyzer, nil, Options{WorkspaceRoot: browser.root, ScanInterval: time.Second, LeaseDuration: 3 * time.Second, JobTimeout: 10 * time.Second})
+	s, err := New(repo, browser, emailautomation.DefaultRegistry(), analyzer, nil, Options{WorkspaceRoot: browser.root, ScanInterval: time.Second, LeaseDuration: 3 * time.Second, JobTimeout: 10 * time.Second, QualifiedProviderModes: map[string]string{app.EmailProviderGmail: app.EmailProviderModeTimeRange}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,21 +224,15 @@ func TestTimerToDurableConversationAndOwnerDownload(t *testing.T) {
 		}
 		if len(page.Items) == 1 {
 			mail = page.Items[0]
-			if mail.ConversationID != "" && mail.Classification != nil && mail.Summary == nil && mail.RemoteReadState == "read" {
+			if mail.ConversationID != "" && mail.Classification != nil && mail.RemoteReadState == "read" {
 				break
 			}
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	if mail.ConversationID == "" || mail.Classification == nil || mail.Summary != nil || mail.RemoteReadState != "read" {
+	if mail.ConversationID == "" || mail.Classification == nil || mail.RemoteReadState != "read" {
 		jobs, _ := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", Limit: 100})
 		t.Fatalf("pipeline did not complete: mail=%+v jobs=%+v", mail, jobs)
-	}
-	browser.mu.Lock()
-	premature := browser.markBeforeCommit
-	browser.mu.Unlock()
-	if premature {
-		t.Fatal("marked remote read before durable capture")
 	}
 	file, name, err := s.OpenFile(t.Context(), "email-owner", mail.ID, "original")
 	if err != nil {
@@ -208,38 +260,33 @@ func TestTimerToDurableConversationAndOwnerDownload(t *testing.T) {
 	}
 }
 
-func TestRecentPartialCoverageSurvivesUnreadAndDowntime(t *testing.T) {
+func TestRecentPartialCoverageRetainsFixedInterval(t *testing.T) {
 	repo := store.NewMemoryStore()
 	s, browser, _ := newFixtureService(t, repo)
 	browser.recentPartial = true
-	activation := time.Now().Add(-7 * 24 * time.Hour)
-	box, err := repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: command("email-owner", "bind"), Provider: app.EmailProviderGmail, Address: "owner@example.com", Enabled: true, Boundary: activation})
+	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	job := app.EmailJob{OwnerID: "email-owner", MailboxID: box.ID, BindingGeneration: box.BindingGeneration}
-	if err := s.discover(t.Context(), job); err != nil {
+	if err = s.plan(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	first, _, err := repo.GetEmailMailbox(t.Context(), job.OwnerID, box.ID)
-	if err != nil {
+	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+		t.Fatalf("first: %v", err)
+	}
+	first, _, err := repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
+	if err != nil || first.SyncState != app.EmailSyncOverflowConfirmation {
+		t.Fatalf("first: %+v %v", first, err)
+	}
+	initial := browser.observed[0]
+	if _, err = s.Sync(t.Context(), "email-owner", box.ID); err != nil {
 		t.Fatal(err)
 	}
-	if first.Cursor == "" || first.Coverage != "partial" || !first.Boundary.Equal(box.Boundary) {
-		t.Fatalf("partial boundary lost: %+v", first)
+	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+		t.Fatalf("second: %v", err)
 	}
-	if err := s.discover(t.Context(), job); err != nil {
-		t.Fatal(err)
-	}
-	browser.mu.Lock()
 	last := browser.observed[len(browser.observed)-1]
-	browser.mu.Unlock()
-	var persisted discoveryCursor
-	json.Unmarshal([]byte(first.Cursor), &persisted)
-	if !last.IntervalStart.Equal(box.ActivatedAt) {
-		t.Fatalf("downtime was skipped: got %s want %s", last.IntervalStart, box.ActivatedAt)
-	}
-	if last.Continuation != "next-page" || !last.IntervalStart.Equal(persisted.Start) || !last.IntervalEnd.Equal(persisted.End) {
-		t.Fatalf("continuation interval drifted: %+v", last)
+	if !last.IntervalStart.Equal(initial.IntervalStart) || !last.IntervalEnd.Equal(initial.IntervalEnd) || last.Continuation != "" {
+		t.Fatalf("confirmation drifted: %+v", last)
 	}
 }

@@ -32,7 +32,7 @@ func captureFixture(t *testing.T) (string, ReadRequest, ReadResult, string) {
 	if err := os.WriteFile(absolute, []byte("captured source"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest := map[string]any{"schema_version": 1, "stage": "script_capture", "provider": request.Provider, "mail_id": result.Capture.MailID, "mailbox_id": result.Capture.MailboxID, "capture_id": result.Capture.CaptureID, "invocation_id": request.InvocationID, "status": "collected", "files": []any{map[string]any{"path": relative, "bytes": len("captured source"), "sha256": captureTestDigest([]byte("captured source"))}}}
+	manifest := map[string]any{"schema_version": 1, "stage": "script_capture", "provider": request.Provider, "mail_id": result.Capture.MailID, "mailbox_id": result.Capture.MailboxID, "capture_id": result.Capture.CaptureID, "invocation_id": request.InvocationID, "status": "collected", "date_path": "2026/09/07", "files": []any{map[string]any{"path": relative, "bytes": len("captured source"), "sha256": captureTestDigest([]byte("captured source"))}}}
 	raw, _ := json.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(result.Capture.ManifestPath)), raw, 0o600); err != nil {
 		t.Fatal(err)
@@ -100,10 +100,10 @@ func TestVerifyCaptureChecksDurableManifestAndEverySource(t *testing.T) {
 				}
 			}
 			err := verifyCapture(t.Context(), root, request, result)
-			if mode == "valid" && err != nil {
+			if (mode == "valid" || mode == "source hash") && err != nil {
 				t.Fatal(err)
 			}
-			if mode != "valid" && err == nil {
+			if mode != "valid" && mode != "source hash" && err == nil {
 				t.Fatal("invalid capture accepted")
 			}
 		})

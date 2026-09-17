@@ -141,14 +141,14 @@ func TestSourceStagesAndOneHundredRefreshesConverge(t *testing.T) {
 	s, _, _ := newFixtureService(t, repo)
 	model := &stagedSourceAnalyzer{}
 	s.analyzer = model
-	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
+	_, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.discover(t.Context(), app.EmailJob{OwnerID: "email-owner", MailboxID: box.ID, BindingGeneration: box.BindingGeneration}); err != nil {
+	if err = seedFixtureCollection(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
-	kinds := []string{app.EmailJobCapture, app.EmailJobParse, app.EmailJobClassification, app.EmailJobAssignment}
+	kinds := []string{app.EmailJobDiscover, app.EmailJobParse, app.EmailJobClassification, app.EmailJobAssignment}
 	for range 20 {
 		if err = s.plan(t.Context()); err != nil {
 			t.Fatal(err)

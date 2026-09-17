@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import {managedSendDOM} from './managed-send-dom.mjs';
 import {openSendJournal} from './send-journal.mjs';
-import {collectUnread,providerDOM,READ_PROVIDERS} from '../read.mjs';
+import {collectUnread} from '../read.mjs';
+import {providerAccountDOM,READ_PROVIDERS} from './provider-account.mjs';
 
 export const managedSendError=code=>Object.assign(new Error(code),{code});
 const fail=managedSendError;
@@ -24,7 +25,7 @@ export function validateManagedSend(input,provider){
 }
 
 async function sendAccountHash(tab,provider){
- const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const deadline=Date.now()+5000;do{observed=(${providerDOM.toString()})(${JSON.stringify(provider)},"account",{});if(observed?.account_address)break;await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);if(!observed?.account_address)return {url:location.href,account_hash:null};const a=observed.account_address,i=a.lastIndexOf('@'),value=a.slice(0,i)+'@'+a.slice(i+1).toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
+ const evidence=await tab.inspect(`async()=>{if(!${JSON.stringify(READ_PROVIDERS[provider].origins)}.includes(location.origin))return {error:'email_provider_origin_invalid'};let observed;const deadline=Date.now()+5000;do{observed=(${providerAccountDOM.toString()})(${JSON.stringify(provider)});if(observed?.account_address)break;await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);if(!observed?.account_address)return {url:location.href,account_hash:null};const a=observed.account_address,i=a.lastIndexOf('@'),value=a.slice(0,i)+'@'+a.slice(i+1).toLowerCase();return {url:location.href,account_hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),v=>v.toString(16).padStart(2,'0')).join('')};}`);
  if(evidence?.result?.url!==evidence?.origin||!READ_PROVIDERS[provider].origins.includes(new URL(evidence.origin).origin))throw fail('email_provider_origin_invalid');
  return evidence.result.account_hash;
 }

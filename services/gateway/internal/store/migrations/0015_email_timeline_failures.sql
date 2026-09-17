@@ -1,0 +1,4 @@
+-- Timeline-v2 failures are durable domain records, including terminal warnings.
+-- Keep previous migrations immutable for already deployed databases.
+ALTER TABLE email_management_records DROP CONSTRAINT email_management_records_kind_check;
+ALTER TABLE email_management_records ADD CONSTRAINT email_management_records_kind_check CHECK (kind IN ('mailbox','mail','capture','representation','context','conversation','decision','concern','concern_link','target','dependency','reference','refresh','job','thread','sync','sync_failure','view','command','counter','summary','sender_rule','presentation','draft','send_snapshot'));

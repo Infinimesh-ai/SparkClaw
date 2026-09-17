@@ -62,9 +62,14 @@ export async function connectBatchBridge() {
       url:()=>sourceURL,
       locator:selector=>({
         waitFor:options=>command(`await p.locator(${JSON.stringify(selector)}).waitFor(${JSON.stringify(options)});return true;`),
-        evaluate:fn=>command(`return await p.locator(${JSON.stringify(selector)}).evaluate(${fn.toString()});`),
+        evaluate:(fn,arg)=>command(`return await p.locator(${JSON.stringify(selector)}).evaluate(${fn.toString()},${JSON.stringify(arg)});`),
         getAttribute:name=>command(`return await p.locator(${JSON.stringify(selector)}).getAttribute(${JSON.stringify(name)});`),
         innerText:()=>command(`return await p.locator(${JSON.stringify(selector)}).innerText();`),
+        textContent:async()=>{
+          const value=await command(`return await p.locator(${JSON.stringify(selector)}).textContent();`);
+          if(typeof value!=='string')throw new Error('script_output_not_text');
+          return value;
+        },
         inputValue:async()=>{
           const value=await command(`return await p.locator(${JSON.stringify(selector)}).inputValue();`);
           if(typeof value!=='string')throw new Error('script_output_not_text');

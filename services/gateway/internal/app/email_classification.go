@@ -2,7 +2,12 @@ package app
 
 import "time"
 
-const EmailJobClassification = "classification"
+const (
+	EmailJobClassification                        = "classification"
+	EmailClassificationSourcePattern              = "pattern"
+	EmailClassificationReasonVerificationPattern  = "verification_pattern"
+	EmailClassificationVerificationPatternVersion = "email-verification-pattern-v1"
+)
 
 type EmailClassification struct {
 	ID            string `json:"id,omitempty"`

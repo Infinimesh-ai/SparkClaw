@@ -124,7 +124,7 @@ func TestRichThreadInputRetainsExplicitCoverageWithinBudget(t *testing.T) {
 }
 
 func TestSourceSummaryUsesSmallOutputWithoutClassificationFields(t *testing.T) {
-	input := AnalysisInput{PolicyVersion: sourceSummaryPromptVersion, Kind: app.EmailJobMessageSummary, OutputLanguage: "source", Evidence: []Evidence{{Ref: "original:body", Text: "The total is USD 240. Delivery is not yet agreed."}}, MissingContext: []string{}}
+	input := AnalysisInput{PolicyVersion: sourceSummaryPromptVersion, Kind: app.EmailJobMessageSummary, OutputLanguage: "en", Evidence: []Evidence{{Ref: "original:body", Text: "The total is USD 240. Delivery is not yet agreed."}}, MissingContext: []string{}}
 	client := &modelFixture{result: modelrouter.ChatResult{Model: "fixture", Content: `{"summary":"The total is USD 240; delivery is not yet agreed.","evidence_refs":["original:body"],"missing_context":[]}`}}
 	output, err := NewModelAnalyzer(client).Analyze(t.Context(), input)
 	if err != nil || output.Summary == "" || output.Action != "none" {

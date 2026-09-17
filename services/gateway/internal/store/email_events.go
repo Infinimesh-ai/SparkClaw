@@ -84,7 +84,7 @@ func emailMigrateEvents(e *emailEngine, limit int) (int, bool, error) {
 			if m.RepresentationID != "" {
 				if m.Classification == nil {
 					_, err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobClassification, TargetID: m.ID, Dependencies: []string{}})
-				} else if m.ConversationID == "" {
+				} else if !emailPatternVerification(m) && m.ConversationID == "" {
 					_, err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobAssignment, TargetID: m.ID, Dependencies: []string{}})
 				}
 			}

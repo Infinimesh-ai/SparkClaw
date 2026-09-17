@@ -35,6 +35,8 @@
 | [邮件管理整体与阶段设计](email-management-design.md) | 实施契约：跨收件邮箱事项、有界接收、固定归属、逐封查看与五阶段验收 |
 | [邮件管理实施](email-management-implementation.md) | Runtime／接口／界面改动、真实服务商覆盖、工程证据和未完成发布门槛 |
 | [邮件全链路优化](email-pipeline-optimization-design.md) | 待实施：QQ／Gmail／Outlook 网络获取、油猴受管导入、可靠增量同步、摘要与正文按需阅读 |
+| [邮件时间线增量同步](email-timeline-incremental-sync-design.md) | QQ／Gmail／Outlook 实机验收门禁、双水位、直接本地批次恢复日志、仅一次随轮补齐、有界溢出缺口、不进入调度的终态告警与立即刷新 |
+| [邮件跨轮读取复用](email-cross-round-reuse.md) | 有界自有页面／连接复用、逐轮身份检查、收件准入证明续期与冷／热性能证据 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |

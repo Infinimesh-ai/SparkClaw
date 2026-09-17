@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"os"
 	"time"
 )
 
@@ -38,7 +39,12 @@ func (s *Service) Message(ctx context.Context, owner, id string) (MessageView, e
 		if !ok {
 			return MessageView{}, ErrNotFound
 		}
-		return s.messageView(ctx, owner, m, version)
+		root, err := os.OpenRoot(s.opts.WorkspaceRoot)
+		if err != nil {
+			return MessageView{}, err
+		}
+		defer root.Close()
+		return s.messageView(ctx, owner, m, version, root)
 	})
 }
 func (s *Service) ChangeClassification(ctx context.Context, c store.EmailClassificationOverride) (MessageView, error) {
@@ -81,7 +87,8 @@ func (s *Service) Verification(ctx context.Context, owner, id string) (Verificat
 	if !ok || m.Verification == nil {
 		return VerificationView{}, ErrNotFound
 	}
-	view, err := s.messageView(ctx, owner, m, 0)
+	// Only the verification sub-view is used here, so the source probe is skipped.
+	view, err := s.messageView(ctx, owner, m, 0, nil)
 	if err != nil {
 		return VerificationView{}, err
 	}

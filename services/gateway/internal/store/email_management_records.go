@@ -39,6 +39,7 @@ type emailRowsQuery struct {
 	NotificationSubtype                         string
 	PendingOnly                                 bool
 	UnassignedOnly                              bool
+	UncapturedOnly                              bool
 	InteractionConversation                     bool
 	ExcludePageBatchSuperseded                  bool
 	MailMessageID                               string

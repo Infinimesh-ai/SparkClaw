@@ -22,7 +22,7 @@ func validReadOutput() string {
 	mail := "mail_" + strings.Repeat("c", 32)
 	capture := "cap_" + strings.Repeat("d", 32)
 	raw, _ := json.Marshal(map[string]any{"schema_version": 1, "status": "collected", "provider": "gmail", "capture": app.EmailCaptureReceipt{
-		ManifestPath: "email/" + strings.Repeat("a", 64) + "/" + mailbox + "/" + mail + "/source/" + capture + "/capture.json", ManifestSHA256: "sha256:" + strings.Repeat("e", 64), MailID: mail, MailboxID: mailbox, CaptureID: capture, AttachmentsCount: 1, ReadState: "read",
+		ManifestPath: "email/2026/09/07/" + strings.Repeat("a", 64) + "/" + mailbox + "/" + mail + "/source/" + capture + "/capture.json", ManifestSHA256: "sha256:" + strings.Repeat("e", 64), MailID: mail, MailboxID: mailbox, CaptureID: capture, AttachmentsCount: 1, ReadState: "read",
 	}})
 	return string(raw)
 }
@@ -35,8 +35,12 @@ func TestReadRunnerBindsCaptureScriptAndRejectsInvalidReceipts(t *testing.T) {
 		"empty":                `{"schema_version":1,"status":"empty","provider":"gmail","capture":null}`,
 		"missing":              `{"schema_version":1,"status":"empty","provider":"gmail"}`,
 		"null":                 `{"schema_version":1,"status":"collected","provider":"gmail","capture":null}`,
-		"cross owner":          strings.Replace(valid, "email/"+strings.Repeat("a", 64), "email/"+strings.Repeat("f", 64), 1),
+		"cross owner":          strings.Replace(valid, "/"+strings.Repeat("a", 64)+"/", "/"+strings.Repeat("f", 64)+"/", 1),
 		"traversal":            strings.Replace(valid, "email/", "../email/", 1),
+		"legacy flat layout":   strings.Replace(valid, "email/2026/09/07/", "email/", 1),
+		"impossible month":     strings.Replace(valid, "email/2026/09/07/", "email/2026/13/07/", 1),
+		"impossible day":       strings.Replace(valid, "email/2026/09/07/", "email/2026/09/32/", 1),
+		"extra path segment":   strings.Replace(valid, "email/2026/09/07/", "email/2026/09/07/x/", 1),
 		"wrong provider":       strings.Replace(valid, `"provider":"gmail"`, `"provider":"outlook"`, 1),
 		"wrong state":          strings.Replace(valid, `"read_state":"read"`, `"read_state":"sent"`, 1),
 		"missing count":        strings.Replace(valid, `"attachments_count":1,`, ``, 1),

@@ -78,7 +78,7 @@ func TestIntakeProbeCacheExpiresWithoutSlidingOnHits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	*now = now.Add(59 * time.Second)
+	*now = now.Add(intakeProbeTTL - time.Second)
 	second, err := controller.AdmitIntake(t.Context(), "owner", "gmail")
 	if err != nil || len(browser.requests) != 1 || !second.ValidatedAt.Equal(first.ValidatedAt) {
 		t.Fatalf("fresh proof was not reused: %v", err)
@@ -212,7 +212,7 @@ func TestIntakeProbeCacheAlsoFencesAccountValueAndFailedProbes(t *testing.T) {
 	if err != nil || binding.Account != repository.account || len(browser.requests) != 2 {
 		t.Fatalf("account change reused a proof even with the same version: %v", err)
 	}
-	*now = now.Add(time.Minute)
+	*now = now.Add(intakeProbeTTL)
 	browser.result = browsercontrol.ScriptExecutionResult{State: "failed", CredentialGeneration: 7, Result: json.RawMessage(`{"schema_version":1,"status":"error","provider":"gmail","code":"email_login_required"}`)}
 	if _, err := controller.AdmitIntake(t.Context(), "owner", "gmail"); err == nil {
 		t.Fatal("failed refresh fell back to expired proof")
@@ -233,9 +233,10 @@ func TestIntakeProbeCacheStillRequiresCurrentDiscoveryAccount(t *testing.T) {
 	if len(browser.requests) != 1 {
 		t.Fatal("fixture did not reuse its probe")
 	}
-	browser.result = browsercontrol.ScriptExecutionResult{State: "completed", CredentialGeneration: 7, Result: json.RawMessage(`{"schema_version":1,"provider":"gmail","status":"partial","account_address":"other@example.test","candidates":[],"coverage":{"scope":"inbox_unread","lane":"unread","scan_complete":false,"scanned_rows":0,"unsupported_rows":0,"limited":true,"reason":"loaded_rows_only"},"observed_at":"2026-09-08T08:00:00Z"}`)}
+	browser.result = browsercontrol.ScriptExecutionResult{State: "completed", CredentialGeneration: 7, Result: json.RawMessage(`{"schema_version":1,"provider":"gmail","status":"partial","account_address":"other@example.test","candidates":[],"coverage":{"scope":"inbound_received","lane":"recent_inbound","scan_complete":false,"scanned_rows":0,"unsupported_rows":0,"limited":true,"reason":"network_page_continues"},"observed_at":"2026-09-08T08:00:00Z"}`)}
 	request := validReadRequest()
-	request.Discovery = &app.EmailDiscoveryOptions{Lane: "unread", AccountAddress: "owner@example.test", Limit: 50}
+	start := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	request.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: "owner@example.test", IntervalStart: start, IntervalEnd: start.Add(time.Hour), Limit: 50}
 	if _, err := controller.DiscoverForOwner(t.Context(), "owner", request); ErrorCode(err) != app.ToolErrorEmailScriptInvalidOutput {
 		t.Fatalf("cached proof accepted a different browser account: %v", err)
 	}

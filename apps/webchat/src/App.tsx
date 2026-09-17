@@ -104,6 +104,11 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    let active = true;
+    void api.updateLanguage(language).then((profile) => {
+      if (active) setOwnerProfile(profile);
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [language]);
 
   const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";

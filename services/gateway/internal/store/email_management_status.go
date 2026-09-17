@@ -35,7 +35,7 @@ func emailOwnerStatus(e *emailEngine) (app.EmailOwnerStatus, error) {
 	return v, e.err
 }
 func emailUpdateStatus(e *emailEngine, r EmailRecord) {
-	if !containsEmail([]string{"mail", "mailbox", "job", "conversation", "concern", "view", "summary", "sender_rule", "presentation"}, r.Kind) {
+	if !containsEmail([]string{"mail", "mailbox", "sync_failure", "job", "conversation", "concern", "view", "summary", "sender_rule", "presentation"}, r.Kind) {
 		return
 	}
 	old, exists, err := e.db.get(r.Kind, r.ID)
@@ -85,6 +85,10 @@ func emailUpdateStatus(e *emailEngine, r EmailRecord) {
 			}
 		}
 		backlog := func(j app.EmailJob) int {
+			if j.Kind == app.EmailJobDiscover && j.PollInterval > 0 && j.State == app.EmailJobQueued && !j.RefreshPending && j.ErrorCode == "" {
+				// A future automatic heartbeat is idle, not mail waiting to sync.
+				return 0
+			}
 			if j.State == app.EmailJobPaused && (j.ErrorCode == emailPageBatchSuperseded || j.ErrorCode == emailEventSuspended) {
 				return 0
 			}

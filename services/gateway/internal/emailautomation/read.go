@@ -145,7 +145,10 @@ func decodeReadReceipt(raw []byte, provider Provider, request ReadRequest, gener
 		if !validManifestPath(*raw.ManifestPath) || !captureDigestPattern.MatchString(*raw.ManifestSHA256) || !mailIDPattern.MatchString(*raw.MailID) || !mailboxIDPattern.MatchString(*raw.MailboxID) || !captureIDPattern.MatchString(*raw.CaptureID) || *raw.AttachmentsCount < 0 || *raw.AttachmentsCount > 20 {
 			return invalid()
 		}
-		if *raw.ManifestPath != path.Join("email", request.OwnerScope, *raw.MailboxID, *raw.MailID, "source", *raw.CaptureID, "capture.json") {
+		// The date directory is derived from the captured bytes, so it is parsed
+		// out rather than reconstructed here; every other segment still has to
+		// equal a value this request already holds.
+		if _, ok := captureManifestDate(*raw.ManifestPath, request.OwnerScope, *raw.MailboxID, *raw.MailID, *raw.CaptureID); !ok {
 			return invalid()
 		}
 		if *raw.ReadState != "read" && *raw.ReadState != "unread" && *raw.ReadState != "unknown" {

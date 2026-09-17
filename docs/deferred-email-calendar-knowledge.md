@@ -14,9 +14,9 @@ a freshly validated configured QQ Mail, Outlook, or Gmail browser account. Its
 login, Browser Bridge provider-handler, approval, and unknown-outcome contracts are
 defined in [Browser email Workflow](browser-email-workflow-design.md).
 
-Revision 2 adds single unread-message source capture, including in-scope
-attachments, through fixed browser scripts. Fresh unread capture is not yet fully
-qualified; see the [source design](email-read-design.md) for current provider limitations. These
+Revision 2 adds network-only incremental email source capture, including in-scope
+attachments, through fixed browser scripts. Full live provider qualification is
+not yet complete; see the [source design](email-read-design.md) for current provider limitations. These
 capabilities do not reactivate the old personal-data connector. General mailbox
 search, replies, drafts, and outgoing attachments remain deferred, as do Calendar and
 built-in workspace knowledge/RAG.
@@ -57,7 +57,7 @@ authorization, mailbox identity, pagination, MIME, attachments, draft state,
 delivery semantics, provider error mapping, or reconciliation after an unknown
 send result. Approval around a mock append did not make it a real email system.
 
-The active browser email slice defines single unread-message source capture and one-recipient
+The active browser email slice defines network-only incremental source capture and one-recipient
 send contracts. It does not imply that search, replies, outgoing attachments, draft
 synchronization, or multi-account semantics have been designed.
 

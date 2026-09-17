@@ -83,7 +83,8 @@ func newGatewayServices(
 		emailRunner,
 	)
 	emailController.WithCaptureWorkspaceRoot(cfg.Workspaces.DefaultRoot)
-	emailManagement, err := emailmanagement.New(st, emailController, emailRegistry, emailmanagement.NewModelAnalyzer(models), tools, emailmanagement.Options{WorkspaceRoot: cfg.Workspaces.DefaultRoot})
+	warnDivergentEmailWorkspace(cfg.Workspaces.DefaultRoot)
+	emailManagement, err := emailmanagement.New(st, emailController, emailRegistry, emailmanagement.NewModelAnalyzer(models), tools, emailmanagement.Options{WorkspaceRoot: cfg.Workspaces.DefaultRoot, QualifiedProviderModes: qualifiedEmailTimelineModes()})
 	if err != nil {
 		return nil, fmt.Errorf("assemble email management: %w", err)
 	}

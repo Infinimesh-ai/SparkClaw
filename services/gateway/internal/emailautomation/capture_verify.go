@@ -9,12 +9,34 @@ import (
 	"io"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 )
 
 const maxCaptureManifestBytes = 1 << 20
 const maxCaptureFileBytes = 110 << 20
 const maxCaptureSourceBytes = 220 << 20
+
+var captureDatePathPattern = regexp.MustCompile(`^\d{4}/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])$`)
+
+// captureManifestDate decomposes the canonical ten-segment capture layout
+// email/<YYYY>/<MM>/<DD>/<owner-scope>/<mailbox>/<mail>/source/<capture>/capture.json
+// and returns the date directory it claims.
+func captureManifestDate(manifestPath, ownerScope, mailboxID, mailID, captureID string) (string, bool) {
+	if path.Clean(manifestPath) != manifestPath || path.IsAbs(manifestPath) || strings.ContainsAny(manifestPath, "\\\x00") {
+		return "", false
+	}
+	parts := strings.Split(manifestPath, "/")
+	if len(parts) != 10 || parts[0] != "email" || parts[4] != ownerScope || parts[5] != mailboxID ||
+		parts[6] != mailID || parts[7] != "source" || parts[8] != captureID || parts[9] != "capture.json" {
+		return "", false
+	}
+	datePath := strings.Join(parts[1:4], "/")
+	if !captureDatePathPattern.MatchString(datePath) {
+		return "", false
+	}
+	return datePath, true
+}
 
 func verifyCapture(ctx context.Context, workspaceRoot string, request ReadRequest, result ReadResult) error {
 	invalid := errors.New("invalid capture")
@@ -23,10 +45,15 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		!scopeDigestPattern.MatchString(request.OwnerScope) || !mailboxIDPattern.MatchString(ref.MailboxID) || !mailIDPattern.MatchString(ref.MailID) || !captureIDPattern.MatchString(ref.CaptureID) {
 		return invalid
 	}
-	expected := path.Join("email", request.OwnerScope, ref.MailboxID, ref.MailID, "source", ref.CaptureID, "capture.json")
-	if ref.ManifestPath != expected || !captureDigestPattern.MatchString(ref.ManifestSHA256) {
+	// The Gateway cannot predict the date directory, because it is derived from
+	// the message bytes the Controller just downloaded. Every other segment is
+	// still an exact equality against a value held here, so parsing the layout
+	// rather than reconstructing it leaves the tamper surface unchanged.
+	datePath, ok := captureManifestDate(ref.ManifestPath, request.OwnerScope, ref.MailboxID, ref.MailID, ref.CaptureID)
+	if !ok || !captureDigestPattern.MatchString(ref.ManifestSHA256) {
 		return invalid
 	}
+	expected := ref.ManifestPath
 	root, err := os.OpenRoot(workspaceRoot)
 	if err != nil {
 		return err
@@ -57,6 +84,7 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		MailboxID         string `json:"mailbox_id"`
 		CaptureID         string `json:"capture_id"`
 		InvocationID      string `json:"invocation_id"`
+		DatePath          string `json:"date_path"`
 		Status            string `json:"status"`
 		AccountAddress    string `json:"account_address"`
 		ProviderMessageID string `json:"provider_message_id"`
@@ -66,7 +94,7 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 			Bytes  int64  `json:"bytes"`
 		} `json:"files"`
 	}
-	if err := json.Unmarshal(raw, &manifest); err != nil || manifest.SchemaVersion != 1 || manifest.Stage != "script_capture" || manifest.Provider != request.Provider || manifest.MailID != ref.MailID || manifest.MailboxID != ref.MailboxID || manifest.CaptureID != ref.CaptureID || manifest.InvocationID != request.InvocationID || manifest.Status != result.Status || len(manifest.Files) == 0 || len(manifest.Files) > 32 {
+	if err := json.Unmarshal(raw, &manifest); err != nil || manifest.SchemaVersion != 1 || manifest.Stage != "script_capture" || manifest.Provider != request.Provider || manifest.MailID != ref.MailID || manifest.MailboxID != ref.MailboxID || manifest.CaptureID != ref.CaptureID || manifest.InvocationID != request.InvocationID || manifest.Status != result.Status || manifest.DatePath != datePath || len(manifest.Files) == 0 || len(manifest.Files) > 32 {
 		return invalid
 	}
 	prefix := path.Dir(expected) + "/"
@@ -84,14 +112,19 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		}
 		total += source.Bytes
 		seen[source.Path] = true
-		if err := verifyCaptureFile(root, source.Path, source.SHA256, source.Bytes); err != nil {
+		if err := verifyCaptureFileStat(root, source.Path, source.Bytes); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func verifyCaptureFile(root *os.Root, relative, expectedHash string, expectedSize int64) error {
+// Capture already computes the original digest while performing its one
+// bounded local read. The asynchronous MIME parser verifies that digest while
+// consuming the original exactly once; the Controller hot path therefore does
+// only a size/type availability check and never adds a standalone full-file
+// checksum pass.
+func verifyCaptureFileStat(root *os.Root, relative string, expectedSize int64) error {
 	file, err := root.Open(relative)
 	if err != nil {
 		return err
@@ -103,14 +136,6 @@ func verifyCaptureFile(root *os.Root, relative, expectedHash string, expectedSiz
 	}
 	if !stat.Mode().IsRegular() || stat.Size() != expectedSize {
 		return errors.New("invalid capture file")
-	}
-	hash := sha256.New()
-	written, err := io.Copy(hash, io.LimitReader(file, expectedSize+1))
-	if err != nil {
-		return err
-	}
-	if written != expectedSize || "sha256:"+hex.EncodeToString(hash.Sum(nil)) != expectedHash {
-		return errors.New("capture file checksum mismatch")
 	}
 	return nil
 }

@@ -44,7 +44,7 @@ func emailBackfillSourceSummaries(e *emailEngine, limit int) (int, bool, error) 
 		eligible := false
 		if p.Phase == "mail" {
 			m, _ := emailGet[app.EmailMail](e, "mail", row.ID)
-			eligible = m.RepresentationID != ""
+			eligible = m.RepresentationID != "" && m.Classification != nil && !emailPatternVerification(m)
 		} else {
 			c, _ := emailGet[app.EmailConversation](e, "conversation", row.ID)
 			eligible = c.MemberCount > 0

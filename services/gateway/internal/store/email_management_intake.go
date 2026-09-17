@@ -96,6 +96,7 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		}
 		old.Active = false
 		old.IntakeEnabled = false
+		old.RefreshPending = false
 		old.BindingGeneration++
 		old.Version = selection.Version + 1
 		old.UpdatedAt = e.now
@@ -112,12 +113,8 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		// One durable lower bound per owner also covers mailboxes enabled later.
 		baseline, established := emailGet[struct{ StartedAt time.Time }](e, "counter", "email_deployment_boundary")
 		if !established {
-			// Existing bindings are authoritative on upgraded installations.
-			for _, existing := range emailList[app.EmailMailbox](e, emailRowsQuery{Kind: "mailbox", Limit: 100}) {
-				if !existing.ActivatedAt.IsZero() && existing.ActivatedAt.Before(boundary) {
-					boundary = existing.ActivatedAt
-				}
-			}
+			// The deployment record is the test/data-admission boundary. Historical
+			// mailbox rows must never move it backwards during a clean cutover.
 			baseline.StartedAt = postgresTime(boundary)
 			emailPut(e, "counter", "email_deployment_boundary", "", "", "", "", "email_deployment_boundary", baseline)
 		}
@@ -125,6 +122,7 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		m = app.EmailMailbox{ID: id, OwnerID: e.owner, Provider: c.Provider, Address: c.Address, NormalizedAddress: address, Boundary: postgresTime(boundary), ActivatedAt: postgresTime(boundary)}
 	}
 	m.BindingGeneration++
+	m.RefreshPending = false
 	m.Version = selection.Version
 	m.Active = true
 	m.IntakeEnabled = c.Enabled
@@ -143,6 +141,7 @@ func emailPause(e *emailEngine, c EmailPauseCommand) (app.EmailMailbox, error) {
 	}
 	m.Active = false
 	m.IntakeEnabled = false
+	m.RefreshPending = false
 	m.BindingGeneration++
 	selection, _ := emailGet[emailBindingSelection](e, "counter", "binding:"+m.Provider)
 	if selection.MailboxID == m.ID {
@@ -164,7 +163,10 @@ func emailAdmit(e *emailEngine, c EmailDiscoveryCommand) (EmailDiscoveryAdmissio
 	if c.PageBatch && (c.Lease.JobID == "" || c.ThreadID != "") {
 		return out, errEmailInvalid
 	}
-	if c.AcknowledgedPageID != "" && (!c.PageBatch || len(c.Members) != 0 || !strings.HasPrefix(c.AcknowledgedPageID, "page_") || !emailHashValid(strings.TrimPrefix(c.AcknowledgedPageID, "page_")) || !slices.Contains([]string{"unread", "recent_observation", "recent_inbound"}, c.Trigger)) {
+	if c.ThreadID == "" && !slices.Contains([]string{"", "recent_observation", "recent_inbound"}, c.Trigger) {
+		return out, errEmailInvalid
+	}
+	if c.AcknowledgedPageID != "" && (!c.PageBatch || len(c.Members) != 0 || !strings.HasPrefix(c.AcknowledgedPageID, "page_") || !emailHashValid(strings.TrimPrefix(c.AcknowledgedPageID, "page_")) || !slices.Contains([]string{"recent_observation", "recent_inbound"}, c.Trigger)) {
 		return out, errEmailInvalid
 	}
 	if c.Lease.JobID != "" {
@@ -266,6 +268,10 @@ func emailAdmit(e *emailEngine, c EmailDiscoveryCommand) (EmailDiscoveryAdmissio
 				}
 			}
 		}
+		if v.ProviderNativeID != "" && m.ProviderNativeID == "" {
+			m.ProviderNativeID = v.ProviderNativeID
+			emailSaveMail(e, m)
+		}
 		out.Mails = append(out.Mails, m)
 		if v.ProviderThreadID != "" {
 			threadID := emailID(box.ID, v.ProviderThreadID)
@@ -364,6 +370,23 @@ func emailCapture(e *emailEngine, c EmailCaptureCommand) (app.EmailMail, error) 
 	if v.ID == "" || !emailSafePath(v.ManifestPath) || !emailHashValid(v.ManifestSHA256) || !emailSafePath(v.OriginalPath) || !emailHashValid(v.OriginalSHA256) || !slices.Contains([]string{app.EmailCaptureComplete, app.EmailCapturePartial, app.EmailCaptureFailed}, v.State) {
 		return m, errEmailInvalid
 	}
+	// Only the purge command may mark a version cleaned up; a capture receipt
+	// carrying these fields is forged or replayed from the wrong source.
+	if v.PurgedAt != nil || v.PurgeReason != "" {
+		return m, errEmailInvalid
+	}
+	if m.SyncState == app.EmailMailSyncSuppressed {
+		return m, errEmailConflict
+	}
+	if m.CaptureState == app.EmailCaptureSourceMissing {
+		prior, ok := emailGet[app.EmailCaptureVersion](e, "capture", m.CaptureID)
+		if !ok || prior.MailID != m.ID {
+			return m, errEmailCorrupt
+		}
+		if prior.PurgedAt != nil || m.SyncState == app.EmailMailSyncSuppressed || v.State != app.EmailCaptureComplete || !emailSameSourceHash(prior.OriginalSHA256, v.OriginalSHA256) {
+			return m, errEmailConflict
+		}
+	}
 	if c.PageBatch && m.CaptureState == app.EmailCaptureComplete {
 		// Repeated pages may confirm a previously uncertain remote read, but
 		// must not replace a durable source or invalidate local analysis.
@@ -378,15 +401,27 @@ func emailCapture(e *emailEngine, c EmailCaptureCommand) (app.EmailMail, error) 
 		if c.PageBatch && m.CaptureID == v.ID {
 			// A crash between a partial receipt and the page ack must replay
 			// safely too. A reused version ID with different content is invalid.
-			v.CreatedAt = prior.CreatedAt
+			// The purge marker is carried forward so replaying a receipt for an
+			// already-cleaned version is a no-op instead of resurrecting a
+			// pointer to bytes the user deleted.
+			v.CreatedAt, v.PurgedAt, v.PurgeReason = prior.CreatedAt, prior.PurgedAt, prior.PurgeReason
 			if string(emailJSON(v)) == string(emailJSON(prior)) {
+				if m.CaptureState == app.EmailCaptureSourceMissing {
+					m.CaptureState = v.State
+					emailSaveMail(e, m)
+					if m.RepresentationID == "" || m.ParseState == app.EmailParseFailed {
+						_, err = emailRequest(e, EmailJobRequest{Kind: app.EmailJobParse, TargetID: m.ID, Rearm: true})
+					}
+					return m, err
+				}
 				return m, e.err
 			}
 		}
 		return m, errEmailConflict
 	}
 	v.CreatedAt = e.now
-	emailPut(e, "capture", v.ID, m.ID, "", "", "", v.ID, v)
+	// Related indexes the day directory so date-scoped cleanup is a lookup.
+	emailPut(e, "capture", v.ID, m.ID, emailCaptureDatePath(v.ManifestPath), "", "", v.ID, v)
 	m.CaptureID = v.ID
 	m.CaptureState = v.State
 	m.InputVersion++
@@ -527,5 +562,5 @@ type emailBindingSelection struct {
 }
 
 func emailRecentTrigger(trigger string) bool {
-	return trigger == "" || trigger == "recent" || trigger == "recent_inbound"
+	return trigger == "" || trigger == "recent_inbound"
 }

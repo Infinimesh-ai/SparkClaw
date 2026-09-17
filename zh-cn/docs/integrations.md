@@ -20,7 +20,7 @@
 
 ## 浏览器邮箱
 
-浏览器邮箱提供 QQ 邮箱、Outlook 和 Gmail 的发送能力与来源采集实现。新的未读采集尚未
+浏览器邮箱提供 QQ 邮箱、Outlook 和 Gmail 的发送能力与来源采集实现。三家服务商的完整实时验收尚未
 完整通过验收，当前限制记录在[来源设计](email-read-design.md)中。它不是消息 Connector，也不
 使用提供方 Credential、OAuth Token、IMAP、SMTP、Gmail API 或 Microsoft Graph。认证
 状态只保留在宿主机所有的 SparkClaw 专用 Chromium Profile 中。
@@ -35,9 +35,9 @@ Generation、Handler Revision、校验时间和 Invocation ID。模型只提供�
 主题和纯文本正文。一次精确内容审批后才执行 Provider Handler；Handler 最多尝试一次
 “发送”。发送结果未知是终态，绝不自动重试。
 
-当前读取工作通过无发送权限的固定脚本，将一封未读邮件及范围内附件采集为工作区来源文件。
+当前读取工作通过无发送权限的固定网络 Reader，将上次完整获取之后的来信及范围内附件采集为工作区来源文件。
 有界回执返回采集状态、数量与清单相对引用，不等于 Gateway Store 提交或模型分析完成。
-仅在完整资料持久保存后显式标已读；打开即自动标已读以及效果不确定分别记录。
+仅在完整资料持久保存后独立执行网络 mark-read；打开即自动标已读以及效果不确定分别记录。
 限制与缺失资料须明确表达，见[来源设计](email-read-design.md)。
 
 回复、草稿、发送附件、多收件人/账户和通用浏览器回退均不可用。QQ 邮箱不再是通用

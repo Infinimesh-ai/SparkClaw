@@ -102,6 +102,9 @@ func emailPostgresQuery(owner string, q emailRowsQuery, ordered bool) (string, [
 	if q.CapturedOnly {
 		sql += ` AND (COALESCE(payload->>'capture_id','')<>'' OR COALESCE(payload->>'local_send_id','')<>'')`
 	}
+	if q.UncapturedOnly {
+		sql += ` AND COALESCE(payload->>'capture_id','')='' AND COALESCE(payload->>'local_send_id','')='' AND COALESCE(payload->>'sync_state','')<>'sync_suppressed'`
+	}
 	if q.MailMessageID != "" {
 		add(` AND payload->>'message_id'=$%d`, q.MailMessageID)
 	}

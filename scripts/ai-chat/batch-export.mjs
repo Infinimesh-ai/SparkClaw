@@ -5,9 +5,9 @@ import { SPARKCLAW_BATCH_PROVIDERS, discoverBatchHistory, runTimelineBatch } fro
 
 // SparkClaw can supply its authorized BrowserContext. Only this new page is
 // navigated/closed; no global download settings, browser restart or email state.
-export async function exportTimeline({ context, provider, workspaceRoot, accountScope, signal, timeoutMS = 1_800_000 }) {
+export async function exportTimeline({ context, provider, workspaceRoot, accountScope, signal, timeoutMS = 1_800_000, bridgeID = 'sparkclaw-ai-export-bridge' }) {
   const config = SPARKCLAW_BATCH_PROVIDERS[provider];
-  if (!config || typeof accountScope !== 'string' || !accountScope.trim() || !Number.isFinite(timeoutMS) || timeoutMS <= 0) throw new Error('batch_arguments_invalid');
+  if (!config || typeof accountScope !== 'string' || !accountScope.trim() || !Number.isFinite(timeoutMS) || timeoutMS <= 0 || !['sparkclaw-ai-export-bridge', 'sparkclaw-live-ai-export-bridge'].includes(bridgeID)) throw new Error('batch_arguments_invalid');
   const root = await fs.realpath(workspaceRoot);
   async function subdirectory(parent, name) {
     const result = path.join(parent, name);
@@ -37,18 +37,23 @@ export async function exportTimeline({ context, provider, workspaceRoot, account
     check(); page = await context.newPage();
     signal?.addEventListener('abort', abort, { once: true });
     timer = setTimeout(abort, timeoutMS);
-    async function command(id) {
+    async function command(name) {
       check();
-      await page.locator('#' + id).waitFor({ state: 'attached', timeout: Math.min(30000, deadline - Date.now()) });
-      // Bridge task pages stay hidden: pointer stability and rAF polling stall.
-      await page.locator('#' + id).evaluate(node => node.click());
-      await page.waitForFunction(() => ['ready', 'failed'].includes(document.querySelector('#sparkclaw-batch-status')?.dataset.state), null, { polling: 250, timeout: deadline - Date.now() });
-      if (await page.locator('#sparkclaw-batch-status').getAttribute('data-state') !== 'ready') throw new Error(await page.locator('#sparkclaw-batch-status').innerText());
-      return page.locator('#sparkclaw-batch-output').inputValue();
+      const bridge = page.locator('#' + bridgeID);
+      await bridge.waitFor({ state: 'attached', timeout: Math.min(30000, deadline - Date.now()) });
+      await bridge.evaluate((node, operation) => {
+        node.dataset.command = operation;
+        node.dataset.state = 'working';
+        node.textContent = '';
+        node.dispatchEvent(new Event('sparkclaw-ai-export-command'));
+      }, name);
+      await page.waitForFunction(id => ['ready', 'failed'].includes(document.getElementById(id)?.dataset.state), bridgeID, { polling: 250, timeout: deadline - Date.now() });
+      if (await bridge.getAttribute('data-state') !== 'ready') throw new Error(await bridge.innerText());
+      return bridge.textContent();
     }
     timeline = await discoverBatchHistory(provider, 'https://' + config.host + config.history, async url => {
       await page.goto(url, { timeout: Math.min(30000, deadline - Date.now()) });
-      return JSON.parse(await command('sparkclaw-batch-scan'));
+      return JSON.parse(await command('timeline.scan'));
     }, check);
     const verify = async record => {
       try {
@@ -60,7 +65,7 @@ export async function exportTimeline({ context, provider, workspaceRoot, account
     result = await runTimelineBatch({ provider, timeline, ledger, check, verify,
       capture: async item => {
         await page.goto(item.url, { timeout: Math.min(30000, deadline - Date.now()) });
-        const text = await command('sparkclaw-batch-capture');
+        const text = await command('conversation.capture');
         if (new URL(page.url()).host !== config.host) throw new Error('batch_origin_changed');
         return text;
       },

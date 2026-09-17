@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/mail"
+	"os"
 	"strings"
 	"time"
 
@@ -12,11 +13,15 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("email record not found")
-	ErrInvalidInput   = errors.New("invalid email request")
-	ErrConflict       = errors.New("email state changed")
-	ErrProjectionBusy = errors.New("email projection changed; retry")
-	ErrNotEnabled     = errors.New("email receiving is not enabled for this mailbox")
+	ErrNotFound               = errors.New("email record not found")
+	ErrInvalidInput           = errors.New("invalid email request")
+	ErrConflict               = errors.New("email state changed")
+	ErrProjectionBusy         = errors.New("email projection changed; retry")
+	ErrNotEnabled             = errors.New("email receiving is not enabled for this mailbox")
+	ErrIncrementalUnqualified = errors.New("incremental email reading has not passed live acceptance for this provider")
+	// ErrPurged separates "the user deleted these bytes on purpose" from a
+	// corrupt or missing source, so the window can say so instead of erroring.
+	ErrPurged = errors.New("the email original was manually cleaned up")
 )
 
 type ConcernView struct {
@@ -83,22 +88,34 @@ type MessageView struct {
 	BodyText                  string                   `json:"body_text,omitempty"`
 	Viewed                    bool                     `json:"viewed"`
 	OriginalAvailable         bool                     `json:"original_available"`
+	OriginalPurged            bool                     `json:"original_purged"`
 	Attachments               []AttachmentView         `json:"attachments"`
 	ProcessingState           string                   `json:"processing_state"`
 }
 type MailboxView struct {
-	ID            string `json:"id"`
-	Version       int64  `json:"version"`
-	Provider      string `json:"provider"`
-	Address       string `json:"address"`
-	IntakeEnabled bool   `json:"intake_enabled"`
-	ActiveBinding bool   `json:"active_binding"`
-	State         string `json:"state"`
-	LastSyncAt    string `json:"last_sync_at,omitempty"`
-	CoverageStart string `json:"coverage_start,omitempty"`
-	CoverageEnd   string `json:"coverage_end,omitempty"`
-	Gap           string `json:"gap,omitempty"`
-	Error         string `json:"error,omitempty"`
+	RefreshPending             bool   `json:"refresh_pending"`
+	RefreshRequestID           string `json:"refresh_request_id,omitempty"`
+	ID                         string `json:"id"`
+	Version                    int64  `json:"version"`
+	Provider                   string `json:"provider"`
+	Address                    string `json:"address"`
+	IntakeEnabled              bool   `json:"intake_enabled"`
+	ActiveBinding              bool   `json:"active_binding"`
+	State                      string `json:"state"`
+	ScopeVersion               string `json:"scope_version,omitempty"`
+	ProviderMode               string `json:"provider_mode,omitempty"`
+	LastSyncAt                 string `json:"last_sync_at,omitempty"`
+	CoverageStart              string `json:"coverage_start,omitempty"`
+	CoverageEnd                string `json:"coverage_end,omitempty"`
+	PollThrough                string `json:"poll_through,omitempty"`
+	InflightUntil              string `json:"inflight_until,omitempty"`
+	PendingFailureCount        int    `json:"pending_failure_count"`
+	SuppressedMailCount        int    `json:"suppressed_mail_count"`
+	CoverageGapCount           int    `json:"coverage_gap_count"`
+	UnacknowledgedWarningCount int    `json:"unacknowledged_warning_count"`
+	RefreshAvailable           bool   `json:"refresh_available"`
+	Gap                        string `json:"gap,omitempty"`
+	Error                      string `json:"error,omitempty"`
 }
 type ConversationsView struct {
 	Counts        *store.EmailScopeCounts `json:"counts,omitempty"`
@@ -118,17 +135,25 @@ type MessagesView struct {
 	NextCursor string                  `json:"next_cursor,omitempty"`
 }
 type StatusView struct {
-	Version      int64         `json:"version"`
-	Mailboxes    []MailboxView `json:"mailboxes"`
-	Backlog      int           `json:"backlog"`
-	PendingCount int           `json:"pending_count"`
+	Capacity      *CapacityView `json:"capacity,omitempty"`
+	Version       int64         `json:"version"`
+	Mailboxes     []MailboxView `json:"mailboxes"`
+	Backlog       int           `json:"backlog"`
+	PendingCount  int           `json:"pending_count"`
+	CapturedCount int           `json:"captured_count"`
 }
 type ViewedResult struct {
 	Version int64    `json:"version"`
 	MailIDs []string `json:"mail_ids"`
 }
 type ScheduleResult struct {
-	Scheduled bool `json:"scheduled"`
+	Scheduled       bool                 `json:"scheduled"`
+	RefreshRequests []RefreshRequestView `json:"refresh_requests,omitempty"`
+}
+
+type RefreshRequestView struct {
+	MailboxID        string `json:"mailbox_id"`
+	RefreshRequestID string `json:"refresh_request_id"`
 }
 
 // Repository queries are individually consistent. A bounded revision check
@@ -267,8 +292,14 @@ func (s *Service) Messages(ctx context.Context, q store.EmailQuery) (MessagesVie
 		if err != nil {
 			return out, err
 		}
+		// One root for the whole page; each message costs a single stat.
+		root, err := os.OpenRoot(s.opts.WorkspaceRoot)
+		if err != nil {
+			return out, err
+		}
+		defer root.Close()
 		for _, row := range page.Items {
-			view, err := s.messageView(ctx, q.OwnerID, row, version)
+			view, err := s.messageView(ctx, q.OwnerID, row, version, root)
 			if err != nil {
 				return out, err
 			}
@@ -295,7 +326,20 @@ func (s *Service) Pending(ctx context.Context, q store.EmailQuery) (MessagesView
 	q.ConversationID = ""
 	return s.Messages(ctx, q)
 }
-func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMail, version int64) (MessageView, error) {
+
+// sourcePresent is a stat-only probe against the workspace root. A present file
+// is never sufficient to serve bytes — OpenFile still re-hashes the whole
+// stream — so this only ever downgrades what the window claims is available. A
+// nil root means the probe could not run and nothing is reported as available.
+func sourcePresent(root *os.Root, relative string) bool {
+	if root == nil || relative == "" || !safeRelativePath(relative) {
+		return false
+	}
+	info, err := root.Stat(relative)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMail, version int64, root *os.Root) (MessageView, error) {
 	var historyErr error
 	out := MessageView{AssignmentSource: row.AssignmentSource, ConfirmationSource: row.SendConfirmationSource, LocalSendID: row.LocalSendID, ReplyMailID: row.ReplyMailID, SourceState: row.CaptureState, Classification: row.Classification, ConversationID: row.ConversationID, ID: row.ID, Version: row.InputVersion, MailboxID: row.MailboxID, Direction: row.Direction, Subject: row.Subject, SentAt: emailTime(row.SourceTime), ArrivedAt: emailTime(row.DiscoveredAt), Viewed: row.ViewedAt != nil, To: []string{}, CC: []string{}, Attachments: []AttachmentView{}, ProcessingState: row.AssignmentState}
 	if out.Classification != nil {
@@ -347,7 +391,10 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 		if err != nil {
 			return out, err
 		}
-		out.OriginalAvailable = found && capture.OriginalPath != ""
+		// A pointer in the database is not evidence the bytes are still there.
+		// Probing keeps the window from offering a download that cannot work.
+		out.OriginalPurged = found && capture.PurgedAt != nil
+		out.OriginalAvailable = found && capture.PurgedAt == nil && row.CaptureState != app.EmailCaptureSourceMissing && sourcePresent(root, capture.OriginalPath)
 	}
 	if row.RepresentationID != "" {
 		representation, found, err := s.repository.GetEmailRepresentation(ctx, owner, row.RepresentationID)
@@ -379,7 +426,8 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 		}
 
 		for _, part := range representation.Attachments {
-			out.Attachments = append(out.Attachments, AttachmentView{ID: part.ID, Name: part.Name, Size: part.SizeBytes, Available: part.Path != ""})
+			available := part.State != app.EmailAttachmentPurged && sourcePresent(root, part.Path)
+			out.Attachments = append(out.Attachments, AttachmentView{ID: part.ID, Name: part.Name, Size: part.SizeBytes, Available: available})
 		}
 	}
 	target, found, err := s.repository.GetEmailAnalysisTarget(ctx, owner, app.EmailJobMessageSummary, row.ID)
@@ -388,6 +436,10 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 	}
 	out.Summary, out.SummaryState = projectSummary(row.Summary, target, found)
 	out.SummaryPartial = row.Summary != nil && row.Summary.Coverage != "complete_for_inputs"
+	patternVerification := row.Classification != nil && row.Classification.Source == app.EmailClassificationSourcePattern && row.Classification.NotificationSubtype == "verification"
+	if patternVerification {
+		out.Summary, out.SummaryState = "", "ready"
+	}
 	switch {
 	case row.ParseState == app.EmailParseFailed || row.CaptureState == app.EmailCaptureFailed:
 		out.ProcessingState = "failed"
@@ -413,11 +465,13 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 	if err != nil {
 		return out, err
 	}
-	if row.Classification != nil && (row.Classification.Source == "manual" || row.Classification.Source == "rule") {
+	if row.Classification != nil && (row.Classification.Source == "manual" || row.Classification.Source == "rule" || row.Classification.Source == app.EmailClassificationSourcePattern) {
 		out.ClassificationState = "ready"
 	}
 	out.AssignmentState = row.AssignmentState
-	if row.ConversationID != "" {
+	if patternVerification {
+		out.AssignmentState = "ready"
+	} else if row.ConversationID != "" {
 		out.AssignmentState = "ready"
 	} else {
 		out.AssignmentState, err = state(app.EmailJobAssignment)
@@ -428,7 +482,9 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 			out.AssignmentState = "needs_review"
 		}
 	}
-	if row.RepresentationID != "" && row.ConversationID == "" {
+	if patternVerification {
+		out.ProcessingState = "ready"
+	} else if row.RepresentationID != "" && row.ConversationID == "" {
 		out.ProcessingState = out.AssignmentState
 		if out.ClassificationState == "failed" {
 			out.ProcessingState = "failed"
@@ -439,7 +495,21 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 	return out, nil
 }
 func ProjectMailbox(mailbox app.EmailMailbox) MailboxView {
-	out := MailboxView{ID: mailbox.ID, Version: mailbox.Version, Provider: mailbox.Provider, Address: mailbox.Address, IntakeEnabled: mailbox.IntakeEnabled, ActiveBinding: mailbox.Active, State: "active", LastSyncAt: emailTime(mailbox.LastCheckedAt), CoverageStart: emailTime(mailbox.ActivatedAt), CoverageEnd: emailTime(mailbox.Boundary)}
+	out := MailboxView{ID: mailbox.ID, Version: mailbox.Version, Provider: mailbox.Provider, Address: mailbox.Address, IntakeEnabled: mailbox.IntakeEnabled, ActiveBinding: mailbox.Active, State: "active", ScopeVersion: mailbox.ScopeVersion, ProviderMode: mailbox.ProviderMode, LastSyncAt: emailTime(mailbox.LastCheckedAt), CoverageStart: emailTime(mailbox.ActivatedAt), CoverageEnd: emailTime(mailbox.Boundary), PollThrough: emailTime(mailbox.PollThrough), InflightUntil: emailTime(mailbox.InflightUntil), PendingFailureCount: mailbox.PendingFailureCount, SuppressedMailCount: mailbox.SuppressedMailCount, CoverageGapCount: mailbox.CoverageGapCount, UnacknowledgedWarningCount: mailbox.UnacknowledgedWarningCount, RefreshAvailable: mailbox.PendingFailureCount > 0 || mailbox.SyncState == app.EmailSyncOverflowConfirmation || mailbox.SyncState == app.EmailSyncIncomplete}
+	out.RefreshPending, out.RefreshRequestID = mailbox.RefreshPending, mailbox.RefreshRequestID
+	if mailbox.ScopeVersion == app.EmailSyncScopeTimelineV2 {
+		out.CoverageStart = emailTime(mailbox.DeploymentAnchor)
+		out.CoverageEnd = emailTime(mailbox.DiscoveredThrough)
+		if mailbox.SyncState != "" {
+			out.State = mailbox.SyncState
+		}
+	}
+	if mailbox.IntakeEnabled && mailbox.Active && (mailbox.ProviderMode == "" || mailbox.ProviderMode == app.EmailProviderModeUnqualified) {
+		out.ProviderMode = app.EmailProviderModeUnqualified
+		out.State = app.EmailSyncUnqualified
+		out.Error = "Incremental reading has not passed live acceptance for this provider."
+		out.RefreshAvailable = false
+	}
 	if !mailbox.Active || !mailbox.IntakeEnabled {
 		out.State = "paused"
 	}
@@ -450,23 +520,51 @@ func ProjectMailbox(mailbox app.EmailMailbox) MailboxView {
 	if mailbox.IntakeEnabled && mailbox.ErrorCode == string(app.ToolErrorEmailLoginRequired) {
 		out.State = app.EmailStateLoginRequired
 	}
-	if mailbox.Cursor != "" || (mailbox.Coverage != "" && mailbox.Coverage != "complete_for_observation" && mailbox.Coverage != "complete") {
+	if mailbox.CoverageGapCount > 0 {
+		out.Gap = "One or more bounded intervals could not be proved complete."
+	} else if mailbox.Cursor != "" || (mailbox.Coverage != "" && mailbox.Coverage != "complete_for_observation" && mailbox.Coverage != "complete") {
 		out.Gap = "The admitted interval has not been fully scanned."
 	}
+	if mailbox.LastSyncErrorCode != "" {
+		out.Error = mailbox.LastSyncErrorCode
+	}
 	return out
+}
+
+func (s *Service) SyncWarnings(ctx context.Context, q store.EmailQuery) (store.EmailSyncWarningPage, error) {
+	if err := s.validateQuery(ctx, q); err != nil || q.MailboxID == "" {
+		if err != nil {
+			return store.EmailSyncWarningPage{}, err
+		}
+		return store.EmailSyncWarningPage{}, ErrInvalidInput
+	}
+	return s.repository.ListEmailSyncWarnings(ctx, q)
+}
+
+func (s *Service) AcknowledgeSyncWarning(ctx context.Context, owner, mailboxID, failureID string) (app.EmailSyncWarning, error) {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(mailboxID) == "" || strings.TrimSpace(failureID) == "" {
+		return app.EmailSyncWarning{}, ErrInvalidInput
+	}
+	return s.repository.AcknowledgeEmailSyncWarning(ctx, store.EmailSyncWarningAck{EmailCommand: command(owner, app.NewID("email_sync_warning_ack")), MailboxID: mailboxID, FailureID: failureID, Actor: owner})
 }
 func (s *Service) Status(ctx context.Context, owner string) (StatusView, error) {
 	return stableProjection(ctx, s, owner, func(version int64) (StatusView, error) {
 		status, err := s.repository.GetEmailOwnerStatus(ctx, owner)
-		out := StatusView{Version: version, Mailboxes: []MailboxView{}, Backlog: status.BacklogCount, PendingCount: status.PendingCount}
+		out := StatusView{Version: version, Mailboxes: []MailboxView{}, Backlog: status.BacklogCount, PendingCount: status.PendingCount, CapturedCount: status.CapturedCount}
 		if err != nil {
 			return out, err
+		}
+		if capacity := s.capacity(); capacity.State != "unknown" {
+			out.Capacity = &capacity
 		}
 		mailboxes, err := s.repository.ListEmailMailboxes(ctx, owner)
 		if err != nil {
 			return out, err
 		}
 		for _, mailbox := range mailboxes {
+			if s.incrementalMode(mailbox.Provider) == app.EmailProviderModeUnqualified {
+				mailbox.ProviderMode = app.EmailProviderModeUnqualified
+			}
 			out.Mailboxes = append(out.Mailboxes, ProjectMailbox(mailbox))
 		}
 		return out, nil
@@ -491,6 +589,7 @@ func (s *Service) View(ctx context.Context, owner string, ids []string) (ViewedR
 	return out, nil
 }
 func (s *Service) Sync(ctx context.Context, owner, mailboxID string) (ScheduleResult, error) {
+	requests := []RefreshRequestView{}
 	mailboxes, err := s.repository.ListEmailMailboxes(ctx, owner)
 	if err != nil {
 		return ScheduleResult{}, err
@@ -505,14 +604,16 @@ func (s *Service) Sync(ctx context.Context, owner, mailboxID string) (ScheduleRe
 		if !mailbox.Active || !mailbox.IntakeEnabled {
 			continue
 		}
-		_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_sync")), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true})
+		if s.incrementalMode(mailbox.Provider) == app.EmailProviderModeUnqualified {
+			return ScheduleResult{}, ErrIncrementalUnqualified
+		}
+		job, requestErr := s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_sync")), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RearmFailed: true, SyncTrigger: "manual_refresh", SyncActor: owner})
+		err = requestErr
 		if err != nil {
 			return ScheduleResult{}, err
 		}
-		if err = s.retryKnownHistory(ctx, owner, mailbox); err != nil {
-			return ScheduleResult{}, err
-		}
 		scheduled = true
+		requests = append(requests, RefreshRequestView{MailboxID: mailbox.ID, RefreshRequestID: job.RefreshRequestID})
 	}
 	if !found {
 		return ScheduleResult{}, ErrNotFound
@@ -521,7 +622,7 @@ func (s *Service) Sync(ctx context.Context, owner, mailboxID string) (ScheduleRe
 		return ScheduleResult{}, ErrNotEnabled
 	}
 	s.signal()
-	return ScheduleResult{Scheduled: true}, nil
+	return ScheduleResult{Scheduled: true, RefreshRequests: requests}, nil
 }
 func (s *Service) Reanalyze(ctx context.Context, owner, id string) (ScheduleResult, error) {
 	mail, found, err := s.repository.GetEmailMail(ctx, owner, id)
@@ -538,9 +639,6 @@ func (s *Service) Reanalyze(ctx context.Context, owner, id string) (ScheduleResu
 		return ScheduleResult{}, err
 	}
 	kinds := []string{app.EmailJobClassification}
-	if mail.ConversationID == "" && mail.Classification != nil {
-		kinds = append(kinds, app.EmailJobAssignment)
-	}
 	if mail.RepresentationID == "" || mail.ParseState == app.EmailParseFailed || mail.ParseState == app.EmailParsePartial || mail.ParseState == app.EmailParseUnsupported {
 		kinds = []string{app.EmailJobParse}
 	}

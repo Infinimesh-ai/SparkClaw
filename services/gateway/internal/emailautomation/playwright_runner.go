@@ -218,7 +218,8 @@ func playwrightScriptFailure(provider Provider, raw json.RawMessage) error {
 		return codedError(app.ToolErrorEmailScriptInvalidOutput, "Email provider script returned an invalid error")
 	}
 	code := normalizeScriptErrorCode(output.Code)
-	return codedError(code, publicScriptErrorMessage(code))
+	local := output.Code == "email_batch_limit" || output.Code == "email_local_io" || output.Code == "email_source_conflict" || output.Code == "email_source_recovery_pending"
+	return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: local}
 }
 
 func mapPlaywrightError(err error, send bool) error {

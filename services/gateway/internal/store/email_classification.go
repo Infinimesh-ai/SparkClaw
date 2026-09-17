@@ -1,9 +1,11 @@
 package store
 
 import (
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/mail"
 	"strings"
+	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 func emailEntryValid(v string) bool { return v == "notification" || v == "interaction" }
@@ -27,6 +29,33 @@ func emailEffectiveEntry(m app.EmailMail) string {
 		return "notification"
 	}
 	return "interaction"
+}
+func emailPatternVerification(m app.EmailMail) bool {
+	return m.Classification != nil &&
+		m.Classification.Source == app.EmailClassificationSourcePattern &&
+		m.Classification.EffectiveEntry == "notification" &&
+		m.Classification.NotificationSubtype == "verification"
+}
+
+// Pattern-classified verification notices are complete without generated text
+// or event assignment. Retire any source-summary work created alongside parse;
+// a worker holding an older lease will then fail its publish fence harmlessly.
+func emailSkipAnalysis(e *emailEngine, kind, targetID, reason string) {
+	t, ok := emailGet[app.EmailAnalysisTarget](e, "target", kind+":"+targetID)
+	if !ok {
+		return
+	}
+	if j, found := emailGet[app.EmailJob](e, "job", emailID(kind, targetID, t.InputFingerprint, "", "0")); found {
+		j.State = app.EmailJobSucceeded
+		j.ErrorCode = reason
+		j.LeaseToken = ""
+		j.LeaseExpiresAt = time.Time{}
+		j.UpdatedAt = e.now
+		emailSaveJob(e, j)
+	}
+	t.State = app.EmailSummaryCurrent
+	t.SummaryID = ""
+	emailPut(e, "target", t.Kind+":"+t.TargetID, t.Kind, t.TargetID, t.State, "", t.Kind+":"+t.TargetID, t)
 }
 func emailApplyRule(e *emailEngine, m *app.EmailMail) {
 	if m.Classification != nil && (m.Classification.Source == "manual" || m.Classification.Source == "rule") {
@@ -57,8 +86,18 @@ func emailSaveClassification(e *emailEngine, m app.EmailMail) error {
 			emailRecountEvent(e, &c)
 			emailSaveConversation(e, c)
 		}
+		if emailPatternVerification(m) {
+			emailSkipAnalysis(e, app.EmailJobMessageSummary, m.ID, "verification_pattern")
+			emailSkipAnalysis(e, app.EmailJobAssignment, m.ID, "verification_pattern")
+			return e.err
+		}
+		if m.RepresentationID != "" {
+			if _, err := emailRequest(e, EmailJobRequest{Kind: app.EmailJobMessageSummary, TargetID: m.ID, Rearm: true}); err != nil {
+				return err
+			}
+		}
 		if m.RepresentationID != "" && m.ConversationID == "" {
-			_, err := emailRequest(e, EmailJobRequest{Kind: app.EmailJobAssignment, TargetID: m.ID})
+			_, err := emailRequest(e, EmailJobRequest{Kind: app.EmailJobAssignment, TargetID: m.ID, Rearm: true})
 			return err
 		}
 		return e.err
@@ -143,12 +182,22 @@ func emailClassification(e *emailEngine, c EmailClassificationCommand) (app.Emai
 	if !containsEmail([]string{"unknown", "notification", "interaction"}, v.Category) || len(v.EvidenceRefs) > 100 {
 		return m, errEmailInvalid
 	}
+	pattern := v.Source == app.EmailClassificationSourcePattern
+	if pattern && (v.Category != "notification" || v.NotificationSubtype != "verification" || v.ReasonCode != app.EmailClassificationReasonVerificationPattern || v.PromptVersion != app.EmailClassificationVerificationPatternVersion || !containsEmail([]string{"subject", "body"}, v.Stage) || v.ModelVersion != "" || len(v.EvidenceRefs) == 0) {
+		return m, errEmailInvalid
+	}
+	if v.Source != "" && !pattern {
+		return m, errEmailInvalid
+	}
 	if m.Classification == nil || (m.Classification.Source != "manual" && m.Classification.Source != "rule") {
 		v.Revision = 1
 		if m.Classification != nil {
 			v.Revision = m.Classification.Revision + 1
 		}
 		v.Source = "model"
+		if pattern {
+			v.Source = app.EmailClassificationSourcePattern
+		}
 		v.EffectiveEntry = v.Category
 		v.State = "ready"
 		v.SenderAddress = emailSenderAddress(e, m)

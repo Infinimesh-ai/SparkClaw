@@ -25,6 +25,24 @@ type concurrentIntakeBrowser struct {
 	gates   map[browserCall]chan struct{}
 }
 
+func (b *concurrentIntakeBrowser) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
+	d, err := b.DiscoverForOwner(ctx, owner, r)
+	if err != nil {
+		return app.EmailPageResult{}, err
+	}
+	p := app.EmailPageResult{Provider: r.Provider, AccountAddress: d.AccountAddress, Discovery: d, DiscoveryOptions: *r.Discovery}
+	for _, target := range d.Candidates {
+		request := r
+		request.Target = &target
+		_, _ = b.CaptureForOwner(ctx, owner, request)
+		if ctx.Err() != nil {
+			return p, ctx.Err()
+		}
+		p.Failures = append(p.Failures, app.EmailPageFailure{Target: target, ErrorCode: "fixture_download_interrupted", Scope: app.EmailSyncFailureProviderOperational})
+	}
+	return p, nil
+}
+
 func (b *concurrentIntakeBrowser) AdmitIntake(_ context.Context, _, provider string) (app.EmailAdmissionBinding, error) {
 	return app.EmailAdmissionBinding{Provider: provider, Account: app.EmailAccountDefault}, nil
 }
@@ -105,6 +123,7 @@ func TestThreeMailboxesReceiveConcurrentlyAndEachCapturesSerially(t *testing.T) 
 			s.browser = browser
 			boxes := map[string]app.EmailMailbox{}
 			for _, provider := range s.registry.List() {
+				s.opts.QualifiedProviderModes[provider.ID] = app.EmailProviderModeTimeRange
 				browser.gates[browserCall{provider: provider.ID, operation: app.EmailJobDiscover}] = make(chan struct{})
 				for _, id := range []string{"message-1", "message-2"} {
 					browser.gates[browserCall{provider: provider.ID, operation: app.EmailJobCapture, message: id}] = make(chan struct{})

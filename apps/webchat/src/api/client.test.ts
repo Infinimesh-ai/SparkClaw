@@ -2,7 +2,30 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
-import { api, APIError, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody } from "./client";
+import { api, APIError, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody } from "./client";
+
+describe("email refresh request identity", () => {
+  let values: Map<string, string>;
+  beforeEach(() => {
+    values = new Map();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  it("preserves the backend request identity and selected mailbox without retrying POST", async () => {
+    const result = { scheduled: true, refresh_requests: [{ mailbox_id: "box", refresh_request_id: "refresh-1" }] };
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => result })); vi.stubGlobal("fetch", fetch);
+    expect(await api.syncEmail("box")).toEqual(result);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]).toEqual([expect.stringContaining("/api/email/sync"), expect.objectContaining({ method: "POST", body: JSON.stringify({ mailbox_id: "box" }) })]);
+  });
+  it("clears mailbox guards when authentication is cleared or changed", () => {
+    const key = "sparkclaw.email.refresh.v1";
+    values.set(key, "old-user-guard"); saveAPIToken("new-token"); expect(values.has(key)).toBe(false);
+    values.set(key, "current-user-guard"); saveAPIToken("new-token"); expect(values.has(key)).toBe(true);
+    clearAPIToken(); expect(values.has(key)).toBe(false);
+  });
+});
 
 describe("documentFileURL", () => {
   it("keeps the workspace path scoped to its session", () => {

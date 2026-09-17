@@ -353,7 +353,7 @@ func emailConcern(e *emailEngine, c EmailConcernCommand) (app.EmailAssignmentCon
 
 func emailSummary(e *emailEngine, c EmailSummaryCommand) (app.EmailSummary, error) {
 	v := c.Summary
-	if !containsEmail([]string{app.EmailJobMessageSummary, app.EmailJobConversationSummary}, v.TargetKind) || v.ID == "" || strings.TrimSpace(v.Text) == "" || len(v.Text) > 100000 || v.ModelVersion == "" || v.PromptVersion == "" {
+	if !containsEmail([]string{app.EmailJobMessageSummary, app.EmailJobConversationSummary}, v.TargetKind) || v.ID == "" || strings.TrimSpace(v.Text) == "" || len(v.Text) > 100000 || v.ModelVersion == "" || v.PromptVersion == "" || (v.Language != "" && v.Language != "zh" && v.Language != "en") {
 		return v, errEmailInvalid
 	}
 	if err := emailLeaseCheck(e, c.Lease, v.TargetKind, v.TargetID); err != nil {

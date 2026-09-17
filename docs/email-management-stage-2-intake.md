@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-management-stage-2-intake.md)
 
-> 2026-09-10 follow-up requirement: [Email pipeline optimization](email-pipeline-optimization-design.md) replaces the future activation/unread-based intake scope with a fixed user deployment-time lower bound and read-state-independent capture. It also specifies an entry-button red dot for expired login and automatic full-gap catch-up after reauthentication. This follow-up is not implemented; existing implementation evidence below remains historical fact.
+> Current contract (2026-09-14): [Email pipeline optimization](email-pipeline-optimization-design.md) replaces the future activation/unread-based intake scope with a fixed last-completed-fetch lower bound and read-state-independent capture. It also requires network Reader-only reading, separate mark-read, and direct adapter maintenance when an upstream request changes. The implementation is in the current worktree; the older unread/overlap requirements and qualification notes below are historical evidence, not active behavior.
 
 Implementation contract, 2026-09-08. Code and engineering checks are in the worktree;
 real-provider and semantic release gates remain separate. See the
@@ -14,13 +14,14 @@ whole-mailbox historical scanning.
 ## Page Collection Update — 2026-09-09
 
 Automatic receiving now collects a bounded mailbox page in one browser task:
-scan the current list, persist its inventory, open each proved target, download
-native EML, save MIME parts and confirm read after durable local source storage.
+scan provider network responses, persist their inventory, fetch each proved
+original through the provider network adapter and save MIME parts. Mark-read is a
+separate operation after durable local source storage.
 Return to the same list between mails. A page contains at most 50 proved messages;
 virtual lists and incomplete conversations remain explicitly partial coverage.
 
 The default idle interval is 20 minutes after the entire round completes. Page
-scripts have a 30-minute budget; up to three lanes have a 95-minute outer budget
+scripts have a 30-minute budget; the single lane has a 95-minute outer budget
 with three-minute leases renewed every minute. Transport failures retry after at
 least 20 minutes (at most five attempts). Individual export failures retain the
 unacknowledged page for the next normal round while other lanes proceed. A partial
@@ -34,20 +35,22 @@ fabricating success or read state. Explicit single-mail workflows retain their
 existing APIs. Encountered proved non-draft thread members are collected in the
 current page; unresolved members/folders/pagination remain unqualified gaps.
 
-Before opening a mail the local page checkpoint is durable. Gateway later verifies
+Before fetching a mail the local page checkpoint is durable. Gateway later verifies
 and publishes individual sources before acknowledging that page. Missing acks
 replay verified receipts; failed members are retained even after becoming read.
 Checkpoints survive pause/re-enable for the same mailbox. Immutable source IDs
-are shared across unread/recent lanes, avoiding repeated downloads. Actual account
+are shared across repeated interval observations, avoiding repeated downloads. Actual account
 and credential fences remain in every browser call. Model and parser jobs still
 consume individual committed sources and preserve per-mail viewing receipts.
 
-Unread priority and unread-independent recent inbound lanes remain separate, with
-an extra latest-overlap observation while historical continuation is pending.
-Only the returned checkpoint's original interval can advance progress. The
-24-hour overlap never predates activation; unknown coverage cannot advance the
-completed boundary. No full-provider pagination or real-mail speed qualification
-is claimed by the offline tests. The three receiving switches remain disabled. Observed inventories larger than50 targets retain their remaining members across acknowledged sub-batches, even if opening the first member clears the thread unread state.
+The active implementation has one `recent_inbound` lane. It enumerates
+`[last_completed_fetch_time, fixed_current_time)`, admits read and unread mail
+equally, and keeps an incomplete interval checkpoint without advancing its
+boundary. Reading uses only the managed network Reader; mark-read is a separate
+operation after durable source publication. No full-provider pagination or
+real-mail speed qualification is claimed by the offline tests. The three
+receiving switches remain disabled. Observed inventories larger than 50 targets
+retain their remaining members across acknowledged sub-batches.
 
 The sections below describe retained coverage requirements and compatibility operations.
 
@@ -71,27 +74,24 @@ than new arrivals and large threads must yield.
 
 ## Discovery Coverage And Account Lifecycle
 
-Discovery has two lanes: unread discovery for priority, and recent inbound
-incremental discovery regardless of read state. First activation persists an
-activation boundary; the second lane covers inbound mail received since then,
-including new threads read on a phone before the first tick. Older unread mail
-may still be discovered; older read mail is backfilled only through encountered
-threads. Inventory folders/labels carrying ordinary inbound mail, including mail
-moved out of Inbox by ordinary rules; exclude Drafts, Spam and Trash and expose
-the provider's qualified scope. Sent history/additions use thread synchronization;
-new unrelated outbound threads are outside the inbound discovery promise.
+Discovery has one lane: `recent_inbound`. First activation persists a deployment
+boundary; each normal sync enumerates `[last_completed_fetch_time,
+fixed_current_time)` and includes both read and unread inbound mail. Inventory
+folders/labels carrying ordinary inbound mail, including mail moved out of Inbox
+by ordinary rules; exclude Drafts, Spam and Trash and expose the provider's
+qualified scope. Sent history/additions use thread synchronization; new unrelated
+outbound threads are outside the inbound discovery promise.
 
-Each recent scan fixes an upper boundary and resumes from the last fully admitted
-boundary with a default 24-hour overlap, never earlier than activation. Use proved
-provider receipt/change ordering, not sender RFC Date. Lack of a reliable boundary
-or continuation is partial coverage, not success. Persist pages and candidates
-before progress; only a fully enumerated interval advances the completed boundary.
-Stable cursors or bounded overlapping rescans must cover mutable lists. An interval
-larger than one batch is continued across ticks, not silently truncated to 50 rows.
-While that interval remains partial, an independent recent observation checks the
-latest overlap so its fixed upper bound cannot hide later already-read arrivals.
-This observation never advances or replaces the historical boundary/cursor; its
-limited page/folder scope remains explicit until provider coverage is qualified.
+Each recent scan fixes an upper boundary and resumes exactly from the last fully
+admitted boundary (or the deployment boundary before the first completion). Use
+proved provider receipt/change ordering, not sender RFC Date. Lack of a reliable
+boundary or continuation is partial coverage, not success. Persist pages and
+candidates before progress; only a fully enumerated interval advances the
+completed boundary. An interval larger than one batch is continued across ticks,
+not silently truncated to 50 rows. While that interval remains partial, an
+internal recovery observation may check arrivals after its fixed upper bound so
+later mail is not hidden. This recovery observation never advances or replaces
+the historical boundary/cursor and is not an external discovery lane.
 Periodic discovery waits at least one scan interval after the previous job finishes,
 even when that job crosses several planner ticks. Queued work retains its original
 due time across wakeups and restarts; exhausted failures require explicit retry.
@@ -99,10 +99,11 @@ One discovery round shares one verified login admission across its lanes, while
 every script still validates its account, settings and browser credential generation.
 
 During downtime, pause or backpressure, retain the old boundary and continue it
-on resume even when older than 24 hours; never replace it with now-minus-overlap.
+on resume; never replace it with a now-minus-overlap window.
 If provider retention/search limits prevent recovery, show the missing interval.
-The overlap bounds routine rechecks, not a proof against arbitrary late visibility;
-record demonstrated provider limitations and never claim whole-mailbox completeness.
+The recovery observation is a bounded recheck, not proof against arbitrary late
+visibility; record demonstrated provider limitations and never claim whole-mailbox
+completeness.
 Honor stage 1 binding fences; returning to the same account resumes its boundary,
 while a new account starts independently. Intake pause stops new browser claims
 and discovery, cancels the mailbox's active background browser operation and
@@ -114,7 +115,7 @@ continues from committed sources.
 | Operation | Input | Output/effect |
 |---|---|---|
 | collect_page | verified account, lane, interval/cursor and prior page acknowledgement | same-page collection, source receipts and durable page checkpoint |
-| discover | verified mailbox/binding, unread or recent-inbound lane, folder scope, interval/continuation and budget | individual candidates, receipt/change-order evidence, thread locators, read/folder evidence and coverage; no download or explicit mark-read |
+| discover | verified mailbox/binding, `recent_inbound` lane, folder scope, interval/continuation and budget | individual candidates, receipt/change-order evidence, thread locators, read/folder evidence and coverage; no download or explicit mark-read |
 | enumerate_thread | pinned thread, continuation and budget | individual members with draft/direction/folder evidence |
 | capture | durable individual target and attempt ID | one original, MIME attachments, manifest and observed read effects |
 | mark_read | individual target with committed source | independent effect receipt and read observation |
@@ -125,9 +126,10 @@ Targets must support actual folders, including Sent, instead of Inbox-only
 recovery. Preserve originals with native Playwright download/saveAs and extract
 MIME attachments without synthesizing originals from DOM.
 
-Current attributes, visible markers, expanded rows, menus and the page's own
-responses are valid deterministic evidence. Providers need not expose identical
-evidence. No future page-version adaptation or model browser repair is designed.
+Provider network responses are the deterministic evidence for identity, coverage,
+pagination and originals. DOM attributes, visible markers and menus are historical
+qualification notes only and do not authorize an active read. No future
+page-version adaptation or model browser repair is designed.
 
 ## Page Checkpoints And Source Publication
 

@@ -1,12 +1,15 @@
 import crypto from "node:crypto";
+import fs from 'node:fs/promises';
 import path from "node:path";
+import {fileURLToPath} from 'node:url';
 
 import { ControllerError } from "./errors.mjs";
-import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
 import { BACKGROUND_INPUT_EVALUATE_FUNCTION, BACKGROUND_INPUT_MARKER } from "../../browser-bridge/src/protocol.mjs";
 import { BACKGROUND_FOCUS_FUNCTION, BATCH_READ_FUNCTION, EDITOR_LINES_FUNCTION } from "./dom-actions.mjs";
-import { parseTabsMarkdown, renderTabLine } from "./playwright-output.mjs";
+import { EXTENSION_CONNECT_URL, parseTabs, sanitizeTabListOutput, assertExpectedOrigin, assertTaskTopology } from "./cli-page-guards.mjs";
 import { downloadFromPage } from "./cli-download.mjs";
+import {installOutlookEarlyBridge} from '../../../scripts/email/userscripts/lib/outlook-early-bridge.mjs';
+import awaitedMailRead from './awaited-mail-read.cjs';
 import {
   MAX_CLI_OUTPUT_BYTES,
   clientContractError,
@@ -17,8 +20,6 @@ import {
   scrubPlaywrightEnvironment,
 } from "./cli-runtime.mjs";
 
-const EXTENSION_CONNECT_URL = "sparkclaw-internal://extension-connect";
-const RELAY_PATH_PATTERN = /^\/extension\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const TRANSIENT_EVALUATION_ATTEMPTS = 4;
 const TRANSIENT_EVALUATION_DELAY_MS = 250;
 const CLI_COMMANDS = new Set([
@@ -66,9 +67,50 @@ export class PlaywrightCLITask {
     this.taskReady = false;
     this.attached = false;
     this.effectAttempted = false;
+    this.backgroundPrepared = false;
+    this.mailDocumentNonce = crypto.randomUUID();
+  }
+
+  renewReadInvocation(registration, signal) {
+    if (registration.operation !== 'collect_page' || this.registration.provider !== registration.provider) throw clientContractError();
+    this.registration = registration;
+    this.signal = signal;
+    this.deadline = Date.now() + registration.timeoutMS;
+    this.cleanupDeadline = undefined;
+  }
+
+  async prepareMailRound(account, reused = false) {
+    const result = await this.runReadCode(`async page=>page.evaluate(async options=>{
+      if(options.reused&&window.__sparkclawMailDocument!==options.nonce)return {stale:true};
+      const deadline=Date.now()+5000;
+      for(;;){
+        const reader=window.SparkClawMailReader;
+        if(!reader&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,100));continue;}
+        if(reader?.provider!==options.provider||reader.version!=='0.2.0'||typeof reader.resetRound!=='function')return {stale:true};
+        try{
+          const result=reader.resetRound({account_address:options.account});
+          window.__sparkclawMailDocument=options.nonce;
+          return result;
+        }catch(error){
+          if(error.code==='email_account_identity_unavailable'&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,100));continue;}
+          return {error:error.code||'email_network_read_failed'};
+        }
+      }
+    },${JSON.stringify({provider:this.registration.provider,account,nonce:this.mailDocumentNonce,reused})})`);
+    if (result?.stale) throw pageStale('task_page_missing');
+    if (result?.error) throw Object.assign(new Error(result.error),{code:result.error});
+    if(result?.provider!==this.registration.provider||result?.account_address!==account.toLowerCase()) throw clientContractError();
+  }
+
+  async parkMailRound(account) {
+    // Local-only reset releases original blobs/records before the page is idle.
+    // Retain topology/origin/document/account guards; never refresh a mailbox.
+    await this.prepareMailRound(account,true);
+    this.signal = undefined;
   }
 
   async attach() {
+    await this.state.writeAttachIntent?.(this.sessionName,fileURLToPath(new URL('../node_modules/playwright-core/lib/entry/cliDaemon.js',import.meta.url)));
     const output = await this.#run(
       ["--json", `-s=${this.sessionName}`, "attach", `--extension=${this.browserChannel}`],
       this.connectTimeoutMS,
@@ -109,6 +151,28 @@ export class PlaywrightCLITask {
       throw pageStale("task_page_missing");
     }
     this.taskReady = true;
+    if (['read','discover','capture','enumerate_thread','mark_read','collect_page'].includes(this.registration.operation)) {
+      // The fixed Bridge marker enables target-scoped CDP focus emulation,
+      // which survives navigation. Do this before loading a busy provider page.
+      // No provider code or owner tab is eligible for this blank-page exception.
+      const output = await this.#withTaskSelected(async tab => {
+        if (tab.url !== EXTENSION_CONNECT_URL) throw pageStale('task_page_missing');
+        return this.#run(['--raw', `-s=${this.sessionName}`, 'eval', BACKGROUND_INPUT_EVALUATE_FUNCTION]);
+      });
+      if (parseJSON(output) !== BACKGROUND_INPUT_MARKER) throw clientContractError();
+      await this.#withTaskSelected(tab => {
+        if (tab.url !== EXTENSION_CONNECT_URL) throw pageStale('task_page_missing');
+      });
+      this.backgroundPrepared = true;
+    }
+    if (this.registration.provider === 'outlook' && ['read','discover','capture','enumerate_thread','mark_read','collect_page'].includes(this.registration.operation)) {
+      // Fixed observer in the owned blank page, before Outlook binds its native
+      // transport. This avoids a second navigation or startup-data replay.
+      await this.#withTaskSelected(() => this.#run([
+        '--raw', `-s=${this.sessionName}`, 'run-code',
+        `async page=>{await page.addInitScript(${installOutlookEarlyBridge.toString()});return true}`,
+      ]));
+    }
   }
 
   async navigate(url) {
@@ -140,6 +204,7 @@ export class PlaywrightCLITask {
     }
     this.taskIndex = -1;
     this.taskReady = false;
+    this.backgroundPrepared = false;
   }
 
   async stop() {
@@ -161,6 +226,7 @@ export class PlaywrightCLITask {
   async prepareBackgroundPage() {
     if (!["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(this.registration.operation)) throw clientContractError();
     await this.#assertAllowedOrigin();
+    if (this.backgroundPrepared) return;
     if (await this.#evalJSON(BACKGROUND_INPUT_EVALUATE_FUNCTION) !== BACKGROUND_INPUT_MARKER) throw clientContractError();
     await this.#assertAllowedOrigin();
   }
@@ -455,11 +521,59 @@ export class PlaywrightCLITask {
   async runReadCode(code, timeoutMS = 30_000) {
     if (!["send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"].includes(this.registration.operation) || typeof code !== "string" || Buffer.byteLength(code) > 64 << 10 ||
         !Number.isSafeInteger(timeoutMS) || timeoutMS < 1 || timeoutMS > 60_000) throw clientContractError();
+    const readOnly = ['read', 'discover', 'capture', 'collect_page'].includes(this.registration.operation);
+    // Bind the result to the actual page URLs in the same awaited call. Keep
+    // the independent post-call tab topology check, without a second renderer
+    // evaluation merely to retrieve location.href.
+    const guardedCode = readOnly ? `${awaitedMailRead.MARKER}\nasync page => {
+      const initial_url = page.url();
+      if (!${JSON.stringify(this.registration.origins)}.some(origin => initial_url === origin ||
+          ['/', '?', '#'].some(separator => initial_url.startsWith(origin + separator))))
+        return {initial_url, final_url:initial_url, result:null};
+      const result = await (${code})(page);
+      return {initial_url, final_url:page.url(), result};
+    }` : code;
+    if (process.platform==='linux' && this.batchReadCommands !== false && readOnly && ['qq_mail','gmail'].includes(this.registration.provider) &&
+        typeof this.registration.signedOutURL!=='function' &&
+        path.resolve(this.entryPoint) === fileURLToPath(new URL('../node_modules/@playwright/cli/playwright-cli.js', import.meta.url))) {
+      const requestPath=path.join(this.state.directory,`read-batch-${crypto.randomUUID()}.json`);
+      try {
+        await fs.writeFile(requestPath,JSON.stringify({sessionName:this.sessionName,taskIndex:this.taskIndex,ownerTabs:this.ownerTabs,
+          origins:this.registration.origins,code:guardedCode,actionTimeoutMS:this.actionTimeoutMS,readTimeoutMS:Math.max(this.actionTimeoutMS,timeoutMS)}),{flag:'wx',mode:0o600});
+        const output=await this.#run(['--batch-request',requestPath],Math.max(this.actionTimeoutMS,timeoutMS)+6*this.actionTimeoutMS,
+          raw=>{
+            const envelope=parseJSON(raw);
+            if(envelope?.error){
+              if(!['browser_page_stale','browser_extension_unavailable','browser_script_timeout'].includes(envelope.error.code))throw clientContractError();
+              throw new ControllerError(envelope.error.code,'browser guarded read failed',{status:envelope.error.code==='browser_page_stale'?409:envelope.error.code==='browser_script_timeout'?504:503,retryable:envelope.error.code!=='browser_page_stale',diagnosticReason:envelope.error.reason});
+            }
+            if(typeof envelope?.output!=='string')throw clientContractError();
+            return envelope.output;
+          },fileURLToPath(new URL('./cli-read-batch.mjs',import.meta.url)));
+        const value=parseJSON(output);
+        if(!value||!Object.hasOwn(value,'result'))throw clientContractError();
+        for(const url of [value.initial_url,value.final_url])assertExpectedOrigin(url,undefined,this.registration.origins);
+        return value.result;
+      } finally {await fs.rm(requestPath,{force:true});}
+    }
     const output = await this.#withTaskSelected(async tab => {
       assertExpectedOrigin(tab.url, undefined, this.registration.origins);
       this.#assertProviderURL(tab.url);
-      return this.#run(["--raw", `-s=${this.sessionName}`, "run-code", code], Math.max(this.actionTimeoutMS, timeoutMS));
+      return this.#run(["--raw", `-s=${this.sessionName}`, "run-code", guardedCode], Math.max(this.actionTimeoutMS, timeoutMS));
     });
+    if (readOnly) {
+      await this.#withTaskSelected(tab => {
+        assertExpectedOrigin(tab.url, undefined, this.registration.origins);
+        this.#assertProviderURL(tab.url);
+      });
+      const value = parseJSON(output);
+      if (!value || !Object.hasOwn(value, 'result')) throw clientContractError();
+      for (const url of [value.initial_url, value.final_url]) {
+        assertExpectedOrigin(url, undefined, this.registration.origins);
+        this.#assertProviderURL(url);
+      }
+      return value.result;
+    }
     await this.#assertAllowedOrigin();
     return parseJSON(output);
   }
@@ -644,26 +758,21 @@ export class PlaywrightCLITask {
   }
 
   #assertTopology(tabs) {
-    if (
-      this.taskIndex < 0 ||
-      tabs.length !== this.ownerTabs.length + 1 ||
-      this.taskIndex >= tabs.length
-    ) {
-      throw pageStale("page_topology_changed");
-    }
-    const owners = tabs.filter((_, index) => index !== this.taskIndex).map(tabFingerprint);
-    if (!sameFingerprintList(owners, this.ownerTabs.map(tabFingerprint))) {
-      throw pageStale("page_topology_changed");
-    }
+    assertTaskTopology(tabs,this.taskIndex,this.ownerTabs);
   }
 
-  async #run(args, requestedTimeoutMS = this.actionTimeoutMS, stdoutTransform) {
+  async #run(args, requestedTimeoutMS = this.actionTimeoutMS, stdoutTransform, entryPoint=this.entryPoint) {
     const signal = this.cleanupDeadline === undefined ? this.signal : undefined;
     if (signal?.aborted) throw clientUnavailableError();
     const remaining = (this.cleanupDeadline ?? this.deadline) - Date.now();
     if (remaining <= 0) throw clientTimeoutError();
     const timeoutMS = Math.max(1, Math.min(requestedTimeoutMS, remaining));
     const env = scrubPlaywrightEnvironment({ ...process.env, ...this.extraEnv });
+    // Outlook range selection is still driven by the native search UI. Its
+    // fast-completion trial timed out intermittently, so keep the qualified UI
+    // completion policy; only QQ/Gmail direct readers use the fast path.
+    const awaitedNetworkRead = ['qq_mail', 'gmail'].includes(this.registration.provider) &&
+      ['read', 'discover', 'capture', 'collect_page'].includes(this.registration.operation);
     Object.assign(env, this.state.environment, {
       PLAYWRIGHT_MCP_EXTENSION_TOKEN: this.token,
       PLAYWRIGHT_MCP_CODEGEN: "none",
@@ -673,7 +782,10 @@ export class PlaywrightCLITask {
       PLAYWRIGHT_MCP_SNAPSHOT_MODE: "none",
       PLAYWRIGHT_MCP_TIMEOUT_ACTION: String(this.actionTimeoutMS),
       PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION: String(this.navigationTimeoutMS),
-      PLAYWRIGHT_MCP_TIMEOUT_SETTLE: "500",
+      // Managed network readers await their own response and readiness proof.
+      // Sending and legacy/UI operations retain their existing settle policy.
+      PLAYWRIGHT_MCP_TIMEOUT_SETTLE: awaitedNetworkRead ? "0" : "500",
+      SPARKCLAW_AWAITED_MAIL_READ: awaitedNetworkRead ? '1' : '0',
       NO_COLOR: "1",
       NO_UPDATE_NOTIFIER: "1",
     });
@@ -681,7 +793,7 @@ export class PlaywrightCLITask {
     if (this.userDataDir) env.PLAYWRIGHT_MCP_USER_DATA_DIR = this.userDataDir;
     if (this.state.secretsPath) env.PLAYWRIGHT_MCP_CONFIG = this.state.secretsPath;
     try {
-      return await runProcess(this.spawn, process.execPath, [this.entryPoint, ...args], {
+      return await runProcess(this.spawn, process.execPath, [entryPoint, ...args], {
         cwd: this.state.outputDir,
         env,
         timeoutMS,
@@ -693,7 +805,7 @@ export class PlaywrightCLITask {
         stdoutTransform,
       });
     } catch (error) {
-      const command = args.find((value) => !value.startsWith("-"));
+      const command = entryPoint!==this.entryPoint?'run-code':args.find((value) => !value.startsWith("-"));
       if (error instanceof ControllerError && CLI_COMMANDS.has(command)) {
         Object.defineProperty(error, "diagnosticCommand", {
           value: command,
@@ -780,14 +892,10 @@ export function createProviderRuntime(client, registration) {
       });
     },
     emailWorkspaceRoot: client.emailWorkspaceRoot,
+    captureTimingDiagnostic: client.captureTimingDiagnostic,
   };
 }
 
-export function parseTabs(raw) {
-  const tabs = parseTabsMarkdown(raw);
-  if (tabs === undefined) throw clientContractError();
-  return tabs;
-}
 
 function parseJSON(raw) {
   try {
@@ -820,136 +928,4 @@ function sanitizeAttachOutput(raw, expectedSession, expectedEndpoint) {
     pid: parsed.pid,
     endpoint: parsed.endpoint,
   });
-}
-
-function sanitizeTabListOutput(raw, token) {
-  const tabs = parseTabsMarkdown(raw);
-  if (tabs === undefined) throw clientContractError();
-  if (tabs.length === 0) return raw.trim();
-  let connectPages = 0;
-  const sanitized = [];
-  for (const tab of tabs) {
-    if (isExtensionConnectURL(tab.url, token)) {
-      tab.url = EXTENSION_CONNECT_URL;
-      connectPages += 1;
-    }
-    sanitized.push(renderTabLine(tab));
-  }
-  if (connectPages > 1) throw clientContractError();
-  return sanitized.join("\n");
-}
-
-function isExtensionConnectURL(rawURL, token) {
-  let parsed;
-  try {
-    parsed = new URL(rawURL);
-  } catch {
-    return false;
-  }
-  if (
-    parsed.protocol !== "chrome-extension:" ||
-    parsed.hostname !== BRIDGE_EXTENSION_ID ||
-    parsed.pathname !== "/connect.html" ||
-    parsed.username ||
-    parsed.password ||
-    parsed.hash ||
-    parsed.searchParams.size !== 4 ||
-    parsed.searchParams.getAll("mcpRelayUrl").length !== 1 ||
-    parsed.searchParams.getAll("client").length !== 1 ||
-    parsed.searchParams.getAll("protocolVersion").length !== 1 ||
-    parsed.searchParams.getAll("token").length !== 1 ||
-    parsed.searchParams.get("protocolVersion") !== "2" ||
-    parsed.searchParams.get("token") !== token
-  ) {
-    return false;
-  }
-  let client;
-  let relay;
-  try {
-    client = JSON.parse(parsed.searchParams.get("client"));
-    relay = new URL(parsed.searchParams.get("mcpRelayUrl"));
-  } catch {
-    return false;
-  }
-  return Boolean(
-    client &&
-    typeof client === "object" &&
-    !Array.isArray(client) &&
-    Object.keys(client).length === 1 &&
-    client.name === "playwright-cli" &&
-    relay.protocol === "ws:" &&
-    ["127.0.0.1", "[::1]"].includes(relay.hostname) &&
-    /^[1-9][0-9]{0,4}$/u.test(relay.port) &&
-    Number(relay.port) <= 65535 &&
-    !relay.username &&
-    !relay.password &&
-    !relay.search &&
-    !relay.hash &&
-    RELAY_PATH_PATTERN.test(relay.pathname)
-  );
-}
-
-function assertExpectedOrigin(rawURL, expectedOrigin, allowedOrigins) {
-  let parsed;
-  try {
-    parsed = new URL(rawURL);
-  } catch {
-    throw pageStale("page_invalid_url");
-  }
-  if (
-    parsed.username ||
-    parsed.password
-  ) {
-    throw pageStale("page_url_credentials");
-  }
-  if (parsed.protocol !== "https:") {
-    throw pageStale(
-      parsed.protocol === "chrome-extension:"
-        ? "page_extension_origin"
-        : "page_non_https_origin",
-    );
-  }
-  if (!allowedOrigins.includes(parsed.origin)) {
-    throw pageStale(unregisteredOriginReason(parsed.hostname));
-  }
-  if (expectedOrigin && parsed.origin !== expectedOrigin) {
-    throw pageStale("page_origin_mismatch");
-  }
-  return parsed;
-}
-
-function unregisteredOriginReason(hostname) {
-  const normalized = hostname.toLowerCase();
-  if (normalized === "workspace.google.com") return "page_google_workspace_origin";
-  if (normalized === "www.google.com") return "page_google_www_origin";
-  if (normalized === "myaccount.google.com") return "page_google_myaccount_origin";
-  if (normalized === "google.com" || normalized.endsWith(".google.com")) {
-    return "page_google_other_origin";
-  }
-  if (
-    normalized === "microsoft.com" ||
-    normalized.endsWith(".microsoft.com") ||
-    normalized === "microsoftonline.com" ||
-    normalized.endsWith(".microsoftonline.com") ||
-    normalized === "live.com" ||
-    normalized.endsWith(".live.com") ||
-    normalized === "office.com" ||
-    normalized.endsWith(".office.com") ||
-    normalized === "office365.com" ||
-    normalized.endsWith(".office365.com")
-  ) {
-    return "page_unregistered_microsoft_origin";
-  }
-  if (normalized === "qq.com" || normalized.endsWith(".qq.com")) {
-    return "page_unregistered_qq_origin";
-  }
-  return "page_unregistered_other_origin";
-}
-
-function tabFingerprint(tab) {
-  return `${tab.title}\0${tab.url}\0${tab.crashed ? "1" : "0"}`;
-}
-
-function sameFingerprintList(left, right) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

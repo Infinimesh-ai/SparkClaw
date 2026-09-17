@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import {installReader} from '../../../scripts/email/userscripts/lib/reader-core.mjs';
+import {installOutlookRangeTransport} from '../../../scripts/email/userscripts/lib/outlook-range.mjs';
+import {installOutlookOriginalResolver} from '../../../scripts/email/userscripts/lib/outlook-original.mjs';
 
 function fixture() {
   const nodes=[],listeners={};
@@ -10,18 +12,81 @@ function fixture() {
     addEventListener(_name, callback) {this.callback=callback;}
     deliver(url, value) {this.open('GET',url);this.send();this.status=200;this.responseText=JSON.stringify(value);this.callback();}
   }
-  const context=vm.createContext({URL,URLSearchParams,Map,Date,JSON,Object,Number,Error,TextDecoder,Uint8Array,Response,Blob,AbortSignal,AbortController,
+  const context=vm.createContext({URL,URLSearchParams,Map,Date,JSON,Object,Number,Error,TextDecoder,Uint8Array,Response,Blob,AbortSignal,AbortController,setTimeout,clearTimeout,structuredClone,
+    btoa:value=>Buffer.from(value,'binary').toString('base64'),
     XMLHttpRequest:XHR,MutationObserver:class {observe(){} disconnect(){}},
     location:{origin:'https://mail.google.com',href:'https://mail.google.com/mail/u/0/'},
     document:{addEventListener(name,callback){listeners[name]=callback;},removeEventListener(){},body:{append(node){nodes.push(node);}},createElement:()=>({remove(){}})},
     requests:[],fetch:async url=>{context.requests.push(url);const response=new Response(context.originalBytes??'From: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.');if(context.responseURL)Object.defineProperty(response,'url',{value:context.responseURL});return response;},open(){},nodes,account:'owner@example.test',
   });
   vm.runInContext('window=globalThis;window.top=window;',context);
-  vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows});`,context);
+  vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows,download:({id})=>new URL('/download?id='+encodeURIComponent(id),location.origin)});`,context);
   return {context,reader:context.SparkClawMailReader,deliver:rows=>new XHR().deliver('https://mail.google.com/list?sid=private-session-fixture',{rows}),nodes,XHR,listeners};
 }
 const interval={account_address:'owner@example.test',interval_start:'2026-09-10T00:00:00Z',interval_end:'2026-09-11T00:00:00Z'};
 const row=(id,extra={})=>({provider_message_id:id,received_at:'2026-09-10T00:00:00Z',draft:false,sent:false,...extra});
+
+test('round reset discards originals and source rows without network and cannot change owner',async()=>{
+  const f=fixture();f.deliver([row('a')]);
+  await f.reader.prepareOriginal({account_address:interval.account_address,provider_message_id:'a'});
+  const blob=f.nodes.at(-1).href,requests=f.context.requests.length;
+  assert.equal(f.reader.resetRound(interval).account_address,interval.account_address);
+  assert.equal(f.reader.diagnostics().records,0);
+  assert.equal(f.reader.diagnostics().original.state,'unlearned');
+  assert.equal(f.context.requests.length,requests);
+  await assert.rejects(fetch(blob));
+  await assert.rejects(f.reader.prepareOriginal({account_address:interval.account_address,provider_message_id:'a'}),{code:'email_network_target_unobserved'});
+  assert.throws(()=>f.reader.resetRound({account_address:'other@example.test'}),{code:'email_account_identity_mismatch'});
+  f.reader.dispose();assert.throws(()=>f.reader.resetRound(interval),{code:'email_network_list_unqualified'});
+});
+
+test('round reset rejects in-flight original preparation and becomes available after completion',async()=>{
+  const f=fixture();f.deliver([row('a')]);
+  const pending=f.reader.prepareOriginal({account_address:interval.account_address,provider_message_id:'a'});
+  assert.throws(()=>f.reader.resetRound(interval),{code:'email_network_list_unqualified'});
+  await pending;assert.doesNotThrow(()=>f.reader.resetRound(interval));
+});
+
+test('Gmail sequential rounds reuse only transport template and issue one fresh interval request',async()=>{
+  const f=fixture();f.context.nativeQueries=[];
+  vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:()=>[],search:query=>{
+    nativeQueries.push(query);
+    const body=[[],null,[]];body[0][3]=query;body[0][15]=[];
+    const xhr=new XMLHttpRequest();xhr.open('POST','https://mail.google.com/list');xhr.send(JSON.stringify(body));
+    const value=[];value[0]=0;value[3]=0;value[19]=[[null,null,null,null]];
+    xhr.status=200;xhr.responseText=JSON.stringify(value);xhr.callback();
+    originalBytes=JSON.stringify(value);
+  }});`,f.context);
+  const reader=f.context.SparkClawMailReader;
+  await reader.listPage(interval);
+  const next={...interval,interval_start:interval.interval_end,interval_end:'2026-09-12T00:00:00Z'};
+  await assert.rejects(reader.listPage(next),{code:'email_network_list_unqualified'});
+  reader.resetRound(interval);
+  assert.equal((await reader.listPage(next)).rows.length,0);
+  assert.equal(f.context.nativeQueries.length,1);assert.equal(f.context.requests.length,1);
+  reader.resetRound(interval);
+  await reader.listPage(next);
+  assert.equal(f.context.requests.length,2,'same interval in a new round must not reuse a response');
+  reader.dispose();
+});
+
+test('Gmail missing template uses one native bounded query and no replay fetch',async()=>{
+  const f=fixture();
+  f.context.nativeQueries=[];
+  vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:()=>[],search:query=>{
+    nativeQueries.push(query);
+    const body=[[],null,[]];body[0][3]=query;body[0][15]=[];
+    const xhr=new XMLHttpRequest();xhr.open('POST','https://mail.google.com/list');xhr.send(JSON.stringify(body));
+    const value=[];value[0]=0;value[3]=0;value[19]=[[null,null,null,null]];
+    xhr.status=200;xhr.responseText=JSON.stringify(value);xhr.callback();
+  }});`,f.context);
+  const result=await f.context.SparkClawMailReader.listPage(interval);
+  assert.equal(result.has_next,false);assert.equal(result.rows.length,0);
+  assert.equal(f.context.nativeQueries.length,1);
+  assert.match(f.context.nativeQueries[0],/after:\d+ before:\d+$/);
+  assert.equal(f.context.requests.length,0);
+  assert.equal(f.context.SparkClawMailReader.diagnostics().list.stage,'complete');
+});
 
 test('managed reader admits receipt interval ties regardless of unread and de-duplicates observations',()=>{
   const f=fixture();
@@ -33,54 +98,86 @@ test('managed reader admits receipt interval ties regardless of unread and de-du
   assert.ok(!JSON.stringify(result).includes('private-session-fixture'));
 });
 
-test('direct EML URLs require a native original confirmed after capture and an observed target',async()=>{
+test('network originals require an observed target and the provider network download definition',async()=>{
   const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
   f.deliver([row('a',{native_message_id:'msg-f:10'}),row('b',{native_message_id:'msg-f:11'})]);
-  assert.throws(()=>f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
-  f.reader.armOriginal(target);
-  f.reader.observeNativeOriginalURL('https://mail.google.com/mail/u/0?view=att&permmsgid=msg-f%3A10&ik=private-token-fixture');
-  assert.throws(()=>f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
-  f.reader.confirmOriginal(target);
-  const result=await f.reader.prepareOriginal({...target,provider_message_id:'b'});
+  const result=await f.reader.prepareOriginal(target);
   assert.equal(result.selector,'#sparkclaw-mail-original');
+  assert.equal(result.bytes,Buffer.byteLength('From: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.'));
+  assert.equal(Buffer.from(result.inline_base64,'base64').toString(), 'From: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.');
   const url=new URL(f.context.requests.at(-1));
   assert.match(f.nodes.at(-1).href,/^blob:/);
-  let stopped=false;f.listeners.click({target:f.nodes.at(-1),stopImmediatePropagation(){stopped=true;},preventDefault(){assert.fail('native download default must be preserved');}});assert.equal(stopped,true);
-  assert.equal(url.searchParams.get('permmsgid'),'msg-f:11');
-  assert.equal(url.searchParams.get('ik'),'private-token-fixture');
+  assert.equal(url.searchParams.get('id'),'a');
   assert.equal(await (await fetch(f.nodes.at(-1).href)).text(),'From: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.');
-  assert.ok(!JSON.stringify(result).includes('private-token-fixture'));
-  assert.throws(()=>f.reader.prepareOriginal({...target,provider_message_id:'never-observed'}),{code:'email_network_target_unobserved'});
-  f.deliver([row('Cgroup',{grouped:true})]);assert.throws(()=>f.reader.prepareOriginal({...target,provider_message_id:'Cgroup'}),{code:'email_network_target_unobserved'});
+  await assert.rejects(f.reader.prepareOriginal({...target,provider_message_id:'never-observed'}),{code:'email_network_target_unobserved'});
+  f.deliver([row('Cgroup',{grouped:true})]);await assert.rejects(f.reader.prepareOriginal({...target,provider_message_id:'Cgroup'}),{code:'email_network_target_unobserved'});
+  assert.equal(typeof f.reader.observeNativeOriginalURL,'undefined');
+  assert.equal(typeof f.reader.armOriginal,'undefined');
+  assert.equal(typeof f.reader.confirmOriginal,'undefined');
+});
+
+test('retained Gmail identity reads an old original without observing a list row again',async()=>{
+  const f=fixture();
+  const target={account_address:interval.account_address,provider_message_id:'a',provider_selection_id:'thread-f:10',provider_native_id:'msg-f:10',folder:'inbox'};
+  const result=await f.reader.prepareRetainedOriginal(target);
+  assert.equal(result.provider_message_id,'a');
+  assert.equal(f.context.requests.length,1);
+  assert.equal(new URL(f.context.requests[0]).pathname,'/download');
+  assert.equal(f.reader.snapshot(interval).rows.length,0);
+  await assert.rejects(f.reader.prepareRetainedOriginal({...target,provider_native_id:'msg-f:11'}),{code:'email_network_target_unobserved'});
+  await assert.rejects(f.reader.prepareRetainedOriginal({...target,account_address:'other@example.test'}),{code:'email_account_identity_mismatch'});
+  assert.equal(f.context.requests.length,1);
 });
 
 test('network originals preserve binary bytes and reject an HTML login response',async()=>{
   const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
   f.deliver([row('a')]);
-  const learn=()=>{f.reader.armOriginal(target);f.reader.observeNativeOriginalURL('https://mail.google.com/download?id=a');f.reader.confirmOriginal(target);};
-  learn();f.context.originalBytes=Buffer.concat([Buffer.from('From: sender@example.test\r\n\r\n'),Buffer.from([0,127,128,255])]);
+  f.context.originalBytes=Buffer.concat([Buffer.from('From: sender@example.test\r\n\r\n'),Buffer.from([0,127,128,255])]);
   await f.reader.prepareOriginal(target);
   assert.deepEqual(Buffer.from(await(await fetch(f.nodes.at(-1).href)).arrayBuffer()),f.context.originalBytes);
   f.context.originalBytes='<html>Please sign in</html>';
   await assert.rejects(f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
-  assert.throws(()=>f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
+  await assert.rejects(f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
+});
+
+test('HTML original overview containing embedded RFC headers is a provider operational failure',async()=>{
+  const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
+  f.deliver([row('a')]);
+  f.context.originalBytes='<html><head><title>Original message</title></head><body><pre>\nFrom: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.</pre></body></html>';
+  await assert.rejects(f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
+  assert.equal(f.nodes.length,0);
+});
+
+test('large network originals keep the controlled download fallback instead of embedding bytes',async()=>{
+  const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
+  f.deliver([row('a')]);
+  f.context.originalBytes=Buffer.concat([Buffer.from('From: sender@example.test\r\n\r\n'),Buffer.alloc((1<<20)+1,65)]);
+  const result=await f.reader.prepareOriginal(target);
+  assert.equal(result.bytes,f.context.originalBytes.length);
+  assert.equal(Object.hasOwn(result,'inline_base64'),false);
+  assert.equal(Object.hasOwn(result,'inline_bytes'),false);
 });
 
 test('Gmail originals allow the observed attachment redirect and reject other final origins',async()=>{
   const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
-  f.deliver([row('a')]);f.reader.armOriginal(target);f.reader.observeNativeOriginalURL('https://mail.google.com/download?id=a');f.reader.confirmOriginal(target);
+  f.deliver([row('a')]);
   f.context.responseURL='https://mail-attachment.googleusercontent.com/attachment/';
   assert.equal((await f.reader.prepareOriginal(target)).selector,'#sparkclaw-mail-original');
   f.context.responseURL='https://unknown.example.test/attachment/';
   await assert.rejects(f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
 });
 
-test('foreign URLs, ambiguous target parameters and wrong acknowledgements cannot seed direct reads',()=>{
-  for(const url of ['https://foreign.example/download?id=a','https://mail.google.com/download?id=a&other=a','https://mail.google.com/download?id=other']){
-    const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
-    f.deliver([row('a')]);f.reader.armOriginal(target);f.reader.observeNativeOriginalURL(url);f.reader.confirmOriginal(target);
-    assert.throws(()=>f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
-  }
+test('native URL observation and template acknowledgement are unavailable',()=>{
+  const f=fixture();
+  assert.equal(typeof f.reader.observeNativeOriginalURL,'undefined');
+  assert.equal(typeof f.reader.armOriginal,'undefined');
+  assert.equal(typeof f.reader.confirmOriginal,'undefined');
+});
+
+test('mark-read fails closed without a provider network mutation',async()=>{
+  const f=fixture(),target={account_address:interval.account_address,provider_message_id:'a'};
+  f.deliver([row('a',{unread:true})]);
+  await assert.rejects(f.reader.markRead(target),{code:'email_network_mark_read_unqualified'});
 });
 
 test('account changes fail closed and disposal restores only owned network hooks',()=>{
@@ -89,6 +186,125 @@ test('account changes fail closed and disposal restores only owned network hooks
   assert.throws(()=>f.reader.snapshot(interval),{code:'email_account_identity_mismatch'});
   const newerHook=()=>{};f.context.fetch=newerHook;
   f.reader.dispose();assert.equal(f.context.fetch,newerHook);assert.equal(f.context.SparkClawMailReader,undefined);
+});
+
+test('QQ replays an observed same-origin list resource when its initial request predates the hooks',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
+  f.context.performance={getEntriesByType:()=>[
+    {name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'},
+    {name:'https://wx.mail.qq.com/list/maillist?func=1'},
+    {name:'https://wx.mail.qq.com/list/maillist?func=2&sid=wrong-operation'},
+    {name:'https://foreign.example.test/list/maillist?func=1&sid=foreign-session'},
+  ]};
+  const requests=[];
+  f.context.fetch=async(url,options)=>{
+    requests.push({url,options});
+    return new Response(new URL(url).pathname==='/list/maillist'
+      ? JSON.stringify({head:{ret:0},body:{list:[row('qq-message',{folder:'inbox',provider_selection_id:'qq-message',provider_thread_id:'qq-message'})],total_num:1}})
+      : 'From: sender@example.test\r\n\r\nSynthetic original.');
+  };
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list,download:({id,binding})=>{const u=new URL('/read/readmail',location.origin);u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;}});`,f.context);
+  const result=await f.context.SparkClawMailReader.listPage({...interval,page:0,folder:'inbox'});
+  assert.equal(result.rows.length,1);assert.equal(result.has_next,false);
+  const listURL=new URL(requests[0].url);
+  assert.equal(listURL.origin,f.context.location.origin);assert.equal(listURL.searchParams.get('sid'),'private-qq-session');
+  assert.equal(listURL.searchParams.get('page_now'),'0');assert.equal(requests[0].options.method,'GET');
+  assert.ok(!JSON.stringify(result).includes('private-qq-session'));
+  await f.context.SparkClawMailReader.prepareOriginal({account_address:interval.account_address,provider_message_id:'qq-message'});
+  assert.equal(new URL(requests[1].url).searchParams.get('sid'),'private-qq-session');
+  f.context.SparkClawMailReader.dispose();
+});
+
+test('QQ stops native pagination after an ordered qualified page crosses the lower bound',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
+  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'}]};
+  let rows=Array.from({length:50},(_,index)=>row(`old-${index}`,{folder:'inbox',provider_selection_id:`old-${index}`,provider_thread_id:`old-${index}`,
+    received_at:new Date(Date.parse(interval.interval_start)-index*1000-1000).toISOString()}));
+  f.context.fetch=async()=>new Response(JSON.stringify({head:{ret:0},body:{list:rows,total_num:5000}}));
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list,download:()=>null});`,f.context);
+  const terminal=await f.context.SparkClawMailReader.listPage({...interval,page:0,folder:'inbox'});
+  assert.equal(terminal.rows.length,0);assert.equal(terminal.has_next,false);
+  rows=[rows[1],rows[0],...rows.slice(2)];
+  const unqualified=await f.context.SparkClawMailReader.listPage({...interval,page:0,folder:'inbox'});
+  assert.equal(unqualified.has_next,true,'an ordering violation must not certify the boundary');
+  f.context.SparkClawMailReader.dispose();
+});
+
+test('QQ timeline sends a server-side range once and fences locked results',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
+  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
+  const requests=[];let locked=0;
+  f.context.fetch=async(url,init)=>{requests.push({url,init});return new Response(JSON.stringify({head:{ret:0},body:{total_num:2,lock_num:locked,list:[row('in',{folder:'inbox'}),row('sent',{folder:'sent'})]}}));};
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list});`,f.context);
+  const reader=f.context.SparkClawMailReader;
+  const result=await reader.listPage({...interval,provider_mode:'time_range'});
+  assert.equal(requests.length,1);assert.equal(new URL(requests[0].url).pathname,'/list/search');
+  assert.equal(requests[0].init.method,'POST');
+  assert.equal(requests[0].init.body.get('after'),String(Date.parse(interval.interval_start)/1000-1));
+  assert.equal(requests[0].init.body.get('before'),String(Date.parse(interval.interval_end)/1000));
+  assert.deepEqual(Array.from(result.rows,r=>r.provider_message_id),['in']);assert.equal(result.has_next,false);
+  locked=1;assert.equal((await reader.listPage({...interval,provider_mode:'time_range'})).unsupported_rows,1);
+  await assert.rejects(reader.listPage({...interval,provider_mode:'time_range',page:1}),{code:'email_incremental_unqualified'});
+});
+
+test('QQ refuses a non-list operation even when it carries a session id',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
+  f.context.performance={getEntriesByType:()=>[
+    {name:'https://wx.mail.qq.com/list/maillist?func=2&sid=private-qq-session&dirid=1'},
+  ]};
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list,download:()=>null});`,f.context);
+  const request=new f.XHR();request.open('GET','https://wx.mail.qq.com/list/maillist?func=2&sid=private-qq-session&dirid=1');request.send();
+  await assert.rejects(f.context.SparkClawMailReader.listPage({...interval,page:0,folder:'inbox'}),{code:'email_network_list_unqualified'});
+  f.context.SparkClawMailReader.dispose();
+});
+
+test('QQ true empty search omits list, while a rejected future interval is not certified empty',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
+  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
+  let rejected=false;
+  f.context.fetch=async()=>new Response(JSON.stringify(rejected?{head:{ret:-5002},body:{}}:{head:{ret:0},body:{total_num:0,lock_num:0,search_ts:1,is_lock:0}}));
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list});`,f.context);
+  const result=await f.context.SparkClawMailReader.listPage({...interval,provider_mode:'time_range'});
+  assert.equal(result.rows.length,0);assert.equal(result.unsupported_rows,0);assert.equal(result.has_next,false);
+  rejected=true;await assert.rejects(f.context.SparkClawMailReader.listPage({...interval,provider_mode:'time_range'}),{code:'email_network_list_unqualified'});
+});
+
+for(const provider of ['qq_mail','gmail'])test(`${provider} preserves nanosecond bounds around millisecond receipts, including empty sub-millisecond ranges`,async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.rangeRows=[row('at-ms',{folder:'inbox',received_at:'2026-09-10T00:00:00.123Z'})];
+  if(provider==='qq_mail'){
+    f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
+    f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
+    f.context.fetch=async()=>new Response(JSON.stringify({head:{ret:0},body:{total_num:1,lock_num:0,list:f.context.rangeRows}}));
+    vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list});`,f.context);
+  }else{
+    f.context.structuredClone=structuredClone;
+    f.context.fetch=async()=>{const value=[];value[0]=0;value[3]=0;value[19]=[[null,null,null,null]];return new Response(JSON.stringify(value));};
+    vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:()=>rangeRows,search:query=>{
+      const body=[[],null,[]];body[0][3]=query;body[0][15]=[];
+      const xhr=new XMLHttpRequest();xhr.open('POST','https://mail.google.com/list');xhr.send(JSON.stringify(body));
+      const value=[];value[0]=0;value[3]=0;value[19]=[[null,null,null,null]];
+      xhr.status=200;xhr.responseText=JSON.stringify(value);xhr.callback();
+    }});`,f.context);
+  }
+  const cases=[['122999999','123000001',1],['123000001','123999999',0],['122999998','122999999',0],['123','123000001',1],['122','123',0]];
+  for(const [start,end,count]of cases){
+    // All cases share the same second-wide server envelope. Only the exact
+    // local nanosecond bounds change; cached observations follow those bounds.
+    const options={...interval,provider_mode:'time_range',interval_start:`2026-09-10T00:00:00.${start}Z`,interval_end:`2026-09-10T00:00:00.${end}Z`};
+    const result=await f.context.SparkClawMailReader.listPage(options);
+    assert.equal(result.rows.length,count);assert.equal(result.has_next,false);
+    assert.equal(f.context.SparkClawMailReader.snapshot(options).rows.length,count);
+  }
+  const offset={...interval,provider_mode:'time_range',interval_start:'2026-09-10T08:00:00.122999999+08:00',interval_end:'2026-09-10T00:00:00.123000001Z'};
+  assert.equal((await f.context.SparkClawMailReader.listPage(offset)).rows.length,1);
+  assert.equal(f.context.SparkClawMailReader.snapshot(offset).rows.length,1);
+  await assert.rejects(f.context.SparkClawMailReader.listPage({...offset,interval_start:'2026-02-30T00:00:00Z'}),{code:'invalid_request'});
 });
 
 import {networkListPage} from '../../../scripts/email/lib/network-reader.mjs';
@@ -142,11 +358,9 @@ test('Gmail HTTP paging reuses the observed query and session headers without ex
   await assert.rejects(f.context.SparkClawMailReader.listPage({...interval,interval_end:'2026-09-12T00:00:00Z'}),{code:'email_network_list_unqualified'});
   assert.equal(request,null);
   value[19]=[[1,null,0,0]];
-  f.context.location.hash='#search/'+encodeURIComponent(body[0][3]);
-  f.context.document.querySelectorAll=selector=>selector==='tr.zA'?[]:[{getClientRects:()=>[{}],textContent:'No messages matched your search.'}];
   const empty=await f.context.SparkClawMailReader.listPage({...interval,page:0});
   assert.equal(empty.rows.length,0);assert.equal(empty.has_next,false);
-  f.context.document.querySelectorAll=()=>[];
+  value[19]=[[1,null,0]];
   await assert.rejects(f.context.SparkClawMailReader.listPage({...interval,page:0}),{code:'email_network_list_unqualified'});
 });
 
@@ -174,7 +388,7 @@ test('Outlook Worker replay binds the startup Inbox, validates individual receip
   context.worker.postMessage(request('ItemRows','drafts-id'));
   context.worker.postMessage(request('ConversationRows','inbox-id'));
   context.worker.postMessage(request('ConversationRows','sent-id'));
-  vm.runInContext(`transport=(${installOutlookTransport.toString()})({account,getInbox,receiveRows,originalURL});`,context);
+  vm.runInContext(`installOutlookOriginalResolver=${installOutlookOriginalResolver.toString()};installOutlookRangeTransport=${installOutlookRangeTransport.toString()};transport=(${installOutlookTransport.toString()})({account,getInbox,receiveRows,originalURL});`,context);
   const result=await context.transport.listPage({...interval,page:0});
   assert.equal(result.rows.length,1);assert.equal(result.rows[0].unread,false);assert.equal(result.has_next,false);
   assert.equal(observed[0].folderId,'inbox-id');assert.equal(observed[0].sortBy.isDraftsFolder,false);
@@ -252,18 +466,29 @@ test('Outlook folder coverage requires a full hierarchy and excludes hidden fold
   folders[2].ParentFolderId.Id='archive';folders[2].ExtendedProperty=[];assert.equal(parseOutlookFolders(value).qualified,false);
 });
 
-test('Outlook attachment aliases require the native export account and item proof before template reuse',async()=>{
-  const f=fixture();f.reader.dispose();f.context.location={origin:'https://outlook.live.com',href:'https://outlook.live.com/mail/0/inbox'};
-  vm.runInContext(`(${installReader.toString()})({provider:'outlook',origins:['https://outlook.live.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows});`,f.context);
-  const reader=f.context.SparkClawMailReader,target={account_address:interval.account_address,provider_message_id:'a'};
-  new f.XHR().deliver('https://outlook.live.com/list',{rows:[row('a'),row('b')]});
-  const url='https://attachment.outlook.live.net/owa/MSA%3Aopaque-alias/service.svc/s/DownloadMessage?id=a&token=private-fixture';
-  for(const proof of [undefined,{account_address:'other@example.test',provider_message_id:'a'},{account_address:interval.account_address,provider_message_id:'wrong'}]){
-    reader.armOriginal(target);reader.observeNativeOriginalURL(url,proof);reader.confirmOriginal(target);
-    assert.throws(()=>reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
-  }
-  reader.armOriginal(target);reader.observeNativeOriginalURL(url,target);reader.confirmOriginal(target);
-  const result=await reader.prepareOriginal({...target,provider_message_id:'b'});
-  assert.equal(new URL(f.context.requests.at(-1)).searchParams.get('id'),'b');
-  assert.ok(!JSON.stringify(result).includes('private-fixture'));reader.dispose();
+test('Outlook original transport delegates exclusively to its native resolver even after observing ItemExport',async()=>{
+  const calls=[],workerMessages=[];
+  let consumer,disposed=0,detached=0,rejected=false;
+  const nativeURL=new URL('https://attachment.outlook.live.net/owa/observed-route/service.svc/s/DownloadMessage?id=immutable-target&outputFormat=0&token=page-private-fixture');
+  const resolver={
+    async prepare(target){calls.push(structuredClone(target));if(rejected)throw Object.assign(new Error('email_network_original_unqualified'),{code:'email_network_original_unqualified'});return nativeURL;},
+    diagnostics(){return {stage:'native_ready'};},
+    dispose(){disposed++;}
+  };
+  const bridge={attach(value){consumer=value;},detach(value){assert.equal(value,consumer);detached++;}};
+  const context=vm.createContext({window:{SparkClawOutlookEarlyBridge:bridge},Map,Error,URL,Date,structuredClone,setTimeout,clearTimeout,
+    account:()=>interval.account_address,getInbox:()=>({id:'inbox-id',account:interval.account_address}),receiveRows:()=>{},
+    installOutlookOriginalResolver:()=>resolver,
+    installOutlookRangeTransport:()=>({arm(){},listPage(){},fetchSearch(){},dispose(){}})
+  });
+  vm.runInContext(`transport=(${installOutlookTransport.toString()})({account,getInbox,receiveRows});`,context);
+  consumer.request({postMessage(value){workerMessages.push(value);}},{id:'native',type:'APPLY',path:['execute'],argumentList:[{value:{operationName:'ItemExport',requestId:1,context:{},variables:{itemId:'observed-other-item',mailboxInfo:{mailboxSmtpAddress:interval.account_address},downloadUrl:'do-not-replay'}}}]});
+  const target={account_address:interval.account_address,provider_message_id:'immutable-target'};
+  const url=await context.transport.prepareOriginal(target);
+  assert.equal(url,nativeURL);assert.deepEqual(calls,[target]);assert.equal(workerMessages.length,0);
+  assert.equal(context.transport.diagnostics().templateCount,0);assert.equal(context.transport.diagnostics().original.stage,'native_ready');
+  assert.equal(Object.hasOwn(context.transport.diagnostics(),'exportRequest'),false);
+  rejected=true;await assert.rejects(context.transport.prepareOriginal(target),{code:'email_network_original_unqualified'});
+  assert.equal(workerMessages.length,0);assert.equal(calls.length,2);
+  context.transport.dispose();assert.equal(disposed,1);assert.equal(detached,1);
 });

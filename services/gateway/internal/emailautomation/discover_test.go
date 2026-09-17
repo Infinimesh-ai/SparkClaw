@@ -43,11 +43,14 @@ func TestDiscoveryAdmissionAndSpecifiedCaptureRequireOwnerBinding(t *testing.T) 
 
 func TestDiscoveryRejectsMisleadingCoverageAndCrossAccountTargets(t *testing.T) {
 	provider, _ := DefaultRegistry().Get(app.EmailProviderGmail)
-	valid := `{"schema_version":1,"provider":"gmail","status":"listed","account_address":"owner@example.test","candidates":[{"account_address":"owner@example.test","provider_message_id":"a","provider_selection_id":"a"}],"coverage":{"scope":"inbox_unread","scan_complete":false,"scanned_rows":1,"unsupported_rows":0,"limited":true},"observed_at":"2026-09-08T00:00:00Z"}`
+	valid := `{"schema_version":1,"provider":"gmail","status":"listed","account_address":"owner@example.test","candidates":[{"account_address":"owner@example.test","provider_message_id":"a","provider_selection_id":"a"}],"coverage":{"scope":"inbound_received","lane":"recent_inbound","scan_complete":false,"scanned_rows":1,"unsupported_rows":0,"limited":true},"observed_at":"2026-09-08T00:00:00Z"}`
+	request := validReadRequest()
+	start := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	request.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: "owner@example.test", IntervalStart: start, IntervalEnd: start.Add(time.Hour), Limit: 50}
 	for name, raw := range map[string]string{"valid": valid, "false empty": strings.Replace(valid, `"listed"`, `"empty"`, 1), "false complete": strings.Replace(valid, `"scan_complete":false`, `"scan_complete":true`, 1), "cross account": strings.Replace(valid, `"account_address":"owner@example.test"`, `"account_address":"other@example.test"`, 1), "missing candidates": strings.Replace(valid, `"candidates":[{"account_address":"owner@example.test","provider_message_id":"a","provider_selection_id":"a"}],`, ``, 1)} {
 		t.Run(name, func(t *testing.T) {
 			controller := &fakePlaywrightController{status: browsercontrol.Status{Configured: true, CredentialGeneration: 7}, result: browsercontrol.ScriptExecutionResult{State: "completed", CredentialGeneration: 7, Result: json.RawMessage(raw)}}
-			_, err := NewPlaywrightRunner(controller).Discover(t.Context(), provider, validReadRequest())
+			_, err := NewPlaywrightRunner(controller).Discover(t.Context(), provider, request)
 			if name == "valid" {
 				if err != nil {
 					t.Fatal(err)
@@ -105,15 +108,16 @@ func TestDiscoveryCoverageAcceptsBoundedQQFolderCursorAndRejectsInvalidMetadata(
 	}
 }
 
-func TestProductionDiscoveryRunnerAcceptsUnreadWithoutRecentInterval(t *testing.T) {
+func TestProductionDiscoveryRunnerRequiresRecentIntervalAndRejectsUnreadLane(t *testing.T) {
 	for _, providerID := range []string{"qq_mail", "outlook", "gmail"} {
 		t.Run(providerID, func(t *testing.T) {
 			provider, _ := DefaultRegistry().Get(providerID)
 			request := validReadRequest()
 			request.Provider = providerID
 			request.ScriptRevision = provider.Discover.Revision
-			request.Discovery = &app.EmailDiscoveryOptions{Lane: "unread", AccountAddress: "owner@example.test", Limit: 50}
-			value := app.EmailDiscoveryResult{SchemaVersion: 1, Provider: providerID, Status: "partial", AccountAddress: "owner@example.test", Candidates: []app.EmailCaptureTarget{{AccountAddress: "owner@example.test", ProviderMessageID: "mail", ProviderSelectionID: "mail", Folder: "inbox"}}, Coverage: app.EmailDiscoveryCoverage{Scope: "inbox_unread", Lane: "unread", ScannedRows: 1, Limited: true, Reason: "loaded_rows_only"}, ObservedAt: time.Now().UTC()}
+			start := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+			request.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: "owner@example.test", IntervalStart: start, IntervalEnd: start.Add(time.Hour), Limit: 50}
+			value := app.EmailDiscoveryResult{SchemaVersion: 1, Provider: providerID, Status: "partial", AccountAddress: "owner@example.test", Candidates: []app.EmailCaptureTarget{{AccountAddress: "owner@example.test", ProviderMessageID: "mail", ProviderSelectionID: "mail", Folder: "inbox"}}, Coverage: app.EmailDiscoveryCoverage{Scope: "inbound_received", Lane: "recent_inbound", ScannedRows: 1, Limited: true, Reason: "network_page_continues"}, ObservedAt: time.Now().UTC()}
 			raw, err := json.Marshal(value)
 			if err != nil {
 				t.Fatal(err)
@@ -122,21 +126,22 @@ func TestProductionDiscoveryRunnerAcceptsUnreadWithoutRecentInterval(t *testing.
 			runner := NewPlaywrightRunner(browser)
 			result, err := runner.Discover(t.Context(), provider, request)
 			if err != nil || len(result.Candidates) != 1 || len(browser.requests) != 1 {
-				t.Fatalf("production unread request rejected before script: %v", err)
+				t.Fatalf("recent interval request rejected before script: %v", err)
 			}
 			input, ok := browser.requests[0].Input.(map[string]any)["discovery"].(*app.EmailDiscoveryOptions)
-			if !ok || input.Lane != "unread" || !input.IntervalStart.IsZero() || !input.IntervalEnd.IsZero() {
-				t.Fatal("unread script request invented a time interval")
+			if !ok || input.Lane != "recent_inbound" || input.IntervalStart.IsZero() || input.IntervalEnd.IsZero() {
+				t.Fatal("recent script request lost its time interval")
 			}
 			browser.requests = nil
-			request.Discovery.Lane = "recent_inbound"
+			request.Discovery.IntervalStart = time.Time{}
 			if _, err := runner.Discover(t.Context(), provider, request); ErrorCode(err) != app.ToolErrorEmailInvalidInput || len(browser.requests) != 0 {
 				t.Fatalf("recent request without interval reached script: %v", err)
 			}
+			request.Discovery.IntervalStart = start
 			request.Discovery.Lane = "unread"
 			request.Discovery.AccountAddress = ""
 			if _, err := runner.Discover(t.Context(), provider, request); ErrorCode(err) != app.ToolErrorEmailInvalidInput || len(browser.requests) != 0 {
-				t.Fatalf("unbound unread request reached script: %v", err)
+				t.Fatalf("unread request reached script: %v", err)
 			}
 		})
 	}

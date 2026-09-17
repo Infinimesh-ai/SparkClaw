@@ -38,6 +38,11 @@ const (
 	OperationGetEmailOwnerStatus         StoreOperation = "email_management.GetEmailOwnerStatus"
 	OperationListEmailMailboxes          StoreOperation = "email_management.ListEmailMailboxes"
 	OperationGetEmailMailbox             StoreOperation = "email_management.GetEmailMailbox"
+	OperationBeginEmailSync              StoreOperation = "email_management.BeginEmailSync"
+	OperationCommitEmailSync             StoreOperation = "email_management.CommitEmailSync"
+	OperationReportEmailSourceFailure    StoreOperation = "email_management.ReportEmailSourceFailure"
+	OperationListEmailSyncWarnings       StoreOperation = "email_management.ListEmailSyncWarnings"
+	OperationAcknowledgeEmailSyncWarning StoreOperation = "email_management.AcknowledgeEmailSyncWarning"
 	OperationAdmitEmailDiscovery         StoreOperation = "email_management.AdmitEmailDiscovery"
 	OperationRequestEmailJob             StoreOperation = "email_management.RequestEmailJob"
 	OperationClaimEmailJob               StoreOperation = "email_management.ClaimEmailJob"
@@ -51,9 +56,13 @@ const (
 	OperationPublishEmailConcern         StoreOperation = "email_management.PublishEmailConcern"
 	OperationPublishEmailClassification  StoreOperation = "email_management.PublishEmailClassification"
 	OperationActivateEmailEventPolicy    StoreOperation = "email_management.ActivateEmailEventPolicy"
+	OperationActivateEmailTimelinePolicy StoreOperation = "email_management.ActivateEmailTimelinePolicy"
 	OperationChangeEmailAssignment       StoreOperation = "email_management.ChangeEmailAssignment"
 	OperationRenameEmailConversation     StoreOperation = "email_management.RenameEmailConversation"
 	OperationOverrideEmailClassification StoreOperation = "email_management.OverrideEmailClassification"
+	OperationPurgeEmailCaptures          StoreOperation = "email_management.PurgeEmailCaptures"
+	OperationScanEmailCaptures           StoreOperation = "email_management.ScanEmailCaptures"
+	OperationAdoptEmailCapture           StoreOperation = "email_management.AdoptEmailCapture"
 	OperationUpdateEmailSenderRule       StoreOperation = "email_management.UpdateEmailSenderRule"
 	OperationListEmailSenderRules        StoreOperation = "email_management.ListEmailSenderRules"
 	OperationPublishEmailSummary         StoreOperation = "email_management.PublishEmailSummary"
@@ -304,6 +313,11 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationGetEmailOwnerStatus:         {ID: OperationGetEmailOwnerStatus, Repository: "EmailRepository", Method: "GetEmailOwnerStatus", Mode: operationRead, Timeout: timeoutRead},
 	OperationListEmailMailboxes:          {ID: OperationListEmailMailboxes, Repository: "EmailRepository", Method: "ListEmailMailboxes", Mode: operationRead, Timeout: timeoutRead},
 	OperationGetEmailMailbox:             {ID: OperationGetEmailMailbox, Repository: "EmailRepository", Method: "GetEmailMailbox", Mode: operationRead, Timeout: timeoutRead},
+	OperationBeginEmailSync:              {ID: OperationBeginEmailSync, Repository: "EmailRepository", Method: "BeginEmailSync", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationCommitEmailSync:             {ID: OperationCommitEmailSync, Repository: "EmailRepository", Method: "CommitEmailSync", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationReportEmailSourceFailure:    {ID: OperationReportEmailSourceFailure, Repository: "EmailRepository", Method: "ReportEmailSourceFailure", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationListEmailSyncWarnings:       {ID: OperationListEmailSyncWarnings, Repository: "EmailRepository", Method: "ListEmailSyncWarnings", Mode: operationRead, Timeout: timeoutRead},
+	OperationAcknowledgeEmailSyncWarning: {ID: OperationAcknowledgeEmailSyncWarning, Repository: "EmailRepository", Method: "AcknowledgeEmailSyncWarning", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationAdmitEmailDiscovery:         {ID: OperationAdmitEmailDiscovery, Repository: "EmailRepository", Method: "AdmitEmailDiscovery", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationRequestEmailJob:             {ID: OperationRequestEmailJob, Repository: "EmailRepository", Method: "RequestEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationClaimEmailJob:               {ID: OperationClaimEmailJob, Repository: "EmailRepository", Method: "ClaimEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},
@@ -317,9 +331,13 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationPublishEmailConcern:         {ID: OperationPublishEmailConcern, Repository: "EmailRepository", Method: "PublishEmailConcern", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPublishEmailClassification:  {ID: OperationPublishEmailClassification, Repository: "EmailRepository", Method: "PublishEmailClassification", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationActivateEmailEventPolicy:    {ID: OperationActivateEmailEventPolicy, Repository: "EmailRepository", Method: "ActivateEmailEventPolicy", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationActivateEmailTimelinePolicy: {ID: OperationActivateEmailTimelinePolicy, Repository: "EmailRepository", Method: "ActivateEmailTimelinePolicy", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationChangeEmailAssignment:       {ID: OperationChangeEmailAssignment, Repository: "EmailRepository", Method: "ChangeEmailAssignment", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationRenameEmailConversation:     {ID: OperationRenameEmailConversation, Repository: "EmailRepository", Method: "RenameEmailConversation", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationOverrideEmailClassification: {ID: OperationOverrideEmailClassification, Repository: "EmailRepository", Method: "OverrideEmailClassification", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationPurgeEmailCaptures:          {ID: OperationPurgeEmailCaptures, Repository: "EmailRepository", Method: "PurgeEmailCaptures", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationScanEmailCaptures:           {ID: OperationScanEmailCaptures, Repository: "EmailRepository", Method: "ScanEmailCaptures", Mode: operationRead, Timeout: timeoutRead},
+	OperationAdoptEmailCapture:           {ID: OperationAdoptEmailCapture, Repository: "EmailRepository", Method: "AdoptEmailCapture", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationUpdateEmailSenderRule:       {ID: OperationUpdateEmailSenderRule, Repository: "EmailRepository", Method: "UpdateEmailSenderRule", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationListEmailSenderRules:        {ID: OperationListEmailSenderRules, Repository: "EmailRepository", Method: "ListEmailSenderRules", Mode: operationRead, Timeout: timeoutRead},
 	OperationPublishEmailSummary:         {ID: OperationPublishEmailSummary, Repository: "EmailRepository", Method: "PublishEmailSummary", Mode: operationWrite, Timeout: timeoutTransaction},

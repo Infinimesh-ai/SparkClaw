@@ -442,6 +442,8 @@ class FakeClient {
 }
 
 class FakeScriptFactory {
+  async drainIdleMailReads() {}
+  async close() {}
   constructor() {
     this.calls = [];
     this.loginProviders = [];
@@ -464,6 +466,53 @@ class FakeScriptFactory {
     this.loginProviders.push(provider);
   }
 }
+
+test("script factories must expose explicit pool lifecycle methods", () => {
+  for(const missing of ['drainIdleMailReads','close']) {
+    const scripts=new FakeScriptFactory();scripts[missing]=undefined;
+    assert.throws(()=>new BrowserController({clientFactory:new FakeFactory(),scriptFactory:scripts}),/scriptFactory is invalid/);
+  }
+});
+
+test("exclusive actions drain idle mail pages before opening clients or provider scripts",async()=>{
+  for(const mode of ['validation','mcp','login','send']) {
+    const events=[],factory=new FakeFactory(),scripts=new FakeScriptFactory();
+    const open=factory.open.bind(factory);factory.open=async(...args)=>{events.push('open');return open(...args);};
+    scripts.drainIdleMailReads=async()=>{events.push('drain');};
+    scripts.openProviderLogin=async()=>{events.push('login');};
+    scripts.runScript=async()=>{events.push('send');return {state:'completed',sourceChecksum:'sha256:'+'a'.repeat(64),result:{}};};
+    const controller=new BrowserController({clientFactory:factory,scriptFactory:scripts});
+    if(mode==='validation')await controller.validateToken({profile_id:'default',token});
+    if(mode==='mcp')await controller.acquire(acquireInput());
+    if(mode==='login')await controller.openProviderLogin({profile_id:'default',task_id:'login',provider:'gmail'});
+    if(mode==='send')await controller.runScript(runScriptInput({operation:'send'}));
+    assert.deepEqual(events,['drain',mode==='login'?'login':mode==='send'?'send':'open']);await controller.shutdown();
+  }
+});
+
+test("failed idle cleanup blocks every exclusive action and releases its reservation",async()=>{
+  for(const mode of ['validation','mcp','login','send']) {
+    const factory=new FakeFactory(),scripts=new FakeScriptFactory();
+    scripts.drainIdleMailReads=async()=>{throw new Error('cleanup failed');};
+    const controller=new BrowserController({clientFactory:factory,scriptFactory:scripts});
+    const action=()=>mode==='validation'?controller.validateToken({profile_id:'default',token}):mode==='mcp'?controller.acquire(acquireInput()):mode==='login'?controller.openProviderLogin({profile_id:'default',task_id:'login',provider:'gmail'}):controller.runScript(runScriptInput({operation:'send'}));
+    await assert.rejects(action());assert.equal(factory.clients.length,0);assert.equal(scripts.calls.length,0);assert.equal(scripts.loginProviders.length,0);assert.equal(controller.health().active_session,false);await controller.shutdown();
+  }
+});
+
+test("all shutdown callers wait for active read cleanup and the final pool close",async()=>{
+  const scripts=new ControlledScripts(),closeGate=deferred();let closing=false;
+  scripts.close=async()=>{closing=true;await closeGate.promise;};
+  const controller=new BrowserController({clientFactory:new FakeFactory(),scriptFactory:scripts});
+  const work=controller.runScript(providerInput('gmail'));
+  await waitFor(()=>scripts.calls.length===1,500);
+  let firstDone=false,secondDone=false;
+  const first=controller.shutdown().then(()=>{firstDone=true;});
+  const second=controller.shutdown().then(()=>{secondDone=true;});
+  await Promise.resolve();assert.equal(closing,false);
+  scripts.calls[0].cleanup.resolve();await work;await waitFor(()=>closing,500);
+  assert.equal(firstDone,false);assert.equal(secondDone,false);closeGate.resolve();await Promise.all([first,second]);
+});
 
 class BlockingScriptFactory extends FakeScriptFactory {
   async runScript({ signal }) {

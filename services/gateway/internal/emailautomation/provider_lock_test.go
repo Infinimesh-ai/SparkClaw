@@ -163,7 +163,8 @@ func TestCanceledProviderWaitersNeverReachBrowser(t *testing.T) {
 		},
 		"collect-page": func(ctx context.Context) error {
 			binding := request
-			binding.Discovery = &app.EmailDiscoveryOptions{Lane: "unread", AccountAddress: "owner@example.test", Limit: 50}
+			start := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+			binding.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: "owner@example.test", IntervalStart: start, IntervalEnd: start.Add(time.Hour), Limit: 50, ProviderMode: app.EmailProviderModeTimeRange}
 			_, err := controller.CollectPageForOwner(ctx, "other", binding)
 			return err
 		},

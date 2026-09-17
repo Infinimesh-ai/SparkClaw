@@ -23,7 +23,8 @@ test('native Tampermonkey lifecycle: fresh import, upgrade retirement, user-copy
         await page.route('https://chatgpt.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><nav><a href="/c/one">Fixture</a></nav><main></main>'}));
         await page.goto('https://chatgpt.com/');
         // Check actual native script execution, after first-install inspection.
-        await page.locator('#sparkclaw-batch-scan').waitFor({state:'attached',timeout:15000});
+        await page.locator('#sparkclaw-ai-export-bridge').waitFor({state:'attached',timeout:15000});
+        assert.equal(await page.locator('#export-controls-container, #export-outline-container, #sparkclaw-batch-controls').count(),0);
         const state=await worker.evaluate(async()=>chrome.storage.local.get(null));
         assert.equal(state['!extdb.@meta#'+active].value.evilness,0,'pinned system script must be executable');
         assert.equal(state['!extdb.@meta#'+active].value.system,true);

@@ -50,7 +50,7 @@ import type {
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 import { clientTimezone } from "../lib/timezone";
 import { emailQuery } from "./email";
-import type { EmailVerification, EmailDraft, EmailDraftInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus } from "./email";
+import type { EmailVerification, EmailDraft, EmailDraftInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus, EmailSyncWarning, EmailSyncWarningPage, EmailPreview, EmailCleanupScope, EmailCleanupResult } from "./email";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const PAIRING_API_BASE = import.meta.env.VITE_SPARKCLAW_PAIRING_API_BASE ?? "http://127.0.0.1:18795";
@@ -76,11 +76,19 @@ export function apiToken() {
 }
 
 export function saveAPIToken(token: string) {
+  if (window.localStorage.getItem(TOKEN_STORAGE_KEY) !== token) clearEmailRefreshGuard();
   window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
 }
 
 export function clearAPIToken() {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  clearEmailRefreshGuard();
+}
+
+function clearEmailRefreshGuard() {
+  const key = "sparkclaw.email.refresh.v1";
+  window.localStorage.removeItem(key);
+  window.dispatchEvent(new StorageEvent("storage", { key }));
 }
 
 async function request<T>(path: string, init?: RequestInit, base = API_BASE): Promise<T> {
@@ -335,6 +343,10 @@ export const api = {
   },
   config: () => request<PublicConfig>("/api/config"),
   owner: () => request<OwnerProfile>("/api/owner"),
+  updateLanguage: (language: "en" | "zh") => request<OwnerProfile>("/api/owner/language", {
+    method: "PUT",
+    body: JSON.stringify({ language })
+  }),
   updateOwner: (displayName: string, email: string, preferences: Record<string, string>) =>
     request<OwnerProfile>("/api/owner", {
       method: "POST",
@@ -370,6 +382,11 @@ export const api = {
     request<EmailMessagePage>(`/api/email/pending${emailQuery(filters)}`, { signal }),
   emailVerification: (id: string) => request<EmailVerification>(`/api/email/messages/${encodeURIComponent(id)}/verification`),
   emailMessage: (id: string, signal?: AbortSignal) => request<EmailMessage>(`/api/email/messages/${encodeURIComponent(id)}`, { signal }),
+  // Reads the parsed projection, not the captured bytes; openEmailFile below
+  // remains the only path that ever touches untrusted source data.
+  emailPreview: (id: string, signal?: AbortSignal) => request<EmailPreview>(`/api/email/messages/${encodeURIComponent(id)}/preview`, { signal }),
+  cleanupEmailSource: (body: { scope: EmailCleanupScope; command_key: string; mail_id?: string; mailbox_id?: string; date?: string }) =>
+    request<EmailCleanupResult>("/api/email/source/cleanup", { method: "POST", body: JSON.stringify(body) }),
   emailNotifications: (filters: EmailFilters = {}, signal?: AbortSignal) =>
     request<EmailMessagePage>(`/api/email/notifications${emailQuery(filters)}`, { signal }),
   emailInteractionMails: (filters: EmailFilters = {}, signal?: AbortSignal) =>
@@ -398,7 +415,11 @@ export const api = {
   reconcileEmailDraft: (id: string, sentMailId?: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify(sentMailId ? { sent_mail_id: sentMailId } : {}) }),
   sendEmailDraft: (id: string, expectedVersion: number, idempotencyKey: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/send`, { method: "POST", body: JSON.stringify({ expected_version: expectedVersion, idempotency_key: idempotencyKey }) }),
   emailSyncStatus: (signal?: AbortSignal) => request<EmailSyncStatus>("/api/email/sync-status", { signal }),
-  syncEmail: (mailboxId = "") => request<{ scheduled: boolean }>("/api/email/sync", {
+  emailSyncWarnings: (mailboxId: string, cursor = "") => request<EmailSyncWarningPage>(`/api/email/sync-warnings?mailbox_id=${encodeURIComponent(mailboxId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
+  acknowledgeEmailSyncWarning: (mailboxId: string, warningId: string) => request<EmailSyncWarning>(`/api/email/sync-warnings/${encodeURIComponent(warningId)}/acknowledge`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mailbox_id: mailboxId })
+  }),
+  syncEmail: (mailboxId = "") => request<import("./email").EmailSyncSchedule>("/api/email/sync", {
     method: "POST", body: JSON.stringify(mailboxId ? { mailbox_id: mailboxId } : {})
   }),
   markEmailViewed: (mailIds: string[], signal?: AbortSignal) => {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -19,10 +20,40 @@ var qqMailFolderPattern = regexp.MustCompile(`^qq:[1-9][0-9]{3,9}$`)
 var intakeContinuationPattern = regexp.MustCompile(`^(?:[a-f0-9]{64}:[1-9][0-9]{0,3}|(?:q1|n1):[A-Za-z0-9_-]{1,1000})$`)
 
 func validMailTarget(target app.EmailCaptureTarget) bool {
-	return len(target.AccountAddress) <= 320 && utf8.ValidString(target.AccountAddress) && mailAddressPattern.MatchString(target.AccountAddress) &&
+	return validRecoveryCapture(target) && len(target.AccountAddress) <= 320 && utf8.ValidString(target.AccountAddress) && mailAddressPattern.MatchString(target.AccountAddress) &&
 		len(target.ProviderMessageID) <= 1024 && len(target.ProviderSelectionID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderMessageID) && mailLocatorPattern.MatchString(target.ProviderSelectionID) &&
 		(target.ProviderThreadID == "" || len(target.ProviderThreadID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderThreadID)) &&
+		(target.ProviderNativeID == "" || len(target.ProviderNativeID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderNativeID)) &&
 		(target.Folder == "" || target.Folder == "inbox" || target.Folder == "sent" || target.Folder == "all" || qqMailFolderPattern.MatchString(target.Folder) || strings.HasPrefix(target.Folder, "outlook:") && len(target.Folder) <= 1032 && mailLocatorPattern.MatchString(strings.TrimPrefix(target.Folder, "outlook:")))
+}
+
+func validRecoveryCapture(target app.EmailCaptureTarget) bool {
+	v := target.RecoveryCapture
+	if v == nil {
+		return true
+	}
+	if v.PurgedAt != nil || v.PurgeReason != "" || len(v.ManifestJSON) == 0 || len(v.ManifestJSON) > 64<<10 || !utf8.ValidString(v.ManifestJSON) {
+		return false
+	}
+	digest := sha256.Sum256([]byte(v.ManifestJSON))
+	if v.ManifestSHA256 != "sha256:"+hex.EncodeToString(digest[:]) || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(v.OriginalSHA256) || !regexp.MustCompile(`^cap_[a-f0-9]{32}$`).MatchString(v.ID) {
+		return false
+	}
+	var m struct {
+		SchemaVersion     int    `json:"schema_version"`
+		Stage             string `json:"stage"`
+		AccountAddress    string `json:"account_address"`
+		ProviderMessageID string `json:"provider_message_id"`
+		CaptureID         string `json:"capture_id"`
+		Files             []struct {
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"files"`
+	}
+	if json.Unmarshal([]byte(v.ManifestJSON), &m) != nil || m.SchemaVersion != 1 || m.Stage != "script_capture" || !strings.EqualFold(m.AccountAddress, target.AccountAddress) || m.ProviderMessageID != target.ProviderMessageID || m.CaptureID != v.ID || len(m.Files) != 1 || m.Files[0].Path != v.OriginalPath || m.Files[0].SHA256 != v.OriginalSHA256 {
+		return false
+	}
+	return strings.HasSuffix(v.ManifestPath, "/"+v.ID+"/capture.json") && v.OriginalPath == strings.TrimSuffix(v.ManifestPath, "capture.json")+"message.eml" && !strings.Contains(v.ManifestPath, "..") && !strings.HasPrefix(v.ManifestPath, "/")
 }
 
 // DiscoverForOwner returns bounded discovery evidence without opening mail.
@@ -61,8 +92,8 @@ func (r *PlaywrightRunner) Discover(ctx context.Context, provider Provider, requ
 		return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailInvalidInput, "Invalid discovery binding")
 	}
 	if d := request.Discovery; d != nil {
-		if d.Lane != "unread" && d.Lane != "recent_inbound" || !validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) ||
-			d.Lane == "recent_inbound" && (d.IntervalStart.IsZero() || !d.IntervalStart.Before(d.IntervalEnd)) || !validIntakeLimit(d.Limit) || !validContinuation(d.Continuation) {
+		if d.Lane != "recent_inbound" || !validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) ||
+			d.IntervalStart.IsZero() || !d.IntervalStart.Before(d.IntervalEnd) || !validIntakeLimit(d.Limit) || !validContinuation(d.Continuation) {
 			return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailInvalidInput, "Invalid email discovery interval")
 		}
 	}
@@ -90,83 +121,91 @@ func (r *PlaywrightRunner) Discover(ctx context.Context, provider Provider, requ
 }
 
 func decodeDiscoveryResult(raw []byte, provider Provider, request ReadRequest, maxBytes int) (app.EmailDiscoveryResult, error) {
-	invalid := func() (app.EmailDiscoveryResult, error) {
-		return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Invalid email discovery result")
+	// "Invalid discovery result" with no reason is unactionable in production:
+	// an operator sees a mailbox that never advances and has nothing to go on.
+	// The reason names the failed check only — never any message content.
+	invalid := func(reason string) (app.EmailDiscoveryResult, error) {
+		slog.Warn("email discovery result rejected", "provider", provider.ID, "reason", reason, "bytes", len(raw))
+		return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Invalid email discovery result: "+reason)
 	}
 	var output app.EmailDiscoveryResult
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || len(fields) != 7 && (request.Discovery == nil || len(fields) != 8 || len(fields["threads"]) == 0) {
-		return invalid()
+		return invalid("missing_top_field")
 	}
 	for _, key := range []string{"schema_version", "provider", "status", "account_address", "candidates", "coverage", "observed_at"} {
 		if len(fields[key]) == 0 || string(fields[key]) == "null" {
-			return invalid()
+			return invalid("coverage_shape")
 		}
 	}
 	var coverageFields map[string]json.RawMessage
 	if json.Unmarshal(fields["coverage"], &coverageFields) != nil || len(coverageFields) < 5 {
-		return invalid()
+		return invalid("missing_coverage_field")
 	}
 	for _, key := range []string{"scope", "scan_complete", "scanned_rows", "unsupported_rows", "limited"} {
 		if len(coverageFields[key]) == 0 || string(coverageFields[key]) == "null" {
-			return invalid()
+			return invalid("output_decode")
 		}
 	}
 	if !utf8.Valid(raw) || decodeStrictJSONLimit(raw, &output, maxBytes) != nil ||
 		output.SchemaVersion != 1 || output.Provider != provider.ID || output.ObservedAt.IsZero() || output.Candidates == nil || len(output.Candidates) > 100 ||
 		!validMailTarget(app.EmailCaptureTarget{AccountAddress: output.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) {
-		return invalid()
+		return invalid("coverage_invalid")
 	}
 	coverage := output.Coverage
 	if !validCoverage(coverage, len(output.Candidates)) {
-		return invalid()
+		return invalid("bootstrap_scope")
 	}
 	if request.Discovery == nil {
-		if coverage.Scope != "inbox_unread" || coverage.Lane != "" || len(coverageFields) != 5 {
-			return invalid()
+		if coverage.Scope != "account" || coverage.Lane != "" || len(coverageFields) != 5 {
+			return invalid("interval_mismatch")
 		}
 	} else {
 		d := request.Discovery
 		if !strings.EqualFold(d.AccountAddress, output.AccountAddress) || coverage.Lane != d.Lane || len(output.Candidates) > d.Limit {
-			return invalid()
+			return invalid("scope_not_inbound_received")
 		}
-		if d.Lane == "unread" && coverage.Scope != "inbox_unread" || d.Lane == "recent_inbound" && coverage.Scope != "inbox_loaded" && coverage.Scope != "inbound_received" {
-			return invalid()
+		if coverage.Scope != "inbound_received" {
+			return invalid("check_9")
 		}
 		if d.Lane == "recent_inbound" && coverage.ScanComplete && !coverage.BoundaryQualified {
-			return invalid()
+			return invalid("check_10")
 		}
 	}
 	switch output.Status {
 	case "empty":
 		if len(output.Candidates) != 0 || !coverage.ScanComplete || coverage.UnsupportedRows != 0 {
-			return invalid()
+			return invalid("check_11")
 		}
 	case "listed":
 		if !coverage.Limited && (request.Discovery == nil || request.Discovery.Lane != "recent_inbound" || !coverage.BoundaryQualified || coverage.UnsupportedRows != 0 || len(output.Candidates) == 0) {
-			return invalid()
+			return invalid("check_12")
 		}
 	case "partial":
-		if request.Discovery == nil || !coverage.Limited || coverage.Reason == "" {
-			return invalid()
+		if request.Discovery == nil {
+			if coverage.Scope != "account" || !coverage.Limited {
+				return invalid("check_13")
+			}
+		} else if !coverage.Limited || coverage.Reason == "" {
+			return invalid("check_14")
 		}
 	default:
-		return invalid()
+		return invalid("check_15")
 	}
 	seen := map[string]bool{}
 	if request.Discovery == nil && len(output.Threads) > 0 || request.Discovery != nil && len(output.Threads) > request.Discovery.Limit {
-		return invalid()
+		return invalid("check_16")
 	}
 	for _, thread := range output.Threads {
 		if !validThreadTarget(thread) || !strings.EqualFold(thread.AccountAddress, output.AccountAddress) || seen[thread.ProviderThreadID] {
-			return invalid()
+			return invalid("check_17")
 		}
 		seen[thread.ProviderThreadID] = true
 	}
 	seen = map[string]bool{}
 	for _, target := range output.Candidates {
 		if !validMailTarget(target) || !strings.EqualFold(target.AccountAddress, output.AccountAddress) || seen[target.ProviderMessageID] {
-			return invalid()
+			return invalid("check_18")
 		}
 		seen[target.ProviderMessageID] = true
 	}

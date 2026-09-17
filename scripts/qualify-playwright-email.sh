@@ -20,6 +20,9 @@ Usage: bash scripts/qualify-playwright-email.sh [options]
 
 Run the fixed Playwright Extension login probes through the installed host
 controller. This command never invokes an email send script.
+Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_DISCOVER=1 for read-only list discovery.
+Also set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE=1 to exercise a one-hour
+timeline query. A passing smoke is not full incremental coverage qualification.
 Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ=1 and SPARKCLAW_TEST_EMAIL_OWNER_ID
 to also capture one unread inbox message per provider and verify its local files.
 
@@ -176,4 +179,11 @@ export SPARKCLAW_TEST_EMAIL_WORKSPACE_ROOT="${SPARKCLAW_TEST_EMAIL_WORKSPACE_ROO
 
 printf '[sparkclaw-playwright-email] profile=%s providers=%s\n' "$profile" "$providers"
 cd "$ROOT/services/gateway"
-go test -count=1 -run '^TestPlaywrightExtensionLiveEmailProbes$' -v ./internal/emailautomation
+live_test='^TestPlaywrightExtensionLiveEmailProbes$'
+if [[ "${SPARKCLAW_TEST_QQ_GMAIL_TIMELINE:-}" == 1 ]]; then
+  live_test='^TestQQGmailTimelineLiveQualification$'
+fi
+if [[ "${SPARKCLAW_TEST_EMAIL_PERFORMANCE:-}" == 1 ]]; then
+  live_test='^TestTimelineLivePerformance$'
+fi
+go test -count=1 -run "$live_test" -v ./internal/emailautomation

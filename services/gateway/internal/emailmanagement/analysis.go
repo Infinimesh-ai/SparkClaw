@@ -100,6 +100,11 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 	if !found || after.InputFingerprint != before.InputFingerprint || after.State == app.EmailSummaryStale {
 		return nil
 	}
+	if input.Kind == app.EmailJobClassification && input.PolicyVersion == analysisPromptVersion {
+		if match, ok := verificationNoticePattern(input); ok {
+			return s.publishVerificationPattern(ctx, job, cmd, input, after, epoch, match)
+		}
+	}
 	if s.analyzer == nil {
 		return errors.New("email_model_unavailable")
 	}
@@ -219,9 +224,39 @@ func (s *Service) analyze(ctx context.Context, job app.EmailJob) error {
 			coverage = strings.Join(output.MissingContext, "; ")
 		}
 		_, err = s.repository.PublishEmailSummary(ctx, store.EmailSummaryCommand{EmailCommand: cmd, Lease: lease(job, s.now()), Summary: app.EmailSummary{
-			ID: artifactID, TargetKind: job.Kind, TargetID: job.TargetID, Text: output.Summary, EvidenceRefs: output.EvidenceRefs, Coverage: coverage, InputPath: inputPath, InputSHA256: inputHash,
+			ID: artifactID, TargetKind: job.Kind, TargetID: job.TargetID, Text: output.Summary, Language: input.OutputLanguage, EvidenceRefs: output.EvidenceRefs, Coverage: coverage, InputPath: inputPath, InputSHA256: inputHash,
 			OutputPath: outputPath, OutputSHA256: outputHash, ModelVersion: output.ModelVersion, PromptVersion: promptVersion, Generation: job.Generation, InputFingerprint: job.InputFingerprint}})
 	}
+	return s.reconcileError(ctx, cmd, err)
+}
+
+func (s *Service) publishVerificationPattern(ctx context.Context, job app.EmailJob, cmd store.EmailCommand, input AnalysisInput, target app.EmailAnalysisTarget, epoch int64, match verificationPatternMatch) error {
+	artifactID := app.NewID("analysis")
+	directory := path.Join("email", ownerScope(job.OwnerID), "analysis", artifactID)
+	inputPath, outputPath := path.Join(directory, "input.json"), path.Join(directory, "output.json")
+	artifact := struct {
+		RuleVersion string           `json:"rule_version"`
+		Generation  int64            `json:"generation"`
+		Fingerprint string           `json:"input_fingerprint"`
+		OwnerEpoch  int64            `json:"owner_epoch"`
+		Inputs      map[string]int64 `json:"inputs"`
+		Analysis    AnalysisInput    `json:"analysis"`
+	}{app.EmailClassificationVerificationPatternVersion, job.Generation, job.InputFingerprint, epoch, target.Inputs, input}
+	output := AnalysisOutput{Category: "notification", NotificationSubtype: "verification", Action: "none", Concern: "none", EvidenceRefs: []string{match.EvidenceRef}, Reason: app.EmailClassificationReasonVerificationPattern}
+	if err := publishJSON(ctx, s.opts.WorkspaceRoot, inputPath, artifact); err != nil {
+		return err
+	}
+	if err := publishJSON(ctx, s.opts.WorkspaceRoot, outputPath, output); err != nil {
+		return err
+	}
+	if err := publishJSON(ctx, s.opts.WorkspaceRoot, path.Join(directory, "pattern-execution.json"), map[string]any{"rule_version": app.EmailClassificationVerificationPatternVersion, "evidence_ref": match.EvidenceRef, "completed_at": s.now()}); err != nil {
+		return err
+	}
+	inputRaw, _ := json.Marshal(artifact)
+	outputRaw, _ := json.Marshal(output)
+	_, err := s.repository.PublishEmailClassification(ctx, store.EmailClassificationCommand{EmailCommand: cmd, Lease: lease(job, s.now()), MailID: job.TargetID, Generation: job.Generation, Classification: app.EmailClassification{
+		ID: artifactID, InputPath: inputPath, InputSHA256: sourceHash(inputRaw), OutputPath: outputPath, OutputSHA256: sourceHash(outputRaw), PromptVersion: app.EmailClassificationVerificationPatternVersion, Stage: match.Stage, Source: app.EmailClassificationSourcePattern, Reason: app.EmailClassificationReasonVerificationPattern, Category: output.Category, NotificationSubtype: output.NotificationSubtype, ReasonCode: app.EmailClassificationReasonVerificationPattern, EvidenceRefs: output.EvidenceRefs, InputFingerprint: job.InputFingerprint,
+	}})
 	return s.reconcileError(ctx, cmd, err)
 }
 

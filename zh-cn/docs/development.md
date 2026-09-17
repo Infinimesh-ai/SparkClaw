@@ -5,6 +5,10 @@
 本文档是贡献者入口。修改行为前先阅读系统职责[架构](architecture.md)、已发布用户表面
 [Workflow 能力矩阵](workflow-capabilities.md)，以及[文档索引](index.md)中的相关专项手册。
 
+受管 AI 对话 userscript 必须保持非可视：服务商页面不得出现供用户点击的导出或批量控件。
+单会话与批量导出统一使用[AI 对话批量导出](ai-conversation-batch-export.md)中定义的固定命令
+隐藏桥接点；修改时须同步 Controller、候选评测适配器、打包脚本、清单哈希与浏览器测试。
+
 浏览器邮箱 `browser.email` r2 保留人工 `read` 与经审批的 `send` 操作。后台接收按已验证
 owner／服务商绑定独立开启，默认关闭。`emailmanagement` 负责持久发现、采集、解析、模型
 归属／摘要、依赖刷新与逐封查看，由 Gateway bootstrap 管理生命周期。Memory、File、
@@ -17,8 +21,9 @@ PostgreSQL 实现同一 EmailRepository，WebChat 通过 owner 鉴权的 ID 接�
 合成测试不能替代这些验收。
 
 来源采集要求宿主 `SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT` 指向与 Gateway 工作区共享
-的已有目录，两侧相同相对路径必须对应相同文件。固定脚本保留可取得的原始 EML，并通过
-`mailparser` 解码 MIME；当前服务商适配器在原文导出不可用时失败。选择日志固定重试目标，不可变清单校验
+的已有目录，两侧相同相对路径必须对应相同文件。固定脚本保留原始 EML，Gateway 在校验本地来源后解析 MIME。
+`mailparser` 仅供历史离线资格工具使用，已移至开发依赖，不再属于生产读取链路。
+当前服务商适配器在原件不可用时失败。时间线日志固定重试目标，不可变清单校验
 来源字节，可变已读状态独立记录。`partial` 回执不表示采集完整；回执重放校验已有文件，
 不会消费新邮件。来源完整性与历史验证边界见
 [邮件来源数据](email-read-design.md)。

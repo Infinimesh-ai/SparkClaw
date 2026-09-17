@@ -40,7 +40,8 @@ test('installed pinned userscript initializes and exports through the production
     const worker=await waitNativeImport(context,id,policy);
     await context.route('https://chatgpt.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Installed fixture</title><nav><a href="/c/one">Fixture chat</a></nav><main><section data-testid="conversation-turn-1"><h4>You said</h4><div class="whitespace-pre-wrap">Native installed question</div></section><section data-testid="conversation-turn-2"><h4>ChatGPT said</h4><div class="markdown"><p>Native installed answer</p></div></section></main>'}));
     const owner=await context.newPage();await owner.goto('https://chatgpt.com/c/owner');
-    await owner.locator('#sparkclaw-batch-scan').waitFor({state:'attached',timeout:20000});
+    await owner.locator('#sparkclaw-ai-export-bridge').waitFor({state:'attached',timeout:20000});
+    assert.equal(await owner.locator('#export-controls-container, #export-outline-container, #sparkclaw-batch-controls').count(),0);
     const state=await worker.evaluate(async()=>chrome.storage.local.get(null));
     assert.equal(state['!extdb.@meta#80700eb2-0fe8-46ea-902f-f4463134057d'].value.evilness,0);
     assert.equal(state['!extdb.@meta#45854f60-f62b-4e49-98f9-f6a024c78330'].value.evilness,12,'unrecognized system scripts retain native unfamiliar-origin protection');

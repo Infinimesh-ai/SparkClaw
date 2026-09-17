@@ -131,6 +131,51 @@ func (s *Server) getEmailSyncStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+func (s *Server) listEmailSyncWarnings(w http.ResponseWriter, r *http.Request) {
+	if !s.emailManagementReady(w) {
+		return
+	}
+	query := r.URL.Query()
+	for key, values := range query {
+		if len(values) != 1 || key != "mailbox_id" && key != "cursor" && key != "limit" {
+			writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
+			return
+		}
+	}
+	q := store.EmailQuery{OwnerID: principalForRequest(r).OwnerID, MailboxID: strings.TrimSpace(query.Get("mailbox_id")), After: query.Get("cursor"), Limit: 30}
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil {
+			writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
+			return
+		}
+		q.Limit = limit
+	}
+	out, err := s.emailManagement.SyncWarnings(r.Context(), q)
+	if err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+func (s *Server) acknowledgeEmailSyncWarning(w http.ResponseWriter, r *http.Request) {
+	if !s.emailManagementReady(w) {
+		return
+	}
+	var input struct {
+		MailboxID string `json:"mailbox_id"`
+	}
+	if err := readEmailJSON(w, r, &input); err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	out, err := s.emailManagement.AcknowledgeSyncWarning(r.Context(), principalForRequest(r).OwnerID, input.MailboxID, r.PathValue("warning"))
+	if err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
 func readEmailJSON(w http.ResponseWriter, r *http.Request, input any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	defer r.Body.Close()
@@ -251,8 +296,12 @@ func writeEmailManagementError(w http.ResponseWriter, err error) {
 		code, status, message, retryable = "email_invalid_request", http.StatusBadRequest, "The email request is invalid.", false
 	case errors.Is(err, emailmanagement.ErrNotFound), errors.Is(err, os.ErrNotExist), store.StoreErrorCodeOf(err) == store.StoreErrorNotFound:
 		code, status, message, retryable = "email_not_found", http.StatusNotFound, "The email record or source was not found.", false
+	case errors.Is(err, emailmanagement.ErrPurged):
+		code, status, message, retryable = "email_source_purged", http.StatusGone, "The original was manually cleaned up.", false
 	case errors.Is(err, emailmanagement.ErrNotEnabled):
 		code, status, message, retryable = "email_receiving_paused", http.StatusConflict, "Enable receiving for a verified account before syncing.", false
+	case errors.Is(err, emailmanagement.ErrIncrementalUnqualified):
+		code, status, message, retryable = "email_incremental_unqualified", http.StatusConflict, "Incremental reading has not passed live acceptance for this provider.", false
 	case errors.Is(err, emailmanagement.ErrConflict), store.StoreErrorCodeOf(err) == store.StoreErrorConflict:
 		code, status, message = "email_conflict", http.StatusConflict, "Email changed. Refresh and retry."
 	case errors.Is(err, emailmanagement.ErrProjectionBusy):

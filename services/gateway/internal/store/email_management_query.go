@@ -68,7 +68,7 @@ func emailMails(e *emailEngine, q EmailQuery) (EmailMailPage, error) {
 		return EmailMailPage{}, err
 	}
 	limit := emailLimit(q.Limit)
-	r := emailRowsQuery{Kind: "mail", MailMessageID: q.MailMessageID, MailThreadID: q.MailThreadID, Direction: q.Direction, RequireNativeCapture: q.RequireNativeCapture, Validity: q.Validity, AsOf: q.AsOf, Entry: q.Entry, NotificationSubtype: q.NotificationSubtype, PendingOnly: q.PendingOnly, UnassignedOnly: q.UnassignedOnly, CapturedOnly: q.CapturedOnly, Parent: q.MailboxID, Related: q.ConversationID, Search: q.Search, After: q.After, Limit: limit + 1}
+	r := emailRowsQuery{Kind: "mail", MailMessageID: q.MailMessageID, MailThreadID: q.MailThreadID, Direction: q.Direction, RequireNativeCapture: q.RequireNativeCapture, Validity: q.Validity, AsOf: q.AsOf, Entry: q.Entry, NotificationSubtype: q.NotificationSubtype, PendingOnly: q.PendingOnly, UnassignedOnly: q.UnassignedOnly, UncapturedOnly: q.UncapturedOnly, CapturedOnly: q.CapturedOnly, Parent: q.MailboxID, Related: q.ConversationID, Search: q.Search, After: q.After, Limit: limit + 1}
 	rows := emailList[app.EmailMail](e, r)
 	out := EmailMailPage{Items: []app.EmailMail{}, ServerNow: e.now}
 	if q.Entry != "" {

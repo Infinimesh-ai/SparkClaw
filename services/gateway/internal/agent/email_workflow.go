@@ -26,8 +26,8 @@ func (browserEmailProfile) RoutingSemantics() workflowRoutingSemantics {
 	}, {
 		Key:             "read",
 		Route:           workflowRouteTemplate{Operation: app.RouteOperationRead},
-		EmbedTexts:      []string{"读取 Gmail 的一封未读邮件", "读第一封未读邮件", "读取 QQ 邮箱邮件并保存附件", "采集 Outlook 的一封未读邮件", "Read one unread email", "Capture an unread Gmail email and its attachments"},
-		TreeDescription: "Capture exactly one unread email and its available attachments from configured QQ Mail, Outlook, or Gmail into workspace source files. Runtime selects the account; the model supplies no parameters. Returns a capture receipt, not a model summary. Does not search arbitrary folders or reply.",
+		EmbedTexts:      []string{"读取 Gmail 同步时间范围内的一封邮件", "读取同步时间范围内的一封邮件", "读取 QQ 邮箱邮件并保存附件", "采集 Outlook 同步时间范围内的一封邮件", "Read one email from the current sync interval", "Capture a Gmail email from the current sync interval with its attachments"},
+		TreeDescription: "Capture exactly one email from the current synchronization interval and its available attachments through configured QQ Mail, Outlook, or Gmail into workspace source files. Runtime selects the account; the model supplies no parameters. Returns a capture receipt, not a model summary. Does not search arbitrary folders or reply.",
 		HardNegatives:   []string{"发送邮件", "回复这封邮件", "批量读取全部邮件", "检查 Outlook 是否登录", "打开 QQ 邮箱网页"},
 	}}}
 }
@@ -74,7 +74,7 @@ func (p browserEmailProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 		intent = singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRead, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopeLocal)
 		intent.Objectives[0].Output = app.OutputKindMessage
 		nodeID, capability, stage, risk = "email_read", app.ToolCapabilityBrowserEmailRead, "read_email", app.RiskRead
-		goal = "Capture exactly one unread email and its available attachments from the fresh Runtime-selected account into workspace source files. Return only the capture receipt; no model analysis or summary is implemented."
+		goal = "Capture exactly one email from the current synchronization interval and its available attachments from the fresh Runtime-selected account into workspace source files. Return only the capture receipt; no model analysis or summary is implemented."
 		for index := range bindings {
 			bindings[index].Capability = capability
 			if bindings[index].Argument == "send_script_revision" {
@@ -115,7 +115,7 @@ func (browserEmailProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome)
 
 func (browserEmailProfile) StageContext(state *app.WorkflowState) workflowStageContext {
 	if state != nil && state.Nodes["email_read"].Stage == "read_email" {
-		stage := workflowStageContextForState(state, "email_read", "email_capture_receipt", "local", "", "Capture exactly one unread email and its available attachments. Supply no model parameters and report only the capture receipt; model analysis is not implemented.")
+		stage := workflowStageContextForState(state, "email_read", "email_capture_receipt", "local", "", "Capture exactly one email from the current synchronization interval and its available attachments. Supply no model parameters and report only the capture receipt; model analysis is not implemented.")
 		stage.EstimatedRisk = app.RiskRead
 		return stage
 	}

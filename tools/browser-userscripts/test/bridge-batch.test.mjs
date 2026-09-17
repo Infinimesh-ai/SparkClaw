@@ -22,7 +22,7 @@ const context={pages:()=>state.pages.filter(row=>!row.closed).map(object),newPag
 function object(row){
  if(objects.has(row.id))return objects.get(row.id);
  const p={context:()=>context,isClosed:()=>!!row.closed,url:()=>row.url,goto:async url=>{row.url=url;},close:async()=>{row.closed=true;state.closed++;},
- locator:selector=>({waitFor:async()=>{},evaluate:async fn=>fn({click:()=>{row.command=selector}}),getAttribute:async()=>'ready',innerText:async()=>'ready',inputValue:async()=>JSON.stringify(row.command==='#sparkclaw-batch-scan'?{provider:'chatgpt',coverage:'visible-history',conversations:['one','two','three'].map(id=>({id,url:'https://chatgpt.com/c/'+id,updated:null})),collections:[]}:{author:'chatgpt',url:row.url,title:'Fixture',exporter:'installed-fixture',messages:[{author:'user',content:'Question'},{author:'ai',content:'Answer'}]})}),
+ locator:()=>({waitFor:async()=>{},evaluate:async(_,operation)=>{row.operation=operation;},getAttribute:async()=>'ready',innerText:async()=>'ready',textContent:async()=>JSON.stringify(row.operation==='timeline.scan'?{provider:'chatgpt',coverage:'visible-history',conversations:['one','two','three'].map(id=>({id,url:'https://chatgpt.com/c/'+id,updated:null})),collections:[]}:{author:'chatgpt',url:row.url,title:'Fixture',exporter:'installed-fixture',messages:[{author:'user',content:'Question'},{author:'ai',content:'Answer'}]})}),
  waitForFunction:async(fn,arg,options)=>{state.waitTimeout=options.timeout;}};
  for(const tag of row.tags)Object.defineProperty(p,tag,{value:true});objects.set(row.id,p);return p;
 }

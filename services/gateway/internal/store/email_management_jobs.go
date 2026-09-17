@@ -17,7 +17,10 @@ func emailAnalysisKind(kind string) bool {
 	return slices.Contains([]string{app.EmailJobClassification, app.EmailJobMessageSummary, app.EmailJobAssignment, app.EmailJobRelationshipCheck, app.EmailJobConversationSummary}, kind)
 }
 func emailKnownJob(kind string) bool {
-	return emailBrowserKind(kind) || emailAnalysisKind(kind) || kind == app.EmailJobParse || kind == app.EmailJobPresentation
+	// Source recovery is owner-scoped and touches no browser, so it is neither a
+	// browser kind (no mailbox binding) nor an analysis kind (no model inputs).
+	return emailBrowserKind(kind) || emailAnalysisKind(kind) || kind == app.EmailJobParse ||
+		kind == app.EmailJobPresentation || kind == app.EmailJobSourceRecovery
 }
 func emailToken() string {
 	var b [24]byte
@@ -61,8 +64,14 @@ func emailSupersedeLegacyBrowserJobs(e *emailEngine, mailboxID string) {
 }
 func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 	var zero app.EmailJob
+	if emailTimelineLegacyKind(c.Kind) && emailTimelineActive(e) {
+		return zero, errEmailConflict
+	}
 	priority := ""
-	if (c.ForceAnalysis && (!c.Rearm || !emailAnalysisKind(c.Kind))) || !emailKnownJob(c.Kind) || c.TargetID == "" || len(c.Dependencies) > 200 || c.RepeatInterval < 0 || c.RepeatInterval > 24*time.Hour {
+	if (c.ForceAnalysis && (!c.Rearm || !emailAnalysisKind(c.Kind))) ||
+		(c.AutomaticPoll && (c.Kind != app.EmailJobDiscover || !c.Rearm || c.RepeatInterval <= 0)) ||
+		(c.RearmFailed && (!c.Rearm || c.Kind != app.EmailJobSourceRecovery && c.Kind != app.EmailJobDiscover)) ||
+		!emailKnownJob(c.Kind) || c.TargetID == "" || len(c.Dependencies) > 200 || c.RepeatInterval < 0 || c.RepeatInterval > 24*time.Hour {
 		return zero, errEmailInvalid
 	}
 	if emailBrowserKind(c.Kind) {
@@ -106,7 +115,8 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 				refs = append(refs, "mail:"+member.ReplyMailID)
 			}
 		}
-	} else if c.Kind != app.EmailJobDiscover && c.Kind != app.EmailJobThreadSync {
+	} else if c.Kind != app.EmailJobDiscover && c.Kind != app.EmailJobThreadSync && c.Kind != app.EmailJobSourceRecovery {
+		// Source recovery is owner-scoped: its target is the owner, not a mail.
 		m, err := emailMail(e, c.TargetID)
 		if err != nil {
 			return zero, err
@@ -221,13 +231,15 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 	id := emailID(c.Kind, c.TargetID, fingerprint, strings.TrimSpace(c.MailboxID), string(emailJSON(c.BindingGeneration)))
 	j, exists := emailGet[app.EmailJob](e, "job", id)
 	if exists {
+		emailPollRequest(e, &j, c)
 		// An explicit sync bypasses only the idle polling delay. Preserve
 		// active leases, retry backoff, and explicitly scheduled requests.
 		if c.Rearm && c.RepeatInterval == 0 && c.NextAttemptAt.IsZero() &&
 			(c.Kind == app.EmailJobDiscover || c.Kind == app.EmailJobThreadSync) &&
-			j.State == app.EmailJobQueued && j.NextAttemptAt.After(e.now) {
+			j.State == app.EmailJobQueued && j.ErrorCode == "" && j.NextAttemptAt.After(e.now) {
 			j.NextAttemptAt = e.now
 			j.UpdatedAt = e.now
+			j.SyncTrigger, j.SyncActor = c.SyncTrigger, c.SyncActor
 			emailSaveJob(e, j)
 		}
 		if emailAnalysisKind(c.Kind) && j.Generation != generation {
@@ -245,11 +257,11 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			return j, e.err
 		}
 		if c.Rearm && (j.State == app.EmailJobFailed || j.State == app.EmailJobSucceeded || j.State == app.EmailJobPaused) {
-			if c.RepeatInterval > 0 && j.State == app.EmailJobFailed {
+			if c.RepeatInterval > 0 && j.State == app.EmailJobFailed && !c.RearmFailed {
 				return j, e.err
 			}
 			var repeatAfter time.Time
-			if c.RepeatInterval > 0 && j.State == app.EmailJobSucceeded {
+			if c.RepeatInterval > 0 && (j.State == app.EmailJobSucceeded || c.Kind == app.EmailJobDiscover && j.State == app.EmailJobFailed) {
 				// Round up to Store precision so even a fractional-microsecond
 				// interval cannot make the next attempt eligible too early.
 				repeatAfter = postgresTime(j.UpdatedAt.Add(c.RepeatInterval + time.Microsecond - time.Nanosecond))
@@ -274,6 +286,7 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 			j.LeaseToken = ""
 			j.LeaseExpiresAt = time.Time{}
 			j.NextAttemptAt = c.NextAttemptAt
+			j.SyncTrigger, j.SyncActor = c.SyncTrigger, c.SyncActor
 			if j.NextAttemptAt.IsZero() {
 				j.NextAttemptAt = e.now
 			}
@@ -290,6 +303,8 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 		at = e.now
 	}
 	j = app.EmailJob{Priority: priority, ID: id, OwnerID: e.owner, Kind: c.Kind, TargetID: c.TargetID, MailboxID: c.MailboxID, BindingGeneration: c.BindingGeneration, InputFingerprint: fingerprint, Generation: generation, State: app.EmailJobQueued, MaxAttempts: 5, NextAttemptAt: postgresTime(at), CreatedAt: e.now, UpdatedAt: e.now}
+	j.SyncTrigger, j.SyncActor = c.SyncTrigger, c.SyncActor
+	emailPollRequest(e, &j, c)
 	if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
 		j.State = app.EmailJobPaused
 		j.ErrorCode = emailEventSuspended
@@ -304,6 +319,9 @@ func emailLeaseCheck(e *emailEngine, l EmailJobLease, kind, target string) error
 	j, ok := emailGet[app.EmailJob](e, "job", l.JobID)
 	if !ok {
 		return errEmailNotFound
+	}
+	if emailTimelineLegacyKind(j.Kind) && emailTimelineActive(e) {
+		return errEmailConflict
 	}
 	if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
 		return errEmailConflict
@@ -370,6 +388,9 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 		if emailEvents(e) && emailDisabledAnalysis(kind) {
 			continue
 		}
+		if emailTimelineLegacyKind(kind) && emailTimelineActive(e) {
+			continue
+		}
 		parents := []string{""}
 		if emailBrowserKind(kind) {
 			parents = nil
@@ -427,6 +448,7 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 						j.State = app.EmailJobPaused
 					}
 					j.LeaseToken = ""
+					emailPollStop(e, &j)
 					emailSaveJob(e, j)
 					continue
 				}
@@ -450,6 +472,17 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 			}
 			if j.Kind == app.EmailJobAssignment || j.Kind == app.EmailJobMessageSummary {
 				m, ok := emailGet[app.EmailMail](e, "mail", j.TargetID)
+				if ok && emailPatternVerification(m) {
+					j.State = app.EmailJobSucceeded
+					j.ErrorCode = "verification_pattern"
+					j.LeaseToken = ""
+					j.LeaseExpiresAt = time.Time{}
+					emailSaveJob(e, j)
+					if j.Kind == app.EmailJobMessageSummary {
+						emailSkipAnalysis(e, j.Kind, j.TargetID, "verification_pattern")
+					}
+					continue
+				}
 				if ok && m.RepresentationID != "" && m.Classification == nil {
 					if _, err := emailRequest(e, EmailJobRequest{Kind: app.EmailJobClassification, TargetID: m.ID}); err != nil {
 						return app.EmailJob{}, false, err
@@ -500,10 +533,15 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 				j.ErrorCode = "attempts_exhausted"
 				emailFailureProjection(e, j)
 				j.LeaseToken = ""
+				emailPollFinish(e, &j)
 				emailSaveJob(e, j)
 				continue
 			}
 			j.Attempt++
+			emailPollClaim(&j)
+			if j.Kind == app.EmailJobDiscover {
+				j.RoundStartedAt = postgresTime(now)
+			}
 			j.State = app.EmailJobRunning
 			j.LeaseToken = emailToken()
 			j.LeaseExpiresAt = postgresTime(now.Add(duration))
@@ -532,6 +570,9 @@ func emailMailboxBrowserBusy(e *emailEngine, mailboxID string, now time.Time) bo
 	for {
 		jobs := emailList[app.EmailJob](e, query)
 		for _, job := range jobs {
+			if emailTimelineLegacyKind(job.Kind) && emailTimelineActive(e) {
+				continue
+			}
 			if emailBrowserKind(job.Kind) && now.Before(job.LeaseExpiresAt) {
 				return true
 			}
@@ -579,6 +620,9 @@ func emailFinish(e *emailEngine, c EmailJobFinish) (app.EmailJob, error) {
 	j.ErrorCode = c.ErrorCode
 	j.UpdatedAt = e.now
 	j.State = app.EmailJobSucceeded
+	if j.Kind == app.EmailJobDiscover {
+		j.RoundFinishedAt = e.now
+	}
 	if c.ErrorCode != "" {
 		j.State = app.EmailJobFailed
 		if !c.RetryAt.IsZero() && j.Attempt < j.MaxAttempts {
@@ -587,6 +631,7 @@ func emailFinish(e *emailEngine, c EmailJobFinish) (app.EmailJob, error) {
 		}
 	}
 	emailFailureProjection(e, j)
+	emailPollFinish(e, &j)
 	if j.Kind == app.EmailJobMarkRead && j.State == app.EmailJobSucceeded {
 		m, err := emailMail(e, j.TargetID)
 		if err != nil {

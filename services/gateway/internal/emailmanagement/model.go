@@ -177,6 +177,9 @@ func validateAnalysis(input AnalysisInput, output AnalysisOutput) error {
 		return validateEventAnalysis(input, output)
 	}
 	invalid := errors.New("email_model_output_invalid")
+	if input.PolicyVersion == sourceSummaryPromptVersion && input.OutputLanguage != "zh" && input.OutputLanguage != "en" {
+		return invalid
+	}
 	if len(output.RequestedResponse) > 1000 || len(output.Purpose) > 512 || len(output.ServiceLabel) > 256 || len(output.Summary) > 8000 || len(output.Title) > 512 || len(output.Reason) > 2000 ||
 		len(output.EvidenceRefs) > 100 || len(output.MissingContext) > 32 || len(output.RelatedConversationIDs) > 20 {
 		return invalid

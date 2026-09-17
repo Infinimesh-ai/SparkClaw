@@ -24,17 +24,23 @@ type Repository interface {
 type Browser interface {
 	AdmitIntake(context.Context, string, string) (app.EmailAdmissionBinding, error)
 	DiscoverForOwner(context.Context, string, app.EmailReadRequest) (app.EmailDiscoveryResult, error)
-	CaptureForOwner(context.Context, string, app.EmailReadRequest) (app.EmailReadResult, error)
-	EnumerateThreadForOwner(context.Context, string, app.EmailThreadRequest) (app.EmailThreadResult, error)
-	MarkReadForOwner(context.Context, string, app.EmailMarkReadRequest) (app.EmailMarkReadResult, error)
 }
 
 type Options struct {
-	WorkspaceRoot string
-	ScanInterval  time.Duration
-	LeaseDuration time.Duration
-	JobTimeout    time.Duration
-	ModelWorkers  int
+	WorkspaceRoot          string
+	ScanInterval           time.Duration
+	LeaseDuration          time.Duration
+	JobTimeout             time.Duration
+	ModelWorkers           int
+	QualifiedProviderModes map[string]string
+}
+
+func (s *Service) incrementalMode(provider string) string {
+	mode := s.opts.QualifiedProviderModes[provider]
+	if mode != app.EmailProviderModeChangeCursor && mode != app.EmailProviderModeTimeRange {
+		return app.EmailProviderModeUnqualified
+	}
+	return mode
 }
 
 type Service struct {
@@ -58,7 +64,7 @@ func New(repository Repository, browser Browser, registry emailautomation.Regist
 		return nil, errors.New("email management dependencies are required")
 	}
 	if opts.ScanInterval == 0 {
-		opts.ScanInterval = 20 * time.Minute
+		opts.ScanInterval = time.Minute
 	}
 	if opts.LeaseDuration == 0 {
 		opts.LeaseDuration = 3 * time.Minute
@@ -86,17 +92,28 @@ func (s *Service) Start(parent context.Context) {
 	go func() {
 		defer close(s.done)
 		var workers sync.WaitGroup
+		// Verify committed originals once per service start, outside the polling
+		// ticker. Power-loss recovery must not add file hashing to every poll.
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			if err := s.reconcilePurgedSources(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("email startup cleanup recovery failed", "code", safeCode(err))
+			}
+			if err := s.reconcileCommittedSources(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("email startup source recovery failed", "code", safeCode(err))
+			}
+		}()
 		start := func(kinds []string) { workers.Add(1); go func() { defer workers.Done(); s.worker(ctx, kinds) }() }
 		// One slot per registered provider lets independent mailboxes receive
 		// together. Store claims serialize all browser job kinds per mailbox;
 		// provider admission also protects the shared account's browser effects.
-		browserKinds := []string{app.EmailJobDiscover, app.EmailJobCapture, app.EmailJobMarkRead, app.EmailJobCapture, app.EmailJobThreadSync, app.EmailJobCapture}
-		if _, pageMode := s.browser.(PageBrowser); pageMode {
-			browserKinds = []string{app.EmailJobDiscover, app.EmailJobThreadSync, app.EmailJobCapture, app.EmailJobMarkRead}
-		}
+		browserKinds := []string{app.EmailJobDiscover}
 		for range s.registry.List() {
 			start(browserKinds)
 		}
+		// Legacy source-recovery jobs must not scan historical indexes during
+		// ordinary polling. Timeline journals own in-flight source recovery.
 		start([]string{app.EmailJobParse})
 		for i := 0; i < s.opts.ModelWorkers; i++ {
 			start([]string{app.EmailJobMessageSummary, app.EmailJobClassification, app.EmailJobAssignment, app.EmailJobRelationshipCheck, app.EmailJobConversationSummary, app.EmailJobPresentation})
@@ -151,6 +168,13 @@ func (s *Service) plan(ctx context.Context) error {
 		return err
 	}
 	for _, owner := range owners {
+		timeline, err := s.repository.ActivateEmailTimelinePolicy(ctx, command(owner.ID, "activate-timeline-v2"))
+		if err != nil {
+			return err
+		}
+		if timeline.Remaining {
+			s.signal()
+		}
 		if _, err := s.repository.ActivateEmailEventPolicy(ctx, command(owner.ID, "activate-source-events-v4")); err != nil {
 			return err
 		}
@@ -158,12 +182,16 @@ func (s *Service) plan(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		slot := s.now().UnixNano() / int64(s.opts.ScanInterval)
 		for _, mailbox := range mailboxes {
 			if !mailbox.Active || !mailbox.IntakeEnabled {
 				continue
 			}
-			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner.ID, fmt.Sprintf("scan:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, slot)), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RepeatInterval: s.opts.ScanInterval})
+			// No provider is allowed onto the normal scheduler until a live
+			// acceptance artifact qualifies a true change cursor or time range.
+			if s.incrementalMode(mailbox.Provider) == app.EmailProviderModeUnqualified {
+				continue
+			}
+			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner.ID, fmt.Sprintf("poll-v1:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, s.opts.ScanInterval)), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RearmFailed: true, AutomaticPoll: true, RepeatInterval: s.opts.ScanInterval})
 			if err != nil {
 				return err
 			}
@@ -239,8 +267,8 @@ func (s *Service) workOne(ctx context.Context, kinds []string) (bool, error) {
 func (s *Service) execute(parent context.Context, job app.EmailJob) {
 	timeout := s.opts.JobTimeout
 	if _, pageMode := s.browser.(PageBrowser); pageMode && job.Kind == app.EmailJobDiscover {
-		// Up to three bounded page lanes; renew the mailbox lease throughout.
-		timeout = 95 * time.Minute
+		// One bounded provider response plus direct local source publication.
+		timeout = max(timeout, 10*time.Minute)
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer s.trackBrowserJob(job, cancel)()
@@ -285,12 +313,6 @@ func (s *Service) dispatch(ctx context.Context, job app.EmailJob) error {
 	switch job.Kind {
 	case app.EmailJobDiscover:
 		return s.discover(ctx, job)
-	case app.EmailJobCapture:
-		return s.capture(ctx, job)
-	case app.EmailJobMarkRead:
-		return s.markRead(ctx, job)
-	case app.EmailJobThreadSync:
-		return s.syncThread(ctx, job)
 	case app.EmailJobParse:
 		return s.parse(ctx, job)
 	case app.EmailJobPresentation:
@@ -315,6 +337,9 @@ func jobCommand(job app.EmailJob, operation string) store.EmailCommand {
 func safeCode(err error) string {
 	if err == nil {
 		return ""
+	}
+	if err.Error() == "email_retry_target_too_large" {
+		return "email_retry_target_too_large"
 	}
 	if errors.Is(err, store.ErrEmailBacklogFull) {
 		return "email_backlog_full"

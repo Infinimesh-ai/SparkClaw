@@ -11,8 +11,9 @@ import (
 // app.ToolErrorEmail* vocabulary so tool calls, /api/email responses, and
 // Workflow outcome adapters all classify the same failure the same way.
 type Error struct {
-	Code    app.ToolErrorCode
-	Message string
+	Code             app.ToolErrorCode
+	Message          string
+	localOperational bool
 }
 
 func (e *Error) Error() string {
@@ -52,4 +53,11 @@ func ErrorCode(err error) app.ToolErrorCode {
 		return typed.Code
 	}
 	return ""
+}
+
+// LocalOperationalFailure retains the failure domain without exposing raw
+// script diagnostics through the public error vocabulary.
+func LocalOperationalFailure(err error) bool {
+	var typed *Error
+	return errors.As(err, &typed) && typed.localOperational
 }

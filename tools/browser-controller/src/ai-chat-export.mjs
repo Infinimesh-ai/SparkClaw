@@ -26,22 +26,22 @@ export async function captureAIChat({provider, url, outputDir, runCode}) {
     const expected = ${JSON.stringify(source)};
     const matches = () => page.url().replace(/\\/$/, '') === expected;
     if (!matches()) throw new Error('ai_chat_source_changed');
-    const button = page.locator('#export-controls-container #export-json-btn');
-    await button.waitFor({state:'visible', timeout:15000});
-    // Refuse a filtered/manual subset; never silently change the owner's choices.
-    const scope = await page.evaluate(() => {
-      const select = document.querySelector('#outline-select-all');
-      const search = document.querySelector('#outline-search-input');
-      const boxes = [...document.querySelectorAll('#export-outline-container input[type="checkbox"]')];
-      const busy = document.querySelector('[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop response"]');
-      return !busy && select?.checked === true && !select.indeterminate && search?.value === '' && boxes.every(b => b.checked);
-    });
-    if (!scope) throw new Error('ai_chat_selection_or_loading_unverified');
+    const bridge = page.locator('#sparkclaw-ai-export-bridge');
+    await bridge.waitFor({state:'attached', timeout:15000});
+    const scope = await page.evaluate(() => !document.querySelector('[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop response"]'));
+    if (!scope) throw new Error('ai_chat_loading_unverified');
     const pending = page.waitForEvent('download', {timeout:25000});
     pending.catch(() => {});
     let download;
     try {
-      await button.evaluate(node => node.click());
+      await bridge.evaluate(node => {
+        node.dataset.command = 'conversation.export-json';
+        node.dataset.state = 'working';
+        node.textContent = '';
+        node.dispatchEvent(new Event('sparkclaw-ai-export-command'));
+      });
+      await page.waitForFunction(() => ['ready', 'failed'].includes(document.querySelector('#sparkclaw-ai-export-bridge')?.dataset.state), null, {polling:100, timeout:25000});
+      if (await bridge.getAttribute('data-state') !== 'ready') throw new Error(await bridge.innerText());
       download = await pending;
       const allowed = await page.evaluate(({value, expected}) => {
         const u = new URL(value);

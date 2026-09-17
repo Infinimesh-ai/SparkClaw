@@ -200,6 +200,8 @@ class FakeFactory {
 }
 
 class FakeScriptFactory {
+  async drainIdleMailReads() {}
+  async close() {}
   constructor() {
     this.bodyBytes = 0;
     this.loginProviders = [];
@@ -232,6 +234,8 @@ function deferred() {
 test("disconnect cancels only its script, keeps the provider reserved through cleanup and removes queued work", async t => {
   const calls = [];
   const scriptFactory = {
+    async drainIdleMailReads() {},
+    async close() {},
     async openProviderLogin() {},
     async runScript(options) {
       const call = { ...options, gate: httpDeferred(), cleanup: httpDeferred() };

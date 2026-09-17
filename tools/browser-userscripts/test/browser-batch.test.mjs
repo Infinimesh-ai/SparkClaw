@@ -26,6 +26,9 @@ test('four-platform real Chromium: userscript discovery, capture, workspace save
       await context.addInitScript(() => { window.GM_getValue=(_,value)=>value;window.GM_setValue=()=>{};window.GM_registerMenuCommand=()=>{}; window.requestAnimationFrame=()=>0; });
       await context.addInitScript({content:source});
       const original=await context.newPage(); await original.goto('https://'+f.host+'/unrelated-email-test');
+      await original.locator('#sparkclaw-ai-export-bridge').waitFor({state:'attached',timeout:15000});
+      assert.equal(await original.locator('#export-controls-container, #export-outline-container, #sparkclaw-batch-controls, #export-markdown-btn, #export-json-btn, #sparkclaw-batch-directory, #sparkclaw-batch-export, #sparkclaw-batch-cancel').count(),0);
+      assert.equal(await original.locator('#sparkclaw-ai-export-bridge').isHidden(),true);
       const opts={context,provider,workspaceRoot,accountScope:'fixture',timeoutMS:60000};
       const first=await exportTimeline(opts);
       t.diagnostic(provider + ' first pass: ' + JSON.stringify({exported:first.exported,failed:first.failed}));
@@ -43,35 +46,35 @@ test('four-platform real Chromium: userscript discovery, capture, workspace save
   } finally { await browser.close(); await fs.rm(workspaceRoot,{recursive:true,force:true}); }
 });
 
-test('manual flow: full initialization, real popup, filesystem writes, picker cancellation and popup failure', {skip:!playwrightPath,timeout:120000},async()=>{
+test('bundled userscript initializes only the non-visual automation bridge',()=>{
+  const controls=source.slice(source.indexOf('installAutomationBridge() {'),source.indexOf('addOutlineControls() {'));
+  const init=source.slice(source.lastIndexOf('init() {'),source.indexOf('\n    },\n  };',source.lastIndexOf('init() {')));
+  assert.match(controls,/installTimelineBridge/);
+  assert.doesNotMatch(controls,/createElement\("button"\)|installTimelineBatch|EXPORT_CONTAINER_ID/);
+  assert.match(init,/installAutomationBridge/);
+  assert.doesNotMatch(init,/addOutlineControls|setupShortcuts|initObserver|injectThemeOverrideStyles|autoScrollToTop/);
+  assert.doesNotMatch(source,/sparkclaw-batch-directory|sparkclaw-batch-export|sparkclaw-batch-cancel/);
+});
+
+test('real Chromium: hidden bridge triggers the bundled single-conversation JSON download', {skip:!playwrightPath,timeout:30000},async()=>{
   const {chromium}=await import(playwrightPath);
   const browser=await chromium.launch({headless:true,executablePath:process.env.SPARKCLAW_TEST_CHROMIUM,args:['--no-sandbox']});
+  const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'sparkclaw-single-export-test-'));
   try{
-    const context=await browser.newContext();
-    await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture</title><nav><a href="/c/one">Only chat</a></nav><main><section data-testid="conversation-turn-1"><h4>You said</h4><div class="whitespace-pre-wrap">Question</div></section><section data-testid="conversation-turn-2"><h4>ChatGPT said</h4><div class="markdown">Answer</div></section></main>'}));
-    await context.addInitScript(()=>{
-      window.GM_getValue=(_,v)=>v;window.GM_setValue=()=>{};window.GM_registerMenuCommand=()=>{};
-      // Dialog transport is a fixture; actual FileSystemHandle writes use OPFS.
-      window.showDirectoryPicker=async()=>{if(window.pickerCanceled)throw new DOMException('picker_canceled','AbortError');return navigator.storage.getDirectory();};
-    });
+    const context=await browser.newContext({acceptDownloads:true});
+    await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture</title><main><section data-testid="conversation-turn-1"><h4>You said</h4><div class="whitespace-pre-wrap">Question</div></section><section data-testid="conversation-turn-2"><h4>ChatGPT said</h4><div class="markdown">Answer</div></section></main>'}));
+    await context.addInitScript(()=>{window.GM_getValue=(_,v)=>v;window.GM_setValue=()=>{};window.GM_registerMenuCommand=()=>{};});
     await context.addInitScript({content:source});
-    const page=await context.newPage();await page.goto('https://chatgpt.com/');
-    await page.locator('#sparkclaw-batch-account').fill('fixture');
-    const click=async id=>{await page.locator('#'+id).evaluate(n=>n.click());await page.waitForFunction(()=>document.querySelector('#sparkclaw-batch-status').dataset.state!=='working',null,{polling:100});};
-    await page.evaluate(()=>window.pickerCanceled=true);
-    await click('sparkclaw-batch-directory');
-    assert.equal(await page.locator('#sparkclaw-batch-status').innerText(),'picker_canceled');
-    await click('sparkclaw-batch-export');
-    assert.equal(await page.locator('#sparkclaw-batch-status').innerText(),'select_directory_for_current_account');
-    await page.evaluate(()=>{window.pickerCanceled=false;window.originalOpen=window.open;window.open=()=>null;});
-    await click('sparkclaw-batch-directory');await click('sparkclaw-batch-export');
-    assert.equal(await page.locator('#sparkclaw-batch-status').innerText(),'batch_popup_blocked');
-    await page.evaluate(()=>window.open=window.originalOpen);
-    await click('sparkclaw-batch-export');
-    assert.match(await page.locator('#sparkclaw-batch-status').innerText(),/导出 1，跳过 0，失败 0/);
-    const files=await page.evaluate(async()=>{const out={};for await(const [name,handle]of(await navigator.storage.getDirectory()).entries())out[name]=await(await handle.getFile()).text();return out;});
-    const ledger=JSON.parse(Object.entries(files).find(([name])=>name.endsWith('-export-ledger.json'))[1]);
-    assert.equal(JSON.parse(files[ledger.one.path]).messages.length,2);
-    assert.equal(context.pages().length,1,'owned popup closes, parent survives');
-  }finally{await browser.close();}
+    const page=await context.newPage();await page.goto('https://chatgpt.com/c/one');
+    const bridge=page.locator('#sparkclaw-ai-export-bridge');await bridge.waitFor({state:'attached'});
+    const pending=page.waitForEvent('download');
+    await bridge.evaluate(node=>{node.dataset.command='conversation.export-json';node.dataset.state='working';node.dispatchEvent(new Event('sparkclaw-ai-export-command'));});
+    const download=await pending;
+    await page.waitForFunction(()=>document.querySelector('#sparkclaw-ai-export-bridge')?.dataset.state==='ready');
+    const target=path.join(temporary,'conversation.json');await download.saveAs(target);
+    const doc=JSON.parse(await fs.readFile(target,'utf8'));
+    assert.deepEqual(doc.messages.map(message=>message.content),['Question','Answer']);
+    assert.equal(await page.locator('#export-controls-container, #export-outline-container, #sparkclaw-batch-controls').count(),0);
+    await context.close();
+  }finally{await browser.close();await fs.rm(temporary,{recursive:true,force:true});}
 });

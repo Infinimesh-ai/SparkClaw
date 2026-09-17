@@ -450,8 +450,9 @@ effect still requires a fresh probe according to the provider contract.
 The implementation retains these email business invariants from the legacy
 Workflow:
 
-- revision 2 captures one unread message and its attachments into workspace
-  files and supports sending; search, reply, forward, outgoing attachments and
+- revision 2 captures received messages after the last completed fetch through
+  provider network interfaces, stores their attachments as workspace files, and
+  supports sending; search, reply, forward, outgoing attachments and
   draft management remain unavailable;
 - provider and account selection remain deterministic and Runtime-owned;
 - login validation remains outside the Workflow and model context;

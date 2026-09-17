@@ -80,7 +80,7 @@ func TestRecentDiscoveryRejectsUnqualifiedCompletedBoundary(t *testing.T) {
 	request := validReadRequest()
 	start := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
 	request.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: "owner@example.test", IntervalStart: start, IntervalEnd: start.Add(time.Hour), Limit: 50}
-	raw := `{"schema_version":1,"provider":"gmail","status":"partial","account_address":"owner@example.test","candidates":[],"coverage":{"scope":"inbox_loaded","lane":"recent_inbound","scan_complete":false,"scanned_rows":10,"unsupported_rows":10,"limited":true,"reason":"receipt_order_unqualified"},"observed_at":"2026-09-08T01:00:00Z"}`
+	raw := `{"schema_version":1,"provider":"gmail","status":"partial","account_address":"owner@example.test","candidates":[],"coverage":{"scope":"inbound_received","lane":"recent_inbound","scan_complete":false,"scanned_rows":10,"unsupported_rows":10,"limited":true,"reason":"receipt_order_unqualified"},"observed_at":"2026-09-08T01:00:00Z"}`
 	var output map[string]any
 	_ = json.Unmarshal([]byte(raw), &output)
 	for _, complete := range []bool{false, true} {

@@ -12,8 +12,8 @@
 邮件。其登录、Browser Bridge Provider Handler、审批和未知结果契约见
 [浏览器邮箱 Workflow](browser-email-workflow-design.md)。
 
-Revision 2 增加通过固定浏览器脚本采集一封未读邮件及范围内附件的来源资料；新的未读采集
-尚未完整通过验收，服务商限制见[来源设计](email-read-design.md)。这些能力不会重新启用旧 Personal Data
+Revision 2 增加通过固定浏览器网络 Reader 采集上次完整获取之后的来信及范围内附件；三家服务商的完整实时验收
+尚未完成，限制见[来源设计](email-read-design.md)。这些能力不会重新启用旧 Personal Data
 Connector。通用邮箱搜索、回复、草稿与发送附件仍保持暂缓；日历和内置 Workspace
 Knowledge/RAG 也保持暂缓。
 
@@ -47,7 +47,7 @@ File Adapter 只会查询 JSON Fixture，并把发送追加到本地 JSONL。HTT
 提供方 Endpoint，却没有定义账户授权、邮箱身份、分页、MIME、附件、草稿状态、投递语义、
 提供方错误映射或发送结果未知后的对账。在 Mock Append 外套一层审批并不会得到真实邮箱系统。
 
-当前活动浏览器邮箱切片完成了单封未读邮件来源采集和单收件人发送契约，不表示搜索、回复、发送附件、
+当前活动浏览器邮箱切片完成了网络增量邮件来源采集和单收件人发送契约，不表示搜索、回复、发送附件、
 草稿同步或多账户语义已经完成设计。
 
 ### 日历

@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/qq-internal-api-trial.md)
 
-状态：2026-09-10。用户授权编写油猴脚本并用真实 QQ 邮箱测速。[脚本](../../scripts/email/userscripts/qq-internal-reader.user.js)已实现，同一份源码已通过 SparkClaw 现有 CLI 测试通道在已登录 QQ 页面运行成功。**尚未完成油猴内持久安装和执行验证**：浏览器确实加载了解包版 Tampermonkey 5.5.0，但 Codex 的 UI 通道没有连接该浏览器，邮件脚本通道也拒绝扩展管理页。未放宽相关安全门禁。
+历史试验：2026-09-10。用户授权编写试验性油猴脚本并用真实 QQ 邮箱测速，同一份源码通过既有 CLI 测试通道在已登录 QQ 页面运行成功，但当时尚未验证油猴内持久安装。未放宽安全门禁。2026-09-17 已删除无生产调用的独立原型及其专属测试；本文保留历史证据，不再作为现行实现说明。正式实现是[受管 QQ Reader](../../tools/browser-userscripts/qq-mail-reader.user.js)，当前验收见[增量时间线设计](email-timeline-incremental-sync-design.md)。
 
 ## 已验证行为
 

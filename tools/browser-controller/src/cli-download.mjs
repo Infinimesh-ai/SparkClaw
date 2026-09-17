@@ -14,7 +14,6 @@ function routeExport({ key, origins }) {
   };
   window.open = function(value) {
     if (!allowed(value)) return null;
-    window.SparkClawMailReader?.observeNativeOriginalURL(value);
     location.assign(value);
     return { closed: false, focus() {}, close() {} };
   };
@@ -62,7 +61,16 @@ export async function downloadFromPage(task, selector, destination, maxBytes) {
         await download.cancel();
         return { status: "unavailable" };
       }
-      await download.saveAs(${JSON.stringify(temporary)});
+      // The SparkClaw download hook already writes the browser response into
+      // the task-private output directory. Reuse that completed file directly
+      // instead of asking Playwright to copy it a second time through saveAs.
+      let nativePath = null;
+      try { nativePath = await download.path(); } catch {}
+      if (typeof nativePath === "string" && path.isAbsolute(nativePath)) {
+        await fs.rename(nativePath, ${JSON.stringify(temporary)});
+      } else {
+        await download.saveAs(${JSON.stringify(temporary)});
+      }
       return { status: "saved" };
     } finally {
       await page.evaluate(key => { globalThis[key]?.(); delete globalThis[key]; }, ${JSON.stringify(key)}).catch(() => {});

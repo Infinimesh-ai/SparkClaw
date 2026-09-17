@@ -615,6 +615,7 @@ type PairingCode struct {
 }
 
 const DefaultOwnerID = "owner"
+const OwnerPreferenceLanguage = "language"
 
 type OwnerProfile struct {
 	ID               string            `json:"id"`

@@ -38,6 +38,8 @@ documentation tree.
 | [Email management system and stages](email-management-design.md) | Implementation contracts: cross-account topics, bounded intake, fixed membership, per-mail viewing and five acceptance stages |
 | [Email management implementation](email-management-implementation.md) | Runtime/API/UI changes, real-provider coverage, engineering evidence and outstanding release gates |
 | [Email pipeline optimization](email-pipeline-optimization-design.md) | Proposed QQ/Gmail/Outlook network readers, managed Tampermonkey import, durable incremental sync, summaries and on-demand bodies |
+| [Email timeline incremental sync](email-timeline-incremental-sync-design.md) | Acceptance-gated true incrementality for QQ/Gmail/Outlook, dual watermarks, direct-local batch journal, one carry-forward retry, bounded overflow gaps, scheduler-free terminal warnings, and immediate Refresh |
+| [Mail cross-round reuse](email-cross-round-reuse.md) | Bounded owned-page/connection reuse, per-round identity checks, intake-proof freshness and cold/warm performance evidence |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |

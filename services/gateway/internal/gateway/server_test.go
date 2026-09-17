@@ -2591,6 +2591,41 @@ func TestOwnerProfileEndpointUpdatesProfile(t *testing.T) {
 		t.Fatalf("owner update was not audited")
 	}
 
+	languageRequest, err := http.NewRequest(http.MethodPut, ts.URL+"/api/owner/language", bytes.NewBufferString(`{"language":"zh"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	languageRequest.Header.Set("Content-Type", "application/json")
+	languageResp, err := http.DefaultClient.Do(languageRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer languageResp.Body.Close()
+	if languageResp.StatusCode != http.StatusOK {
+		t.Fatalf("language update returned %d", languageResp.StatusCode)
+	}
+	var localized app.OwnerProfile
+	if err := json.NewDecoder(languageResp.Body).Decode(&localized); err != nil {
+		t.Fatal(err)
+	}
+	if localized.Preferences[app.OwnerPreferenceLanguage] != "zh" || localized.Preferences["tone"] != "brief" {
+		t.Fatalf("language update replaced unrelated preferences: %#v", localized.Preferences)
+	}
+
+	badLanguage, err := http.NewRequest(http.MethodPut, ts.URL+"/api/owner/language", bytes.NewBufferString(`{"language":"fr"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	badLanguage.Header.Set("Content-Type", "application/json")
+	badLanguageResp, err := http.DefaultClient.Do(badLanguage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badLanguageResp.Body.Close()
+	if badLanguageResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid language returned %d", badLanguageResp.StatusCode)
+	}
+
 	badResp, err := http.Post(ts.URL+"/api/owner", "application/json", bytes.NewBufferString(`{"display_name":"Local Owner","email":"bad","preferences":{}}`))
 	if err != nil {
 		t.Fatal(err)

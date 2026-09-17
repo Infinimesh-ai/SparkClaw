@@ -102,6 +102,33 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 			if operation := os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_INTAKE"); operation != "" {
 				qualifyPinnedIntake(t, ctx, runner, provider, probe, operation)
 			}
+			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_DISCOVER") == "1" {
+				digest := sha256.Sum256([]byte("email-management-qualification"))
+				request := ReadRequest{Provider: provider.ID, Account: app.EmailAccountDefault, OwnerScope: hex.EncodeToString(digest[:]), InvocationID: app.NewID("email_live_discovery"), BrowserCredentialGeneration: probe.Generation, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Discover.Revision}
+				result, err := runner.Discover(ctx, provider, request)
+				if err != nil {
+					t.Fatalf("live discovery: %v (code=%s)", err, ErrorCode(err))
+				}
+				t.Logf("live discovery: provider=%s candidates=%d complete=%t qualified=%t reason=%s", provider.ID, len(result.Candidates), result.Coverage.ScanComplete, result.Coverage.BoundaryQualified, result.Coverage.Reason)
+				if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE") == "1" {
+					end := time.Now().UTC()
+					request.InvocationID = app.NewID("email_live_interval")
+					request.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: result.AccountAddress, IntervalStart: end.Add(-time.Hour), IntervalEnd: end, Limit: 50, ProviderMode: "time_range"}
+					if raw := os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_INTERVAL_START"); raw != "" {
+						start, parseErr := time.Parse(time.RFC3339Nano, raw)
+						if parseErr != nil || !start.Before(end) {
+							t.Fatal("invalid isolated live interval")
+						}
+						request.Discovery.IntervalStart = start
+					}
+					started := time.Now()
+					interval, err := runner.Discover(ctx, provider, request)
+					if err != nil {
+						t.Fatalf("live time range: code=%s elapsed=%s", ErrorCode(err), time.Since(started))
+					}
+					t.Logf("live time range: provider=%s candidates=%d complete=%t qualified=%t reason=%s elapsed=%s", provider.ID, len(interval.Candidates), interval.Coverage.ScanComplete, interval.Coverage.BoundaryQualified, interval.Coverage.Reason, time.Since(started))
+				}
+			}
 			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ") == "1" {
 				ownerID := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_OWNER_ID"))
 				if ownerID == "" {

@@ -162,17 +162,17 @@ async function runTimelineBatch({ provider, timeline, ledger, capture, save, ver
   }
   return result;
 }
-function installTimelineBatch(parent, captureCurrent) {
+function installTimelineBridge(captureCurrent, exportCurrent) {
   const provider = Object.keys(SPARKCLAW_BATCH_PROVIDERS).find(p => SPARKCLAW_BATCH_PROVIDERS[p].host === location.hostname);
   if (!provider) return;
-  const container = document.createElement('div'); container.id = 'sparkclaw-batch-controls';
-  Object.assign(container.style, { display: 'flex', flexWrap: 'wrap', maxWidth: 'min(520px, 90vw)', alignItems: 'center' });
-  parent.appendChild(container);
-  let canceled = false, busy = false;
-  const status = document.createElement('output'); status.id = 'sparkclaw-batch-status'; status.textContent = '批量导出：就绪';
-  const output = document.createElement('textarea'); output.id = 'sparkclaw-batch-output'; output.hidden = true;
-  const check = () => { if (canceled) throw new Error('batch_canceled'); };
-  const hash = async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(x => x.toString(16).padStart(2, '0')).join('');
+  if (document.querySelector('#sparkclaw-ai-export-bridge')) return;
+  const bridge = document.createElement('output');
+  bridge.id = 'sparkclaw-ai-export-bridge';
+  bridge.hidden = true;
+  bridge.dataset.state = 'ready';
+  document.documentElement.appendChild(bridge);
+  let busy = false;
+  const check = () => {};
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const scan = async () => {
     for (const node of batchTimelineSnapshot(provider).scrollers) node.scrollTop = 0;
@@ -182,101 +182,37 @@ function installTimelineBatch(parent, captureCurrent) {
     for (const node of view.scrollers) node.scrollTop += Math.max(100, node.clientHeight * 0.8);
     await pause(1000);
   } }); };
-  const add = (id, title, action) => {
-    const button = document.createElement('button'); button.type = 'button'; button.id = id; button.textContent = title; button.style.margin = '4px';
-    button.onclick = async () => {
-      if (busy) return; busy = true; canceled = false; output.value = ''; status.dataset.state = 'working';
-      try { await action(); status.dataset.state = 'ready'; }
-      catch (error) { status.dataset.state = 'failed'; status.textContent = error.message; }
-      finally { busy = false; }
-    }; container.appendChild(button);
-  };
-  add('sparkclaw-batch-scan', '检索时间线', async () => { output.value = JSON.stringify(await scan()); status.textContent = '时间线已检索（当前可见历史）'; });
-  add('sparkclaw-batch-capture', '采集本页全部消息', async () => {
-    // Wait for the loaded transcript to stabilize. This is not proof that the
-    // platform exposed every historical message; coverage stays unknown.
-    let last = '', stable = 0, text;
-    for (let n = 0; n < 90; n++) {
-      check();
-      if (document.querySelector('[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop response"]')) throw new Error('conversation_generating');
-      text = captureCurrent();
-      if (!text) { stable = 0; await pause(1000); continue; }
-      const data = JSON.parse(text);
-      const body = JSON.stringify(data.messages);
-      if (data.messages?.length && body === last) stable++; else stable = 0;
-      if (stable >= 3) { output.value = text; status.textContent = '采集就绪；正文覆盖未知'; return; }
-      last = body;
-      for (const node of document.querySelectorAll('main, main *')) if (node.clientHeight > 0 && node.scrollHeight > node.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(node).overflowY)) node.scrollTop = 0;
-      await pause(1000);
-    }
-    throw new Error('conversation_not_ready');
-  });
-  // Each browser activation-consuming operation gets its own explicit click.
-  let selectedDirectory, selectedAccount;
-  const accountInput = document.createElement('input');
-  accountInput.id = 'sparkclaw-batch-account';
-  accountInput.placeholder = '当前账号/工作区标识';
-  accountInput.setAttribute('aria-label', '批量导出账号/工作区标识');
-  container.appendChild(accountInput);
-  add('sparkclaw-batch-directory', '选择导出文件夹', async () => {
-    selectedDirectory = undefined; selectedAccount = undefined;
-    const scope = accountInput.value.trim();
-    if (!scope) throw new Error('account_scope_required');
-    if (!window.showDirectoryPicker) throw new Error('directory_picker_unavailable');
-    const directory = await window.showDirectoryPicker({ mode: 'readwrite' });
-    check(); selectedDirectory = directory; selectedAccount = scope;
-    status.textContent = '文件夹已选择，请点击开始批量导出';
-  });
-  add('sparkclaw-batch-export', '开始批量导出', async () => {
-    const directory = selectedDirectory, accountScope = accountInput.value.trim();
-    if (!directory || selectedAccount !== accountScope) throw new Error('select_directory_for_current_account');
-    const popup = window.open('about:blank', '_blank', 'popup');
-    if (!popup) throw new Error('batch_popup_blocked');
-    const popupCommand = async (url, commandID) => {
-            const previousDocument = popup.document;
-            popup.location.href = url;
-            for (let n = 0; n < 120; n++) {
-              check(); if (popup.closed) throw new Error('batch_window_closed');
-              let doc; try { doc = popup.document; } catch { throw new Error('login_or_origin_changed'); }
-              const button = doc.querySelector('#' + commandID);
-              if (doc !== previousDocument && doc.readyState !== 'loading' && doc.location.href.replace(/\/$/, '') === url.replace(/\/$/, '') && button) {
-                button.click();
-                for (let attempt = 0; attempt < 120; attempt++) {
-                  await pause(1000); check();
-                  const state = doc.querySelector('#sparkclaw-batch-status');
-                  if (state?.dataset.state === 'failed') throw new Error(state.textContent);
-                  if (state?.dataset.state === 'ready') return doc.querySelector('#sparkclaw-batch-output').value;
-                }
-                throw new Error('capture_timeout');
-              }
-              await pause(1000);
-            }
-            throw new Error('userscript_not_ready');
-
-    };
-    const read = async name => (await (await directory.getFileHandle(name)).getFile()).text();
-    const write = async (name, text) => { const handle = await directory.getFileHandle(name, { create: true }); const writer = await handle.createWritable(); try { await writer.write(text); await writer.close(); } catch (e) { await writer.abort().catch(() => {}); throw e; } };
-    let ledger = {};
-    const ledgerName = provider + '-' + (await hash(accountScope)).slice(0, 24) + '-export-ledger.json';
+  bridge.addEventListener('sparkclaw-ai-export-command', async () => {
+    if (busy) { bridge.dataset.state = 'failed'; bridge.textContent = 'bridge_busy'; return; }
+    busy = true;
+    bridge.dataset.state = 'working';
+    bridge.textContent = '';
     try {
-      await navigator.locks.request('sparkclaw-batch-' + provider, { ifAvailable: true }, async lock => {
-        if (!lock) throw new Error('batch_already_running');
-        try { ledger = JSON.parse(await read(ledgerName)); } catch (error) { if (error.name !== 'NotFoundError') throw error; }
-        const config = SPARKCLAW_BATCH_PROVIDERS[provider];
-        const timeline = await discoverBatchHistory(provider, 'https://' + config.host + config.history, async url => JSON.parse(await popupCommand(url, 'sparkclaw-batch-scan')), check);
-        const result = await runTimelineBatch({ provider, timeline, ledger, check,
-          verify: async row => { try { return /^[\w.-]+\.json$/.test(row.path) && await hash(await read(row.path)) === row.sha256; } catch { return false; } },
-          save: async (item, text) => { const sha256 = await hash(text), name = provider + '-' + item.id + '-' + sha256 + '.json'; await write(name, text); return { path: name, sha256 }; },
-          commit: async (id, row) => { await write(ledgerName, JSON.stringify({ ...ledger, [id]: row }, null, 2)); },
-          capture: async item => popupCommand(item.url, 'sparkclaw-batch-capture'), progress: result => { status.textContent = `已导出 ${result.exported.length} 条，失败 ${result.failed.length} 条`; }
-        });
-        await write(provider + '-batch-' + crypto.randomUUID() + '.json', JSON.stringify({ ...result, timeline, coverage: 'unknown' }, null, 2));
-        status.textContent = `完成可见历史：导出 ${result.exported.length}，跳过 ${result.skipped.length}，失败 ${result.failed.length}，历史检索失败 ${timeline.errors.length}；全部历史覆盖未知`;
-      });
-    } finally { popup.close(); }
+      if (bridge.dataset.command === 'timeline.scan') bridge.textContent = JSON.stringify(await scan());
+      else if (bridge.dataset.command === 'conversation.capture') {
+        // Wait for the rendered transcript to stabilize. This does not prove
+        // that a platform exposed every historical message.
+        let last = '', stable = 0, text;
+        for (let n = 0; n < 90; n++) {
+          if (document.querySelector('[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop response"]')) throw new Error('conversation_generating');
+          text = captureCurrent();
+          if (!text) { stable = 0; await pause(1000); continue; }
+          const data = JSON.parse(text), body = JSON.stringify(data.messages);
+          if (data.messages?.length && body === last) stable++; else stable = 0;
+          if (stable >= 3) { bridge.textContent = text; break; }
+          last = body;
+          for (const node of document.querySelectorAll('main, main *')) if (node.clientHeight > 0 && node.scrollHeight > node.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(node).overflowY)) node.scrollTop = 0;
+          await pause(1000);
+        }
+        if (!bridge.textContent) throw new Error('conversation_not_ready');
+      } else if (bridge.dataset.command === 'conversation.export-json') exportCurrent();
+      else throw new Error('bridge_command_invalid');
+      bridge.dataset.state = 'ready';
+    } catch (error) {
+      bridge.dataset.state = 'failed';
+      bridge.textContent = error.message;
+    } finally { busy = false; }
   });
-  const stop = document.createElement('button'); stop.textContent = '停止批量'; stop.id = 'sparkclaw-batch-cancel'; stop.onclick = () => { canceled = true; };
-  container.append(stop, status, output);
 }
 
   // END SPARKCLAW BATCH
@@ -2189,113 +2125,10 @@ function installTimelineBatch(parent, captureCurrent) {
     autoScrollEnabled: GM_getValue("gm_auto_scroll_enabled", true),
 
     /**
-     * Adds the export buttons and auto-scroll status to the current page.
+     * Installs SparkClaw's non-visual, fixed-command automation bridge.
      */
-    addExportControls() {
-      if (document.querySelector(`#${EXPORT_CONTAINER_ID}`)) {
-        return;
-      }
-
-      const container = document.createElement("div");
-      container.id = EXPORT_CONTAINER_ID;
-      Utils.applyStyles(container, {
-        ...COMMON_CONTROL_PROPS,
-        backgroundColor: "#ffffff",
-        padding: "6px 10px",
-        border: "1px solid #ddd",
-      });
-
-      // --- 1. Auto Scroll Status Badge (Only for Gemini) ---
-      if (CURRENT_PLATFORM === GEMINI) {
-        const scrollStatus = document.createElement("span");
-        scrollStatus.id = "ai-exporter-scroll-status";
-        // Check state; default to true if undefined
-        const isEnabled = UIManager.autoScrollEnabled !== false;
-        scrollStatus.textContent = isEnabled ? "⬆️ ON" : "⬆️ OFF";
-        scrollStatus.title = `Auto-scroll is ${
-          isEnabled ? "ON" : "OFF"
-        } (Press ALT+A to toggle)`;
-
-        Utils.applyStyles(scrollStatus, {
-          marginRight: "10px",
-          padding: "4px 6px",
-          fontSize: "10px",
-          fontWeight: "800",
-          color: isEnabled ? "#1e7e34" : "#bd2130",
-          backgroundColor: isEnabled ? "#e8f5e9" : "#fbe9e7",
-          border: `1px solid ${isEnabled ? "#c3e6cb" : "#ffcdd2"}`,
-          borderRadius: "4px",
-          alignSelf: "center",
-          cursor: "pointer",
-          userSelect: "none",
-          whiteSpace: "nowrap",
-        });
-        container.appendChild(scrollStatus);
-      }
-
-      // --- 2. Markdown Button ---
-      const markdownButton = document.createElement("button");
-      markdownButton.id = "export-markdown-btn";
-      markdownButton.textContent = "↓ Export MD";
-      markdownButton.title = `${EXPORT_BUTTON_TITLE_PREFIX}: Export to Markdown`;
-      Utils.applyStyles(markdownButton, BUTTON_BASE_PROPS);
-      markdownButton.onclick = () => ChatExporter.initiateExport("markdown");
-      container.appendChild(markdownButton);
-
-      // --- 3. JSON Button ---
-      const jsonButton = document.createElement("button");
-      jsonButton.id = "export-json-btn";
-      jsonButton.textContent = "↓ JSON";
-      jsonButton.title = `${EXPORT_BUTTON_TITLE_PREFIX}: Export to JSON`;
-      Utils.applyStyles(jsonButton, {
-        ...BUTTON_BASE_PROPS,
-        ...BUTTON_SPACING_PROPS,
-      });
-      jsonButton.onclick = () => ChatExporter.initiateExport("json");
-      container.appendChild(jsonButton);
-
-      // --- 4. Settings Button ---
-      const settingsButton = document.createElement("button");
-      settingsButton.className = "export-button-settings";
-      settingsButton.textContent = "⚙️";
-      settingsButton.title = `${EXPORT_BUTTON_TITLE_PREFIX}: ⚙️ Settings: Configure Filename Format`;
-      Utils.applyStyles(settingsButton, {
-        ...BUTTON_BASE_PROPS,
-        ...BUTTON_SPACING_PROPS,
-      });
-      settingsButton.addEventListener("click", () => {
-        const currentFormat = GM_getValue(
-          GM_OUTPUT_FILE_FORMAT,
-          OUTPUT_FILE_FORMAT_DEFAULT
-        );
-        const newFormat = window.prompt(
-          `+++++++  ${EXPORT_BUTTON_TITLE_PREFIX}  +++++++\n\n ` +
-            `ENTER NEW FILENAME FORMAT:\n` +
-            ` • sample1: {platform}__{tag1}__{title}__{timestampLocal}\n` +
-            ` • sample2: {tag1}__{title}-v{exporter}-{timestamp}\n` +
-            ` • current: ${currentFormat}\n\n` +
-            `valid placeholders: \n  ` +
-            `- {platform}              : e.g. chatgpt, gemini\n  ` +
-            `- {title}                      : title, with tags removed\n  ` +
-            `- {timestamp}          : YYYY-MM-DDTHH-mm-ss.sssZ\n  ` +
-            `- {timestampLocal}: YYYY-MM-DDTHH-mm-ss[+/-]HHMM\n  ` +
-            `- {tags}                     : all tags, hyphen-separated\n  ` +
-            `- {tag1}                     : 1st tag\n  ` +
-            `- {tag2}                     : 2nd tag\n  ` +
-            `  ...\n  ` +
-            `- {tag9}                     : 9th tag\n  ` +
-            `- {exporter}             : AI Chat Exporter version\n`,
-          currentFormat
-        );
-
-        if (newFormat !== null && newFormat !== currentFormat) {
-          GM_setValue(GM_OUTPUT_FILE_FORMAT, newFormat);
-          alert("Filename format updated successfully!");
-        }
-      });
-      container.appendChild(settingsButton);
-
-      installTimelineBatch(container, () => {
+    installAutomationBridge() {
+      const serializeCurrent = () => {
         const extract = {
           chatgpt: ChatExporter.extractChatGPTChatData,
           claude: ChatExporter.extractClaudeChatData,
@@ -2307,9 +2140,23 @@ function installTimelineBatch(parent, captureCurrent) {
         if (!data || !data.messages?.length) return null;
         const turndown = new TurndownService();
         ChatExporter.setupTurndownRules(turndown);
-        return ChatExporter.formatToJSON({ ...data, exportedAt: new Date() }, turndown).output;
-      });
-      document.body.appendChild(container);
+        return ChatExporter.formatToJSON(
+          { ...data, exportedAt: new Date() },
+          turndown
+        );
+      };
+      installTimelineBridge(
+        () => serializeCurrent()?.output || null,
+        () => {
+          const result = serializeCurrent();
+          if (!result) throw new Error("conversation_not_ready");
+          Utils.downloadFile(
+            result.fileName,
+            result.output,
+            "application/json;charset=utf-8"
+          );
+        }
+      );
     },
 
     /**
@@ -3047,7 +2894,7 @@ function installTimelineBatch(parent, captureCurrent) {
       const observer = new MutationObserver((mutations) => {
         // Only re-add export controls if they are missing
         if (!document.querySelector(`#${EXPORT_CONTAINER_ID}`)) {
-          UIManager.addExportControls();
+          UIManager.installAutomationBridge();
         }
         // Always ensure outline controls are present and regenerate content on changes
         // This covers new messages, and for Gemini, scrolling up to load more content.
@@ -3184,59 +3031,22 @@ function installTimelineBatch(parent, captureCurrent) {
     },
 
     /**
-     * Initializes the UI components by adding controls and setting up the observer.
+     * Initializes only the non-visual managed automation bridge.
      */
     init() {
-      UIManager.setupShortcuts();
-
-      // New: Read collapsed state from localStorage on init
-      const storedCollapsedState = localStorage.getItem(
-        OUTLINE_COLLAPSED_STATE_KEY
-      );
-      UIManager._outlineIsCollapsed = storedCollapsedState === "true";
-
-      // Add controls after DOM is ready
+      const install = () => UIManager.installAutomationBridge();
       if (
         document.readyState === "complete" ||
         document.readyState === "interactive"
       ) {
-        // console.log("DOM is ready (complete or interactive). Setting timeout for UI controls.");
-        setTimeout(() => {
-          // console.log("Timeout elapsed. Adding export and outline controls.");
-          UIManager.addExportControls();
-          UIManager.addOutlineControls(); // Add outline after buttons
-          // New: Initiate auto-scroll for Gemini after controls are set up
-          // console.log("Checking if current host is a Gemini hostname...");
-          if (CURRENT_PLATFORM === GEMINI) {
-            setTimeout(() => {
-              // console.log("Delayed auto-scroll initiated."); // Debug log
-              UIManager.autoScrollToTop(); // This call will now use the async logic below
-            }, AUTOSCROLL_INITIAL_DELAY);
-          }
-        }, DOM_READY_TIMEOUT); // DOM_READY_TIMEOUT is assumed to be defined elsewhere, e.g., 1000ms
+        setTimeout(install, DOM_READY_TIMEOUT);
       } else {
-        // console.log("DOM not yet ready. Adding DOMContentLoaded listener.");
-        window.addEventListener("DOMContentLoaded", () =>
-          setTimeout(() => {
-            // console.log("DOMContentLoaded event fired. Adding export and outline controls after timeout.");
-            UIManager.addExportControls();
-            UIManager.addOutlineControls(); // Add outline after buttons
-            // New: Initiate auto-scroll for Gemini after controls are set up
-            // console.log("Checking if current host is a Gemini hostname (from DOMContentLoaded).");
-            if (CURRENT_PLATFORM === GEMINI) {
-              setTimeout(() => {
-                // console.log("Delayed auto-scroll initiated (from DOMContentLoaded)."); // Debug log
-                UIManager.autoScrollToTop(); // This call will now use the async logic below
-              }, AUTOSCROLL_INITIAL_DELAY);
-            }
-          }, DOM_READY_TIMEOUT)
+        window.addEventListener(
+          "DOMContentLoaded",
+          () => setTimeout(install, DOM_READY_TIMEOUT),
+          { once: true }
         );
       }
-
-      UIManager.initObserver();
-
-      // To have a uniform look regardless if light or dark theme is used
-      injectThemeOverrideStyles();
     },
   };
 

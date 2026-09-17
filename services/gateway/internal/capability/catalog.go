@@ -156,7 +156,7 @@ func DefaultCatalog() (Catalog, error) {
 		leafRevision(string(app.CapabilityBrowserFormDraft), "browser", "Fill or select reversible form draft values without clicking, submitting, sending, uploading, or entering credentials.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationDraft}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
-		leafRevision(string(app.CapabilityBrowserEmail), "browser", "Capture one unread inbox email and its attachments into the local workspace, or send one new plain-text email through a freshly validated configured QQ Mail, Outlook, or Gmail browser account.", 2, RouteContract{
+		leafRevision(string(app.CapabilityBrowserEmail), "browser", "Capture one email from the current synchronization interval and its attachments into the local workspace, or send one new plain-text email through a freshly validated configured QQ Mail, Outlook, or Gmail browser account.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSend, app.RouteOperationRead}, RequireQuery: true,
 		}),
 		branch("ai_chat", string(RootID), "导出 AI 平台对话：导出 ChatGPT、Claude、Gemini、Grok 网站已有对话的原始 JSON 到当前 workspace。Export AI platform conversations; not ordinary chat, asking an AI question, or simply opening a website."),

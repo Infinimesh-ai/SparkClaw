@@ -10,9 +10,9 @@ export function EmailClassificationControls({ mail, text, busy, onChange }: {
   const classification = mail.classification;
   const sender = mail.current_sender_address ?? classification?.sender_address;
   const source = classification?.source;
-  const origin = source === "manual" ? text.email.classifiedManually : source === "rule" ? text.email.classifiedByRule : source === "model" ? text.email.classifiedByModel : text.email.classificationUncertain;
+  const origin = source === "manual" ? text.email.classifiedManually : source === "rule" ? text.email.classifiedByRule : source === "model" ? text.email.classifiedByModel : source === "pattern" ? text.email.classifiedByPattern : text.email.classificationUncertain;
   const reason = classification?.reason_code;
-  const explanation = classification?.state === "failed" || mail.classification_state === "failed" ? text.email.classificationFailed : reason === "subject_evidence" ? text.email.classifiedBySubject : reason === "body_evidence" ? text.email.classifiedByBody : reason === "sender_rule" ? text.email.classifiedByRule : reason === "manual_choice" || reason === "user_send" ? text.email.classifiedManually : reason === "classification_failed" || reason === "classification_uncertain" ? text.email.classificationUncertain : origin;
+  const explanation = classification?.state === "failed" || mail.classification_state === "failed" ? text.email.classificationFailed : reason === "subject_evidence" ? text.email.classifiedBySubject : reason === "body_evidence" ? text.email.classifiedByBody : reason === "verification_pattern" ? text.email.classifiedByPattern : reason === "sender_rule" ? text.email.classifiedByRule : reason === "manual_choice" || reason === "user_send" ? text.email.classifiedManually : reason === "classification_failed" || reason === "classification_uncertain" ? text.email.classificationUncertain : origin;
   const entry = classification?.effective_entry ?? "interaction";
   const subtype = classification?.notification_subtype;
   const subtypeLabel = subtype === "verification" ? text.email.verification : subtype === "promotion" ? text.email.promotion : subtype === "account_security" ? text.email.accountSecurity : text.email.generalNotice;

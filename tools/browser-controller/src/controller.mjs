@@ -63,7 +63,9 @@ export class BrowserController {
     if (
       scriptFactory !== null &&
       (typeof scriptFactory.runScript !== "function" ||
-        typeof scriptFactory.openProviderLogin !== "function")
+        typeof scriptFactory.openProviderLogin !== "function" ||
+        typeof scriptFactory.drainIdleMailReads !== "function" ||
+        typeof scriptFactory.close !== "function")
     ) {
       throw new TypeError("scriptFactory is invalid");
     }
@@ -103,6 +105,7 @@ export class BrowserController {
     const reservation = await this.#reserve(0, "validation", "validation");
     let client;
     try {
+      if (this.scriptFactory) await this.scriptFactory.drainIdleMailReads();
       client = await this.clientFactory.open({ token, sessionID: reservation.sessionID });
       await client.createTaskPage();
       reservation.pageGeneration = 1;
@@ -152,6 +155,7 @@ export class BrowserController {
     const reservation = await this.#reserve(waitMS, input.lane, taskID);
     let client;
     try {
+      if (this.scriptFactory) await this.scriptFactory.drainIdleMailReads();
       client = await this.clientFactory.open({ token, sessionID: reservation.sessionID });
       await client.createTaskPage();
       if (this.shuttingDown) throw new ControllerError("browser_controller_stopping", "browser controller is stopping", { status: 503, retryable: true });
@@ -303,8 +307,10 @@ export class BrowserController {
       try {
         const providerKey = PARALLEL_PROVIDERS.has(provider) && PARALLEL_OPERATIONS.has(operation) ? provider : null;
         reservation = await this.#reserve(waitMS, "cli", taskID, providerKey, signal);
+        if (!providerKey) await this.scriptFactory.drainIdleMailReads();
         const result = await this.scriptFactory.runScript({
           token,
+          credentialGeneration,
           sessionID: reservation.sessionID,
           provider,
           operation,
@@ -356,6 +362,7 @@ export class BrowserController {
 
     const reservation = await this.#reserve(waitMS, "login", taskID);
     try {
+      await this.scriptFactory.drainIdleMailReads();
       await this.scriptFactory.openProviderLogin(provider);
       return {
         schema_version: 1,
@@ -378,10 +385,13 @@ export class BrowserController {
     this.#notifyWaiters();
     const reservations = [this.active, ...this.providerReservations.values()].filter(Boolean);
     for (const reservation of reservations) reservation.abortController.abort();
-    this.shutdownPromise = Promise.all(reservations.map(async reservation => {
-      if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
-      else await reservation.done.promise;
-    }));
+    this.shutdownPromise = (async () => {
+      await Promise.all(reservations.map(async reservation => {
+        if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
+        else await reservation.done.promise;
+      }));
+      if (this.scriptFactory) await this.scriptFactory.close();
+    })();
     await this.shutdownPromise;
   }
 

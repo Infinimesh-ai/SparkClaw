@@ -28,7 +28,7 @@ the corresponding ignored private file. Startup commands are documented in
 ## Browser Email
 
 Browser email provides sending and a source-capture implementation for QQ Mail,
-Outlook, and Gmail. Fresh unread capture is not yet fully qualified; current
+Outlook, and Gmail. Full live provider qualification is not yet complete; current
 limitations are recorded in the [source design](email-read-design.md).
 It is not a messaging connector and does not use provider credentials,
 OAuth tokens, IMAP, SMTP, Gmail API, or Microsoft Graph. Authentication stays
@@ -49,11 +49,12 @@ body. One exact-content approval precedes the provider handler, which attempts
 Send at most once. An unknown send outcome is terminal and is never retried
 automatically.
 
-Current reading work runs fixed scripts without send authority to capture one
-unread message and in-scope attachments into workspace source files. The bounded
-result returns capture status/count and a relative manifest reference, distinct
-from Gateway Store publication or model analysis. Complete durable capture is
-required before an explicit mark-read action; automatic marking on open and
+Current reading work runs fixed network Readers without send authority to capture
+received messages after the last completed fetch and in-scope attachments into
+workspace source files. The bounded result returns capture status/count and a
+relative manifest reference, distinct from Gateway Store publication or model
+analysis. Complete durable capture is required before an independent mark-read
+network operation; automatic marking on open and
 uncertain effects are recorded separately. Limits and missing material remain
 explicit; see [source design](email-read-design.md).
 

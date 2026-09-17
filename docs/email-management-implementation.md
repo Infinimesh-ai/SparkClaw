@@ -4,6 +4,14 @@
 
 2026-09-09 analysis/UI increment is implemented in the worktree, not deployed. See [current scope and limitations](email-management-analysis-v2.md#8-implementation-and-validation-2026-09-09). Notification routing, manual sender rules, body-only models, localized presentations and drafts/new compose are wired; native replies/CC and complete Sent matter linking remain outstanding.
 
+## Active Mail Reading Contract (2026-09-14)
+
+The managed Reader in the dedicated browser is the sole mail-reading source. List discovery, pagination, stable message identity and original bytes must be observed or replayed from authenticated provider network requests. DOM inspection, menu export, page-click navigation and native fallback paths are retired; an upstream request change is handled by updating the affected provider adapter from a fresh dedicated-browser observation and rerunning qualification.
+
+There is one discovery lane, `recent_inbound`, and every discovery/page request carries `interval_start` and `interval_end`. Normal synchronization enumerates `[last_completed_fetch_time, fixed_current_time)`, with the deployment boundary as the first lower bound. Read/unread state is recorded as remote evidence only and never selects or excludes a message. Capturing and persisting an original is independent from mark-read: mark-read is a separate network capability, and its failure does not undo a successful capture or advance the sync boundary. The three provider adapters currently expose mark-read as an explicit fail-closed capability until exact live request/response evidence is available. There is no `unread` lane or `inbox_unread` coverage.
+
+The dedicated Browser Bridge native socket and Controller are healthy. A live speed run qualified QQ's network-only list and original capture twice; Outlook currently exposes no observed `ItemRows`/Inbox `ConversationRows` Worker templates, and Gmail exposes no current `/sync/u/<account>/i/bv` list request. Those two providers remain unqualified until their current network requests are observed and their adapters are updated. The failed discovery timings are not mail-fetch timings.
+
 QQ redesign and empty-round validation, 2026-09-09: QQ's four frozen failed
 targets now produce four complete native EML captures, with all manifest/file
 hashes verified and four published read receipts. The current reader removes the
@@ -16,8 +24,8 @@ claim QQ aggregate-conversation or complete historical-folder qualification.
 A bounded page with no eligible targets now returns normal empty without export,
 read effects or an empty-result retry. Partial discovery coverage and its cursor
 remain explicit; missing evidence or unsupported rows cannot masquerade as empty.
-Required unread-independent recent checks remain, so empty unread alone does not
-skip new mail already read by the owner. All219Controller tests, affected Go race,
+Required interval checks remain, so read state never excludes a newly received
+message. All219Controller tests, affected Go race,
 provider contract and Go build pass. QQ is enabled for this trial; Gmail/Outlook
 were already OFF when this redesign began and remain OFF.
 Remote Gateway `b928286b715d` and WebChat `485c61c58f04` are healthy; Controller
@@ -55,16 +63,17 @@ not changed by the qualification; Outlook remains enabled.
 ## Implemented Flow
 
 Automatic receiving now collects a bounded mailbox page in one browser task:
-scan the current list, persist its inventory, open each proved target, download
-native EML, save MIME parts and confirm read after durable local source storage.
+enumerate the network list for a fixed interval, persist its inventory, fetch each
+proved original through the managed network adapter, and save MIME parts after
+durable local source verification. Remote mark-read is a separate operation.
 Return to the same list between mails. A page contains at most 50 proved messages;
 virtual lists and incomplete conversations remain explicitly partial coverage.
 
 The default idle interval is 20 minutes after the entire round completes. Page
-scripts have a 30-minute budget; up to three lanes have a 95-minute outer budget
+scripts have a 30-minute budget; the single lane has a 95-minute outer budget
 with three-minute leases renewed every minute. Transport failures retry after at
 least 20 minutes (at most five attempts). Individual export failures retain the
-unacknowledged page for the next normal round while other lanes proceed. A partial
+unacknowledged page for the next normal round while other mailboxes proceed. A partial
 attachment extraction with a saved original is a terminal browser result, keeping
 its gap markers for local processing rather than endlessly downloading again.
 
@@ -79,16 +88,18 @@ Before opening a mail the local page checkpoint is durable. Gateway later verifi
 and publishes individual sources before acknowledging that page. Missing acks
 replay verified receipts; failed members are retained even after becoming read.
 Checkpoints survive pause/re-enable for the same mailbox. Immutable source IDs
-are shared across unread/recent lanes, avoiding repeated downloads. Actual account
+are shared across page retries and observations, avoiding repeated downloads. Actual account
 and credential fences remain in every browser call. Model and parser jobs still
 consume individual committed sources and preserve per-mail viewing receipts.
 
-Unread priority and unread-independent recent inbound lanes remain separate, with
-an extra latest-overlap observation while historical continuation is pending.
-Only the returned checkpoint's original interval can advance progress. The
-24-hour overlap never predates activation; unknown coverage cannot advance the
-completed boundary. No full-provider pagination or real-mail speed qualification
-is claimed by the offline tests. Current switch state and live limitations are recorded above. Observed inventories larger than50 targets retain their remaining members across acknowledged sub-batches, even if opening the first member clears the thread unread state.
+Only the returned checkpoint's original interval can advance progress. The lower
+bound is the last completed fetch boundary (or deployment time on first sync),
+and the upper bound is fixed before discovery. Unknown coverage, partial pages or
+network errors cannot advance the completed boundary. No full-provider pagination
+or real-mail speed qualification is claimed by the offline tests. Current switch
+state and live limitations are recorded above. Observed inventories larger than
+50 targets retain their remaining members across acknowledged sub-batches,
+independent of remote read state.
 
 Normalized representations and model input/output are immutable owner-scoped
 artifacts. Candidate selection registers dependencies before model invocation;
@@ -100,6 +111,15 @@ Reply lookup and dependency registration share a newest-first 32-reference windo
 the model receives an explicit gap while the complete source headers retain their
 original order. Subject/content and counterparty retrieval exclude receiving-account
 address noise before the final recent-conversation fallback.
+
+Source summaries now snapshot the durable WebChat `zh`/`en` preference when the
+job executes and persist that language on the artifact. Preference changes do
+not participate in summary dependency fingerprints, so prior results stay
+unchanged and only later work uses the new language. Classification first applies
+a strict verification marker plus nearby digit-bearing token rule. A match is
+stored as a constrained `pattern` notification and bypasses classification,
+summary and event-assignment model calls; ambiguous numeric mail still uses the
+semantic path.
 
 Assignments preserve established conversation IDs and membership. Later evidence
 creates or clears versioned suspected-duplicate/pending-correction concerns;
@@ -133,8 +153,8 @@ HTML in the WebChat origin.
   visibly and recovers after explicit retry. This is not a wall-clock soak result.
 - A File restart regression discovers an already-read arrival after a partial
   historical interval's fixed upper bound while retaining that old cursor/boundary.
-  Production runner contracts accept unread scans without time fields and still
-  reject recent scans without a valid window.
+  Production runner contracts reject the retired unread lane and require a valid
+  interval for every recent inbound scan.
 - HTTP tests cover authentication, strict inputs, source/body search, independent
   pagination, historical viewing gaps, pending replay, concern links, unchanged
   membership, partial-source download and legacy path-alias rejection.
@@ -148,9 +168,8 @@ HTML in the WebChat origin.
   ordinary folder and retained continuation. Limits are 100 folders, 2,000 metadata
   rows and 128 native scroll steps; a 175-message/four-batch regression passes.
 - Gmail recent discovery uses the observed receipt field and the ordinary-mail
-  scope, independent of unread labels. The real interval search returned zero
-  messages in the selected window; independent unread discovery returned 12.
-  Zero candidates do not qualify pagination, ordering or already-read coverage.
+  scope, independent of unread labels. Historical interval probes with zero
+  candidates do not qualify pagination, ordering or already-read coverage.
 - Real Outlook pinned inventory distinguishes six global items and drafts;
   selected local and global non-draft members can be captured individually. The
   local reply's 14,656-byte original matches an independent native export exactly.
@@ -207,8 +226,9 @@ available during the initial implementation session. The subsequent owner-reques
 remote deployment reaches the Fast model inventory, but no real model quality pass
 is claimed.
 All three providers currently report partial recent coverage. QQ complete reply
-enumeration, Gmail multi-reply export, actual Sent-member export and the complete
-new-unread capture/commit/mark-read flow still need provider-specific live evidence.
+enumeration, Gmail multi-reply export and actual Sent-member export still need
+provider-specific live evidence. The current capture/commit flow does not require
+mark-read; that operation is qualified independently per provider.
 
 Account enablement requires the shared workspace/source paths and reviewed
 provider/model configuration. Existing private capture files are

@@ -38,6 +38,9 @@ test("every contract entry resolves to a prepared registration with the same bud
     });
     assert.equal(registration.timeoutMS, entry.timeout_ms, entry.script_id);
     assert.ok(Number.isInteger(entry.timeout_ms) && entry.timeout_ms > 0, entry.script_id);
+    if (registration.sourceFiles.includes('scripts/email/lib/read-capture.mjs')) {
+      assert.ok(registration.sourceFiles.includes('scripts/email/lib/receipt-time.mjs'), `${entry.script_id}: exact timestamp parser must be in the checksum closure`);
+    }
   }
   const keys = scripts.map((entry) => `${entry.provider}:${entry.operation}`);
   assert.deepEqual(keys, [...keys].sort(), "contract entries are sorted");

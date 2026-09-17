@@ -178,6 +178,33 @@ func TestEmailManagementPeriodicJobKeepsBackoffAndExhaustedFailure(t *testing.T)
 	}
 }
 
+func TestEmailManagementSourceRecoveryRearmsAfterExhaustedFailure(t *testing.T) {
+	emailManagementBackends(t, func(t *testing.T, repo EmailRepository) {
+		f := emailFixture(t, repo)
+		request := EmailJobRequest{EmailCommand: f.command(), Kind: app.EmailJobSourceRecovery, TargetID: f.owner, Rearm: true, RearmFailed: true, RepeatInterval: time.Minute}
+		_, err := f.repo.RequestEmailJob(t.Context(), request)
+		f.must(err)
+		job := f.claim(app.EmailJobSourceRecovery)
+		now := postgresTime(time.Now())
+		for attempt := 1; attempt <= job.MaxAttempts; attempt++ {
+			job, err = f.repo.FinishEmailJob(t.Context(), EmailJobFinish{EmailJobLease: f.lease(job), ErrorCode: "store_conflict", RetryAt: now})
+			f.must(err)
+			if attempt < job.MaxAttempts {
+				job = f.claim(app.EmailJobSourceRecovery)
+			}
+		}
+		if job.State != app.EmailJobFailed {
+			t.Fatalf("recovery fixture did not exhaust: %+v", job)
+		}
+		request.EmailCommand = f.command()
+		rearmed, err := f.repo.RequestEmailJob(t.Context(), request)
+		f.must(err)
+		if rearmed.State != app.EmailJobQueued || rearmed.Attempt != 0 || rearmed.ErrorCode != "" {
+			t.Fatalf("self-healing recovery stayed terminal: %+v", rearmed)
+		}
+	})
+}
+
 func TestEmailManagementPeriodicJobIntervalValidation(t *testing.T) {
 	emailManagementBackends(t, func(t *testing.T, repo EmailRepository) {
 		f := emailFixture(t, repo)

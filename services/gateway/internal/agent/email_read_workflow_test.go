@@ -29,7 +29,7 @@ func TestBrowserEmailReadRouteRunsOnlyReaderWithFrozenAccount(t *testing.T) {
 	runtime.tools.WithEmailReader(reader)
 	route := emailSendRoute(runtime.capabilities.Revision())
 	route.Slots.Operation = app.RouteOperationRead
-	route.Slots.Query = "读取 Gmail 的一封未读邮件"
+	route.Slots.Query = "读取 Gmail 同步时间范围内的一封邮件"
 	route.Facts[app.EmailRouteFactReadScriptRevision] = "1"
 	delete(route.Facts, app.EmailRouteFactSendScriptRevision)
 	if err := runtime.capabilities.ValidateDecision(route); err != nil {

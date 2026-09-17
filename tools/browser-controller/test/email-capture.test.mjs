@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { captureUnread, markCapturedRead, validateCaptureInput } from "../../../scripts/email/lib/read-capture.mjs";
+import { captureMail as captureUnread, markCapturedRead, validateCaptureInput } from "../../../scripts/email/lib/read-capture.mjs";
 
 const digest = bytes => `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 const input = () => ({ schema_version: 1, operation: "read", invocation_id: "capture-test", provider: "gmail", account: "default", owner_scope: "a".repeat(64) });
@@ -28,7 +28,7 @@ test('specified capture persists target before browser entry and rejects invocat
 test('background capture defers explicit read until a separately verified committed receipt, and confirms once',async t=>{
  const f=await fixture(t,{message:{original:{selector:'original'}}});
  const target={account_address:f.message.account_address,provider_message_id:f.message.provider_message_id,provider_selection_id:f.message.provider_message_id};
- const captured=await captureUnread({...input(),operation:'capture',target},f.runtime,'gmail',f.adapter);
+ const captured=await captureUnread({...input(),operation:'capture',target},f.runtime,'gmail',{...f.adapter,markAfterCapture:false});
  assert.equal(f.events.includes('mark'),false);
  assert.equal(captured.capture.read_state,'unread');
  const request={...input(),operation:'mark_read',invocation_id:'independent-read',target,committed_capture:captured.capture};
@@ -40,20 +40,22 @@ test('background capture defers explicit read until a separately verified commit
  await assert.rejects(markCapturedRead(changed,{...f.runtime,withReadTab:()=>assert.fail('corrupt source reached browser')},'gmail',f.adapter),{code:'email_capture_invalid'});
 });
 
-test('exact member export rejects a body from a different message before publication or marking',async t=>{
+test('capture does not perform a second full MIME/body parse before publication',async t=>{
  const f=await fixture(t,{message:{original:{selector:'original'},verify_body_text:true,body_text:'A different reply'}});
- await assert.rejects(f.run(),{code:'email_capture_invalid'});
- assert.equal(f.events.includes('mark'),false);
- assert.equal((await filesUnder(f.root)).some(file=>file.endsWith('capture.json')),false);
-});
-
-test('member verification ignores provider font icons and preserves the original folded quote suffix',async t=>{
- const original=Buffer.from(eml.toString().replace('Synthetic body.','Synthetic body.\r\n\r\nOlder folded quotation.'));
- const f=await fixture(t,{message:{original:{selector:'original'},verify_body_text:true,body_text:'Synthetic\uE113 body.'},
-  download:async(_selector,target)=>fs.writeFile(target,original,{flag:'wx',mode:0o600})});
  const result=await f.run();const manifest=await manifestFor(f,result);
  assert.equal(result.status,'collected');
- assert.equal((await fs.readFile(path.join(f.root,manifest.files.find(file=>file.path.endsWith('body.txt')).path),'utf8')).includes('Older folded quotation.'),true);
+ assert.equal(manifest.files.some(file=>file.path.endsWith('body.txt')),false);
+ assert.equal(f.events.includes('mark'),true);
+});
+
+test('capture preserves folded original bytes for the one asynchronous parser',async t=>{
+ const original=Buffer.from(eml.toString().replace('Synthetic body.','Synthetic body.\r\n\r\nOlder folded quotation.'));
+ const f=await fixture(t,{message:{original:{selector:'original'},verify_body_text:true,body_text:'Synthetic\uE113 body.'},
+ download:async(_selector,target)=>fs.writeFile(target,original,{flag:'wx',mode:0o600})});
+ const result=await f.run();const manifest=await manifestFor(f,result);
+ assert.equal(result.status,'collected');
+ assert.equal(manifest.files.length,1);
+ assert.equal((await fs.readFile(path.join(f.root,manifest.files[0].path),'utf8')).includes('Older folded quotation.'),true);
 });
 
 test('capture requires an exact bounded target and discovery rejects model parameters',()=>{
@@ -78,7 +80,7 @@ async function fixture(t, options = {}) {
   const message = {
     account_address: "owner@example.test", provider_message_id: "provider-message-1",
     subject: "Fixture", sender: "alice@example.test", body_text: "Synthetic DOM body.",
-    body_html: "<p>Synthetic DOM body.</p>", inventory_complete: true,
+    body_html: "<p>Synthetic DOM body.</p>", inventory_complete: true, original: { selector: "original" },
     attachments: [], read_state: "unread", ...options.message,
   };
   const tab = { download: async (selector, target, limit) => {
@@ -89,6 +91,7 @@ async function fixture(t, options = {}) {
     await fs.writeFile(target, bytes, { flag: "wx", mode: 0o600 });
   } };
   const adapter = {
+    markAfterCapture: true,
     collectUnread: async (_tab, provider, selection) => {
       events.push("select");
       assert.equal(provider, "gmail");
@@ -142,11 +145,11 @@ async function manifestFor(f, result) {
   return JSON.parse(bytes);
 }
 
-test("capture preserves original EML and decoded attachment before marking the pinned mail", async t => {
+test("capture preserves only the original EML before asynchronous MIME parsing", async t => {
   const f = await fixture(t, { message: { original: { selector: "original" } } });
   const result = await f.run();
   assert.equal(result.status, "collected");
-  assert.equal(result.capture.attachments_count, 1);
+  assert.equal(result.capture.attachments_count, 0);
   assert.equal(result.capture.read_state, "read");
   const manifest = await manifestFor(f, result);
   assert.equal(manifest.stage, "script_capture");
@@ -155,20 +158,28 @@ test("capture preserves original EML and decoded attachment before marking the p
   await verifyFiles(f.root, manifest);
   const original = manifest.files.find(file => file.path.endsWith("/message.eml"));
   assert.deepEqual(await fs.readFile(path.join(f.root, original.path)), eml);
-  const attachment = manifest.files.find(file => file.path.endsWith("/fixture.txt"));
-  assert.equal(await fs.readFile(path.join(f.root, attachment.path), "utf8"), "attachment bytes");
+  assert.deepEqual(manifest.attachments, []);
+  assert.equal(manifest.files.length, 1);
   assert.deepEqual(f.events, ["tab", "select", "open", "download", "mark"]);
 });
 
-test("DOM source stays a DOM capture without fabricated original EML", async t => {
-  const f = await fixture(t);
+test("small network original uses inline bytes without invoking a browser download", async t => {
+  const f = await fixture(t, { message: { original: {
+    selector: "original", bytes: eml.length, inline_bytes: eml.length, inline_base64: eml.toString("base64"),
+  } } });
   const result = await f.run();
-  const manifest = await manifestFor(f, result);
   assert.equal(result.status, "collected");
-  assert.equal(manifest.acquisition, "browser_dom");
-  assert.equal(manifest.files.some(file => file.path.endsWith("message.eml")), false);
-  assert.equal(manifest.metadata.headers && Object.keys(manifest.metadata.headers).length, 0);
-  assert.equal(await fs.readFile(path.join(f.root, manifest.files.find(file => file.path.endsWith("body.txt")).path), "utf8"), f.message.body_text);
+  assert.equal(f.downloads.length, 0);
+  assert.deepEqual(f.events, ["tab", "select", "open", "mark"]);
+  const manifest = await manifestFor(f, result);
+  const original = manifest.files.find(file => file.path.endsWith("/message.eml"));
+  assert.deepEqual(await fs.readFile(path.join(f.root, original.path)), eml);
+});
+
+test("capture rejects a source without a network original", async t => {
+  const f = await fixture(t);
+  f.message.original = undefined;
+  await assert.rejects(f.run(), { code: "email_network_original_unqualified" });
 });
 
 test("receipt replay verifies durable files without selecting or marking another mail", async t => {
@@ -278,38 +289,6 @@ test("publication recovery rejects a manifest for a different mail before markin
   assert.equal(f.events.filter(event => event === "mark").length, 1);
 });
 
-test("incomplete attachment inventory preserves partial evidence without marking read", async t => {
-  const f = await fixture(t, { message: { inventory_complete: false } });
-  const result = await f.run();
-  assert.equal(result.status, "partial");
-  assert.equal((await manifestFor(f, result)).coverage.inventory_complete, false);
-  assert.equal(f.events.includes("mark"), false);
-});
-
-test("failed attachment download is explicit partial capture and never marks read", async t => {
-  const f = await fixture(t, { message: { attachments: [{ name: "missing.bin", selector: "attachment" }] }, download: async () => { throw new Error("unavailable attachment"); } });
-  const result = await f.run();
-  const manifest = await manifestFor(f, result);
-  assert.equal(result.status, "partial");
-  assert.equal(manifest.attachments[0].status, "failed");
-  assert.equal(result.capture.attachments_count, 0);
-  assert.equal(f.events.includes("mark"), false);
-});
-
-test("parts beyond the acquisition limit preserve a bounded partial capture", async t => {
-  const f = await fixture(t, { message: { attachments: Array.from({ length: 21 }, (_, index) => ({ name: `part-${index}.txt`, selector: `attachment-${index}` })) } });
-  const result = await f.run();
-  const manifest = await manifestFor(f, result);
-  assert.equal(result.status, "partial");
-  assert.equal(result.capture.attachments_count, 20);
-  assert.equal(manifest.attachments.length, 20);
-  assert.equal(manifest.coverage.skipped_parts, 1);
-  assert.equal(manifest.coverage.attachments_complete, false);
-  assert.equal(f.downloads.length, 20);
-  assert.equal(f.events.includes("mark"), false);
-  await verifyFiles(f.root, manifest);
-});
-
 test("replay fails closed after source bytes are modified", async t => {
   const f = await fixture(t);
   const result = await f.run();
@@ -319,28 +298,13 @@ test("replay fails closed after source bytes are modified", async t => {
   assert.equal(f.events.filter(event => event === "mark").length, 1);
 });
 
-test("attachment filenames cannot traverse directories and duplicate names have distinct files", async t => {
-  const f = await fixture(t, { message: { attachments: [
-    { name: "../../escape.txt", selector: "first" }, { name: "../../escape.txt", selector: "second" },
-  ] } });
-  const result = await f.run();
-  const manifest = await manifestFor(f, result);
-  assert.equal(manifest.attachments.length, 2);
-  assert.notEqual(manifest.attachments[0].path, manifest.attachments[1].path);
-  for (const part of manifest.attachments) {
-    assert.equal(part.name.includes("/"), false);
-    assert.equal(part.name.includes("\\"), false);
-    assert.equal(part.path.split("/").includes(".."), false);
-  }
-  await assert.rejects(fs.stat(path.join(f.root, "escape.txt")), { code: "ENOENT" });
-});
-
-test("long multibyte attachment names fit the filesystem without losing their bytes", async t => {
+test("capture leaves long MIME attachment names to the asynchronous parser", async t => {
   const f = await fixture(t, { message: { attachments: [{ name: "\u9644".repeat(150), selector: "attachment" }] } });
   const result = await f.run();
   const manifest = await manifestFor(f, result);
   assert.equal(result.status, "collected");
-  assert.ok(Buffer.byteLength(manifest.attachments[0].name) <= 200);
+  assert.deepEqual(manifest.attachments, []);
+  assert.equal(manifest.files.length, 1);
   await verifyFiles(f.root, manifest);
 });
 
@@ -354,17 +318,16 @@ test("symlink workspace root is rejected before provider access", async t => {
   assert.deepEqual(f.events, []);
 });
 
-test("receipt replay rejects symlink ancestors even with identical attachment bytes", async t => {
+test("receipt replay rejects a symlinked committed capture directory", async t => {
   const f = await fixture(t, { message: { attachments: [{ name: "fixture.txt", selector: "attachment" }] } });
   const result = await f.run();
   const manifest = await manifestFor(f, result);
-  const attachment = manifest.files.find(file => file.path.endsWith("/fixture.txt"));
-  const partDir = path.dirname(path.join(f.root, attachment.path));
+  const captureDir = path.dirname(path.join(f.root, result.capture.manifest_path));
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-email-outside-"));
   t.after(() => fs.rm(outside, { recursive: true, force: true }));
-  await fs.copyFile(path.join(partDir, "fixture.txt"), path.join(outside, "fixture.txt"));
-  await fs.rm(partDir, { recursive: true });
-  await fs.symlink(outside, partDir);
+  for (const name of await fs.readdir(captureDir)) await fs.cp(path.join(captureDir,name),path.join(outside,name),{recursive:true});
+  await fs.rm(captureDir, { recursive: true });
+  await fs.symlink(outside, captureDir);
   await assert.rejects(f.run(), { code: "email_capture_invalid" });
   assert.equal(f.events.filter(event => event === "mark").length, 1);
 });
@@ -372,16 +335,9 @@ test("receipt replay rejects symlink ancestors even with identical attachment by
 test("failure persisting source files prevents any mark-read action", async t => {
   const f = await fixture(t, { message: { original: { selector: "original" } }, download: async (_selector, target) => {
     await fs.writeFile(target, eml, { flag: "wx", mode: 0o600 });
-    await fs.mkdir(path.join(path.dirname(target), "body.txt"));
+    await fs.mkdir(path.join(path.dirname(target), "capture.json"));
   } });
   await assert.rejects(f.run(), { code: "EEXIST" });
-  assert.equal(f.events.includes("mark"), false);
-  assert.equal((await filesUnder(f.root)).some(file => file.endsWith("capture.json")), false);
-});
-
-test("oversized metadata cannot publish a Gateway-inadmissible manifest or mark read", async t => {
-  const f = await fixture(t, { message: { subject: "s".repeat(1 << 20) } });
-  await assert.rejects(f.run(), { code: "email_capture_limit" });
   assert.equal(f.events.includes("mark"), false);
   assert.equal((await filesUnder(f.root)).some(file => file.endsWith("capture.json")), false);
 });
@@ -401,27 +357,151 @@ test("capture input rejects old batch fields and an invalid owner scope", () => 
   assert.throws(() => validateCaptureInput({ ...input(), owner_scope: "../other" }, "gmail"), { code: "invalid_request" });
 });
 
-test('expired network original retries the same native target once and removes partial staging',async t=>{
-  const f=await fixture(t,{message:{original:{selector:'network'},network_original:true},
-    collect:async(message,selection)=>{
-      await selection.onSelected(message);
-      if(selection.force_native){
-        assert.equal(selection.pinned_message_id,message.provider_message_id);
-        assert.equal(selection.account_address,message.account_address);
-        return {...message,network_original:false,original:{selector:'original'}};
-      }
-      return message;
+test('network original failure is terminal and does not invoke a native fallback',async t=>{
+  const f=await fixture(t,{message:{original:{selector:'network'}},download:async selector=>{
+    assert.equal(selector,'network');
+    throw Object.assign(new Error('network unavailable'),{code:'email_network_original_unqualified'});
+  }});
+  await assert.rejects(f.run(),{code:'email_network_original_unqualified'});
+  assert.deepEqual(f.downloads.map(x=>x.selector),['network']);
+  assert.equal(f.events.filter(x=>x==='select').length,1);
+});
+
+// The fixture original carries "Date: Mon, 7 Sep 2026 10:00:00 +0800", which is
+// 2026-09-07T02:00:00Z — the same UTC day, so the layout and the header agree.
+const scope = () => input().owner_scope;
+const ownerRoot = f => path.join(f.root, 'email', scope());
+const withoutHeader = name => Buffer.from(eml.toString().split('\r\n').filter(line => !line.startsWith(`${name}:`)).join('\r\n'));
+const journalFile = async f => {
+  const dir = path.join(ownerRoot(f), 'invocations');
+  return path.join(dir, (await fs.readdir(dir))[0]);
+};
+const dropReceipt = async f => {
+  const file = await journalFile(f);
+  const journal = JSON.parse(await fs.readFile(file, 'utf8'));
+  journal.receipt = null;
+  await fs.writeFile(file, JSON.stringify(journal));
+};
+
+test('capture lands under the EML Date directory in UTC', async t => {
+  const f = await fixture(t);
+  const result = await f.run();
+  const manifest = await manifestFor(f, result);
+  assert.equal(manifest.date_path, '2026/09/07');
+  assert.equal(manifest.received_source, 'eml_date');
+  assert.equal(manifest.received_at, '2026-09-07T02:00:00.000Z');
+  assert.equal(result.capture.manifest_path.startsWith(`email/2026/09/07/${scope()}/`), true);
+  assert.equal(result.capture.manifest_path.split('/').length, 10);
+  for (const file of manifest.files) assert.equal(file.path.startsWith(`email/2026/09/07/${scope()}/`), true);
+});
+
+test('a missing Date header falls back to the list row and preserves its display text', async t => {
+  const f = await fixture(t, {
+    message: { received_at: '2026-09-10T08:00:00Z' },
+    download: async (_selector, target) => fs.writeFile(target, withoutHeader('Date'), { flag: 'wx', mode: 0o600 }),
+  });
+  const manifest = await manifestFor(f, await f.run());
+  assert.equal(manifest.received_source, 'list_row');
+  assert.equal(manifest.date_path, '2026/09/10');
+  assert.equal(manifest.received_display_text, '2026-09-10T08:00:00Z');
+});
+
+test('an unparseable list row falls back to capture time rather than a mixed layout', async t => {
+  const f = await fixture(t, {
+    message: { received_at: '今天 14:32' },
+    download: async (_selector, target) => fs.writeFile(target, withoutHeader('Date'), { flag: 'wx', mode: 0o600 }),
+  });
+  const manifest = await manifestFor(f, await f.run());
+  assert.equal(manifest.received_source, 'captured_at');
+  assert.equal(manifest.date_path, manifest.captured_at.slice(0, 10).replaceAll('-', '/'));
+  // The unparseable text is still retained as timezone evidence.
+  assert.equal(manifest.received_display_text, '今天 14:32');
+});
+
+test('a lost journal receipt adopts the committed capture through the index instead of downloading again', async t => {
+  const f = await fixture(t);
+  const first = await f.run();
+  await dropReceipt(f);
+  const second = await f.run();
+  assert.equal(second.capture.manifest_path, first.capture.manifest_path);
+  assert.equal(second.capture.manifest_sha256, first.capture.manifest_sha256);
+  assert.equal(f.events.filter(event => event === 'download').length, 1);
+});
+
+test('a capture directory removed after commit is recaptured and its index pointer rewritten', async t => {
+  const f = await fixture(t);
+  const first = await f.run();
+  await dropReceipt(f);
+  await fs.rm(path.dirname(path.join(f.root, first.capture.manifest_path)), { recursive: true, force: true });
+  const second = await f.run();
+  assert.equal(second.capture.manifest_path, first.capture.manifest_path);
+  assert.equal(f.events.filter(event => event === 'download').length, 2);
+  const pointer = JSON.parse(await fs.readFile(path.join(ownerRoot(f), 'index',
+    second.capture.mailbox_id, second.capture.mail_id, `${second.capture.capture_id}.json`), 'utf8'));
+  assert.equal(pointer.manifest_path, second.capture.manifest_path);
+  assert.equal(pointer.date_path, '2026/09/07');
+});
+
+test('staging never appears inside the date tree', async t => {
+  const f = await fixture(t, {
+    download: async (selector, target) => {
+      assert.ok(target.includes(`${path.sep}staging${path.sep}`), 'bytes must land in staging first');
+      assert.equal(target.includes(`${path.sep}2026${path.sep}`), false, 'staging must stay outside the date tree');
+      const bytes = selector === 'original' ? eml : Buffer.from('DOM attachment bytes');
+      await fs.writeFile(target, bytes, { flag: 'wx', mode: 0o600 });
     },
-    download:async(selector,target)=>{
-      if(selector==='network'){
-        await fs.writeFile(target,'partial',{flag:'wx',mode:0o600});
-        throw Object.assign(new Error('expired'),{code:'email_capture_unavailable'});
-      }
-      await fs.writeFile(target,eml,{flag:'wx',mode:0o600});
-    }});
-  const result=await f.run();
-  assert.equal(result.status,'collected');
-  assert.deepEqual(f.downloads.map(x=>x.selector),['network','original']);
-  assert.equal(f.events.filter(x=>x==='select').length,2);
-  await f.run();assert.equal(f.downloads.length,2);
+  });
+  await f.run();
+  const remaining = await filesUnder(f.root);
+  assert.equal(remaining.some(file => file.includes(`${path.sep}2026${path.sep}`) && file.includes(`${path.sep}staging${path.sep}`)), false);
+  assert.equal(remaining.some(file => file.includes(`${path.sep}staging${path.sep}`)), false);
+});
+
+test('mark_read rejects every manifest path that is not this exact date-layout capture', () => {
+  const target = { account_address: 'owner@example.test', provider_message_id: 'provider-message-1', provider_selection_id: 'provider-message-1' };
+  const sha = value => crypto.createHash('sha256').update(value).digest('hex');
+  const mailbox = `mb_${sha('gmail\0owner@example.test').slice(0, 32)}`;
+  const mail = `mail_${sha(`${mailbox}\0provider-message-1`).slice(0, 32)}`;
+  const capture = `cap_${'b'.repeat(32)}`;
+  const receipt = {
+    attachments_count: 0, capture_id: capture, mail_id: mail, mailbox_id: mailbox,
+    manifest_path: `email/2026/09/07/${scope()}/${mailbox}/${mail}/source/${capture}/capture.json`,
+    manifest_sha256: `sha256:${'c'.repeat(64)}`, read_state: 'read',
+  };
+  const request = { ...input(), operation: 'mark_read', invocation_id: 'mark-test', target, committed_capture: receipt };
+  validateCaptureInput(request, 'gmail');
+  const rejected = [
+    `email/2026/09/07/${'d'.repeat(64)}/${mailbox}/${mail}/source/${capture}/capture.json`, // another owner
+    `email/2026/09/07/${scope()}/mb_${'0'.repeat(32)}/${mail}/source/${capture}/capture.json`, // another mailbox
+    `email/2026/09/07/${scope()}/${mailbox}/mail_${'0'.repeat(32)}/source/${capture}/capture.json`, // another mail
+    `email/2026/13/01/${scope()}/${mailbox}/${mail}/source/${capture}/capture.json`, // impossible month
+    `email/2026/09/32/${scope()}/${mailbox}/${mail}/source/${capture}/capture.json`, // impossible day
+    `email/${scope()}/${mailbox}/${mail}/source/${capture}/capture.json`, // legacy flat layout
+    `email/2026/09/07/${scope()}/${mailbox}/source/${capture}/capture.json`, // one segment short
+    `email/2026/09/07/x/${scope()}/${mailbox}/${mail}/source/${capture}/capture.json`, // one segment long
+    `email/2026/09/07/${scope()}/${mailbox}/${mail}/source/${capture}/../capture.json`, // traversal
+  ];
+  for (const manifest_path of rejected) {
+    assert.throws(() => validateCaptureInput({ ...request, committed_capture: { ...receipt, manifest_path } }, 'gmail'),
+      { code: 'invalid_request' }, manifest_path);
+  }
+});
+
+test('a receipt recorded under the previous layout is discarded instead of replayed forever', async t => {
+  const f = await fixture(t);
+  const first = await f.run();
+  // Rewrite the journal the way a pre-date-layout run left it: a receipt whose
+  // files still hash correctly, but whose path the Gateway can no longer accept.
+  const file = await journalFile(f);
+  const journal = JSON.parse(await fs.readFile(file, 'utf8'));
+  const legacy = `email/${scope()}/${first.capture.mailbox_id}/${first.capture.mail_id}/source/${first.capture.capture_id}/capture.json`;
+  journal.receipt = { ...first, capture: { ...first.capture, manifest_path: legacy } };
+  await fs.writeFile(file, JSON.stringify(journal));
+
+  const second = await f.run();
+  // It must recapture into the current layout rather than hand back the stale path.
+  assert.equal(second.capture.manifest_path.startsWith(`email/2026/09/07/${scope()}/`), true);
+  assert.notEqual(second.capture.manifest_path, legacy);
+  const rewritten = JSON.parse(await fs.readFile(await journalFile(f), 'utf8'));
+  assert.equal(rewritten.receipt.capture.manifest_path, second.capture.manifest_path);
 });

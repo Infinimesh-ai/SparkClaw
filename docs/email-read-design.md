@@ -2,9 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-read-design.md)
 
-The [system and staged management design](email-management-design.md) governs
+The active read contract is the [email pipeline optimization](email-pipeline-optimization-design.md):
+the managed network Reader is the only source, discovery uses one
+`recent_inbound` lane and a persisted received-time interval, and read/unread is
+observation evidence rather than a selection rule. The [system and staged management design](email-management-design.md) governs
 cross-account topic conversations and bounded encountered-thread backfill. This
-document retains source layers and historical qualification. Earlier deferred
+document retains source layers and historical qualification. The source-stage
+implementation and qualification details below are historical and superseded.
+Earlier deferred
 conversation/no-backfill scope is superseded; current script limitations remain.
 The reviewed stages additionally govern unread-independent recent intake, per-mail
 viewing, fixed existing memberships with visible concerns, and durable automatic
@@ -27,7 +32,7 @@ The three layers define a durable data foundation: explicit structures, stable
 references and clear state ownership. The structure can remain in use as designed;
 any additions should be driven by concrete requirements.
 
-## Current Delivery
+## Historical Source Delivery (Superseded)
 
 The fixed `qqmail.read`, `outlook.read`, and `gmail.read` scripts select and pin
 one unread message, acquire its available body and in-scope attachment/inline

@@ -140,28 +140,31 @@ type EmailReadRequest struct {
 	SettingVersion              int64
 	Target                      *EmailCaptureTarget
 	Discovery                   *EmailDiscoveryOptions
-	AckPageID                   string
 }
 
-// EmailDiscoveryOptions pins a bounded observation to the admitted account.
-// IntervalStart/End are required only by recent_inbound. Unread scans are not
-// time-filtered. An incomplete observation never advances the interval boundary.
+// EmailDiscoveryOptions pins a bounded received-time observation to the admitted
+// account. The recent_inbound lane is the only discovery lane. An incomplete
+// observation never advances the interval boundary.
 type EmailDiscoveryOptions struct {
-	Lane           string    `json:"lane"`
-	AccountAddress string    `json:"account_address"`
-	IntervalStart  time.Time `json:"interval_start"`
-	IntervalEnd    time.Time `json:"interval_end"`
-	Continuation   string    `json:"continuation"`
-	Limit          int       `json:"limit"`
+	Lane           string               `json:"lane"`
+	AccountAddress string               `json:"account_address"`
+	IntervalStart  time.Time            `json:"interval_start"`
+	IntervalEnd    time.Time            `json:"interval_end"`
+	Continuation   string               `json:"continuation"`
+	Limit          int                  `json:"limit"`
+	ProviderMode   string               `json:"provider_mode,omitempty"`
+	RetryTargets   []EmailCaptureTarget `json:"retry_targets,omitempty"`
 }
 
 // EmailCaptureTarget is Runtime-owned discovery evidence, never model-selected.
 type EmailCaptureTarget struct {
-	AccountAddress      string `json:"account_address"`
-	ProviderMessageID   string `json:"provider_message_id"`
-	ProviderSelectionID string `json:"provider_selection_id"`
-	ProviderThreadID    string `json:"provider_thread_id,omitempty"`
-	Folder              string `json:"folder,omitempty"`
+	RecoveryCapture     *EmailCaptureVersion `json:"recovery_capture,omitempty"`
+	ProviderNativeID    string               `json:"provider_native_id,omitempty"`
+	AccountAddress      string               `json:"account_address"`
+	ProviderMessageID   string               `json:"provider_message_id"`
+	ProviderSelectionID string               `json:"provider_selection_id"`
+	ProviderThreadID    string               `json:"provider_thread_id,omitempty"`
+	Folder              string               `json:"folder,omitempty"`
 }
 
 type EmailDiscoveryCoverage struct {
@@ -280,4 +283,6 @@ type EmailPageCapture struct {
 type EmailPageFailure struct {
 	Target    EmailCaptureTarget `json:"target"`
 	ErrorCode string             `json:"error_code"`
+	Scope     string             `json:"failure_scope"`
+	Qualified bool               `json:"qualified"`
 }

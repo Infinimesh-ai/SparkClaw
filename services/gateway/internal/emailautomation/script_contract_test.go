@@ -122,7 +122,7 @@ var (
 // passed to helpers whose trailing parameter names the code to throw.
 func scriptErrorCodeLiterals(source string) []string {
 	codes := []string{}
-	for _, match := range regexp.MustCompile(`\b(?:fail|error|managedSendError)\(\s*["']([a-z0-9_]+)["']`).FindAllStringSubmatch(source, -1) {
+	for _, match := range regexp.MustCompile(`\b(?:fail|failure|error|networkError|managedSendError)\(\s*["']([a-z0-9_]+)["']`).FindAllStringSubmatch(source, -1) {
 		codes = append(codes, match[1])
 	}
 	for _, match := range scriptErrorConstructorPattern.FindAllStringSubmatch(source, -1) {

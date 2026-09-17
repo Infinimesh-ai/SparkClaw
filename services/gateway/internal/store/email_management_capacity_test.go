@@ -150,7 +150,7 @@ func TestEmailManagementCapacityQualification(t *testing.T) {
 			}
 			claimLatency := time.Since(start)
 			start = time.Now()
-			_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: EmailCommand{OwnerID: owner, CommandKey: "capacity-new-arrival"}, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, ObservedAt: time.Now(), Coverage: "partial", Trigger: "recent", Members: []EmailDiscoveryMember{{ProviderMessageID: "after-restart", ProviderSelectionID: "after-restart", Direction: "inbound"}}})
+			_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: EmailCommand{OwnerID: owner, CommandKey: "capacity-new-arrival"}, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, ObservedAt: time.Now(), Coverage: "partial", Trigger: "recent_inbound", Members: []EmailDiscoveryMember{{ProviderMessageID: "after-restart", ProviderSelectionID: "after-restart", Direction: "inbound"}}})
 			if err != nil {
 				t.Fatal(err)
 			}

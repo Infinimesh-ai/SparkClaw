@@ -67,7 +67,7 @@ func newEmailHTTPFixture(t *testing.T) *emailHTTPFixture {
 	tools := toolhub.New(cfg, f.repo)
 	t.Cleanup(func() { _ = tools.Close() })
 	runtime := agent.NewRuntime(f.repo, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	service, err := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), nil, nil, emailmanagement.Options{WorkspaceRoot: f.root})
+	service, err := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), nil, nil, emailmanagement.Options{WorkspaceRoot: f.root, QualifiedProviderModes: map[string]string{app.EmailProviderGmail: app.EmailProviderModeTimeRange}})
 	f.must(err)
 	f.handler = New(cfg, f.repo, tools, runtime, WithEmailManagement(service)).Handler()
 	f.box, err = f.repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: f.command(), Provider: app.EmailProviderGmail, Address: "owner@example.com", Enabled: true})
@@ -109,7 +109,8 @@ func (f *emailHTTPFixture) receive(providerID string, at time.Time, partial ...b
 	f.must(err)
 	mail := admission.Mails[0]
 	scope := sha256.Sum256([]byte(f.owner))
-	directory := "email/" + hex.EncodeToString(scope[:]) + "/" + mail.ID
+	captureID := "capture-" + mail.ID
+	directory := "email/2026/09/07/" + hex.EncodeToString(scope[:]) + "/" + f.box.ID + "/" + mail.ID + "/source/" + captureID
 	original := []byte("Subject: Original " + providerID + "\r\n\r\nVerified body")
 	attachment := []byte("Attachment evidence " + providerID)
 	write := func(relative string, raw []byte) {
@@ -119,12 +120,11 @@ func (f *emailHTTPFixture) receive(providerID string, at time.Time, partial ...b
 	originalPath, partPath := directory+"/message.eml", directory+"/attachments/report.txt"
 	write(originalPath, original)
 	write(partPath, attachment)
-	captureID := "capture-" + mail.ID
 	captureState, parseState, manifestState := app.EmailCaptureComplete, app.EmailParseReady, "collected"
 	if len(partial) > 0 && partial[0] {
 		captureState, parseState, manifestState = app.EmailCapturePartial, app.EmailParsePartial, "partial"
 	}
-	manifest := map[string]any{"schema_version": 1, "stage": "script_capture", "acquisition": "rfc822", "provider": f.box.Provider, "account_address": f.box.Address, "provider_message_id": providerID, "mail_id": mail.ID, "mailbox_id": f.box.ID, "capture_id": captureID, "invocation_id": "test-capture", "status": "collected", "files": []map[string]any{{"path": originalPath, "bytes": len(original), "sha256": emailTestHash(original)}, {"path": partPath, "bytes": len(attachment), "sha256": emailTestHash(attachment)}}, "attachments": []map[string]any{{"part_id": "part-1", "name": "报告.txt", "path": "attachments/report.txt", "bytes": len(attachment), "sha256": emailTestHash(attachment), "status": "available"}}}
+	manifest := map[string]any{"schema_version": 1, "stage": "script_capture", "acquisition": "rfc822", "provider": f.box.Provider, "account_address": f.box.Address, "provider_message_id": providerID, "mail_id": mail.ID, "mailbox_id": f.box.ID, "capture_id": captureID, "invocation_id": "test-capture", "status": "collected", "date_path": "2026/09/07", "files": []map[string]any{{"path": originalPath, "bytes": len(original), "sha256": emailTestHash(original)}, {"path": partPath, "bytes": len(attachment), "sha256": emailTestHash(attachment)}}, "attachments": []map[string]any{{"part_id": "part-1", "name": "报告.txt", "path": "attachments/report.txt", "bytes": len(attachment), "sha256": emailTestHash(attachment), "status": "available"}}}
 	manifest["status"] = manifestState
 	raw, err := json.Marshal(manifest)
 	f.must(err)
@@ -328,8 +328,20 @@ func TestEmailManagementHTTPBoundedInputAndCoalescedScheduling(t *testing.T) {
 	if w := f.request("POST", "/api/email/messages/viewed", string(raw)); w.Code != 400 {
 		t.Fatalf("oversized batch status=%d", w.Code)
 	}
+	refreshID := ""
 	for i := 0; i < 2; i++ {
-		emailDecode[emailmanagement.ScheduleResult](t, f.request("POST", "/api/email/sync", `{}`), 202)
+		result := emailDecode[emailmanagement.ScheduleResult](t, f.request("POST", "/api/email/sync", `{}`), 202)
+		if len(result.RefreshRequests) != 1 || result.RefreshRequests[0].MailboxID != f.box.ID || result.RefreshRequests[0].RefreshRequestID == "" {
+			t.Fatal("refresh response missing request identity")
+		}
+		if i > 0 && refreshID != result.RefreshRequests[0].RefreshRequestID {
+			t.Fatal("duplicate HTTP request created a different refresh")
+		}
+		refreshID = result.RefreshRequests[0].RefreshRequestID
+	}
+	status := emailDecode[emailmanagement.StatusView](t, f.request("GET", "/api/email/sync-status", ""), 200)
+	if len(status.Mailboxes) != 1 || !status.Mailboxes[0].RefreshPending || status.Mailboxes[0].RefreshRequestID != refreshID {
+		t.Fatal("status omitted pending refresh identity")
 	}
 	jobs, err := f.repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: f.owner, Limit: 100})
 	f.must(err)
@@ -342,6 +354,9 @@ func TestEmailManagementHTTPBoundedInputAndCoalescedScheduling(t *testing.T) {
 	}](t, f.request("PATCH", "/api/email/providers/gmail", body), 200)
 	if configured.Mailbox.IntakeEnabled || !configured.Mailbox.ActiveBinding || f.browser.calls != 0 {
 		t.Fatalf("mailbox=%+v browser=%d", configured.Mailbox, f.browser.calls)
+	}
+	if configured.Mailbox.RefreshPending {
+		t.Fatal("paused mailbox retained refresh lock")
 	}
 	if w := f.request("PATCH", "/api/email/providers/gmail", body); w.Code != 409 {
 		t.Fatalf("stale mailbox version status=%d: %s", w.Code, w.Body.String())

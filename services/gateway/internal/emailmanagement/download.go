@@ -9,6 +9,8 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 // OpenFile resolves only an owner-authorized committed mail and manifest part.
@@ -27,6 +29,14 @@ func (s *Service) OpenFile(ctx context.Context, owner, mailID, partID string) (*
 	}
 	if !found || capture.MailID != mail.ID {
 		return nil, "", ErrNotFound
+	}
+	// Refuse before touching the filesystem. A purged capture keeps its pointer
+	// so cleanup can be finished later, but the bytes must never be served.
+	if capture.PurgedAt != nil {
+		return nil, "", ErrPurged
+	}
+	if mail.CaptureState == app.EmailCaptureSourceMissing && partID == "original" {
+		return nil, "", errors.New("email_source_missing")
 	}
 	manifest, files, err := loadManifest(ctx, s.opts.WorkspaceRoot, owner, capture)
 	if err != nil {
@@ -47,12 +57,16 @@ func (s *Service) OpenFile(ctx context.Context, owner, mailID, partID string) (*
 			return nil, "", errors.New("email_source_integrity")
 		}
 	} else {
-		for _, attachment := range manifest.Attachments {
-			if attachment.ID == partID && attachment.Status == "available" {
-				ref = files[path.Join(path.Dir(capture.ManifestPath), attachment.Path)]
-				if ref.SHA256 != attachment.SHA256 || ref.Bytes != attachment.Bytes {
-					return nil, "", errors.New("email_source_integrity")
-				}
+		representation, found, err := s.repository.GetEmailRepresentation(ctx, owner, mail.RepresentationID)
+		if err != nil {
+			return nil, "", err
+		}
+		if !found || representation.MailID != mail.ID || representation.CaptureID != capture.ID {
+			return nil, "", ErrNotFound
+		}
+		for _, attachment := range representation.Attachments {
+			if attachment.ID == partID && attachment.Path != "" && attachment.State != app.EmailAttachmentPurged {
+				ref = sourceFile{Path: attachment.Path, SHA256: attachment.SHA256, Bytes: attachment.SizeBytes}
 				name = path.Base(attachment.Name)
 				break
 			}

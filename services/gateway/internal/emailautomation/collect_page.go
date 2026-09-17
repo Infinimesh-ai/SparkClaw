@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,11 +18,17 @@ const maxPageOutputBytes = 1 << 20
 
 var pageIDPattern = regexp.MustCompile(`^page_[a-f0-9]{64}$`)
 
-// PageCaptureInvocationID matches the Controller journal identity. Retries of
-// an unacknowledged page and observations in other lanes recover the same source
-// instead of exporting it again. Page checkpoints retain their full lane identity.
+// Timeline batches share per-mail source identity across polling rounds.
+var timelineInvocationPattern = regexp.MustCompile(`^email_changes_[a-f0-9]{64}(?:_r[0-9]+)?$`)
+
+// PageCaptureInvocationID matches the Controller source identity. Preserve the
+// historical lane-suffix normalization for immutable existing capture references;
+// it does not enable the retired page-checkpoint or acknowledgment workflow.
 func PageCaptureInvocationID(batchInvocationID, provider string, target app.EmailCaptureTarget) string {
-	for _, suffix := range []string{"_unread", "_recent_observation", "_recent_inbound"} {
+	if timelineInvocationPattern.MatchString(batchInvocationID) {
+		batchInvocationID = "email_timeline_v2"
+	}
+	for _, suffix := range []string{"_recent_observation", "_recent_inbound"} {
 		if strings.HasSuffix(batchInvocationID, suffix) {
 			batchInvocationID = strings.TrimSuffix(batchInvocationID, suffix)
 			break
@@ -32,15 +40,24 @@ func PageCaptureInvocationID(batchInvocationID, provider string, target app.Emai
 
 func validPageRequest(request ReadRequest) bool {
 	d := request.Discovery
-	return request.Target == nil && d != nil && (d.Lane == "unread" || d.Lane == "recent_inbound") &&
-		validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) &&
-		(d.Lane != "recent_inbound" || !d.IntervalStart.IsZero() && d.IntervalStart.Before(d.IntervalEnd)) &&
-		d.Limit >= 1 && d.Limit <= 50 && validContinuation(d.Continuation) &&
-		(request.AckPageID == "" || pageIDPattern.MatchString(request.AckPageID))
+	if request.Target != nil || d == nil || d.Lane != "recent_inbound" ||
+		(d.ProviderMode != app.EmailProviderModeChangeCursor && d.ProviderMode != app.EmailProviderModeTimeRange) || len(d.RetryTargets) > 50 ||
+		!validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) ||
+		d.IntervalStart.IsZero() || !d.IntervalStart.Before(d.IntervalEnd) || d.Limit < 1 || d.Limit > 50 || d.Continuation != "" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, target := range d.RetryTargets {
+		if !validMailTarget(target) || !strings.EqualFold(target.AccountAddress, d.AccountAddress) || seen[target.ProviderMessageID] {
+			return false
+		}
+		seen[target.ProviderMessageID] = true
+	}
+	return true
 }
 
-// CollectPageForOwner admits one provider operation for a whole page. Captured
-// originals are reverified locally before the caller can publish or acknowledge.
+// CollectPageForOwner admits one provider operation for a timeline batch.
+// Captured originals are reverified locally before the caller can publish them.
 func (c *Controller) CollectPageForOwner(ctx context.Context, ownerID string, request ReadRequest) (app.EmailPageResult, error) {
 	if !validPageRequest(request) {
 		return app.EmailPageResult{}, codedError(app.ToolErrorEmailInvalidInput, "Invalid email page request")
@@ -54,6 +71,7 @@ func (c *Controller) CollectPageForOwner(ctx context.Context, ownerID string, re
 	if err != nil {
 		return app.EmailPageResult{}, err
 	}
+	started := c.now()
 	output, err := c.runner.CollectPage(ctx, provider, request)
 	if err != nil {
 		return app.EmailPageResult{}, err
@@ -65,12 +83,12 @@ func (c *Controller) CollectPageForOwner(ctx context.Context, ownerID string, re
 		binding := request
 		binding.Target = &capture.Target
 		binding.Discovery = nil
-		binding.AckPageID = ""
 		binding.InvocationID = PageCaptureInvocationID(request.InvocationID, provider.ID, capture.Target)
 		if err := verifyCapture(ctx, c.captureWorkspaceRoot, binding, capture.Result); err != nil {
 			return app.EmailPageResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email page capture files could not be verified")
 		}
 	}
+	c.renewIntakeProbe(ownerID, request, output, started)
 	return output, nil
 }
 
@@ -79,9 +97,6 @@ func (r *PlaywrightRunner) CollectPage(ctx context.Context, provider Provider, r
 		return app.EmailPageResult{}, codedError(app.ToolErrorEmailInvalidInput, "Invalid email page request")
 	}
 	input := map[string]any{"discovery": request.Discovery}
-	if request.AckPageID != "" {
-		input["ack_page_id"] = request.AckPageID
-	}
 	raw, err := r.runIntakeScript(ctx, provider, request, provider.CollectPage, "collect_page", input)
 	if err != nil {
 		return app.EmailPageResult{}, err
@@ -108,12 +123,15 @@ func decodePageResult(raw []byte, provider Provider, request ReadRequest) (app.E
 		Failures   []app.EmailPageFailure `json:"failures"`
 		ObservedAt time.Time              `json:"observed_at"`
 	}
-	if decodeStrictJSONLimit(raw, &wire, maxPageOutputBytes) != nil || wire.Captures == nil || wire.Failures == nil || len(wire.Captures) > 50 || len(wire.Failures) > 50 {
+	if decodeStrictJSONLimit(raw, &wire, maxPageOutputBytes) != nil || wire.Captures == nil || wire.Failures == nil || len(wire.Captures)+len(wire.Failures) > 100 {
 		return invalid()
 	}
 	checkpointRequest := request
 	checkpointRequest.Discovery = &wire.DiscoveryOptions
-	if !validPageRequest(checkpointRequest) || wire.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(wire.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) {
+	if !validPageRequest(checkpointRequest) || wire.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(wire.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) || !equalRetryTargets(wire.DiscoveryOptions.RetryTargets, request.Discovery.RetryTargets) {
+		return invalid()
+	}
+	if !wire.DiscoveryOptions.IntervalStart.Equal(request.Discovery.IntervalStart) || !wire.DiscoveryOptions.IntervalEnd.Equal(request.Discovery.IntervalEnd) || wire.DiscoveryOptions.ProviderMode != request.Discovery.ProviderMode {
 		return invalid()
 	}
 	discovery, err := decodeDiscoveryResult(wire.Discovery, provider, checkpointRequest, maxPageOutputBytes)
@@ -137,16 +155,25 @@ func decodePageResult(raw []byte, provider Provider, request ReadRequest) (app.E
 	return output, nil
 }
 
+// omitempty round-trips an allocated empty retry list as nil. Its contents,
+// including trusted recovery descriptors, still require exact deep equality.
+func equalRetryTargets(a, b []app.EmailCaptureTarget) bool {
+	return slices.EqualFunc(a, b, func(x, y app.EmailCaptureTarget) bool { return reflect.DeepEqual(x, y) })
+}
+
 func validPageResult(output app.EmailPageResult, provider Provider, request ReadRequest) bool {
 	if !validPageRequest(request) || output.SchemaVersion != 1 || output.Provider != provider.ID || !pageIDPattern.MatchString(output.PageID) || output.ObservedAt.IsZero() ||
 		!strings.EqualFold(output.AccountAddress, request.Discovery.AccountAddress) || !strings.EqualFold(output.Discovery.AccountAddress, output.AccountAddress) ||
 		output.Discovery.Provider != provider.ID || output.Discovery.Coverage.Lane != request.Discovery.Lane || output.Captures == nil || output.Failures == nil ||
-		len(output.Discovery.Candidates) > output.DiscoveryOptions.Limit || len(output.Captures)+len(output.Failures) != len(output.Discovery.Candidates) {
+		len(output.Discovery.Candidates) > output.DiscoveryOptions.Limit {
 		return false
 	}
 	checkpointRequest := request
 	checkpointRequest.Discovery = &output.DiscoveryOptions
-	if !validPageRequest(checkpointRequest) || output.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(output.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) {
+	if !validPageRequest(checkpointRequest) || output.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(output.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) || !equalRetryTargets(output.DiscoveryOptions.RetryTargets, request.Discovery.RetryTargets) {
+		return false
+	}
+	if !output.DiscoveryOptions.IntervalStart.Equal(request.Discovery.IntervalStart) || !output.DiscoveryOptions.IntervalEnd.Equal(request.Discovery.IntervalEnd) || output.DiscoveryOptions.ProviderMode != request.Discovery.ProviderMode {
 		return false
 	}
 	discoveryRaw, err := json.Marshal(output.Discovery)
@@ -169,16 +196,31 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 	default:
 		return false
 	}
-	candidates := make(map[string]app.EmailCaptureTarget, len(output.Discovery.Candidates))
+	candidates := make(map[string]app.EmailCaptureTarget, len(output.Discovery.Candidates)+len(request.Discovery.RetryTargets))
 	for _, target := range output.Discovery.Candidates {
-		if _, duplicate := candidates[target.ProviderMessageID]; duplicate || !validMailTarget(target) || !strings.EqualFold(target.AccountAddress, output.AccountAddress) {
+		if _, duplicate := candidates[target.ProviderMessageID]; duplicate || target.RecoveryCapture != nil || !validMailTarget(target) || !strings.EqualFold(target.AccountAddress, output.AccountAddress) {
 			return false
 		}
 		candidates[target.ProviderMessageID] = target
 	}
+	for _, target := range request.Discovery.RetryTargets {
+		if existing, duplicate := candidates[target.ProviderMessageID]; duplicate {
+			base := target
+			base.RecoveryCapture = nil
+			if !reflect.DeepEqual(existing, base) {
+				return false
+			}
+			candidates[target.ProviderMessageID] = target
+			continue
+		}
+		candidates[target.ProviderMessageID] = target
+	}
+	if len(output.Captures)+len(output.Failures) != len(candidates) {
+		return false
+	}
 	claim := func(target app.EmailCaptureTarget) bool {
 		candidate, found := candidates[target.ProviderMessageID]
-		if !found || candidate != target {
+		if !found || !reflect.DeepEqual(candidate, target) {
 			return false
 		}
 		delete(candidates, target.ProviderMessageID)
@@ -193,7 +235,9 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 		}
 	}
 	for _, failure := range output.Failures {
-		if !claim(failure.Target) || !scriptCodePattern.MatchString(failure.ErrorCode) {
+		if !claim(failure.Target) || !scriptCodePattern.MatchString(failure.ErrorCode) ||
+			failure.Scope != app.EmailSyncFailureMailSpecific && failure.Scope != app.EmailSyncFailureProviderOperational && failure.Scope != app.EmailSyncFailureLocalOperational ||
+			failure.Qualified && failure.Scope != app.EmailSyncFailureMailSpecific {
 			return false
 		}
 	}
@@ -210,7 +254,7 @@ func emptyPageObservation(discovery app.EmailDiscoveryResult) bool {
 		return false
 	}
 	switch discovery.Coverage.Reason {
-	case "loaded_rows_only", "native_folder_scan_partial", "folder_scope_and_pagination_unqualified", "network_page_continues", "network_page_changed":
+	case "folder_scope_and_pagination_unqualified", "network_page_continues", "network_page_changed":
 		return true
 	default:
 		return false

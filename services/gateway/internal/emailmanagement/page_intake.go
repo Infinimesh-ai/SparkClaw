@@ -2,8 +2,11 @@ package emailmanagement
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -14,10 +17,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-// PageBrowser keeps discovery, export and read confirmation in one task page.
-// Legacy single-message APIs remain available to explicit read workflows.
-var errPageIncomplete = errors.New("email_page_capture_incomplete")
-
 type PageBrowser interface {
 	CollectPageForOwner(context.Context, string, app.EmailReadRequest) (app.EmailPageResult, error)
 }
@@ -27,180 +26,203 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 	if err != nil {
 		return err
 	}
-	binding, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, "email_page_"+job.ID, app.EmailJobDiscover)
+	mode := s.incrementalMode(mailbox.Provider)
+	if mode == app.EmailProviderModeUnqualified {
+		return errors.New("email_incremental_unqualified")
+	}
+	upper := s.now()
+	lower := mailbox.PollThrough
+	if lower.IsZero() {
+		lower = mailbox.Boundary
+	}
+	if !upper.After(lower) {
+		upper = lower.Add(time.Microsecond)
+	}
+	beginKey := fmt.Sprintf("timeline-begin:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, mailbox.CheckpointRevision+1)
+	checkpoint, err := s.repository.BeginEmailSync(ctx, store.EmailSyncBeginCommand{EmailCommand: command(job.OwnerID, beginKey), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, ProviderMode: mode, ProviderCursor: mailbox.ProviderCursor, UpperBound: upper, Trigger: syncTrigger(job), Actor: syncActor(job)})
 	if err != nil {
 		return err
 	}
+	mailbox = checkpoint.Mailbox
 	registered, _ := s.registry.Get(mailbox.Provider)
-	binding.ScriptRevision = registered.CollectPage.Revision
-	var failures []error
-	for _, scan := range []string{"recent_observation", "recent_inbound"} {
-		mailbox, err := s.activeMailbox(ctx, job)
-		if err != nil {
-			return errors.Join(append(failures, err)...)
+	binding := app.EmailReadRequest{Provider: mailbox.Provider, ScriptRevision: registered.CollectPage.Revision}
+	retryMails := map[string]app.EmailMail{}
+	retryTargets := make([]app.EmailCaptureTarget, 0, len(checkpoint.RetryFailures))
+	retryBudget := timelineRetryBudget{} // Omitted failures remain open for a later poll.
+	for _, failure := range checkpoint.RetryFailures {
+		mail, found, readErr := s.repository.GetEmailMail(ctx, job.OwnerID, failure.MailID)
+		if readErr != nil {
+			return readErr
 		}
-		if scan == "recent_observation" && mailbox.Cursor == "" {
+		if !found || mail.SyncState == app.EmailMailSyncSuppressed {
 			continue
 		}
-		position := discoveryCursor{observationOnly: scan == "recent_observation"}
-		lane := scan
-		if position.observationOnly {
-			lane = "recent_inbound"
-		}
-		if lane == "recent_inbound" {
-			start := mailbox.Boundary.Add(-24 * time.Hour)
-			if position.observationOnly {
-				start = s.now().Add(-24 * time.Hour)
+		target := app.EmailCaptureTarget{AccountAddress: mailbox.Address, ProviderMessageID: mail.ProviderMessageID, ProviderNativeID: mail.ProviderNativeID, ProviderSelectionID: mail.ProviderSelectionID, ProviderThreadID: mail.ProviderThreadID, Folder: mail.Folder}
+		if mail.CaptureState == app.EmailCaptureSourceMissing && mail.CaptureID != "" {
+			capture, exists, err := s.repository.GetEmailCapture(ctx, job.OwnerID, mail.CaptureID)
+			if err != nil {
+				return err
 			}
-			if start.Before(mailbox.ActivatedAt) {
-				start = mailbox.ActivatedAt
-			}
-			position.Start, position.End = start, s.now()
-			if !position.observationOnly && mailbox.Cursor != "" {
-				if json.Unmarshal([]byte(mailbox.Cursor), &position) != nil {
-					return errors.New("email_cursor_invalid")
-				}
+			if exists && capture.PurgedAt == nil && capture.ManifestJSON != "" {
+				target.RecoveryCapture = &capture
 			}
 		}
-		request := binding
-		// Mailbox identity survives pause/re-enable while account switches get
-		// a different identity. Thus paused interval checkpoints remain recoverable.
-		request.InvocationID = "email_page_" + mailbox.ID + "_" + scan
-		request.AckPageID = mailbox.PageAcks[scan]
-		request.Discovery = &app.EmailDiscoveryOptions{Lane: lane, AccountAddress: mailbox.Address, IntervalStart: position.Start, IntervalEnd: position.End, Continuation: position.Continuation, Limit: 50}
-		result, err := browser.CollectPageForOwner(ctx, job.OwnerID, request)
-		if err != nil {
-			failures = append(failures, err)
+		admitted, budgetErr := retryBudget.admit(target)
+		if budgetErr != nil {
+			return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, budgetErr)
+		}
+		if !admitted {
 			continue
 		}
-		if result.DiscoveryOptions.Lane != lane || !strings.EqualFold(result.AccountAddress, mailbox.Address) {
-			return errors.New("email_account_changed")
+		retryTargets = append(retryTargets, target)
+		retryMails[mail.ProviderMessageID] = mail
+	}
+	intervalID := sha256.Sum256([]byte(mailbox.ID + "\x00" + checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano) + "\x00" + checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano)))
+	binding.InvocationID = fmt.Sprintf("email_changes_%s_r%d", hex.EncodeToString(intervalID[:]), mailbox.CheckpointRevision)
+	binding.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: mailbox.Address, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, Limit: 50, ProviderMode: mode, RetryTargets: retryTargets}
+	if recovered, found, recoveryErr := s.recoverTimelineBatch(ctx, job.OwnerID, binding); found || recoveryErr != nil {
+		if recoveryErr != nil {
+			return recoveryErr
 		}
-		// Replay carries its original interval: a restarted caller's new wall clock
-		// must never advance a boundary beyond what the checkpoint actually scanned.
-		position.Start, position.End, position.Continuation = result.DiscoveryOptions.IntervalStart, result.DiscoveryOptions.IntervalEnd, result.DiscoveryOptions.Continuation
-		if err := s.publishPage(ctx, job, mailbox, request, result, position, scan); err != nil {
-			if errors.Is(err, errPageIncomplete) {
+		return s.publishIncrementalPage(ctx, job, mailbox, binding, recovered, checkpoint, retryMails, mode)
+	}
+	admitted, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, binding.InvocationID)
+	if err != nil {
+		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, err)
+	}
+	admitted.ScriptRevision, admitted.Discovery = registered.CollectPage.Revision, binding.Discovery
+	binding = admitted
+	page, err := browser.CollectPageForOwner(ctx, job.OwnerID, binding)
+	if err != nil {
+		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, err)
+	}
+	if page.DiscoveryOptions.Lane != "recent_inbound" || !page.DiscoveryOptions.IntervalStart.Equal(checkpoint.IntervalStart) || !page.DiscoveryOptions.IntervalEnd.Equal(checkpoint.IntervalEnd) || !strings.EqualFold(page.AccountAddress, mailbox.Address) {
+		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, errors.New("email_account_changed"))
+	}
+	return s.publishIncrementalPage(ctx, job, mailbox, binding, page, checkpoint, retryMails, mode)
+}
+
+func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, request app.EmailReadRequest, page app.EmailPageResult, checkpoint store.EmailSyncCheckpoint, retryMails map[string]app.EmailMail, mode string) error {
+	key := fmt.Sprintf("timeline-source:%s:%d:%s:%s", mailbox.ID, checkpoint.Mailbox.CheckpointRevision, checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano), checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano))
+	members := make([]store.EmailDiscoveryMember, 0, len(page.Discovery.Candidates))
+	for _, target := range page.Discovery.Candidates {
+		members = append(members, store.EmailDiscoveryMember{ProviderMessageID: target.ProviderMessageID, ProviderNativeID: target.ProviderNativeID, ProviderSelectionID: target.ProviderSelectionID, ProviderThreadID: target.ProviderThreadID, Folder: target.Folder, Direction: pageDirection(target.Folder), Reason: "recent_inbound", RemoteReadState: "unknown"})
+	}
+	captures := []store.EmailSyncCapture{}
+	outcomes := []store.EmailSyncFailureOutcome{}
+	for _, captured := range page.Captures {
+		invocation := emailautomation.PageCaptureInvocationID(request.InvocationID, mailbox.Provider, captured.Target)
+		prepared, err := s.preparePageCapture(ctx, job.OwnerID, mailbox, captured.Target.ProviderMessageID, captured.Result, invocation)
+		if err != nil {
+			outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: safeCode(err)})
+			continue
+		}
+		if prior, repairing := retryMails[captured.Target.ProviderMessageID]; repairing && prior.CaptureID != "" {
+			old, found, err := s.repository.GetEmailCapture(ctx, job.OwnerID, prior.CaptureID)
+			if err != nil {
+				return err
+			}
+			if !found || old.PurgedAt != nil || old.OriginalSHA256 != prepared.Capture.OriginalSHA256 ||
+				(old.ID == prepared.Capture.ID && old.ManifestSHA256 != prepared.Capture.ManifestSHA256) {
+				outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: "email_source_conflict"})
 				continue
 			}
-			return err
 		}
-	}
-	return errors.Join(failures...)
-}
-
-func (s *Service) publishPage(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, request app.EmailReadRequest, page app.EmailPageResult, position discoveryCursor, scan string) error {
-	key := request.InvocationID + ":" + page.PageID + ":" + job.LeaseToken
-	incomplete := len(page.Failures) > 0
-
-	mails := make(map[string]app.EmailMail, len(page.Discovery.Candidates))
-	if len(page.Discovery.Candidates) > 0 {
-		admission := store.EmailDiscoveryCommand{EmailCommand: command(job.OwnerID, key+":admit"), Lease: lease(job, s.now()), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, PageBatch: true, MaxPendingJobs: 1000, ObservedAt: page.Discovery.ObservedAt, Cursor: mailbox.Cursor, Coverage: "partial", Trigger: scan}
-		for _, target := range page.Discovery.Candidates {
-			admission.Members = append(admission.Members, store.EmailDiscoveryMember{ProviderMessageID: target.ProviderMessageID, ProviderSelectionID: target.ProviderSelectionID, ProviderThreadID: target.ProviderThreadID, Folder: target.Folder, Direction: pageDirection(target.Folder), Reason: scan, RemoteReadState: "unknown"})
-		}
-		admitted, err := s.repository.AdmitEmailDiscovery(ctx, admission)
-		if err != nil {
-			return err
-		}
-		for _, mail := range admitted.Mails {
-			mails[mail.ProviderMessageID] = mail
-		}
-	}
-	for _, captured := range page.Captures {
-		mail, ok := mails[captured.Target.ProviderMessageID]
-		if !ok {
-			return errors.New("email_page_target_missing")
-		}
-		invocation := emailautomation.PageCaptureInvocationID(request.InvocationID, mailbox.Provider, captured.Target)
-		cmd := command(job.OwnerID, key+":capture:"+mail.ID)
-		if err := s.publishPageCapture(ctx, job, mailbox, mail, captured.Result, invocation, cmd); err != nil {
-			return err
-		}
-	}
-	// Only after all durable receipts are ingested may progress and acknowledgement
-	// move forward. A replay of the same page uses identical command receipts.
-	// An empty page goes straight here: record only its actual observed coverage
-	// and acknowledge it normally, without admission/capture work or a retry.
-	progress := store.EmailDiscoveryCommand{EmailCommand: command(job.OwnerID, key+":progress"), Lease: lease(job, s.now()), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, PageBatch: true, ObservedAt: page.Discovery.ObservedAt, Cursor: mailbox.Cursor, Coverage: "partial", Trigger: scan}
-	if page.Discovery.Coverage.Reason != "" {
-		progress.Gaps = append(progress.Gaps, page.Discovery.Coverage.Reason)
+		captures = append(captures, prepared)
+		outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "original", Success: true})
 	}
 	for _, failure := range page.Failures {
-		progress.Gaps = append(progress.Gaps, failure.ErrorCode)
+		outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: failure.Target.ProviderMessageID, Stage: "original", Scope: failure.Scope, ErrorCode: failure.ErrorCode, Qualified: failure.Qualified})
 	}
-	if page.Discovery.Coverage.ScanComplete && !incomplete {
-		progress.Coverage = "complete_for_observation"
-	}
-	if !position.End.IsZero() && !position.observationOnly {
-		if page.Discovery.Coverage.ScanComplete && page.Discovery.Coverage.BoundaryQualified && !incomplete {
-			progress.CompletedBoundary = position.End
-			progress.Cursor = ""
-			progress.Coverage = "complete"
-		} else {
-			// An unfinished page is revisited on a later round instead of losing failed
-			// exports by advancing to the next page. Successful originals are reusable.
-			if !incomplete {
-				position.Continuation = page.Discovery.Coverage.Continuation
-			}
-			raw, _ := json.Marshal(position)
-			progress.Cursor = string(raw)
-		}
-	}
-	if _, err := s.repository.AdmitEmailDiscovery(ctx, progress); err != nil {
+	coverage := page.Discovery.Coverage
+	overflow := coverage.Continuation != "" || coverage.Reason == "network_page_continues"
+	complete := coverage.ScanComplete && coverage.BoundaryQualified && coverage.UnsupportedRows == 0 && !coverage.Limited && !overflow
+	commit := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key+":commit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), InvocationID: request.InvocationID, ReaderRevision: request.ScriptRevision, Complete: complete, Overflow: overflow, UnsupportedItems: coverage.UnsupportedRows, ErrorCode: coverage.Reason, FailureScope: app.EmailSyncFailureProviderOperational, Outcomes: outcomes, Members: members, Captures: captures, Lease: lease(job, s.now()), ObservedAt: page.Discovery.ObservedAt}
+	_, err := s.repository.CommitEmailSync(ctx, commit)
+	if err = s.reconcileError(ctx, commit.EmailCommand, err); err != nil {
 		return err
 	}
-	if incomplete {
-		return errPageIncomplete
+	// Refetchable source bytes were journaled before their atomic rename. The
+	// journal may be removed only after the composite Store receipt is known.
+	digest := sha256.Sum256([]byte(mailbox.Provider + "\x00" + request.InvocationID))
+	root, openErr := os.OpenRoot(s.opts.WorkspaceRoot)
+	if openErr == nil {
+		defer root.Close()
+		_ = root.Remove(path.Join("email", ownerScope(job.OwnerID), "batches", hex.EncodeToString(digest[:])+".json"))
 	}
-	ack := store.EmailDiscoveryCommand{EmailCommand: command(job.OwnerID, key+":ack"), Lease: lease(job, s.now()), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, PageBatch: true, Trigger: scan, AcknowledgedPageID: page.PageID}
-	_, err := s.repository.AdmitEmailDiscovery(ctx, ack)
-	return err
+	return nil
 }
 
-func (s *Service) publishPageCapture(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, mail app.EmailMail, result app.EmailReadResult, invocation string, cmd store.EmailCommand) error {
+func (s *Service) commitListFailure(ctx context.Context, job app.EmailJob, checkpoint store.EmailSyncCheckpoint, mode string, readerRevision int, cause error) error {
+	code := safeCode(cause)
+	if code == "" {
+		code = "email_provider_unavailable"
+	}
+	key := fmt.Sprintf("timeline-list-failure:%s:%d:%s:%s", checkpoint.Mailbox.ID, checkpoint.Mailbox.CheckpointRevision, checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano), checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano))
+	command := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key), MailboxID: checkpoint.Mailbox.ID, BindingGeneration: checkpoint.Mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), ReaderRevision: readerRevision, ErrorCode: code, FailureScope: app.EmailSyncFailureProviderOperational}
+	if emailautomation.LocalOperationalFailure(cause) || code == "email_retry_target_too_large" {
+		command.FailureScope = app.EmailSyncFailureLocalOperational
+	}
+	_, err := s.repository.CommitEmailSync(ctx, command)
+	return s.reconcileError(ctx, command.EmailCommand, err)
+}
+
+func (s *Service) preparePageCapture(ctx context.Context, owner string, mailbox app.EmailMailbox, providerMessageID string, result app.EmailReadResult, invocation string) (store.EmailSyncCapture, error) {
+	out := store.EmailSyncCapture{ProviderMessageID: providerMessageID}
 	if result.Capture == nil {
-		return errors.New("email_capture_missing")
+		return out, errors.New("email_capture_missing")
 	}
 	ref := result.Capture
-	version := app.EmailCaptureVersion{ID: ref.CaptureID, MailID: mail.ID, ManifestPath: ref.ManifestPath, ManifestSHA256: ref.ManifestSHA256, State: app.EmailCapturePartial, CreatedAt: s.now()}
+	version := app.EmailCaptureVersion{ID: ref.CaptureID, ManifestPath: ref.ManifestPath, ManifestSHA256: ref.ManifestSHA256, State: app.EmailCapturePartial, CreatedAt: s.now()}
 	if result.Status == "collected" {
 		version.State = app.EmailCaptureComplete
 	}
-	manifest, files, err := loadManifest(ctx, s.opts.WorkspaceRoot, job.OwnerID, version)
+	manifest, files, err := loadManifest(ctx, s.opts.WorkspaceRoot, owner, version)
 	if err != nil {
-		return err
+		return out, err
 	}
-	if manifest.Provider != mailbox.Provider || !strings.EqualFold(manifest.AccountAddress, mailbox.Address) || manifest.ProviderMessageID != mail.ProviderMessageID || manifest.InvocationID != invocation {
-		return errors.New("email_capture_identity")
+	if manifest.Provider != mailbox.Provider || !strings.EqualFold(manifest.AccountAddress, mailbox.Address) || manifest.ProviderMessageID != providerMessageID || manifest.InvocationID != invocation {
+		return out, errors.New("email_capture_identity")
 	}
 	version.CreatedAt = manifest.CapturedAt
+	version.ManifestJSON = manifest.RawJSON
 	if version.CreatedAt.IsZero() {
-		version.CreatedAt = mail.DiscoveredAt
+		version.CreatedAt = s.now()
 	}
 	root, err := os.OpenRoot(s.opts.WorkspaceRoot)
 	if err != nil {
-		return err
+		return out, err
 	}
 	defer root.Close()
 	for _, file := range files {
-		verified, err := openVerifiedFile(ctx, root, file, 110<<20)
-		if err != nil {
-			return err
+		info, err := root.Stat(file.Path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() != file.Bytes {
+			return out, errors.New("email_source_invalid")
 		}
-		verified.Close()
 	}
 	original, ok := files[path.Join(path.Dir(ref.ManifestPath), "message.eml")]
 	if !ok {
-		return errors.New("email_original_missing")
+		return out, errors.New("email_original_missing")
 	}
 	version.OriginalPath, version.OriginalSHA256 = original.Path, original.SHA256
 	readState := ref.ReadState
 	if readState != "read" || version.State != app.EmailCaptureComplete {
 		readState = "unknown"
 	}
-	_, err = s.repository.PublishEmailCapture(ctx, store.EmailCaptureCommand{EmailCommand: cmd, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Lease: lease(job, s.now()), Capture: version, PageBatch: true, ReadState: readState})
-	return s.reconcileError(ctx, cmd, err)
+	out.Capture, out.ReadState = version, readState
+	return out, nil
+}
+
+func replayedEmailCommand[T any](ctx context.Context, repository Repository, cmd store.EmailCommand, operation store.StoreOperation) (T, bool, error) {
+	var out T
+	receipt, found, err := repository.ReconcileEmailCommand(ctx, cmd.OwnerID, cmd.CommandKey)
+	if err != nil || !found {
+		return out, false, err
+	}
+	if receipt.Operation != string(operation) || json.Unmarshal(receipt.Result, &out) != nil {
+		return out, false, errors.New("email_command_receipt_invalid")
+	}
+	return out, true, nil
 }
 
 func pageDirection(folder string) string {
@@ -211,4 +233,17 @@ func pageDirection(folder string) string {
 		return "unknown"
 	}
 	return "inbound"
+}
+
+func syncTrigger(job app.EmailJob) string {
+	if job.SyncTrigger == "manual_refresh" {
+		return job.SyncTrigger
+	}
+	return "scheduled"
+}
+func syncActor(job app.EmailJob) string {
+	if job.SyncTrigger == "manual_refresh" && job.SyncActor != "" {
+		return job.SyncActor
+	}
+	return "system"
 }

@@ -1,26 +1,24 @@
 package emailmanagement
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
-	netmail "net/mail"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-const parserVersion = "captured-mime-v3-body-header-signals"
+const parserVersion = "captured-mime-v4-original-single-pass"
 const maxSourceBytes int64 = 220 << 20
 
 type DocumentExtractor interface {
@@ -34,6 +32,7 @@ type sourceFile struct {
 }
 
 type sourceManifest struct {
+	RawJSON           string       `json:"-"`
 	CapturedAt        time.Time    `json:"captured_at"`
 	SchemaVersion     int          `json:"schema_version"`
 	Stage             string       `json:"stage"`
@@ -46,6 +45,10 @@ type sourceManifest struct {
 	InvocationID      string       `json:"invocation_id"`
 	Status            string       `json:"status"`
 	Acquisition       string       `json:"acquisition"`
+	DatePath          string       `json:"date_path"`
+	ReceivedAt        string       `json:"received_at"`
+	ReceivedSource    string       `json:"received_source"`
+	ReceivedDisplay   string       `json:"received_display_text"`
 	Files             []sourceFile `json:"files"`
 	Attachments       []struct {
 		ID           string `json:"part_id"`
@@ -63,23 +66,9 @@ type sourceManifest struct {
 	} `json:"coverage"`
 }
 
-type capturedHeaders struct {
-	Subject    string          `json:"subject"`
-	From       []addressHeader `json:"from"`
-	To         []addressHeader `json:"to"`
-	CC         []addressHeader `json:"cc"`
-	ReplyTo    []addressHeader `json:"reply_to"`
-	Date       *time.Time      `json:"date"`
-	MessageID  string          `json:"message_id"`
-	InReplyTo  string          `json:"in_reply_to"`
-	References json.RawMessage `json:"references"`
-}
-
-type addressHeader struct {
-	Address string `json:"address"`
-	Name    string `json:"name"`
-}
-
+// Legacy capture fixtures retain these shapes while v4 parses message.eml
+// directly. Keeping the decoder types makes old on-disk test data readable
+// without reintroducing the pre-commit MIME parse path.
 func ownerScope(owner string) string {
 	digest := sha256.Sum256([]byte(owner))
 	return hex.EncodeToString(digest[:])
@@ -108,10 +97,31 @@ func safeRelativePath(value string) bool {
 		path.Clean(value) == value && value != "." && value != ".." && !strings.HasPrefix(value, "../")
 }
 
+var emailDatePathPattern = regexp.MustCompile(`^\d{4}/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])$`)
+
+// captureDirScope decomposes the canonical ten-segment capture layout
+// email/<YYYY>/<MM>/<DD>/<owner-scope>/<mailbox>/<mail>/source/<capture>/capture.json.
+// The owner scope is matched against this owner's digest, so a date prefix
+// widens the layout without widening what a forged pointer can reach.
+func captureDirScope(manifestPath, owner string) (mailboxID, mailID, datePath string, ok bool) {
+	if !safeRelativePath(manifestPath) {
+		return "", "", "", false
+	}
+	parts := strings.Split(manifestPath, "/")
+	if len(parts) != 10 || parts[0] != "email" || parts[4] != ownerScope(owner) || parts[7] != "source" || parts[9] != "capture.json" {
+		return "", "", "", false
+	}
+	datePath = strings.Join(parts[1:4], "/")
+	if !emailDatePathPattern.MatchString(datePath) || parts[5] == "" || parts[6] == "" || parts[8] == "" {
+		return "", "", "", false
+	}
+	return parts[5], parts[6], datePath, true
+}
+
 func loadManifest(ctx context.Context, workspace, owner string, capture app.EmailCaptureVersion) (sourceManifest, map[string]sourceFile, error) {
 	var manifest sourceManifest
-	prefix := "email/" + ownerScope(owner) + "/"
-	if !safeRelativePath(capture.ManifestPath) || !strings.HasPrefix(capture.ManifestPath, prefix) || path.Base(capture.ManifestPath) != "capture.json" {
+	mailboxID, mailID, datePath, ok := captureDirScope(capture.ManifestPath, owner)
+	if !ok {
 		return manifest, nil, errors.New("email_source_scope")
 	}
 	root, err := os.OpenRoot(workspace)
@@ -132,9 +142,13 @@ func loadManifest(ctx context.Context, workspace, owner string, capture app.Emai
 	if err != nil {
 		return manifest, nil, err
 	}
+	// The manifest must agree with the directory it was found in, so a capture
+	// committed under another mail's or another day's path cannot be adopted.
 	if decodeSourceJSON(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.Stage != "script_capture" ||
 		manifest.Acquisition != "rfc822" || manifest.CaptureID != capture.ID || len(manifest.Files) == 0 || len(manifest.Files) > 32 ||
-		len(manifest.Attachments) > 20 || (manifest.Status != "collected" && manifest.Status != "partial") {
+		len(manifest.Attachments) > 20 || (manifest.Status != "collected" && manifest.Status != "partial") ||
+		manifest.DatePath != datePath || manifest.MailboxID != mailboxID || manifest.MailID != mailID ||
+		path.Base(path.Dir(capture.ManifestPath)) != capture.ID {
 		return manifest, nil, errors.New("email_source_invalid")
 	}
 	files := map[string]sourceFile{}
@@ -151,6 +165,7 @@ func loadManifest(ctx context.Context, workspace, owner string, capture app.Emai
 		total += ref.Bytes
 		files[ref.Path] = ref
 	}
+	manifest.RawJSON = string(raw)
 	return manifest, files, nil
 }
 
@@ -162,103 +177,23 @@ func parseCapturedMail(ctx context.Context, workspace, owner string, mail app.Em
 	if manifest.Provider != mailbox.Provider || !strings.EqualFold(manifest.AccountAddress, mailbox.Address) || manifest.ProviderMessageID != mail.ProviderMessageID {
 		return app.EmailRepresentation{}, errors.New("email_source_identity")
 	}
-	root, err := os.OpenRoot(workspace)
-	if err != nil {
+	ref, ok := files[capture.OriginalPath]
+	if !ok || ref.SHA256 != capture.OriginalSHA256 {
+		return app.EmailRepresentation{}, errors.New("email_original_missing")
+	}
+	result := app.EmailRepresentation{ID: app.NewID("repr"), MailID: mail.ID, CaptureID: capture.ID,
+		HeaderSignals: map[string]string{"_owner_scope": ownerScope(owner)}, State: app.EmailParseReady,
+		Coverage: "complete_for_inputs", ParserVersion: parserVersion, CreatedAt: time.Now().UTC()}
+	if err := parseMIMEOriginal(ctx, workspace, ref, &result); err != nil {
 		return app.EmailRepresentation{}, err
 	}
-	defer root.Close()
-	directory := path.Dir(capture.ManifestPath)
-	headersRaw, err := readVerifiedFile(ctx, root, files[path.Join(directory, "headers.json")], 1<<20)
-	if err != nil {
-		return app.EmailRepresentation{}, err
-	}
-	body, err := readVerifiedFile(ctx, root, files[path.Join(directory, "body.txt")], 2<<20)
-	if err != nil || !utf8.Valid(body) {
-		return app.EmailRepresentation{}, errors.New("email_source_body_invalid")
-	}
-	var headers capturedHeaders
-	if decodeSourceJSON(headersRaw, &headers) != nil || len(headers.From) == 0 {
+	if len(result.From) == 0 {
 		return app.EmailRepresentation{}, errors.New("email_source_headers_invalid")
-	}
-	result := app.EmailRepresentation{ID: app.NewID("repr"), MailID: mail.ID, CaptureID: capture.ID, Subject: headers.Subject,
-		From: headerAddresses(headers.From), To: headerAddresses(headers.To), CC: headerAddresses(headers.CC), ReplyTo: headerAddresses(headers.ReplyTo),
-		MessageID: headers.MessageID, BodyText: string(body), State: app.EmailParseReady, Coverage: "complete_for_inputs", ParserVersion: parserVersion, CreatedAt: time.Now().UTC()}
-	if ref, ok := files[capture.OriginalPath]; ok {
-		original, err := openVerifiedFile(ctx, root, ref, maxSourceBytes)
-		if err != nil {
-			return app.EmailRepresentation{}, err
-		}
-		native, parseErr := netmail.ReadMessage(bufio.NewReader(io.LimitReader(contextReader{ctx, original}, 128<<10)))
-		original.Close()
-		if parseErr == nil {
-			result.HeaderSignals = map[string]string{}
-			for _, key := range []string{"Auto-Submitted", "List-Id", "Precedence", "X-Auto-Response-Suppress"} {
-				value, _ := boundedUTF8(strings.TrimSpace(native.Header.Get(key)), 512)
-				if value != "" {
-					result.HeaderSignals[key] = value
-				}
-			}
-		}
-	}
-	if headers.Date != nil {
-		result.SourceTime = *headers.Date
-	}
-	if len(headers.References) > 0 && string(headers.References) != "null" {
-		if json.Unmarshal(headers.References, &result.ReplyReferences) != nil {
-			var one string
-			if json.Unmarshal(headers.References, &one) != nil {
-				return result, errors.New("email_source_headers_invalid")
-			}
-			result.ReplyReferences = strings.Fields(one)
-		}
-	}
-	if headers.InReplyTo != "" {
-		result.ReplyReferences = append(result.ReplyReferences, headers.InReplyTo)
 	}
 	if !manifest.Coverage.InventoryComplete || !manifest.Coverage.AttachmentsComplete || manifest.Coverage.SkippedParts > 0 || capture.State != app.EmailCaptureComplete {
 		result.State, result.Coverage = app.EmailParsePartial, "source_incomplete"
 	}
-	for _, part := range manifest.Attachments {
-		attachment := app.EmailAttachment{ID: part.ID, Name: part.Name, MIMEType: part.DeclaredType, SizeBytes: part.Bytes, State: part.Status, SHA256: part.SHA256}
-		if part.Status == "available" {
-			attachment.Path = path.Join(directory, part.Path)
-			ref, ok := files[attachment.Path]
-			if !ok || !safeRelativePath(part.Path) || part.Bytes != ref.Bytes || part.SHA256 != ref.SHA256 {
-				return result, errors.New("email_source_attachment_invalid")
-			}
-			verified, err := openVerifiedFile(ctx, root, ref, 25<<20)
-			if err != nil {
-				return result, err
-			}
-			verified.Close()
-			// Analysis v2 verifies downloadable source bytes only. Document
-			// extraction may invoke OCR/models and is intentionally excluded.
-			attachment.State = "not_analyzed"
-		}
-		if attachment.State != "not_analyzed" {
-			result.State = app.EmailParsePartial
-			if result.Coverage == "complete_for_inputs" {
-				result.Coverage = "attachment_source_incomplete"
-			} else if !strings.Contains(result.Coverage, "attachment_source_incomplete") {
-				result.Coverage += ";attachment_source_incomplete"
-			}
-		}
-		result.Attachments = append(result.Attachments, attachment)
-	}
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-func headerAddresses(values []addressHeader) []string {
-	addresses := make([]string, 0, len(values))
-	for _, value := range values {
-		if value.Address != "" {
-			addresses = append(addresses, value.Address)
-		}
-	}
-	return addresses
+	return result, ctx.Err()
 }
 
 // publishJSON writes immutable, attempt-addressed output before Store admission.

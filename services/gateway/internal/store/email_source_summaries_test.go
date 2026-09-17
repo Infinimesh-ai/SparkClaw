@@ -10,7 +10,9 @@ import (
 func TestSourceSummaryCannotFeedBackIntoClassification(t *testing.T) {
 	repo := NewMemoryStore()
 	f := emailFixture(t, repo)
-	_, err := repo.ActivateEmailEventPolicy(t.Context(), f.command())
+	profile, err := repo.SaveOwnerProfile(t.Context(), app.OwnerProfile{ID: f.owner, DisplayName: "Owner", Preferences: map[string]string{app.OwnerPreferenceLanguage: "zh"}})
+	f.must(err)
+	_, err = repo.ActivateEmailEventPolicy(t.Context(), f.command())
 	f.must(err)
 	m := f.parse(f.capture(f.admit("source-summary", time.Now())), "<source@example.test>")
 	j := f.claim(app.EmailJobMessageSummary)
@@ -26,9 +28,12 @@ func TestSourceSummaryCannotFeedBackIntoClassification(t *testing.T) {
 	}
 	classification, _, err := repo.GetEmailAnalysisTarget(t.Context(), f.owner, app.EmailJobClassification, m.ID)
 	f.must(err)
-	_, err = repo.PublishEmailSummary(t.Context(), EmailSummaryCommand{EmailCommand: f.command(), Lease: f.lease(j), Summary: app.EmailSummary{ID: "source-summary-result", TargetKind: j.Kind, TargetID: m.ID, Text: "The supplier asks for purchase approval.", ModelVersion: "fixture", PromptVersion: "source-v1", Generation: j.Generation, InputFingerprint: j.InputFingerprint}})
+	_, err = repo.PublishEmailSummary(t.Context(), EmailSummaryCommand{EmailCommand: f.command(), Lease: f.lease(j), Summary: app.EmailSummary{ID: "source-summary-result", TargetKind: j.Kind, TargetID: m.ID, Text: "供应商请求批准采购。", Language: "zh", ModelVersion: "fixture", PromptVersion: "source-v1", Generation: j.Generation, InputFingerprint: j.InputFingerprint}})
 	f.must(err)
 	f.finish(j)
+	profile.Preferences[app.OwnerPreferenceLanguage] = "en"
+	_, err = repo.SaveOwnerProfile(t.Context(), profile)
+	f.must(err)
 	for i := 0; i < 100; i++ {
 		_, err = repo.ExpandEmailRefresh(t.Context(), EmailRefreshCommand{EmailCommand: f.command(), Limit: 100})
 		f.must(err)

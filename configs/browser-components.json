@@ -5,40 +5,40 @@
     "url": "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=148.0.7778.0&acceptformat=crx3&x=id%3Ddhdgffkkebhmkfjojejmpbldmpobfkfo%26uc",
     "sha256": "bcaec082c439e11c4df683f43d07e9ac3d4439251d72b91c5b452f977dac15d5",
     "path": "/opt/sparkclaw/tampermonkey",
-    "productVersion": "5.5.0.8",
-    "patchRevision": 8
+    "productVersion": "5.5.0.9",
+    "patchRevision": 9
   },
   "scripts": [
     {
       "file": "revivalstack.user.js",
       "version": "3.1.0-sparkclaw.1",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/blob/main/tools/browser-userscripts/revivalstack.user.js",
-      "sha256": "39bfb75039456b7042d4d7fad5ea4eee4bfcb65fce8aa068239aa65fe6e9b4d2",
+      "sha256": "a1ce2c17d0058a433659e2985c3d393f0181fa4eaa31c94f4a1eed7dc528738c",
       "requires": [],
       "uuid": "80700eb2-0fe8-46ea-902f-f4463134057d",
       "upstream_url": "https://raw.githubusercontent.com/revivalstack/ai-chat-exporter/4ce218d1290956703489870aafa2adfdf4448f38/ai-chat-exporter.user.js"
     },
     {
       "file": "qq-mail-reader.user.js",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/raw/refs/heads/main/tools/browser-userscripts/qq-mail-reader.user.js",
-      "sha256": "e0b441b2feef874de24a126a346f5121d4bd0cefe8b893265595317a6b23bd48",
+      "sha256": "b317816ae560e6f5ac281fb42a25c5033c76ab9da310cc5ce976f871290b7adb",
       "requires": [],
       "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0"
     },
     {
       "file": "gmail-mail-reader.user.js",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/raw/refs/heads/main/tools/browser-userscripts/gmail-mail-reader.user.js",
-      "sha256": "e08ed35866b9419b79cd26191b847331a261324e6ef18296567d0e03bdbbc3f3",
+      "sha256": "5200bbc9e6f4069f599aaea1597461b909a6d639890cae752b834afe46478c8c",
       "requires": [],
       "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5"
     },
     {
       "file": "outlook-mail-reader.user.js",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/raw/refs/heads/main/tools/browser-userscripts/outlook-mail-reader.user.js",
-      "sha256": "0f14637380203481c6e2b27fabfef0797c1680d97da856ea5c61a33dc60a41d9",
+      "sha256": "b03dbdf2dd402f763561c1a225907fcd2e64bfc8948aaf2fe250868b6a18beca",
       "requires": [],
       "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4"
     }

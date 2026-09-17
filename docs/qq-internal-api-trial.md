@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/qq-internal-api-trial.md)
 
-Status: 2026-09-10. The owner authorized a Tampermonkey userscript and a real QQ speed trial. The [userscript](../scripts/email/userscripts/qq-internal-reader.user.js) is implemented and its exact source ran successfully in a logged-in QQ task page through SparkClaw's existing CLI test runtime. Persistent installation and execution **through Tampermonkey remain unverified**: the browser has an unpacked Tampermonkey 5.5.0, but Codex has no UI connection to that browser, and the email script runtime rejects extension-management origins. No security gate was relaxed.
+Historical trial: 2026-09-10. The owner authorized an experimental Tampermonkey userscript and real QQ speed trial. Its exact source ran in a logged-in QQ task page through the existing CLI test runtime, but persistent installation through Tampermonkey was unverified at that time. No security gate was relaxed. The unused standalone prototype and its prototype-only tests were removed on 2026-09-17; this evidence remains historical, not an active implementation guide. The production implementation is the [managed QQ Reader](../tools/browser-userscripts/qq-mail-reader.user.js); current acceptance is recorded in the [timeline guide](email-timeline-incremental-sync-design.md).
 
 ## Verified behavior
 

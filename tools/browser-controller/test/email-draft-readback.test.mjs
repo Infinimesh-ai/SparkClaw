@@ -73,6 +73,7 @@ test("private JSON config preserves quotes, literal escapes and multiline mail e
   const config = JSON.parse(await fs.readFile(state.secretsPath, "utf8"));
   assert.deepEqual(Object.values(config.secrets), [message.recipient, message.subject, message.body.content]);
   assert.equal((await fs.stat(state.secretsPath)).mode & 0o777, 0o600);
+  await state.reapDaemon();
   await state.remove();
   assert.deepEqual(await fs.readdir(path.join(root, "cli-runtime")), []);
 });

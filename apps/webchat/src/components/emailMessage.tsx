@@ -1,5 +1,5 @@
 import { EmailBody } from "./emailBody";
-import { FileDown, Paperclip, RefreshCw } from "lucide-react";
+import { FileDown, Paperclip, RefreshCw, Trash2 } from "lucide-react";
 import type { EmailEntry, EmailMessage, EmailPresentation } from "../api/email";
 import { openEmailFile } from "../api/client";
 import type { Copy, Language } from "../i18n";
@@ -8,9 +8,10 @@ import { EmailVerification } from "./emailVerification";
 import { EmailClassificationControls } from "./emailClassification";
 import { EmailProgress } from "./emailCommon";
 
-export function EmailMessageCard({ mail, viewed, text, language, busy, onReanalyze, onError, presentation, onClassify, onReply, onOpenConversation, onOpenMail }: {
+export function EmailMessageCard({ mail, viewed, text, language, busy, onReanalyze, onError, onCleanupSource, presentation, onClassify, onReply, onOpenConversation, onOpenMail }: {
   mail: EmailMessage; viewed: boolean; text: Copy; language: Language; busy: boolean;
   onReanalyze: (id: string) => void; onError: (reason: unknown) => void;
+  onCleanupSource?: (id: string) => void;
   presentation?: EmailPresentation;
   onClassify?: (mail: EmailMessage, entry: EmailEntry, remember: boolean) => Promise<void>;
   onReply?: (mail: EmailMessage, all: boolean) => void;
@@ -49,7 +50,9 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
         {mail.conversation_id && onOpenConversation && <button className="emailTextButton" onClick={() => onOpenConversation(mail.conversation_id!)}>{text.email.relatedConversation}</button>}
         {onReply && <><button className="emailTextButton" onClick={() => onReply(mail, false)}>{text.email.reply}</button><button className="emailTextButton" onClick={() => onReply(mail, true)}>{text.email.replyAll}</button></>}
         <EmailProgress state={mail.processing_state} text={text} />
-        {mail.original_available && <button className="emailTextButton" onClick={() => void openEmailFile(mail.id).catch(onError)}><FileDown size={14} />{text.email.original}</button>}
+        {mail.original_purged && <span className="emailNotice">{text.email.originalPurged}</span>}
+        {mail.original_available && <button className="emailTextButton" onClick={() => void openEmailFile(mail.id).catch(onError)}><FileDown size={14} />{text.email.originalDownload}</button>}
+        {mail.original_available && onCleanupSource && <button className="emailTextButton" disabled={busy} onClick={() => onCleanupSource(mail.id)}><Trash2 size={14} />{text.email.cleanupSource}</button>}
         {(mail.attachments ?? []).map((attachment) => <button className="emailTextButton" key={attachment.id} disabled={!attachment.available} onClick={() => void openEmailFile(mail.id, attachment.id, attachment.name).catch(onError)} title={attachment.available ? attachment.name : text.email.sourceUnavailable}>
           <Paperclip size={14} /><span>{attachment.name}</span>{attachment.size !== undefined && <small>{Math.ceil(attachment.size / 1024)} KB</small>}
         </button>)}

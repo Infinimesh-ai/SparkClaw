@@ -23,8 +23,10 @@
   "dependencies": {
     "@playwright/cli": "0.1.19",
     "@playwright/mcp": "0.0.80",
-    "mailparser": "^3.9.22",
     "playwright": "1.63.0-alpha-2026-08-31",
     "playwright-core": "1.63.0-alpha-2026-08-31"
+  },
+  "devDependencies": {
+    "mailparser": "^3.9.22"
   }
 }

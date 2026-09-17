@@ -871,6 +871,23 @@ test("read background initialization failure prevents run-code and download", as
   const harness = await createHarness(t, { FAKE_CLI_BACKGROUND_INIT_FAIL: "1" }, { readHandler: async () => assert.fail("read handler must not run") });
   await assert.rejects(runRead(harness, 103));
   assert.equal((await commandRecords(harness)).some(record => record.command === "run-code"), false);
+  assert.equal((await commandRecords(harness)).some(record => record.command === "goto"), false);
+});
+
+test("read preparation occurs exactly once on owned blank page before navigation",async t=>{
+  const harness=await createHarness(t,{}, {readHandler:async(_input,runtime)=>runtime.withReadTab(async()=>({ok:true}))});
+  assert.equal((await runRead(harness,114)).state,'completed');
+  const commands=(await commandRecords(harness)).filter(record=>record.event==='command');
+  const markers=commands.flatMap((record,index)=>record.command==='eval'&&record.argv.includes('() => "sparkclaw-browser-bridge-background-input-v1"')?[index]:[]);
+  assert.equal(markers.length,1);
+  assert.ok(markers[0]<commands.findIndex(record=>record.command==='goto'));
+  assert.equal(commands.some(record=>record.argv.some(arg=>arg.includes('bringToFront'))),false);
+});
+
+test("blank-page preparation preserves owner topology checks and blocks navigation on mutation",async t=>{
+  const harness=await createHarness(t,{FAKE_CLI_MUTATE_OWNER_ON:'eval',FAKE_CLI_OWNER_TABS:JSON.stringify([fakeConnectTab(),{title:'Owner',url:'https://owner.test/',current:false,crashed:false}])},{readHandler:async()=>assert.fail('handler must not run')});
+  await assert.rejects(runRead(harness,115),error=>error.code==='browser_page_stale');
+  assert.equal((await commandRecords(harness)).some(record=>record.command==='goto'),false);
 });
 
 test("read accepts native popup and Blob download URLs", async t => {
@@ -917,6 +934,41 @@ test("read run-code rejects owner-tab changes before a subsequent command", asyn
   await assert.rejects(runRead(harness, 105), error => error.code === "browser_page_stale");
 });
 
+test('network reads await results without a fixed settle and avoid a separate post-read renderer evaluation', async t => {
+  const harness = await createHarness(t, {}, {readHandler: async (_input, runtime) => runtime.withReadTab(tab => tab.runReadCode('async page => ({ok:true})'))});
+  assert.equal((await runRead(harness, 141)).state, 'completed');
+  const records = (await commandRecords(harness)).filter(r => r.event === 'command');
+  assert.ok(records.every(r => r.settle_ms === '0'));
+  assert.ok(records.every(r => r.awaited_mail_read === '1'));
+  const index = records.findIndex(r => r.command === 'run-code');
+  assert.equal(records[index + 1].command, 'tab-list');
+  assert.equal(records.slice(index + 1).some(r => r.command === 'eval'), false);
+});
+
+test('network reads reject an origin change inside the subprocess before running provider code', async t => {
+  const harness = await createHarness(t, {FAKE_CLI_RUN_CODE_URL:'https://foreign.test/'}, {readHandler: async (_input, runtime) => runtime.withReadTab(tab => tab.runReadCode('async page => { throw new Error("must not execute"); }'))});
+  await assert.rejects(runRead(harness, 142), error => error.code === 'browser_page_stale');
+});
+
+test('send tasks retain the existing settle policy', async t => {
+  const harness = await createHarness(t, {SPARKCLAW_AWAITED_MAIL_READ:'1',PLAYWRIGHT_MCP_TIMEOUT_SETTLE:'0'});
+  await harness.factory.runScript({token,sessionID:sessionID(143),provider:'gmail',operation:'send',scriptID:'gmail.test_send',revision:1,input:sendInput({recipient:'person@example.test',subject:'subject',body:{format:'text',content:'body'}})});
+  assert.ok((await commandRecords(harness)).filter(r=>r.event==='command').every(r=>r.settle_ms==='500'));
+  assert.ok((await commandRecords(harness)).filter(r=>r.event==='command').every(r=>r.awaited_mail_read==='0'));
+});
+
+test('Outlook native UI reads retain upstream completion even with inherited fast-path flags', async t => {
+  const harness = await createHarness(t, {SPARKCLAW_AWAITED_MAIL_READ:'1',PLAYWRIGHT_MCP_TIMEOUT_SETTLE:'0'}, {
+    readProvider:'outlook', readHandler:async (_input,runtime)=>runtime.withReadTab(tab=>tab.runReadCode('async page => ({ok:true})')),
+  });
+  const result=await harness.factory.runScript({token,sessionID:sessionID(144),provider:'outlook',operation:'read',scriptID:'outlook.test_read',revision:1,
+    input:{schema_version:1,operation:'read',invocation_id:'outlook-read-test',provider:'outlook',account:'default'}});
+  assert.equal(result.state,'completed');
+  const commands=(await commandRecords(harness)).filter(r=>r.event==='command');
+  assert.ok(commands.length>0);
+  assert.ok(commands.every(r=>r.settle_ms==='500'&&r.awaited_mail_read==='0'));
+});
+
 test("read run-code limits code and subprocess output and rejects invalid download arguments", async t => {
   const harness = await createHarness(t, {}, { readHandler: async (_input, runtime) => runtime.withReadTab(async tab => {
     await assert.rejects(tab.runReadCode("x".repeat((64 << 10) + 1)));
@@ -944,13 +996,59 @@ function runRead(harness, id) {
     input: { schema_version: 1, operation: "read", invocation_id: `read-${id}`, provider: "gmail", account: "default", owner_scope: "a".repeat(64) } });
 }
 
+test("optional timing records all entered stages without private values", async t => {
+  const timings=[];
+  const harness=await createHarness(t,{}, {readHandler:async()=>({ok:true}),timingDiagnostic:record=>timings.push(record)});
+  assert.equal((await runRead(harness,110)).state,'completed');
+  assert.equal(timings.length,1);
+  const record=timings[0];
+  assert.deepEqual(Object.keys(record).sort(),['milliseconds','operation','provider']);
+  assert.equal(record.provider,'gmail');assert.equal(record.operation,'read');
+  assert.deepEqual(Object.keys(record.milliseconds).sort(),['attach','create_task_page','navigate','prepare_background_page','provider_handler','close_task_page','stop_cli','reap_daemon','remove_runtime','total'].sort());
+  for(const value of Object.values(record.milliseconds))assert.ok(Number.isFinite(value)&&value>=0);
+  assert.ok(record.milliseconds.total>=Object.entries(record.milliseconds).filter(([key])=>key!=='total').reduce((sum,[,value])=>sum+value,0));
+  assert.equal(JSON.stringify(record).includes(token),false);
+  assert.deepEqual(harness.diagnostics,[]);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
+test("throwing and rejecting timing callbacks do not change successful execution",async t=>{
+  for(const timingDiagnostic of [()=>{throw new Error('private callback error');},async()=>{throw new Error('private async callback error');}]){
+    const harness=await createHarness(t,{}, {readHandler:async()=>({ok:true}),timingDiagnostic});
+    assert.equal((await runRead(harness,111)).state,'completed');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+    assert.deepEqual(harness.diagnostics,[]);
+  }
+});
+
+test("early failure emits partial timing without leaking uncontrolled labels",async t=>{
+  const timings=[];
+  const harness=await createHarness(t,{}, {timingDiagnostic:record=>timings.push(record)});
+  await assert.rejects(harness.factory.runScript({token,sessionID:sessionID(112),provider:'private-provider',operation:'private-operation',scriptID:'private-script',revision:1,input:{}}),{code:'browser_script_unavailable'});
+  assert.equal(timings.length,1);
+  assert.equal(timings[0].provider,'unknown');assert.equal(timings[0].operation,'unknown');
+  assert.deepEqual(Object.keys(timings[0].milliseconds),['total']);
+  assert.ok(timings[0].milliseconds.total>=0);
+});
+
+test("failed provider stage timing survives while cleanup still completes",async t=>{
+  const timings=[];
+  const harness=await createHarness(t,{}, {readHandler:async()=>{throw Object.assign(new Error('private failure'),{code:'email_network_read_failed'});},timingDiagnostic:record=>timings.push(record)});
+  const result=await runRead(harness,113);
+  assert.equal(result.result.code,'email_network_read_failed');
+  assert.equal(timings.length,1);
+  for(const key of ['provider_handler','close_task_page','stop_cli','reap_daemon','remove_runtime','total'])assert.ok(Number.isFinite(timings[0].milliseconds[key])&&timings[0].milliseconds[key]>=0);
+  assert.equal(JSON.stringify(timings).includes('private failure'),false);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
 async function commandRecords(harness) {
   return (await fs.readFile(harness.logPath, "utf8")).trim().split("\n").map(JSON.parse);
 }
 
 async function createHarness(t, extraEnv = {}, options = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-browser-cli-"));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const runtimeRoot = path.join(dir, "cli-runtime");
   const logPath = path.join(dir, "fake-cli.log");
   const diagnostics = [];
@@ -965,11 +1063,87 @@ async function createHarness(t, extraEnv = {}, options = {}) {
     navigationTimeoutMS: options.navigationTimeoutMS ?? 1_000,
     extraEnv: { FAKE_CLI_LOG: logPath, ...extraEnv },
     diagnostic: (record) => diagnostics.push(record),
+    timingDiagnostic: options.timingDiagnostic,
+    mailReadIdleMS:options.mailReadIdleMS,
     registry: createRegistry(options),
   });
   await factory.prepare();
+  t.after(async()=>{try{await factory.close();}finally{await fs.rm(dir,{recursive:true,force:true});}});
   return { dir, runtimeRoot, logPath, diagnostics, factory };
 }
+
+function pooledInput(overrides={}) {
+  return {schema_version:1,operation:'collect_page',invocation_id:'pool-round',provider:'gmail',account:'default',owner_scope:'a'.repeat(64),
+    discovery:{provider_mode:'time_range',account_address:'person@example.test'},...overrides};
+}
+
+function runPooled(harness,n,input=pooledInput(),extra={}) {
+  return harness.factory.runScript({token,sessionID:sessionID(n),provider:'gmail',operation:'collect_page',scriptID:'gmail.test_read',revision:1,
+    credentialGeneration:1,input,...extra});
+}
+
+async function mutatePooledFixture(harness,mutate) {
+  const [directory]=await fs.readdir(harness.runtimeRoot);
+  const fixturePath=path.join(harness.runtimeRoot,directory,'cache','fake-cli-state.json');
+  const state=JSON.parse(await fs.readFile(fixturePath,'utf8'));
+  mutate(state);
+  await fs.writeFile(fixturePath,JSON.stringify(state));
+}
+
+test('successive timeline rounds reuse exactly one owned task and dispose it on shutdown',async t=>{
+  let calls=0;
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1'},{readOperation:'collect_page',readHandler:async()=>{calls++;return {status:'empty',failures:[]};}});
+  for(const n of [301,302,303])assert.equal((await runPooled(harness,n)).state,'completed');
+  assert.equal(calls,3);
+  let records=await commandRecords(harness);
+  for(const command of ['attach','goto'])assert.equal(records.filter(r=>r.command===command).length,1);
+  assert.equal(records.filter(r=>r.command==='close').length,0);
+  assert.equal((await fs.readdir(harness.runtimeRoot)).length,1);
+  await harness.factory.close();
+  records=await commandRecords(harness);
+  assert.equal(records.filter(r=>r.command==='tab-close').length,1);
+  assert.equal(records.filter(r=>r.command==='close').length,1);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
+test('pool binding changes evict old pages before another owner/account/credential uses them',async t=>{
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1'},{readOperation:'collect_page',readHandler:async()=>({status:'empty',failures:[]})});
+  await runPooled(harness,310);
+  await runPooled(harness,311,pooledInput({owner_scope:'b'.repeat(64)}));
+  await runPooled(harness,312,pooledInput({owner_scope:'b'.repeat(64)}),{credentialGeneration:2});
+  assert.equal((await commandRecords(harness)).filter(r=>r.command==='attach').length,3);
+  assert.equal((await commandRecords(harness)).filter(r=>r.command==='close').length,2);
+});
+
+test('changed document is rebuilt before handler; changed account is rejected without retry',async t=>{
+  let calls=0;
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1'},{readOperation:'collect_page',readHandler:async()=>{calls++;return {status:'empty',failures:[]};}});
+  await runPooled(harness,320);
+  await mutatePooledFixture(harness,state=>{delete state.mailDocumentNonce;});
+  assert.equal((await runPooled(harness,321)).state,'completed');
+  assert.equal(calls,2);
+  assert.equal((await commandRecords(harness)).filter(r=>r.command==='attach').length,2);
+  await mutatePooledFixture(harness,state=>{state.mailAccountMismatch=true;});
+  const result=await runPooled(harness,322);
+  assert.equal(result.state,'failed');
+  assert.equal(calls,2);
+  assert.equal((await commandRecords(harness)).filter(r=>r.command==='attach').length,2);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
+test('provider failures are not retried inside a lease and never return a poisoned page to the pool',async t=>{
+  let calls=0;
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1'},{readOperation:'collect_page',readHandler:async()=>{
+    calls++; if(calls===2)throw Object.assign(new Error('failed query'),{code:'email_network_read_failed'});
+    return {status:'empty',failures:[]};
+  }});
+  await runPooled(harness,330);
+  assert.equal((await runPooled(harness,331)).state,'failed');
+  assert.equal(calls,2);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+  await runPooled(harness,332);
+  assert.equal((await commandRecords(harness)).filter(r=>r.command==='attach').length,2);
+});
 
 function createRegistry(options = {}) {
   const entries = [
@@ -1018,7 +1192,7 @@ function createRegistry(options = {}) {
   ];
   if (options.readHandler) {
     entries.push({
-      provider: "gmail", operation: options.readOperation ?? "read", scriptID: "gmail.test_read", revision: 1,
+      provider: options.readProvider ?? "gmail", operation: options.readOperation ?? "read", scriptID: `${options.readProvider ?? "gmail"}.test_read`, revision: 1,
       loginURL: "https://mail.google.test/", origins: ["https://mail.google.test"],
       timeoutMS: 30_000, handler: options.readHandler, sourceFiles: [fixtureSource],
       validate: value => assert.equal(value.operation, options.readOperation ?? "read"),

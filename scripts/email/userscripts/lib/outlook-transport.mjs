@@ -1,11 +1,15 @@
 // Observed Outlook consumer web-worker GraphQL transport. Reuse only the site's
 // own read operations; credentials and RPC templates stay in the mailbox page.
-export function installOutlookTransport({account, getInbox, receiveRows, originalURL}) {
+import {installOutlookRangeTransport} from './outlook-range.mjs';
+import {installOutlookOriginalResolver} from './outlook-original.mjs';
+export function installOutlookTransport({account, getInbox, receiveRows, receiveStartup}) {
   const existing=window.SparkClawOutlookEarlyBridge;
   const bridge=existing||installOutlookEarlyBridge();
   if(!bridge)return {dispose(){}};
   const templates=new Map(),pending=new Map();
   let active=true;
+  const range=installOutlookRangeTransport({account,getInbox,receiveRows});
+  const originalResolver=installOutlookOriginalResolver({account,getInbox});
   const fail=code=>{throw Object.assign(new Error(code),{code});};
   const ownerOf=info=>String(info?.mailboxSmtpAddress||info?.userIdentity||'').toLowerCase();
   function request(worker,message) {
@@ -17,17 +21,10 @@ export function installOutlookTransport({account, getInbox, receiveRows, origina
       templates.set(value.operationName+':'+value.variables.folderId,{worker,message:structuredClone(message)});
       if(value.operationName==='ItemRows')templates.set('ItemRows',{worker,message:structuredClone(message)});
     }
-    if(value?.operationName==='ItemExport'&&typeof value.variables?.downloadUrl==='string') {
-      try {
-        if(ownerOf(value.variables.mailboxInfo)!==account())return;
-        const u=new URL(value.variables.downloadUrl);
-        if(u.searchParams.get('id')!==value.variables.itemId)return;
-        originalURL(u.href,{account_address:ownerOf(value.variables.mailboxInfo),provider_message_id:value.variables.itemId});
-      } catch {}
-    }
   }
   function result(event,port) {
-    const message=event.data,id=message?.argumentList?.[0]?.value,waiter=pending.get(id);
+    const message=event.data;
+    const id=message?.argumentList?.[0]?.value,waiter=pending.get(id);
     if(!active||!waiter||message.type!=='APPLY'||!['next','complete','error'].includes(message.path?.[0]))return;
     event.stopImmediatePropagation();
     port.postMessage({type:'RAW',id:message.id,value:undefined});
@@ -35,8 +32,9 @@ export function installOutlookTransport({account, getInbox, receiveRows, origina
     if(value?.data?.itemRows||value?.errors)waiter.resolve(value);
     if(message.path[0]==='error')waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));
   }
-  const consumer={request,result};bridge.attach(consumer);
-  async function listPage({account_address,interval_start,interval_end,page=0}) {
+  const consumer={request,result,fetchSearch:range.fetchSearch,startup:receiveStartup};bridge.attach(consumer);
+  async function listPage({account_address,interval_start,interval_end,page=0,provider_mode}) {
+    if(provider_mode==='time_range')return range.listPage({account_address,interval_start,interval_end,page,provider_mode});
     const owner=account(account_address),inbox=getInbox();
     if(location.origin!=='https://outlook.live.com'||!inbox||inbox.account!==owner)fail('email_network_list_unqualified');
     const deadline=Date.now()+5000;
@@ -57,7 +55,7 @@ export function installOutlookTransport({account, getInbox, receiveRows, origina
     body.variables.sortBy={...source.variables.sortBy,isDraftsFolder:false};body.variables.pagingInfo={numberOfRows:25,pageOrigin:'Beginning',offset:offset*25};
     let timer;
     const value=await new Promise((resolve,reject)=>{
-      pending.set(id,{resolve,reject});timer=setTimeout(()=>reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'})),20000);
+      pending.set(id,{resolve,reject,operation:'list'});timer=setTimeout(()=>reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'})),20000);
       try{item.worker.postMessage(message);}catch{reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));}
     }).finally(()=>clearTimeout(timer));
     account(account_address);
@@ -80,7 +78,10 @@ export function installOutlookTransport({account, getInbox, receiveRows, origina
     return {provider:'outlook',account_address:owner,rows,unsupported_rows:unsupported,has_next:more,
       ...(more?{next_page:data.pageInfo.hasNextPage?page+1:(folderIndex+1)*4096}:{}),page,folder_scope_id,scope:inbox.qualified?'inbound_received':'inbox_loaded'};
   }
-  function dispose(){active=false;bridge.detach(consumer);if(!existing)bridge.dispose();for(const waiter of pending.values())waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));pending.clear();templates.clear();}
+  async function prepareOriginal({account_address,provider_message_id}) {
+    return originalResolver.prepare({account_address,provider_message_id});
+  }
+  function dispose(){active=false;range.dispose();originalResolver.dispose();bridge.detach(consumer);if(!existing)bridge.dispose();for(const waiter of pending.values())waiter.reject(Object.assign(new Error('email_network_read_failed'),{code:'email_network_read_failed'}));pending.clear();templates.clear();}
 
-  return {listPage,dispose,diagnostics(){return {itemTemplate:templates.has('ItemRows'),inboxTemplate:Boolean(getInbox()&&templates.has('ConversationRows:'+getInbox().id)),templateCount:templates.size};}};
+  return {listPage,armRangeSearch:range.arm,resetRound:range.resetRound,prepareOriginal,dispose,diagnostics(){return {itemTemplate:templates.has('ItemRows'),inboxTemplate:Boolean(getInbox()&&templates.has('ConversationRows:'+getInbox().id)),templateCount:templates.size,original:originalResolver.diagnostics()};}};
 }

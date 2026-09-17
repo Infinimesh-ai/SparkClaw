@@ -28,7 +28,106 @@ type EmailPauseCommand struct {
 	BindingGeneration int64
 	ErrorCode         string
 }
+
+// EmailSyncBeginCommand fixes one exclusive interval upper bound before the
+// provider is called. A retained overflow confirmation always wins over the
+// proposed upper bound so the exact frozen interval is attempted only once.
+type EmailSyncBeginCommand struct {
+	EmailCommand
+	MailboxID         string
+	BindingGeneration int64
+	ProviderMode      string
+	ProviderCursor    string
+	UpperBound        time.Time
+	Trigger           string
+	Actor             string
+}
+
+type EmailSyncCheckpoint struct {
+	Mailbox            app.EmailMailbox       `json:"mailbox"`
+	IntervalStart      time.Time              `json:"interval_start"`
+	IntervalEnd        time.Time              `json:"interval_end"`
+	RetryFailures      []app.EmailSyncFailure `json:"retry_failures"`
+	ConfirmingOverflow bool                   `json:"confirming_overflow"`
+}
+
+type EmailSyncFailureOutcome struct {
+	ProviderMessageID string
+	MailID            string
+	Stage             string
+	Scope             string
+	ErrorCode         string
+	ObservedAt        time.Time
+	Success           bool
+	Qualified         bool
+}
+
+// EmailSyncCommitCommand atomically records all failure classifications and
+// advances the checkpoint only after the caller has durably represented every
+// returned stable identity as complete, purged, retryable, or suppressed.
+type EmailSyncCommitCommand struct {
+	EmailCommand
+	Lease             EmailJobLease
+	ObservedAt        time.Time
+	Members           []EmailDiscoveryMember
+	Captures          []EmailSyncCapture
+	MailboxID         string
+	BindingGeneration int64
+	IntervalStart     time.Time
+	IntervalEnd       time.Time
+	ProviderMode      string
+	ProviderCursor    string
+	Trigger           string
+	Actor             string
+	InvocationID      string
+	ReaderRevision    int
+	Complete          bool
+	Overflow          bool
+	UnsupportedItems  int
+	ErrorCode         string
+	FailureScope      string
+	Outcomes          []EmailSyncFailureOutcome
+}
+
+type EmailSyncCapture struct {
+	ProviderMessageID string
+	Capture           app.EmailCaptureVersion
+	ReadState         string
+}
+
+type EmailSyncCommitResult struct {
+	Mailbox    app.EmailMailbox       `json:"mailbox"`
+	Failures   []app.EmailSyncFailure `json:"failures"`
+	Suppressed int                    `json:"suppressed"`
+	Resolved   int                    `json:"resolved"`
+}
+
+type EmailSyncWarningPage struct {
+	Items      []app.EmailSyncWarning `json:"items"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+}
+
+type EmailSyncWarningAck struct {
+	EmailCommand
+	MailboxID string
+	FailureID string
+	Actor     string
+}
+
+// EmailSourceFailureCommand fences an exceptional local source repair against
+// the exact immutable receipt inspected by the caller. It never revives purged
+// or permanently suppressed mail and never spends a mail-specific retry.
+type EmailSourceFailureCommand struct {
+	EmailCommand
+	MailboxID              string
+	BindingGeneration      int64
+	MailID                 string
+	ExpectedCaptureID      string
+	ExpectedOriginalSHA256 string
+	ErrorCode              string
+}
 type EmailDiscoveryMember struct {
+	ProviderNativeID    string
 	ProviderMessageID   string
 	ProviderSelectionID string
 	ProviderThreadID    string
@@ -67,8 +166,16 @@ type EmailDiscoveryAdmission struct {
 	Run   app.EmailSyncRun `json:"run"`
 }
 type EmailJobRequest struct {
+	// AutomaticPoll installs a durable completion-relative discover heartbeat.
+	AutomaticPoll bool   `json:",omitempty"`
+	SyncTrigger   string `json:",omitempty"`
+	SyncActor     string `json:",omitempty"`
 	// ForceAnalysis explicitly regenerates a succeeded semantic target on user request.
 	ForceAnalysis bool `json:",omitempty"`
+	// RearmFailed is reserved for self-healing infrastructure jobs and the
+	// mailbox discovery heartbeat. A failed provider round must leave a trace
+	// without stopping later new-mail polling.
+	RearmFailed bool `json:",omitempty"`
 	EmailCommand
 	Kind              string
 	TargetID          string
@@ -79,7 +186,8 @@ type EmailJobRequest struct {
 	NextAttemptAt     time.Time
 	// RepeatInterval is an optional background polling interval, at most one
 	// day. A succeeded job rearms no earlier than its completion plus this
-	// interval; failed jobs require an explicit rearm with a zero interval.
+	// interval; failed jobs require an explicit rearm with a zero interval unless
+	// RearmFailed is set for a self-healing infrastructure job.
 	// Active/queued/retry-wait work retains its existing schedule and lease.
 	RepeatInterval time.Duration `json:",omitempty"`
 }
@@ -165,6 +273,7 @@ type EmailQuery struct {
 	Entry                string
 	NotificationSubtype  string
 	UnassignedOnly       bool
+	UncapturedOnly       bool
 	OwnerID              string
 	MailboxID            string
 	ConversationID       string

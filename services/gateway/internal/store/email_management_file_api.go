@@ -54,6 +54,63 @@ func (s *FileStore) GetEmailMailbox(ctx context.Context, ownerID, id string) (ap
 	return s.inner.GetEmailMailbox(ctx, ownerID, id)
 }
 
+func (s *FileStore) BeginEmailSync(ctx context.Context, c EmailSyncBeginCommand) (EmailSyncCheckpoint, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationBeginEmailSync, fileAdmissionCapacity)
+	if err != nil {
+		return EmailSyncCheckpoint{}, err
+	}
+	defer release()
+	if c.CommandKey == "" {
+		return EmailSyncCheckpoint{}, errEmailCommandInvalid(ctx, OperationBeginEmailSync)
+	}
+	return emailFileRun(s, ctx, OperationBeginEmailSync, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (EmailSyncCheckpoint, error) { return emailBeginSync(e, c) })
+}
+
+func (s *FileStore) CommitEmailSync(ctx context.Context, c EmailSyncCommitCommand) (EmailSyncCommitResult, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationCommitEmailSync, fileAdmissionCapacity)
+	if err != nil {
+		return EmailSyncCommitResult{}, err
+	}
+	defer release()
+	if c.CommandKey == "" {
+		return EmailSyncCommitResult{}, errEmailCommandInvalid(ctx, OperationCommitEmailSync)
+	}
+	return emailFileRun(s, ctx, OperationCommitEmailSync, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (EmailSyncCommitResult, error) { return emailCommitSync(e, c) })
+}
+
+func (s *FileStore) ReportEmailSourceFailure(ctx context.Context, c EmailSourceFailureCommand) (app.EmailMail, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationReportEmailSourceFailure, fileAdmissionCapacity)
+	if err != nil {
+		return app.EmailMail{}, err
+	}
+	defer release()
+	if c.CommandKey == "" {
+		return app.EmailMail{}, errEmailCommandInvalid(ctx, OperationReportEmailSourceFailure)
+	}
+	return emailFileRun(s, ctx, OperationReportEmailSourceFailure, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailMail, error) { return emailReportSourceFailure(e, c) })
+}
+
+func (s *FileStore) ListEmailSyncWarnings(ctx context.Context, q EmailQuery) (EmailSyncWarningPage, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationListEmailSyncWarnings, 1)
+	if err != nil {
+		return EmailSyncWarningPage{}, err
+	}
+	defer release()
+	return s.inner.ListEmailSyncWarnings(ctx, q)
+}
+
+func (s *FileStore) AcknowledgeEmailSyncWarning(ctx context.Context, c EmailSyncWarningAck) (app.EmailSyncWarning, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationAcknowledgeEmailSyncWarning, fileAdmissionCapacity)
+	if err != nil {
+		return app.EmailSyncWarning{}, err
+	}
+	defer release()
+	if c.CommandKey == "" {
+		return app.EmailSyncWarning{}, errEmailCommandInvalid(ctx, OperationAcknowledgeEmailSyncWarning)
+	}
+	return emailFileRun(s, ctx, OperationAcknowledgeEmailSyncWarning, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailSyncWarning, error) { return emailAcknowledgeSyncWarning(e, c) })
+}
+
 func (s *FileStore) AdmitEmailDiscovery(ctx context.Context, c EmailDiscoveryCommand) (EmailDiscoveryAdmission, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationAdmitEmailDiscovery, fileAdmissionCapacity)
 	if err != nil {

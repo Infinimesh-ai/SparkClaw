@@ -7,7 +7,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-const intakeProbeTTL = 60 * time.Second
+// This TTL originally covered the old twenty-minute polling interval. Normal
+// intake now waits one minute after collection; the proof lifetime stays bounded
+// at thirty minutes. Only a freshly verified complete timeline read can renew
+// it. Admission/cache hits themselves never extend this lifetime.
+const intakeProbeTTL = 30 * time.Minute
 
 // The production runner obtains this from the local browser-control credential
 // status without a browser operation. Runners without that capability continue
@@ -74,4 +78,34 @@ func (c *Controller) forgetIntakeProbe(key intakeProbeKey) {
 	c.intakeProbesMu.Lock()
 	defer c.intakeProbesMu.Unlock()
 	delete(c.intakeProbes, key)
+}
+
+// renewIntakeProbe records fresh read-path health, not a new login probe. The
+// original CheckedAt is intentionally retained. Journal replay can return a
+// valid old result without visiting the browser, so its observation must not
+// keep this cache alive. Browser timestamps have millisecond precision.
+func (c *Controller) renewIntakeProbe(ownerID string, request ReadRequest, output app.EmailPageResult, started time.Time) {
+	now := c.now()
+	if request.Discovery == nil || request.Discovery.ProviderMode != app.EmailProviderModeTimeRange ||
+		len(output.Failures) != 0 || (output.Status != "empty" && output.Status != "collected") ||
+		!output.Discovery.Coverage.ScanComplete || !output.Discovery.Coverage.BoundaryQualified ||
+		output.Discovery.ObservedAt.Before(started.Truncate(time.Millisecond)) || output.Discovery.ObservedAt.After(now) || now.Before(started) {
+		return
+	}
+	for _, capture := range output.Captures {
+		if capture.Result.Status != "collected" {
+			return
+		}
+	}
+	key := intakeProbeKey{ownerID: ownerID, providerID: request.Provider}
+	c.intakeProbesMu.Lock()
+	defer c.intakeProbesMu.Unlock()
+	entry, exists := c.intakeProbes[key]
+	if !exists || entry.settingVersion != request.SettingVersion || entry.account != request.Account ||
+		entry.proof.Generation != request.BrowserCredentialGeneration || entry.proof.Revision != request.ProbeRevision ||
+		started.Before(entry.cachedAt) || now.Sub(entry.cachedAt) >= intakeProbeTTL {
+		return
+	}
+	entry.cachedAt = now
+	c.intakeProbes[key] = entry
 }

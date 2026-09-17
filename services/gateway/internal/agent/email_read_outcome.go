@@ -63,7 +63,7 @@ func groundedEmailReadSummary(calls []app.ToolCall) (string, bool) {
 			continue
 		}
 		if result.Status == "empty" {
-			return "没有找到可采集的未读邮件。", true
+			return "没有找到当前同步时间范围内可采集的邮件。", true
 		}
 		if result.Status == "partial" {
 			return fmt.Sprintf("已保存 %s 一封邮件的部分来源资料和 %d 个附件或内嵌资源，采集尚不完整。%s尚未生成邮件内容总结。", app.EmailProviderDisplayName(result.Provider), result.Capture.AttachmentsCount, emailReadStateSummary(result.Capture.ReadState)), true

@@ -104,7 +104,7 @@ func TestEmailManagementPageBatchLeaseAndInputFences(t *testing.T) {
 	emailManagementBackends(t, func(t *testing.T, repo EmailRepository) {
 		f := emailFixture(t, repo)
 		job := emailPageBatchLease(t, f)
-		admission := EmailDiscoveryCommand{EmailCommand: f.command(), PageBatch: true, Lease: f.lease(job), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "unread", ObservedAt: time.Now(), Members: []EmailDiscoveryMember{{ProviderMessageID: "one", ProviderSelectionID: "one", Direction: "inbound"}}}
+		admission := EmailDiscoveryCommand{EmailCommand: f.command(), PageBatch: true, Lease: f.lease(job), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "recent_inbound", ObservedAt: time.Now(), Members: []EmailDiscoveryMember{{ProviderMessageID: "one", ProviderSelectionID: "one", Direction: "inbound"}}}
 		admitted, err := repo.AdmitEmailDiscovery(t.Context(), admission)
 		f.must(err)
 		original := emailPageBatchCapture(f, job, admitted.Mails[0], "source", app.EmailCaptureComplete, "read")
@@ -138,7 +138,7 @@ func TestEmailManagementPageBatchLeaseAndInputFences(t *testing.T) {
 				}
 			})
 		}
-		ack := EmailDiscoveryCommand{EmailCommand: f.command(), PageBatch: true, Lease: f.lease(job), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "unread", AcknowledgedPageID: "page_" + strings.Repeat("d", 64)}
+		ack := EmailDiscoveryCommand{EmailCommand: f.command(), PageBatch: true, Lease: f.lease(job), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, Trigger: "recent_inbound", AcknowledgedPageID: "page_" + strings.Repeat("d", 64)}
 		for _, scenario := range []string{"expired", "token", "trigger", "page_id", "members", "not_batch", "missing_lease"} {
 			t.Run("ack_"+scenario, func(t *testing.T) {
 				command := ack
@@ -203,7 +203,7 @@ func TestEmailManagementPageBatchSupersedesLegacyBacklog(t *testing.T) {
 		_, err = repo.RequestEmailJob(t.Context(), EmailJobRequest{EmailCommand: f.command(), Kind: app.EmailJobThreadSync, TargetID: other.ID, MailboxID: other.ID, BindingGeneration: other.BindingGeneration})
 		f.must(err)
 		job := emailPageBatchLease(t, f)
-		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), PageBatch: true, Lease: f.lease(job), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, ObservedAt: time.Now(), Trigger: "unread", MaxPendingJobs: 4})
+		_, err = repo.AdmitEmailDiscovery(t.Context(), EmailDiscoveryCommand{EmailCommand: f.command(), PageBatch: true, Lease: f.lease(job), MailboxID: f.box.ID, BindingGeneration: f.box.BindingGeneration, ObservedAt: time.Now(), Trigger: "recent_inbound", MaxPendingJobs: 4})
 		f.must(err)
 		f.repo = restartEmailRepeatRepository(t, repo)
 		status, err := f.repo.GetEmailOwnerStatus(t.Context(), f.owner)

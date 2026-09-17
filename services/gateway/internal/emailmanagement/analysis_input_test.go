@@ -13,15 +13,12 @@ import (
 func TestLongReplyHistoryLeavesContextUnchangedAndCompletesEvents(t *testing.T) {
 	repo := store.NewMemoryStore()
 	s, _, _ := newFixtureService(t, repo)
-	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
+	_, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.discover(t.Context(), app.EmailJob{OwnerID: "email-owner", MailboxID: box.ID, BindingGeneration: box.BindingGeneration}); err != nil {
+	if err = seedFixtureCollection(t.Context(), s); err != nil {
 		t.Fatal(err)
-	}
-	if worked, err := s.workOne(t.Context(), []string{app.EmailJobCapture}); err != nil || !worked {
-		t.Fatalf("capture: %v", err)
 	}
 	job, found, err := repo.ClaimEmailJob(t.Context(), store.EmailJobClaim{OwnerID: "email-owner", Kinds: []string{app.EmailJobParse}})
 	if err != nil || !found {

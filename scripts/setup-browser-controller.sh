@@ -176,7 +176,7 @@ PY
 verify_installation() {
   local health
 
-  npm --prefix "$PACKAGE_DIR" ls --depth=0 >/dev/null
+  npm --prefix "$PACKAGE_DIR" ls --depth=0 --omit=dev >/dev/null
   node "$PACKAGE_DIR/src/install-playwright-downloads.mjs" --check
   [[ -d "$email_workspace_root" && ! -L "$email_workspace_root" && -w "$email_workspace_root" ]] ||
     fail "email workspace root is missing or not writable: $email_workspace_root"

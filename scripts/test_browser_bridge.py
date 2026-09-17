@@ -118,6 +118,7 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertIn("systemctl --user restart sparkclaw-browser-controller.service", script)
         self.assertIn("systemctl --user restart sparkclaw-browser.service", script)
         self.assertIn("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1", script)
+        self.assertIn('npm --prefix "$PACKAGE_DIR" ls --depth=0 --omit=dev', script)
 
     def test_gateway_image_contains_only_the_controller_smoke_client(self) -> None:
         dockerfile = GATEWAY_DOCKERFILE.read_text(encoding="utf-8")

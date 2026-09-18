@@ -1,33 +1,31 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap");
-
 :root {
-  color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #101314;
-  color: #e9efea;
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #fff;
+  color: #202226;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  --background: #101314;
-  --surface-deep: #14181a;
-  --panel-surface: #171a1b;
-  --surface: #222628;
-  --surface-hover: rgba(233, 239, 234, 0.06);
-  --surface-muted: #1b1f20;
-  --surface-solid: #222628;
-  --cyber-blue: #60d044;
-  --emerald-success: #60d044;
+  --background: #fff;
+  --surface-deep: #fff;
+  --panel-surface: #f6f7f9;
+  --surface: #fff;
+  --surface-hover: #eceef2;
+  --surface-muted: #f6f7f9;
+  --surface-solid: #fff;
+  --cyber-blue: #4285f4;
+  --emerald-success: #1f5fbf;
   --amber-warning: #f59e0b;
   --crimson-danger: #ef4444;
-  --text-primary: #e9efea;
-  --text-secondary: #9aa8a0;
-  --text-muted: #6d7873;
-  --text-tertiary: #6d7873;
-  --border-subtle: rgba(233, 239, 234, 0.07);
-  --border-strong: rgba(233, 239, 234, 0.11);
+  --text-primary: #202226;
+  --text-secondary: #737780;
+  --text-muted: #737b88;
+  --text-tertiary: #737b88;
+  --border-subtle: #e8e9ec;
+  --border-strong: #dce0e6;
   --gutter: 24px;
-  --radius-panel: 24px;
-  --radius-control: 12px;
+  --radius-panel: 14px;
+  --radius-control: 8px;
   --radius-small: 6px;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -69,7 +67,7 @@ button:disabled {
 
 ::selection {
   color: #0c1409;
-  background: rgba(96, 208, 68, 0.32);
+  background: rgba(66, 133, 244, 0.32);
 }
 
 ::-webkit-scrollbar {
@@ -89,4 +87,3 @@ button:disabled {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(233, 239, 234, 0.18);
 }
-

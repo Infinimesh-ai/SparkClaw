@@ -76,6 +76,7 @@ export function useSessionCrud({
       setAuditEvents([]);
       setEpisodes([]);
       setTab("timeline");
+      return session;
     } catch (err) {
       surfaceError(err, text.errors.createSession);
     }

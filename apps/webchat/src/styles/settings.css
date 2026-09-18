@@ -190,7 +190,7 @@
 }
 
 .integrationState.ready {
-  border-color: rgba(96, 208, 68, 0.38);
+  border-color: rgba(66, 133, 244, 0.38);
   color: var(--emerald-success);
 }
 
@@ -517,7 +517,7 @@
 
 .connectorToggle input:checked + span {
   border-color: var(--cyber-blue);
-  background: rgba(96, 208, 68, 0.16);
+  background: rgba(66, 133, 244, 0.16);
 }
 
 .connectorToggle input:checked + span::after {
@@ -559,7 +559,7 @@
 
 .inputGroup.compact input:focus {
   border-color: var(--cyber-blue);
-  box-shadow: 0 0 0 1px rgba(96, 208, 68, 0.18);
+  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.18);
 }
 
 .inputGroup.compact input:disabled {
@@ -617,10 +617,10 @@
   gap: 8px;
   min-height: 72px;
   padding: 12px;
-  border: 1px solid rgba(96, 208, 68, 0.32);
+  border: 1px solid rgba(66, 133, 244, 0.32);
   border-radius: var(--radius-small);
-  color: #7bd65e;
-  background: rgba(96, 208, 68, 0.08);
+  color: #1f5fbf;
+  background: rgba(66, 133, 244, 0.08);
   font-size: 12px;
   font-weight: 700;
   text-align: center;
@@ -633,7 +633,7 @@
 }
 
 .externalMCPBlock {
-  border-color: rgba(96, 208, 68, 0.32);
+  border-color: rgba(66, 133, 244, 0.32);
   background: var(--surface-muted);
 }
 
@@ -929,7 +929,7 @@
 }
 
 .evalResult.passed {
-  border-color: rgba(96, 208, 68, 0.5);
+  border-color: rgba(66, 133, 244, 0.5);
 }
 
 .evalResult.failed {
@@ -962,8 +962,8 @@
 
 .evalCases span.passed {
   color: var(--emerald-success);
-  border-color: rgba(96, 208, 68, 0.35);
-  background: rgba(96, 208, 68, 0.08);
+  border-color: rgba(66, 133, 244, 0.35);
+  background: rgba(66, 133, 244, 0.08);
 }
 
 .evalCases span.failed {

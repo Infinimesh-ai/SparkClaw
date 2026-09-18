@@ -130,8 +130,8 @@
 
 .toolCall.started,
 .toolCall.running_after_approval {
-  border-color: rgba(96, 208, 68, 0.36);
-  box-shadow: 0 0 15px rgba(96, 208, 68, 0.05);
+  border-color: rgba(66, 133, 244, 0.36);
+  box-shadow: 0 0 15px rgba(66, 133, 244, 0.05);
 }
 
 .toolCall.started::before,
@@ -140,7 +140,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(to right, rgba(96, 208, 68, 0.1), transparent);
+  background: linear-gradient(to right, rgba(66, 133, 244, 0.1), transparent);
 }
 
 .toolCall.dangerous {
@@ -523,7 +523,7 @@
 .ownerEditor textarea:focus,
 .policyEditor textarea:focus {
   border-color: var(--cyber-blue);
-  box-shadow: 0 0 0 1px rgba(96, 208, 68, 0.18);
+  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.18);
 }
 
 .buttonRow {
@@ -696,8 +696,8 @@
 
 .traceHistory button.selected,
 .evalHistory button.selected {
-  border-color: rgba(96, 208, 68, 0.52);
-  background: rgba(96, 208, 68, 0.08);
+  border-color: rgba(66, 133, 244, 0.52);
+  background: rgba(66, 133, 244, 0.08);
 }
 
 .traceHistory button span,
@@ -776,4 +776,3 @@
   font-family: var(--mono);
   font-size: 10px;
 }
-

@@ -240,7 +240,7 @@ export const en = {
     },
     chat: {
       emptyTitle: "Ready for bounded local work.",
-      placeholder: "Message SparkClaw...",
+      placeholder: "Give SparkClaw a task. Put your idea into motion…",
       send: "Send message",
       upload: "Upload document",
       chooseFile: "Choose uploaded file",

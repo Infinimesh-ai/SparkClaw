@@ -58,6 +58,7 @@ type SettingsDetail =
   | "runtime";
 
 export function SettingsPanel({
+  connectionsOnly = false,
   runtimeConfig,
   ownerProfile,
   clients,
@@ -74,6 +75,7 @@ export function SettingsPanel({
   onUpdateConnector,
   onUpdatePolicy
 }: {
+  connectionsOnly?: boolean;
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
@@ -91,7 +93,7 @@ export function SettingsPanel({
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
 }) {
   const [category, setCategory] = useState<SettingsCategory>("connections");
-  const [detail, setDetail] = useState<SettingsDetail | null>(null);
+  const [detail, setDetail] = useState<SettingsDetail | null>(connectionsOnly ? "messaging" : null);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [integrationLoadFailed, setIntegrationLoadFailed] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState(false);
@@ -159,21 +161,22 @@ export function SettingsPanel({
   const detailTitle = detail ? settingsDetailTitle(detail, text) : "";
 
   return (
-    <div className="panelStack settingsPanel">
-      <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
-      <div className="settingsCategoryTabs" role="tablist" aria-label={text.settings.categories}>
+    <div className={`panelStack settingsPanel ${connectionsOnly ? "connectionSettings" : ""}`}>
+      {!connectionsOnly && <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />}
+      {!connectionsOnly && <div className="settingsCategoryTabs" role="tablist" aria-label={text.settings.categories}>
         <CategoryTab selected={category === "account"} label={text.settings.account} icon={<CircleUserRound size={15} />} onClick={() => changeCategory("account")} />
         <CategoryTab selected={category === "connections"} label={text.settings.connections} icon={<Cable size={15} />} onClick={() => changeCategory("connections")} />
         <CategoryTab selected={category === "agent"} label={text.settings.agent} icon={<Bot size={15} />} onClick={() => changeCategory("agent")} />
         <CategoryTab selected={category === "system"} label={text.settings.system} icon={<ServerCog size={15} />} onClick={() => changeCategory("system")} />
-      </div>
+      </div>}
 
       {detail ? (
         <div className="settingsDetailView">
-          <button className="settingsBack" type="button" onClick={() => setDetail(null)} title={text.common.back}>
+          {(!connectionsOnly || detail !== "messaging") && <button className="settingsBack" type="button" onClick={() => setDetail(connectionsOnly ? "messaging" : null)} title={text.common.back}>
             <ArrowLeft size={16} />
             <span>{detailTitle}</span>
-          </button>
+          </button>}
+          {connectionsOnly && detail === "messaging" && <button className="connectionEmailCard" onClick={() => setDetail("browser-email")}><Mail size={22} /><strong>{text.settings.browserEmail}</strong><span>{text.settings.browserEmailProviders}</span><ChevronRight size={17} /></button>}
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
           {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} onRevokeClient={onRevokeClient} />}
           {detail === "messaging" && (

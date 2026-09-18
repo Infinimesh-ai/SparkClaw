@@ -41,6 +41,7 @@ import type {
 export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
 
 type InspectorColumnProps = {
+  connectionsOnly?: boolean;
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   text: Copy;
@@ -78,6 +79,7 @@ type InspectorColumnProps = {
 };
 
 export function InspectorColumn({
+  connectionsOnly = false,
   tab,
   onTabChange,
   text,
@@ -366,6 +368,7 @@ export function InspectorColumn({
       )}
       {tab === "settings" && (
         <SettingsPanel
+          connectionsOnly={connectionsOnly}
           runtimeConfig={runtimeConfig}
           ownerProfile={ownerProfile}
           clients={clients}

@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, KeyRound, RefreshCw, X } from "lucide-react";
+import { ChevronRight, KeyRound, PanelLeft, PanelRight, Plus, RefreshCw, Settings, X } from "lucide-react";
+import { TaskSearch, WorkbenchGuide, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
 import { api, APIError, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
@@ -51,6 +52,11 @@ import type {
 export function App() {
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const text = dictionaries[language];
+  const copy = workbenchCopy[language];
+  const [page, setPage] = useState<WorkspacePage>("chat");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -452,6 +458,8 @@ export function App() {
       setTraceLoading(true);
       setError("");
       setTab("trace");
+      setPage("chat");
+      setInspectorOpen(true);
       const [trace, traces] = await Promise.all([api.trace(runId), api.traces()]);
       setTraceRun(trace);
       setTraceList(traces.traces ?? []);
@@ -501,13 +509,63 @@ export function App() {
     await refreshSession(next.id);
   }
 
+  function navigate(next: WorkspacePage) {
+    if (window.matchMedia("(max-width: 700px)").matches) setSidebarCollapsed(false);
+    setPage(next);
+    if (next === "chat") setTab("timeline");
+    if (next === "memory" || next === "approvals" || next === "settings") setTab(next);
+    if (next === "channels") setTab("settings");
+    if (next === "schedules") { setScheduleBarOpen(true); void refreshSchedules(); }
+  }
+
+  function selectTask(session: Session) {
+    if (window.matchMedia("(max-width: 700px)").matches) setSidebarCollapsed(false);
+    setPage("chat");
+    setInspectorOpen(false);
+    setActiveSession(session.id);
+    setTab("timeline");
+    setSearchOpen(false);
+    void refreshSession(session.id);
+  }
+
+  async function newTask(prompt = "") {
+    if (busy || voice.active) return;
+    const session = await createSession();
+    if (!session) return;
+    if (window.matchMedia("(max-width: 700px)").matches) setSidebarCollapsed(false);
+    setPage("chat");
+    setInspectorOpen(false);
+    if (prompt) setDraftsBySession(current => ({ ...current, [session.id]: prompt }));
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
+  }
+
+  const showHome = page === "chat" && messages.length === 0;
+  const fullPanel = page !== "chat" && page !== "schedules";
+  const pageLabel = page === "chat" ? (showHome ? copy.home : active?.title ?? text.app.titleFallback) : copy[page];
+
+  useEffect(() => {
+    function shortcut(event: KeyboardEvent) {
+      if (event.isComposing) return;
+      if (event.key === "Escape") { setSearchOpen(false); setInspectorOpen(false); }
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(true); }
+      if (event.key.toLowerCase() === "n") { event.preventDefault(); void newTask(); }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [busy, voice.active, createSession]);
+
   return (
-    <main className={`shell ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
+    <main className={`shell workbench ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
       <div className="connectionBar" aria-hidden="true" />
       <SessionSidebar
         text={text}
         language={language}
         ready={ready}
+        page={page}
+        onNavigate={(next) => { if (next === "chat") { if (messages.length) void newTask(); else navigate(next); } else navigate(next); }}
+        onSearch={() => setSearchOpen(true)}
+        onToggleSidebar={() => setSidebarCollapsed(current => !current)}
         sessions={sessions}
         activeSession={activeSession}
         pendingApprovalCount={pendingApprovals.length}
@@ -516,12 +574,8 @@ export function App() {
         sessionTitleDraft={sessionTitleDraft}
         sessionActionId={sessionActionId}
         onLanguageChange={setLanguage}
-        onCreateSession={() => void createSession()}
-        onSelectSession={(session) => {
-          setActiveSession(session.id);
-          setTab("timeline");
-          void refreshSession(session.id);
-        }}
+        onCreateSession={() => void newTask()}
+        onSelectSession={selectTask}
         onStartRename={startRenameSession}
         onCancelRename={cancelRenameSession}
         onRenameSubmit={(id) => void renameSession(id)}
@@ -529,12 +583,10 @@ export function App() {
         onDeleteSession={(id) => void deleteSession(id)}
       />
 
-      <section className={`workspace ${error ? "hasError" : ""}`}>
+      <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""}`}>
         <header className="topbar">
-          <div>
-            <h1>{active?.title ?? text.app.titleFallback}</h1>
-            <p>{ready ? `${ready.model_mode} ${text.topbar.modelMode} · ${ready.workspace_root}` : text.topbar.connecting}</p>
-          </div>
+          <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
+          <div className="workbenchBreadcrumb" title={ready ? `${ready.model_mode} ${text.topbar.modelMode}` : text.topbar.connecting}><span>{copy.workspace}</span><ChevronRight size={15} /><h1>{pageLabel}</h1></div>
           <div className="topbarActions">
             <EmailPopupEntry text={text} language={language} />
             <NotificationCenter
@@ -561,6 +613,7 @@ export function App() {
             <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), notificationCenter.refresh(), refreshDeliverySurface(), refreshSession(activeSession)])} title={text.common.refresh}>
               <RefreshCw size={18} />
             </button>
+            <button className="iconButton" onClick={() => page === "chat" && !showHome ? setInspectorOpen(current => !current) : navigate("settings")} aria-label={page === "chat" && !showHome ? copy.toggleInspector : copy.settings}>{page === "chat" && !showHome ? <PanelRight size={18} /> : <Settings size={18} />}</button>
           </div>
         </header>
 
@@ -599,7 +652,7 @@ export function App() {
           </div>
         )}
 
-        <ScheduleBar
+        {page === "schedules" && <div className="workbenchPage schedulePage"><div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => { void newTask(copy.prompts[3]); }}><Plus size={15} />{copy.newSchedule}</button></div><ScheduleBar
           schedules={schedules}
           open={scheduleBarOpen}
           loading={schedulesRefreshing}
@@ -610,15 +663,12 @@ export function App() {
           onRefresh={() => void refreshSchedules()}
           onEdit={editSchedule}
           onDelete={deleteSchedule}
-        />
+        /></div>}
 
-        <section className="chatColumn">
-          <div className="messageList">
+        {page === "chat" && <section className={`chatColumn ${showHome ? "homeChat" : ""}`}>
+          <div className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>
             {messages.length === 0 ? (
-              <div className="emptyState">
-                <Activity size={25} />
-                <span>{text.chat.emptyTitle}</span>
-              </div>
+              <WorkbenchWelcome language={language} />
             ) : (
               messages.map((message) => (
                 <MessageBubble
@@ -635,6 +685,8 @@ export function App() {
           </div>
           {active?.source !== "mcp" && (
             <ComposerDock
+              modelLabel={ready ? `${copy.model} · ${ready.model_mode}` : undefined}
+              onModelSettings={() => navigate("settings")}
               text={text}
               language={language}
               activeSession={activeSession}
@@ -650,10 +702,13 @@ export function App() {
               onSend={() => void send()}
             />
           )}
-        </section>
-      </section>
-
+          {showHome && <WorkbenchGuide language={language} sessions={sessions.filter(session => session.id !== activeSession)} onSelect={selectTask} onSearch={() => setSearchOpen(true)} onSuggest={(prompt) => { if (activeSession) setDraftsBySession(current => ({ ...current, [activeSession]: prompt })); composerInputRef.current?.focus(); }} />}
+        </section>}
+      {(fullPanel || (page === "chat" && inspectorOpen)) && <div className={fullPanel ? "workbenchPage" : "taskInspector"}>
+      {fullPanel ? <div className="workbenchPageHeader"><div><h1>{copy.pageTitles[page as Exclude<WorkspacePage, "chat" | "schedules">]}</h1><p>{copy.pageDescriptions[page as Exclude<WorkspacePage, "chat" | "schedules">]}</p></div>{page === "memory" && <button className="primaryButton" onClick={() => void newTask(copy.memoryPrompt)}><Plus size={15} />{copy.addMemory}</button>}</div> : <div className="taskInspectorHeader">{copy.inspector}<button className="iconButton" onClick={() => setInspectorOpen(false)} aria-label={text.common.close}><X size={16} /></button></div>}
       <InspectorColumn
+        key={page === "channels" ? "channels" : "inspector"}
+        connectionsOnly={page === "channels"}
         tab={tab}
         onTabChange={setTab}
         text={text}
@@ -688,7 +743,9 @@ export function App() {
         setConnectors={setConnectors}
         setRuntimeConfig={setRuntimeConfig}
         setOwnerProfile={setOwnerProfile}
-      />
+      /></div>}
+      </section>
+      {searchOpen && <TaskSearch language={language} sessions={sessions} onSelect={selectTask} onClose={() => setSearchOpen(false)} />}
     </main>
   );
 }

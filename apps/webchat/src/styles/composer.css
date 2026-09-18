@@ -25,12 +25,12 @@
 .deliveryTargetButton:hover,
 .deliveryTargetButton[aria-expanded="true"] {
   color: var(--text-primary);
-  border-color: rgba(96, 208, 68, 0.42);
+  border-color: rgba(66, 133, 244, 0.42);
   background: var(--surface-hover);
 }
 
 .deliveryTargetButton.external {
-  border-color: rgba(96, 208, 68, 0.34);
+  border-color: rgba(66, 133, 244, 0.34);
 }
 
 .deliveryTargetButtonText {
@@ -139,7 +139,7 @@
 
 .deliveryTargetOption.selected {
   color: var(--cyber-blue);
-  background: rgba(96, 208, 68, 0.08);
+  background: rgba(66, 133, 244, 0.08);
 }
 
 .deliveryTargetOption > span {
@@ -185,9 +185,9 @@
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   max-width: min(100%, 360px);
-  border: 1px solid rgba(96, 208, 68, 0.32);
+  border: 1px solid rgba(66, 133, 244, 0.32);
   border-radius: 7px;
-  background: rgba(96, 208, 68, 0.08);
+  background: rgba(66, 133, 244, 0.08);
   overflow: hidden;
 }
 
@@ -323,7 +323,7 @@ button.finderRow {
 
 .finderRow.file:hover {
   color: var(--text-primary);
-  background: rgba(96, 208, 68, 0.1);
+  background: rgba(66, 133, 244, 0.1);
 }
 
 .finderName {
@@ -417,7 +417,7 @@ button.finderRow {
 .uploadButton:hover,
 .voiceButton:hover {
   color: var(--text-primary);
-  border-color: rgba(96, 208, 68, 0.42);
+  border-color: rgba(66, 133, 244, 0.42);
   background: var(--surface-hover);
 }
 
@@ -669,8 +669,8 @@ button.finderRow {
 }
 
 .composer:focus-within {
-  border-color: rgba(96, 208, 68, 0.66);
-  box-shadow: 0 0 0 1px rgba(96, 208, 68, 0.18), 0 16px 38px rgba(0, 0, 0, 0.28);
+  border-color: rgba(66, 133, 244, 0.66);
+  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.18), 0 16px 38px rgba(0, 0, 0, 0.28);
 }
 
 .composer textarea {

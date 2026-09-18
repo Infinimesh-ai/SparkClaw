@@ -25,7 +25,7 @@
 
 .gateway-ready .connectionBar {
   background: var(--cyber-blue);
-  box-shadow: 0 0 10px rgba(96, 208, 68, 0.5);
+  box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);
 }
 
 .gateway-offline .connectionBar {
@@ -95,7 +95,7 @@
   border-radius: 4px;
   color: var(--cyber-blue);
   background: #0c0f10;
-  box-shadow: 0 0 18px rgba(96, 208, 68, 0.24);
+  box-shadow: 0 0 18px rgba(66, 133, 244, 0.24);
 }
 
 .brand strong,
@@ -145,7 +145,7 @@
 .iconButton:hover,
 .miniIconButton:hover {
   color: var(--text-primary);
-  border-color: rgba(96, 208, 68, 0.42);
+  border-color: rgba(66, 133, 244, 0.42);
   background: var(--surface-hover);
 }
 
@@ -179,7 +179,7 @@
 .sendButton {
   color: #0c1409;
   background: var(--cyber-blue);
-  box-shadow: 0 0 12px rgba(96, 208, 68, 0.2);
+  box-shadow: 0 0 12px rgba(66, 133, 244, 0.2);
 }
 
 .primaryButton:hover,
@@ -233,7 +233,7 @@
 
 .statusDot.ready {
   background: var(--emerald-success);
-  box-shadow: 0 0 10px rgba(96, 208, 68, 0.55);
+  box-shadow: 0 0 10px rgba(66, 133, 244, 0.55);
 }
 
 .statusDot.ready {
@@ -244,11 +244,11 @@
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 12px rgba(96, 208, 68, 0.5);
+    box-shadow: 0 0 12px rgba(66, 133, 244, 0.5);
   }
   50% {
     opacity: 0.55;
-    box-shadow: 0 0 4px rgba(96, 208, 68, 0.2);
+    box-shadow: 0 0 4px rgba(66, 133, 244, 0.2);
   }
 }
 
@@ -350,7 +350,7 @@
 .sessionItem.active {
   color: var(--cyber-blue);
   border-right-color: var(--cyber-blue);
-  background: rgba(96, 208, 68, 0.1);
+  background: rgba(66, 133, 244, 0.1);
 }
 
 .sessionSelect {
@@ -401,7 +401,7 @@
 }
 
 .dangerIcon {
-  color: #fca5a5;
+  color: #b42335;
   border-color: rgba(239, 68, 68, 0.28);
 }
 
@@ -427,7 +427,7 @@
 
 .sessionRenameForm input:focus {
   border-color: var(--cyber-blue);
-  box-shadow: 0 0 0 1px rgba(96, 208, 68, 0.18);
+  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.18);
 }
 
 .workspace {
@@ -477,4 +477,3 @@
   justify-content: flex-end;
   gap: 8px;
 }
-

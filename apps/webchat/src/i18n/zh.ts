@@ -242,7 +242,7 @@ export const zh = {
     },
     chat: {
       emptyTitle: "已准备好执行有边界的本地任务。",
-      placeholder: "输入消息...",
+      placeholder: "交给 SparkClaw 一件事，让想法开始行动…",
       send: "发送消息",
       upload: "上传文档",
       chooseFile: "选择已有文件",

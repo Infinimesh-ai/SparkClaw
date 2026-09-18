@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig, ReadyStatus } from "../api/types";
+import type { Approval, ConnectorStatus, EpisodeSummary, NotificationBinding, PublicConfig, ReadyStatus } from "../api/types";
 import { dictionaries } from "../i18n";
 import { ApprovalPanel, SettingsPanel } from "./panels";
-import { StatusPanel } from "./panels/status";
+import { EpisodeCard, StatusPanel } from "./panels/status";
 import { ConnectorBindingSettings } from "./panels/settingsBindings";
 
 const settingsConfig = {
@@ -50,6 +50,26 @@ describe("StatusPanel resident services", () => {
     }
     expect(markup).toContain(`${dictionaries.en.status.lastCall}: completed`);
     expect(markup).toContain(dictionaries.en.status.noServiceCalls);
+  });
+
+  it("keeps legacy episodes with null collections renderable", () => {
+    const episode = {
+      id: "episode-legacy",
+      session_id: "session-1",
+      run_id: "run-1",
+      goal: "legacy",
+      outcome: "blocked",
+      risk: "read",
+      model_lane: "fast",
+      tools: null,
+      approvals: null,
+      failures: null,
+      repair_performed: false,
+      summary: "No tools were used.",
+      created_at: "2026-09-18T00:00:00Z"
+    } as unknown as EpisodeSummary;
+
+    expect(() => renderToStaticMarkup(<EpisodeCard episode={episode} text={dictionaries.en} />)).not.toThrow();
   });
 });
 

@@ -1,7 +1,7 @@
 package app
 
 const EmailJobPresentation = "presentation"
-const EmailPresentationPromptVersion = "email-presentation-v4"
+const EmailPresentationPromptVersion = "email-presentation-v7"
 
 // EmailLocalizedPresentation is a language-specific projection, never an
 // assignment or classification decision. Its ID includes all input revisions.

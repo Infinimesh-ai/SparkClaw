@@ -32,7 +32,7 @@ Xvfb 或浏览器自动化引擎。
 | Controller Socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop Launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-固定兼容组合为 Browser Bridge `1.0.22`、Playwright MCP `0.0.80`、Playwright CLI
+固定兼容组合为 Browser Bridge `1.0.26`、Playwright MCP `0.0.80`、Playwright CLI
 `0.1.19`、Playwright Library `1.63.0-alpha-2026-08-31` 和 Chromium
 `148.0.7778.0`。Bridge Source Closure 记录在 `configs/browser-bridge-artifacts.json`，
 安装时拒绝发生修改或出现额外文件的 Source Tree。
@@ -50,8 +50,8 @@ npm run open:browser
 ```
 
 显式 Open Command 会把浏览器带到前台，供 Owner 完成登录或 Human Verification。
-后台 Acquisition 和 Task Action 不会聚焦浏览器或替换当前 Owner Tab；只有显式 Owner
-Handoff 才允许自动化聚焦 Task Tab。
+首个后台任务会创建一个不聚焦的专用浏览器窗口，后续所有任务都复用该窗口，不再向
+Owner 窗口添加 Tab；只有显式 Owner Handoff 才允许自动化把 Task Tab 移入聚焦窗口。
 
 后台连接和清理保留操作系统当前的窗口焦点。恢复 Owner Tab 时不得让浏览器窗口失焦：
 用户此前从其他应用切入浏览器，不代表开始检查登录时应将那个应用重新置于前台。
@@ -207,4 +207,4 @@ Execution 和 Terminal Unknown-outcome Handling。
 迁移决策见 [Playwright Extension 浏览器设计](playwright-extension-browser-design.md)，Provider
 与 Approval 语义见[浏览器邮箱 Workflow](browser-email-workflow-design.md)。
 
-Bridge `1.0.22` 串行处理任务分组，关闭任务前等待尚未完成的分组操作。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面。浏览器任务组数量不等于活动作业数量；跨浏览器会话恢复且无法验证归属的旧组不会按标题删除。
+Bridge `1.0.26` 为所有 Bridge Client 串行创建并复用同一个不聚焦的专用任务窗口；已关闭或不再包含任何 Task-owned Tab 的窗口绝不复用，显式 Handoff 仍会创建聚焦、Owner 可见的窗口。Chromium 先创建空的专用窗口，Bridge 再在该精确窗口内创建连接 Tab 并删除占位页，以规避把 Extension URL 直接交给窗口创建时出现的平台拒绝。Bridge 也串行处理任务分组，关闭任务前等待尚未完成的分组操作。每个任务组均带有由扩展本地存储佐证的随机归属标记，因此 Chromium 重启后即使重分配了数字组 ID，仍可验证恢复组的归属；每次原生连接请求都会先收敛已验证的残留组，再创建新任务页。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面，普通用户组不会仅因可读标题相同而被删除。Controller Service 为有界的任务页与 CLI 清理预留 60 秒，之后 systemd 才会终止进程。

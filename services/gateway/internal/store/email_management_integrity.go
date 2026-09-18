@@ -10,7 +10,7 @@ import (
 var errEmailCorrupt = errors.New("corrupt email record")
 
 func validateEmailRecord(r EmailRecord) error {
-	if r.Owner == "" || r.Owner != normalizeConnectorOwner(r.Owner) || r.ID == "" || strings.ContainsAny(r.ID, "\x00\r\n") || !containsEmail([]string{"draft", "send_snapshot", "mailbox", "mail", "capture", "representation", "context", "conversation", "decision", "concern", "concern_link", "target", "dependency", "reference", "refresh", "job", "thread", "sync", "sync_failure", "view", "command", "counter", "summary", "sender_rule", "presentation"}, r.Kind) {
+	if r.Owner == "" || r.Owner != normalizeConnectorOwner(r.Owner) || r.ID == "" || strings.ContainsAny(r.ID, "\x00\r\n") || !containsEmail([]string{"draft", "send_snapshot", "mailbox", "mail", "capture", "representation", "render_preview", "context", "conversation", "decision", "concern", "concern_link", "target", "dependency", "reference", "refresh", "job", "thread", "sync", "sync_failure", "view", "command", "counter", "summary", "sender_rule", "presentation"}, r.Kind) {
 		return errEmailCorrupt
 	}
 	var identity struct {

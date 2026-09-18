@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 export const BRIDGE_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
-export const BRIDGE_VERSION = "1.0.22";
+export const BRIDGE_VERSION = "1.0.26";
 export const SUPPORTED_PROTOCOL_VERSION = 2;
 export const HANDOFF_MARKER = "sparkclaw-browser-bridge-handoff-v1";
 export const HANDOFF_EVALUATE_FUNCTION = `() => "${HANDOFF_MARKER}"`;

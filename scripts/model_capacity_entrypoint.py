@@ -11,7 +11,6 @@ from typing import Any
 
 
 DEFAULT_CATALOG = "/opt/sparkclaw/model.profiles.json"
-VLLM_MODULE = "vllm.entrypoints.openai.api_server"
 
 
 def _required_object(value: Any, label: str) -> dict[str, Any]:
@@ -51,7 +50,11 @@ def resolve_context_tokens(catalog_path: str, profile_id: str, lane: str) -> int
 def vllm_command(arguments: list[str], context_tokens: int) -> list[str]:
     if "--max-model-len" in arguments:
         raise ValueError("--max-model-len must come from the SparkClaw capacity catalog")
-    return ["python3", "-m", VLLM_MODULE, *arguments, "--max-model-len", str(context_tokens)]
+    # Use vLLM's supported CLI instead of importing the deprecated API server
+    # module directly. Recent vLLM releases parse the positional model as
+    # ``model_tag`` in the module entry point but leave ModelConfig.model at its
+    # Qwen3-0.6B default; ``vllm serve`` performs the required mapping.
+    return ["vllm", "serve", *arguments, "--max-model-len", str(context_tokens)]
 
 
 def main() -> int:

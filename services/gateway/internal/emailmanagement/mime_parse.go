@@ -15,11 +15,13 @@ import (
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
+	"net/http"
 	"net/mail"
 	"net/textproto"
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -39,7 +41,17 @@ const (
 	maxMIMEAttachments     = 20
 	maxMIMEAttachmentTotal = 100 << 20
 	maxMIMEDepth           = 16
+	maxRenderInlineBytes   = 5 << 20
+	maxRenderInlineParts   = 20
 )
+
+type emailRenderCandidate struct {
+	HTML                  string
+	Plain                 string
+	Inline                map[string]string
+	EmbeddedResourceCount int
+	EmbeddedResourceBytes int64
+}
 
 type hashingReader struct {
 	reader io.Reader
@@ -75,34 +87,42 @@ type mimeParseState struct {
 	plainBodies     []string
 	htmlBodies      []string
 	decoder         *mime.WordDecoder
+	persistFiles    bool
+	render          emailRenderCandidate
 }
 
 func parseMIMEOriginal(ctx context.Context, workspace string, ref sourceFile, representation *app.EmailRepresentation) error {
+	_, err := parseMIMEOriginalContent(ctx, workspace, ref, representation, true)
+	return err
+}
+
+func parseMIMEOriginalContent(ctx context.Context, workspace string, ref sourceFile, representation *app.EmailRepresentation, persistFiles bool) (emailRenderCandidate, error) {
 	if ref.Bytes < 1 || ref.Bytes > 110<<20 || !safeRelativePath(ref.Path) {
-		return errors.New("email_source_invalid")
+		return emailRenderCandidate{}, errors.New("email_source_invalid")
 	}
 	root, err := os.OpenRoot(workspace)
 	if err != nil {
-		return err
+		return emailRenderCandidate{}, err
 	}
 	defer root.Close()
 	file, err := root.Open(ref.Path)
 	if err != nil {
-		return errors.New("email_source_missing")
+		return emailRenderCandidate{}, errors.New("email_source_missing")
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() != ref.Bytes {
-		return errors.New("email_source_invalid")
+		return emailRenderCandidate{}, errors.New("email_source_invalid")
 	}
 	hashed := newHashingReader(contextReader{ctx, file})
 	message, parseErr := mail.ReadMessage(bufio.NewReader(hashed))
 	if parseErr != nil {
 		_, _ = io.Copy(io.Discard, hashed)
-		return errors.New("email_source_mime_invalid")
+		return emailRenderCandidate{}, errors.New("email_source_mime_invalid")
 	}
 	state := &mimeParseState{ctx: ctx, root: root, representation: representation,
-		attachmentRoot: path.Join("email", ownerScopeFromRepresentation(representation), "normalized", representation.ID, "attachments")}
+		attachmentRoot: path.Join("email", ownerScopeFromRepresentation(representation), "normalized", representation.ID, "attachments"),
+		persistFiles:   persistFiles, render: emailRenderCandidate{Inline: map[string]string{}}}
 	state.decoder = &mime.WordDecoder{CharsetReader: func(charset string, input io.Reader) (io.Reader, error) {
 		return decodedCharsetReader(charset, input)
 	}}
@@ -110,24 +130,28 @@ func parseMIMEOriginal(ctx context.Context, workspace string, ref sourceFile, re
 	walkErr := state.walk(textproto.MIMEHeader(message.Header), message.Body, 0)
 	_, drainErr := io.Copy(io.Discard, hashed)
 	if walkErr != nil {
-		return walkErr
+		return emailRenderCandidate{}, walkErr
 	}
 	if drainErr != nil || hashed.bytes != ref.Bytes || hashed.sum() != ref.SHA256 {
-		return errors.New("email_source_integrity")
+		return emailRenderCandidate{}, errors.New("email_source_integrity")
 	}
 	body := strings.TrimSpace(strings.Join(state.plainBodies, "\n\n"))
 	if body == "" && len(state.htmlBodies) > 0 {
 		body = strings.TrimSpace(htmlText(strings.Join(state.htmlBodies, "\n")))
 	}
 	if !utf8.ValidString(body) || len(body) > maxMIMEBodyBytes {
-		return errors.New("email_source_body_invalid")
+		return emailRenderCandidate{}, errors.New("email_source_body_invalid")
 	}
 	representation.BodyText = body
+	state.render.Plain = body
+	if len(state.htmlBodies) > 0 {
+		state.render.HTML = strings.TrimSpace(state.htmlBodies[len(state.htmlBodies)-1])
+	}
 	if state.partial {
 		representation.State = app.EmailParsePartial
 		representation.Coverage = "attachment_source_incomplete"
 	}
-	return ctx.Err()
+	return state.render, ctx.Err()
 }
 
 // The representation path already includes the owner digest. Derive it from
@@ -218,6 +242,7 @@ func (s *mimeParseState) walk(headers textproto.MIMEHeader, body io.Reader, dept
 	}
 	decoded := transferDecoded(headers.Get("Content-Transfer-Encoding"), body)
 	disposition, dispositionParams, _ := mime.ParseMediaType(headers.Get("Content-Disposition"))
+	contentID := strings.ToLower(strings.Trim(strings.TrimSpace(headers.Get("Content-Id")), "<>"))
 	filename := dispositionParams["filename"]
 	if filename == "" {
 		filename = params["name"]
@@ -226,6 +251,9 @@ func (s *mimeParseState) walk(headers textproto.MIMEHeader, body io.Reader, dept
 		if decodedName, decodeErr := s.decoder.DecodeHeader(filename); decodeErr == nil {
 			filename = decodedName
 		}
+	}
+	if contentID != "" && !strings.EqualFold(disposition, "attachment") && slices.Contains([]string{"image/png", "image/jpeg", "image/webp"}, mediaType) {
+		return s.inlineResource(mediaType, contentID, decoded)
 	}
 	if strings.EqualFold(disposition, "attachment") || filename != "" {
 		return s.attachment(mediaType, filename, decoded)
@@ -258,6 +286,10 @@ func (s *mimeParseState) walk(headers textproto.MIMEHeader, body io.Reader, dept
 }
 
 func (s *mimeParseState) attachment(mediaType, filename string, decoded io.Reader) error {
+	if !s.persistFiles {
+		_, err := io.Copy(io.Discard, decoded)
+		return err
+	}
 	index := s.attachmentCount
 	s.attachmentCount++
 	attachment := app.EmailAttachment{ID: fmt.Sprintf("part_%d", index), Name: safeAttachmentName(filename), MIMEType: mediaType, State: "skipped_limit"}
@@ -299,6 +331,31 @@ func (s *mimeParseState) attachment(mediaType, filename string, decoded io.Reade
 	attachment.SHA256 = "sha256:" + hex.EncodeToString(digest.Sum(nil))
 	attachment.State = "not_analyzed"
 	s.representation.Attachments = append(s.representation.Attachments, attachment)
+	return nil
+}
+
+func (s *mimeParseState) inlineResource(mediaType, contentID string, decoded io.Reader) error {
+	if s.render.EmbeddedResourceCount >= maxRenderInlineParts || s.render.EmbeddedResourceBytes >= maxRenderInlineBytes {
+		_, err := io.Copy(io.Discard, decoded)
+		return err
+	}
+	remaining := maxRenderInlineBytes - s.render.EmbeddedResourceBytes
+	raw, err := io.ReadAll(io.LimitReader(decoded, remaining+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(raw)) > remaining {
+		_, drainErr := io.Copy(io.Discard, decoded)
+		return drainErr
+	}
+	detected := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(raw), ";")[0]))
+	declared := strings.ToLower(strings.TrimSpace(strings.Split(mediaType, ";")[0]))
+	if !slices.Contains([]string{"image/png", "image/jpeg", "image/webp"}, declared) || detected != declared {
+		return nil
+	}
+	s.render.Inline[contentID] = "data:" + declared + ";base64," + base64.StdEncoding.EncodeToString(raw)
+	s.render.EmbeddedResourceCount++
+	s.render.EmbeddedResourceBytes += int64(len(raw))
 	return nil
 }
 
@@ -359,10 +416,13 @@ func charsetEncoding(name string) encoding.Encoding {
 	}
 }
 
-var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)
+var (
+	htmlNonContentPattern = regexp.MustCompile(`(?is)<!--.*?-->|<(?:head|style|script|noscript|template)\b[^>]*>.*?</(?:head|style|script|noscript|template)\s*>`)
+	htmlTagPattern        = regexp.MustCompile(`(?s)<[^>]*>`)
+)
 
 func htmlText(value string) string {
-	return html.UnescapeString(htmlTagPattern.ReplaceAllString(value, " "))
+	return html.UnescapeString(htmlTagPattern.ReplaceAllString(htmlNonContentPattern.ReplaceAllString(value, " "), " "))
 }
 
 func safeAttachmentName(value string) string {

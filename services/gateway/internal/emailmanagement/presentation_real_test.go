@@ -69,7 +69,7 @@ func TestPresentationRealLanguageSmoke(t *testing.T) {
 			t.Error("notification invented requested response")
 		}
 	}
-	raw, _ := json.MarshalIndent(map[string]any{"model_profile": cfg.Model.CapacityProfile, "model_alias": cfg.Model.Fast.Model, "prompt_version": "email-presentation-v4", "source": "synthetic; no mail read or sent", "results": rows}, "", "  ")
+	raw, _ := json.MarshalIndent(map[string]any{"model_profile": cfg.Model.CapacityProfile, "model_alias": cfg.Model.Fast.Model, "prompt_version": "email-presentation-v7", "source": "synthetic; no mail read or sent", "results": rows}, "", "  ")
 	path := os.Getenv("SPARKCLAW_EMAIL_EVAL_REPORT")
 	if path != "" {
 		if err = os.WriteFile(path, append(raw, '\n'), 0600); err != nil {

@@ -50,7 +50,7 @@ import type {
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 import { clientTimezone } from "../lib/timezone";
 import { emailQuery } from "./email";
-import type { EmailVerification, EmailDraft, EmailDraftInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus, EmailSyncWarning, EmailSyncWarningPage, EmailPreview, EmailCleanupScope, EmailCleanupResult } from "./email";
+import type { EmailVerification, EmailDraft, EmailDraftInput, EmailReplyPolishInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailConversationDeleteResult, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus, EmailSyncWarning, EmailSyncWarningPage, EmailRenderPreview, EmailCleanupScope, EmailCleanupResult } from "./email";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const PAIRING_API_BASE = import.meta.env.VITE_SPARKCLAW_PAIRING_API_BASE ?? "http://127.0.0.1:18795";
@@ -382,9 +382,8 @@ export const api = {
     request<EmailMessagePage>(`/api/email/pending${emailQuery(filters)}`, { signal }),
   emailVerification: (id: string) => request<EmailVerification>(`/api/email/messages/${encodeURIComponent(id)}/verification`),
   emailMessage: (id: string, signal?: AbortSignal) => request<EmailMessage>(`/api/email/messages/${encodeURIComponent(id)}`, { signal }),
-  // Reads the parsed projection, not the captured bytes; openEmailFile below
-  // remains the only path that ever touches untrusted source data.
-  emailPreview: (id: string, signal?: AbortSignal) => request<EmailPreview>(`/api/email/messages/${encodeURIComponent(id)}/preview`, { signal }),
+  emailRenderPreview: (id: string, signal?: AbortSignal) =>
+    request<EmailRenderPreview>(`/api/email/messages/${encodeURIComponent(id)}/render-preview`, { signal }),
   cleanupEmailSource: (body: { scope: EmailCleanupScope; command_key: string; mail_id?: string; mailbox_id?: string; date?: string }) =>
     request<EmailCleanupResult>("/api/email/source/cleanup", { method: "POST", body: JSON.stringify(body) }),
   emailNotifications: (filters: EmailFilters = {}, signal?: AbortSignal) =>
@@ -398,6 +397,8 @@ export const api = {
     request<{ conversation_id: string }>(`/api/email/messages/${encodeURIComponent(id)}/assignment`, { method: "POST", body: JSON.stringify(body) }),
   renameEmailEvent: (id: string, body: { title: string; expected_version: number; command_key: string }) =>
     request<{ conversation: EmailConversation }>(`/api/email/conversations/${encodeURIComponent(id)}/rename`, { method: "POST", body: JSON.stringify(body) }),
+  deleteEmailConversation: (id: string, body: { expected_version: number; command_key: string }) =>
+    request<EmailConversationDeleteResult>(`/api/email/conversations/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify(body) }),
   updateEmailSenderRule: (id: string, body: { entry: EmailEntry; enabled: boolean; expected_version: number; command_key: string }) =>
     request<{ rule: EmailSenderRule }>(`/api/email/sender-rules/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify(body) }),
   emailPresentations: (kind: "mail" | "conversation", ids: string[], language: "en" | "zh", signal?: AbortSignal) => {
@@ -411,6 +412,7 @@ export const api = {
   emailDrafts: (filters: EmailFilters = {}, signal?: AbortSignal) => request<{ items: EmailDraft[]; next_cursor?: string }>(`/api/email/drafts${emailQuery(filters)}`, { signal }),
   emailDraft: (id: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}`),
   saveEmailDraft: (body: EmailDraftInput) => request<EmailDraft>(body.id ? `/api/email/drafts/${encodeURIComponent(body.id)}` : "/api/email/drafts", { method: body.id ? "PUT" : "POST", body: JSON.stringify(body) }),
+  polishEmailReply: (body: EmailReplyPolishInput) => request<EmailDraft>("/api/email/replies/polish", { method: "POST", body: JSON.stringify(body) }),
   emailSentSources: (filters: EmailFilters, signal?: AbortSignal) => request<EmailMessagePage>(`/api/email/sent-sources${emailQuery(filters)}`, { signal }),
   reconcileEmailDraft: (id: string, sentMailId?: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify(sentMailId ? { sent_mail_id: sentMailId } : {}) }),
   sendEmailDraft: (id: string, expectedVersion: number, idempotencyKey: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/send`, { method: "POST", body: JSON.stringify({ expected_version: expectedVersion, idempotency_key: idempotencyKey }) }),

@@ -13,10 +13,14 @@ type emailMemoryRecords struct {
 	owner   string
 	records map[string]EmailRecord
 	writes  map[string]EmailRecord
+	deletes map[string]bool
 }
 
 func (m *emailMemoryRecords) get(kind, id string) (EmailRecord, bool, error) {
 	key := emailRecordKey(m.owner, kind, id)
+	if m.deletes[key] {
+		return EmailRecord{}, false, nil
+	}
 	r, ok := m.writes[key]
 	if !ok {
 		r, ok = m.records[key]
@@ -24,7 +28,15 @@ func (m *emailMemoryRecords) get(kind, id string) (EmailRecord, bool, error) {
 	return r, ok, nil
 }
 func (m *emailMemoryRecords) put(r EmailRecord) error {
-	m.writes[emailRecordKey(r.Owner, r.Kind, r.ID)] = r
+	key := emailRecordKey(r.Owner, r.Kind, r.ID)
+	delete(m.deletes, key)
+	m.writes[key] = r
+	return nil
+}
+func (m *emailMemoryRecords) delete(kind, id string) error {
+	key := emailRecordKey(m.owner, kind, id)
+	delete(m.writes, key)
+	m.deletes[key] = true
 	return nil
 }
 func emailRowMatches(r EmailRecord, owner string, q emailRowsQuery) bool {
@@ -33,7 +45,7 @@ func emailRowMatches(r EmailRecord, owner string, q emailRowsQuery) bool {
 	if !matches {
 		return false
 	}
-	if r.Kind == "mail" {
+	if r.Kind == "mail" && !q.IncludeSuperseded {
 		var m struct {
 			SupersededByMailID string `json:"superseded_by_mail_id"`
 		}
@@ -95,14 +107,19 @@ func (m *emailMemoryRecords) list(q emailRowsQuery) ([]EmailRecord, error) {
 	memberMatches := map[string]bool{}
 	each := func(visit func(EmailRecord)) {
 		for key, r := range m.records {
+			if m.deletes[key] {
+				continue
+			}
 			if current, ok := m.writes[key]; ok {
 				r = current
 			}
 			visit(r)
 		}
 		for key, r := range m.writes {
-			if _, ok := m.records[key]; !ok {
-				visit(r)
+			if !m.deletes[key] {
+				if _, ok := m.records[key]; !ok {
+					visit(r)
+				}
 			}
 		}
 	}
@@ -198,13 +215,16 @@ func emailMemoryRun[T any](s *MemoryStore, ctx context.Context, op StoreOperatio
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 	}
-	db := &emailMemoryRecords{owner: normalizeConnectorOwner(owner), records: s.emailRecords, writes: map[string]EmailRecord{}}
+	db := &emailMemoryRecords{owner: normalizeConnectorOwner(owner), records: s.emailRecords, writes: map[string]EmailRecord{}, deletes: map[string]bool{}}
 	e := &emailEngine{db: db, owner: db.owner, now: postgresTime(time.Now())}
 	out, err = emailRun(e, op, key, input, fn)
 	if err == nil {
 		err = ctx.Err()
 	}
 	if err == nil && write {
+		for k := range db.deletes {
+			delete(s.emailRecords, k)
+		}
 		for k, v := range db.writes {
 			s.emailRecords[k] = v
 		}
@@ -220,7 +240,7 @@ func cloneEmailRecords(in map[string]EmailRecord) map[string]EmailRecord {
 	return out
 }
 
-func (m *emailMemoryRecords) changed() bool { return len(m.writes) > 0 }
+func (m *emailMemoryRecords) changed() bool { return len(m.writes) > 0 || len(m.deletes) > 0 }
 
 func (m *emailMemoryRecords) count(q emailRowsQuery) (EmailScopeCounts, error) {
 	if q.EventEntry != "" {
@@ -248,14 +268,19 @@ func (m *emailMemoryRecords) count(q emailRowsQuery) (EmailScopeCounts, error) {
 		}
 	}
 	for key, r := range m.records {
+		if m.deletes[key] {
+			continue
+		}
 		if current, ok := m.writes[key]; ok {
 			r = current
 		}
 		visit(r)
 	}
 	for key, r := range m.writes {
-		if _, ok := m.records[key]; !ok {
-			visit(r)
+		if !m.deletes[key] {
+			if _, ok := m.records[key]; !ok {
+				visit(r)
+			}
 		}
 	}
 	return out, nil
@@ -263,6 +288,9 @@ func (m *emailMemoryRecords) count(q emailRowsQuery) (EmailScopeCounts, error) {
 
 func (m *emailMemoryRecords) exists(q emailRowsQuery) (bool, error) {
 	for key, r := range m.records {
+		if m.deletes[key] {
+			continue
+		}
 		if current, ok := m.writes[key]; ok {
 			r = current
 		}
@@ -271,8 +299,10 @@ func (m *emailMemoryRecords) exists(q emailRowsQuery) (bool, error) {
 		}
 	}
 	for key, r := range m.writes {
-		if _, ok := m.records[key]; !ok && emailRowMatches(r, m.owner, q) {
-			return true, nil
+		if !m.deletes[key] {
+			if _, ok := m.records[key]; !ok && emailRowMatches(r, m.owner, q) {
+				return true, nil
+			}
 		}
 	}
 	return false, nil

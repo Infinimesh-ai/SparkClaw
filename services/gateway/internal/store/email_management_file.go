@@ -14,7 +14,7 @@ func emailFileRun[T any](s *FileStore, ctx context.Context, op StoreOperation, o
 		return
 	}
 	s.inner.mu.RLock()
-	db := &emailMemoryRecords{owner: normalizeConnectorOwner(owner), records: s.inner.emailRecords, writes: map[string]EmailRecord{}}
+	db := &emailMemoryRecords{owner: normalizeConnectorOwner(owner), records: s.inner.emailRecords, writes: map[string]EmailRecord{}, deletes: map[string]bool{}}
 	e := &emailEngine{db: db, owner: db.owner, now: postgresTime(time.Now())}
 	out, err = emailRun(e, op, key, input, fn)
 	s.inner.mu.RUnlock()
@@ -34,6 +34,9 @@ func emailFileRun[T any](s *FileStore, ctx context.Context, op StoreOperation, o
 		}
 		s.inner.mu.Lock()
 		defer s.inner.mu.Unlock()
+		for key := range db.deletes {
+			delete(s.inner.emailRecords, key)
+		}
 		for key, r := range db.writes {
 			s.inner.emailRecords[key] = r
 		}

@@ -657,5 +657,7 @@ func scanEpisodeSummary(row scanner) (app.EpisodeSummary, error) {
 	if err := json.Unmarshal(failures, &summary.Failures); err != nil {
 		return app.EpisodeSummary{}, fmt.Errorf("%w: episode failures: %v", errRunJSONDecode, err)
 	}
-	return summary, nil
+	// Older rows may contain the JSON literal null even though the columns are
+	// SQL NOT NULL. Normalize them on read to the repository's array contract.
+	return cloneEpisodeSummary(summary), nil
 }

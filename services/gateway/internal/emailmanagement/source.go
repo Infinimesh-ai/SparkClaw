@@ -18,7 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-const parserVersion = "captured-mime-v4-original-single-pass"
+const parserVersion = "captured-mime-v5-safe-render"
 const maxSourceBytes int64 = 220 << 20
 
 type DocumentExtractor interface {
@@ -169,31 +169,32 @@ func loadManifest(ctx context.Context, workspace, owner string, capture app.Emai
 	return manifest, files, nil
 }
 
-func parseCapturedMail(ctx context.Context, workspace, owner string, mail app.EmailMail, mailbox app.EmailMailbox, capture app.EmailCaptureVersion) (app.EmailRepresentation, error) {
+func parseCapturedMail(ctx context.Context, workspace, owner string, mail app.EmailMail, mailbox app.EmailMailbox, capture app.EmailCaptureVersion) (app.EmailRepresentation, emailRenderCandidate, error) {
 	manifest, files, err := loadManifest(ctx, workspace, owner, capture)
 	if err != nil {
-		return app.EmailRepresentation{}, err
+		return app.EmailRepresentation{}, emailRenderCandidate{}, err
 	}
 	if manifest.Provider != mailbox.Provider || !strings.EqualFold(manifest.AccountAddress, mailbox.Address) || manifest.ProviderMessageID != mail.ProviderMessageID {
-		return app.EmailRepresentation{}, errors.New("email_source_identity")
+		return app.EmailRepresentation{}, emailRenderCandidate{}, errors.New("email_source_identity")
 	}
 	ref, ok := files[capture.OriginalPath]
 	if !ok || ref.SHA256 != capture.OriginalSHA256 {
-		return app.EmailRepresentation{}, errors.New("email_original_missing")
+		return app.EmailRepresentation{}, emailRenderCandidate{}, errors.New("email_original_missing")
 	}
 	result := app.EmailRepresentation{ID: app.NewID("repr"), MailID: mail.ID, CaptureID: capture.ID,
 		HeaderSignals: map[string]string{"_owner_scope": ownerScope(owner)}, State: app.EmailParseReady,
 		Coverage: "complete_for_inputs", ParserVersion: parserVersion, CreatedAt: time.Now().UTC()}
-	if err := parseMIMEOriginal(ctx, workspace, ref, &result); err != nil {
-		return app.EmailRepresentation{}, err
+	candidate, err := parseMIMEOriginalContent(ctx, workspace, ref, &result, true)
+	if err != nil {
+		return app.EmailRepresentation{}, emailRenderCandidate{}, err
 	}
 	if len(result.From) == 0 {
-		return app.EmailRepresentation{}, errors.New("email_source_headers_invalid")
+		return app.EmailRepresentation{}, emailRenderCandidate{}, errors.New("email_source_headers_invalid")
 	}
 	if !manifest.Coverage.InventoryComplete || !manifest.Coverage.AttachmentsComplete || manifest.Coverage.SkippedParts > 0 || capture.State != app.EmailCaptureComplete {
 		result.State, result.Coverage = app.EmailParsePartial, "source_incomplete"
 	}
-	return result, ctx.Err()
+	return result, candidate, ctx.Err()
 }
 
 // publishJSON writes immutable, attempt-addressed output before Store admission.

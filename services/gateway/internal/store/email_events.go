@@ -1,7 +1,10 @@
 package store
 
 import (
+	"encoding/json"
+	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"sort"
 	"strings"
 	"time"
 )
@@ -22,6 +25,16 @@ type EmailConversationRename struct {
 	EmailCommand
 	ConversationID, Title string
 	ExpectedVersion       int64
+}
+type EmailConversationDelete struct {
+	EmailCommand
+	ConversationID  string `json:"conversation_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+}
+type EmailConversationDeleteResult struct {
+	ConversationID string   `json:"conversation_id"`
+	DeletedMails   int      `json:"deleted_mails"`
+	ArtifactPaths  []string `json:"artifact_paths,omitempty"`
 }
 
 func emailEvents(e *emailEngine) bool {
@@ -44,7 +57,22 @@ func emailActivateEvents(e *emailEngine, c EmailCommand) (EmailEventPolicy, erro
 	return p, e.err
 }
 func emailDisabledAnalysis(kind string) bool {
-	return containsEmail([]string{app.EmailJobRelationshipCheck, app.EmailJobPresentation}, kind)
+	return kind == app.EmailJobRelationshipCheck
+}
+
+// Event conversations no longer have a generated overview. Language-specific
+// presentations remain valid for individual mails so the conversation can
+// render a summary in the owner's current UI language, including for mail that
+// predates that language selection.
+func emailEventDisablesJob(e *emailEngine, kind, targetID string) bool {
+	if emailDisabledAnalysis(kind) {
+		return true
+	}
+	if kind != app.EmailJobPresentation {
+		return false
+	}
+	presentation, ok := emailGet[app.EmailLocalizedPresentation](e, "presentation", targetID)
+	return !ok || presentation.TargetKind != "mail"
 }
 func EmailThreadCursor(t app.EmailProviderThread) string { return emailOrder(t.LastCheckedAt, t.ID) }
 
@@ -71,7 +99,7 @@ func emailMigrateEvents(e *emailEngine, limit int) (int, bool, error) {
 		switch p.Phase {
 		case "job":
 			j, _ := emailGet[app.EmailJob](e, "job", row.ID)
-			if emailDisabledAnalysis(j.Kind) && j.State != app.EmailJobSucceeded && j.State != app.EmailJobFailed {
+			if emailEventDisablesJob(e, j.Kind, j.TargetID) && j.State != app.EmailJobSucceeded && j.State != app.EmailJobFailed {
 				j.State = app.EmailJobPaused
 				j.ErrorCode = emailEventSuspended
 				j.LeaseToken = ""
@@ -242,6 +270,269 @@ func emailRenameConversation(e *emailEngine, c EmailConversationRename) (app.Ema
 		CreatedAt         time.Time
 	}{id, before, title, e.now})
 	return conv, e.err
+}
+
+func emailDeleteConversation(e *emailEngine, c EmailConversationDelete) (EmailConversationDeleteResult, error) {
+	out := EmailConversationDeleteResult{ConversationID: c.ConversationID}
+	conv, ok := emailGet[app.EmailConversation](e, "conversation", c.ConversationID)
+	if !ok {
+		return out, errEmailNotFound
+	}
+	if conv.InputVersion != c.ExpectedVersion {
+		return out, errEmailConflict
+	}
+
+	members := []app.EmailMail{}
+	q := emailRowsQuery{Kind: "mail", Related: conv.ID, Limit: 100, IncludeSuperseded: true}
+	for {
+		page := emailList[app.EmailMail](e, q)
+		members = append(members, page...)
+		if e.err != nil || len(page) < q.Limit {
+			break
+		}
+		last := page[len(page)-1]
+		q.After = emailOrder(last.SourceTime, last.ID)
+	}
+	if e.err != nil {
+		return out, e.err
+	}
+
+	drafts := []EmailDraft{}
+	draftQuery := emailRowsQuery{Kind: "draft", Related: conv.ID, Limit: 100}
+	for {
+		rows, err := e.db.list(draftQuery)
+		if err != nil {
+			return out, err
+		}
+		for _, row := range rows {
+			var draft EmailDraft
+			if err := json.Unmarshal(row.Data, &draft); err != nil {
+				return out, errors.Join(errEmailCorrupt, err)
+			}
+			if draft.State == "sending" || draft.State == "unknown" {
+				return out, errEmailConflict
+			}
+			drafts = append(drafts, draft)
+		}
+		if len(rows) < draftQuery.Limit {
+			break
+		}
+		draftQuery.After = rows[len(rows)-1].Sort
+	}
+
+	ids := map[string]bool{conv.ID: true}
+	artifactPaths := map[string]bool{}
+	collectArtifacts := func(data []byte) error {
+		var artifact struct {
+			InputPath  string `json:"input_path"`
+			OutputPath string `json:"output_path"`
+		}
+		if err := json.Unmarshal(data, &artifact); err != nil {
+			return errors.Join(errEmailCorrupt, err)
+		}
+		for _, artifactPath := range []string{artifact.InputPath, artifact.OutputPath} {
+			if artifactPath != "" {
+				artifactPaths[artifactPath] = true
+			}
+		}
+		return nil
+	}
+	for _, mail := range members {
+		ids[mail.ID] = true
+		if mail.RepresentationID != "" {
+			rows, err := emailCollectRows(e, emailRowsQuery{Kind: "render_preview", Parent: mail.RepresentationID, Limit: 100})
+			if err != nil {
+				return out, err
+			}
+			for _, row := range rows {
+				var preview app.EmailRenderPreview
+				if err := json.Unmarshal(row.Data, &preview); err != nil {
+					return out, errors.Join(errEmailCorrupt, err)
+				}
+				if preview.HTMLPath != "" {
+					artifactPaths[preview.HTMLPath] = true
+				}
+				if preview.ArtifactPath != "" {
+					artifactPaths[preview.ArtifactPath] = true
+				}
+			}
+		}
+		if mail.Classification != nil {
+			for _, artifactPath := range []string{mail.Classification.InputPath, mail.Classification.OutputPath} {
+				if artifactPath != "" {
+					artifactPaths[artifactPath] = true
+				}
+			}
+		}
+	}
+	presentationIDs := map[string]bool{}
+	concernIDs := map[string]bool{}
+	analysisTargetIDs := map[string]bool{}
+	for targetID := range ids {
+		rows, err := emailCollectRows(e, emailRowsQuery{Kind: "presentation", Related: targetID, Limit: 100})
+		if err != nil {
+			return out, err
+		}
+		for _, row := range rows {
+			presentationIDs[row.ID] = true
+		}
+		for _, kind := range []string{"decision", "concern", "summary"} {
+			for _, query := range []emailRowsQuery{{Kind: kind, Parent: targetID, Limit: 100}, {Kind: kind, Related: targetID, Limit: 100}} {
+				rows, err := emailCollectRows(e, query)
+				if err != nil {
+					return out, err
+				}
+				for _, row := range rows {
+					if err := collectArtifacts(row.Data); err != nil {
+						return out, err
+					}
+				}
+			}
+		}
+		for _, query := range []emailRowsQuery{{Kind: "concern", Parent: targetID, Limit: 100}, {Kind: "target", Related: targetID, Limit: 100}} {
+			rows, err := emailCollectRows(e, query)
+			if err != nil {
+				return out, err
+			}
+			for _, row := range rows {
+				if row.Kind == "concern" {
+					concernIDs[row.ID] = true
+				} else {
+					analysisTargetIDs[row.ID] = true
+				}
+			}
+		}
+	}
+	for concernID := range concernIDs {
+		emailDeleteRows(e, emailRowsQuery{Kind: "concern_link", Related: concernID, Limit: 100})
+	}
+	for targetID := range analysisTargetIDs {
+		emailDeleteRows(e, emailRowsQuery{Kind: "dependency", Related: targetID, Limit: 100})
+	}
+
+	// Drafts contain reply bodies and recipients, so they are part of the
+	// conversation rather than durable global history.
+	for _, draft := range drafts {
+		emailDeleteRows(e, emailRowsQuery{Kind: "send_snapshot", Parent: draft.ID, Limit: 100})
+		emailDelete(e, "draft", draft.ID)
+	}
+
+	for _, mail := range members {
+		for _, pair := range [][2]string{{"capture", mail.CaptureID}, {"representation", mail.RepresentationID}, {"context", mail.ContextID}, {"view", mail.ID}} {
+			if pair[1] != "" {
+				emailDelete(e, pair[0], pair[1])
+			}
+		}
+		for _, kind := range []string{"capture", "representation", "render_preview", "context", "sync_failure", "decision", "concern", "summary", "presentation", "target"} {
+			emailDeleteRows(e, emailRowsQuery{Kind: kind, Parent: mail.ID, Limit: 100})
+			emailDeleteRows(e, emailRowsQuery{Kind: kind, Related: mail.ID, Limit: 100})
+		}
+		emailDelete(e, "mail", mail.ID)
+	}
+
+	// Conversation projections and audit/analysis rows must not retain message
+	// bodies or generated summaries after the user removes the conversation.
+	for _, kind := range []string{"decision", "concern", "concern_link", "summary", "presentation", "target"} {
+		emailDeleteRows(e, emailRowsQuery{Kind: kind, Parent: conv.ID, Limit: 100})
+		emailDeleteRows(e, emailRowsQuery{Kind: kind, Related: conv.ID, Limit: 100})
+	}
+
+	// Jobs address source targets through their JSON payload instead of a row
+	// index. Scan the owner-bounded job set and remove only jobs for this scope.
+	jobQuery := emailRowsQuery{Kind: "job", Limit: 100}
+	for {
+		rows, err := e.db.list(jobQuery)
+		if err != nil {
+			return out, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			var job app.EmailJob
+			if err := json.Unmarshal(row.Data, &job); err != nil {
+				return out, errors.Join(errEmailCorrupt, err)
+			}
+			if ids[job.TargetID] || presentationIDs[job.TargetID] {
+				emailDelete(e, "job", row.ID)
+			}
+		}
+		if len(rows) < jobQuery.Limit {
+			break
+		}
+		jobQuery.After = rows[len(rows)-1].Sort
+	}
+
+	// Delete analysis dependencies that point at removed target records, plus
+	// pending refresh intents and version references for the removed sources.
+	for targetID := range ids {
+		for _, ref := range []string{"mail:" + targetID, "source:" + targetID, "mapping:" + targetID, "conversation:" + targetID, "members:" + targetID, "summary:" + app.EmailJobMessageSummary + ":" + targetID, "summary:" + app.EmailJobConversationSummary + ":" + targetID} {
+			emailDeleteRows(e, emailRowsQuery{Kind: "dependency", Parent: ref, Limit: 100})
+			emailDeleteRows(e, emailRowsQuery{Kind: "refresh", Parent: ref, Limit: 100})
+			emailDelete(e, "reference", ref)
+		}
+	}
+	for presentationID := range presentationIDs {
+		emailDelete(e, "presentation", presentationID)
+	}
+	// Catch dependencies indexed by analysis target ID after the targets above
+	// have been removed.
+	for _, kind := range []string{app.EmailJobClassification, app.EmailJobMessageSummary, app.EmailJobConversationSummary, app.EmailJobAssignment, app.EmailJobRelationshipCheck} {
+		for targetID := range ids {
+			emailDeleteRows(e, emailRowsQuery{Kind: "dependency", Related: kind + ":" + targetID, Limit: 100})
+		}
+	}
+
+	emailDelete(e, "conversation", conv.ID)
+	if e.err != nil {
+		return EmailConversationDeleteResult{}, e.err
+	}
+	out.DeletedMails = len(members)
+	for artifactPath := range artifactPaths {
+		out.ArtifactPaths = append(out.ArtifactPaths, artifactPath)
+	}
+	sort.Strings(out.ArtifactPaths)
+	return out, nil
+}
+
+func emailDeleteRows(e *emailEngine, q emailRowsQuery) {
+	if e.err != nil {
+		return
+	}
+	if q.Limit <= 0 {
+		q.Limit = 100
+	}
+	for {
+		rows, err := e.db.list(q)
+		if err != nil {
+			e.err = err
+			return
+		}
+		for _, row := range rows {
+			emailDelete(e, row.Kind, row.ID)
+		}
+		if e.err != nil || len(rows) < q.Limit {
+			return
+		}
+	}
+}
+
+func emailCollectRows(e *emailEngine, q emailRowsQuery) ([]EmailRecord, error) {
+	if q.Limit <= 0 {
+		q.Limit = 100
+	}
+	out := []EmailRecord{}
+	for {
+		rows, err := e.db.list(q)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+		if len(rows) < q.Limit {
+			return out, nil
+		}
+		q.After = rows[len(rows)-1].Sort
+	}
 }
 
 func EmailProviderThreadID(mailboxID, providerThreadID string) string {

@@ -225,6 +225,11 @@ type EmailRepresentationCommand struct {
 	EmailCommand
 	Lease          EmailJobLease
 	Representation app.EmailRepresentation
+	RenderPreview  *app.EmailRenderPreview
+}
+type EmailRenderPreviewCommand struct {
+	EmailCommand
+	Preview app.EmailRenderPreview
 }
 type EmailContextCommand struct {
 	EmailCommand

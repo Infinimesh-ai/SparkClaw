@@ -163,7 +163,8 @@ func runRunRepositoryContract(t *testing.T, repository RunRepository, sessionID 
 		Tools: []string{"files.read"}, Approvals: []string{"approval"}, Failures: []string{"none"}, CreatedAt: base,
 	}
 	savedSummary, err := repository.SaveEpisodeSummary(ctx, summary)
-	if err != nil || savedSummary.ID == "" || !savedSummary.CreatedAt.Equal(wantBase) || savedSummary.CreatedAt.Location() != time.UTC {
+	if err != nil || savedSummary.ID == "" || !savedSummary.CreatedAt.Equal(wantBase) || savedSummary.CreatedAt.Location() != time.UTC ||
+		savedSummary.Tools == nil || savedSummary.Approvals == nil || savedSummary.Failures == nil {
 		t.Fatalf("SaveEpisodeSummary = %#v err=%v", savedSummary, err)
 	}
 	summary.Tools[0] = "mutated"
@@ -175,6 +176,17 @@ func runRunRepositoryContract(t *testing.T, repository RunRepository, sessionID 
 	summaries, err = repository.ListEpisodeSummaries(ctx, sessionID)
 	if err != nil || summaries[0].Tools[0] != "files.read" {
 		t.Fatalf("ListEpisodeSummaries returned a mutable alias: %#v err=%v", summaries, err)
+	}
+	emptySummary, err := repository.SaveEpisodeSummary(ctx, app.EpisodeSummary{
+		SessionID: sessionID, RunID: runID, Goal: "empty collections", Outcome: "completed", CreatedAt: base.Add(time.Second),
+	})
+	if err != nil || emptySummary.Tools == nil || emptySummary.Approvals == nil || emptySummary.Failures == nil {
+		t.Fatalf("SaveEpisodeSummary did not normalize empty collections: %#v err=%v", emptySummary, err)
+	}
+	summaries, err = repository.ListEpisodeSummaries(ctx, sessionID)
+	if err != nil || len(summaries) != 2 || summaries[0].ID != emptySummary.ID ||
+		summaries[0].Tools == nil || summaries[0].Approvals == nil || summaries[0].Failures == nil {
+		t.Fatalf("ListEpisodeSummaries did not preserve normalized empty collections: %#v err=%v", summaries, err)
 	}
 
 	cancelled, cancel := context.WithCancel(ctx)

@@ -78,7 +78,7 @@ func emailPresentationCurrent(e *emailEngine, q EmailPresentationQuery, id strin
 	if !ok {
 		p = app.EmailLocalizedPresentation{ID: key, TargetKind: q.TargetKind, TargetID: id, Language: q.Language, State: "missing", AnalysisRevision: revision, PromptVersion: app.EmailPresentationPromptVersion}
 	}
-	if emailEvents(e) {
+	if emailEvents(e) && q.TargetKind != "mail" {
 		p.State = "suspended"
 		p.ErrorCode = emailEventSuspended
 		return p, e.err
@@ -91,6 +91,13 @@ func emailPresentationCurrent(e *emailEngine, q EmailPresentationQuery, id strin
 				p.ErrorCode = "email_presentation_failed"
 			case app.EmailJobRunning:
 				p.State = "running"
+			case app.EmailJobPaused:
+				if emailEvents(e) && q.TargetKind == "mail" && j.ErrorCode == emailEventSuspended {
+					p.State = "missing"
+					p.ErrorCode = ""
+				} else {
+					p.State = "queued"
+				}
 			default:
 				p.State = "queued"
 			}
@@ -175,53 +182,11 @@ func emailPresentationPublish(e *emailEngine, c EmailPresentationPublish) (app.E
 			return p, errEmailInvalid
 		}
 	}
-	emailRedactPresentation(e, &p)
 	p.State = "ready"
 	p.ErrorCode = ""
 	p.Revision = prior.Revision + 1
 	emailPut(e, "presentation", p.ID, p.TargetKind, p.TargetID, p.State, "", p.ID, p)
 	return p, e.err
-}
-
-func emailRedactPresentation(e *emailEngine, p *app.EmailLocalizedPresentation) {
-	mails := []app.EmailMail{}
-	if p.TargetKind == "mail" {
-		m, ok := emailGet[app.EmailMail](e, "mail", p.TargetID)
-		if ok {
-			mails = append(mails, m)
-		}
-	} else {
-		mails = emailList[app.EmailMail](e, emailRowsQuery{Kind: "mail", Related: p.TargetID, Limit: 20})
-	}
-	primary := append([]app.EmailMail{}, mails...)
-	for _, m := range primary {
-		if m.ReplyMailID != "" {
-			original, ok := emailGet[app.EmailMail](e, "mail", m.ReplyMailID)
-			if ok {
-				mails = append(mails, original)
-			}
-		}
-	}
-	for _, m := range mails {
-		if m.Verification == nil || m.Verification.Code == "" {
-			continue
-		}
-		code := m.Verification.Code
-		scrub := func(s *string) { *s = strings.ReplaceAll(*s, code, "[verification code]") }
-		scrub(&p.Title)
-		scrub(&p.Summary)
-		scrub(&p.Explanation)
-		scrub(&p.RequestedResponse)
-		scrub(&p.Purpose)
-		scrub(&p.ServiceLabel)
-		for i := range p.Evidence {
-			scrub(&p.Evidence[i].Text)
-		}
-		for id, text := range p.ConcernExplanations {
-			scrub(&text)
-			p.ConcernExplanations[id] = text
-		}
-	}
 }
 
 func emailPresentationReplyRevision(e *emailEngine, m app.EmailMail) string {

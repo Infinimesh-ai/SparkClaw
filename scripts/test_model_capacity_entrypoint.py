@@ -44,6 +44,10 @@ class ModelCapacityEntrypointTests(unittest.TestCase):
             MODULE.vllm_command(["model", "--host", "0.0.0.0"], 32768)[-2:],
             ["--max-model-len", "32768"],
         )
+        self.assertEqual(
+            MODULE.vllm_command(["model"], 32768)[:3],
+            ["vllm", "serve", "model"],
+        )
 
 
 if __name__ == "__main__":

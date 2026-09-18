@@ -150,6 +150,10 @@ func fixtureCaptureFor(ctx context.Context, root, owner, invocation, mailboxID, 
 }
 
 func fixtureCaptureForContent(ctx context.Context, root, owner, invocation, mailboxID, mailID, messageID, datePath, subject, body string) (app.EmailCaptureReceipt, error) {
+	return fixtureCaptureForProviderContent(ctx, root, owner, invocation, mailboxID, mailID, messageID, datePath, app.EmailProviderGmail, "owner@example.com", subject, body)
+}
+
+func fixtureCaptureForProviderContent(ctx context.Context, root, owner, invocation, mailboxID, mailID, messageID, datePath, provider, account, subject, body string) (app.EmailCaptureReceipt, error) {
 	if subject == "" {
 		subject = "Purchase approval"
 	}
@@ -158,7 +162,7 @@ func fixtureCaptureForContent(ctx context.Context, root, owner, invocation, mail
 	}
 	id := "cap_" + strings.Repeat("a", 32)
 	dir := path.Join("email", datePath, ownerScope(owner), mailboxID, mailID, "source", id)
-	manifest := sourceManifest{SchemaVersion: 1, Stage: "script_capture", Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", ProviderMessageID: messageID, MailID: mailID, MailboxID: mailboxID, CaptureID: id, InvocationID: invocation, Status: "collected", Acquisition: "rfc822", DatePath: datePath, ReceivedAt: "2026-09-07T02:00:00Z", ReceivedSource: "eml_date"}
+	manifest := sourceManifest{SchemaVersion: 1, Stage: "script_capture", Provider: provider, AccountAddress: account, ProviderMessageID: messageID, MailID: mailID, MailboxID: mailboxID, CaptureID: id, InvocationID: invocation, Status: "collected", Acquisition: "rfc822", DatePath: datePath, ReceivedAt: "2026-09-07T02:00:00Z", ReceivedSource: "eml_date"}
 	manifest.Coverage.InventoryComplete = true
 	manifest.Coverage.AttachmentsComplete = true
 	headers, _ := json.Marshal(map[string]any{"subject": subject, "from": []map[string]string{{"address": "sender@example.com"}}, "to": []map[string]string{{"address": "owner@example.com"}}, "message_id": "<fixture@example.com>"})

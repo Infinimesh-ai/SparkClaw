@@ -84,8 +84,8 @@ func TestEmailScopeCountsValidityAndCursorBinding(t *testing.T) {
 					t.Fatalf("validity %s incorrectly includes unknown/other states: %+v", state, out)
 				}
 			}
-			// Generic presentation publication must scrub every display field even if
-			// an otherwise valid model response repeats a known code.
+			// A verification code is useful primary content, so a localized
+			// presentation must preserve it rather than replacing it generically.
 			pr := repo.(EmailPresentationRepository)
 			ps, err := pr.EnsureEmailPresentations(t.Context(), EmailPresentationCommand{EmailCommand: f.command(), Query: EmailPresentationQuery{OwnerID: f.owner, TargetKind: "mail", TargetIDs: []string{ids[1]}, Language: "zh"}})
 			f.must(err)
@@ -102,8 +102,8 @@ func TestEmailScopeCountsValidityAndCursorBinding(t *testing.T) {
 			published, err := pr.PublishEmailPresentation(t.Context(), EmailPresentationPublish{EmailCommand: f.command(), Lease: f.lease(pj), Presentation: p})
 			f.must(err)
 			encoded, _ := json.Marshal(published)
-			if strings.Contains(string(encoded), "purchase") {
-				t.Fatal("known code leaked from generic presentation")
+			if !strings.Contains(string(encoded), "purchase") {
+				t.Fatal("known code was hidden from presentation")
 			}
 			other := q
 			other.After = ""

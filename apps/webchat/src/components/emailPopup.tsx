@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Mail, Search, X } from "lucide-react";
+import { ArrowLeft, Mail, Search, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import type { EmailEntry, EmailMessage } from "../api/email";
 import type { Copy, Language } from "../i18n";
@@ -7,6 +7,7 @@ import { formatDateTime } from "../lib/format";
 import { useEmailPages } from "../hooks/useEmailPages";
 import { useEmailLoginAlert } from "../hooks/useEmailLoginAlert";
 import { useEmailStatus } from "../hooks/useEmailStatus";
+import { useEmailPresentations } from "../hooks/useEmailPresentations";
 import { useEmailViewing } from "../hooks/useEmailViewing";
 import { EmailEventAssignment, EmailEventRename } from "./emailEventAssignment";
 import { EmailMessageCard } from "./emailMessage";
@@ -16,6 +17,15 @@ import { EmailCompose, EmailDraftList, type EmailComposeTarget } from "./emailCo
 import { EmailSenderRules } from "./emailSenderRules";
 
 type Entry = EmailEntry | "pending";
+function uniqueAddresses(values: string[]) {
+  const seen = new Set<string>();
+  return values.map((value) => value.trim()).filter((value) => {
+    const key = value.toLocaleLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 function initialEntry(): Entry {
   return window.localStorage.getItem("sparkclaw.email.entry") === "notification" ? "notification" : "interaction";
 }
@@ -55,6 +65,8 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const [actionError, setActionError] = useState<unknown>(null);
   const [busyMail, setBusyMail] = useState("");
   const [reanalyzeQueued, setReanalyzeQueued] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deletingConversation, setDeletingConversation] = useState(false);
   const filters = `${mailboxId}\n${query}\n${entry}`;
   const pending = entry === "pending";
   const singleId = selection.startsWith("mail:") ? selection.slice(5) : "";
@@ -88,6 +100,22 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const error = actionError || conversations.error || loose.error || mails.error || overview.error;
   const selected = overview.detail;
   const title = emailEventTitle(selected, text);
+  const conversationMode = Boolean(selected && !pending && !singleId);
+  const displayMails = conversationMode
+    ? [...mails.items].sort((left, right) => Date.parse(left.sent_at || left.arrived_at) - Date.parse(right.sent_at || right.arrived_at))
+    : mails.items;
+  const receivingAddresses = conversationMode ? uniqueAddresses(displayMails.map((mail) => mail.receiving_address)) : [];
+  const senderAddresses = conversationMode ? uniqueAddresses(displayMails.map((mail) => mail.from)) : [];
+  const addressFallback = mails.loading ? text.email.loading : text.common.notSet;
+  const presentations = useEmailPresentations("mail", conversationMode ? displayMails.map((mail) => mail.id) : [], language);
+  const replyTarget = conversationMode
+    ? [...mails.items].filter((mail) => ["inbound", "received"].includes(mail.direction)).sort((left, right) => Date.parse(right.sent_at || right.arrived_at) - Date.parse(left.sent_at || left.arrived_at))[0]
+    : undefined;
+  const historyState = conversationMode
+    ? (displayMails.some((mail) => mail.history_state === "failed") ? "failed"
+      : displayMails.some((mail) => mail.history_state === "pending") ? "pending"
+      : displayMails.some((mail) => mail.history_state && mail.history_state !== "complete") ? "partial" : "complete")
+    : "complete";
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -96,6 +124,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
     return () => { if (element?.close) element.close(); previous?.focus(); };
   }, []);
   useEffect(() => { if (viewport) viewport.scrollTop = 0; }, [viewport, mailViewKey]);
+  useEffect(() => { setDeleteConfirm(false); }, [selection]);
   useEffect(() => {
     if (detailVisible && (pending || selected || singleId)) dialog.current?.querySelector<HTMLElement>(".emailDetailHeader h2")?.focus({ preventScroll: true });
   }, [detailVisible, pending, selected?.id, singleId]);
@@ -117,13 +146,16 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
     catch (reason) { setActionError(reason); }
     finally { setBusyMail(""); }
   }
-  // No confirmation step: the mail, its parsed body and its metadata all
-  // survive, so only the local copy of the original is removed.
-  async function cleanupSource(id: string) {
-    setBusyMail(id); setActionError(null);
-    try { await api.cleanupEmailSource({ scope: "mail", mail_id: id, command_key: crypto.randomUUID() }); await refresh(); }
-    catch (reason) { setActionError(reason); }
-    finally { setBusyMail(""); }
+  async function deleteConversation() {
+    if (!selected || !conversationMode || deletingConversation) return;
+    if (beforeClose.current && !await beforeClose.current()) return;
+    setDeletingConversation(true); setActionError(null);
+    try {
+      await api.deleteEmailConversation(selected.id, { expected_version: selected.version, command_key: crypto.randomUUID() });
+      lastSelection.current[entry] = ""; onSelect(""); setDetailVisible(false); setDeleteConfirm(false);
+      await Promise.all([conversations.refresh(), loose.refresh()]);
+    } catch (reason) { setActionError(reason); }
+    finally { setDeletingConversation(false); }
   }
   async function classify(mail: EmailMessage, target: EmailEntry, remember: boolean) {
     setBusyMail(mail.id); setActionError(null);
@@ -143,7 +175,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const entryCounts = !pending ? conversations.counts : undefined;
   const sectionLabel = entry === "notification" ? text.email.information : pending ? text.email.pending : text.email.interactions;
   return (
-    <dialog ref={dialog} className="emailPopup" aria-labelledby="email-popup-title" onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
+    <dialog ref={dialog} className={`emailPopup ${detailVisible ? "detailVisible" : ""}`} aria-labelledby="email-popup-title" onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
       <header className="emailPopupHeader"><div><Mail size={22} /><h2 id="email-popup-title">{text.email.title}</h2></div><button className="iconButton" onClick={() => void closePopup()} aria-label={text.common.close} title={text.common.close}><X size={19} /></button></header>
       <form className="emailFilters" onSubmit={(event) => { event.preventDefault(); setQuery(searchDraft.trim()); }}>
         <select aria-label={text.email.receivingAddress} value={mailboxId} onChange={(event) => setMailboxId(event.target.value)}>
@@ -189,7 +221,6 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
               return <button key={conversation.id} className={`emailConversationRow ${selection === conversation.id ? "selected" : ""}`} aria-current={selection === conversation.id ? "true" : undefined} onClick={() => select(conversation.id)}>
                 <span className="emailRowHeading"><strong>{emailEventTitle(conversation, text)}</strong>{conversation.unseen_count > 0 && <span className="emailUnseen">{conversation.unseen_count}</span>}</span>
                 <span>{(conversation.participants ?? []).join(", ")}</span>
-                {conversation.summary && <span className="emailSummaryPreview">{conversation.summary}</span>}
                 <span className="emailRowFooter">{conversation.last_activity_at && <time dateTime={conversation.last_activity_at}>{formatDateTime(conversation.last_activity_at, language)}</time>}{(conversation.concerns ?? []).length > 0 && <span className="emailWarning">{text.email.concern}</span>}</span>
               </button>;
             })}
@@ -206,19 +237,26 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
           <button className="emailMobileBack emailTextButton" onClick={() => setDetailVisible(false)}><ArrowLeft size={16} />{sectionLabel}</button>
           <div className="emailTimeline" ref={setViewport}>
             {pending ? <header className="emailDetailHeader"><h2 tabIndex={-1}>{text.email.pending}</h2><p>{text.email.pendingHelp}</p></header> : selected ? <header className="emailDetailHeader">
-              <h2 tabIndex={-1}>{title}</h2><p>{(selected.participants ?? []).join(", ")}</p>
-              {selected.summary && <p className="emailSummary">{selected.summary}</p>}
-              <EmailProgress state={selected.summary_state} text={text} />
-              {selected.summary_partial && <p className="emailWarning">{text.email.summaryPartial}</p>}
+              <h2 tabIndex={-1}>{title}</h2>
+              <dl className="emailConversationAddresses">
+                <div><dt>{text.email.conversationReceivingEmail}</dt><dd>{receivingAddresses.length ? receivingAddresses.map((address) => <span key={address}>{address}</span>) : addressFallback}</dd></div>
+                <div><dt>{text.email.conversationSenderEmail}</dt><dd>{senderAddresses.length ? senderAddresses.map((address) => <span key={address}>{address}</span>) : addressFallback}</dd></div>
+              </dl>
               <EmailEventRename key={selected.id} conversation={selected} text={text} onSaved={refresh} onError={setActionError} />
+              <div className="emailConversationDelete">
+                {!deleteConfirm ? <button className="emailTextButton emailDangerText" type="button" disabled={deletingConversation} onClick={() => setDeleteConfirm(true)}><Trash2 size={14} />{text.email.deleteConversation}</button>
+                  : <div className="emailDeleteConfirm" role="alert"><span>{text.email.deleteConversationConfirm}</span><button className="emailDangerButton" type="button" disabled={deletingConversation} onClick={() => void deleteConversation()}>{text.email.deleteConversation}</button><button className="emailTextButton" type="button" disabled={deletingConversation} onClick={() => setDeleteConfirm(false)}>{text.common.cancel}</button></div>}
+              </div>
               <EmailProgress state={selected.processing_state} text={text} />
+              {historyState !== "complete" && <p className="emailWarning" role="status">{historyState === "pending" ? text.email.historyPending : historyState === "failed" ? text.email.historyFailed : text.email.historyMissing}</p>}
               {selected.historical_mixed && <p className="emailWarning">{text.email.historicalMixed} · {text.email.membershipFixed}</p>}
               {(selected.concerns ?? []).map((concern) => <aside className="emailConcern" key={concern.id}><strong>{concern.kind === "suspected_duplicate" ? text.email.suspectedDuplicate : text.email.pendingCorrection}</strong><p>{text.email.eventCorrectionHelp}</p><small>{text.email.membershipFixed}</small><div>{(concern.related_conversation_ids ?? []).map((id, index) => <button className="emailTextButton" key={id} onClick={() => void openEvent(id).catch(setActionError)}>{text.email.relatedConversation} {index + 1}</button>)}</div></aside>)}
             </header> : singleId ? <header className="emailDetailHeader"><h2 tabIndex={-1}>{sectionLabel}</h2></header> : <p className="emailEmpty">{selection ? text.email.loading : text.email.selectConversation}</p>}
-            {mails.items.map((mail) => <div key={mail.id}><EmailMessageCard mail={mail} viewed={mail.viewed || viewed(mail.id)} text={text} language={language} busy={busyMail === mail.id} onReanalyze={(id) => void reanalyze(id)} onError={setActionError} onCleanupSource={(id) => void cleanupSource(id)} onClassify={classify} onOpenMail={(id) => select(`mail:${id}`)} onOpenConversation={singleId ? (id) => void openEvent(id).catch(setActionError) : undefined} onReply={(mail, all) => void openComposer({ mode: all ? "reply_all" : "reply", mailId: mail.id, mailboxId: mail.mailbox_id })} /><EmailEventAssignment mail={mail} text={text} onError={setActionError} onSaved={async (id) => { await refresh(); await openEvent(id); }} /></div>)}
+            {displayMails.map((mail) => <div key={mail.id}><EmailMessageCard mail={mail} viewed={mail.viewed || viewed(mail.id)} text={text} language={language} busy={busyMail === mail.id} onReanalyze={(id) => void reanalyze(id)} onError={setActionError} presentation={conversationMode ? presentations.items[mail.id] : undefined} onRetryPresentation={presentations.retry} onClassify={classify} onOpenMail={(id) => select(`mail:${id}`)} onOpenConversation={singleId ? (id) => void openEvent(id).catch(setActionError) : undefined} onReply={conversationMode ? undefined : (mail, all) => void openComposer({ mode: all ? "reply_all" : "reply", mailId: mail.id, mailboxId: mail.mailbox_id })} conversationMode={conversationMode} />{!conversationMode && <EmailEventAssignment mail={mail} text={text} onError={setActionError} onSaved={async (id) => { await refresh(); await openEvent(id); }} />}</div>)}
             {pending && mails.items.length === 0 && <p className="emailEmpty">{mails.loading ? text.email.loading : text.email.emptyPending}</p>}
             {mails.nextCursor && <button className="emailLoadMore" disabled={mails.loading} onClick={() => void mails.loadMore()}>{text.email.moreMessages}</button>}
           </div>
+          {replyTarget && !composeTarget && <EmailCompose key={`${selection}:${replyTarget.id}`} target={{ mode: "reply", mailId: replyTarget.id, mailboxId: replyTarget.mailbox_id }} variant="conversation" language={language} mailboxes={overview.status?.mailboxes ?? []} text={text} onClose={() => {}} onBeforeClose={registerBeforeClose} onSent={() => { void refresh(); }} />}
         </section>
       </div>
     </dialog>

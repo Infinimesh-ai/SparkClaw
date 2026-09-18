@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Send, Sparkles } from "lucide-react";
 import { api } from "../api/client";
 import type { EmailComposeCapabilities, EmailDraft, EmailMailbox, EmailMessage } from "../api/email";
 import type { Copy, Language } from "../i18n";
@@ -8,10 +9,11 @@ import { emailErrorLabel, emailSendFailureLabel } from "./emailCommon";
 export type EmailComposeTarget = { mode: "compose" | "reply" | "reply_all"; mailId?: string; mailboxId?: string; draftId?: string; instanceId?: string };
 const splitAddresses = (value: string) => value.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 
-export function EmailCompose({ target, mailboxes, text, language, onClose, onBeforeClose, onSent }: {
+export function EmailCompose({ target, mailboxes, text, language, onClose, onBeforeClose, onSent, variant = "full" }: {
   target: EmailComposeTarget; mailboxes: EmailMailbox[]; text: Copy; language: Language; onClose: () => void;
   onBeforeClose: (handler: (() => Promise<boolean>) | null) => void;
   onSent?: (draft: EmailDraft) => void;
+  variant?: "full" | "conversation";
 }) {
   const [draft, setDraft] = useState<EmailDraft | null>(null);
   const [capabilities, setCapabilities] = useState<EmailComposeCapabilities | null>(null);
@@ -24,6 +26,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   const [error, setError] = useState<unknown>(null);
   const [selectingSource, setSelectingSource] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [instruction, setInstruction] = useState("");
   const active = useRef(true);
   const executing = useRef(false);
   const sendKey = useRef("");
@@ -41,7 +44,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
         if (target.draftId) {
           const value = await api.emailDraft(target.draftId);
           if (mounted) populate(value);
-        } else if (target.mode !== "compose") {
+        } else if (target.mode !== "compose" && variant !== "conversation") {
           const value = await api.saveEmailDraft({ id: initialId.current, expected_version: 0, mailbox_id: target.mailboxId ?? "", mode: target.mode, reply_mail_id: target.mailId, to: [], cc: [], subject: "", body: "" }).catch(async (reason) => {
             try { return await api.emailDraft(initialId.current); } catch { throw reason; }
           });
@@ -52,11 +55,20 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     }
     void load();
     return () => { mounted = false; active.current = false; };
-  }, [target]);
+  }, [target, variant]);
   const mode = draft?.mode ?? target.mode;
   const locked = draft && !["draft", "failed"].includes(draft.state);
   const tooManyRecipients = Boolean(capabilities && splitAddresses(to).length + splitAddresses(cc).length > capabilities.max_to);
   const unsupported = tooManyRecipients || !capabilities || !capabilities[mode] || !capabilities.cc && splitAddresses(cc).length > 0 || splitAddresses(to).length > capabilities.max_to;
+  async function polish() {
+    if (executing.current || !target.mailId || !instruction.trim()) return;
+    executing.current = true; setBusy(true); setError(null); setSaved(false);
+    try {
+      const value = await api.polishEmailReply({ id: initialId.current, mail_id: target.mailId, instruction: instruction.trim(), language });
+      if (active.current) { populate(value); setSaved(true); }
+    } catch (reason) { if (active.current) setError(reason); }
+    finally { executing.current = false; if (active.current) setBusy(false); }
+  }
   async function save(send: boolean) {
     if (executing.current) return false;
     if (locked) return true;
@@ -110,17 +122,29 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     return () => onBeforeClose(null);
   }, [onBeforeClose]);
   async function close() { if (await closeHandler.current()) onClose(); }
-  return <section className="emailComposer" aria-label={mode === "compose" ? text.email.compose : mode === "reply_all" ? text.email.replyAll : text.email.reply}>
-    <header><h3>{mode === "compose" ? text.email.compose : mode === "reply_all" ? text.email.replyAll : text.email.reply}</h3><button className="emailTextButton" disabled={busy && !locked} onClick={() => void close()}>{text.common.close}</button></header>
+  const compact = variant === "conversation";
+  if (compact && !draft) {
+    return <section className="emailReplyComposer" aria-label={text.email.reply}>
+      <header><span className="emailReplyIcon"><Sparkles size={16} /></span><div><h3>{text.email.tellHowToReply}</h3><p>{text.email.replyPolishHelp}</p></div></header>
+      <textarea aria-label={text.email.replyIntent} rows={3} value={instruction} placeholder={text.email.replyIntentPlaceholder} disabled={busy} onChange={(event) => setInstruction(event.target.value)} />
+      {error ? <p role="alert">{emailErrorLabel(error, text)}</p> : null}
+      {!busy && capabilities && !capabilities.reply && <p className="emailWarning">{text.email.sendUnsupported}</p>}
+      <footer><span>{text.email.replyDraftEditable}</span><button className="emailReplyPrimary" disabled={busy || !capabilities?.reply || !instruction.trim()} onClick={() => void polish()}><Sparkles size={15} />{busy ? text.common.running : text.email.polishReply}</button></footer>
+    </section>;
+  }
+  const canSend = !busy && !locked && !unsupported && Boolean(mailbox) && splitAddresses(to).length > 0 && Boolean(subject.trim()) && Boolean(body.trim());
+  return <section className={compact ? "emailReplyComposer emailReplyDraft" : "emailComposer"} aria-label={mode === "compose" ? text.email.compose : mode === "reply_all" ? text.email.replyAll : text.email.reply}>
+    <header><h3>{compact ? text.email.polishedReply : mode === "compose" ? text.email.compose : mode === "reply_all" ? text.email.replyAll : text.email.reply}</h3>{!compact && <button className="emailTextButton" disabled={busy && !locked} onClick={() => void close()}>{text.common.close}</button>}</header>
     <fieldset disabled={busy || Boolean(locked)}>
-      <label>{text.email.sendingAddress}<select value={mailbox} onChange={(e) => { setMailbox(e.target.value); setSaved(false); }}>
+      {!compact && <label>{text.email.sendingAddress}<select value={mailbox} onChange={(e) => { setMailbox(e.target.value); setSaved(false); }}>
         {!mailbox && <option value="">{text.email.noSendingAccount}</option>}
         {mailboxes.filter((m) => m.active_binding || m.id === mailbox).map((m) => <option key={m.id} value={m.id}>{m.address}</option>)}
-      </select></label>
-      <label>{text.email.to}<input value={to} placeholder={text.email.recipientHint} onChange={(e) => { setTo(e.target.value); setSaved(false); }} /></label>
-      <label>{text.email.cc}<input value={cc} placeholder={text.email.recipientHint} onChange={(e) => { setCC(e.target.value); setSaved(false); }} /></label>
-      <label>{text.email.subject}<input value={subject} required placeholder={text.email.subjectRequired} onChange={(e) => { setSubject(e.target.value); setSaved(false); }} /></label>
-      <label>{text.email.body}<textarea rows={8} value={body} placeholder={text.email.bodyPlaceholder} onChange={(e) => { setBody(e.target.value); setSaved(false); }} /></label>
+      </select></label>}
+      {!compact && <label>{text.email.to}<input value={to} placeholder={text.email.recipientHint} onChange={(e) => { setTo(e.target.value); setSaved(false); }} /></label>}
+      {!compact && <label>{text.email.cc}<input value={cc} placeholder={text.email.recipientHint} onChange={(e) => { setCC(e.target.value); setSaved(false); }} /></label>}
+      {!compact && <label>{text.email.subject}<input value={subject} required placeholder={text.email.subjectRequired} onChange={(e) => { setSubject(e.target.value); setSaved(false); }} /></label>}
+      {compact && <p className="emailReplyRecipient">{text.email.replyRecipient}: {to}</p>}
+      <label className={compact ? "emailReplyBody" : undefined}>{compact ? text.email.editPolishedReply : text.email.body}<textarea rows={compact ? 7 : 8} value={body} placeholder={text.email.bodyPlaceholder} onChange={(e) => { setBody(e.target.value); setSaved(false); }} /></label>
     </fieldset>
     {error ? <p role="alert">{emailErrorLabel(error, text)}</p> : null}
     {unsupported && !busy && <p className="emailWarning">{tooManyRecipients ? text.email.recipientLimit : text.email.sendUnsupported}</p>}
@@ -133,7 +157,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     {draft && ["sending", "unknown"].includes(draft.state) && <p role="status">{busy ? text.email.sending : text.email.sendUnknown}</p>}
     {draft?.state === "failed" && <p role="alert">{emailSendFailureLabel(draft.error_code, text)}</p>}
     {saved && draft?.state === "draft" && <p role="status">{text.email.draftSaved}</p>}
-    <footer><button className="emailTextButton" disabled={busy || Boolean(locked) || !mailbox} onClick={() => void save(false)}>{text.email.saveDraft}</button><button className="emailTextButton" disabled={busy || Boolean(locked) || unsupported || !mailbox || !splitAddresses(to).length || !subject.trim() || !body.trim()} onClick={() => void save(true)}>{text.email.send}</button></footer>
+    <footer><button className="emailTextButton" disabled={busy || Boolean(locked) || !mailbox} onClick={() => void save(false)}>{text.email.saveDraft}</button>{compact ? <button className="emailReplyPrimary" disabled={!canSend} onClick={() => void save(true)}><Send size={15} />{text.email.sendReply}</button> : <button className="emailTextButton" disabled={!canSend} onClick={() => void save(true)}>{text.email.send}</button>}</footer>
   </section>;
 }
 

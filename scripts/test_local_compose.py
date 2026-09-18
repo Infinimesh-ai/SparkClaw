@@ -343,6 +343,32 @@ class LocalComposeTest(unittest.TestCase):
         ):
             self.assertNotIn(f"  {service}:\n", base_text)
             self.assertIn(f"  {service}:\n", models_text)
+        for service in ("sparkclaw-fast", "sparkclaw-deep"):
+            self.assertEqual(
+                config["services"][service]["environment"]["VLLM_ALLOW_LONG_MAX_MODEL_LEN"],
+                "1",
+            )
+            command = config["services"][service]["command"]
+            self.assertNotIn("--language-model-only", command)
+            for argument in (
+                "--quantization",
+                "modelopt",
+                "--kv-cache-dtype",
+                "fp8",
+                "--attention-backend",
+                "flashinfer",
+                "--moe-backend",
+                "marlin",
+                "--enable-chunked-prefill",
+                "--async-scheduling",
+                "--load-format",
+                "fastsafetensors",
+                "qwen3_xml",
+            ):
+                self.assertIn(argument, command)
+        embedding_command = config["services"]["sparkclaw-embedding"]["command"]
+        embedding_kv_index = embedding_command.index("--kv-cache-memory-bytes")
+        self.assertEqual(embedding_command[embedding_kv_index + 1], "2G")
 
     def test_shared_capacity_contract_uses_remote_context_and_output_budgets(self) -> None:
         catalog = json.loads((ROOT / "configs" / "model.profiles.json").read_text(encoding="utf-8"))

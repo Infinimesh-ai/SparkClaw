@@ -369,6 +369,7 @@ type EmailRepository interface {
 	ActivateEmailTimelinePolicy(context.Context, EmailCommand) (EmailTimelinePolicy, error)
 	ChangeEmailAssignment(context.Context, EmailManualAssignment) (app.EmailMail, error)
 	RenameEmailConversation(context.Context, EmailConversationRename) (app.EmailConversation, error)
+	DeleteEmailConversation(context.Context, EmailConversationDelete) (EmailConversationDeleteResult, error)
 
 	ListEmailDraftPage(context.Context, EmailQuery) (EmailDraftPage, error)
 	ChangeEmailDraft(context.Context, EmailDraftCommand) (EmailDraftResult, error)
@@ -398,6 +399,7 @@ type EmailRepository interface {
 	FinishEmailJob(context.Context, EmailJobFinish) (app.EmailJob, error)
 	PublishEmailCapture(context.Context, EmailCaptureCommand) (app.EmailMail, error)
 	PublishEmailRepresentation(context.Context, EmailRepresentationCommand) (app.EmailMail, error)
+	PublishEmailRenderPreview(context.Context, EmailRenderPreviewCommand) (app.EmailRenderPreview, error)
 	PublishEmailContext(context.Context, EmailContextCommand) (app.EmailMail, error)
 	ExpandEmailRefresh(context.Context, EmailRefreshCommand) (EmailRefreshResult, error)
 	CommitEmailAssignment(context.Context, EmailAssignmentCommand) (app.EmailMail, error)
@@ -408,6 +410,7 @@ type EmailRepository interface {
 	GetEmailMail(context.Context, string, string) (app.EmailMail, bool, error)
 	GetEmailCapture(context.Context, string, string) (app.EmailCaptureVersion, bool, error)
 	GetEmailRepresentation(context.Context, string, string) (app.EmailRepresentation, bool, error)
+	GetEmailRenderPreview(context.Context, string, string, string) (app.EmailRenderPreview, bool, error)
 	GetEmailContext(context.Context, string, string) (app.EmailContextVersion, bool, error)
 	ListEmailConversations(context.Context, EmailQuery) (EmailConversationPage, error)
 	GetEmailConversation(context.Context, string, string) (app.EmailConversation, bool, error)

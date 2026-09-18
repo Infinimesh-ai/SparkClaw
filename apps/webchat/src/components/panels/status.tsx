@@ -171,6 +171,10 @@ export function EpisodePanel({ episodes, text }: { episodes: EpisodeSummary[]; t
 }
 
 export function EpisodeCard({ episode, text, compact = false }: { episode: EpisodeSummary; text: CopyText; compact?: boolean }) {
+  // Keep the diagnostics surface available when reading legacy or malformed
+  // records. Older PostgreSQL rows could expose these collections as JSON null.
+  const tools = episode.tools ?? [];
+  const failures = episode.failures ?? [];
   return (
     <article className={`episodeItem ${compact ? "compactEpisode" : ""}`}>
       <div className="approvalTop">
@@ -186,16 +190,16 @@ export function EpisodeCard({ episode, text, compact = false }: { episode: Episo
         <dt>Repair</dt>
         <dd>{episode.repair_performed ? text.common.yes : text.common.no}</dd>
       </dl>
-      {episode.tools.length > 0 && (
+      {tools.length > 0 && (
         <div className="evalCases">
-          {episode.tools.slice(0, compact ? 4 : 8).map((tool) => (
+          {tools.slice(0, compact ? 4 : 8).map((tool) => (
             <span key={tool}>{tool}</span>
           ))}
         </div>
       )}
-      {episode.failures && episode.failures.length > 0 && (
+      {failures.length > 0 && (
         <div className="evalCases">
-          {episode.failures.slice(0, 3).map((failure) => (
+          {failures.slice(0, 3).map((failure) => (
             <span className="failed" key={failure}>
               {failure}
             </span>

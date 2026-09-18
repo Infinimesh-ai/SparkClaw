@@ -60,6 +60,10 @@ type emailHTTPFixture struct {
 }
 
 func newEmailHTTPFixture(t *testing.T) *emailHTTPFixture {
+	return newEmailHTTPFixtureWithAnalyzer(t, nil)
+}
+
+func newEmailHTTPFixtureWithAnalyzer(t *testing.T, analyzer emailmanagement.Analyzer) *emailHTTPFixture {
 	f := &emailHTTPFixture{t: t, repo: store.NewMemoryStore(), owner: app.DefaultOwnerID, root: t.TempDir(), browser: &noEmailBrowser{}}
 	cfg := testConfig(f.root)
 	cfg.Gateway.APIToken = "email-owner-token"
@@ -67,7 +71,7 @@ func newEmailHTTPFixture(t *testing.T) *emailHTTPFixture {
 	tools := toolhub.New(cfg, f.repo)
 	t.Cleanup(func() { _ = tools.Close() })
 	runtime := agent.NewRuntime(f.repo, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	service, err := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), nil, nil, emailmanagement.Options{WorkspaceRoot: f.root, QualifiedProviderModes: map[string]string{app.EmailProviderGmail: app.EmailProviderModeTimeRange}})
+	service, err := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), analyzer, nil, emailmanagement.Options{WorkspaceRoot: f.root, QualifiedProviderModes: map[string]string{app.EmailProviderGmail: app.EmailProviderModeTimeRange}})
 	f.must(err)
 	f.handler = New(cfg, f.repo, tools, runtime, WithEmailManagement(service)).Handler()
 	f.box, err = f.repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: f.command(), Provider: app.EmailProviderGmail, Address: "owner@example.com", Enabled: true})
@@ -135,7 +139,15 @@ func (f *emailHTTPFixture) receive(providerID string, at time.Time, partial ...b
 	f.must(err)
 	f.finish(job)
 	job = f.claim(app.EmailJobParse)
-	mail, err = f.repo.PublishEmailRepresentation(f.t.Context(), store.EmailRepresentationCommand{EmailCommand: f.command(), Lease: f.lease(job), Representation: app.EmailRepresentation{ID: "rep-" + mail.ID, MailID: mail.ID, CaptureID: captureID, Subject: "Subject " + providerID, From: []string{"vendor@example.com"}, To: []string{f.box.Address}, SourceTime: at, BodyText: "unique-contract-term-" + providerID, State: parseState, Coverage: "complete", ParserVersion: "fixture-v1", ManifestPath: directory + "/representation.json", ManifestSHA256: emailTestHash([]byte("representation")), Attachments: []app.EmailAttachment{{ID: "part-1", Name: "报告.txt", Path: partPath, SizeBytes: int64(len(attachment)), SHA256: emailTestHash(attachment), State: app.EmailParseReady}}}})
+	representationID := "rep-" + mail.ID
+	previewDocument := []byte(`{"version":"structured-mail-v3","content":[{"kind":"paragraph","children":[{"kind":"text","text":"Safe preview ` + providerID + `"}]}]}`)
+	previewPath := "email/" + hex.EncodeToString(scope[:]) + "/normalized/" + representationID + "/render/structured-mail-v3/content.json"
+	write(previewPath, previewDocument)
+	mail, err = f.repo.PublishEmailRepresentation(f.t.Context(), store.EmailRepresentationCommand{
+		EmailCommand: f.command(), Lease: f.lease(job),
+		Representation: app.EmailRepresentation{ID: representationID, MailID: mail.ID, CaptureID: captureID, Subject: "Subject " + providerID, From: []string{"vendor@example.com"}, To: []string{f.box.Address}, SourceTime: at, BodyText: "unique-contract-term-" + providerID, State: parseState, Coverage: "complete", ParserVersion: "fixture-v1", ManifestPath: directory + "/representation.json", ManifestSHA256: emailTestHash([]byte("representation")), Attachments: []app.EmailAttachment{{ID: "part-1", Name: "报告.txt", Path: partPath, SizeBytes: int64(len(attachment)), SHA256: emailTestHash(attachment), State: app.EmailParseReady}}},
+		RenderPreview:  &app.EmailRenderPreview{MailID: mail.ID, CaptureID: captureID, RepresentationID: representationID, SourceSHA256: emailTestHash(original), SanitizerVersion: "structured-mail-v3", State: app.EmailRenderReady, ArtifactPath: previewPath, ArtifactSHA256: emailTestHash(previewDocument), ArtifactBytes: int64(len(previewDocument))},
+	})
 	f.must(err)
 	f.finish(job)
 	for i := 0; i < 100; i++ {
@@ -201,6 +213,25 @@ func emailDecode[T any](t *testing.T, w *httptest.ResponseRecorder, want int) T 
 		t.Fatal(err)
 	}
 	return out
+}
+
+func TestEmailRenderPreviewEndpointOnlyExposesSanitizedArtifact(t *testing.T) {
+	f := newEmailHTTPFixture(t)
+	mail := f.receive("render-preview", time.Now().UTC())
+	response := f.request("GET", "/api/email/messages/"+mail.ID+"/render-preview", "")
+	preview := emailDecode[emailmanagement.RenderPreviewView](t, response, http.StatusOK)
+	if preview.State != app.EmailRenderReady || !strings.Contains(response.Body.String(), "Safe preview render-preview") || len(preview.Content) != 1 {
+		t.Fatalf("preview=%+v", preview)
+	}
+	if response.Header().Get("Cache-Control") != "private, no-store" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("headers=%v", response.Header())
+	}
+	if strings.Contains(response.Body.String(), "body_text") {
+		t.Fatal("render preview response exposed the legacy plain-text field")
+	}
+	if got := f.request("GET", "/api/email/messages/"+mail.ID+"/preview", ""); got.Code != http.StatusNotFound {
+		t.Fatalf("legacy preview route status=%d body=%s", got.Code, got.Body.String())
+	}
 }
 
 func TestEmailManagementHTTPViewGapPendingAndReanalysis(t *testing.T) {

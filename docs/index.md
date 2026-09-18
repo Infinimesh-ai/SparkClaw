@@ -37,6 +37,7 @@ documentation tree.
 | [Browser email Workflow design](browser-email-workflow-design.md) | Single unread-message source capture, sending, deterministic admission, send approval, and unknown-outcome invariants |
 | [Email management system and stages](email-management-design.md) | Implementation contracts: cross-account topics, bounded intake, fixed membership, per-mail viewing and five acceptance stages |
 | [Email management implementation](email-management-implementation.md) | Runtime/API/UI changes, real-provider coverage, engineering evidence and outstanding release gates |
+| [Safe rich email preview design](email-safe-html-preview-design.md) | Proposed persisted, versioned and sandboxed rich-layout replacement with zero remote loads, one-time no-user cutover, legacy-preview removal, deletion semantics and latency gates |
 | [Email pipeline optimization](email-pipeline-optimization-design.md) | Proposed QQ/Gmail/Outlook network readers, managed Tampermonkey import, durable incremental sync, summaries and on-demand bodies |
 | [Email timeline incremental sync](email-timeline-incremental-sync-design.md) | Acceptance-gated true incrementality for QQ/Gmail/Outlook, dual watermarks, direct-local batch journal, one carry-forward retry, bounded overflow gaps, scheduler-free terminal warnings, and immediate Refresh |
 | [Mail cross-round reuse](email-cross-round-reuse.md) | Bounded owned-page/connection reuse, per-round identity checks, intake-proof freshness and cold/warm performance evidence |

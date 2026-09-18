@@ -40,7 +40,7 @@ const readRegistrations = [
       ...(provider === "outlook" ? ["https://login.live.com", "https://login.microsoftonline.com", "https://www.microsoft.com"] : [])],
     ...(provider === "outlook" ? { signedOutURL: outlookSignedOutURL } : {}),
     timeoutMS: operation === 'collect_page' ? 1_800_000 : 180_000,
-    sourceFiles: ["scripts/email/read.mjs", "scripts/email/lib/read-capture.mjs", "scripts/email/lib/receipt-time.mjs", "scripts/email/lib/gmail-list.mjs", "scripts/email/lib/outlook-list.mjs", "scripts/email/lib/qqmail-list.mjs", "scripts/email/lib/provider-account.mjs", "scripts/email/lib/network-reader.mjs", "scripts/email/userscripts/lib/outlook-early-bridge.mjs"],
+    sourceFiles: ["scripts/email/read.mjs", "scripts/email/lib/read-capture.mjs", "scripts/email/lib/receipt-time.mjs", "scripts/email/lib/gmail-list.mjs", "scripts/email/lib/outlook-list.mjs", "scripts/email/lib/qqmail-list.mjs", "scripts/email/lib/provider-account.mjs", "scripts/email/lib/network-reader.mjs", "scripts/email/userscripts/lib/outlook-early-bridge.mjs", "scripts/email/userscripts/lib/qqmail-mark-read.mjs"],
   }))),
 ];
 
@@ -241,7 +241,7 @@ function registration(value) {
     ...value,
     validate: value.validate ?? ((input) => validateScriptInput(value.provider, value.operation, input)),
     origins: Object.freeze([...value.origins]),
-    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["scripts/email/lib/managed-send.mjs","scripts/email/lib/managed-send-dom.mjs","scripts/email/lib/send-journal.mjs","scripts/email/read.mjs","scripts/email/lib/read-capture.mjs","scripts/email/lib/receipt-time.mjs","scripts/email/lib/gmail-list.mjs","scripts/email/lib/outlook-list.mjs","scripts/email/lib/qqmail-list.mjs","scripts/email/lib/provider-account.mjs","scripts/email/lib/network-reader.mjs","scripts/email/userscripts/lib/outlook-early-bridge.mjs"]:[])])]),
+    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["scripts/email/lib/managed-send.mjs","scripts/email/lib/managed-send-dom.mjs","scripts/email/lib/send-journal.mjs","scripts/email/read.mjs","scripts/email/lib/read-capture.mjs","scripts/email/lib/receipt-time.mjs","scripts/email/lib/gmail-list.mjs","scripts/email/lib/outlook-list.mjs","scripts/email/lib/qqmail-list.mjs","scripts/email/lib/provider-account.mjs","scripts/email/lib/network-reader.mjs","scripts/email/userscripts/lib/outlook-early-bridge.mjs","scripts/email/userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
   });
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"strings"
@@ -19,6 +20,10 @@ import (
 
 type PageBrowser interface {
 	CollectPageForOwner(context.Context, string, app.EmailReadRequest) (app.EmailPageResult, error)
+}
+
+type PageMarkReadBrowser interface {
+	MarkReadForOwner(context.Context, string, app.EmailMarkReadRequest) (app.EmailMarkReadResult, error)
 }
 
 func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser PageBrowser) error {
@@ -142,6 +147,14 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 	if err = s.reconcileError(ctx, commit.EmailCommand, err); err != nil {
 		return err
 	}
+	// QQ's qualified reader confirms the remote effect from a fresh provider
+	// list response. Run it only after the complete original is canonical in
+	// Store; a failed or uncertain effect never rolls back source durability.
+	if mailbox.Provider == app.EmailProviderQQMail {
+		if marker, ok := s.browser.(PageMarkReadBrowser); ok {
+			s.markCommittedQQPageRead(ctx, job, mailbox, request, page, captures, marker)
+		}
+	}
 	// Refetchable source bytes were journaled before their atomic rename. The
 	// journal may be removed only after the composite Store receipt is known.
 	digest := sha256.Sum256([]byte(mailbox.Provider + "\x00" + request.InvocationID))
@@ -151,6 +164,63 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 		_ = root.Remove(path.Join("email", ownerScope(job.OwnerID), "batches", hex.EncodeToString(digest[:])+".json"))
 	}
 	return nil
+}
+
+func (s *Service) markCommittedQQPageRead(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, request app.EmailReadRequest, page app.EmailPageResult, committed []store.EmailSyncCapture, marker PageMarkReadBrowser) {
+	registered, ok := s.registry.Get(app.EmailProviderQQMail)
+	if !ok {
+		return
+	}
+	committedIDs := make(map[string]bool, len(committed))
+	for _, capture := range committed {
+		if capture.Capture.State == app.EmailCaptureComplete {
+			committedIDs[capture.ProviderMessageID] = true
+		}
+	}
+	if len(committedIDs) == 0 {
+		return
+	}
+	mails, err := s.repository.ListEmailMails(ctx, store.EmailQuery{OwnerID: job.OwnerID, MailboxID: mailbox.ID, CapturedOnly: true, Limit: 100})
+	if err != nil {
+		slog.Warn("QQ remote read confirmation lookup failed", "code", safeCode(err))
+		return
+	}
+	byProviderID := make(map[string]app.EmailMail, len(mails.Items))
+	for _, mail := range mails.Items {
+		byProviderID[mail.ProviderMessageID] = mail
+	}
+	for _, captured := range page.Captures {
+		if !committedIDs[captured.Target.ProviderMessageID] || captured.Result.Status != "collected" || captured.Result.Capture == nil {
+			continue
+		}
+		mail, found := byProviderID[captured.Target.ProviderMessageID]
+		if !found || mail.CaptureID != captured.Result.Capture.CaptureID || mail.RemoteReadState == "read" {
+			continue
+		}
+		target := app.EmailCaptureTarget{AccountAddress: captured.Target.AccountAddress, ProviderMessageID: captured.Target.ProviderMessageID, ProviderNativeID: captured.Target.ProviderNativeID, ProviderSelectionID: captured.Target.ProviderSelectionID, ProviderThreadID: captured.Target.ProviderThreadID, Folder: captured.Target.Folder}
+		binding := request
+		binding.InvocationID = app.NewID("email_mark_read")
+		binding.ScriptRevision = registered.MarkRead.Revision
+		binding.Target, binding.Discovery = &target, nil
+		result, markErr := marker.MarkReadForOwner(ctx, job.OwnerID, app.EmailMarkReadRequest{Binding: binding, CommittedCapture: *captured.Result.Capture, CaptureInvocationID: emailautomation.PageCaptureInvocationID(request.InvocationID, mailbox.Provider, target)})
+		if markErr != nil || result.ReadState != "read" {
+			code := "email_remote_read_unknown"
+			if markErr != nil {
+				code = safeCode(markErr)
+			}
+			slog.Warn("QQ remote read was not confirmed", "code", code)
+			continue
+		}
+		version, exists, loadErr := s.repository.GetEmailCapture(ctx, job.OwnerID, mail.CaptureID)
+		if loadErr != nil || !exists || version.State != app.EmailCaptureComplete || version.PurgedAt != nil {
+			slog.Warn("QQ remote read Store receipt unavailable", "code", safeCode(loadErr))
+			continue
+		}
+		cmd := store.EmailCaptureCommand{EmailCommand: command(job.OwnerID, fmt.Sprintf("timeline-read-v1:%s:%s", mail.ID, version.ID)), PageBatch: true, ReadState: "read", MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Lease: lease(job, s.now()), Capture: version}
+		if _, publishErr := s.repository.PublishEmailCapture(ctx, cmd); s.reconcileError(ctx, cmd.EmailCommand, publishErr) != nil {
+			slog.Warn("QQ remote read Store confirmation failed", "code", safeCode(publishErr))
+		}
+	}
 }
 
 func (s *Service) commitListFailure(ctx context.Context, job app.EmailJob, checkpoint store.EmailSyncCheckpoint, mode string, readerRevision int, cause error) error {

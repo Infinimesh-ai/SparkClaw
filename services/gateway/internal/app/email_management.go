@@ -256,6 +256,31 @@ type EmailRepresentation struct {
 	CreatedAt       time.Time         `json:"created_at"`
 }
 
+// EmailRenderPreview is a language-independent, sanitized projection of one
+// immutable representation. The HTML stays in the owner-scoped workspace;
+// this record binds its verified path and digest to the source that produced it.
+type EmailRenderPreview struct {
+	ID                    string `json:"id"`
+	MailID                string `json:"mail_id"`
+	CaptureID             string `json:"capture_id"`
+	RepresentationID      string `json:"representation_id"`
+	SourceSHA256          string `json:"source_sha256"`
+	SanitizerVersion      string `json:"sanitizer_version"`
+	State                 string `json:"state"`
+	HTMLPath              string `json:"html_path,omitempty"`
+	HTMLSHA256            string `json:"html_sha256,omitempty"`
+	HTMLBytes             int64  `json:"html_bytes,omitempty"`
+	EmbeddedResourceCount int    `json:"embedded_resource_count,omitempty"`
+	EmbeddedResourceBytes int64  `json:"embedded_resource_bytes,omitempty"`
+	FailureCode           string `json:"failure_code,omitempty"`
+	ArtifactPath          string `json:"artifact_path,omitempty"`
+	ArtifactSHA256        string `json:"artifact_sha256,omitempty"`
+	ArtifactBytes         int64  `json:"artifact_bytes,omitempty"`
+	// HTML* is retained only so deployed safe-mail-v1 records can still be
+	// deleted with their conversations. New projections never populate it.
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type EmailContextVersion struct {
 	ID                   string    `json:"id"`
 	MailID               string    `json:"mail_id"`
@@ -452,6 +477,9 @@ const (
 	EmailParsePartial              = "partial"
 	EmailParseUnsupported          = "unsupported"
 	EmailParseFailed               = "failed"
+	EmailRenderReady               = "ready"
+	EmailRenderUnavailable         = "unavailable"
+	EmailRenderFailed              = "failed"
 	EmailAssignmentPending         = "pending"
 	EmailAssignmentAssigned        = "assigned"
 	EmailConcernSuspectedDuplicate = "suspected_duplicate"

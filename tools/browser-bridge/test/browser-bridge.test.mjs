@@ -137,7 +137,7 @@ test("discard, tab removal, and replacement cancel pending expiry", async () => 
   }
 });
 
-test("native host requests create an inactive connection tab in the owner window", async () => {
+test("native host requests create an unfocused dedicated task window", async () => {
   const fixture = createBridgeFixture();
   const port = nativePort();
   fixture.chromeAPI.runtime.connectNative = (name) => {
@@ -161,7 +161,14 @@ test("native host requests create an inactive connection tab in the owner window
   port.messages.emit({ type: "openConnection", id: 7, url });
   await tick();
 
-  assert.deepEqual(fixture.calls.tabsCreate, [{ url, active: false, pinned: false, windowId: 7 }]);
+  assert.deepEqual(fixture.calls.windowsCreate, [{ focused: false, type: "normal" }]);
+  assert.deepEqual(fixture.calls.tabsCreate, [{
+    url,
+    active: true,
+    pinned: false,
+    windowId: 8,
+  }]);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3], [4]]);
   assert.deepEqual(port.sent, [
     {
       type: "bridgeReady",
@@ -171,6 +178,41 @@ test("native host requests create an inactive connection tab in the owner window
     },
     { type: "openConnectionResult", id: 7, success: true },
   ]);
+});
+
+test("native host cleanup closes a restored owned group before opening another task page", async () => {
+  const fixture = createBridgeFixture();
+  const port = nativePort();
+  const token = "0123456789abcdef0123456789abcdef";
+  const order = [];
+  fixture.tabs.set(5, { id: 5, windowId: 7, url: "https://task.example/restored", active: false });
+  fixture.chromeAPI.tabGroups.query = async () => [{
+    id: 81,
+    title: `SparkClaw task · playwright-mcp · sc:${token}`,
+  }];
+  fixture.chromeAPI.tabs.query = async (query = {}) => query.groupId === 81
+    ? [fixture.tabs.get(5)] : [...fixture.tabs.values()];
+  await fixture.chromeAPI.storage.local.set({ sparkclawTaskGroupTokens: [token] });
+  const create = fixture.chromeAPI.windows.create;
+  const remove = fixture.chromeAPI.tabs.remove;
+  fixture.chromeAPI.windows.create = async options => { order.push("create"); return create(options); };
+  fixture.chromeAPI.tabs.remove = async ids => { order.push("remove"); return remove(ids); };
+  fixture.chromeAPI.runtime.connectNative = () => port;
+  new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] });
+  const url = "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html?" + new URLSearchParams({
+    mcpRelayUrl: RELAY_URL,
+    client: JSON.stringify({ name: "test" }),
+    protocolVersion: "2",
+    token: "secret-value",
+  });
+
+  port.messages.emit({ type: "openConnection", id: 8, url });
+  await tick();
+  await tick();
+
+  assert.deepEqual(order.slice(0, 2), ["remove", "create"]);
+  assert.deepEqual(fixture.calls.tabsRemove[0], [5, 3]);
+  assert.deepEqual(port.sent.at(-1), { type: "openConnectionResult", id: 8, success: true });
 });
 
 test("stale cleanup closes only groups recorded as Bridge-owned, never an owner group by title", async () => {
@@ -198,6 +240,44 @@ test("stale cleanup closes only groups recorded as Bridge-owned, never an owner 
   assert.deepEqual([...await registry.list()], [], "closed and vanished group ids are forgotten");
 });
 
+test("stale cleanup recognizes a restored group by durable token after its numeric id changes", async () => {
+  const fixture = createBridgeFixture();
+  const token = "abcdef0123456789abcdef0123456789";
+  const groups = [
+    { id: 72, title: "SparkClaw task · playwright-mcp" },
+    { id: 73, title: `SparkClaw task · playwright-mcp · sc:${token}` },
+    { id: 74, title: "SparkClaw task · playwright-mcp · sc:00000000000000000000000000000000" },
+  ];
+  const groupTabs = new Map([
+    [72, [{ id: 31, windowId: 7, url: "https://owner.example/same-title" }]],
+    [73, [{ id: 32, windowId: 7, url: "https://task.example/restored" }]],
+    [74, [{ id: 33, windowId: 7, url: "https://owner.example/foreign-token" }]],
+  ]);
+  fixture.chromeAPI.tabGroups.query = async () => groups;
+  fixture.chromeAPI.tabs.query = async (query = {}) => Number.isInteger(query.groupId)
+    ? groupTabs.get(query.groupId) ?? [] : [...fixture.tabs.values()];
+  await fixture.chromeAPI.storage.local.set({ sparkclawTaskGroupTokens: [token] });
+  const registry = new OwnedGroupRegistry(fixture.chromeAPI);
+  const focus = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] }).focus;
+
+  await cleanupStaleTaskTabs(fixture.chromeAPI, focus, registry, new Set([3]));
+
+  assert.deepEqual(fixture.calls.tabsRemove, [[32]]);
+  assert.deepEqual([...await registry.listTokens()], []);
+});
+
+test("an early startup sweep retains durable ownership until restored groups appear", async () => {
+  const fixture = createBridgeFixture();
+  const token = "fedcba9876543210fedcba9876543210";
+  await fixture.chromeAPI.storage.local.set({ sparkclawTaskGroupTokens: [token] });
+  const registry = new OwnedGroupRegistry(fixture.chromeAPI);
+  const focus = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] }).focus;
+
+  await cleanupStaleTaskTabs(fixture.chromeAPI, focus, registry, new Set([3]));
+
+  assert.deepEqual([...await registry.listTokens()], [token]);
+});
+
 test("stale cleanup keeps an owned group whose tabs belong to a live connection", async () => {
   const fixture = createBridgeFixture();
   fixture.chromeAPI.tabGroups.query = async () => [{ id: 40, title: "SparkClaw task · live" }];
@@ -213,7 +293,7 @@ test("stale cleanup keeps an owned group whose tabs belong to a live connection"
   assert.deepEqual([...await registry.list()], [40]);
 });
 
-test("task tab groups record their created group ids in session storage until they close", async () => {
+test("task tab groups record session ids and durable title tokens until they close", async () => {
   const fixture = createBridgeFixture();
   const registry = new OwnedGroupRegistry(fixture.chromeAPI);
   let nextGroupID = 60;
@@ -238,6 +318,7 @@ test("task tab groups record their created group ids in session storage until th
   relay.ontabattached(3);
   await tick();
   assert.deepEqual([...await registry.list()], [61]);
+  assert.equal((await registry.listTokens()).size, 1);
   group.beginHandoff(3);
   await group.completeHandoff(3);
   assert.deepEqual([...await registry.list()], [61, 62]);
@@ -245,7 +326,9 @@ test("task tab groups record their created group ids in session storage until th
   relay.onclose();
   await tick();
   assert.deepEqual([...await registry.list()], []);
+  assert.deepEqual([...await registry.listTokens()], []);
   assert.deepEqual(await fixture.chromeAPI.storage.session.get("sparkclawTaskGroupIDs"), { sparkclawTaskGroupIDs: [] });
+  assert.deepEqual(await fixture.chromeAPI.storage.local.get("sparkclawTaskGroupTokens"), { sparkclawTaskGroupTokens: [] });
 });
 
 test("handoff regrouping cannot release the task tab before Chrome resolves tabs.group", async () => {
@@ -378,13 +461,17 @@ function createBridgeFixture() {
     removed: event(),
     startup: event(),
     updated: event(),
+    windowRemoved: event(),
   };
-  const calls = { tabsCreate: [], tabsRemove: [], tabsUngroup: [], tabsUpdate: [] };
+  const calls = { tabsCreate: [], tabsRemove: [], tabsUngroup: [], tabsUpdate: [], windowsCreate: [] };
   const sessionStorage = new Map();
+  const localStorage = new Map();
   const tabs = new Map([
     [1, { id: 1, windowId: 7, url: "https://owner.example/", active: false, lastAccessed: 100 }],
     [3, { id: 3, windowId: 7, url: CONNECT_URL, active: true, lastAccessed: 200 }],
   ]);
+  let nextTabID = 3;
+  let nextWindowID = 7;
   const chromeAPI = {
     runtime: {
       id: "bridge",
@@ -404,13 +491,14 @@ function createBridgeFixture() {
     tabs: {
       create: async (options) => {
         calls.tabsCreate.push(options);
-        const tab = { id: 4, windowId: options.windowId, url: options.url, active: options.active };
+        const tab = { id: ++nextTabID, windowId: options.windowId, url: options.url, active: options.active };
         tabs.set(tab.id, tab);
         return tab;
       },
       get: async (tabId) => tabs.get(tabId),
       group: async () => 9,
-      query: async (query = {}) => Number.isInteger(query.groupId) ? [] : [...tabs.values()],
+      query: async (query = {}) => Number.isInteger(query.groupId) ? [] : Number.isInteger(query.windowId)
+        ? [...tabs.values()].filter((tab) => tab.windowId === query.windowId) : [...tabs.values()],
       remove: async (tabIds) => { calls.tabsRemove.push(Array.isArray(tabIds) ? tabIds : [tabIds]); },
       ungroup: async (tabIds) => { calls.tabsUngroup.push(tabIds); },
       update: async (...args) => { calls.tabsUpdate.push(args); },
@@ -428,11 +516,25 @@ function createBridgeFixture() {
         get: async (key) => (sessionStorage.has(key) ? { [key]: sessionStorage.get(key) } : {}),
         set: async (items) => { for (const [key, value] of Object.entries(items)) sessionStorage.set(key, value); },
       },
+      local: {
+        get: async (key) => (localStorage.has(key) ? { [key]: localStorage.get(key) } : {}),
+        set: async (items) => { for (const [key, value] of Object.entries(items)) localStorage.set(key, value); },
+      },
     },
     windows: {
       WINDOW_ID_NONE: -1,
+      create: async (options) => {
+        calls.windowsCreate.push(options);
+        const windowId = ++nextWindowID;
+        const tab = { id: ++nextTabID, windowId, url: options.url, active: true };
+        tabs.set(tab.id, tab);
+        return { id: windowId, focused: options.focused, tabs: [tab] };
+      },
+      get: async (windowId) => ({ id: windowId }),
       getLastFocused: async () => ({ id: 7, focused: false }),
       onFocusChanged: events.focused,
+      onRemoved: events.windowRemoved,
+      remove: async () => {},
       update: async () => {},
     },
   };

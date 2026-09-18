@@ -35,7 +35,7 @@ automation engine.
 | Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-The pinned compatibility set is Browser Bridge `1.0.22`, Playwright MCP
+The pinned compatibility set is Browser Bridge `1.0.26`, Playwright MCP
 `0.0.80`, Playwright CLI `0.1.19`, Playwright Library
 `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. The Bridge source
 closure is recorded in `configs/browser-bridge-artifacts.json`; installation
@@ -55,9 +55,10 @@ npm run open:browser
 ```
 
 The explicit open command brings the browser forward for owner work such as
-login or human verification. Background acquisition and task actions do not
-focus the browser or replace the active owner tab. An explicit owner handoff is
-the only automation operation allowed to focus a task tab.
+login or human verification. The first background task opens one dedicated,
+unfocused browser window, and every later task reuses that window instead of
+adding tabs to an owner window. An explicit owner handoff is the only automation
+operation allowed to move a task tab into a focused window.
 
 Background connection and cleanup preserve the current OS window focus. Restoring
 the owner tab must not blur its browser window: a prior switch from another app
@@ -239,4 +240,4 @@ See [Playwright Extension browser design](playwright-extension-browser-design.md
 for the migration decisions and [Browser email Workflow](browser-email-workflow-design.md)
 for provider and approval semantics.
 
-Bridge `1.0.22` serializes task grouping and waits for pending grouping before close. Failed native tab removal preserves group ownership for bounded cleanup retries; active connections and tabs explicitly released by the owner are protected. Browser task-group count is not an active-job counter, and unverified groups restored from an earlier browser session are not deleted by title.
+Bridge `1.0.26` serializes creation and reuse of one dedicated, unfocused task window for all Bridge clients; a removed window or a window with no remaining task-owned tab is never reused, while explicit handoff still creates a focused owner-visible window. Chromium first creates the empty dedicated window, then the Bridge creates the connection tab inside that exact window and removes the placeholder, avoiding the platform rejection seen when an extension URL was passed directly to window creation. It also serializes task grouping and waits for pending grouping before close. Each task group carries a random ownership token backed by extension-local storage, so a restored group can be verified even when Chromium assigns it a new numeric ID. Every native connection request reconciles verified stale groups before opening another task page. Failed native tab removal preserves ownership for bounded cleanup retries; active connections and tabs explicitly released by the owner are protected, and ordinary groups are never deleted by their human-readable title alone. The Controller service allows 60 seconds for its bounded task-page and CLI cleanup before systemd termination.

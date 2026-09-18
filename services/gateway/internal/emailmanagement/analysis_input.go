@@ -206,7 +206,7 @@ func (s *Service) addMailEvidence(ctx context.Context, owner string, mail app.Em
 	if input.TargetID == mail.ID {
 		input.SourceTime = representation.SourceTime
 	}
-	body := representation.BodyText
+	body := emailModelBodyText(representation.BodyText)
 	if input.Kind != app.EmailJobClassification && mail.Verification != nil {
 		body = strings.ReplaceAll(body, mail.Verification.Code, "[verification code redacted]")
 	}
@@ -237,6 +237,7 @@ func finalizeInput(input AnalysisInput, refs []string, epoch int64) (AnalysisInp
 		limited = limited || cut
 	}
 	clip(&input.Subject, 512)
+	clip(&input.ReplyInstruction, 4000)
 	for i := range input.Participants {
 		clip(&input.Participants[i], 254)
 	}

@@ -8,17 +8,20 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 )
 
-// getEmailMessagePreview serves the safe reading surface for an original: a
-// projection of the already-parsed representation, never raw captured bytes.
-func (s *Server) getEmailMessagePreview(w http.ResponseWriter, r *http.Request) {
+// getEmailMessageRenderPreview returns only the immutable semantic projection.
+// Raw sender HTML/CSS/URLs and normalized body text are deliberately not
+// exposed by this route.
+func (s *Server) getEmailMessageRenderPreview(w http.ResponseWriter, r *http.Request) {
 	if !s.emailManagementReady(w) {
 		return
 	}
-	out, err := s.emailManagement.Preview(r.Context(), principalForRequest(r).OwnerID, r.PathValue("mail"))
+	out, err := s.emailManagement.RenderPreview(r.Context(), principalForRequest(r).OwnerID, r.PathValue("mail"))
 	if err != nil {
 		writeEmailManagementError(w, err)
 		return
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	writeJSON(w, http.StatusOK, out)
 }
 

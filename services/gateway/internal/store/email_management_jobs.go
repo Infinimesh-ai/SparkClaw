@@ -305,7 +305,7 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 	j = app.EmailJob{Priority: priority, ID: id, OwnerID: e.owner, Kind: c.Kind, TargetID: c.TargetID, MailboxID: c.MailboxID, BindingGeneration: c.BindingGeneration, InputFingerprint: fingerprint, Generation: generation, State: app.EmailJobQueued, MaxAttempts: 5, NextAttemptAt: postgresTime(at), CreatedAt: e.now, UpdatedAt: e.now}
 	j.SyncTrigger, j.SyncActor = c.SyncTrigger, c.SyncActor
 	emailPollRequest(e, &j, c)
-	if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
+	if emailEvents(e) && emailEventDisablesJob(e, j.Kind, j.TargetID) {
 		j.State = app.EmailJobPaused
 		j.ErrorCode = emailEventSuspended
 	}
@@ -323,7 +323,7 @@ func emailLeaseCheck(e *emailEngine, l EmailJobLease, kind, target string) error
 	if emailTimelineLegacyKind(j.Kind) && emailTimelineActive(e) {
 		return errEmailConflict
 	}
-	if emailEvents(e) && emailDisabledAnalysis(j.Kind) {
+	if emailEvents(e) && emailEventDisablesJob(e, j.Kind, j.TargetID) {
 		return errEmailConflict
 	}
 	if emailEvents(e) && emailAnalysisKind(j.Kind) {
@@ -424,6 +424,9 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 	})
 	{
 		for _, j := range jobs {
+			if emailEvents(e) && emailEventDisablesJob(e, j.Kind, j.TargetID) {
+				continue
+			}
 			if j.State == app.EmailJobPaused && j.ErrorCode == emailPageBatchSuperseded {
 				continue
 			}

@@ -137,9 +137,12 @@ func cloneRunFeedback(values []app.RunFeedback) []app.RunFeedback {
 }
 
 func cloneEpisodeSummary(summary app.EpisodeSummary) app.EpisodeSummary {
-	summary.Tools = append([]string(nil), summary.Tools...)
-	summary.Approvals = append([]string(nil), summary.Approvals...)
-	summary.Failures = append([]string(nil), summary.Failures...)
+	// Episode collections are public JSON arrays. Keep them non-nil at the
+	// repository boundary so zero-value summaries cannot become JSON null and
+	// force every API consumer to special-case the representation.
+	summary.Tools = append([]string{}, summary.Tools...)
+	summary.Approvals = append([]string{}, summary.Approvals...)
+	summary.Failures = append([]string{}, summary.Failures...)
 	return summary
 }
 

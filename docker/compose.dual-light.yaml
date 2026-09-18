@@ -14,18 +14,29 @@ services:
       - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
       - --gpu-memory-utilization
       - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}
-      - --kv-cache-memory-bytes
-      - ${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}
+      - --quantization
+      - modelopt
+      - --kv-cache-dtype
+      - fp8
+      - --attention-backend
+      - flashinfer
+      - --moe-backend
+      - marlin
       - --max-num-seqs
       - ${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}
+      - --max-num-batched-tokens
+      - "8192"
       - --trust-remote-code
+      - --enable-chunked-prefill
+      - --async-scheduling
       - --enable-prefix-caching
+      - --load-format
+      - fastsafetensors
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
-      - qwen3_coder
-      - --language-model-only
+      - qwen3_xml
 
   sparkclaw-deep:
     command:
@@ -40,18 +51,29 @@ services:
       - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
       - --gpu-memory-utilization
       - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.36}
-      - --kv-cache-memory-bytes
-      - ${SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES:-12G}
+      - --quantization
+      - modelopt
+      - --kv-cache-dtype
+      - fp8
+      - --attention-backend
+      - flashinfer
+      - --moe-backend
+      - marlin
       - --max-num-seqs
       - ${SPARKCLAW_DEEP_MAX_NUM_SEQS:-2}
+      - --max-num-batched-tokens
+      - "8192"
       - --trust-remote-code
+      - --enable-chunked-prefill
+      - --async-scheduling
       - --enable-prefix-caching
+      - --load-format
+      - fastsafetensors
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
-      - qwen3_coder
-      - --language-model-only
+      - qwen3_xml
 
   sparkclaw-embedding:
     command:
@@ -63,7 +85,7 @@ services:
       - --served-model-name
       - ${SPARKCLAW_EMBEDDING_SERVED_NAME:-sparkclaw-embedding}
       - --gpu-memory-utilization
-      - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.06}
+      - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.12}
       - --kv-cache-memory-bytes
       - ${SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES:-2G}
       - --max-num-seqs

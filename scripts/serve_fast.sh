@@ -10,7 +10,7 @@ TENSOR_PARALLEL_SIZE="${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}"
 CAPACITY_CATALOG="${SPARKCLAW_MODEL_CAPACITY_CATALOG:-$ROOT/configs/model.profiles.json}"
 MAX_MODEL_LEN="$(python3 "$ROOT/scripts/model_capacity_entrypoint.py" --resolve-context "$CAPACITY_CATALOG" --lane fast)"
 GPU_MEMORY_UTILIZATION="${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.42}"
-KV_CACHE_MEMORY_BYTES="${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-8G}"
+KV_CACHE_MEMORY_BYTES="${SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES:-}"
 MAX_NUM_SEQS="${SPARKCLAW_FAST_MAX_NUM_SEQS:-4}"
 SPECULATIVE_TOKENS="${SPARKCLAW_FAST_SPECULATIVE_TOKENS:-0}"
 SPECULATIVE_CONFIG="${SPARKCLAW_FAST_SPECULATIVE_CONFIG:-}"
@@ -21,6 +21,8 @@ command -v vllm >/dev/null 2>&1 || {
   exit 1
 }
 
+export VLLM_ALLOW_LONG_MAX_MODEL_LEN="${VLLM_ALLOW_LONG_MAX_MODEL_LEN:-1}"
+
 args=(
   serve "$MODEL"
   --host "$HOST"
@@ -29,12 +31,19 @@ args=(
   --tensor-parallel-size "$TENSOR_PARALLEL_SIZE"
   --max-model-len "$MAX_MODEL_LEN"
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
+  --quantization modelopt
+  --kv-cache-dtype fp8
+  --attention-backend flashinfer
+  --moe-backend marlin
+  --max-num-batched-tokens 8192
   --trust-remote-code
+  --enable-chunked-prefill
+  --async-scheduling
   --enable-prefix-caching
+  --load-format fastsafetensors
   --reasoning-parser qwen3
   --enable-auto-tool-choice
-  --tool-call-parser qwen3_coder
-  --language-model-only
+  --tool-call-parser qwen3_xml
 )
 
 if [[ -n "$KV_CACHE_MEMORY_BYTES" ]]; then

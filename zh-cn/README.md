@@ -45,9 +45,10 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 
 ## 快速开始
 
-Ubuntu 服务器或 VM 使用版本化公网模型端点时，以具备 sudo 权限的普通用户运行 remote
-安装入口。它会在需要时安装 Docker，把凭据和机器覆盖项只保存在本机权限为 `0600` 的
-`.env.remote` 中，并
+Ubuntu 工作站、服务器或 VM 使用版本化公网模型端点时，先满足[宿主前置条件](docs/deployment.md#前置条件)，
+其中包括 Node.js 26/npm 11 与有效的 Owner X11/XWayland 桌面 Session，再以具备 sudo 权限
+的普通用户运行 Remote 安装入口。它会在需要时安装 Docker，但不会安装 Node/npm 或创建
+图形 Session；凭据和机器覆盖项只保存在本机权限为 `0600` 的 `.env.remote` 中，并
 在宿主机安装固定版本的 SparkClaw Chromium、Browser Bridge 和 Owner-scoped Playwright
 Controller。部署会验证 Private Controller Socket，并确认 Smoke Client Detach 后宿主 Chromium
 仍在运行：
@@ -63,8 +64,8 @@ Fast、Embedding、Guard、ASR、OCR 五个公网端点写在
 `docker/env/sparkclaw.product.env`，Fast 同时承担逻辑 Deep lane。模型 endpoint 不需要认证时，
 交互配置中的 API Key 直接回车留空。
 
-在已安装 Docker、Compose 与 NVIDIA Container Toolkit 的 NVIDIA GB10 DGX Spark 上，
-运行流式安装入口：
+全本地部署需要先满足相同宿主前置条件，并额外满足 DGX Spark GB10、Docker/Compose、
+NVIDIA Runtime、内存、磁盘与 Hugging Face token 要求，再运行流式安装入口：
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash

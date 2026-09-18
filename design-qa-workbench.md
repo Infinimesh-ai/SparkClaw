@@ -1,5 +1,7 @@
 # SparkClaw workbench alignment
 
+> Language: English | [简体中文](zh-cn/design-qa-workbench.md)
+
 final result: passed
 
 ## Scope and visual evidence

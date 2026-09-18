@@ -8,14 +8,34 @@ Gotenberg、Gateway 与 WebChat。
 
 ## 前置条件
 
-- NVIDIA DGX Spark（GB10 GPU）、Linux/ARM64，以及至少 100 GiB 系统/统一内存；
-  已验证的操作系统为 Ubuntu 24.04。
-- Docker Engine、Docker Compose plugin、NVIDIA driver/container toolkit、`curl`、systemd，
-  具备安装开机服务的 `sudo` 权限，并能访问 container registry 与 Hugging Face。
+两种产品模式都要求：
+
+- Ubuntu 宿主（已验证版本为 24.04）、具备 `sudo` 权限的非 root 部署用户、包含 User Manager
+  的 systemd、`curl`、Python 3，以及访问 Git 仓库与 container registry 的出站网络。
+- 宿主机安装 Node.js 26 与 npm 11。Owner-scoped Browser Controller 直接运行在宿主机，
+  会执行 `npm ci`，并拒绝其他 Node/npm 主版本；即使应用服务运行在容器中也必须满足此要求。
+- 部署用户已登录有效的图形桌面 Session，并具有可用的 X11 或 XWayland Display。生产浏览器
+  以 Headed 模式运行，不支持用纯 SSH 或 Headless Session 替代。
+- Docker Engine 与 Docker Compose plugin。Remote bootstrap 可在缺少时安装它们；Local
+  bootstrap 要求它们已可用。
+
+全本地部署还要求：
+
+- NVIDIA DGX Spark（GB10 GPU）、Linux/ARM64、至少 100 GiB 系统/统一内存，以及可用的
+  NVIDIA Driver/Container Toolkit。
 - 冷启动的模型与镜像缓存至少预留 125 GiB；已有部分缓存时，部署脚本会计算剩余需求。
 - 用于本地模型下载的 Hugging Face token。不要提交 `.env.local` 或 `.env.remote`。
+- 运行流式 Local bootstrap 前已安装 Git、`realpath` 与 `timeout`；Remote bootstrap 可在
+  需要时安装 Git。
 
-Node.js 26/npm 11 与 Go 1.25 只用于宿主开发，容器化部署不依赖它们。
+部署前检查宿主 Runtime：
+
+```bash
+node --version  # 必须输出 v26.x
+npm --version   # 必须输出 11.x
+```
+
+Go 1.25 只用于宿主开发，两种容器化产品部署都不依赖 Go。
 
 ## DGX Spark 一键部署
 
@@ -24,6 +44,15 @@ Node.js 26/npm 11 与 Go 1.25 只用于宿主开发，容器化部署不依赖�
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
+
+这里的“已准备好”是必要条件：`install.sh` 会 clone 或更新 SparkClaw 并执行部署流程，但不会
+安装 Git、Docker、NVIDIA Runtime、Node/npm，也不会创建图形登录 Session。Remote
+`install-remote.sh` 可安装 Git、Docker Engine 与 Compose，但同样不会安装 Node/npm 或
+建立所需的桌面 Session。两个入口都不是裸 Ubuntu 宿主的完整 Provisioner。
+
+仓库的 Installer 测试使用 Fixture Deployment Script 验证 Checkout/Update 安全性与参数
+转发，并不会覆盖冷宿主、GPU 访问、模型下载、Docker 安装、systemd 或 Headed Browser。
+只有完整流程在代表性硬件上通过后，才能把新宿主部署视为已验收。
 
 项目网站可以原样提供仓库根目录的 `install.sh`，并在上述命令中使用自己的 HTTPS URL；
 不要通过明文 HTTP 发布安装器。
@@ -35,7 +64,7 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
    会在成功 fast-forward 后迁移到当前 origin；其他 origin 不匹配仍会被拒绝。
 2. 将 curl 管道的 stdin 重新连接到 `/dev/tty`，让 Hugging Face token 保持隐藏式交互输入。
 3. 硬性校验 Linux/ARM64、NVIDIA GB10、至少 100 GiB 内存、Docker Compose、
-   `nvidia-smi` 与磁盘空间。
+   `nvidia-smi`、Node.js 26/npm 11、有效 Owner X11/XWayland Session 与磁盘空间。
 4. 创建或保留权限为 `0600` 的 `.env.local`，接收不回显的 Hugging Face token，并把 bind mount
    数据目录对齐到当前用户。
 5. 使用 vLLM 的 Hugging Face 集成，将 Fast、embedding、guard、Qwen3-ASR 与 OvisOCR2
@@ -58,12 +87,15 @@ export HF_TOKEN=hf_example
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash
 ```
 
-安装/更新仓库后只运行部署预检：
+在已经配置好的安装上，更新仓库并运行只读部署校验：
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | \
   bash -s -- --check
 ```
+
+`--check` 不是冷安装模拟；它不会安装缺失组件，并要求 Private Environment File、Browser
+Runtime 与 Docker Deployment State 已经存在。
 
 bootstrap 默认使用 `main` 与 `$HOME/SparkClaw`。在 `bash` 进程上设置
 `SPARKCLAW_GIT_REF` 或 `SPARKCLAW_INSTALL_DIR`，可以固定 release 或更换安装目录。

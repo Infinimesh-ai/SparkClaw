@@ -46,9 +46,12 @@ Known operating boundary:
 
 ## Quick Start
 
-For an Ubuntu server or VM that uses the versioned public model endpoints, run
-the remote installer as a normal sudo-capable user. It installs Docker when
-needed, keeps credentials and machine-specific overrides in a local mode-0600
+For an Ubuntu workstation, server, or VM that uses the versioned public model
+endpoints, first satisfy the [host prerequisites](docs/deployment.md#prerequisites),
+including Node.js 26/npm 11 and an active owner X11/XWayland desktop session.
+Then run the remote installer as a normal sudo-capable user. It installs Docker
+when needed, but does not install Node/npm or create a graphical session. It
+keeps credentials and machine-specific overrides in a local mode-0600
 `.env.remote` file, and
 installs the pinned SparkClaw Chromium, Browser Bridge, and owner-scoped
 Playwright Controller on the host. Deployment validates the private Controller
@@ -66,8 +69,9 @@ versioned in `docker/env/sparkclaw.product.env`, and Fast also serves the logica
 interactive setup accepts an empty model API key when the endpoints do not
 require authentication.
 
-On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
-toolkit already installed, run the streamed installer:
+For full-local deployment, satisfy the same host prerequisites plus the DGX
+Spark GB10, Docker/Compose, NVIDIA runtime, memory, disk, and Hugging Face token
+requirements before running the streamed installer:
 
 ```bash
 curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Infinimesh-ai/SparkClaw/main/install.sh | bash

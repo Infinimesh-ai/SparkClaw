@@ -180,6 +180,17 @@ func (s *FileStore) PublishEmailRepresentation(ctx context.Context, c EmailRepre
 	}
 	return emailFileRun(s, ctx, OperationPublishEmailRepresentation, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailMail, error) { return emailRepresentation(e, c) })
 }
+func (s *FileStore) PublishEmailRenderPreview(ctx context.Context, c EmailRenderPreviewCommand) (app.EmailRenderPreview, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPublishEmailRenderPreview, fileAdmissionCapacity)
+	if err != nil {
+		return app.EmailRenderPreview{}, err
+	}
+	defer release()
+	if c.CommandKey == "" {
+		return app.EmailRenderPreview{}, errEmailCommandInvalid(ctx, OperationPublishEmailRenderPreview)
+	}
+	return emailFileRun(s, ctx, OperationPublishEmailRenderPreview, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailRenderPreview, error) { return emailPublishRenderPreview(e, c) })
+}
 func (s *FileStore) PublishEmailContext(ctx context.Context, c EmailContextCommand) (app.EmailMail, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationPublishEmailContext, fileAdmissionCapacity)
 	if err != nil {
@@ -280,6 +291,15 @@ func (s *FileStore) GetEmailRepresentation(ctx context.Context, ownerID, id stri
 	}
 	defer release()
 	return s.inner.GetEmailRepresentation(ctx, ownerID, id)
+}
+
+func (s *FileStore) GetEmailRenderPreview(ctx context.Context, ownerID, representationID, sanitizerVersion string) (app.EmailRenderPreview, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationGetEmailRenderPreview, 1)
+	if err != nil {
+		return app.EmailRenderPreview{}, false, err
+	}
+	defer release()
+	return s.inner.GetEmailRenderPreview(ctx, ownerID, representationID, sanitizerVersion)
 }
 
 func (s *FileStore) GetEmailContext(ctx context.Context, ownerID, id string) (app.EmailContextVersion, bool, error) {

@@ -294,7 +294,7 @@ WorkingDirectory=$PACKAGE_DIR
 ExecStart=$(systemd_quote "$node_path") $(systemd_quote "$entry_path")
 Restart=on-failure
 RestartSec=3
-TimeoutStopSec=10
+TimeoutStopSec=60
 KillMode=control-group
 UMask=0077
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_CONTROLLER_SOCKET=$socket_path")

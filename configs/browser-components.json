@@ -22,7 +22,7 @@
       "file": "qq-mail-reader.user.js",
       "version": "0.2.0",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/raw/refs/heads/main/tools/browser-userscripts/qq-mail-reader.user.js",
-      "sha256": "b317816ae560e6f5ac281fb42a25c5033c76ab9da310cc5ce976f871290b7adb",
+      "sha256": "cbc965142168ddd5d470569b2457b536d3ea00da950f8a43d19ea31c7b15ab33",
       "requires": [],
       "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0"
     },
@@ -30,7 +30,7 @@
       "file": "gmail-mail-reader.user.js",
       "version": "0.2.0",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/raw/refs/heads/main/tools/browser-userscripts/gmail-mail-reader.user.js",
-      "sha256": "5200bbc9e6f4069f599aaea1597461b909a6d639890cae752b834afe46478c8c",
+      "sha256": "dc8137c6f27e119a87b62c085b47a0ddb1793b72b8382917b1acb89c007ed88f",
       "requires": [],
       "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5"
     },
@@ -38,7 +38,7 @@
       "file": "outlook-mail-reader.user.js",
       "version": "0.2.0",
       "url": "https://github.com/Infinimesh-ai/SparkClaw/raw/refs/heads/main/tools/browser-userscripts/outlook-mail-reader.user.js",
-      "sha256": "b03dbdf2dd402f763561c1a225907fcd2e64bfc8948aaf2fe250868b6a18beca",
+      "sha256": "2ed752f1f2dd77f0df0106cb5609878cf4da2667512ad3ad731ae7475ea7cd9d",
       "requires": [],
       "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4"
     }

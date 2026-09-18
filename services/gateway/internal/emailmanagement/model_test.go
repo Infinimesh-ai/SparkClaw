@@ -135,3 +135,22 @@ func TestSourceSummaryUsesSmallOutputWithoutClassificationFields(t *testing.T) {
 		t.Fatal("invented summary source admitted")
 	}
 }
+
+func TestReplyPolishUsesAConstrainedEditableBody(t *testing.T) {
+	input := AnalysisInput{
+		PolicyVersion: replyPolishPromptVersion, Kind: replyPolishKind, TargetID: "mail", OutputLanguage: "zh",
+		ReplyInstruction: "确认周二下午可以参加，并请对方发会议链接。",
+		Evidence:         []Evidence{{Ref: "original:body", Text: "请确认是否参加周二下午的会议。"}},
+	}
+	client := &modelFixture{result: modelrouter.ChatResult{Model: "fixture", Content: `{"body":"您好，周二下午我可以参加，请发一下会议链接，谢谢。"}`}}
+	output, err := NewModelAnalyzer(client).Analyze(t.Context(), input)
+	if err != nil || !strings.Contains(output.Body, "会议链接") {
+		t.Fatalf("reply polish rejected: %+v %v", output, err)
+	}
+	for _, content := range []string{`{"body":""}`, `{"body":"ok","subject":"invented"}`} {
+		client.result.Content = content
+		if _, err := NewModelAnalyzer(client).Analyze(t.Context(), input); err == nil {
+			t.Fatalf("unsafe reply output admitted: %s", content)
+		}
+	}
+}

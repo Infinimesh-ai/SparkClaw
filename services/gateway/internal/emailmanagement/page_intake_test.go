@@ -18,6 +18,35 @@ type pageFixture struct {
 	pending map[string]app.EmailPageResult
 }
 
+type qqMarkReadPageFixture struct {
+	*intakeFixture
+	markCalls int
+}
+
+func (f *qqMarkReadPageFixture) AdmitIntake(context.Context, string, string) (app.EmailAdmissionBinding, error) {
+	return app.EmailAdmissionBinding{Provider: app.EmailProviderQQMail, Account: app.EmailAccountDefault}, nil
+}
+
+func (f *qqMarkReadPageFixture) DiscoverForOwner(_ context.Context, _ string, _ app.EmailReadRequest) (app.EmailDiscoveryResult, error) {
+	return app.EmailDiscoveryResult{Provider: app.EmailProviderQQMail, AccountAddress: "owner@qq.example", ObservedAt: time.Now().UTC()}, nil
+}
+
+func (f *qqMarkReadPageFixture) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
+	target := app.EmailCaptureTarget{AccountAddress: "owner@qq.example", ProviderMessageID: "qq-message-1", ProviderSelectionID: "qq-message-1", Folder: "inbox"}
+	capture, err := fixtureCaptureForProviderContent(ctx, f.root, owner, emailautomation.PageCaptureInvocationID(r.InvocationID, app.EmailProviderQQMail, target), "fixture-qq-box", "fixture-qq-mail", target.ProviderMessageID, "2026/09/07", app.EmailProviderQQMail, target.AccountAddress, "", "")
+	if err != nil {
+		return app.EmailPageResult{}, err
+	}
+	observed := r.Discovery.IntervalEnd.Add(time.Second)
+	discovery := app.EmailDiscoveryResult{SchemaVersion: 1, Provider: app.EmailProviderQQMail, AccountAddress: target.AccountAddress, Candidates: []app.EmailCaptureTarget{target}, Coverage: app.EmailDiscoveryCoverage{Lane: r.Discovery.Lane, ScanComplete: true, BoundaryQualified: true}, ObservedAt: observed}
+	return app.EmailPageResult{SchemaVersion: 1, Provider: app.EmailProviderQQMail, Status: "collected", AccountAddress: target.AccountAddress, PageID: "page_" + strings.Repeat("b", 64), Discovery: discovery, DiscoveryOptions: *r.Discovery, Captures: []app.EmailPageCapture{{Target: target, Result: app.EmailReadResult{Status: "collected", Capture: &capture}}}, Failures: []app.EmailPageFailure{}, ObservedAt: observed}, nil
+}
+
+func (f *qqMarkReadPageFixture) MarkReadForOwner(_ context.Context, _ string, request app.EmailMarkReadRequest) (app.EmailMarkReadResult, error) {
+	f.markCalls++
+	return app.EmailMarkReadResult{SchemaVersion: 1, Provider: app.EmailProviderQQMail, Target: *request.Binding.Target, ReadState: "read", ObservedAt: time.Now().UTC()}, nil
+}
+
 func (f *pageFixture) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
 	f.calls = append(f.calls, r)
 	if p, ok := f.pending[r.InvocationID]; ok {
@@ -81,6 +110,31 @@ func TestPageIntakePublishesSourceAndAdvancesOneFixedInterval(t *testing.T) {
 	}
 	if len(browser.calls) != 1 || browser.calls[0].Discovery.Continuation != "" {
 		t.Fatalf("incremental round performed hidden pagination: %+v", browser.calls)
+	}
+}
+
+func TestQQPageIntakeMarksReadOnlyAfterSourceCommitAndPersistsConfirmation(t *testing.T) {
+	repo := store.NewMemoryStore()
+	s, base, _ := newFixtureService(t, repo)
+	browser := &qqMarkReadPageFixture{intakeFixture: base}
+	s.browser = browser
+	s.opts.QualifiedProviderModes[app.EmailProviderQQMail] = app.EmailProviderModeTimeRange
+	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderQQMail, true, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.plan(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if worked, workErr := s.workOne(t.Context(), []string{app.EmailJobDiscover}); workErr != nil || !worked {
+		t.Fatalf("QQ collection: worked=%t err=%v", worked, workErr)
+	}
+	if browser.markCalls != 1 {
+		t.Fatalf("post-commit mark-read calls=%d", browser.markCalls)
+	}
+	mails, err := repo.ListEmailMails(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 10})
+	if err != nil || len(mails.Items) != 1 || mails.Items[0].CaptureState != app.EmailCaptureComplete || mails.Items[0].RemoteReadState != "read" {
+		t.Fatalf("QQ source/read receipt mismatch: %+v err=%v", mails, err)
 	}
 }
 

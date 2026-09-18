@@ -50,6 +50,7 @@ const (
 	OperationFinishEmailJob              StoreOperation = "email_management.FinishEmailJob"
 	OperationPublishEmailCapture         StoreOperation = "email_management.PublishEmailCapture"
 	OperationPublishEmailRepresentation  StoreOperation = "email_management.PublishEmailRepresentation"
+	OperationPublishEmailRenderPreview   StoreOperation = "email_management.PublishEmailRenderPreview"
 	OperationPublishEmailContext         StoreOperation = "email_management.PublishEmailContext"
 	OperationExpandEmailRefresh          StoreOperation = "email_management.ExpandEmailRefresh"
 	OperationCommitEmailAssignment       StoreOperation = "email_management.CommitEmailAssignment"
@@ -59,6 +60,7 @@ const (
 	OperationActivateEmailTimelinePolicy StoreOperation = "email_management.ActivateEmailTimelinePolicy"
 	OperationChangeEmailAssignment       StoreOperation = "email_management.ChangeEmailAssignment"
 	OperationRenameEmailConversation     StoreOperation = "email_management.RenameEmailConversation"
+	OperationDeleteEmailConversation     StoreOperation = "email_management.DeleteEmailConversation"
 	OperationOverrideEmailClassification StoreOperation = "email_management.OverrideEmailClassification"
 	OperationPurgeEmailCaptures          StoreOperation = "email_management.PurgeEmailCaptures"
 	OperationScanEmailCaptures           StoreOperation = "email_management.ScanEmailCaptures"
@@ -71,6 +73,7 @@ const (
 	OperationGetEmailMail                StoreOperation = "email_management.GetEmailMail"
 	OperationGetEmailCapture             StoreOperation = "email_management.GetEmailCapture"
 	OperationGetEmailRepresentation      StoreOperation = "email_management.GetEmailRepresentation"
+	OperationGetEmailRenderPreview       StoreOperation = "email_management.GetEmailRenderPreview"
 	OperationGetEmailContext             StoreOperation = "email_management.GetEmailContext"
 	OperationGetEmailConversation        StoreOperation = "email_management.GetEmailConversation"
 	OperationReconcileEmailCommand       StoreOperation = "email_management.ReconcileEmailCommand"
@@ -325,6 +328,7 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationFinishEmailJob:              {ID: OperationFinishEmailJob, Repository: "EmailRepository", Method: "FinishEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPublishEmailCapture:         {ID: OperationPublishEmailCapture, Repository: "EmailRepository", Method: "PublishEmailCapture", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPublishEmailRepresentation:  {ID: OperationPublishEmailRepresentation, Repository: "EmailRepository", Method: "PublishEmailRepresentation", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationPublishEmailRenderPreview:   {ID: OperationPublishEmailRenderPreview, Repository: "EmailRepository", Method: "PublishEmailRenderPreview", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPublishEmailContext:         {ID: OperationPublishEmailContext, Repository: "EmailRepository", Method: "PublishEmailContext", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationExpandEmailRefresh:          {ID: OperationExpandEmailRefresh, Repository: "EmailRepository", Method: "ExpandEmailRefresh", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationCommitEmailAssignment:       {ID: OperationCommitEmailAssignment, Repository: "EmailRepository", Method: "CommitEmailAssignment", Mode: operationWrite, Timeout: timeoutTransaction},
@@ -334,6 +338,7 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationActivateEmailTimelinePolicy: {ID: OperationActivateEmailTimelinePolicy, Repository: "EmailRepository", Method: "ActivateEmailTimelinePolicy", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationChangeEmailAssignment:       {ID: OperationChangeEmailAssignment, Repository: "EmailRepository", Method: "ChangeEmailAssignment", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationRenameEmailConversation:     {ID: OperationRenameEmailConversation, Repository: "EmailRepository", Method: "RenameEmailConversation", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationDeleteEmailConversation:     {ID: OperationDeleteEmailConversation, Repository: "EmailRepository", Method: "DeleteEmailConversation", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationOverrideEmailClassification: {ID: OperationOverrideEmailClassification, Repository: "EmailRepository", Method: "OverrideEmailClassification", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationPurgeEmailCaptures:          {ID: OperationPurgeEmailCaptures, Repository: "EmailRepository", Method: "PurgeEmailCaptures", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationScanEmailCaptures:           {ID: OperationScanEmailCaptures, Repository: "EmailRepository", Method: "ScanEmailCaptures", Mode: operationRead, Timeout: timeoutRead},
@@ -346,6 +351,7 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationGetEmailMail:                {ID: OperationGetEmailMail, Repository: "EmailRepository", Method: "GetEmailMail", Mode: operationRead, Timeout: timeoutRead},
 	OperationGetEmailCapture:             {ID: OperationGetEmailCapture, Repository: "EmailRepository", Method: "GetEmailCapture", Mode: operationRead, Timeout: timeoutRead},
 	OperationGetEmailRepresentation:      {ID: OperationGetEmailRepresentation, Repository: "EmailRepository", Method: "GetEmailRepresentation", Mode: operationRead, Timeout: timeoutRead},
+	OperationGetEmailRenderPreview:       {ID: OperationGetEmailRenderPreview, Repository: "EmailRepository", Method: "GetEmailRenderPreview", Mode: operationRead, Timeout: timeoutRead},
 	OperationGetEmailContext:             {ID: OperationGetEmailContext, Repository: "EmailRepository", Method: "GetEmailContext", Mode: operationRead, Timeout: timeoutRead},
 	OperationGetEmailConversation:        {ID: OperationGetEmailConversation, Repository: "EmailRepository", Method: "GetEmailConversation", Mode: operationRead, Timeout: timeoutRead},
 	OperationReconcileEmailCommand:       {ID: OperationReconcileEmailCommand, Repository: "EmailRepository", Method: "ReconcileEmailCommand", Mode: operationRead, Timeout: timeoutRead},

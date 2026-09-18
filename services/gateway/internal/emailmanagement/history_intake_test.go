@@ -91,8 +91,18 @@ func TestHistoryProjectionReportsTerminalThreadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, reason, err := s.mailHistory(t.Context(), seed.OwnerID, app.EmailMail{MailboxID: box.ID, ProviderThreadID: "thread-0"})
+	state, reason, err := s.mailHistory(t.Context(), seed.OwnerID, app.EmailMail{MailboxID: box.ID, ProviderThreadID: "thread-0", ReplyMailID: "proved-reply"})
 	if err != nil || state != "failed" || reason != "email_pinned_message_unavailable" {
 		t.Fatalf("failed history hidden: %s %s %v", state, reason, err)
+	}
+}
+
+func TestHistoryProjectionDoesNotInferMissingMessagesFromStandaloneProviderThread(t *testing.T) {
+	repo := store.NewMemoryStore()
+	s, _, _ := newFixtureService(t, repo)
+	box, _ := historyThread(t, s, 1)
+	state, reason, err := s.mailHistory(t.Context(), "email-owner", app.EmailMail{ID: "standalone", MailboxID: box.ID, ProviderThreadID: "thread-0"})
+	if err != nil || state != "complete" || reason != "" {
+		t.Fatalf("standalone provider thread fabricated history gap: %s %s %v", state, reason, err)
 	}
 }

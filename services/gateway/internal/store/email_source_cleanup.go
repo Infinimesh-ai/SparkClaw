@@ -162,6 +162,22 @@ func emailPurgeSelect(e *emailEngine, c EmailCapturePurgeCommand, limit int) (ou
 			}
 		}
 		return out, cursor, more, nil
+	case EmailPurgeScopeConversation:
+		if c.ConversationID == "" {
+			return nil, "", false, errEmailInvalid
+		}
+		rows := emailList[app.EmailMail](e, emailRowsQuery{Kind: "mail", Related: c.ConversationID, After: c.After, Limit: limit + 1, IncludeSuperseded: true})
+		if len(rows) > limit {
+			rows = rows[:limit]
+			last := rows[len(rows)-1]
+			cursor, more = emailOrder(last.SourceTime, last.ID), true
+		}
+		for _, m := range rows {
+			if m.CaptureID != "" {
+				out = append(out, capture(m.CaptureID)...)
+			}
+		}
+		return out, cursor, more, nil
 	}
 	return nil, "", false, errEmailInvalid
 }

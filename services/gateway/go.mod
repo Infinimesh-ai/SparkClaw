@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/image v0.43.0
+	golang.org/x/net v0.26.0
 )
 
 require (
@@ -19,5 +20,5 @@ require (
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/sync v0.21.0
 	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/text v0.38.0
 )

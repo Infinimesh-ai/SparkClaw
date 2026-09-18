@@ -16,9 +16,34 @@ func (s *Server) registerEmailComposeRoutes() {
 	s.mux.HandleFunc("GET /api/email/drafts", s.listEmailDrafts)
 	s.mux.HandleFunc("GET /api/email/drafts/{draft}", s.listEmailDrafts)
 	s.mux.HandleFunc("POST /api/email/drafts", s.saveEmailDraft)
+	s.mux.HandleFunc("POST /api/email/replies/polish", s.polishEmailReply)
 	s.mux.HandleFunc("PUT /api/email/drafts/{draft}", s.saveEmailDraft)
 	s.mux.HandleFunc("POST /api/email/drafts/{draft}/send", s.sendEmailDraft)
 	s.mux.HandleFunc("POST /api/email/drafts/{draft}/reconcile", s.reconcileEmailDraft)
+}
+
+func (s *Server) polishEmailReply(w http.ResponseWriter, r *http.Request) {
+	if !s.emailManagementReady(w) {
+		return
+	}
+	var input struct {
+		ID          string `json:"id"`
+		MailID      string `json:"mail_id"`
+		Instruction string `json:"instruction"`
+		Language    string `json:"language"`
+	}
+	if decodeEmailCompose(r, &input) != nil {
+		writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
+		return
+	}
+	draft, err := s.emailManagement.PolishReply(r.Context(), principalForRequest(r).OwnerID, emailmanagement.ReplyPolishRequest{
+		DraftID: input.ID, MailID: input.MailID, Instruction: input.Instruction, OutputLanguage: input.Language,
+	})
+	if err != nil {
+		writeEmailComposeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, draft)
 }
 func (s *Server) emailComposeCapabilities(w http.ResponseWriter, r *http.Request) {
 	if !s.emailManagementReady(w) {
@@ -126,7 +151,7 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, draft)
 }
 func writeEmailComposeError(w http.ResponseWriter, err error) {
-	for _, known := range []error{emailmanagement.ErrComposeUnavailable, emailmanagement.ErrNativeReplyUnavailable, emailmanagement.ErrMultipleRecipientsUnavailable} {
+	for _, known := range []error{emailmanagement.ErrComposeUnavailable, emailmanagement.ErrNativeReplyUnavailable, emailmanagement.ErrMultipleRecipientsUnavailable, emailmanagement.ErrReplyPolishUnavailable} {
 		if errors.Is(err, known) {
 			writeJSON(w, http.StatusConflict, map[string]any{"code": known.Error(), "error": "Email action is unavailable; the draft is retained.", "retryable": false})
 			return

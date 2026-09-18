@@ -30,3 +30,9 @@ func (s *MemoryStore) RenameEmailConversation(ctx context.Context, c EmailConver
 	}
 	return emailMemoryRun(s, ctx, OperationRenameEmailConversation, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailConversation, error) { return emailRenameConversation(e, c) })
 }
+func (s *MemoryStore) DeleteEmailConversation(ctx context.Context, c EmailConversationDelete) (EmailConversationDeleteResult, error) {
+	if c.CommandKey == "" || c.ConversationID == "" {
+		return *new(EmailConversationDeleteResult), errEmailCommandInvalid(ctx, OperationDeleteEmailConversation)
+	}
+	return emailMemoryRun(s, ctx, OperationDeleteEmailConversation, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (EmailConversationDeleteResult, error) { return emailDeleteConversation(e, c) })
+}

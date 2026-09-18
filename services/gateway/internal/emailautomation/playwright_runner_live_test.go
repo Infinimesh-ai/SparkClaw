@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,8 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 	})
 
 	registry := DefaultRegistry()
-	runner := NewPlaywrightRunner(&liveEmailController{Service: controller, t: t})
+	liveController := &liveEmailController{Service: controller, t: t}
+	runner := NewPlaywrightRunner(liveController)
 	seen := map[string]bool{}
 	for _, rawProvider := range strings.Split(providerList, ",") {
 		providerID := strings.ToLower(strings.TrimSpace(rawProvider))
@@ -161,11 +163,100 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 					t.Logf("live capture succeeded: provider=%s status=%s captured=false", provider.ID, result.Status)
 				}
 			}
+			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_MARK_READ") == "1" {
+				qualifyLatestCapturedMarkRead(t, ctx, runtime.EmailRepository(), runner, provider, probe)
+			}
 		})
 	}
 	if len(seen) == 0 {
 		t.Fatal("live email provider list is empty")
 	}
+}
+
+// qualifyLatestCapturedMarkRead performs one explicit provider mutation. It is
+// opt-in because a successful run changes the selected server-side message to
+// read. The committed source remains the immutable identity anchor.
+func qualifyLatestCapturedMarkRead(t *testing.T, ctx context.Context, repository store.EmailRepository, runner *PlaywrightRunner, provider Provider, probe ProbeResult) {
+	t.Helper()
+	if provider.ID != app.EmailProviderQQMail {
+		t.Fatal("live mark-read qualification currently supports QQ Mail only")
+	}
+	ownerID := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_OWNER_ID"))
+	if ownerID == "" {
+		t.Fatal("SPARKCLAW_TEST_EMAIL_OWNER_ID is required for live mark-read qualification")
+	}
+	mailboxes, err := repository.ListEmailMailboxes(ctx, ownerID)
+	if err != nil {
+		t.Fatalf("list live mailboxes: %v", err)
+	}
+	var mailbox app.EmailMailbox
+	for _, candidate := range mailboxes {
+		if candidate.Provider == provider.ID {
+			mailbox = candidate
+			break
+		}
+	}
+	if mailbox.ID == "" {
+		t.Fatal("QQ mailbox is not configured")
+	}
+	mails, err := repository.ListEmailMails(ctx, store.EmailQuery{OwnerID: ownerID, MailboxID: mailbox.ID, CapturedOnly: true, Limit: 50})
+	if err != nil {
+		t.Fatalf("list captured QQ mail: %v", err)
+	}
+	candidateIndex := 0
+	if raw := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_MARK_READ_INDEX")); raw != "" {
+		candidateIndex, err = strconv.Atoi(raw)
+		if err != nil || candidateIndex < 0 {
+			t.Fatal("SPARKCLAW_TEST_EMAIL_MARK_READ_INDEX must be a non-negative integer")
+		}
+	}
+	var mail app.EmailMail
+	matched := 0
+	for _, candidate := range mails.Items {
+		if candidate.Direction == "inbound" && candidate.CaptureState == app.EmailCaptureComplete && candidate.CaptureID != "" && candidate.RemoteReadState != "read" {
+			if matched != candidateIndex {
+				matched++
+				continue
+			}
+			mail = candidate
+			break
+		}
+	}
+	if mail.ID == "" {
+		t.Fatal("no captured non-read QQ mail is available for qualification")
+	}
+	capture, found, err := repository.GetEmailCapture(ctx, ownerID, mail.CaptureID)
+	if err != nil || !found || capture.State != app.EmailCaptureComplete || capture.PurgedAt != nil {
+		t.Fatalf("load committed QQ capture: found=%t err=%v", found, err)
+	}
+	var manifest struct {
+		MailID      string `json:"mail_id"`
+		MailboxID   string `json:"mailbox_id"`
+		Attachments []struct {
+			Status string `json:"status"`
+		} `json:"attachments"`
+	}
+	if json.Unmarshal([]byte(capture.ManifestJSON), &manifest) != nil {
+		t.Fatal("committed QQ capture manifest is invalid")
+	}
+	attachments := 0
+	for _, attachment := range manifest.Attachments {
+		if attachment.Status == "available" {
+			attachments++
+		}
+	}
+	ownerScope := sha256.Sum256([]byte(ownerID))
+	target := app.EmailCaptureTarget{AccountAddress: mailbox.Address, ProviderMessageID: mail.ProviderMessageID, ProviderNativeID: mail.ProviderNativeID, ProviderSelectionID: mail.ProviderSelectionID, ProviderThreadID: mail.ProviderThreadID, Folder: mail.Folder}
+	binding := ReadRequest{Provider: provider.ID, Account: app.EmailAccountDefault, OwnerScope: hex.EncodeToString(ownerScope[:]), InvocationID: app.NewID("qq_mark_read_live"), BrowserCredentialGeneration: probe.Generation, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.MarkRead.Revision, Target: &target}
+	receipt := app.EmailCaptureReceipt{ManifestPath: capture.ManifestPath, ManifestSHA256: capture.ManifestSHA256, MailID: manifest.MailID, MailboxID: manifest.MailboxID, CaptureID: capture.ID, AttachmentsCount: attachments, ReadState: mail.RemoteReadState}
+	result, err := runner.MarkRead(ctx, provider, app.EmailMarkReadRequest{Binding: binding, CommittedCapture: receipt})
+	if err != nil {
+		t.Fatalf("live QQ mark-read: %v (code=%s)", err, ErrorCode(err))
+	}
+	if result.ReadState != "read" {
+		t.Fatalf("live QQ mark-read was not confirmed: state=%s", result.ReadState)
+	}
+	t.Log("live QQ mark-read confirmed exact committed target without exposing mailbox content")
 }
 
 // A fixture qualification cannot fall back to first unread or another account.

@@ -281,6 +281,30 @@ const parseQQMailList=function parseQQMailList(value) {
   }
   return {rows,total_count:value.body.total_num,unsupported_rows:value.body.list.length-rows.length};
 };
+const markQQMailRead=async function markQQMailRead({provider_message_id,row,binding,fetch:originalFetch}) {
+  if (row?.provider_message_id !== provider_message_id || row.unread !== true ||
+      !(binding instanceof URL) || binding.origin !== location.origin || binding.pathname !== '/list/maillist' ||
+      binding.searchParams.get('func') !== '1' || !binding.searchParams.get('sid') || typeof originalFetch !== 'function') return null;
+  const matches=[...document.querySelectorAll('.mail-list-page-item[data-mailid]')].filter(node=>
+    node?.getAttribute?.('data-mailid')===provider_message_id && node.isConnected!==false && node.getClientRects?.().length>0);
+  if(matches.length!==1||typeof matches[0].click!=='function')return null;
+  matches[0].click();
+  for(let attempt=0;attempt<20;attempt++){
+    await new Promise(resolve=>setTimeout(resolve,250));
+    let response,value;
+    try{
+      response=await originalFetch.call(window,binding.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
+      if(!response.ok||response.url&&new URL(response.url).origin!==location.origin)return {provider_message_id,read_state:'unknown'};
+      const text=await response.text();
+      if(text.length>10<<20)return {provider_message_id,read_state:'unknown'};
+      value=JSON.parse(text);
+    }catch{return {provider_message_id,read_state:'unknown'};}
+    const parsed=parseQQMailList(value);
+    const confirmed=parsed?.rows?.find(candidate=>candidate.provider_message_id===provider_message_id);
+    if(confirmed?.unread===false)return {provider_message_id,read_state:'read'};
+  }
+  return {provider_message_id,read_state:'unknown'};
+};
 (function installReader(config) {
   'use strict';
   if (window.top !== window || !config.origins.includes(location.origin)) return;
@@ -679,6 +703,7 @@ const parseQQMailList=function parseQQMailList(value) {
     const result=await config.markRead?.({account_address:account,provider_message_id,row,binding,request:listRequest,fetch:originalFetch});
     if (!result || result.provider_message_id !== provider_message_id || !['read','unknown'].includes(result.read_state)) failure('email_network_mark_read_unqualified');
     checkedAccount(account_address);
+    if(result.read_state==='read')row.unread=false;
     return {provider:config.provider,account_address:account,provider_message_id,read_state:result.read_state};
   }
   function dispose() {
@@ -704,5 +729,28 @@ const parseQQMailList=function parseQQMailList(value) {
       return Boolean(row && !row.draft && !row.sent && row.provider_selection_id===provider_selection_id && (!folder||folder==='all'||row.folder===folder) && Number.isFinite(Date.parse(row.received_at)));
     },
   })});
-})({"provider":"qq_mail","origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":()=>null});
+})({"provider":"qq_mail","origins":["https://wx.mail.qq.com"],"account":()=>document.querySelector('.frame-header .profile-user-info .user-email')?.textContent?.trim()||'',"listURL":u=>u.pathname==='/list/maillist',"parse":value=>(parseQQMailList(value)?.rows??[]).map(row=>({...row,draft:false,sent:row.folder==='sent',grouped:/^(?:C|@)/.test(row.provider_message_id)})),"download":({id,row,binding})=>{if(!binding||row.grouped)return null;const u=new URL('/read/readmail',location.origin);u.searchParams.set('func','5');u.searchParams.set('mailid',id);u.searchParams.set('sid',binding.searchParams.get('sid'));return u;},"markRead":async function markQQMailRead({provider_message_id,row,binding,fetch:originalFetch}) {
+  if (row?.provider_message_id !== provider_message_id || row.unread !== true ||
+      !(binding instanceof URL) || binding.origin !== location.origin || binding.pathname !== '/list/maillist' ||
+      binding.searchParams.get('func') !== '1' || !binding.searchParams.get('sid') || typeof originalFetch !== 'function') return null;
+  const matches=[...document.querySelectorAll('.mail-list-page-item[data-mailid]')].filter(node=>
+    node?.getAttribute?.('data-mailid')===provider_message_id && node.isConnected!==false && node.getClientRects?.().length>0);
+  if(matches.length!==1||typeof matches[0].click!=='function')return null;
+  matches[0].click();
+  for(let attempt=0;attempt<20;attempt++){
+    await new Promise(resolve=>setTimeout(resolve,250));
+    let response,value;
+    try{
+      response=await originalFetch.call(window,binding.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
+      if(!response.ok||response.url&&new URL(response.url).origin!==location.origin)return {provider_message_id,read_state:'unknown'};
+      const text=await response.text();
+      if(text.length>10<<20)return {provider_message_id,read_state:'unknown'};
+      value=JSON.parse(text);
+    }catch{return {provider_message_id,read_state:'unknown'};}
+    const parsed=parseQQMailList(value);
+    const confirmed=parsed?.rows?.find(candidate=>candidate.provider_message_id===provider_message_id);
+    if(confirmed?.unread===false)return {provider_message_id,read_state:'read'};
+  }
+  return {provider_message_id,read_state:'unknown'};
+}});
 })();

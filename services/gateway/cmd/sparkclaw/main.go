@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log/slog"
 	"net"
@@ -24,6 +25,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "configs/sparkclaw.default.json", "path to SparkClaw config")
+	migrateRenderPreviewOwner := flag.String("migrate-email-render-previews", "", "generate safe email render previews serially for this owner, then exit")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -70,6 +72,25 @@ func main() {
 	}
 	defer services.Close()
 	server := services.server
+	if *migrateRenderPreviewOwner != "" {
+		migrationCtx, cancelMigration := context.WithTimeout(context.Background(), 30*time.Minute)
+		report, migrationErr := services.emailManagement.MigrateRenderPreviews(migrationCtx, *migrateRenderPreviewOwner)
+		cancelMigration()
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(report); encodeErr != nil && migrationErr == nil {
+			migrationErr = encodeErr
+		}
+		storeCloseCtx, cancelStoreClose := context.WithTimeout(context.Background(), 10*time.Second)
+		closeErr := storeRuntime.Close(storeCloseCtx)
+		cancelStoreClose()
+		if migrationErr != nil || closeErr != nil || report.Failed != 0 {
+			services.Close()
+			_ = transcriber.Close()
+			_ = tools.Close()
+			slog.Error("email render preview migration incomplete", "error", migrationErr, "close_error", closeErr, "failed", report.Failed)
+			os.Exit(2)
+		}
+		return
+	}
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 	if err := services.Start(serverCtx); err != nil {

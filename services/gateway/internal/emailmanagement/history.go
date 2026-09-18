@@ -22,6 +22,19 @@ func (s *Service) mailHistory(ctx context.Context, owner string, mail app.EmailM
 		}
 	}
 	seen := map[string]bool{}
+	if mail.ReplyMailID != "" {
+		previous, ok, err := s.repository.GetEmailMail(ctx, owner, mail.ReplyMailID)
+		if err != nil {
+			return "", "", err
+		}
+		if !ok {
+			setGap("partial", "reply_source_unavailable")
+		} else if previous.CaptureState == app.EmailCaptureFailed || previous.ParseState == app.EmailParseFailed {
+			setGap("failed", "reply_source_failed")
+		} else if previous.CaptureState != app.EmailCaptureComplete && previous.LocalSendID == "" {
+			setGap("pending", "reply_capture_pending")
+		}
+	}
 	for _, ref := range mail.ReplyReferences {
 		if ref == "" || ref == mail.MessageID || seen[ref] {
 			continue
@@ -65,16 +78,40 @@ func (s *Service) mailHistory(ctx context.Context, owner string, mail app.EmailM
 			setGap("pending", "reply_capture_pending")
 		}
 	}
+	// A provider thread identifier alone does not prove that earlier messages
+	// exist: providers routinely assign one to a single standalone mail. Only
+	// project thread coverage when a reply reference or another collected member
+	// proves that this is a multi-message exchange.
+	provedThreadHistory := mail.ReplyMailID != "" || len(seen) > 0
+	var threadMembers []app.EmailMail
+	threadTruncated := false
 	if mail.ProviderThreadID != "" {
+		page, err := s.repository.ListEmailMails(ctx, store.EmailQuery{OwnerID: owner, MailboxID: mail.MailboxID, MailThreadID: mail.ProviderThreadID, Limit: 100})
+		if err != nil {
+			return "", "", err
+		}
+		threadMembers = page.Items
+		for _, member := range threadMembers {
+			if member.ID != mail.ID {
+				provedThreadHistory = true
+				break
+			}
+		}
+		threadTruncated = page.NextCursor != ""
+		if threadTruncated {
+			provedThreadHistory = true
+		}
+	}
+	if mail.ProviderThreadID != "" && provedThreadHistory {
 		thread, ok, err := s.repository.GetEmailThread(ctx, owner, store.EmailProviderThreadID(mail.MailboxID, mail.ProviderThreadID))
 		if err != nil {
 			return "", "", err
 		}
 		if ok && thread.ErrorCode != "" {
 			state, reason = "failed", thread.ErrorCode
-		} else if !ok || thread.Coverage == "pending" {
+		} else if ok && thread.Coverage == "pending" {
 			setGap("pending", "thread_history_pending")
-		} else if thread.Coverage != "complete_for_observation" || len(thread.Gaps) > 0 || thread.Cursor != "" {
+		} else if ok && (thread.Coverage != "complete_for_observation" || len(thread.Gaps) > 0 || thread.Cursor != "") {
 			why := strings.Join(thread.Gaps, ",")
 			if why == "" {
 				why = "thread_history_partial"
@@ -85,14 +122,10 @@ func (s *Service) mailHistory(ctx context.Context, owner string, mail app.EmailM
 			}
 			setGap(next, why)
 		}
-		page, err := s.repository.ListEmailMails(ctx, store.EmailQuery{OwnerID: owner, MailboxID: mail.MailboxID, MailThreadID: mail.ProviderThreadID, Limit: 100})
-		if err != nil {
-			return "", "", err
-		}
-		if page.NextCursor != "" {
+		if threadTruncated {
 			setGap("partial", "thread_member_check_limit")
 		}
-		for _, member := range page.Items {
+		for _, member := range threadMembers {
 			if member.ID == mail.ID {
 				continue
 			}

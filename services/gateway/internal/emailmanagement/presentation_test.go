@@ -26,13 +26,37 @@ func TestPresentationUsesBodyOnlyAndExplicitLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(input)
-	for _, forbidden := range []string{"PRIVATE_ATTACHMENT_NAME", "PRIVATE_ATTACHMENT_TEXT", "OLD_ATTACHMENT_BASED_SUMMARY", "123456"} {
+	for _, forbidden := range []string{"PRIVATE_ATTACHMENT_NAME", "PRIVATE_ATTACHMENT_TEXT", "OLD_ATTACHMENT_BASED_SUMMARY"} {
 		if strings.Contains(string(raw), forbidden) {
 			t.Fatalf("excluded material leaked: %s", forbidden)
 		}
 	}
-	if input.OutputLanguage != "zh" || !strings.Contains(input.Messages[0].Body, "confirm") || !strings.Contains(string(raw), "attachment_contents_not_analyzed") {
+	if input.OutputLanguage != "zh" || !strings.Contains(input.Messages[0].Body, "confirm") || !strings.Contains(input.Messages[0].Body, "123456") || !strings.Contains(string(raw), "attachment_contents_not_analyzed") {
 		t.Fatalf("missing language/body coverage: %s", raw)
+	}
+}
+
+type legacyVerificationPresentationSources struct{ *store.MemoryStore }
+
+func (r *legacyVerificationPresentationSources) GetEmailMail(context.Context, string, string) (app.EmailMail, bool, error) {
+	return app.EmailMail{ID: "legacy", Subject: "Your temporary login code", RepresentationID: "legacy-representation"}, true, nil
+}
+func (r *legacyVerificationPresentationSources) GetEmailRepresentation(context.Context, string, string) (app.EmailRepresentation, bool, error) {
+	return app.EmailRepresentation{BodyText: "@font-face { font-family: mail; }\n.ExternalClass { width: 100%; }\nYour verification code is 632980. Enter it to continue."}, true, nil
+}
+func TestPresentationKeepsLegacyVerificationTokensAndRemovesCSS(t *testing.T) {
+	s := &Service{repository: &legacyVerificationPresentationSources{store.NewMemoryStore()}}
+	input, err := s.presentationInput(t.Context(), "owner", app.EmailLocalizedPresentation{TargetKind: "mail", TargetID: "legacy", Language: "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(input)
+	if !strings.Contains(string(raw), "632980") || strings.Contains(string(raw), "@font-face") || strings.Contains(string(raw), ".ExternalClass") {
+		t.Fatalf("legacy verification presentation input mismatch: %s", raw)
+	}
+	output := normalizePresentation(input, PresentationOutput{Summary: "Use code 632980 to continue.", Title: "Login code 632980", Concerns: []PresentationConcern{}})
+	if !strings.Contains(output.Summary, "632980") || !strings.Contains(output.Title, "632980") {
+		t.Fatalf("verification code was hidden from presentation output: %+v", output)
 	}
 }
 func TestPresentationValidatesConcernIdentity(t *testing.T) {

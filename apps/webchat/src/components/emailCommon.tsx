@@ -23,6 +23,7 @@ export function emailErrorLabel(reason: unknown, text: Copy): string {
   const error = reason && typeof reason === "object" ? reason as { status?: number; code?: string } : {};
   if (["email_native_reply_unavailable", "email_reply_target_unverified", "email_reply_target_unavailable"].includes(error.code ?? "")) return text.email.replyTargetUnavailable;
   if (["email_compose_unavailable", "email_not_configured", "email_login_required"].includes(error.code ?? "")) return text.email.sendAccountUnavailable;
+  if (error.code === "email_reply_polish_unavailable") return text.email.actionFailed;
   if (error.code === "email_multiple_recipients_unavailable") return text.email.recipientLimit;
   if (error.code === "email_reply_unsupported" || error.code === "email_send_unsupported") return text.email.sendUnsupported;
   if (error.status === 409) return text.email.stateChanged;

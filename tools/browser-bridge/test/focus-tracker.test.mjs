@@ -89,6 +89,66 @@ test("background connection and cleanup preserve focus on another app", async ()
   assert.deepEqual(fixture.calls.windowsCreate, []);
 });
 
+test("background task pages share one unfocused dedicated window", async () => {
+  const fixture = createFixture();
+  const tracker = new FocusTracker(fixture.chromeAPI);
+
+  const [firstTabID, secondTabID] = await Promise.all([
+    tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?first"),
+    tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?second"),
+  ]);
+
+  assert.deepEqual([firstTabID, secondTabID], [4, 5]);
+  assert.deepEqual(fixture.calls.windowsCreate, [{
+    focused: false,
+    type: "normal",
+  }]);
+  assert.deepEqual(fixture.calls.tabsCreate, [
+    {
+      url: "chrome-extension://bridge/connect.html?first",
+      active: true,
+      pinned: false,
+      windowId: 8,
+    },
+    {
+      url: "chrome-extension://bridge/connect.html?second",
+      active: false,
+      pinned: false,
+      windowId: 8,
+    },
+  ]);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3]]);
+  assert.deepEqual(fixture.calls.windowsUpdate, []);
+});
+
+test("a released task window is never reused for later background work", async () => {
+  const fixture = createFixture();
+  const tracker = new FocusTracker(fixture.chromeAPI);
+  const firstTabID = await tracker.openBackgroundConnectionPage(
+    "chrome-extension://bridge/connect.html?first",
+  );
+
+  tracker.releaseTaskTab(firstTabID);
+  await tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?second");
+
+  assert.equal(fixture.calls.windowsCreate.length, 2);
+  assert.deepEqual(fixture.calls.tabsCreate.map((call) => call.windowId), [8, 9]);
+});
+
+test("a task-tab creation failure closes its new dedicated window", async () => {
+  const fixture = createFixture();
+  const tracker = new FocusTracker(fixture.chromeAPI);
+  fixture.chromeAPI.tabs.create = async () => { throw new Error("tab failed"); };
+
+  await assert.rejects(
+    tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?failed"),
+    /tab failed/,
+  );
+
+  assert.equal(fixture.calls.windowsCreate.length, 1);
+  assert.deepEqual(fixture.calls.windowsRemove, [8]);
+});
+
 test("connection page first observed as about:blank restores the prior owner tab", async () => {
   const fixture = createFixture();
   const tracker = new FocusTracker(fixture.chromeAPI);
@@ -228,13 +288,21 @@ test("cold service worker closes grouped and ungrouped stale task tabs after res
 });
 
 function createFixture({ queryAllTabs = false, queryDelay = false, browserFocused = false } = {}) {
-  const events = { activated: event(), focused: event(), removed: event(), updated: event() };
-  const calls = { tabsRemove: [], tabsUngroup: [], tabsUpdate: [], windowsCreate: [], windowsUpdate: [] };
+  const events = {
+    activated: event(), focused: event(), removed: event(), updated: event(), windowRemoved: event(),
+  };
+  const calls = {
+    tabsCreate: [], tabsRemove: [], tabsUngroup: [], tabsUpdate: [], windowsCreate: [], windowsRemove: [],
+    windowsUpdate: [],
+  };
   const groups = [];
   const tabs = new Map([
     [1, { id: 1, windowId: 7, url: "https://owner.example/" }],
     [2, { id: 2, windowId: 7, url: "https://task.example/" }],
   ]);
+  const windows = new Set([7]);
+  let nextTabID = 2;
+  let nextWindowID = 7;
   const chromeAPI = {
     runtime: { id: "bridge" },
     tabs: {
@@ -242,10 +310,19 @@ function createFixture({ queryAllTabs = false, queryDelay = false, browserFocuse
       onRemoved: events.removed,
       onUpdated: events.updated,
       get: async (tabId) => tabs.get(tabId),
+      create: async (options) => {
+        calls.tabsCreate.push(options);
+        const tab = { id: ++nextTabID, windowId: options.windowId, url: options.url, active: options.active };
+        tabs.set(tab.id, tab);
+        return tab;
+      },
       query: async (query = {}) => {
         if (queryDelay) await tick();
         if (Number.isInteger(query.groupId)) {
           return [...tabs.values()].filter((tab) => tab.groupId === query.groupId);
+        }
+        if (Number.isInteger(query.windowId)) {
+          return [...tabs.values()].filter((tab) => tab.windowId === query.windowId);
         }
         return queryAllTabs ? [...tabs.values()] : [{ id: 1, windowId: 7, url: "https://owner.example/" }];
       },
@@ -259,15 +336,32 @@ function createFixture({ queryAllTabs = false, queryDelay = false, browserFocuse
     windows: {
       WINDOW_ID_NONE: -1,
       onFocusChanged: events.focused,
+      onRemoved: events.windowRemoved,
       getLastFocused: async () => ({ id: 7, focused: browserFocused }),
+      get: async (windowId) => {
+        if (!windows.has(windowId)) throw new Error("window not found");
+        return { id: windowId };
+      },
       create: async (options) => {
         calls.windowsCreate.push(options);
-        const tab = tabs.get(options.tabId);
-        if (tab) {
-          tab.windowId = 8;
-          tab.active = true;
+        const windowId = ++nextWindowID;
+        windows.add(windowId);
+        if (Number.isInteger(options.tabId)) {
+          const tab = tabs.get(options.tabId);
+          if (tab) {
+            tab.windowId = windowId;
+            tab.active = true;
+          }
+          return { id: windowId, focused: true };
         }
-        return { id: 8, focused: true };
+        const tab = { id: ++nextTabID, windowId, url: options.url, active: true };
+        tabs.set(tab.id, tab);
+        return { id: windowId, focused: options.focused, tabs: [tab] };
+      },
+      remove: async (windowId) => {
+        calls.windowsRemove.push(windowId);
+        windows.delete(windowId);
+        events.windowRemoved.emit(windowId);
       },
       update: async (...args) => { calls.windowsUpdate.push(args); },
     },

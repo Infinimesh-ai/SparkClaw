@@ -398,6 +398,7 @@ export function installReader(config) {
     const result=await config.markRead?.({account_address:account,provider_message_id,row,binding,request:listRequest,fetch:originalFetch});
     if (!result || result.provider_message_id !== provider_message_id || !['read','unknown'].includes(result.read_state)) failure('email_network_mark_read_unqualified');
     checkedAccount(account_address);
+    if(result.read_state==='read')row.unread=false;
     return {provider:config.provider,account_address:account,provider_message_id,read_state:result.read_state};
   }
   function dispose() {

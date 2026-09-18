@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+type replyPolishAnalyzer struct {
+	input emailmanagement.AnalysisInput
+}
+
+func (a *replyPolishAnalyzer) Analyze(_ context.Context, input emailmanagement.AnalysisInput) (emailmanagement.AnalysisOutput, error) {
+	a.input = input
+	return emailmanagement.AnalysisOutput{Body: "您好，周二下午可以参加，请发送会议链接。谢谢。", ModelVersion: "reply-polish-fixture"}, nil
+}
+
 func (b *noEmailBrowser) Admit(context.Context, string, string) (emailautomation.AdmissionResult, error) {
 	b.calls++
 	return emailautomation.AdmissionResult{Provider: "gmail", Account: "default", AccountHint: "owner@example.com"}, nil
@@ -117,6 +126,32 @@ func TestEmailComposeHTTPReplyBindsOriginalAndPreservesNoticeMembership(t *testi
 	local := emailDecode[emailmanagement.MessageView](t, f.request("GET", "/api/email/messages/"+sent.TimelineMailID, ""), 200)
 	if local.LocalSendID == "" || local.OriginalAvailable || local.ReplyMailID != original.ID || local.ConfirmationSource != "provider_receipt" {
 		t.Fatal("local reply provenance missing")
+	}
+}
+
+func TestEmailComposeHTTPPolishesEditableDraftThenUsesNativeReply(t *testing.T) {
+	analyzer := &replyPolishAnalyzer{}
+	f := newEmailHTTPFixtureWithAnalyzer(t, analyzer)
+	original := f.receive("polish-target", time.Now())
+	request, _ := json.Marshal(map[string]any{
+		"id": "polished-reply", "mail_id": original.ID, "instruction": "确认周二下午参加，并请对方发会议链接。", "language": "zh",
+	})
+	draft := emailDecode[store.EmailDraft](t, f.request("POST", "/api/email/replies/polish", string(request)), 200)
+	if draft.Mode != "reply" || draft.ReplyMailID != original.ID || draft.Body == "" || len(draft.To) != 1 || draft.ReplyTarget == nil {
+		t.Fatalf("polished native reply not bound: %+v", draft)
+	}
+	if analyzer.input.ReplyInstruction == "" || len(analyzer.input.Evidence) == 0 || analyzer.input.OutputLanguage != "zh" {
+		t.Fatalf("reply context missing: %+v", analyzer.input)
+	}
+	update, _ := json.Marshal(map[string]any{
+		"expected_version": draft.Version, "mailbox_id": draft.MailboxID, "mode": "reply", "reply_mail_id": original.ID,
+		"to": draft.To, "cc": draft.CC, "subject": draft.Subject, "body": draft.Body + "\n我已补充这一句。",
+	})
+	draft = emailDecode[store.EmailDraft](t, f.request("PUT", "/api/email/drafts/"+draft.ID, string(update)), 200)
+	sendRequest, _ := json.Marshal(map[string]any{"expected_version": draft.Version, "idempotency_key": "confirm-send"})
+	sent := emailDecode[store.EmailDraft](t, f.request("POST", "/api/email/drafts/"+draft.ID+"/send", string(sendRequest)), 200)
+	if sent.State != "sent" || sent.Snapshot == nil || sent.Snapshot.Mode != "reply" || sent.Snapshot.ReplyMailID != original.ID || !strings.Contains(sent.Snapshot.Body, "补充") {
+		t.Fatalf("confirmed reply did not preserve editable draft: %+v", sent)
 	}
 }
 func TestEmailComposeHTTPDraftPagesDoNotLoseOlderDrafts(t *testing.T) {

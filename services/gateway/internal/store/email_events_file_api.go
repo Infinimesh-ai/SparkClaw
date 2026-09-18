@@ -50,3 +50,14 @@ func (s *FileStore) RenameEmailConversation(ctx context.Context, c EmailConversa
 	}
 	return emailFileRun(s, ctx, OperationRenameEmailConversation, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailConversation, error) { return emailRenameConversation(e, c) })
 }
+func (s *FileStore) DeleteEmailConversation(ctx context.Context, c EmailConversationDelete) (EmailConversationDeleteResult, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationDeleteEmailConversation, fileAdmissionCapacity)
+	if err != nil {
+		return *new(EmailConversationDeleteResult), err
+	}
+	defer release()
+	if c.CommandKey == "" || c.ConversationID == "" {
+		return *new(EmailConversationDeleteResult), errEmailCommandInvalid(ctx, OperationDeleteEmailConversation)
+	}
+	return emailFileRun(s, ctx, OperationDeleteEmailConversation, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (EmailConversationDeleteResult, error) { return emailDeleteConversation(e, c) })
+}

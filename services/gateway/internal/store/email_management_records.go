@@ -54,6 +54,7 @@ type emailRowsQuery struct {
 	States                                      []string
 	Due                                         string
 	CapturedOnly                                bool
+	IncludeSuperseded                           bool
 }
 type emailRecords interface {
 	get(string, string) (EmailRecord, bool, error)
@@ -61,6 +62,7 @@ type emailRecords interface {
 	count(emailRowsQuery) (EmailScopeCounts, error)
 	exists(emailRowsQuery) (bool, error)
 	put(EmailRecord) error
+	delete(string, string) error
 	changed() bool
 }
 type emailEngine struct {
@@ -106,6 +108,23 @@ func emailPut(e *emailEngine, kind, id, parent, related, state, search, order st
 	emailUpdateStatus(e, r)
 	if e.err == nil {
 		e.err = e.db.put(r)
+	}
+}
+func emailDelete(e *emailEngine, kind, id string) {
+	if e.err != nil {
+		return
+	}
+	r, ok, err := e.db.get(kind, id)
+	if err != nil {
+		e.err = err
+		return
+	}
+	if !ok {
+		return
+	}
+	emailDeleteStatus(e, r)
+	if e.err == nil {
+		e.err = e.db.delete(kind, id)
 	}
 }
 func emailList[T any](e *emailEngine, q emailRowsQuery) []T {

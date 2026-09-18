@@ -12,6 +12,32 @@ const draft: EmailDraft = { id: "d", version: 1, mailbox_id: "box", mode: "compo
 const mailboxes = [{ id: "box", version: 1, provider: "gmail" as const, address: "owner@example.com", intake_enabled: false, active_binding: true, state: "ready" }];
 afterEach(() => vi.restoreAllMocks());
 describe("email compose safety", () => {
+  it("polishes a reply intent, keeps the result editable, and sends the edited native reply directly", async () => {
+    vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
+    const polished: EmailDraft = { ...draft, mode: "reply", reply_mail_id: "incoming", body: "周二下午可以参加，请发会议链接。" };
+    const polish = vi.spyOn(api, "polishEmailReply").mockResolvedValue(polished);
+    const save = vi.spyOn(api, "saveEmailDraft").mockImplementation(async (value) => ({ ...polished, ...value, id: "d", version: 2 }));
+    const send = vi.spyOn(api, "sendEmailDraft").mockResolvedValue({ ...polished, version: 3, state: "sent", conversation_id: "topic" });
+    const onSent = vi.fn();
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<EmailCompose variant="conversation" target={{ mode: "reply", mailId: "incoming", mailboxId: "box" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}} onSent={onSent} />));
+      const intent = host.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${text.email.replyIntent}"]`)!;
+      expect(intent).not.toBeNull();
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(intent, "确认能参加，并索要会议链接"); intent.dispatchEvent(new Event("input", { bubbles: true })); });
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === text.email.polishReply)!.click());
+      expect(polish).toHaveBeenCalledWith(expect.objectContaining({ mail_id: "incoming", instruction: "确认能参加，并索要会议链接", language: "zh" }));
+      const body = host.querySelector<HTMLTextAreaElement>(`.emailReplyBody textarea`)!;
+      expect(body.value).toContain("会议链接");
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(body, "周二下午可以参加，请提前发送会议链接。"); body.dispatchEvent(new Event("input", { bubbles: true })); });
+      expect(send).not.toHaveBeenCalled();
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === text.email.sendReply)!.click());
+      expect(save).toHaveBeenCalledWith(expect.objectContaining({ mode: "reply", reply_mail_id: "incoming", body: "周二下午可以参加，请提前发送会议链接。" }));
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(onSent).toHaveBeenCalledWith(expect.objectContaining({ state: "sent" }));
+    } finally { act(() => root.unmount()); }
+  });
+
   it("keeps an unknown sending result locked after a repeated click", async () => {
     vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: false, reply_all: false, cc: false, max_to: 1 });
     vi.spyOn(api, "emailDraft").mockResolvedValue(draft);

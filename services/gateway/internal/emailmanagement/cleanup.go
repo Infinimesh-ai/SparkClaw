@@ -20,11 +20,12 @@ const cleanupBatch = 100
 const cleanupBatches = 20
 
 type CleanupRequest struct {
-	Scope      string
-	MailID     string
-	MailboxID  string
-	Date       string // "YYYY-MM-DD"
-	CommandKey string
+	Scope          string
+	MailID         string
+	MailboxID      string
+	ConversationID string
+	Date           string // "YYYY-MM-DD"
+	CommandKey     string
 }
 
 type CleanupResult struct {
@@ -44,7 +45,7 @@ func (s *Service) CleanupSource(ctx context.Context, owner string, req CleanupRe
 	if owner == "" || req.CommandKey == "" {
 		return out, ErrInvalidInput
 	}
-	command := store.EmailCapturePurgeCommand{Scope: req.Scope, MailID: req.MailID, MailboxID: req.MailboxID,
+	command := store.EmailCapturePurgeCommand{Scope: req.Scope, MailID: req.MailID, MailboxID: req.MailboxID, ConversationID: req.ConversationID,
 		Reason: app.EmailPurgeManual, Limit: cleanupBatch}
 	switch req.Scope {
 	case store.EmailPurgeScopeMail:
@@ -53,6 +54,10 @@ func (s *Service) CleanupSource(ctx context.Context, owner string, req CleanupRe
 		}
 	case store.EmailPurgeScopeMailbox:
 		if req.MailboxID == "" {
+			return out, ErrInvalidInput
+		}
+	case store.EmailPurgeScopeConversation:
+		if req.ConversationID == "" {
 			return out, ErrInvalidInput
 		}
 	case store.EmailPurgeScopeDate:

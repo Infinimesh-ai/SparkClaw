@@ -41,7 +41,7 @@ func (s *Service) parse(ctx context.Context, job app.EmailJob) error {
 	if !found {
 		return errors.New("email_capture_missing")
 	}
-	representation, err := parseCapturedMail(ctx, s.opts.WorkspaceRoot, job.OwnerID, mail, box, capture)
+	representation, renderCandidate, err := parseCapturedMail(ctx, s.opts.WorkspaceRoot, job.OwnerID, mail, box, capture)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,16 @@ func (s *Service) parse(ctx context.Context, job app.EmailJob) error {
 	}
 	raw, _ := json.Marshal(representation)
 	representation.ManifestPath, representation.ManifestSHA256 = relative, sourceHash(raw)
-	_, err = s.repository.PublishEmailRepresentation(ctx, store.EmailRepresentationCommand{EmailCommand: cmd, Lease: lease(job, s.now()), Representation: representation})
+	renderPreview, err := buildEmailRenderPreview(ctx, s.opts.WorkspaceRoot, job.OwnerID, representation, capture, renderCandidate)
+	if err != nil {
+		return err
+	}
+	_, err = s.repository.PublishEmailRepresentation(ctx, store.EmailRepresentationCommand{
+		EmailCommand:   cmd,
+		Lease:          lease(job, s.now()),
+		Representation: representation,
+		RenderPreview:  &renderPreview,
+	})
 	return s.reconcileError(ctx, cmd, err)
 }
 

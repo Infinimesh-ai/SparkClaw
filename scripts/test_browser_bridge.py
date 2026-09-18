@@ -117,6 +117,7 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertLess(bridge_check, health_check)
         self.assertIn("systemctl --user restart sparkclaw-browser-controller.service", script)
         self.assertIn("systemctl --user restart sparkclaw-browser.service", script)
+        self.assertIn("TimeoutStopSec=60", script)
         self.assertIn("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1", script)
         self.assertIn('npm --prefix "$PACKAGE_DIR" ls --depth=0 --omit=dev', script)
 

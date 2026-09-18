@@ -10,11 +10,12 @@ import (
 // it to capture versions through owner-scoped queries, never through the
 // filesystem, so authorization always derives from the database.
 const (
-	EmailPurgeScopeMail       = "mail"
-	EmailPurgeScopeDate       = "date"
-	EmailPurgeScopeMailbox    = "mailbox"
-	EmailPurgeScopeAll        = "all"
-	EmailPurgeScopeCaptureIDs = "capture_ids"
+	EmailPurgeScopeMail         = "mail"
+	EmailPurgeScopeDate         = "date"
+	EmailPurgeScopeMailbox      = "mailbox"
+	EmailPurgeScopeConversation = "conversation"
+	EmailPurgeScopeAll          = "all"
+	EmailPurgeScopeCaptureIDs   = "capture_ids"
 )
 
 // EmailCapturePurgeCommand tombstones capture versions so their local bytes can
@@ -22,14 +23,15 @@ const (
 type EmailCapturePurgeCommand struct {
 	At time.Time
 	EmailCommand
-	Scope      string
-	MailID     string
-	MailboxID  string
-	DatePath   string // "YYYY/MM/DD"
-	Reason     string
-	After      string
-	CaptureIDs []string
-	Limit      int
+	Scope          string
+	MailID         string
+	MailboxID      string
+	ConversationID string
+	DatePath       string // "YYYY/MM/DD"
+	Reason         string
+	After          string
+	CaptureIDs     []string
+	Limit          int
 	// Finalize marks already-tombstoned captures as reaped once their bytes are
 	// gone, so the recovery scan stops returning them. It never tombstones.
 	Finalize bool

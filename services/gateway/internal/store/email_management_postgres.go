@@ -31,10 +31,17 @@ func (p *emailPostgresRecords) put(r EmailRecord) error {
 	}
 	return err
 }
+func (p *emailPostgresRecords) delete(kind, id string) error {
+	_, err := p.tx.Exec(p.ctx, `DELETE FROM email_management_records WHERE owner_id=$1 AND kind=$2 AND id=$3`, p.owner, kind, id)
+	if err == nil {
+		p.dirty = true
+	}
+	return err
+}
 func emailPostgresQuery(owner string, q emailRowsQuery, ordered bool) (string, []any) {
 	sql := `SELECT owner_id,kind,id,parent,related,state,search_text,sort_key,payload FROM email_management_records WHERE owner_id=$1 AND kind=$2`
 	args := []any{owner, q.Kind}
-	if q.Kind == "mail" {
+	if q.Kind == "mail" && !q.IncludeSuperseded {
 		sql += ` AND COALESCE(payload->>'superseded_by_mail_id','')=''`
 	}
 	add := func(clause string, value any) { args = append(args, value); sql += fmt.Sprintf(clause, len(args)) }

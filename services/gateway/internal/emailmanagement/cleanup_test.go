@@ -6,7 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
@@ -105,6 +105,54 @@ func TestManualCleanupTombstonesBeforeUnlinkAndKeepsTheBodyReadable(t *testing.T
 	}
 	if view.BodyText == "" {
 		t.Fatal("cleanup destroyed the parsed body")
+	}
+}
+
+func TestDeleteConversationRemovesSourcesAndAllMailRecords(t *testing.T) {
+	s, repo, browser, mail := cleanupFixture(t)
+	if _, err := repo.ActivateEmailEventPolicy(t.Context(), command("email-owner", "delete-activate-events")); err != nil {
+		t.Fatal(err)
+	}
+	current, found, err := repo.GetEmailMail(t.Context(), "email-owner", mail.ID)
+	if err != nil || !found {
+		t.Fatalf("mail lookup: found=%v err=%v", found, err)
+	}
+	if current.ConversationID == "" {
+		current, err = repo.ChangeEmailAssignment(t.Context(), store.EmailManualAssignment{EmailCommand: command("email-owner", "delete-assign"), MailID: current.ID, Title: "Conversation to remove", ExpectedVersion: current.InputVersion})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	conversation, found, err := repo.GetEmailConversation(t.Context(), "email-owner", current.ConversationID)
+	if err != nil || !found {
+		t.Fatalf("conversation lookup: found=%v err=%v", found, err)
+	}
+	capture, found, err := repo.GetEmailCapture(t.Context(), "email-owner", current.CaptureID)
+	if err != nil || !found {
+		t.Fatalf("capture lookup: found=%v err=%v", found, err)
+	}
+	directory := filepath.Join(browser.root, filepath.FromSlash(path.Dir(capture.ManifestPath)))
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatalf("fixture capture missing before delete: %v", err)
+	}
+	deleted, err := s.DeleteConversation(t.Context(), store.EmailConversationDelete{EmailCommand: command("email-owner", "delete-conversation"), ConversationID: conversation.ID, ExpectedVersion: conversation.InputVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted.DeletedMails != 1 || deleted.FreedBytes <= 0 {
+		t.Fatalf("delete result=%+v", deleted)
+	}
+	if _, err := os.Stat(directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("conversation source survived delete: %v", err)
+	}
+	if _, found, err := repo.GetEmailConversation(t.Context(), "email-owner", conversation.ID); err != nil || found {
+		t.Fatalf("conversation survived delete: found=%v err=%v", found, err)
+	}
+	if _, found, err := repo.GetEmailMail(t.Context(), "email-owner", current.ID); err != nil || found {
+		t.Fatalf("mail survived delete: found=%v err=%v", found, err)
+	}
+	if _, found, err := repo.GetEmailCapture(t.Context(), "email-owner", current.CaptureID); err != nil || found {
+		t.Fatalf("capture survived delete: found=%v err=%v", found, err)
 	}
 }
 
@@ -207,45 +255,34 @@ func TestOriginalAvailableReflectsTheFilesystemNotJustThePointer(t *testing.T) {
 	}
 }
 
-func TestPreviewSurvivesCleanupAndNeverReturnsCapturedHTML(t *testing.T) {
-	s, _, browser, mail := cleanupFixture(t)
-	before, err := s.Preview(t.Context(), "email-owner", mail.ID)
+func TestRenderPreviewSurvivesSourceCleanup(t *testing.T) {
+	s, _, _, mail := cleanupFixture(t)
+	before, err := s.RenderPreview(t.Context(), "email-owner", mail.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.BodyText == "" || !before.OriginalAvailable || before.OriginalPurged {
+	if before.State != app.EmailRenderReady || len(before.Content) == 0 {
 		t.Fatalf("baseline preview=%+v", before)
-	}
-
-	// The captured body.html sits next to the original in the workspace; the
-	// preview projects the parsed text only and must never surface that markup.
-	capture, _, err := s.repository.GetEmailCapture(t.Context(), "email-owner", mail.CaptureID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(browser.root, filepath.Dir(capture.ManifestPath), "body.html"), []byte("<script>alert(1)</script>"), 0600); err != nil {
-		t.Fatal(err)
 	}
 	if _, err := s.CleanupSource(t.Context(), "email-owner", CleanupRequest{Scope: store.EmailPurgeScopeMail, MailID: mail.ID, CommandKey: "cleanup-1"}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := s.Preview(t.Context(), "email-owner", mail.ID)
+	after, err := s.RenderPreview(t.Context(), "email-owner", mail.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The parsed body is what makes cleanup safe to offer without confirmation.
-	if after.BodyText != before.BodyText {
-		t.Fatalf("preview body changed after cleanup: %q -> %q", before.BodyText, after.BodyText)
+	if after.State != app.EmailRenderReady || !reflect.DeepEqual(after.Content, before.Content) {
+		t.Fatalf("render preview changed after source cleanup")
 	}
-	if after.OriginalAvailable || !after.OriginalPurged {
-		t.Fatalf("preview=%+v", after)
+}
+
+func TestRenderPreviewMigrationReusesValidatedCurrentPreview(t *testing.T) {
+	s, _, _, _ := cleanupFixture(t)
+	report, err := s.MigrateRenderPreviews(t.Context(), "email-owner")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, part := range after.Attachments {
-		if part.Available {
-			t.Fatalf("attachment %s still advertised after cleanup", part.ID)
-		}
-	}
-	if strings.Contains(after.BodyText, "<") {
-		t.Fatalf("preview leaked markup: %q", after.BodyText)
+	if report.Total != 1 || report.Reused != 1 || report.Migrated != 0 || report.Failed != 0 || len(report.Failures) != 0 {
+		t.Fatalf("report=%+v", report)
 	}
 }

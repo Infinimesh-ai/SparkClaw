@@ -21,6 +21,28 @@ describe("email owner API", () => {
     expect(() => api.markEmailViewed(Array.from({ length: 101 }, (_, i) => String(i)))).toThrow();
   });
 
+  it("requests a polished reply draft without sending it", async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ id: "draft", state: "draft" }) }));
+    vi.stubGlobal("fetch", fetcher);
+    await api.polishEmailReply({ id: "draft", mail_id: "mail", instruction: "Confirm Tuesday", language: "en" });
+    expect(fetcher).toHaveBeenCalledWith("/api/email/replies/polish", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ id: "draft", mail_id: "mail", instruction: "Confirm Tuesday", language: "en" })
+    }));
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.headers).toMatchObject({ Authorization: "Bearer owner-token" });
+  });
+
+  it("deletes a conversation with its current version", async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ conversation_id: "conversation/id", deleted_mails: 2, freed_bytes: 10 }) }));
+    vi.stubGlobal("fetch", fetcher);
+    await api.deleteEmailConversation("conversation/id", { expected_version: 7, command_key: "delete-once" });
+    expect(fetcher).toHaveBeenCalledWith("/api/email/conversations/conversation%2Fid", expect.objectContaining({
+      method: "DELETE",
+      body: JSON.stringify({ expected_version: 7, command_key: "delete-once" })
+    }));
+  });
+
   it("downloads untrusted files by mail/part identity without host paths, URL credentials or executable blobs", async () => {
     vi.useFakeTimers();
     expect(emailFileURL("mail/id", "part &1")).toBe("/api/email/messages/mail%2Fid/file?part_id=part%20%261");

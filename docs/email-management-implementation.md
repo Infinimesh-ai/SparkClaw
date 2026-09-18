@@ -4,11 +4,36 @@
 
 2026-09-09 analysis/UI increment is implemented in the worktree, not deployed. See [current scope and limitations](email-management-analysis-v2.md#8-implementation-and-validation-2026-09-09). Notification routing, manual sender rules, body-only models, localized presentations and drafts/new compose are wired; native replies/CC and complete Sent matter linking remain outstanding.
 
-## Active Mail Reading Contract (2026-09-14)
+## Active Mail Reading Contract (2026-09-18)
 
-The managed Reader in the dedicated browser is the sole mail-reading source. List discovery, pagination, stable message identity and original bytes must be observed or replayed from authenticated provider network requests. DOM inspection, menu export, page-click navigation and native fallback paths are retired; an upstream request change is handled by updating the affected provider adapter from a fresh dedicated-browser observation and rerunning qualification.
+### Structured content and user-clicked actions (2026-09-18)
 
-There is one discovery lane, `recent_inbound`, and every discovery/page request carries `interval_start` and `interval_end`. Normal synchronization enumerates `[last_completed_fetch_time, fixed_current_time)`, with the deployment boundary as the first lower bound. Read/unread state is recorded as remote evidence only and never selects or excludes a message. Capturing and persisting an original is independent from mark-read: mark-read is a separate network capability, and its failure does not undo a successful capture or advance the sync boundary. The three provider adapters currently expose mark-read as an explicit fail-closed capability until exact live request/response evidence is available. There is no `unread` lane or `inbox_unread` coverage.
+The Remote product now generates persisted `structured-mail-v3` content during the existing MIME pass and
+serves it only through the owner-authenticated `render-preview` endpoint. WebChat renders known semantic nodes
+with React rather than sender HTML or an iframe. Remote images, styles, forms and active content are removed;
+verified bounded CID PNG/JPEG/WebP may remain. Valid absolute HTTP(S) authentication, confirmation and
+reference links become explicit actions with their actual hostname, but no request occurs until the user
+clicks. Plain-only messages use the same escaped structured surface. `BodyText` remains internal evidence for
+search and model analysis.
+
+Regular MIME attachments are decoded from the verified original into owner-scoped local files during the same
+parse pass. Their bytes never enter `BodyText`, model evidence, summaries or the structured-content artifact;
+only download metadata is projected to WebChat. WebChat does not sniff or preview attachment content and serves
+it only after an explicit click as an authenticated `application/octet-stream` download whose size and SHA-256
+are rechecked. Bounded CID resources referenced by the message body remain part of structured body rendering,
+not attachment previews. The current extraction bounds are 20 attachments, 25 MiB each and 100 MiB total;
+exceeded or incomplete extraction remains an explicit source gap while the verified original stays retained.
+
+The operator migration completed all eight retained current mails with zero failures, and the deployed rerun
+reused all eight artifacts. Manual source cleanup retains a valid projection; whole-conversation deletion
+removes its records and files. Gateway image
+`de17b2ba8b085aa4b22c760535ec4167ee3f20f072669b7c242f97ae280f69c4` is healthy and WebChat image
+`ead37ba2ae0de2a7d12a1270b266bd5fa167c4bb5badef0c8f602cd4dbe52fc1` returns HTTP 200. See the
+[safe structured email content design and deployment evidence](email-safe-html-preview-design.md).
+
+The managed Reader in the dedicated browser is the sole mail-reading source. List discovery, pagination, stable message identity and original bytes must be observed or replayed from authenticated provider network requests. DOM inspection, menu export and page-click navigation are not accepted as mail-source evidence; an upstream request change is handled by updating the affected provider adapter from a fresh dedicated-browser observation and rerunning qualification. A provider-owned UI action may initiate a separately authorized mutable effect only when the Reader binds it to the exact observed target and independently confirms the result from a fresh provider response.
+
+There is one discovery lane, `recent_inbound`, and every discovery/page request carries `interval_start` and `interval_end`. Normal synchronization enumerates `[last_completed_fetch_time, fixed_current_time)`, with the deployment boundary as the first lower bound. Read/unread state is recorded as remote evidence only and never selects or excludes a message. Capturing and persisting an original is independent from mark-read: mark-read failure does not undo a successful capture or change the sync boundary. QQ mark-read is live-qualified and enabled by default for automatic QQ intake: after Store commits a complete source, the Reader invokes the exact observed message row and replays the qualified `/list/maillist` page until that same message reports `unread=0`; only then does Store record `read`. Missing targets, changed response shapes and timeouts remain `unknown`. Gmail and Outlook mark-read remain fail-closed pending equivalent live evidence. There is no `unread` lane or `inbox_unread` coverage.
 
 The dedicated Browser Bridge native socket and Controller are healthy. A live speed run qualified QQ's network-only list and original capture twice; Outlook currently exposes no observed `ItemRows`/Inbox `ConversationRows` Worker templates, and Gmail exposes no current `/sync/u/<account>/i/bv` list request. Those two providers remain unqualified until their current network requests are observed and their adapters are updated. The failed discovery timings are not mail-fetch timings.
 
@@ -112,10 +137,12 @@ the model receives an explicit gap while the complete source headers retain thei
 original order. Subject/content and counterparty retrieval exclude receiving-account
 address noise before the final recent-conversation fallback.
 
-Source summaries now snapshot the durable WebChat `zh`/`en` preference when the
-job executes and persist that language on the artifact. Preference changes do
-not participate in summary dependency fingerprints, so prior results stay
-unchanged and only later work uses the new language. Classification first applies
+Source summaries snapshot the durable WebChat `zh`/`en` preference when the job
+executes and persist that language on the source-analysis artifact. Those raw
+artifacts remain immutable. The conversation UI does not display them: it ensures
+a separate per-mail presentation keyed by the current UI language for every loaded
+message, including already-synchronized mail, and replaces it when the language
+changes. Classification first applies
 a strict verification marker plus nearby digit-bearing token rule. A match is
 stored as a constrained `pattern` notification and bypasses classification,
 summary and event-assignment model calls; ambiguous numeric mail still uses the
@@ -262,3 +289,128 @@ external/PostgreSQL readiness, WebChat HTTP 200 and refreshed host Controller sm
 See [deployment evidence](email-management-analysis-v2.md#10-remote-deployment-2026-09-09).
 Earlier undeployed statements describe the implementation checkpoint; native qualification limits
 remain unchanged by deployment. No receiving settings were changed and no explicit mail was sent.
+
+## Conversation Summary and Reply Experience (2026-09-17)
+
+The selected interaction now opens as a chronological conversation: the visible message cards keep
+sender, direction, time and a concise per-message summary, while per-message subject/address grids,
+full source bodies and analysis controls are removed from the primary reading path. The conversation-level
+AI Overview is absent. Original bodies, source downloads and management evidence remain available under
+each message's secondary details. The integrated reply composer stays at the bottom of the detail pane
+without covering the scrollable history.
+
+Opening a conversation ensures a durable `mail` presentation for only the loaded message IDs in the
+current SparkClaw language. This applies equally to historical mail already in PostgreSQL. Switching
+`zh`/`en` changes the presentation identity, clears the prior-language text immediately and ignores late
+results from the old language. Event-level `conversation` presentations remain suspended, so restoring
+localized message summaries does not restore the removed Overview block or change source analysis,
+classification, membership, viewing receipts or original mail data.
+
+The owner first writes a reply intent. `POST /api/email/replies/polish` treats only that intent as an
+instruction, treats up to 12 conversation messages as untrusted context, returns plain text only, and
+persists the result as a native `reply` draft already bound to the selected inbound mail. The polished
+body remains editable. After reviewing or changing it, one “Send reply” action uses the existing
+versioned draft/send path directly; there is no second confirmation layer. Recipient, subject and reply
+target are still derived and revalidated from the original mail rather than supplied by the model.
+
+Validation covers the constrained model schema, editable reply binding, direct edited-body send, localized
+historical-message summaries with original bodies in secondary details, desktop/mobile rendering, the
+WebChat suite, production WebChat build, the
+full Gateway Go suite, scoped race, build and vet. HTML-only mail parsed after this change excludes
+non-rendered `head`, `style`, `script`, `noscript` and `template` content. The conversation renderer also
+hides legacy CSS preambles already present in stored plain-text representations, so existing synchronized
+mail gets the corrected presentation without being recaptured or rewritten.
+
+The owner then authorized Remote deployment. The final Gateway image is
+`sha256:e806d7768a2bc8560a56a6abf24a396d7693f0e73cbb546ee3ef3c61c659d4b2` and the final WebChat image is
+`sha256:204e31d6fc27a13fb5dede96f4446869dd64339048436e08f2e180261b825b79`; external models and PostgreSQL
+are ready, WebChat returns HTTP 200 and the container Controller smoke passes. The existing PostgreSQL
+inventory remained 10 mails and 8 conversations. Live validation opened an old verification mail: its
+current-language summary contained neither the credential nor the legacy CSS artifact, while the complete
+source remained available under the collapsed details. Presentation input/output now redact explicit
+verification tokens even when historical classification lacks a structured code, and bounded legacy CSS
+preambles are excluded from model input without rewriting source evidence. A fresh browser tab reported no
+console warnings or errors. QQ receiving remained enabled while Gmail and Outlook remained disabled.
+Deployment sent no mail, performed no manual synchronization, deleted no data and changed no cross-project
+contract; the already-enabled QQ periodic intake continued on its normal cadence.
+
+### Conversation completeness, primary summaries and deletion
+
+The current conversation surface no longer treats a provider thread identifier as proof that earlier mail
+is missing. A standalone message therefore has no history banner. One conversation-level banner appears
+only when an explicit reply source is unavailable or a proved multi-message provider thread reports pending,
+partial or failed coverage; message cards do not repeat that notice.
+
+The localized per-message summary is the primary reading surface. Its current prompt retains the source's
+main request or facts and important dates, amounts and identifiers. When a one-time verification code is the
+main content, the exact code remains in the summary; it is no longer replaced by a generic placeholder.
+Legacy CSS preambles are still excluded from model input. The prompt-version change causes already-synced
+mail to receive the corrected projection lazily in the selected SparkClaw language.
+
+The message-level “clean up original” action is no longer shown in a conversation. `DELETE
+/api/email/conversations/{conversation}` uses the displayed conversation version and an idempotency key,
+rejects stale edits and drafts whose send outcome is active or unknown, tombstones and unlinks every member
+original, then deletes the conversation, all member mail, drafts and frozen send snapshots, parsed bodies,
+summaries, localized presentations, analysis artifacts, jobs and related records. The WebChat exposes this as
+an inline destructive confirmation for the whole conversation and clears the selected detail after success.
+Mailbox/date/all source-cleanup controls remain storage-management operations and do not replace conversation
+deletion.
+
+The owner authorized this increment for Remote deployment. `npm run deploy:remote` built and started Gateway
+`sha256:0db7d582b5b2c63aba82b7160e3ad5eafac16ed5ab57910d63436d21aadaa7be` and WebChat
+`sha256:9dc76b1df47f9f24f4b2e3e5b784f5aec7116ee2f834405e5c79a2d7cddc4e4d`. Gateway reports external-model
+mode with PostgreSQL ready, WebChat returns HTTP 200, and the application services pass their health checks.
+The production inventory remains 10 mails and 8 conversations. Full Gateway tests/build/vet, scoped race,
+WebChat 154 tests and production build, the 721-key language check and 83-document mirror/link check passed.
+Deployment did not send mail, trigger a manual synchronization or call the new deletion endpoint.
+
+### Conversation address roles
+
+The metadata immediately below the conversation title now identifies address roles explicitly. A
+“Receiving email” row lists the loaded messages' `receiving_address` values and a separate “Sender email”
+row lists their `from` values. The rows are vertically stacked instead of sharing one participant line;
+multiple distinct addresses within either role are also rendered one per line. Address comparison is
+case-insensitive for de-duplication while the first observed spelling is retained for display.
+
+The owner authorized Remote deployment. Gateway remains
+`sha256:0db7d582b5b2c63aba82b7160e3ad5eafac16ed5ab57910d63436d21aadaa7be`; WebChat is
+`sha256:d8d11ddb69cc7d957e9290c46d4a5bcca013510a052fa8272592d7cb691b0960`. WebChat 154 tests, the
+723-key language check, production build and diff check passed. Live inspection of a historical
+verification-code conversation confirmed the two vertical rows and their stored addresses. WebChat
+returned HTTP 200 and Remote external/PostgreSQL readiness passed. The inventory was 8 mails and 8
+conversations after the owner's two earlier authorized conversation deletions. This deployment sent no
+mail, triggered no manual synchronization, removed no additional data and changed no cross-project contract.
+
+### Structured full-mail content
+
+The user-visible full-mail view no longer returns sender HTML or renders it in an iframe. Gateway version
+`structured-mail-v2` parses the MIME HTML into a closed semantic tree, removes scripts, styles, forms, URLs,
+tracking pixels and unavailable remote images, and keeps supported text structure, lists, quotations, code,
+tables and verified inline CID images. WebChat maps only those known nodes to React elements. Single-column
+layout tables are flattened into ordinary reading sections, while real multi-column data tables remain
+horizontally scrollable. The disclosure sits directly below the summary so the summary stays primary.
+
+Remote migration rebuilt all 8 stored mails and a second pass reused all 8 artifacts. The deployed Gateway is
+`sha256:08056e1767eed103b049b2bbe85b6c0e8b4256a3d745751d0c6dbdfbf0dbad15`; WebChat is
+`sha256:56ce211ebe7d5eaf525331d8c5d4c3b43186be1faba2dacddcc0348a7e248268`. Live inspection of a historical
+HTML mail confirmed a flat readable presentation with no iframe, raw sender styling or broken-image
+placeholder. The migration and validation did not send or delete mail, trigger manual synchronization, or
+change mailbox intake settings.
+
+### User-clicked mail actions
+
+`structured-mail-v3` restores useful authentication, confirmation, invitation and reference links without
+restoring sender HTML or automatic remote loads. Gateway retains only absolute HTTP(S) destinations bounded
+to 8 KiB, rejects URL credentials and control characters, preserves readable text when a destination is
+rejected, and can reuse a remote image's bounded alt text as the label while still omitting the image. Plain
+text HTTP(S) URLs are extracted into the same action node. WebChat revalidates every destination, displays the
+actual hostname beside the sender label, and opens it only after an explicit click in a new tab with
+`noopener noreferrer nofollow` and `referrerpolicy=no-referrer`.
+
+Remote migration rebuilt all 8 retained mails and the deployed rerun reused all 8 with no failure. The eight
+artifacts contain 1,086 nodes, including 52 validated HTTP(S) actions across 26 visible hostnames and zero
+invalid URL. Live inspection of a historical invitation confirmed the coordinated action styling and security
+attributes without clicking the authentication destination. Deployed images are Gateway
+`sha256:de17b2ba8b085aa4b22c760535ec4167ee3f20f072669b7c242f97ae280f69c4` and WebChat
+`sha256:ead37ba2ae0de2a7d12a1270b266bd5fa167c4bb5badef0c8f602cd4dbe52fc1`. No mail was sent,
+deleted or manually synchronized and no receiving setting changed.

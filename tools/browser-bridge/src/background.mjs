@@ -20,6 +20,9 @@ const MAX_OWNER_TAB_HISTORY = 16;
 const PENDING_CONNECTION_TTL_MS = 6500;
 const RELAY_CONNECT_TIMEOUT_MS = 5000;
 const OWNED_GROUP_IDS_KEY = "sparkclawTaskGroupIDs";
+const OWNED_GROUP_TOKENS_KEY = "sparkclawTaskGroupTokens";
+const OWNERSHIP_TITLE_MARKER = " · sc:";
+const OWNERSHIP_TOKEN_PATTERN = /^[0-9a-f]{32}$/u;
 
 export class SparkClawBrowserBridge {
   constructor({
@@ -40,6 +43,7 @@ export class SparkClawBrowserBridge {
     this.nextConnectionID = 0;
     this.nativePort = null;
     this.nativeReconnectTimer = null;
+    this.staleCleanupQueue = Promise.resolve();
     this.focus = new FocusTracker(chromeAPI);
     this.ownedGroups = new OwnedGroupRegistry(chromeAPI);
     this.chrome.runtime.onMessage.addListener((message, sender, respond) =>
@@ -169,14 +173,16 @@ export class SparkClawBrowserBridge {
     relay.ontaballowed = (tabId) => this.focus.allowTaskTab(tabId);
     relay.ontabdetached = (tabId) => this.focus.releaseTaskTab(tabId);
     const id = ++this.nextConnectionID;
+    const ownershipToken = createOwnershipToken();
     const group = new TaskTabGroup({
       chromeAPI: this.chrome,
       relay,
       initialTab: selectorTab,
       clientName: boundedClientName(message.clientName),
-      style: uniqueGroupStyle(message.clientName, [...this.connections.values()]),
+      style: uniqueGroupStyle(message.clientName, [...this.connections.values()], ownershipToken),
       focus: this.focus,
       ownedGroups: this.ownedGroups,
+      ownershipToken,
     });
     relay.onhandoff = (tabId) => {
       group.beginHandoff(tabId);
@@ -219,12 +225,22 @@ export class SparkClawBrowserBridge {
 
   #scheduleStaleTaskCleanup(delayMS, retries = 2) {
     const timer = this.setTimeout(() => {
-      void cleanupStaleTaskTabs(this.chrome, this.focus, this.ownedGroups,
-        () => this.#protectedTaskTabIDs()).catch(() => {
+      void this.#cleanupStaleTaskTabs().catch(() => {
         if (retries > 0) this.#scheduleStaleTaskCleanup(10_000, retries - 1);
       });
     }, delayMS);
     timer?.unref?.();
+  }
+
+  #cleanupStaleTaskTabs() {
+    const cleanup = this.staleCleanupQueue.then(() => cleanupStaleTaskTabs(
+      this.chrome,
+      this.focus,
+      this.ownedGroups,
+      () => this.#protectedTaskTabIDs(),
+    ));
+    this.staleCleanupQueue = cleanup.catch(() => {});
+    return cleanup;
   }
 
   #connectNativeHost() {
@@ -266,6 +282,9 @@ export class SparkClawBrowserBridge {
     let success = false;
     try {
       const url = parseConnectionPageURL(message.url);
+      // Reconcile durable ownership before adding another task page. A browser
+      // restart may preserve groups while assigning them new numeric IDs.
+      await this.#cleanupStaleTaskTabs();
       await this.focus.openBackgroundConnectionPage(url);
       success = true;
     } catch {
@@ -303,11 +322,21 @@ export class SparkClawBrowserBridge {
 }
 
 export class TaskTabGroup {
-  constructor({ chromeAPI, relay, initialTab, clientName, style, focus, ownedGroups = new OwnedGroupRegistry(chromeAPI) }) {
+  constructor({
+    chromeAPI,
+    relay,
+    initialTab,
+    clientName,
+    style,
+    focus,
+    ownedGroups = new OwnedGroupRegistry(chromeAPI),
+    ownershipToken = createOwnershipToken(),
+  }) {
     this.chrome = chromeAPI;
     this.relay = relay;
     this.clientName = clientName;
-    this.style = style;
+    this.ownershipToken = ownershipToken;
+    this.style = withOwnershipToken(style, ownershipToken);
     this.focus = focus;
     this.ownedGroups = ownedGroups;
     this.groupID = null;
@@ -383,7 +412,7 @@ export class TaskTabGroup {
         assignedGroup = await this.chrome.tabs.group({ tabIds: [tabId] });
         this.groupID = assignedGroup;
         this.createdGroupIDs.add(assignedGroup);
-        await this.ownedGroups.add(assignedGroup);
+        await this.ownedGroups.add(assignedGroup, this.ownershipToken);
         if (!this.closed) await this.chrome.tabGroups.update(assignedGroup, this.style);
       } else {
         assignedGroup = this.groupID;
@@ -430,7 +459,7 @@ export class TaskTabGroup {
       const groupIDs = [...this.createdGroupIDs];
       try {
         if (tabs.length) await this.focus.closeTaskTabs(tabs, tabId => this.ownedTabs.has(tabId));
-        await this.ownedGroups.remove(groupIDs);
+        await this.ownedGroups.remove(groupIDs, [this.ownershipToken]);
       } catch {
         // Keep persisted group ownership so the stale-task sweep can retry.
       } finally {
@@ -447,34 +476,53 @@ export class TaskTabGroup {
   }
 }
 
-// Records the tab-group IDs this Bridge created so stale cleanup after a
-// Service Worker restart closes only SparkClaw-owned groups, never an owner
-// group that merely shares the "SparkClaw task" title. chrome.storage.session
-// survives worker restarts and is cleared with the browser session, matching
-// the lifetime of tab-group IDs.
+// Records both current-session group IDs and durable random title tokens. The
+// token lets cleanup recognize a restored group after Chrome assigns it a new
+// numeric ID, without trusting a human-readable title alone.
 export class OwnedGroupRegistry {
   constructor(chromeAPI) {
-    this.storage = chromeAPI.storage?.session ?? null;
+    this.sessionStorage = chromeAPI.storage?.session ?? null;
+    this.localStorage = chromeAPI.storage?.local ?? null;
     this.queue = Promise.resolve();
   }
 
   list() {
-    return this.#serialized(async () => this.#read());
+    return this.#serialized(async () => this.#readIDs());
   }
 
-  add(groupID) {
-    return this.#update((ids) => ids.add(groupID));
+  listTokens() {
+    return this.#serialized(async () => this.#readTokens());
   }
 
-  remove(groupIDs) {
-    return this.#update((ids) => { for (const groupID of groupIDs) ids.delete(groupID); });
+  ownership() {
+    return this.#serialized(async () => ({
+      groupIDs: await this.#readIDs(),
+      tokens: await this.#readTokens(),
+    }));
   }
 
-  #update(mutate) {
+  add(groupID, token) {
     return this.#serialized(async () => {
-      const ids = await this.#read();
-      mutate(ids);
-      if (this.storage) await this.storage.set({ [OWNED_GROUP_IDS_KEY]: [...ids] }).catch(() => {});
+      const groupIDs = await this.#readIDs();
+      const tokens = await this.#readTokens();
+      groupIDs.add(groupID);
+      if (OWNERSHIP_TOKEN_PATTERN.test(token ?? "")) tokens.add(token);
+      // Persist the durable proof first. If the worker stops between writes,
+      // title-token recovery remains possible after a browser restart.
+      await this.#writeTokens(tokens);
+      await this.#writeIDs(groupIDs);
+      return groupIDs;
+    });
+  }
+
+  remove(groupIDs, ownershipTokens = []) {
+    return this.#serialized(async () => {
+      const ids = await this.#readIDs();
+      const tokens = await this.#readTokens();
+      for (const groupID of groupIDs) ids.delete(groupID);
+      for (const token of ownershipTokens) tokens.delete(token);
+      await this.#writeIDs(ids);
+      await this.#writeTokens(tokens);
       return ids;
     });
   }
@@ -485,11 +533,30 @@ export class OwnedGroupRegistry {
     return result;
   }
 
-  async #read() {
-    if (!this.storage) return new Set();
-    const stored = await this.storage.get(OWNED_GROUP_IDS_KEY).catch(() => ({}));
+  async #readIDs() {
+    if (!this.sessionStorage) return new Set();
+    const stored = await this.sessionStorage.get(OWNED_GROUP_IDS_KEY).catch(() => ({}));
     const ids = stored?.[OWNED_GROUP_IDS_KEY];
     return new Set(Array.isArray(ids) ? ids.filter(Number.isInteger) : []);
+  }
+
+  async #readTokens() {
+    if (!this.localStorage) return new Set();
+    const stored = await this.localStorage.get(OWNED_GROUP_TOKENS_KEY).catch(() => ({}));
+    const tokens = stored?.[OWNED_GROUP_TOKENS_KEY];
+    return new Set(Array.isArray(tokens) ? tokens.filter(token => OWNERSHIP_TOKEN_PATTERN.test(token)) : []);
+  }
+
+  async #writeIDs(ids) {
+    if (this.sessionStorage) {
+      await this.sessionStorage.set({ [OWNED_GROUP_IDS_KEY]: [...ids] }).catch(() => {});
+    }
+  }
+
+  async #writeTokens(tokens) {
+    if (this.localStorage) {
+      await this.localStorage.set({ [OWNED_GROUP_TOKENS_KEY]: [...tokens] }).catch(() => {});
+    }
   }
 }
 
@@ -498,8 +565,11 @@ export class FocusTracker {
     this.chrome = chromeAPI;
     this.ownerActiveTabs = new Map();
     this.taskTabs = new Set();
+    this.releasedTaskTabs = new Set();
     this.handoffGrants = new Set();
     this.handoffWindows = new Map();
+    this.backgroundTaskWindowID = null;
+    this.backgroundOpenQueue = Promise.resolve();
     this.chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
       if (this.taskTabs.has(tabId)) {
         if (!this.handoffGrants.delete(tabId)) void this.#restoreWhenReady(windowId, tabId);
@@ -528,7 +598,11 @@ export class FocusTracker {
     });
     this.chrome.tabs.onRemoved.addListener((tabId) => {
       this.releaseTaskTab(tabId);
+      this.releasedTaskTabs.delete(tabId);
       this.#forgetTab(tabId);
+    });
+    this.chrome.windows.onRemoved.addListener((windowId) => {
+      if (this.backgroundTaskWindowID === windowId) this.backgroundTaskWindowID = null;
     });
     this.ready = this.#seed();
   }
@@ -536,12 +610,14 @@ export class FocusTracker {
   allowTaskTab(tabId) {
     if (Number.isInteger(tabId)) {
       this.taskTabs.add(tabId);
+      this.releasedTaskTabs.delete(tabId);
       this.#forgetTab(tabId);
     }
   }
 
   releaseTaskTab(tabId) {
     this.taskTabs.delete(tabId);
+    if (Number.isInteger(tabId)) this.releasedTaskTabs.add(tabId);
     this.handoffGrants.delete(tabId);
     this.handoffWindows.delete(tabId);
   }
@@ -550,20 +626,81 @@ export class FocusTracker {
     if (this.taskTabs.has(tabId)) this.handoffGrants.add(tabId);
   }
 
-  async openBackgroundConnectionPage(url) {
+  openBackgroundConnectionPage(url) {
+    const opened = this.backgroundOpenQueue.then(() => this.#openBackgroundConnectionPage(url));
+    this.backgroundOpenQueue = opened.catch(() => {});
+    return opened;
+  }
+
+  async #openBackgroundConnectionPage(url) {
     await this.ready;
-    const lastFocused = await this.chrome.windows.getLastFocused().catch(() => null);
-    let windowId = Number.isInteger(lastFocused?.id) ? lastFocused.id : null;
-    if (windowId === null || !this.ownerActiveTabs.has(windowId)) {
-      windowId = [...this.ownerActiveTabs.keys()].at(-1) ?? null;
+    const existingWindowID = await this.#reusableBackgroundTaskWindowID();
+    if (Number.isInteger(existingWindowID)) {
+      const tab = await this.chrome.tabs.create({
+        url,
+        active: false,
+        pinned: false,
+        windowId: existingWindowID,
+      });
+      if (!Number.isInteger(tab?.id) || tab.windowId !== existingWindowID) {
+        throw new Error("Background connection tab creation failed");
+      }
+      this.allowTaskTab(tab.id);
+      return tab.id;
     }
-    if (!Number.isInteger(windowId)) throw new Error("Owner browser window is unavailable");
-    const tab = await this.chrome.tabs.create({ url, active: false, pinned: false, windowId });
-    if (!Number.isInteger(tab?.id) || tab.windowId !== windowId) {
-      throw new Error("Background connection tab creation failed");
+
+    const taskWindow = await this.chrome.windows.create({
+      focused: false,
+      type: "normal",
+    });
+    if (!Number.isInteger(taskWindow?.id)) throw new Error("Background task window creation failed");
+    this.backgroundTaskWindowID = taskWindow.id;
+    let tab = null;
+    try {
+      // Open the window first, then create the task tab inside that exact
+      // window. Some Chromium builds reject an extension URL passed directly
+      // to windows.create even though tabs.create accepts the same URL.
+      tab = await this.chrome.tabs.create({
+        url,
+        active: true,
+        pinned: false,
+        windowId: taskWindow.id,
+      });
+      if (!Number.isInteger(tab?.id) || tab.windowId !== taskWindow.id) {
+        throw new Error("Background connection tab creation failed");
+      }
+      this.allowTaskTab(tab.id);
+      const windowTabs = await this.chrome.tabs.query({ windowId: taskWindow.id });
+      const placeholderIDs = windowTabs
+        .map((candidate) => candidate.id)
+        .filter((tabId) => Number.isInteger(tabId) && tabId !== tab.id);
+      if (placeholderIDs.length > 0) await this.chrome.tabs.remove(placeholderIDs);
+      return tab.id;
+    } catch (error) {
+      if (Number.isInteger(tab?.id)) this.releaseTaskTab(tab.id);
+      if (this.backgroundTaskWindowID === taskWindow.id) this.backgroundTaskWindowID = null;
+      await this.chrome.windows.remove(taskWindow.id).catch(() => {});
+      throw error;
     }
-    this.allowTaskTab(tab.id);
-    return tab.id;
+  }
+
+  async #reusableBackgroundTaskWindowID() {
+    const windowId = this.backgroundTaskWindowID;
+    if (!Number.isInteger(windowId)) return null;
+    const taskWindow = await this.chrome.windows.get(windowId).catch(() => null);
+    if (!taskWindow || taskWindow.id !== windowId) {
+      this.backgroundTaskWindowID = null;
+      return null;
+    }
+    const tabs = await this.chrome.tabs.query({ windowId });
+    if (tabs.length > 0 && !tabs.some((tab) =>
+      (Number.isInteger(tab.id) && this.taskTabs.has(tab.id)) ||
+      (!this.releasedTaskTabs.has(tab.id) &&
+        (this.#isConnectionURL(tab.url) || this.#isConnectionURL(tab.pendingUrl))))) {
+      this.backgroundTaskWindowID = null;
+      return null;
+    }
+    return windowId;
   }
 
   async focusHandoffWindow(tabId) {
@@ -705,11 +842,18 @@ async function openRelayConnection(WebSocketClass, relayURL, timers) {
 export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protectedTabIDs = new Set()) {
   const protectedNow = () => typeof protectedTabIDs === "function" ? protectedTabIDs() : protectedTabIDs;
   const staleTabIDs = new Set();
-  const ownedGroupIDs = await ownedGroups.list();
+  const { groupIDs: ownedGroupIDs, tokens: ownedTokens } = await ownedGroups.ownership();
   const groups = await chromeAPI.tabGroups.query({});
   const staleGroups = new Map();
+  const groupsByToken = new Map();
   for (const group of groups) {
-    if (!ownedGroupIDs.has(group.id)) continue;
+    const token = ownershipTokenFromTitle(group.title);
+    if (token && ownedTokens.has(token)) {
+      const matching = groupsByToken.get(token) ?? [];
+      matching.push(group.id);
+      groupsByToken.set(token, matching);
+    }
+    if (!ownedGroupIDs.has(group.id) && !(token && ownedTokens.has(token))) continue;
     const tabs = await chromeAPI.tabs.query({ groupId: group.id });
     const tabIDs = tabs.map((tab) => tab.id).filter(Number.isInteger);
     if (tabIDs.some((tabId) => protectedNow().has(tabId))) continue;
@@ -725,8 +869,16 @@ export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protec
   }
   const closed = new Set(await focus.closeTaskTabs([...staleTabIDs], tabId => !protectedNow().has(tabId)));
   const liveGroupIDs = new Set(groups.map((group) => group.id));
-  await ownedGroups.remove([...ownedGroupIDs].filter((groupID) =>
-    !liveGroupIDs.has(groupID) || staleGroups.has(groupID) && staleGroups.get(groupID).every(tabId => closed.has(tabId))));
+  const removableGroupIDs = [...ownedGroupIDs].filter((groupID) =>
+    !liveGroupIDs.has(groupID) || staleGroups.has(groupID) && staleGroups.get(groupID).every(tabId => closed.has(tabId)));
+  const removableTokens = [...ownedTokens].filter((token) => {
+    const matchingGroupIDs = groupsByToken.get(token) ?? [];
+    // Keep unmatched durable tokens: browser-session restoration may publish
+    // groups after an early extension startup sweep has already inventoried.
+    return matchingGroupIDs.length > 0 && matchingGroupIDs.every((groupID) =>
+      staleGroups.has(groupID) && staleGroups.get(groupID).every(tabId => closed.has(tabId)));
+  });
+  await ownedGroups.remove(removableGroupIDs, removableTokens);
 }
 
 async function ungroupTabs(chromeAPI, tabIds) {
@@ -746,13 +898,40 @@ async function closeTaskTabs(chromeAPI, tabIds) {
   }
 }
 
-function uniqueGroupStyle(clientName, groups) {
+function uniqueGroupStyle(clientName, groups, ownershipToken) {
   const base = `${GROUP_TITLE_PREFIX} · ${boundedClientName(clientName)}`;
-  const titles = new Set(groups.map((group) => group.style.title));
+  const titles = new Set(groups.map((group) => withoutOwnershipToken(group.style.title)));
   let title = base;
   for (let index = 2; titles.has(title); index++) title = `${base} (${index})`;
   const usedColors = new Set(groups.map((group) => group.style.color));
-  return { title, color: GROUP_COLORS.find((color) => !usedColors.has(color)) ?? GROUP_COLORS[0] };
+  return withOwnershipToken(
+    { title, color: GROUP_COLORS.find((color) => !usedColors.has(color)) ?? GROUP_COLORS[0] },
+    ownershipToken,
+  );
+}
+
+function createOwnershipToken() {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function withOwnershipToken(style, ownershipToken) {
+  if (!OWNERSHIP_TOKEN_PATTERN.test(ownershipToken)) throw new Error("Invalid task group ownership token");
+  return { ...style, title: `${withoutOwnershipToken(style.title)}${OWNERSHIP_TITLE_MARKER}${ownershipToken}` };
+}
+
+function ownershipTokenFromTitle(title) {
+  if (typeof title !== "string") return null;
+  const markerIndex = title.lastIndexOf(OWNERSHIP_TITLE_MARKER);
+  if (markerIndex < 0) return null;
+  const token = title.slice(markerIndex + OWNERSHIP_TITLE_MARKER.length);
+  return OWNERSHIP_TOKEN_PATTERN.test(token) ? token : null;
+}
+
+function withoutOwnershipToken(title) {
+  const token = ownershipTokenFromTitle(title);
+  return token ? title.slice(0, -(OWNERSHIP_TITLE_MARKER.length + token.length)) : title;
 }
 
 function safeError(error) {

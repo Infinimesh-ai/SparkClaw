@@ -161,6 +161,11 @@ func TestEmailEventsPolicyFencesLegacyAndSurvivesFileRestart(t *testing.T) {
 	f := emailFixture(t, repo)
 	m := f.parse(f.capture(f.admit("legacy", time.Now())), "<legacy@example.com>")
 	legacy := f.claim(app.EmailJobMessageSummary)
+	queuedBeforePolicy, err := repo.EnsureEmailPresentations(t.Context(), EmailPresentationCommand{EmailCommand: f.command(), Query: EmailPresentationQuery{OwnerID: f.owner, TargetKind: "mail", TargetIDs: []string{m.ID}, Language: "zh"}})
+	f.must(err)
+	if len(queuedBeforePolicy) != 1 || queuedBeforePolicy[0].State != "queued" {
+		t.Fatalf("legacy mail presentation not queued: %+v", queuedBeforePolicy)
+	}
 	activateEvents(t, f)
 	_, err = repo.PublishEmailSummary(t.Context(), EmailSummaryCommand{EmailCommand: f.command(), Lease: f.lease(legacy), Summary: app.EmailSummary{ID: "late", TargetKind: legacy.Kind, TargetID: m.ID, Text: "late summary", ModelVersion: "fixture", PromptVersion: "old", Generation: legacy.Generation, InputFingerprint: legacy.InputFingerprint}})
 	if StoreErrorCodeOf(err) != StoreErrorConflict {
@@ -170,7 +175,7 @@ func TestEmailEventsPolicyFencesLegacyAndSurvivesFileRestart(t *testing.T) {
 	resumed, err := NewFileStore(filename)
 	f.must(err)
 	f.repo = resumed
-	for _, kind := range []string{app.EmailJobRelationshipCheck, app.EmailJobPresentation} {
+	for _, kind := range []string{app.EmailJobRelationshipCheck} {
 		_, found, err := resumed.ClaimEmailJob(t.Context(), EmailJobClaim{OwnerID: f.owner, Kinds: []string{kind}})
 		f.must(err)
 		if found {
@@ -179,8 +184,24 @@ func TestEmailEventsPolicyFencesLegacyAndSurvivesFileRestart(t *testing.T) {
 	}
 	p, err := resumed.EnsureEmailPresentations(t.Context(), EmailPresentationCommand{EmailCommand: f.command(), Query: EmailPresentationQuery{OwnerID: f.owner, TargetKind: "mail", TargetIDs: []string{m.ID}, Language: "zh"}, Retry: true})
 	f.must(err)
-	if len(p) != 1 || p[0].State != "suspended" {
-		t.Fatalf("presentation rearmed %+v", p)
+	if len(p) != 1 || p[0].State != "queued" {
+		t.Fatalf("mail presentation not rearmed %+v", p)
+	}
+	mailPresentation, found, err := resumed.ClaimEmailJob(t.Context(), EmailJobClaim{OwnerID: f.owner, Kinds: []string{app.EmailJobPresentation}})
+	f.must(err)
+	if !found || mailPresentation.TargetID != p[0].ID {
+		t.Fatalf("mail presentation not claimable: found=%t job=%+v", found, mailPresentation)
+	}
+	m, found, err = resumed.GetEmailMail(t.Context(), f.owner, m.ID)
+	f.must(err)
+	if !found {
+		t.Fatal("mail missing after restart")
+	}
+	m = manualEvent(t, f, m, "", "Legacy purchase")
+	conversation, err := resumed.EnsureEmailPresentations(t.Context(), EmailPresentationCommand{EmailCommand: f.command(), Query: EmailPresentationQuery{OwnerID: f.owner, TargetKind: "conversation", TargetIDs: []string{m.ConversationID}, Language: "zh"}, Retry: true})
+	f.must(err)
+	if len(conversation) != 1 || conversation[0].State != "suspended" {
+		t.Fatalf("conversation overview rearmed %+v", conversation)
 	}
 	for i := 0; i < 3; i++ {
 		job, err := resumed.RequestEmailJob(t.Context(), EmailJobRequest{EmailCommand: f.command(), Kind: app.EmailJobMessageSummary, TargetID: m.ID, Rearm: true, ForceAnalysis: true})

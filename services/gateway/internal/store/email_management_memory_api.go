@@ -107,6 +107,13 @@ func (s *MemoryStore) PublishEmailRepresentation(ctx context.Context, c EmailRep
 	return emailMemoryRun(s, ctx, OperationPublishEmailRepresentation, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailMail, error) { return emailRepresentation(e, c) })
 }
 
+func (s *MemoryStore) PublishEmailRenderPreview(ctx context.Context, c EmailRenderPreviewCommand) (app.EmailRenderPreview, error) {
+	if c.CommandKey == "" {
+		return app.EmailRenderPreview{}, errEmailCommandInvalid(ctx, OperationPublishEmailRenderPreview)
+	}
+	return emailMemoryRun(s, ctx, OperationPublishEmailRenderPreview, c.OwnerID, c.CommandKey, c, true, func(e *emailEngine) (app.EmailRenderPreview, error) { return emailPublishRenderPreview(e, c) })
+}
+
 func (s *MemoryStore) PublishEmailContext(ctx context.Context, c EmailContextCommand) (app.EmailMail, error) {
 	if c.CommandKey == "" {
 		return *new(app.EmailMail), errEmailCommandInvalid(ctx, OperationPublishEmailContext)
@@ -168,6 +175,13 @@ func (s *MemoryStore) GetEmailCapture(ctx context.Context, ownerID, id string) (
 func (s *MemoryStore) GetEmailRepresentation(ctx context.Context, ownerID, id string) (app.EmailRepresentation, bool, error) {
 	pair, err := emailMemoryRun(s, ctx, OperationGetEmailRepresentation, ownerID, "", nil, false, func(e *emailEngine) (emailOptional[app.EmailRepresentation], error) {
 		return emailReadRecord[app.EmailRepresentation](e, "representation", id)
+	})
+	return pair.Value, pair.Found, err
+}
+
+func (s *MemoryStore) GetEmailRenderPreview(ctx context.Context, ownerID, representationID, sanitizerVersion string) (app.EmailRenderPreview, bool, error) {
+	pair, err := emailMemoryRun(s, ctx, OperationGetEmailRenderPreview, ownerID, "", nil, false, func(e *emailEngine) (emailOptional[app.EmailRenderPreview], error) {
+		return emailGetRenderPreview(e, representationID, sanitizerVersion)
 	})
 	return pair.Value, pair.Found, err
 }

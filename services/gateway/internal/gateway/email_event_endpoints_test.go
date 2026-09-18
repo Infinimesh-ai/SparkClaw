@@ -70,6 +70,29 @@ func TestEmailEventHTTPAssignmentAndRenameReplay(t *testing.T) {
 		t.Fatal("event edit ran browser inline")
 	}
 }
+
+func TestEmailEventHTTPDeleteConversationCascadesAndReplays(t *testing.T) {
+	f := newEmailHTTPFixture(t)
+	mail := f.receive("delete-conversation", time.Now())
+	assigned := eventHTTPAssign(t, f, mail, "", "Delete this conversation", "delete-assignment")
+	detail := emailDecode[emailmanagement.ConversationDetail](t, f.request("GET", "/api/email/conversations/"+assigned.ConversationID, ""), 200)
+	path := "/api/email/conversations/" + assigned.ConversationID
+	if w := f.request("DELETE", path, fmt.Sprintf(`{"expected_version":%d,"command_key":"stale-delete"}`, detail.Conversation.Version-1)); w.Code != http.StatusConflict {
+		t.Fatalf("stale delete=%d: %s", w.Code, w.Body.String())
+	}
+	body := fmt.Sprintf(`{"expected_version":%d,"command_key":"delete-conversation"}`, detail.Conversation.Version)
+	deleted := emailDecode[emailmanagement.ConversationDeleteResult](t, f.request("DELETE", path, body), 200)
+	replay := emailDecode[emailmanagement.ConversationDeleteResult](t, f.request("DELETE", path, body), 200)
+	if deleted.ConversationID != assigned.ConversationID || deleted.DeletedMails != 1 || replay.ConversationID != deleted.ConversationID || replay.DeletedMails != deleted.DeletedMails {
+		t.Fatalf("unstable conversation deletion: %+v %+v", deleted, replay)
+	}
+	if w := f.request("GET", path, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("deleted conversation get=%d: %s", w.Code, w.Body.String())
+	}
+	if w := f.request("GET", "/api/email/messages/"+mail.ID, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("deleted mail get=%d: %s", w.Code, w.Body.String())
+	}
+}
 func TestEmailEventHTTPMixedRoutingAndManualIndexCorrection(t *testing.T) {
 	f := newEmailHTTPFixture(t)
 	classify := func(m app.EmailMail, key string) {

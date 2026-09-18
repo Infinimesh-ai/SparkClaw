@@ -465,6 +465,15 @@ func emailRepresentation(e *emailEngine, c EmailRepresentationCommand) (app.Emai
 	}
 	v.CreatedAt = e.now
 	emailPut(e, "representation", v.ID, m.ID, "", "", "", v.ID, v)
+	if c.RenderPreview != nil {
+		capture, ok := emailGet[app.EmailCaptureVersion](e, "capture", v.CaptureID)
+		if !ok || capture.MailID != m.ID {
+			return m, errEmailConflict
+		}
+		if _, err = emailSaveRenderPreview(e, *c.RenderPreview, m, v, capture); err != nil {
+			return m, err
+		}
+	}
 	m.RepresentationID = v.ID
 	m.Subject = v.Subject
 	m.Participants = emailUnique(append(append(append([]string{}, v.From...), v.To...), v.CC...))

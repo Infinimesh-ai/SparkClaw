@@ -1,8 +1,10 @@
 package gateway
 
 import (
+	"context"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"net/http"
+	"time"
 )
 
 func (s *Server) changeEmailAssignment(w http.ResponseWriter, r *http.Request) {
@@ -20,6 +22,30 @@ func (s *Server) changeEmailAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := s.emailManagement.ChangeAssignment(r.Context(), store.EmailManualAssignment{EmailCommand: store.EmailCommand{OwnerID: principalForRequest(r).OwnerID, CommandKey: in.CommandKey}, MailID: r.PathValue("mail"), ConversationID: in.ConversationID, Title: in.Title, ExpectedVersion: in.ExpectedVersion})
+	if err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+func (s *Server) deleteEmailConversation(w http.ResponseWriter, r *http.Request) {
+	if !s.emailManagementReady(w) {
+		return
+	}
+	var in struct {
+		ExpectedVersion int64  `json:"expected_version"`
+		CommandKey      string `json:"command_key"`
+	}
+	if err := readEmailJSON(w, r, &in); err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	out, err := s.emailManagement.DeleteConversation(ctx, store.EmailConversationDelete{
+		EmailCommand:   store.EmailCommand{OwnerID: principalForRequest(r).OwnerID, CommandKey: in.CommandKey},
+		ConversationID: r.PathValue("conversation"), ExpectedVersion: in.ExpectedVersion,
+	})
 	if err != nil {
 		writeEmailManagementError(w, err)
 		return

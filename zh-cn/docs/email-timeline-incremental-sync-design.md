@@ -427,7 +427,7 @@ v2 切换不恢复已删除历史。
 
 已实现双水位、固定在途区间、有界精确 ID 随轮补齐、两次合格邮件级失败抑制、持久告警确认、溢出确认一次后转终态缺口，以及同时提交观察、来源、解析任务与边界的 Store 复合事务。非空来源批次在 rename 前只写一份恢复日志，空轮次不写；完整 MIME 解析异步执行。刷新使用同一调度器，并留存已认证 actor 证据。
 
-普通轮询及刷新不再请求或领取旧 capture、thread-sync、mark-read、source-recovery 任务。有界、可恢复且幂等的 timeline 策略将持久化旧 queued／running／failed 任务退休，保留原错误／attempt 审计及持久同步告警。延迟到达的旧租约不能发布来源或完成后生成新解析任务。Discover、parse 与语义任务保持不变；Memory、File 和真实隔离 PostgreSQL 测试覆盖此迁移。
+普通轮询及刷新不再请求或领取旧 capture、thread-sync、mark-read、source-recovery 任务。有界、可恢复且幂等的 timeline 策略将持久化旧 queued／running／failed 任务退休，保留原错误／attempt 审计及持久同步告警。延迟到达的旧租约不能发布来源或完成后生成新解析任务。Discover、parse 与语义任务保持不变。QQ 新验收的 mark-read 是当前 timeline 轮次中的提交后效果，不是恢复逐封任务：必须先提交 Store 来源，再由新的提供方列表确认精确目标已读；不确定时保留完整来源，远端状态维持 `unknown`。Memory、File 和真实隔离 PostgreSQL 测试覆盖此迁移。
 
 启动只按显式 purge 标记补完清理、重放有界日志，并一次性校验已提交 Store 来源指针；普通轮询不扫描历史未采集索引、staging 或日期目录树。未标记 staging 保留，以免清理破坏在途日志的唯一原件。为显式操作／测试保留的旧辅助函数不参与正常调度。
 

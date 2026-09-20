@@ -33,7 +33,7 @@ raise SystemExit(0)
 """
 
 FAKE_CURL = r"""#!/usr/bin/env python3
-print('{"ok":true,"auth_required":false,"model_mode":"external","state_backend":"postgres"}')
+print('{"ok":true,"auth_required":false,"model_mode":"external","state_backend":"postgres","credential_vault":{"ready":true,"state":"ready"}}')
 """
 
 FAKE_BROWSER_SETUP = r"""#!/usr/bin/env bash

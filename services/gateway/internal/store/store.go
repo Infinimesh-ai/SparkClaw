@@ -78,6 +78,7 @@ type ClientRepository interface {
 type CredentialRepository interface {
 	SaveCredentialSecret(context.Context, CredentialSaveCommand) (app.CredentialSecret, error)
 	GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error)
+	ListCredentialSecrets(context.Context) ([]app.CredentialSecret, error)
 	DeleteCredentialSecret(context.Context, CredentialDeleteCondition) (app.CredentialSecret, error)
 }
 
@@ -259,6 +260,7 @@ type ExternalChatRepository interface {
 }
 
 type MCPRepository interface {
+	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
 	SaveMCPAccessTicket(context.Context, app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(context.Context, string) (app.MCPAccessTicket, bool, error)
 	FindMCPAccessTicketBySecretHash(context.Context, string) (app.MCPAccessTicket, bool, error)

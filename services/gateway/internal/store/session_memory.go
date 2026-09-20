@@ -83,7 +83,7 @@ func (s *MemoryStore) normalizeLinkedMCPSessionsLocked() {
 		linked.OwnerID = binding.OwnerID
 		linked.Title = mcpSessionTitle(binding.RequesterDeviceID)
 		linked.Source = "mcp"
-		linked.Hidden = false
+		linked.Hidden = true
 		if linked.CreatedAt.IsZero() {
 			linked.CreatedAt = firstNonZeroTime(binding.CreatedAt, now)
 		}
@@ -198,28 +198,53 @@ func (s *MemoryStore) UpdateSessionTitle(ctx context.Context, id, title string) 
 }
 
 func (s *MemoryStore) DeleteSession(ctx context.Context, id string) (app.Session, error) {
-	ctx, cancel := operationContext(ctx, OperationSessionDelete, s.operationTimeouts)
+	return s.deleteSession(ctx, id, false)
+}
+
+// DeleteMCPInvocationSession removes the complete session-scoped record of one
+// terminal inbound MCP request. Ordinary session deletion remains unable to
+// mutate MCP-managed conversations.
+func (s *MemoryStore) DeleteMCPInvocationSession(ctx context.Context, id string) (app.Session, error) {
+	return s.deleteSession(ctx, id, true, OperationMCPInvocationSessionDelete)
+}
+
+func (s *MemoryStore) deleteSession(ctx context.Context, id string, mcpInvocation bool, operations ...StoreOperation) (app.Session, error) {
+	operation := OperationSessionDelete
+	if len(operations) > 0 {
+		operation = operations[0]
+	}
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
 	defer cancel()
-	if err := operationContextError(OperationSessionDelete, ctx); err != nil {
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Session{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
+		return app.Session{}, storeError(ctx, operation, StoreErrorInvalid, errors.New("session ID is required"))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := operationContextError(OperationSessionDelete, ctx); err != nil {
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Session{}, err
 	}
 	session, ok := s.sessions[id]
 	if !ok {
-		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorNotFound, errors.New("session not found"))
+		return app.Session{}, storeError(ctx, operation, StoreErrorNotFound, errors.New("session not found"))
 	}
 	if err := validatePersistedSession(id, session); err != nil {
-		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorCorrupt, err)
+		return app.Session{}, storeError(ctx, operation, StoreErrorCorrupt, err)
 	}
-	if strings.TrimSpace(session.Source) == "mcp" {
-		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorConflict, errors.New("MCP session history is binding-owned"))
+	if strings.TrimSpace(session.Source) == "mcp" && !mcpInvocation {
+		return app.Session{}, storeError(ctx, operation, StoreErrorConflict, errors.New("MCP session history is binding-owned"))
+	}
+	if mcpInvocation && (strings.TrimSpace(session.Source) != "mcp" || !session.Hidden) {
+		return app.Session{}, storeError(ctx, operation, StoreErrorConflict, errors.New("only hidden MCP invocation sessions can be deleted internally"))
+	}
+	if mcpInvocation {
+		for _, binding := range s.mcpBindings {
+			if binding.LinkedSessionID == id {
+				return app.Session{}, storeError(ctx, operation, StoreErrorConflict, errors.New("MCP binding anchors cannot be deleted as invocation sessions"))
+			}
+		}
 	}
 	runIDs := map[string]bool{}
 	for runID, run := range s.runs {
@@ -325,7 +350,9 @@ func (s *MemoryStore) DeleteSession(ctx context.Context, id string) (app.Session
 	}
 	s.auditEvents = filterAuditEvents(s.auditEvents, id)
 	s.events = filterEvents(s.events, id)
-	s.appendAuditLocked("session.deleted", "", "", "owner", "Session deleted", map[string]any{"session_id": id, "title": session.Title})
-	s.appendEventLocked("session.deleted", "", "", session)
+	if !mcpInvocation {
+		s.appendAuditLocked("session.deleted", "", "", "owner", "Session deleted", map[string]any{"session_id": id, "title": session.Title})
+		s.appendEventLocked("session.deleted", "", "", session)
+	}
 	return session, nil
 }

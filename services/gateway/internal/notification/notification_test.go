@@ -30,6 +30,10 @@ func (r unavailableNotificationCredentialRepository) GetCredentialSecret(context
 	return app.CredentialSecret{}, false, r.err
 }
 
+func (r unavailableNotificationCredentialRepository) ListCredentialSecrets(context.Context) ([]app.CredentialSecret, error) {
+	return nil, r.err
+}
+
 func (r unavailableNotificationCredentialRepository) DeleteCredentialSecret(context.Context, store.CredentialDeleteCondition) (app.CredentialSecret, error) {
 	return app.CredentialSecret{}, r.err
 }

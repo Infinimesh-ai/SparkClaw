@@ -474,12 +474,13 @@ conversation scope, the single `sparkclaw.conversation.send` business tool,
 ordinary semantic routing, bounded filename-only Top-1 response-media
 resolution behind a pre-discovery owner approval, shared Delivery, binding-scoped
 operation recovery, default-off channel gates, and redacted lifecycle audit.
-Each Binding owns a visible `AI · <short device ID>` conversation whose title
-and content lifecycle cannot be changed through ordinary session controls;
-requirements enter only through the authenticated Binding, and WebChat presents
-the conversation as read-only. Inbound media locators appear as unverified
-non-downloadable requirements. Binding revocation or record deletion retains
-the read-only conversation history. Workspace
+Each Binding keeps a hidden `AI · <short device ID>` management anchor, while
+every inbound request uses an isolated hidden temporary session. WebChat never
+lists these sessions. Requirements enter only through the authenticated
+Binding, and inbound media locators remain unverified and non-downloadable.
+After success, failure, cancellation, or revocation, the temporary session and
+its complete session-scoped execution record are deleted; only the idempotent
+operation result and redacted lifecycle audit remain. Workspace
 approvals expose a derived human-readable review projection while authorization
 continues to bind only the frozen tool arguments and authenticated policy
 context. Approval resolution returns after the decision is durable; detached

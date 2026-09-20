@@ -4,7 +4,7 @@ import { dictionaries } from "../i18n";
 import { SessionSidebar } from "./sidebar";
 
 describe("SessionSidebar MCP conversations", () => {
-  it("keeps the managed title visible without ordinary rename or delete controls", () => {
+  it("omits managed MCP conversations from recent sessions", () => {
     const markup = renderToStaticMarkup(
       <SessionSidebar
         text={dictionaries.en}
@@ -34,7 +34,7 @@ describe("SessionSidebar MCP conversations", () => {
       />
     );
 
-    expect(markup).toContain("AI · device-a");
+    expect(markup).not.toContain("AI · device-a");
     expect(markup).not.toContain(dictionaries.en.nav.renameSession);
     expect(markup).not.toContain(dictionaries.en.nav.deleteSession);
   });

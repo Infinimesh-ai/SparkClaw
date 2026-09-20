@@ -64,17 +64,17 @@ plan、output class 与 return route。
 
 ### Owner 审阅界面与恢复生命周期
 
-每个 MCP Binding 拥有一个可见对话，标题为 `AI · <设备短 ID>`。标题从经过认证的 device
-identity 派生；普通 session rename、delete 与 message API 都拒绝写入 MCP 对话，请求只能经
-authenticated Binding 进入。File Store 加载与 PostgreSQL migration 会把既有隐藏的
-`External MCP` 对话规范化。WebChat 因而把该对话作为只读审阅界面，只在 session title 中标识
-一次 external AI；对话内的 inbound request 使用中性作者标签“要求”，仅展示具体文本与媒体请求
-条件。Revoke 或删除 access Binding 会停止访问，但保留该只读会话历史；删除历史需要另一个明确的
-数据清理动作。
+Inbound MCP 请求不再出现在 WebChat 会话列表中。Binding 只保留一个标题为
+`AI · <设备短 ID>` 的隐藏管理锚点，标题从经过认证的 device identity 派生。每次调用都使用独立的
+隐藏临时 session，因此并发请求不会共享或误删彼此状态。等待本地审批期间该 session 继续存在；
+operation 成功、失败、取消或撤销进入终态后，立即删除其中的 message、run、model/tool call、
+approval、artifact、event 及其他 session-scoped 记录。为支持协议结果轮询和安全重试，durable
+idempotent MCP operation result 与脱敏 lifecycle audit 仍会保留。普通 session rename、delete 与
+message API 仍拒绝 MCP session，请求只能经 authenticated Binding 进入。File Store 加载与
+PostgreSQL migration 会把既有 Binding 锚点规范化为隐藏状态，WebChat 也会防御性过滤 MCP 来源会话。
 
-MCP `media` locator 以 `requested_media` 持久化在 user message 上。它们显示为不可点击、尚未
-验证的请求条件，绝不投影成可下载附件。因此 pure-media call 也有可见消息，同时不会暗示
-SparkClaw 已找到、打开或授权该文件。
+MCP `media` locator 只在临时请求 session 中以 `requested_media` 持久化。它们始终是尚未验证的
+请求条件，绝不投影成可下载附件；operation 终态清理会将其与该次调用的其余记录一起删除。
 
 Approval API 从冻结的 approval argument 与 authenticated `PolicyExecutionContext` 派生只读
 presentation，展示受管理的 AI 对话标题、未验证 locator、access class、output class、return

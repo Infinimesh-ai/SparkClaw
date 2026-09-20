@@ -351,10 +351,11 @@ SparkClaw 自身负责的本地
 runtime 已实现：严格 MCP `2025-06-18`、只存 hash 的单次 MCP Access Ticket、持久 peer
 Binding schema v2 conversation scope、唯一业务工具 `sparkclaw.conversation.send`、普通语义路由、
 经 discovery 前 owner approval 保护的有界纯文件名 Top-1 response-media 查询、共享 Delivery、Binding-scoped operation
-恢复、默认关闭 channel gate 和脱敏 lifecycle audit。每个 Binding 拥有一个可见的
-`AI · <设备短 ID>` 对话，其标题与内容生命周期不能通过普通 session control 修改；请求只经
-authenticated Binding 进入，WebChat 将该对话作为只读界面展示。Inbound media locator 以尚未
-验证且不可下载的要求展示；Binding revoke 或记录删除仍保留只读会话历史。Workspace approval
+恢复、默认关闭 channel gate 和脱敏 lifecycle audit。每个 Binding 只保留一个隐藏的
+`AI · <设备短 ID>` 管理锚点，每次 inbound request 使用相互隔离的隐藏临时 session；WebChat
+不会列出这些 session。请求只经 authenticated Binding 进入，Inbound media locator 始终是尚未
+验证且不可下载的要求。operation 成功、失败、取消或撤销后会删除临时 session 及完整的
+session-scoped 执行记录，只保留幂等 operation result 与脱敏 lifecycle audit。Workspace approval
 提供派生的人类可读审阅投影，而
 授权仍只绑定冻结的 tool argument 与 authenticated policy context。Approval resolution 在
 decision 持久化后立即返回；脱离 HTTP request 的 Gateway work 让 MCP operation 从

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { AlertTriangle, ChevronDown, Clock3, Pencil, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowUp, ChevronDown, Clock3, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import type { Schedule } from "../api/types";
 import type { Copy, Language } from "../i18n";
 import { formatScheduleTime, schedulePattern } from "../lib/schedules";
@@ -11,6 +11,99 @@ export type ScheduleEditDraft = {
   timezone: string;
   recurrence: string;
 };
+
+export type ScheduleCreateResult = {
+  message: string;
+  success: boolean;
+};
+
+type ScheduleCreateDialogProps = {
+  busy: boolean;
+  text: Copy;
+  onClose: () => void;
+  onCreate: (request: string) => Promise<ScheduleCreateResult | null>;
+};
+
+export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: ScheduleCreateDialogProps) {
+  const [request, setRequest] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = request.trim();
+    if (!trimmed || busy || submitting) return;
+    setSubmitting(true);
+    setResult("");
+    try {
+      const outcome = await onCreate(trimmed);
+      if (!outcome) return;
+      if (outcome.success) {
+        setRequest("");
+        setResult("");
+        onClose();
+      } else {
+        setResult(outcome.message);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="documentPickerOverlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="schedule-create-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy && !submitting) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !busy && !submitting) {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+    >
+      <form className="scheduleDialog scheduleCreateDialog" onSubmit={(event) => void submit(event)}>
+        <div className="documentPickerHeader scheduleCreateDialogHeader">
+          <div className="scheduleCreateIntro">
+            <Clock3 size={18} aria-hidden="true" />
+            <div>
+              <h2 id="schedule-create-title">{text.schedules.createTitle}</h2>
+              <p>{text.schedules.createDescription}</p>
+            </div>
+          </div>
+          <button className="attachmentRemove" type="button" onClick={onClose} disabled={busy || submitting} title={text.common.close} aria-label={text.common.close}>
+            <X size={14} />
+          </button>
+        </div>
+        <textarea
+          autoFocus
+          value={request}
+          onChange={(event) => setRequest(event.target.value)}
+          placeholder={text.schedules.createPlaceholder}
+          aria-label={text.schedules.createPlaceholder}
+          rows={5}
+          disabled={busy || submitting}
+        />
+        {result ? <p className="scheduleCreateResult" role="status">{result}</p> : null}
+        <div className="scheduleDialogActions">
+          <button className="secondaryButton" type="button" onClick={onClose} disabled={busy || submitting}>{text.common.cancel}</button>
+          <button
+            className="primaryButton scheduleCreateButton"
+            type="submit"
+            disabled={busy || submitting || !request.trim()}
+          >
+            <span>{submitting ? text.schedules.creating : text.schedules.createAction}</span>
+            <ArrowUp size={15} />
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 type ScheduleBarProps = {
   schedules: Schedule[];

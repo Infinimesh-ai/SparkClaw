@@ -21,6 +21,7 @@ const PENDING_CONNECTION_TTL_MS = 6500;
 const RELAY_CONNECT_TIMEOUT_MS = 5000;
 const OWNED_GROUP_IDS_KEY = "sparkclawTaskGroupIDs";
 const OWNED_GROUP_TOKENS_KEY = "sparkclawTaskGroupTokens";
+const BACKGROUND_TASK_WINDOW_ID_KEY = "sparkclawBackgroundTaskWindowID";
 const OWNERSHIP_TITLE_MARKER = " · sc:";
 const OWNERSHIP_TOKEN_PATTERN = /^[0-9a-f]{32}$/u;
 
@@ -563,12 +564,14 @@ export class OwnedGroupRegistry {
 export class FocusTracker {
   constructor(chromeAPI) {
     this.chrome = chromeAPI;
+    this.sessionStorage = chromeAPI.storage?.session ?? null;
     this.ownerActiveTabs = new Map();
     this.taskTabs = new Set();
     this.releasedTaskTabs = new Set();
     this.handoffGrants = new Set();
     this.handoffWindows = new Map();
     this.backgroundTaskWindowID = null;
+    this.backgroundWindowStorageQueue = Promise.resolve();
     this.backgroundOpenQueue = Promise.resolve();
     this.chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
       if (this.taskTabs.has(tabId)) {
@@ -602,7 +605,10 @@ export class FocusTracker {
       this.#forgetTab(tabId);
     });
     this.chrome.windows.onRemoved.addListener((windowId) => {
-      if (this.backgroundTaskWindowID === windowId) this.backgroundTaskWindowID = null;
+      if (this.backgroundTaskWindowID === windowId) {
+        this.backgroundTaskWindowID = null;
+        void this.#persistBackgroundTaskWindowID(null);
+      }
     });
     this.ready = this.#seed();
   }
@@ -655,6 +661,7 @@ export class FocusTracker {
     });
     if (!Number.isInteger(taskWindow?.id)) throw new Error("Background task window creation failed");
     this.backgroundTaskWindowID = taskWindow.id;
+    await this.#persistBackgroundTaskWindowID(taskWindow.id);
     let tab = null;
     try {
       // Open the window first, then create the task tab inside that exact
@@ -662,7 +669,12 @@ export class FocusTracker {
       // to windows.create even though tabs.create accepts the same URL.
       tab = await this.chrome.tabs.create({
         url,
-        active: true,
+        // Keep the first connection page backgrounded too. Chromium may
+        // foreground a newly created window when its first tab is explicitly
+        // activated, even when windows.create({ focused: false }) was used.
+        // The placeholder is removed below; the connection tab then remains
+        // the active tab inside the still-unfocused task window.
+        active: false,
         pinned: false,
         windowId: taskWindow.id,
       });
@@ -679,17 +691,27 @@ export class FocusTracker {
     } catch (error) {
       if (Number.isInteger(tab?.id)) this.releaseTaskTab(tab.id);
       if (this.backgroundTaskWindowID === taskWindow.id) this.backgroundTaskWindowID = null;
+      await this.#persistBackgroundTaskWindowID(null);
       await this.chrome.windows.remove(taskWindow.id).catch(() => {});
       throw error;
     }
   }
 
   async #reusableBackgroundTaskWindowID() {
-    const windowId = this.backgroundTaskWindowID;
+    let windowId = this.backgroundTaskWindowID;
+    if (!Number.isInteger(windowId) && this.sessionStorage) {
+      await this.backgroundWindowStorageQueue;
+      const stored = await this.sessionStorage.get(BACKGROUND_TASK_WINDOW_ID_KEY).catch(() => ({}));
+      if (Number.isInteger(stored?.[BACKGROUND_TASK_WINDOW_ID_KEY])) {
+        windowId = stored[BACKGROUND_TASK_WINDOW_ID_KEY];
+        this.backgroundTaskWindowID = windowId;
+      }
+    }
     if (!Number.isInteger(windowId)) return null;
     const taskWindow = await this.chrome.windows.get(windowId).catch(() => null);
     if (!taskWindow || taskWindow.id !== windowId) {
       this.backgroundTaskWindowID = null;
+      await this.#persistBackgroundTaskWindowID(null);
       return null;
     }
     const tabs = await this.chrome.tabs.query({ windowId });
@@ -698,9 +720,20 @@ export class FocusTracker {
       (!this.releasedTaskTabs.has(tab.id) &&
         (this.#isConnectionURL(tab.url) || this.#isConnectionURL(tab.pendingUrl))))) {
       this.backgroundTaskWindowID = null;
+      await this.#persistBackgroundTaskWindowID(null);
       return null;
     }
     return windowId;
+  }
+
+  async #persistBackgroundTaskWindowID(windowId) {
+    if (!this.sessionStorage) return;
+    const storedWindowID = Number.isInteger(windowId) ? windowId : null;
+    const persisted = this.backgroundWindowStorageQueue.then(() => this.sessionStorage.set({
+      [BACKGROUND_TASK_WINDOW_ID_KEY]: storedWindowID,
+    }).catch(() => {}));
+    this.backgroundWindowStorageQueue = persisted.catch(() => {});
+    await persisted;
   }
 
   async focusHandoffWindow(tabId) {

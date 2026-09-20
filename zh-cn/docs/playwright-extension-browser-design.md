@@ -211,14 +211,13 @@ Controller，以及过期 Browser 或 Extension Generation。Health 只返回类
 WebChat 在 Browser Email 之外提供一个独立 Connection Entry：
 
 ```text
-Settings
-`- Connections
-   |- Browser control
-   |  `- SparkClaw Browser Bridge
-   `- Browser email
-      |- QQ Mail
-      |- Outlook
-      `- Gmail
+通讯工具
+|- 浏览器控制
+|  `- SparkClaw Browser Bridge
+`- 浏览器邮箱
+   |- QQ Mail
+   |- Outlook
+   `- Gmail
 ```
 
 `Browser control` 拥有共享浏览器连接。三个邮箱 Entry 继续只负责 Provider Enable、打开
@@ -563,7 +562,7 @@ Controller Service 不保存 Extension Token；Token 仍只保存在 Gateway Cre
 - Owner-scoped Controller、版本化私有协议、Authentication、Health、Process
   Supervision、Deadline、Generation 处理和 Cleanup Reconciliation 已实施并安装。
 - 加密的 `playwright-extension-token-v1` Credential、经过认证且脱敏的 API，以及
-  `Settings > Connections > Browser control` View 已加入。
+  `通讯工具 > 浏览器控制` View 已加入。
 - Fake Client、Protocol、Lifecycle、WebChat、Gateway 与真实宿主机覆盖已使用官方基线
   验证固定 Playwright 组合。
 

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -97,6 +98,66 @@ func TestListCurrentSchedulesIsReadOnlyOwnerScopedProjection(t *testing.T) {
 	}
 	if decoded.Schedules[0].Endpoint.Status != "unavailable" || decoded.Schedules[0].Editable || !decoded.Schedules[0].Cancelable {
 		t.Fatalf("unexpected unavailable endpoint controls: %#v", decoded.Schedules[0])
+	}
+}
+
+func TestCreateScheduleUsesHiddenContextAndReturnsOnlyScheduleOutcome(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
+	defer ts.Close()
+
+	payload := map[string]string{
+		"content": `Tomorrow at 9 AM remind me to send the report
+MOCK_STEP_RESPONSE:{"type":"action","tool":"reminders.create","arguments":{"text":"Send the report","due_time":"2099-08-19T09:00:00+08:00","timezone":"Asia/Shanghai"}}`,
+		"client_timezone": "Asia/Shanghai",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(ts.URL+"/api/schedules", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create schedule returned %d: %s", resp.StatusCode, raw)
+	}
+	var outcome map[string]any
+	if err := json.Unmarshal(raw, &outcome); err != nil {
+		t.Fatal(err)
+	}
+	if outcome["state"] != "completed" || len(outcome) != 2 {
+		t.Fatalf("unexpected schedule-only response: %#v", outcome)
+	}
+
+	visibleSessions, err := st.ListSessions(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visibleSessions) != 0 {
+		t.Fatalf("schedule creation surfaced a conversation: %#v", visibleSessions)
+	}
+	reminders, err := st.ListReminders(t.Context(), app.ReminderFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reminders) != 1 {
+		t.Fatalf("expected one scheduled task, got %#v", reminders)
+	}
+	internalSession, ok, err := st.GetSession(t.Context(), reminders[0].SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !internalSession.Hidden || internalSession.Source != "schedule" {
+		t.Fatalf("schedule context must stay internal: %#v ok=%t", internalSession, ok)
 	}
 }
 

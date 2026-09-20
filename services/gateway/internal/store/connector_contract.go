@@ -421,7 +421,10 @@ func claimBindingCredentialRef(owners map[string]string, binding app.Notificatio
 
 func latestNotificationBindingTime(binding app.NotificationBinding) time.Time {
 	latest := binding.CreatedAt
-	for _, candidate := range []time.Time{binding.UpdatedAt, timePointerValue(binding.ExpiresAt), timePointerValue(binding.RevokedAt)} {
+	// ExpiresAt is domain state, not a mutation timestamp. Including a future
+	// expiry here advances the repository write high-water into the future and
+	// corrupts UpdatedAt, audit ordering, and optimistic versions.
+	for _, candidate := range []time.Time{binding.UpdatedAt, timePointerValue(binding.RevokedAt)} {
 		if candidate.After(latest) {
 			latest = candidate
 		}

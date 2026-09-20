@@ -225,8 +225,8 @@ func (s *PostgresStore) normalizeMCPBindingSessions(ctx context.Context) error {
 		updatedAt := normalizeSessionTime(firstNonZeroTime(binding.UpdatedAt, createdAt))
 		if _, err := s.db.Exec(ctx, `
 			INSERT INTO sessions (id, owner_id, title, source, hidden, created_at, updated_at)
-			VALUES ($1, $2, $3, 'mcp', false, $4, $5)
-			ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, title=EXCLUDED.title, source='mcp', hidden=false
+			VALUES ($1, $2, $3, 'mcp', true, $4, $5)
+			ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, title=EXCLUDED.title, source='mcp', hidden=true
 		`, binding.LinkedSessionID, binding.OwnerID, mcpSessionTitle(binding.RequesterDeviceID), createdAt, updatedAt); err != nil {
 			return err
 		}

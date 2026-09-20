@@ -23,6 +23,9 @@
    绝不执行工具。
    Web 请求没有 owner 文本且只有 image/audio/file part 时，typed media-content route
    直接选择已注册的 `conversation.answer#publish` candidate，不合成文本，也不调用语义路由模型。
+   独立 schedule resource endpoint 从隐藏 schedule context 提供 typed create action，
+   直接选择已注册的 `schedule.manage#create` candidate；在 Workflow 分发前仍会经过
+   Guard 和 Catalog 校验。
 3. **分发** —— `dispatchMatchedWorkflow`（`workflow_dispatcher.go`）把匹配叶子
    解析为一个带版本的 Workflow Profile，冻结计划（节点、迁移、参数绑定、完成
    证据、计划摘要），持久化到运行记录上，并为第一个 active scope 物化工具。规范化后的

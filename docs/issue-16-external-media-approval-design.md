@@ -85,23 +85,24 @@ arguments, MCP identity, Workflow plan, output class, and return route.
 
 ### Owner Review Surface And Resume Lifecycle
 
-Each MCP Binding owns one visible conversation titled `AI · <short device ID>`.
-The title is derived from the authenticated device identity, and ordinary
-session rename, delete, and message APIs reject writes to MCP conversations;
-requirements enter only through the authenticated Binding. Existing hidden
-`External MCP` conversations are normalized on file-store load and PostgreSQL
-migration. WebChat therefore treats the conversation as a read-only review
-surface, identifies the external AI once in its session title, and labels each
-inbound request `Requirement` with only its requested text and media conditions.
-Revoking or deleting the access Binding stops access but retains this read-only
-conversation history; deleting that history would require a separate explicit
-data-purge action.
+Inbound MCP requests never appear in the WebChat conversation list. A Binding
+keeps only a hidden management anchor titled `AI · <short device ID>`, derived
+from the authenticated device identity. Each invocation runs in a separate
+hidden temporary session so concurrent requests cannot share or erase one
+another's state. That session remains available while local approval is
+pending, then its messages, run, model/tool calls, approvals, artifacts, events,
+and other session-scoped records are deleted when the operation succeeds,
+fails, is cancelled, or is revoked. The durable idempotent MCP operation result
+and redacted lifecycle audit remain available for protocol result polling and
+safe retry. Ordinary session rename, delete, and message APIs still reject MCP
+sessions; requirements enter only through the authenticated Binding. Existing
+Binding anchors are normalized to hidden on file-store load and PostgreSQL
+migration, and WebChat also filters MCP-sourced sessions defensively.
 
-MCP `media` locators are persisted on the user message as `requested_media`.
-They render as non-clickable, not-yet-verified request conditions and are never
-projected as downloadable attachments. A media-only call consequently has a
-visible message without implying that SparkClaw found, opened, or authorized
-the requested file.
+MCP `media` locators are persisted only in the temporary request session as
+`requested_media`. They remain unverified requirements and are never projected
+as downloadable attachments; terminal cleanup removes them with the rest of
+the invocation record.
 
 The approval API derives a read-only presentation from the frozen approval
 arguments and authenticated `PolicyExecutionContext`. It shows the managed AI

@@ -26,6 +26,15 @@ func (s *FileStore) GetCredentialSecret(ctx context.Context, ref string) (app.Cr
 	return s.inner.GetCredentialSecret(ctx, ref)
 }
 
+func (s *FileStore) ListCredentialSecrets(ctx context.Context) ([]app.CredentialSecret, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationCredentialSecretList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListCredentialSecrets(ctx)
+}
+
 func (s *FileStore) DeleteCredentialSecret(ctx context.Context, condition CredentialDeleteCondition) (app.CredentialSecret, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationCredentialSecretDelete, fileAdmissionCapacity)
 	if err != nil {

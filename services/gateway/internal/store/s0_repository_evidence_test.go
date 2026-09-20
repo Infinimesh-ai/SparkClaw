@@ -106,14 +106,14 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 	"CredentialRepository": s0EvidenceRow(
 		s0RepositoryTest("CredentialRepository", s0DimensionSuccess),
 		s0RepositoryTest("CredentialRepository", s0DimensionAbsence),
-		s0NA("CredentialRepository has exact-ref get only and no list, filter, ordering, or owner-scope query."),
+		s0RepositoryTest("CredentialRepository", s0DimensionOrderScope),
 		s0NA("CredentialSecret contains only scalar and time values, so no mutable alias can cross the Store boundary."),
 		s0RepositoryTest("CredentialRepository", s0DimensionDuplicate),
 		s0RepositoryTest("CredentialRepository", s0DimensionConflictDeletion),
 		s0LifecycleTest("CredentialRepository"),
 		s0Tests("TestFileStoreEncryptsStateAtRest@file_test.go"),
 		s0NA("Credential save/delete has no CAS, revision, or idempotent-create result beyond serialized ref overwrite."),
-		s0NA("PostgreSQL credential operations use Exec or QueryRow only; this repository has no multi-row iterator and therefore no rows.Err path."),
+		s0Tests("TestPostgresCredentialListReturnsRowsError@credential_postgres_contract_test.go"),
 	),
 	"SessionRepository": s0EvidenceRow(
 		s0RepositoryTest("SessionRepository", s0DimensionSuccess),

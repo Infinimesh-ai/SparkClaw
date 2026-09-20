@@ -146,6 +146,17 @@ func New(repository store.CredentialRepository, options Options) *Vault {
 		vault.readyErr = &Error{Code: CodeKeyUnavailable, cause: errors.New("credential repository is nil")}
 		return vault
 	}
+	if keyFileNeedsCreation(options) {
+		secrets, err := repository.ListCredentialSecrets(context.TODO())
+		if err != nil {
+			vault.readyErr = &Error{Code: CodeKeyUnavailable, cause: errors.New("credential repository could not be checked before key creation")}
+			return vault
+		}
+		if len(secrets) != 0 {
+			vault.readyErr = &Error{Code: CodeKeyUnavailable, cause: errors.New("existing credentials require the original credential key")}
+			return vault
+		}
+	}
 	key, err := loadKey(options)
 	if err != nil {
 		vault.readyErr = &Error{Code: CodeKeyUnavailable, cause: err}
@@ -165,6 +176,35 @@ func New(repository store.CredentialRepository, options Options) *Vault {
 		vault.readyErr = &Error{Code: CodeKeyUnavailable, cause: err}
 	}
 	return vault
+}
+
+// ValidateExisting proves that every persisted credential can be opened with
+// the loaded key. It is intentionally read-only and must run before the
+// gateway reports readiness, so a relocated installation cannot silently pair
+// an existing database with a newly generated key.
+func (v *Vault) ValidateExisting(ctx context.Context) error {
+	if err := v.Ready(); err != nil {
+		return err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	secrets, err := v.repository.ListCredentialSecrets(ctx)
+	if err != nil {
+		return v.mapRepositoryError(err)
+	}
+	for _, stored := range secrets {
+		plaintext, isEnvelope, openErr := v.openEnvelope(stored)
+		zero(plaintext)
+		if isEnvelope && openErr == nil {
+			continue
+		}
+		if !isEnvelope && stored.Kind == legacyWeixinCredentialKind && stored.Value != "" {
+			continue
+		}
+		return credentialError(CodeUnsealFailed, errors.New("persisted credential does not match the configured credential key"))
+	}
+	return nil
 }
 
 func (v *Vault) Ready() error {
@@ -804,6 +844,18 @@ func loadKey(options Options) ([]byte, error) {
 		return nil, errors.New("credential key file could not be written")
 	}
 	return key, nil
+}
+
+func keyFileNeedsCreation(options Options) bool {
+	if !options.AutoCreate || strings.TrimSpace(options.Key) != "" {
+		return false
+	}
+	path := strings.TrimSpace(options.KeyFile)
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return errors.Is(err, os.ErrNotExist)
 }
 
 func decodeKey(value string) ([]byte, error) {

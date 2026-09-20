@@ -20,17 +20,27 @@ type ScheduleAction struct {
 }
 
 func (r Runtime) scheduleActionRoute(action ScheduleAction, canonical string) (app.RouteDecision, error) {
-	if action.Operation != app.RouteOperationEdit && action.Operation != app.RouteOperationDelete {
-		return app.RouteDecision{}, errors.New("schedule action operation must be edit or delete")
-	}
-	if strings.TrimSpace(action.ScheduleID) == "" || strings.TrimSpace(action.ExpectedUpdatedAt) == "" {
-		return app.RouteDecision{}, errors.New("schedule action target and expected_updated_at are required")
+	switch action.Operation {
+	case app.RouteOperationCreate:
+		if strings.TrimSpace(action.ScheduleID) != "" || strings.TrimSpace(action.ExpectedUpdatedAt) != "" ||
+			action.Text != nil || action.DueTime != nil || action.Timezone != nil || action.Recurrence != nil {
+			return app.RouteDecision{}, errors.New("schedule create action must contain only the create operation")
+		}
+	case app.RouteOperationEdit, app.RouteOperationDelete:
+		if strings.TrimSpace(action.ScheduleID) == "" || strings.TrimSpace(action.ExpectedUpdatedAt) == "" {
+			return app.RouteDecision{}, errors.New("schedule action target and expected_updated_at are required")
+		}
+	default:
+		return app.RouteDecision{}, errors.New("schedule action operation must be create, edit, or delete")
 	}
 	path, err := r.capabilities.PathTo(app.CapabilityScheduleManage)
 	if err != nil {
 		return app.RouteDecision{}, err
 	}
-	facts := map[string]string{"schedule_expected_updated_at": strings.TrimSpace(action.ExpectedUpdatedAt)}
+	facts := map[string]string{}
+	if action.Operation != app.RouteOperationCreate {
+		facts["schedule_expected_updated_at"] = strings.TrimSpace(action.ExpectedUpdatedAt)
+	}
 	for key, value := range map[string]*string{
 		"schedule_text": action.Text, "schedule_due_time": action.DueTime,
 		"schedule_timezone": action.Timezone, "schedule_recurrence": action.Recurrence,

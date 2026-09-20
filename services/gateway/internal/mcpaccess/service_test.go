@@ -20,6 +20,7 @@ import (
 )
 
 type fakeRuntime struct {
+	sessionID          string
 	request            app.MCPConversationRequest
 	ingress            app.MessageIngressContext
 	result             agent.Result
@@ -361,7 +362,7 @@ func TestStaleWaitingResultDoesNotRegressApprovedRunningOperation(t *testing.T) 
 }
 
 func (r *fakeRuntime) HandleMCPConversation(ctx context.Context, sessionID, _, _ string, request app.MCPConversationRequest, ingress app.MessageIngressContext) (agent.Result, error) {
-	r.request, r.ingress = request, ingress
+	r.sessionID, r.request, r.ingress = sessionID, request, ingress
 	if r.invoked != nil {
 		select {
 		case r.invoked <- struct{}{}:
@@ -592,6 +593,12 @@ func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 	if runtime.ingress.Authorization.PrincipalID != app.DefaultOwnerID || runtime.request.Invocation.RequesterDeviceID != peer.DeviceID {
 		t.Fatalf("requester was promoted to executor: ingress=%#v request=%#v", runtime.ingress, runtime.request)
 	}
+	if runtime.sessionID == "" || runtime.sessionID == binding.LinkedSessionID {
+		t.Fatalf("MCP request did not receive an isolated temporary session: runtime_session=%q binding_session=%q", runtime.sessionID, binding.LinkedSessionID)
+	}
+	if _, found, readErr := st.GetSession(t.Context(), runtime.sessionID); readErr != nil || found {
+		t.Fatalf("terminal MCP request retained its temporary session: found=%t err=%v", found, readErr)
+	}
 	if replay := operationFromRPCResult(t, dispatchRPC(t, service, peer, "mcp-session", "idem-a", "tools/call", map[string]any{
 		"name": conversationToolName, "arguments": map[string]any{"text": "exact request"},
 	})); replay.ID != operation.ID {
@@ -637,13 +644,18 @@ func TestServiceRejectsOperationDeadlineBeyondMaximum(t *testing.T) {
 
 func TestProviderMapsBlockedResultToFailedOperation(t *testing.T) {
 	st := store.NewMemoryStore()
+	invocationSession, err := st.CreateSessionWithScope(t.Context(), "AI · device-a", app.DefaultOwnerID, "", "mcp", true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-blocked", BindingID: "binding-a", IdempotencyKey: "blocked", Fingerprint: "blocked",
-		Invocation: app.MCPInvocationContext{ID: "inv-blocked", OperationID: "operation-blocked", BindingRef: "binding-a", ActorID: app.DefaultOwnerID},
+		Invocation: app.MCPInvocationContext{ID: "inv-blocked", OperationID: "operation-blocked", BindingRef: "binding-a", ActorID: app.DefaultOwnerID, RunID: "run-blocked"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	testSaveRun(st, app.AgentRun{ID: "run-blocked", SessionID: invocationSession.ID, State: "blocked"})
 	provider := NewProvider(st)
 	_, err = provider.Deliver(t.Context(), app.MessageEndpoint{ProviderKey: "mcp", BindingRef: "binding-a"}, app.DeliveryRequest{
 		ID: "delivery-blocked", MCP: &app.MCPInvocationRef{InvocationID: "inv-blocked", OperationID: operation.ID, BindingRef: "binding-a"},
@@ -656,10 +668,17 @@ func TestProviderMapsBlockedResultToFailedOperation(t *testing.T) {
 	if stored.State != app.MCPOperationFailed || stored.ErrorCode != "policy_blocked" || stored.CompletedAt == nil {
 		t.Fatalf("blocked Workflow result was not terminal failure: %#v", stored)
 	}
+	if _, found, readErr := st.GetSession(t.Context(), invocationSession.ID); readErr != nil || found {
+		t.Fatalf("terminal blocked operation retained its temporary session: found=%t err=%v", found, readErr)
+	}
 }
 
 func TestProviderParksWaitingResultForLocalApproval(t *testing.T) {
 	st := store.NewMemoryStore()
+	invocationSession, err := st.CreateSessionWithScope(t.Context(), "AI · device-a", app.DefaultOwnerID, "", "mcp", true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	operation, _, err := st.CreateMCPOperation(t.Context(), app.MCPOperation{
 		ID: "operation-no-approval", BindingID: "binding-a", IdempotencyKey: "no-approval", Fingerprint: "no-approval",
 		Invocation: app.MCPInvocationContext{ID: "inv-no-approval", OperationID: "operation-no-approval", BindingRef: "binding-a", RunID: "run-no-approval"},
@@ -667,7 +686,7 @@ func TestProviderParksWaitingResultForLocalApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	testSaveRun(st, app.AgentRun{ID: "run-no-approval", State: "approval_pending"})
+	testSaveRun(st, app.AgentRun{ID: "run-no-approval", SessionID: invocationSession.ID, State: "approval_pending"})
 	testSaveToolCall(st, app.ToolCall{ID: "call-no-approval", RunID: "run-no-approval", Status: app.ToolCallStatusApprovalPending})
 	storetest.MustSaveApproval(t, st, app.Approval{ID: "approval-no-approval", RunID: "run-no-approval", ToolCallID: "call-no-approval", Status: app.ApprovalStatusPending})
 	_, err = NewProvider(st).Deliver(t.Context(), app.MessageEndpoint{ProviderKey: "mcp", BindingRef: "binding-a"}, app.DeliveryRequest{
@@ -680,6 +699,9 @@ func TestProviderParksWaitingResultForLocalApproval(t *testing.T) {
 	stored, _, _ := st.GetMCPOperation(t.Context(), operation.ID)
 	if stored.State != app.MCPOperationApprovalRequired || stored.CompletedAt != nil {
 		t.Fatalf("local approval was not preserved as waiting: operation=%#v", stored)
+	}
+	if _, found, readErr := st.GetSession(t.Context(), invocationSession.ID); readErr != nil || !found {
+		t.Fatalf("approval-pending operation lost its temporary session: found=%t err=%v", found, readErr)
 	}
 }
 

@@ -17,6 +17,8 @@ import (
 type fakeCredentialPostgresOps struct {
 	session    *fakeCredentialPostgresSession
 	acquireErr error
+	queryRows  onboardingPostgresRows
+	queryErr   error
 }
 
 func (o *fakeCredentialPostgresOps) Acquire(context.Context) (onboardingPostgresSession, error) {
@@ -30,7 +32,13 @@ func (*fakeCredentialPostgresOps) Exec(context.Context, string, ...any) (pgconn.
 	return pgconn.NewCommandTag("UPDATE 1"), nil
 }
 
-func (*fakeCredentialPostgresOps) Query(context.Context, string, ...any) (onboardingPostgresRows, error) {
+func (o *fakeCredentialPostgresOps) Query(context.Context, string, ...any) (onboardingPostgresRows, error) {
+	if o.queryErr != nil {
+		return nil, o.queryErr
+	}
+	if o.queryRows != nil {
+		return o.queryRows, nil
+	}
 	return &fakeCredentialPostgresRows{}, nil
 }
 
@@ -138,6 +146,15 @@ func (*fakeCredentialPostgresRows) Scan(...any) error { return nil }
 func (*fakeCredentialPostgresRows) Err() error        { return nil }
 func (*fakeCredentialPostgresRows) Close()            {}
 
+type failingCredentialPostgresRows struct {
+	err error
+}
+
+func (*failingCredentialPostgresRows) Next() bool        { return false }
+func (*failingCredentialPostgresRows) Scan(...any) error { return nil }
+func (r *failingCredentialPostgresRows) Err() error      { return r.err }
+func (*failingCredentialPostgresRows) Close()            {}
+
 func newFakeCredentialPostgresStore(now time.Time, transaction *fakeCredentialPostgresTx) (*PostgresStore, *fakeCredentialPostgresSession) {
 	session := &fakeCredentialPostgresSession{transaction: transaction}
 	operations := &fakeCredentialPostgresOps{session: session}
@@ -146,6 +163,15 @@ func newFakeCredentialPostgresStore(now time.Time, transaction *fakeCredentialPo
 		credentialCommandGate: semaphore.NewWeighted(1), credentialWriteHighWater: map[string]time.Time{},
 		credentialNow: func() time.Time { return now },
 	}, session
+}
+
+func TestPostgresCredentialListReturnsRowsError(t *testing.T) {
+	now := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC)
+	st, _ := newFakeCredentialPostgresStore(now, &fakeCredentialPostgresTx{})
+	st.credentialPostgres.(*fakeCredentialPostgresOps).queryRows = &failingCredentialPostgresRows{err: &pgconn.PgError{Code: "XX000"}}
+	if _, err := st.ListCredentialSecrets(t.Context()); StoreErrorCodeOf(err) != StoreErrorUnavailable {
+		t.Fatalf("list rows error = %v code=%q", err, StoreErrorCodeOf(err))
+	}
 }
 
 func validPostgresCredential(now time.Time) app.CredentialSecret {

@@ -19,30 +19,34 @@ SparkClaw 作为受信任的家庭服务部署。对话记录仍可有 owner，�
 
 具体凭据数量限制与多人同时编辑的 revision 冲突不在本期范围内。
 
-## 设置导航
+## 设置与连接导航
 
-设置 inspector 使用四个分类和逐层进入的 detail view：
+工作区设置只保留非连接配置，独立的“通讯工具”页统一承载全部连接与集成入口：
 
 ```text
-设置
+工作区设置
 |- 账户
 |  |- Owner 资料
 |  `- 已配对客户端
-|- 连接
-|  |- 消息渠道：Telegram、微信
-|  |- 数据服务：Infinimesh Info
-|  |- 出站 MCP：LocalMind
-|  `- 入站 MCP：外部 MCP 访问
 |- Agent
 |  |- 工具策略
 |  `- 模型配置
 `- 系统
    `- 运行边界
+
+通讯工具
+|- 消息渠道：Telegram、微信
+|- 浏览器控制
+|- AI 平台登录
+|- 浏览器邮箱
+|- 数据服务：Infinimesh Info
+|- 出站 MCP：LocalMind
+`- 入站 MCP：外部 MCP 访问
 ```
 
 目录只显示图标、名称和有界状态。点击条目后以 detail view 替换目录，返回
-按钮回到当前分类。原有 connector、策略、模型、Owner、客户端和外部 MCP
-控制全部保留且可达。
+按钮回到对应目录。原有 connector、策略、模型、Owner、客户端和外部 MCP
+控制全部保留且可达，连接入口不再同时出现在设置中。
 
 LocalMind 与外部 MCP 必须分开：LocalMind 是固定的出站 task client；外部
 MCP 是其他 AI 调用 SparkClaw 的入站入口，信任方向相反。

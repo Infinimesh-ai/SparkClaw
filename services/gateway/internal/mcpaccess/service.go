@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -36,9 +37,18 @@ type operationExecution struct {
 
 type Repository interface {
 	store.MCPRepository
+	store.SessionRepository
 	store.RunRepository
 	store.ApprovalRepository
 	store.AuditRepository
+	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
+}
+
+type invocationSessionRepository interface {
+	store.SessionRepository
+	store.RunRepository
+	GetMCPBinding(context.Context, string) (app.MCPBinding, bool, error)
+	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
 }
 
 type Service struct {
@@ -338,6 +348,19 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 	s.auditOperation(ctx, "mcp.operation.created", stored, peer, "Created a durable MCP invocation", map[string]any{
 		"scope": binding.Scope,
 	})
+	conversationTitle := "AI"
+	if linked, found, readErr := s.store.GetSession(ctx, binding.LinkedSessionID); readErr == nil && found && strings.TrimSpace(linked.Title) != "" {
+		conversationTitle = linked.Title
+	}
+	invocationSession, sessionErr := s.store.CreateSessionWithScope(ctx, conversationTitle, binding.OwnerID, "", "mcp", true)
+	invocationSession, sessionErr = store.ReconcileSessionWrite(ctx, s.store, invocationSession, sessionErr)
+	if sessionErr != nil {
+		_ = s.finishOperationError(context.WithoutCancel(ctx), operationID, "session_create_failed", "Temporary MCP request state could not be created")
+		if failed, found, readErr := s.store.GetMCPOperation(ctx, operationID); readErr == nil && found {
+			return operationCallResult(failed, true), nil
+		}
+		return nil, &JSONRPCError{Code: -32603, Message: "MCP request state could not be created"}
+	}
 
 	ref := app.MCPInvocationRef{InvocationID: invocationID, OperationID: operationID, BindingRef: binding.ID, BindingRevision: binding.AuthorizationRevision, RequesterDeviceID: peer.DeviceID}
 	request.Invocation = ref
@@ -347,7 +370,7 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("mcp:" + binding.ID), SourceAdmitted: true},
 	}
 	done := make(chan struct{})
-	go s.executeOperation(ctx, deadline, binding.LinkedSessionID, messageID, runID, operationID, request, ingress, done)
+	go s.executeOperation(ctx, deadline, invocationSession.ID, messageID, runID, operationID, request, ingress, done)
 	wait := immediateResultWait
 	if remaining := time.Until(deadline); remaining < wait {
 		wait = remaining
@@ -370,6 +393,15 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 
 func (s *Service) executeOperation(ctx context.Context, deadline time.Time, sessionID, messageID, runID, operationID string, request app.MCPConversationRequest, ingress app.MessageIngressContext, done chan<- struct{}) {
 	defer close(done)
+	defer func() {
+		current, ok, err := s.store.GetMCPOperation(context.WithoutCancel(ctx), operationID)
+		if err != nil || !ok || !operationTerminal(current.State) {
+			return
+		}
+		if err := cleanupMCPInvocationSession(context.WithoutCancel(ctx), s.store, sessionID); err != nil {
+			slog.Error("failed to delete terminal MCP invocation records", "operation_id", operationID, "code", store.StoreErrorCodeOf(err))
+		}
+	}()
 	s.mu.Lock()
 	operation, ok, err := s.store.GetMCPOperation(ctx, operationID)
 	if err != nil || !ok || operationTerminal(operation.State) {
@@ -444,6 +476,9 @@ func (s *Service) operationTool(ctx context.Context, peer app.MCPPeerIdentity, b
 			if err := rejectPendingApprovals(ctx, s.store, operation); err != nil {
 				return nil, &JSONRPCError{Code: -32603, Message: "MCP operation cancellation could not be finalized"}
 			}
+			if err := cleanupMCPOperationSession(ctx, s.store, operation); err != nil {
+				return nil, &JSONRPCError{Code: -32603, Message: "MCP operation records could not be deleted"}
+			}
 		}
 	}
 	s.auditOperation(ctx, operationAuditType(params.Name), operation, peer, "Processed a binding-scoped MCP operation request", map[string]any{"outcome": operation.State})
@@ -477,6 +512,9 @@ func (s *Service) reconcileOperation(ctx context.Context, operation app.MCPOpera
 			return true
 		})
 		if err == nil {
+			if cleanupErr := cleanupMCPOperationSession(ctx, s.store, updated); cleanupErr != nil {
+				return updated, cleanupErr
+			}
 			return updated, nil
 		}
 		if current, found, readErr := s.store.GetMCPOperation(ctx, operation.ID); readErr == nil && found {
@@ -641,6 +679,9 @@ func finalizeRevokedOperations(ctx context.Context, st Repository, operations []
 		auditOperationStore(ctx, st, "mcp.operation.revoked", operation, "Revoked an MCP operation with its binding", map[string]any{
 			"outcome": operation.State, "error_code": operation.ErrorCode,
 		})
+		if err := cleanupMCPOperationSession(ctx, st, operation); err != nil {
+			return err
+		}
 
 	}
 	return nil
@@ -693,7 +734,9 @@ func (s *Service) syncOperationFromResultWithContent(ctx context.Context, id str
 	auditOperationStore(ctx, s.store, "mcp.operation.result_recorded", updated, "Recorded a Workflow result for an MCP operation", map[string]any{
 		"outcome": updated.State, "error_code": updated.ErrorCode,
 	})
-
+	if operationTerminal(updated.State) {
+		return cleanupMCPOperationSession(ctx, s.store, updated)
+	}
 	return nil
 }
 
@@ -880,6 +923,9 @@ func (s *Service) finishOperationError(ctx context.Context, id, code, message st
 			return err
 		}
 		auditOperationStore(ctx, s.store, "mcp.operation.failed", updated, "Marked an MCP operation as failed", map[string]any{"outcome": updated.State, "error_code": code})
+		if err := cleanupMCPOperationSession(ctx, s.store, updated); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -899,8 +945,43 @@ func (s *Service) finishOperationCancelled(ctx context.Context, id string) error
 	}
 	if changed {
 		auditOperationStore(ctx, s.store, "mcp.operation.cancelled", updated, "Marked an MCP operation as cancelled", map[string]any{"outcome": updated.State})
+		if err := cleanupMCPOperationSession(ctx, s.store, updated); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func cleanupMCPOperationSession(ctx context.Context, st invocationSessionRepository, operation app.MCPOperation) error {
+	if strings.TrimSpace(operation.Invocation.RunID) == "" {
+		return nil
+	}
+	run, ok, err := st.GetRun(ctx, operation.Invocation.RunID)
+	if err != nil || !ok || strings.TrimSpace(run.SessionID) == "" {
+		return err
+	}
+	if strings.TrimSpace(operation.BindingID) != "" {
+		binding, found, bindingErr := st.GetMCPBinding(ctx, operation.BindingID)
+		if bindingErr != nil {
+			return bindingErr
+		}
+		if found && binding.LinkedSessionID == run.SessionID {
+			return nil
+		}
+	}
+	return cleanupMCPInvocationSession(ctx, st, run.SessionID)
+}
+
+func cleanupMCPInvocationSession(ctx context.Context, st invocationSessionRepository, sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	deleted, err := st.DeleteMCPInvocationSession(ctx, sessionID)
+	_, err = store.ReconcileSessionDelete(ctx, st, deleted, err)
+	if store.StoreErrorCodeOf(err) == store.StoreErrorNotFound {
+		return nil
+	}
+	return err
 }
 
 func operationTerminal(state app.MCPOperationState) bool {

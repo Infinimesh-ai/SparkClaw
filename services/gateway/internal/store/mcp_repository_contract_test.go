@@ -19,6 +19,7 @@ func TestMCPRepositoryCanceledContextContract(t *testing.T) {
 			cancel()
 			now := time.Now().UTC()
 			checks := map[string]func() error{
+				"DeleteMCPInvocationSession":      func() error { _, err := backend.repository.DeleteMCPInvocationSession(ctx, "session"); return err },
 				"SaveMCPAccessTicket":             func() error { _, err := backend.repository.SaveMCPAccessTicket(ctx, app.MCPAccessTicket{}); return err },
 				"GetMCPAccessTicket":              func() error { _, _, err := backend.repository.GetMCPAccessTicket(ctx, "ticket"); return err },
 				"FindMCPAccessTicketBySecretHash": func() error { _, _, err := backend.repository.FindMCPAccessTicketBySecretHash(ctx, "hash"); return err },

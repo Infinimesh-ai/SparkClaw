@@ -319,6 +319,33 @@ func TestConnectorRepositoryTimestampHighWaterSurvivesClockRollback(t *testing.T
 	}
 }
 
+func TestNotificationBindingExpiryDoesNotAdvanceMutationClock(t *testing.T) {
+	for _, backend := range newConnectorContractBackends(t) {
+		t.Run(backend.name, func(t *testing.T) {
+			now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+			expires := now.Add(365 * 24 * time.Hour)
+			setConnectorContractClock(t, backend.store, func() time.Time { return now })
+			starting, err := backend.store.CreateNotificationBinding(t.Context(), app.NotificationBinding{
+				ID: "binding-future-expiry", OwnerID: "owner", ActorID: "actor", Channel: "weixin",
+				Provider: "openclaw-weixin-qr", Status: app.NotificationBindingStarting,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waiting := starting
+			waiting.Status = app.NotificationBindingWaitingScan
+			waiting.ExpiresAt = &expires
+			updated, err := backend.store.UpdateNotificationBinding(t.Context(), NewNotificationBindingUpdate(starting, waiting))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !updated.UpdatedAt.Before(expires) || updated.UpdatedAt.After(now.Add(time.Second)) {
+				t.Fatalf("future expiry advanced mutation clock: updated=%s expires=%s", updated.UpdatedAt, expires)
+			}
+		})
+	}
+}
+
 func setConnectorContractClock(t *testing.T, st testBackend, now func() time.Time) {
 	t.Helper()
 	switch concrete := st.(type) {

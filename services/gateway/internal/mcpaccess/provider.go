@@ -26,6 +26,7 @@ type ProviderRepository interface {
 	store.ArtifactMetadataRepository
 	store.SessionRepository
 	store.ExternalChatRepository
+	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
 }
 
 type Provider struct{ store ProviderRepository }
@@ -63,12 +64,15 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 	if operationTerminal(operation.State) {
 		return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeOutcomeUnknown, "MCP operation is already terminal", "outcome_unknown")
 	}
+	run, hasRun, err := p.store.GetRun(ctx, operation.Invocation.RunID)
+	if err != nil {
+		return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeProviderRetryable, "MCP workflow state is unavailable", "retryable")
+	}
+	if hasRun && strings.TrimSpace(run.SessionID) != "" {
+		endpoint.SessionID = run.SessionID
+	}
 	resultStatus := request.ResultStatus
 	if resultStatus == "" {
-		run, hasRun, err := p.store.GetRun(ctx, operation.Invocation.RunID)
-		if err != nil {
-			return app.DeliveryReceipt{}, delivery.NewError(delivery.CodeProviderRetryable, "MCP workflow state is unavailable", "retryable")
-		}
 		if hasRun && (run.State == "approval_pending" || run.State == "browser_login_blocked") {
 			resultStatus = app.WorkflowResultWaiting
 		} else {
@@ -120,6 +124,11 @@ func (p *Provider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, re
 	}
 	if err := delivery.RecordExternalDelivery(ctx, p.store, endpoint, request, receipt); err != nil {
 		return receipt, delivery.NewError(delivery.CodeOutcomeUnknown, "MCP delivery record could not be persisted", "outcome_unknown")
+	}
+	if operationTerminal(operation.State) {
+		if err := cleanupMCPOperationSession(ctx, p.store, operation); err != nil {
+			return receipt, delivery.NewError(delivery.CodeProviderRetryable, "MCP invocation records could not be deleted", "retryable")
+		}
 	}
 	return receipt, nil
 }

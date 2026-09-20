@@ -17,7 +17,8 @@ The workbench includes:
 
 - session navigation, chat, streaming responses, uploads, and assistant
   attachments;
-- task toolbar with current schedules and typed edit/delete actions;
+- a schedule page whose create button opens a focused requirement dialog,
+  alongside the current schedule list and typed edit/delete actions;
 - per-session third-party result destination selection on the ordinary message
   composer, including text, uploads, workspace files, and voice drafts;
 - microphone selection, live input preview, native record-time transcription,
@@ -55,6 +56,13 @@ service identity or health rules in the browser.
 
 Structured owner actions are not converted back into ambiguous prose:
 
+- the schedule page keeps its compact create button; clicking it opens a modal
+  requirement editor, and submission posts directly to `/api/schedules`;
+  Agent Runtime selects `schedule.manage#create` without generic intent routing
+  and uses a hidden schedule context, while preserving guards, Workflow
+  execution, audit, in-place results, and projection refresh without creating or
+  navigating to a chat; successful creation closes the modal, while
+  clarification keeps the requirement editable;
 - schedule toolbar actions submit `schedule_action` with selected ID and
   observed `updated_at`; Agent Runtime validates and executes the registered
   Workflow;
@@ -83,7 +91,10 @@ Structured owner actions are not converted back into ambiguous prose:
 - External MCP access records keep revocation separate from permanent record
   deletion. Owners can delete any ticket or binding, including expired,
   consumed, or revoked records, or delete all owner-scoped access records at
-  once; deleting an active binding invalidates that access immediately.
+  once; deleting an active binding invalidates that access immediately. Inbound
+  MCP request sessions are never listed in WebChat and are deleted with their
+  session-scoped execution records as soon as the operation reaches a terminal
+  state.
 
 The UI shows reminder and delivery destinations as concrete software, account,
 recipient, conversation, and status values supplied by Gateway. It never

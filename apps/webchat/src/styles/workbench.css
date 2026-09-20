@@ -122,11 +122,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workbench .errorBanner, .workbench .noticeBanner { flex-shrink: 0; }
 .workbench .errorBanner { color: #a62032; }
 .workbench .noticeBanner { color: #1f5fbf; }
-.connectionSettings .settingsDetailView { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.connectionSettings .connectionMessagingDetail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.connectionSettings .connectionMessagingDetail .settingsBack { grid-column: 1 / -1; }
 .connectionSettings .settingsBlock { padding: 24px; border: 1px solid #e8e9ec; border-radius: 13px; background: white; }
-.connectionEmailCard { display: flex; align-items: center; gap: 14px; grid-column: 1 / -1; padding: 24px; text-align: left; border: 1px solid #e8e9ec; border-radius: 13px; color: #606875; background: white; }
-.connectionEmailCard > span { margin-left: auto; font-size: 12px; }
-.connectionSettings .settingsDetailView:has(.settingsBack) { display: block; }
 @media (max-width: 1100px) {
   .workbench .topbar { padding-inline: 24px; }
   .workbench .deliveryTargetPicker { width: 120px; flex-basis: 120px; }
@@ -135,7 +133,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .workbench .taskInspector { box-shadow: -12px 0 40px #20222610; }
 }
 @media (max-width: 700px) {
-  .connectionSettings .settingsDetailView { grid-template-columns: 1fr; }
+  .connectionSettings .connectionMessagingDetail { grid-template-columns: 1fr; }
   body { overflow: hidden; }
   .workbench { grid-template-columns: minmax(0, 1fr); }
   .workbench .sidebar { display: none; }

@@ -80,7 +80,7 @@ Identity 失效，并回收 Subprocess 与私有输出。Stale Identity 绝不�
 ## Credential 边界
 
 Browser Control 使用 `playwright-extension-token-v1` Credential。Owner 在
-`设置 > 连接 > 浏览器控制` 中输入 Token；Gateway 完成一次新的 Bridge Handshake 后才保存
+`通讯工具 > 浏览器控制` 中输入 Token；Gateway 完成一次新的 Bridge Handshake 后才保存
 加密 Vault Ciphertext。表单不会返回或预填 Token，并在每次保存尝试后清空输入。
 
 Raw Token 不会保存到 Compose 文件、仓库配置、Log、Trace、Artifact、命令参数或 Model
@@ -207,4 +207,4 @@ Execution 和 Terminal Unknown-outcome Handling。
 迁移决策见 [Playwright Extension 浏览器设计](playwright-extension-browser-design.md)，Provider
 与 Approval 语义见[浏览器邮箱 Workflow](browser-email-workflow-design.md)。
 
-Bridge `1.0.26` 为所有 Bridge Client 串行创建并复用同一个不聚焦的专用任务窗口；已关闭或不再包含任何 Task-owned Tab 的窗口绝不复用，显式 Handoff 仍会创建聚焦、Owner 可见的窗口。Chromium 先创建空的专用窗口，Bridge 再在该精确窗口内创建连接 Tab 并删除占位页，以规避把 Extension URL 直接交给窗口创建时出现的平台拒绝。Bridge 也串行处理任务分组，关闭任务前等待尚未完成的分组操作。每个任务组均带有由扩展本地存储佐证的随机归属标记，因此 Chromium 重启后即使重分配了数字组 ID，仍可验证恢复组的归属；每次原生连接请求都会先收敛已验证的残留组，再创建新任务页。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面，普通用户组不会仅因可读标题相同而被删除。Controller Service 为有界的任务页与 CLI 清理预留 60 秒，之后 systemd 才会终止进程。
+Bridge `1.0.26` 为所有 Bridge Client 串行创建并复用同一个不聚焦的专用任务窗口；窗口 ID 保存在扩展 Session Storage 中，Manifest V3 Worker 重启后仍会复用同一个存活窗口。已关闭或不再包含任何 Task-owned Tab 的窗口绝不复用，显式 Handoff 仍会创建聚焦、Owner 可见的窗口。Chromium 先创建空的专用窗口，Bridge 再在该精确窗口内创建非激活连接 Tab 并删除占位页，同时规避前台焦点抢占与把 Extension URL 直接交给窗口创建时出现的平台拒绝。Bridge 也串行处理任务分组，关闭任务前等待尚未完成的分组操作。每个任务组均带有由扩展本地存储佐证的随机归属标记，因此 Chromium 重启后即使重分配了数字组 ID，仍可验证恢复组的归属；每次原生连接请求都会先收敛已验证的残留组，再创建新任务页。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面，普通用户组不会仅因可读标题相同而被删除。Controller Service 为有界的任务页与 CLI 清理预留 60 秒，之后 systemd 才会终止进程。

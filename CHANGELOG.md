@@ -54,6 +54,30 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Browser Bridge background mail tasks now persist the shared unfocused task
+  window identity in extension session storage. A Manifest V3 worker restart
+  therefore reuses the existing task window instead of creating another one;
+  the first connection tab is also created inactive so it cannot pull the
+  dedicated window to the foreground.
+- Credential-key migration now fails closed. Deployment and start preflight
+  reject an existing SparkClaw PostgreSQL volume when the installation-local
+  `data/memory/gateway-credentials.key` is missing, validate restored key file
+  format and permissions, and Gateway verifies every persisted credential
+  against the loaded key before readiness. `/readyz` now projects the Vault
+  state. Notification-binding expiry no longer advances mutation and audit
+  timestamps into the future.
+- Scheduled-task creation now opens a focused requirement dialog from the
+  original schedule-page create button and posts directly to `/api/schedules`.
+  Gateway selects `schedule.manage#create` without generic intent routing and
+  runs it in a hidden schedule context, so creation neither adds nor switches a
+  workbench conversation. Guards, Workflow execution, audit, in-place results,
+  and schedule refresh remain intact. The dialog closes after success and
+  retains clarification input; typed edit/delete behavior is unchanged.
+- Inbound external-AI MCP conversations are now isolated in hidden per-request
+  sessions and omitted from WebChat. Terminal success, failure, cancellation,
+  and revocation delete the request's session-scoped records while retaining
+  the durable idempotent operation result and redacted lifecycle audit.
+
 - JingSi Runtime v1 now always enforces the accepted decision 0034 effect
   vocabulary after real consumer allow/deny and restart proof. The default was
   enabled in a separate revision before removing the compatibility setting and

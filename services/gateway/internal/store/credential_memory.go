@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -78,6 +79,29 @@ func (s *MemoryStore) GetCredentialSecret(ctx context.Context, ref string) (app.
 		return app.CredentialSecret{}, false, storeError(ctx, OperationCredentialSecretGet, StoreErrorCorrupt, err)
 	}
 	return secret, true, nil
+}
+
+func (s *MemoryStore) ListCredentialSecrets(ctx context.Context) ([]app.CredentialSecret, error) {
+	ctx, cancel := operationContext(ctx, OperationCredentialSecretList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationCredentialSecretList, ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationCredentialSecretList, ctx); err != nil {
+		return nil, err
+	}
+	secrets := make([]app.CredentialSecret, 0, len(s.credentialSecrets))
+	for _, stored := range s.credentialSecrets {
+		secret, err := normalizePersistedCredentialSecret(stored)
+		if err != nil {
+			return nil, storeError(ctx, OperationCredentialSecretList, StoreErrorCorrupt, err)
+		}
+		secrets = append(secrets, secret)
+	}
+	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Ref < secrets[j].Ref })
+	return secrets, nil
 }
 
 func (s *MemoryStore) DeleteCredentialSecret(ctx context.Context, condition CredentialDeleteCondition) (app.CredentialSecret, error) {

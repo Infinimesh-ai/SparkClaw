@@ -1,5 +1,63 @@
 #!/usr/bin/env bash
 
+sparkclaw_guard_credential_key() {
+  local deploy_root="$1"
+  local effective_env_file="$2"
+  shift 2
+  local key_file="$deploy_root/data/memory/gateway-credentials.key"
+  local inline_key=""
+  local existing_postgres_volumes=""
+
+  inline_key="$(sparkclaw_dotenv_value "$effective_env_file" SPARKCLAW_CREDENTIAL_KEY 2>/dev/null || true)"
+  if [[ -n "$inline_key" ]]; then
+    return 0
+  fi
+  if [[ -f "$key_file" ]]; then
+    python3 - "$key_file" <<'PY'
+import base64
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+mode = stat.S_IMODE(path.stat().st_mode)
+if mode & 0o077:
+    raise SystemExit("credential key file permissions must be 0600 or stricter")
+value = path.read_text(encoding="utf-8").strip()
+decoded = None
+def decode_base64(text: str) -> bytes:
+    return base64.b64decode(text + "=" * (-len(text) % 4), validate=True)
+
+for decoder in (decode_base64, lambda text: bytes.fromhex(text)):
+    try:
+        candidate = decoder(value)
+    except (ValueError, base64.binascii.Error):
+        continue
+    if len(candidate) == 32:
+        decoded = candidate
+        break
+if decoded is None and len(value.encode("utf-8")) != 32:
+    raise SystemExit("credential key file must contain exactly 32 bytes")
+PY
+    return $?
+  fi
+
+  existing_postgres_volumes="$(
+    "$@" volume ls --quiet \
+      --filter label=com.docker.compose.project=sparkclaw \
+      --filter label=com.docker.compose.volume=sparkclaw_pg18
+    "$@" volume ls --quiet \
+      --filter label=com.docker.compose.project=sparkclaw \
+      --filter label=com.docker.compose.volume=sparkclaw_pg
+  )"
+  if [[ -n "$existing_postgres_volumes" ]]; then
+    printf 'existing SparkClaw PostgreSQL data was found, but %s is missing\n' "$key_file" >&2
+    printf 'restore data/memory/gateway-credentials.key from the previous installation before starting; do not generate a replacement key\n' >&2
+    return 1
+  fi
+}
+
 sparkclaw_profile_value() {
   local product_file="$1"
   local mode_file="$2"

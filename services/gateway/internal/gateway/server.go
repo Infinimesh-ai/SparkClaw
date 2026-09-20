@@ -59,6 +59,7 @@ type Repository interface {
 	store.DeliveryRecordRepository
 	store.ExternalChatRepository
 	store.MCPRepository
+	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
 }
 
 type Server struct {
@@ -102,6 +103,7 @@ type Server struct {
 	approvalLocks            sync.Map
 	pairing                  *pairingCoordinator
 	storeRuntime             StoreRuntimeMonitor
+	credentialVault          CredentialVaultMonitor
 	jingsiRuntime            *jingsiruntime.Provider
 	// pptxSealedSweepCursor is the artifact key the next sealed-candidate
 	// expiry sweep resumes after; only the retention coordinator goroutine
@@ -120,6 +122,10 @@ type Option func(*Server)
 type StoreRuntimeMonitor interface {
 	Status() store.RuntimeStatus
 	Metrics() []store.OperationMetric
+}
+
+type CredentialVaultMonitor interface {
+	Ready() error
 }
 
 type ConnectorController interface {
@@ -238,6 +244,12 @@ func WithManagedBrowserWindows(controller ManagedBrowserWindowController) Option
 func WithStoreRuntime(runtime StoreRuntimeMonitor) Option {
 	return func(server *Server) {
 		server.storeRuntime = runtime
+	}
+}
+
+func WithCredentialVault(vault CredentialVaultMonitor) Option {
+	return func(server *Server) {
+		server.credentialVault = vault
 	}
 }
 
@@ -480,6 +492,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/deliveries/{id}/retry", s.retryDelivery)
 	s.mux.HandleFunc("GET /api/message-history", s.listMessageHistory)
 	s.mux.HandleFunc("GET /api/schedules", s.listCurrentSchedules)
+	s.mux.HandleFunc("POST /api/schedules", s.createSchedule)
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
 	s.mux.HandleFunc("POST /api/sessions", s.createSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
@@ -563,6 +576,15 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	credentialVaultStatus := map[string]any{"ready": true, "state": "ready"}
+	if s.credentialVault != nil {
+		if err := s.credentialVault.Ready(); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"ok": false, "credential_vault": map[string]any{"ready": false, "state": "unavailable"},
+			})
+			return
+		}
+	}
 	if err := os.MkdirAll(s.cfg.Storage.TraceDir, 0o755); err != nil {
 		writeError(w, http.StatusServiceUnavailable, err)
 		return
@@ -599,6 +621,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		"gateway_binding":   s.Addr(),
 		"speech":            speechStatus,
 		"resident_services": residentServices,
+		"credential_vault":  credentialVaultStatus,
 	}
 	if storeStatus != nil {
 		payload["store"] = storeStatus

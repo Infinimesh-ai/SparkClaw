@@ -91,6 +91,7 @@ if ! "${docker_cmd[@]}" ps >/dev/null 2>&1; then
     exit 1
   fi
 fi
+sparkclaw_guard_credential_key "$ROOT" "$EFFECTIVE_ENV_FILE" "${docker_cmd[@]}" || exit 1
 
 compose_args=(
   compose
@@ -139,7 +140,8 @@ for _ in $(seq 1 30); do
   if [[ -n "$ready_json" ]]; then
     if printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' &&
       printf '%s' "$ready_json" | grep -Fq '"model_mode":"external"' &&
-      printf '%s' "$ready_json" | grep -Fq '"state_backend":"postgres"'; then
+      printf '%s' "$ready_json" | grep -Fq '"state_backend":"postgres"' &&
+      printf '%s' "$ready_json" | grep -Fq '"credential_vault":{"ready":true'; then
       gateway_ready=true
       break
     fi

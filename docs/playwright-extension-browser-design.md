@@ -252,14 +252,13 @@ extension generations. It reports typed health without returning secret values.
 WebChat provides one connection entry separate from browser email:
 
 ```text
-Settings
-`- Connections
-   |- Browser control
-   |  `- SparkClaw Browser Bridge
-   `- Browser email
-      |- QQ Mail
-      |- Outlook
-      `- Gmail
+Connections
+|- Browser control
+|  `- SparkClaw Browser Bridge
+`- Browser email
+   |- QQ Mail
+   |- Outlook
+   `- Gmail
 ```
 
 `Browser control` owns the shared browser attachment. The three email entries
@@ -674,7 +673,7 @@ This phase changed no production default.
   health, process supervision, deadlines, generation handling, and cleanup
   reconciliation were implemented and installed.
 - The encrypted `playwright-extension-token-v1` credential, authenticated
-  redacted APIs, and `Settings > Connections > Browser control` view were added.
+  redacted APIs, and `Connections > Browser control` view were added.
 - Fake-client, protocol, lifecycle, WebChat, Gateway, and live host coverage
   qualified the pinned Playwright set against the official baseline.
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -43,6 +44,52 @@ func TestSessionDeleteClosesOwnedRecordsAndPreservesIsolation(t *testing.T) {
 					t.Fatalf("deleted session after restart found=%v err=%v", found, err)
 				}
 			}
+		})
+	}
+}
+
+func TestMCPInvocationSessionDeleteClosesTerminalRequestRecords(t *testing.T) {
+	for _, backend := range []string{"memory", "file"} {
+		t.Run(backend, func(t *testing.T) {
+			harness := newSessionRepositoryHarness(t, backend)
+			target := mustCreateSessionWithScope(t, harness.repository, "AI · device", app.DefaultOwnerID, "", "mcp", true)
+			other, err := harness.repository.CreateSession(t.Context(), "other")
+			if err != nil {
+				t.Fatal(err)
+			}
+			populateSessionDeleteFixture(harness.memory, target.ID, other.ID)
+			harness.memory.mu.Lock()
+			managed := harness.memory.sessions[target.ID]
+			managed.Source = "mcp"
+			managed.Hidden = true
+			harness.memory.sessions[target.ID] = managed
+			harness.memory.mu.Unlock()
+			if file, ok := harness.repository.(*FileStore); ok {
+				if err := file.persistSnapshot(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if _, err := harness.repository.DeleteSession(t.Context(), target.ID); StoreErrorCodeOf(err) != StoreErrorConflict {
+				t.Fatalf("ordinary MCP deletion error=%v code=%q", err, StoreErrorCodeOf(err))
+			}
+			mcpRepository := harness.repository.(interface {
+				DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
+			})
+			harness.memory.mu.Lock()
+			harness.memory.mcpBindings["binding-target"] = app.MCPBinding{ID: "binding-target", LinkedSessionID: target.ID}
+			harness.memory.mu.Unlock()
+			if _, err := mcpRepository.DeleteMCPInvocationSession(t.Context(), target.ID); StoreErrorCodeOf(err) != StoreErrorConflict {
+				t.Fatalf("binding anchor deletion error=%v code=%q", err, StoreErrorCodeOf(err))
+			}
+			harness.memory.mu.Lock()
+			delete(harness.memory.mcpBindings, "binding-target")
+			harness.memory.mu.Unlock()
+			deleted, err := mcpRepository.DeleteMCPInvocationSession(t.Context(), target.ID)
+			if err != nil || deleted.ID != target.ID {
+				t.Fatalf("deleted=%#v err=%v", deleted, err)
+			}
+			assertSessionDeleteFixture(t, harness.memory, target.ID, other.ID)
 		})
 	}
 }

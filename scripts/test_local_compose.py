@@ -53,7 +53,7 @@ import sys
 
 with Path(os.environ["LOCAL_TEST_CURL_LOG"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\n")
-print('{"ok":true,"model_mode":"external","state_backend":"postgres"}')
+print('{"ok":true,"model_mode":"external","state_backend":"postgres","credential_vault":{"ready":true,"state":"ready"}}')
 """
 
 FAKE_BROWSER_SETUP = r"""#!/usr/bin/env bash

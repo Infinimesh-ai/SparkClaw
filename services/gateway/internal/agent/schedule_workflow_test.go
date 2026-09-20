@@ -55,6 +55,50 @@ func TestScheduleSemanticParaphraseIsSelectedByFusionRouting(t *testing.T) {
 	}
 }
 
+func TestTypedScheduleCreateRouteSelectsWorkflowWithoutSemanticFusion(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	ingress := app.MessageIngressContext{
+		Source:         app.MessageSourceContext{Kind: app.MessageSourceWeb, Adapter: "web", EndpointID: app.EndpointID("session:" + session.ID)},
+		OwnerID:        session.OwnerID,
+		Authorization:  app.MessageAuthorization{PrincipalID: session.OwnerID},
+		ReturnRoute:    app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)},
+		ClientTimezone: "Asia/Shanghai",
+	}
+	result, err := runtime.HandleScheduleActionWithIngress(t.Context(), session.ID, `一分钟后提醒我吃饭
+MOCK_STEP_RESPONSE:{"type":"action","tool":"reminders.create","arguments":{"text":"吃饭","due_time":"2099-08-19T09:01:00+08:00","timezone":"Asia/Shanghai"}}`, ScheduleAction{
+		Operation: app.RouteOperationCreate,
+	}, ingress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok := testGetRun(st, result.Run.ID)
+	if !ok || stored.MessageContext == nil {
+		t.Fatalf("typed schedule run was not persisted: %#v ok=%t", stored, ok)
+	}
+	route := stored.MessageContext.Route
+	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityScheduleManage ||
+		route.Slots.Operation != app.RouteOperationCreate || route.Confidence != 1 {
+		t.Fatalf("typed schedule create did not select the create workflow directly: %#v", route)
+	}
+	if stored.MessageContext.IntentFusion != nil {
+		t.Fatalf("typed schedule create unexpectedly ran semantic intent fusion: %#v", stored.MessageContext.IntentFusion)
+	}
+	if result.Run.State != "completed" {
+		t.Fatalf("typed schedule create did not complete its workflow: %#v", result.Run)
+	}
+}
+
+func TestTypedScheduleCreateRejectsMutationFields(t *testing.T) {
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	if _, err := runtime.scheduleActionRoute(ScheduleAction{
+		Operation: app.RouteOperationCreate, ScheduleID: "existing-schedule",
+	}, "明天提醒我提交周报"); err == nil {
+		t.Fatal("typed schedule create accepted an existing schedule target")
+	}
+}
+
 func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()

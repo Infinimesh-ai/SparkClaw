@@ -380,6 +380,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationCredentialSecretGet, Repository: "CredentialRepository",
 			Method: "GetCredentialSecret", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationCredentialSecretList: {
+			ID: OperationCredentialSecretList, Repository: "CredentialRepository",
+			Method: "ListCredentialSecrets", Mode: operationRead, Timeout: timeoutRead,
+		},
 		OperationCredentialSecretDelete: {
 			ID: OperationCredentialSecretDelete, Repository: "CredentialRepository",
 			Method: "DeleteCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -600,6 +604,7 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationExternalChatMessageList, Repository: "ExternalChatRepository",
 			Method: "ListExternalChatMessages", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationMCPInvocationSessionDelete:  {ID: OperationMCPInvocationSessionDelete, Repository: "MCPRepository", Method: "DeleteMCPInvocationSession", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationMCPAccessTicketSave:         {ID: OperationMCPAccessTicketSave, Repository: "MCPRepository", Method: "SaveMCPAccessTicket", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationMCPAccessTicketGet:          {ID: OperationMCPAccessTicketGet, Repository: "MCPRepository", Method: "GetMCPAccessTicket", Mode: operationRead, Timeout: timeoutRead},
 		OperationMCPAccessTicketFindHash:     {ID: OperationMCPAccessTicketFindHash, Repository: "MCPRepository", Method: "FindMCPAccessTicketBySecretHash", Mode: operationRead, Timeout: timeoutRead},

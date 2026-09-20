@@ -156,7 +156,7 @@ Routing considers the export-existing-conversation action, platform, and target 
 
 ## 10. Four-platform login and detection settings
 
-Add **Configuration settings → Connections → AI platform login** beside browser-control and browser-email settings. Description: **Reuse the dedicated browser login to export existing AI platform conversations into workspace.** ChatGPT, Claude, Gemini and Grok cards provide “Open login page” and “Check status,” with shared “Check all” and “Refresh status” actions.
+Add **Connections → AI platform login** beside browser-control and browser-email. Description: **Reuse the dedicated browser login to export existing AI platform conversations into workspace.** ChatGPT, Claude, Gemini and Grok cards provide “Open login page” and “Check status,” with shared “Check all” and “Refresh status” actions.
 
 | Platform | Fixed official login entry |
 |---|---|

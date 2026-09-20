@@ -40,7 +40,7 @@ var s0RepositoryCharacterizationCases = map[string]s0RepositoryCharacterizationC
 	"OwnerRepository":               s0RepositoryChecks(characterizeS0OwnerRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
 	"ClientRepository":              s0RepositoryChecks(characterizeS0ClientRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
 	"ISCPOnboardingRepository":      s0RepositoryChecks(characterizeS0ISCPOnboardingRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
-	"CredentialRepository":          s0RepositoryChecks(characterizeS0CredentialRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate, s0DimensionConflictDeletion),
+	"CredentialRepository":          s0RepositoryChecks(characterizeS0CredentialRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
 	"SessionRepository":             s0RepositoryChecks(characterizeS0SessionRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionConflictDeletion),
 	"ConversationRepository":        s0RepositoryChecks(characterizeS0ConversationRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
 	"RunRepository":                 s0RepositoryChecks(characterizeS0RunRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope),
@@ -251,6 +251,16 @@ func characterizeS0CredentialRepository(t *testing.T, st testBackend, dimension 
 	case s0DimensionAbsence:
 		if _, ok, err := st.GetCredentialSecret(context.Background(), "missing"); err != nil || ok {
 			t.Fatalf("missing credential result ok=%v err=%v", ok, err)
+		}
+	case s0DimensionOrderScope:
+		for _, ref := range []string{"credential-z", "credential-a"} {
+			if _, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: ref, Kind: "token", Value: "value"})); err != nil {
+				t.Fatal(err)
+			}
+		}
+		listed, err := st.ListCredentialSecrets(context.Background())
+		if err != nil || len(listed) != 2 || listed[0].Ref != "credential-a" || listed[1].Ref != "credential-z" {
+			t.Fatalf("credential list = %#v err=%v", listed, err)
 		}
 	case s0DimensionDuplicate:
 		created, err := st.SaveCredentialSecret(context.Background(), NewCredentialCreate(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"}))

@@ -30,6 +30,10 @@ Every inbound message follows one pipeline (`agent.go` `handleMessage`):
    A Web request with no owner text and only image/audio/file parts takes the
    typed media-content route to the registered `conversation.answer#publish`
    candidate without synthesizing text or invoking semantic routing models.
+   The dedicated schedule-resource endpoint supplies a typed create action from
+   a hidden schedule context and selects the registered
+   `schedule.manage#create` candidate directly; it still passes the guard and
+   Catalog validation before Workflow dispatch.
 3. **Dispatch** — `dispatchMatchedWorkflow` (`workflow_dispatcher.go`)
    resolves the matched leaf to one versioned workflow profile, freezes the
    plan (nodes, transitions, argument bindings, completion evidence, plan

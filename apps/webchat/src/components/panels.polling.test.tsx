@@ -91,6 +91,7 @@ describe("SettingsPanel binding polling", () => {
     }));
     const render = (binding: NotificationBinding) => root.render(
       <SettingsPanel
+        connectionsOnly
         runtimeConfig={config}
         ownerProfile={null}
         clients={[]}

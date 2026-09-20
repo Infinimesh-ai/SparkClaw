@@ -531,7 +531,7 @@ func (s *MemoryStore) RedeemMCPAccessTicket(ctx context.Context, secretHash stri
 		binding.LinkedSessionID = "s_" + binding.ID
 		sessionTime := normalizeSessionTime(now)
 		s.sessions[binding.LinkedSessionID] = app.Session{
-			ID: binding.LinkedSessionID, OwnerID: binding.OwnerID, Title: mcpSessionTitle(binding.RequesterDeviceID), Source: "mcp", Hidden: false,
+			ID: binding.LinkedSessionID, OwnerID: binding.OwnerID, Title: mcpSessionTitle(binding.RequesterDeviceID), Source: "mcp", Hidden: true,
 			CreatedAt: sessionTime, UpdatedAt: sessionTime,
 		}
 		s.sessionWriteHighWater[binding.LinkedSessionID] = sessionTime

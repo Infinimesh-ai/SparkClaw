@@ -42,6 +42,22 @@
 
 ### Changed
 
+- Browser Bridge 现在把共享的不聚焦任务窗口身份持久化到扩展 Session Storage；Manifest V3
+  Worker 重启后会继续复用已有任务窗口，不再另建后台窗口。首个连接标签页同时以非激活状态
+  创建，避免专用窗口被带到前台。
+- 凭据密钥迁移改为 fail-closed：部署与启动预检发现已有 SparkClaw PostgreSQL volume、
+  但当前安装目录缺少 `data/memory/gateway-credentials.key` 时会拒绝启动，并校验恢复后
+  密钥文件的格式与权限；Gateway 在 readiness 前用当前密钥验证全部已存凭据，`/readyz`
+  同时投影 Vault 状态。通知绑定的未来过期时间不再把 mutation 与审计时间戳推进到未来。
+- 定时任务创建恢复为点击页面原有创建按钮后打开聚焦要求弹窗；弹窗直接提交
+  `/api/schedules`，Gateway 无需通用意图路由即可选择 `schedule.manage#create`，并在隐藏的
+  schedule context 中执行，因此不会新增或切换工作台对话。创建成功关闭弹窗，需澄清时保留
+  输入；Guard、Workflow 执行、审计、结果原位展示和任务列表刷新保持不变，typed edit/delete
+  行为不变。
+- 入站 external-AI MCP 对话现在按请求使用相互隔离的隐藏临时 session，且不会出现在
+  WebChat 中。operation 成功、失败、取消或撤销进入终态后，会删除该请求的 session-scoped
+  记录，同时保留 durable 幂等 operation result 与脱敏 lifecycle audit。
+
 - JingSi Runtime v1 在真实 consumer allow/deny 与重启回证后，始终执行 accepted 决策 0034
   的 effect 词汇表。先独立提交默认开启，再删除兼容配置与环境变量；旧设置会导致配置加载报错。
   legacy 准入退役后不能执行工具，旧部署须先排空在途任务再升级；grant 与终态对账保持不变。

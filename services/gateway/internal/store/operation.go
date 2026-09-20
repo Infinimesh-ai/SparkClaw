@@ -190,6 +190,7 @@ const (
 	OperationExternalChatMessageFind     StoreOperation = "external_chat_message.find_external_id"
 	OperationExternalChatMessageList     StoreOperation = "external_chat_message.list"
 	OperationMCPAccessTicketSave         StoreOperation = "mcp_access_ticket.save"
+	OperationMCPInvocationSessionDelete  StoreOperation = "mcp_invocation_session.delete"
 	OperationMCPAccessTicketGet          StoreOperation = "mcp_access_ticket.get"
 	OperationMCPAccessTicketFindHash     StoreOperation = "mcp_access_ticket.find_secret_hash"
 	OperationMCPAccessTicketList         StoreOperation = "mcp_access_ticket.list"
@@ -224,6 +225,7 @@ const (
 	OperationPairingCodeClaim            StoreOperation = "pairing_code.claim"
 	OperationCredentialSecretSave        StoreOperation = "credential_secret.save"
 	OperationCredentialSecretGet         StoreOperation = "credential_secret.get"
+	OperationCredentialSecretList        StoreOperation = "credential_secret.list"
 	OperationCredentialSecretDelete      StoreOperation = "credential_secret.delete"
 	OperationConnectorSettingGet         StoreOperation = "connector_setting.get"
 	OperationConnectorSettingList        StoreOperation = "connector_setting.list"
@@ -810,6 +812,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationCredentialSecretGet, Repository: "CredentialRepository",
 		Method: "GetCredentialSecret", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationCredentialSecretList: {
+		ID: OperationCredentialSecretList, Repository: "CredentialRepository",
+		Method: "ListCredentialSecrets", Mode: operationRead, Timeout: timeoutRead,
+	},
 	OperationCredentialSecretDelete: {
 		ID: OperationCredentialSecretDelete, Repository: "CredentialRepository",
 		Method: "DeleteCredentialSecret", Mode: operationWrite, Timeout: timeoutTransaction,
@@ -896,6 +902,9 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	},
 	OperationMCPAccessTicketSave: {
 		ID: OperationMCPAccessTicketSave, Repository: "MCPRepository", Method: "SaveMCPAccessTicket", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationMCPInvocationSessionDelete: {
+		ID: OperationMCPInvocationSessionDelete, Repository: "MCPRepository", Method: "DeleteMCPInvocationSession", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationMCPAccessTicketGet: {
 		ID: OperationMCPAccessTicketGet, Repository: "MCPRepository", Method: "GetMCPAccessTicket", Mode: operationRead, Timeout: timeoutRead,

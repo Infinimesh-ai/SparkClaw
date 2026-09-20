@@ -98,7 +98,7 @@ Read Script 在后台 Task Tab 中执行，沿用所有权与 Origin 校验，�
 
 ## Login 配置
 
-WebChat 的 `设置 > 连接 > 浏览器邮箱` 提供 QQ 邮箱、Outlook 和 Gmail。每个 Provider 可
+WebChat 的 `通讯工具 > 浏览器邮箱` 提供 QQ 邮箱、Outlook 和 Gmail。每个 Provider 可
 Enable/Disable、设为唯一 Default、打开手动登录并运行只读 Probe。Panel 显示有界 Readiness
 Metadata 和可选 Masked Account Hint。
 

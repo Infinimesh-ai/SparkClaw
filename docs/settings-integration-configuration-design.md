@@ -24,31 +24,36 @@ may still have an owner, but service integrations are household-global:
 Credential-count limits and concurrent-editor revision conflicts are outside
 the current scope.
 
-## Settings Navigation
+## Settings And Connection Navigation
 
-The settings inspector uses four categories and drill-in detail views:
+Workspace settings retains non-connection configuration, while the dedicated
+Connections page owns every connection and integration entry:
 
 ```text
-Settings
+Workspace settings
 |- Account
 |  |- Owner profile
 |  `- Paired clients
-|- Connections
-|  |- Messaging: Telegram and Weixin
-|  |- Data provider: Infinimesh Info
-|  |- Outbound MCP: LocalMind
-|  `- Inbound MCP: External MCP access
 |- Agent
 |  |- Tool policy
 |  `- Model profiles
 `- System
    `- Runtime boundaries
+
+Connections
+|- Messaging: Telegram and Weixin
+|- Browser control
+|- AI platform login
+|- Browser email
+|- Data provider: Infinimesh Info
+|- Outbound MCP: LocalMind
+`- Inbound MCP: External MCP access
 ```
 
 The directory shows only an icon, label, and bounded status. Selecting a row
-replaces the directory with its detail view; Back returns to the current
-category. Existing connector, policy, model, owner, client, and External MCP
-controls remain reachable.
+replaces the directory with its detail view; Back returns to the corresponding
+directory. Existing connector, policy, model, owner, client, and External MCP
+controls remain reachable without duplicating connections inside Settings.
 
 LocalMind and External MCP remain separate because they have opposite trust
 directions. LocalMind is a fixed outbound task client. External MCP is the

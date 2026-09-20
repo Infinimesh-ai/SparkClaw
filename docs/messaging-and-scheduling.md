@@ -148,8 +148,14 @@ Workflow into the schedule record.
 
 ## Create, List, Edit, And Delete
 
-Natural-language create/read/edit/delete requests route to variants of the
-same `schedule.manage` leaf. Edit and delete use a two-stage Workflow:
+Natural-language create/read/edit/delete requests from ordinary conversations
+route to variants of the same `schedule.manage` leaf. The schedule-page create
+button opens a requirement dialog that posts directly to `POST /api/schedules`.
+Gateway selects `schedule.manage#create` directly without semantic intent fusion
+and runs it in a hidden `source=schedule` session. That persisted context retains
+Workflow and audit correlation without presenting creation as a WebChat
+conversation. Guards, Workflow execution, persistence, delivery, and audit
+remain unchanged. Edit and delete use a two-stage Workflow:
 
 ```text
 reminders.list (fresh, pending, owner-scoped)
@@ -163,8 +169,11 @@ The model does not mutate a guessed ID. No match or multiple matches returns a
 clarification. A stale `updated_at` blocks the mutation so a concurrent change
 is not overwritten.
 
-The WebChat task toolbar uses typed `schedule_action` input for edit/delete.
-It first loads `GET /api/schedules`, shows the current task and reminder endpoint
+The WebChat schedule page uses the dedicated schedule resource for create and
+typed `schedule_action` input for edit/delete. Its create dialog sends only the
+owner's requirement and client timezone; the response exposes only state and a
+display message, and WebChat refreshes `GET /api/schedules` without creating or
+switching a conversation. Edit/delete first load `GET /api/schedules`, show the current task and reminder endpoint
 (WebChat or the concrete third-party software/account/recipient), and submits
 the selected ID plus its observed version. The Workflow still performs a fresh
 owner-scoped list and compare-and-swap. Editing preserves the existing reminder

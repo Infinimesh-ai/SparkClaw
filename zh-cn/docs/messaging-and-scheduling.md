@@ -120,8 +120,11 @@ POST /api/deliveries/{id}/retry
 
 ## 创建、查看、编辑与删除
 
-自然语言 create/read/edit/delete 都路由到同一个 `schedule.manage` 叶子的不同变体。
-edit/delete 使用两阶段 Workflow：
+普通对话中的自然语言 create/read/edit/delete 都路由到同一个 `schedule.manage` 叶子的不同
+变体。定时任务页的创建按钮会打开要求弹窗，弹窗直接提交 `POST /api/schedules`。Gateway
+直接选择 `schedule.manage#create`，不执行语义意图融合，并在隐藏的 `source=schedule` session
+中运行；这个持久上下文保留 Workflow 与审计关联，但不会把创建呈现为 WebChat 对话。Guard、
+Workflow 执行、持久化、投递和审计保持不变。edit/delete 使用两阶段 Workflow：
 
 ```text
 reminders.list（fresh、pending、owner-scoped）
@@ -134,8 +137,10 @@ reminders.list（fresh、pending、owner-scoped）
 模型不能修改猜测出的 ID。无匹配或多匹配会要求澄清。`updated_at` 过期会阻止 mutation，
 避免覆盖并发修改。
 
-WebChat 任务栏对 edit/delete 使用 typed `schedule_action`。它先加载 `GET /api/schedules`，
-展示当前任务和提醒端（WebChat 或具体第三方软件/账号/接收人），再提交选定 ID 和观察到的
+WebChat 定时任务页对 create 使用独立 schedule resource，对 edit/delete 使用 typed
+`schedule_action`。创建弹窗只发送 owner 要求和客户端时区；响应只暴露 state 与展示消息，
+WebChat 直接刷新 `GET /api/schedules`，不会创建或切换对话。edit/delete 先加载任务列表，展示当前任务
+和提醒端（WebChat 或具体第三方软件/账号/接收人），再提交选定 ID 和观察到的
 version。Workflow 仍执行 fresh owner-scoped list 和 compare-and-swap。编辑保留现有提醒端；
 更换 delivery target 是另一项显式操作。
 

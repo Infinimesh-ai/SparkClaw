@@ -45,7 +45,7 @@ var s0RepositoryMethods = map[string][]string{
 		"AddMessage", "CountVisibleMessages", "ListMessages", "ListRecentMessages", "MessageEventHead", "MessageEventsAfter",
 	},
 	"CredentialRepository": {
-		"DeleteCredentialSecret", "GetCredentialSecret", "SaveCredentialSecret",
+		"DeleteCredentialSecret", "GetCredentialSecret", "ListCredentialSecrets", "SaveCredentialSecret",
 	},
 	"DeliveryRecordRepository": {
 		"FindChannelInboxUpdate", "FindMessageDeliveryByIdempotency", "FindMessageReceive", "GetChannelInboxUpdate", "GetMessageDelivery",
@@ -66,7 +66,7 @@ var s0RepositoryMethods = map[string][]string{
 		"GetISCPOnboarding", "ListISCPOnboardings", "SaveISCPOnboarding",
 	},
 	"MCPRepository": {
-		"CreateMCPOperation", "DeleteMCPAccessRecords", "DeleteMCPAccessTicket", "DeleteMCPBinding", "FindMCPAccessTicketBySecretHash",
+		"CreateMCPOperation", "DeleteMCPAccessRecords", "DeleteMCPAccessTicket", "DeleteMCPBinding", "DeleteMCPInvocationSession", "FindMCPAccessTicketBySecretHash",
 		"FindMCPBindingForPeer", "FindMCPOperationByIdempotency", "GetMCPAccessTicket", "GetMCPBinding", "GetMCPOperation",
 		"ListMCPAccessTickets", "ListMCPBindings", "ListMCPOperations", "RedeemMCPAccessTicket", "RevokeMCPAccessTicket", "RevokeMCPBinding",
 		"SaveMCPAccessTicket", "TouchMCPBinding", "UpdateMCPOperation",
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 152 {
-		t.Fatalf("repository method count = %d, want migrated baseline 152", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 154 {
+		t.Fatalf("repository method count = %d, want migrated baseline 154", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

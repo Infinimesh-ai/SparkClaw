@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,12 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
+
+type failingCredentialVaultMonitor struct{}
+
+func (failingCredentialVaultMonitor) Ready() error {
+	return errors.New("credential key mismatch canary")
+}
 
 type fixedStoreRuntimeMonitor struct {
 	status  store.RuntimeStatus
@@ -52,6 +59,21 @@ func TestReadyzFailsClosedWithSafeStoreProjection(t *testing.T) {
 		if strings.Contains(response.Body.String(), forbidden) {
 			t.Fatalf("readiness leaked %q: %s", forbidden, response.Body.String())
 		}
+	}
+}
+
+func TestReadyzFailsClosedWhenCredentialVaultIsUnavailable(t *testing.T) {
+	server := newStoreRuntimeTestServer(t, fixedStoreRuntimeMonitor{status: store.RuntimeStatus{
+		Backend: store.BackendMemory, State: store.RuntimeStateReady, Ready: true,
+	}})
+	server.credentialVault = failingCredentialVaultMonitor{}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz status = %d body=%s", response.Code, response.Body.String())
+	}
+	if body := response.Body.String(); !strings.Contains(body, `"credential_vault":{"ready":false,"state":"unavailable"}`) || strings.Contains(body, "canary") {
+		t.Fatalf("unsafe credential readiness projection: %s", body)
 	}
 }
 

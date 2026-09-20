@@ -66,6 +66,7 @@ export function SessionSidebar({
     ["channels", copy.channels, Link], ["memory", copy.memory, MemoryStick],
     ["approvals", copy.approvals, ShieldCheck]
   ] as const;
+  const visibleSessions = sessions.filter((session) => session.source !== "mcp");
 
   return (
     <aside className="sidebar">
@@ -86,9 +87,9 @@ export function SessionSidebar({
         <button onClick={onSearch}><Search size={18} /><span>{copy.search}</span><kbd>⌘ K</kbd></button>
         {navigation.map(([target, label, Icon]) => <button key={target} className={page === target ? "selected" : ""} aria-current={page === target ? "page" : undefined} onClick={() => onNavigate?.(target)}><Icon size={18} /><span>{label}</span>{target === "approvals" && pendingApprovalCount > 0 && <small>{pendingApprovalCount}</small>}{target === "memory" && pendingCandidateCount > 0 && <small>{pendingCandidateCount}</small>}</button>)}
       </nav>
-      <div className="historyLabel">{copy.recent}<span>{sessions.length}</span></div>
+      <div className="historyLabel">{copy.recent}<span>{visibleSessions.length}</span></div>
       <div className="sessionList" aria-label={text.nav.sessions}>
-        {sessions.map((session) => (
+        {visibleSessions.map((session) => (
           <div className={`sessionItem ${session.id === activeSession ? "active" : ""}`} key={session.id}>
             {editingSession === session.id ? (
               <form
@@ -117,16 +118,14 @@ export function SessionSidebar({
                   <span>{session.title}</span>
                   <small>{shortId(session.id)}</small>
                 </button>
-                {session.source !== "mcp" && (
-                  <div className="sessionActions">
-                    <button className="miniIconButton" onClick={() => onStartRename(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
-                      <Pencil size={13} />
-                    </button>
-                    <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                )}
+                <div className="sessionActions">
+                  <button className="miniIconButton" onClick={() => onStartRename(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
+                    <Pencil size={13} />
+                  </button>
+                  <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </>
             )}
           </div>

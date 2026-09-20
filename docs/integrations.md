@@ -34,8 +34,8 @@ It is not a messaging connector and does not use provider credentials,
 OAuth tokens, IMAP, SMTP, Gmail API, or Microsoft Graph. Authentication stays
 inside the dedicated host-owned SparkClaw Chromium profile.
 
-WebChat exposes the three providers under `Settings > Connections > Browser
-email`. Opening a login entry creates a task-owned provider tab and explicitly
+WebChat exposes the three providers under `Connections > Browser email`.
+Opening a login entry creates a task-owned provider tab and explicitly
 hands it to the owner for manual login. Login checks, reads, and sends create separate
 background task-owned tabs; they never reuse an owner tab, former login tab, or
 another idle tab.

@@ -67,3 +67,14 @@ func (s *FileStore) DeleteSession(ctx context.Context, id string) (app.Session, 
 		return s.inner.DeleteSession(ctx, id)
 	})
 }
+
+func (s *FileStore) DeleteMCPInvocationSession(ctx context.Context, id string) (app.Session, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationMCPInvocationSessionDelete, fileAdmissionCapacity)
+	if err != nil {
+		return app.Session{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationMCPInvocationSessionDelete, func(ctx context.Context) (app.Session, error) {
+		return s.inner.DeleteMCPInvocationSession(ctx, id)
+	})
+}

@@ -264,6 +264,8 @@ fi
 compose_up_help="$("${docker_cmd[@]}" compose up --help)"
 grep -F -- '--wait-timeout' >/dev/null <<<"$compose_up_help" ||
   fail "the Docker Compose plugin is too old; install a release that supports --wait-timeout"
+sparkclaw_guard_credential_key "$ROOT" "$EFFECTIVE_ENV_FILE" "${docker_cmd[@]}" ||
+  fail "credential key migration check failed"
 
 model_cache_setting="$(dotenv_value SPARKCLAW_MODEL_CACHE)"
 model_cache_setting="${model_cache_setting:-../data/models}"

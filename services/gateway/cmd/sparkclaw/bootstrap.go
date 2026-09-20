@@ -63,7 +63,10 @@ func newGatewayServices(
 	// Runtime connector control can enable a credential-backed channel after
 	// startup, so the shared vault is checked even when all channels start off.
 	if err := vault.Ready(); err != nil {
-		slog.Warn("credential vault is unavailable", "code", credential.ErrorCode(err))
+		return nil, fmt.Errorf("credential vault readiness failed (%s): %w", credential.ErrorCode(err), err)
+	}
+	if err := vault.ValidateExisting(context.Background()); err != nil {
+		return nil, fmt.Errorf("credential vault consistency check failed (%s): %w", credential.ErrorCode(err), err)
 	}
 	extensionConfig := cfg.Adapters.BrowserAutomation.PlaywrightExtension
 	browserClient, err := browsercontrol.NewHTTPControllerClient(
@@ -156,6 +159,7 @@ func newGatewayServices(
 			gateway.WithManagedBrowserWindows(tools),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 			gateway.WithStoreRuntime(storeRuntime),
+			gateway.WithCredentialVault(vault),
 			gateway.WithJingSiRuntime(jingsiRuntime),
 		),
 		connectors:        connectors,

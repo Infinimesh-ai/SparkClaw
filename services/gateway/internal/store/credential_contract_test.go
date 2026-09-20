@@ -51,6 +51,10 @@ func TestCredentialRepositoryMemoryAndFileContract(t *testing.T) {
 			if !replaced.CreatedAt.Equal(created.CreatedAt) || !replaced.UpdatedAt.After(created.UpdatedAt) {
 				t.Fatalf("replace timestamps created=%s updated=%s prior=%s", replaced.CreatedAt, replaced.UpdatedAt, created.UpdatedAt)
 			}
+			listed, err := repository.ListCredentialSecrets(ctx)
+			if err != nil || len(listed) != 1 || !credentialSecretsEqual(listed[0], replaced) {
+				t.Fatalf("list = %#v err=%v", listed, err)
+			}
 			if _, err := repository.SaveCredentialSecret(ctx, NewCredentialReplace(created, app.CredentialSecret{Ref: created.Ref, Kind: "stale", Value: "stale"})); StoreErrorCodeOf(err) != StoreErrorConflict {
 				t.Fatalf("stale replace = %v code=%q", err, StoreErrorCodeOf(err))
 			}
@@ -80,6 +84,9 @@ func TestCredentialRepositoryValidationAndCancellationPrecedence(t *testing.T) {
 		}
 		if _, _, err := repository.GetCredentialSecret(ctx, ""); StoreErrorCodeOf(err) != StoreErrorCanceled {
 			t.Fatalf("get cancellation precedence = %v code=%q", err, StoreErrorCodeOf(err))
+		}
+		if _, err := repository.ListCredentialSecrets(ctx); StoreErrorCodeOf(err) != StoreErrorCanceled {
+			t.Fatalf("list cancellation precedence = %v code=%q", err, StoreErrorCodeOf(err))
 		}
 		if _, err := repository.DeleteCredentialSecret(ctx, CredentialDeleteCondition{}); StoreErrorCodeOf(err) != StoreErrorCanceled {
 			t.Fatalf("delete cancellation precedence = %v code=%q", err, StoreErrorCodeOf(err))

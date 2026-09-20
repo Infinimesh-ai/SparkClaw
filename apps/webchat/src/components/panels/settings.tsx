@@ -42,7 +42,7 @@ import { IntegrationCredentialSettings } from "./settingsIntegrations";
 import { integrationStateLabel } from "./settingsIntegrationState";
 import { OwnerProfileSettings } from "./settingsOwner";
 
-type SettingsCategory = "account" | "connections" | "agent" | "system";
+type SettingsCategory = "account" | "agent" | "system";
 type SettingsDetail =
   | "owner"
   | "clients"
@@ -92,8 +92,8 @@ export function SettingsPanel({
   onUpdateConnector: (channel: string, enabled: boolean, expectedVersion: number) => Promise<ConnectorStatus>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
 }) {
-  const [category, setCategory] = useState<SettingsCategory>("connections");
-  const [detail, setDetail] = useState<SettingsDetail | null>(connectionsOnly ? "messaging" : null);
+  const [category, setCategory] = useState<SettingsCategory>("account");
+  const [detail, setDetail] = useState<SettingsDetail | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [integrationLoadFailed, setIntegrationLoadFailed] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState(false);
@@ -165,18 +165,16 @@ export function SettingsPanel({
       {!connectionsOnly && <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />}
       {!connectionsOnly && <div className="settingsCategoryTabs" role="tablist" aria-label={text.settings.categories}>
         <CategoryTab selected={category === "account"} label={text.settings.account} icon={<CircleUserRound size={15} />} onClick={() => changeCategory("account")} />
-        <CategoryTab selected={category === "connections"} label={text.settings.connections} icon={<Cable size={15} />} onClick={() => changeCategory("connections")} />
         <CategoryTab selected={category === "agent"} label={text.settings.agent} icon={<Bot size={15} />} onClick={() => changeCategory("agent")} />
         <CategoryTab selected={category === "system"} label={text.settings.system} icon={<ServerCog size={15} />} onClick={() => changeCategory("system")} />
       </div>}
 
       {detail ? (
-        <div className="settingsDetailView">
-          {(!connectionsOnly || detail !== "messaging") && <button className="settingsBack" type="button" onClick={() => setDetail(connectionsOnly ? "messaging" : null)} title={text.common.back}>
+        <div className={`settingsDetailView ${connectionsOnly && detail === "messaging" ? "connectionMessagingDetail" : ""}`}>
+          <button className="settingsBack" type="button" onClick={() => setDetail(null)} title={text.common.back}>
             <ArrowLeft size={16} />
             <span>{detailTitle}</span>
-          </button>}
-          {connectionsOnly && detail === "messaging" && <button className="connectionEmailCard" onClick={() => setDetail("browser-email")}><Mail size={22} /><strong>{text.settings.browserEmail}</strong><span>{text.settings.browserEmailProviders}</span><ChevronRight size={17} /></button>}
+          </button>
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
           {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} onRevokeClient={onRevokeClient} />}
           {detail === "messaging" && (
@@ -309,13 +307,13 @@ export function SettingsPanel({
         </div>
       ) : (
         <div className="settingsDirectory">
-          {category === "account" && (
+          {!connectionsOnly && category === "account" && (
             <>
               <DirectoryRow icon={<CircleUserRound size={17} />} title={text.settings.ownerProfile} status={ownerProfile?.display_name || text.settings.ownerUnavailable} onClick={() => setDetail("owner")} />
               <DirectoryRow icon={<Users size={17} />} title={text.settings.pairedClients} status={String(clients.length)} onClick={() => setDetail("clients")} />
             </>
           )}
-          {category === "connections" && (
+          {connectionsOnly && (
             <>
               <DirectoryRow icon={<MessageSquare size={17} />} title={text.settings.messaging} status={connectionCountLabel(connectors, text)} onClick={() => setDetail("messaging")} />
               <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.browserBridge} onClick={() => setDetail("browser-control")} />
@@ -326,13 +324,13 @@ export function SettingsPanel({
               <DirectoryRow icon={<Cable size={17} />} title={text.settings.externalMCP} status={connectors.find((item) => item.channel === "mcp")?.enabled ? text.settings.active : text.common.disabled} onClick={() => setDetail("external-mcp")} />
             </>
           )}
-          {category === "agent" && (
+          {!connectionsOnly && category === "agent" && (
             <>
               <DirectoryRow icon={<ShieldCheck size={17} />} title={text.settings.toolPolicy} status={`${policy.definition_count} ${text.trace.tools}`} onClick={() => setDetail("tool-policy")} />
               <DirectoryRow icon={<Cpu size={17} />} title={text.settings.modelProfiles} status={runtimeConfig.model.mock ? text.settings.mock : text.settings.externalModel} onClick={() => setDetail("models")} />
             </>
           )}
-          {category === "system" && <DirectoryRow icon={<ServerCog size={17} />} title={text.settings.runtimeBoundaries} status={runtimeConfig.state.backend} onClick={() => setDetail("runtime")} />}
+          {!connectionsOnly && category === "system" && <DirectoryRow icon={<ServerCog size={17} />} title={text.settings.runtimeBoundaries} status={runtimeConfig.state.backend} onClick={() => setDetail("runtime")} />}
         </div>
       )}
     </div>

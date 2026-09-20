@@ -164,7 +164,7 @@ test("native host requests create an unfocused dedicated task window", async () 
   assert.deepEqual(fixture.calls.windowsCreate, [{ focused: false, type: "normal" }]);
   assert.deepEqual(fixture.calls.tabsCreate, [{
     url,
-    active: true,
+    active: false,
     pinned: false,
     windowId: 8,
   }]);

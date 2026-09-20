@@ -211,6 +211,7 @@ describe("SettingsPanel External MCP", () => {
     };
     const markup = renderToStaticMarkup(
       <SettingsPanel
+        connectionsOnly
         runtimeConfig={settingsConfig} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
         text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
         onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
@@ -219,8 +220,8 @@ describe("SettingsPanel External MCP", () => {
       />
     );
     expect(markup).toContain(dictionaries.en.settings.externalMCP);
-    expect(markup).toContain(dictionaries.en.settings.connections);
     expect(markup).toContain(dictionaries.en.settings.messaging);
+    expect(markup).toContain(dictionaries.en.settings.browserControl);
     expect(markup).not.toContain(dictionaries.en.settings.addWeixinBinding);
   });
 });

@@ -177,10 +177,47 @@ describe("Integration credential settings", () => {
   });
 });
 
-describe("Settings directory navigation", () => {
+describe("Connection directory navigation", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("drills into categories and keeps integration details out of the directory", async () => {
+  it("moves every connection into the connections page and keeps details out of its directory", async () => {
+    vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [infoStatus, localMindStatus] });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <SettingsPanel
+          connectionsOnly
+          runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={[]} notificationBindings={[]}
+          text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
+          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
+          onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
+        />
+      );
+    });
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    expect(container.textContent).toContain(dictionaries.en.settings.messaging);
+    expect(container.textContent).toContain(dictionaries.en.settings.aiPlatformLogin);
+    expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
+    expect(container.textContent).toContain(dictionaries.en.settings.browserEmail);
+    expect(container.textContent).toContain(dictionaries.en.settings.info);
+    expect(container.textContent).toContain(dictionaries.en.settings.localMind);
+    expect(container.textContent).toContain(dictionaries.en.settings.externalMCP);
+    expect(container.textContent).not.toContain(dictionaries.en.settings.licenseId);
+
+    const info = findButton(container, dictionaries.en.settings.info);
+    await act(async () => info.click());
+    expect(container.textContent).toContain(dictionaries.en.settings.licenseId);
+    expect(container.textContent).toContain("Family account");
+
+    const back = container.querySelector(".settingsBack") as HTMLButtonElement;
+    await act(async () => back.click());
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    await act(async () => root.unmount());
+  });
+
+  it("keeps workspace settings free of connection entries", async () => {
     vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [infoStatus, localMindStatus] });
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -195,22 +232,11 @@ describe("Settings directory navigation", () => {
         />
       );
     });
-    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
-    expect(container.textContent).toContain(dictionaries.en.settings.aiPlatformLogin);
-    expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
-    expect(container.textContent).not.toContain(dictionaries.en.settings.licenseId);
-
-    const info = findButton(container, dictionaries.en.settings.info);
-    await act(async () => info.click());
-    expect(container.textContent).toContain(dictionaries.en.settings.licenseId);
-    expect(container.textContent).toContain("Family account");
-
-    const back = container.querySelector(".settingsBack") as HTMLButtonElement;
-    await act(async () => back.click());
-    const account = findButton(container, dictionaries.en.settings.account);
-    await act(async () => account.click());
-    expect(container.textContent).toContain(dictionaries.en.settings.ownerProfile);
+    expect(container.querySelectorAll(".settingsCategoryTabs button")).toHaveLength(3);
     expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(2);
+    expect(container.textContent).not.toContain(dictionaries.en.settings.messaging);
+    expect(container.textContent).not.toContain(dictionaries.en.settings.browserControl);
+    expect(container.textContent).not.toContain(dictionaries.en.settings.externalMCP);
     await act(async () => root.unmount());
   });
 });

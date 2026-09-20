@@ -14,7 +14,7 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 当前工作台包括：
 
 - session navigation、chat、stream response、upload 和 assistant attachment；
-- 带当前 schedule 和 typed edit/delete 的任务栏；
+- 由创建按钮打开聚焦要求弹窗、展示现有 schedule 并提供 typed edit/delete 的定时任务页；
 - 普通消息 composer 上按 session 选择第三方 result destination，覆盖 text、upload、workspace
   file 和 voice draft；
 - microphone selection、live input preview、native record-time transcription、可选静音结束、
@@ -45,6 +45,11 @@ browser 不重建 service identity 或 health rule。
 
 结构化 owner action 不会重新转换为歧义文本：
 
+- 定时任务页默认只保留紧凑的创建按钮；点击后打开要求编辑弹窗，并把 owner 的自然语言要求
+  直接提交到 `/api/schedules`。Agent Runtime 不经过通用 intent router，直接选择
+  `schedule.manage#create` 并使用隐藏 schedule context；同时保留 Guard、Workflow 执行、审计、
+  结果原位展示和 schedule projection 刷新，不创建也不跳转到 chat；创建成功关闭弹窗，需要
+  澄清时保留输入继续编辑。
 - 任务栏提交包含选中 ID 和观察到的 `updated_at` 的 `schedule_action`；Agent Runtime 校验并执行注册 Workflow。
 - delivery target picker 随普通 session message 提交一个可选 opaque `target_endpoint_id`；它不改变或
   复制 composer、attachment、streaming、routing 或 Workflow path；仅附件发送提交空文本，由

@@ -32,7 +32,7 @@ export type Schedule = {
   };
 };
 
-export type ScheduleAction = {
+export type ScheduleMutationAction = {
   operation: "edit" | "delete";
   schedule_id: string;
   expected_updated_at: string;
@@ -40,6 +40,13 @@ export type ScheduleAction = {
   due_time?: string;
   timezone?: string;
   recurrence?: string;
+};
+
+export type ScheduleAction = ScheduleMutationAction;
+
+export type ScheduleCreation = {
+  state: string;
+  message: string;
 };
 
 export type Message = {
@@ -283,6 +290,10 @@ export type ReadyStatus = {
   gateway_binding: string;
   speech: SpeechStatus;
   resident_services: ResidentServiceStatus[];
+  credential_vault: {
+    ready: boolean;
+    state: "ready" | "unavailable" | string;
+  };
   store?: {
     backend: "memory" | "file" | "postgres" | string;
     state: "starting" | "ready" | "unready" | "closing" | "closed" | string;

@@ -171,6 +171,35 @@ func (s *PostgresStore) GetCredentialSecret(ctx context.Context, ref string) (ap
 	return secret, true, nil
 }
 
+func (s *PostgresStore) ListCredentialSecrets(ctx context.Context) ([]app.CredentialSecret, error) {
+	ctx, cancel := operationContext(ctx, OperationCredentialSecretList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationCredentialSecretList, ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.credentialPostgres.Query(ctx, credentialSecretSelectSQL+` ORDER BY ref ASC`)
+	if err != nil {
+		return nil, classifyPostgresReadError(OperationCredentialSecretList, ctx, err)
+	}
+	defer rows.Close()
+	secrets := make([]app.CredentialSecret, 0)
+	for rows.Next() {
+		secret, err := scanCredentialSecret(rows)
+		if err != nil {
+			return nil, classifyPostgresReadError(OperationCredentialSecretList, ctx, err)
+		}
+		secret, err = normalizePersistedCredentialSecret(secret)
+		if err != nil {
+			return nil, storeError(ctx, OperationCredentialSecretList, StoreErrorCorrupt, err)
+		}
+		secrets = append(secrets, secret)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyPostgresReadError(OperationCredentialSecretList, ctx, err)
+	}
+	return secrets, nil
+}
+
 func (s *PostgresStore) DeleteCredentialSecret(ctx context.Context, condition CredentialDeleteCondition) (app.CredentialSecret, error) {
 	ctx, cancel := operationContext(ctx, OperationCredentialSecretDelete, s.operationTimeouts)
 	defer cancel()

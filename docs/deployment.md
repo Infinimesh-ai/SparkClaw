@@ -129,6 +129,16 @@ already-cloned repository, run:
 npm run deploy:local
 ```
 
+Changing `SPARKCLAW_INSTALL_DIR` for an existing deployment is a data
+relocation, not a clean install. Before starting from the new checkout, copy
+the prior private environment file and bind-mounted `data/` state, especially
+the owner-only `data/memory/gateway-credentials.key`; the Compose PostgreSQL
+volume alone is not a complete backup. Deployment refuses to start when it
+finds an existing SparkClaw PostgreSQL volume without that key. Never generate
+a replacement key for existing ciphertext. Gateway also opens every persisted
+credential with the configured key before reporting ready, and `/readyz`
+includes a safe `credential_vault` readiness projection.
+
 ## Product Entrypoints
 
 | Deployment | First deployment | Reconcile/start | Configuration |
@@ -228,8 +238,8 @@ Both deployment modes use this same production browser setup. It creates
 owner-only Controller, MCP-output, CLI-runtime, profile, and Native Messaging
 Host directories, then records only the fixed Controller paths in the selected
 mode-`0600` environment file. These directories persist no extension token or
-email message archive. The Bridge token is enrolled through `Settings >
-Connections > Browser control` and remains encrypted in the Gateway Vault.
+email message archive. The Bridge token is enrolled through `Connections >
+Browser control` and remains encrypted in the Gateway Vault.
 
 Use the desktop launcher or this command when manual login or human verification
 is required:

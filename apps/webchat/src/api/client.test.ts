@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
-import { api, APIError, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody } from "./client";
+import { api, APIError, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody, scheduleCreateRequestBody } from "./client";
 
 describe("email refresh request identity", () => {
   let values: Map<string, string>;
@@ -64,6 +64,13 @@ describe("messageStreamRequestBody", () => {
 });
 
 describe("scheduleActionRequestBody", () => {
+  it("sends schedule creation to the dedicated resource without conversation fields", () => {
+    expect(scheduleCreateRequestBody("Every weekday at 9 AM, summarize project progress", "Asia/Shanghai")).toEqual({
+      content: "Every weekday at 9 AM, summarize project progress",
+      client_timezone: "Asia/Shanghai"
+    });
+  });
+
   it("sends the browser timezone with schedule mutations", () => {
     const action = { operation: "delete" as const, schedule_id: "schedule-1", expected_updated_at: "2026-08-19T01:00:00Z" };
     expect(scheduleActionRequestBody("Delete schedule", action, "America/New_York")).toEqual({

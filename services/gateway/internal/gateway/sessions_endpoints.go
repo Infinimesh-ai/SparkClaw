@@ -198,6 +198,10 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	var result agent.Result
 	if input.Schedule != nil {
+		if input.Schedule.Operation == app.RouteOperationCreate {
+			writeError(w, http.StatusBadRequest, errors.New("schedule creation uses POST /api/schedules"))
+			return
+		}
 		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, "", input.ClientTimezone)
 		if ingressErr != nil {
 			writeError(w, http.StatusBadRequest, ingressErr)

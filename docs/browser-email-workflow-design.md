@@ -114,7 +114,7 @@ boundary. Reply, draft management and general mailbox search remain out of scope
 
 ## Login Configuration
 
-WebChat exposes `Settings > Connections > Browser email` with QQ Mail, Outlook,
+WebChat exposes `Connections > Browser email` with QQ Mail, Outlook,
 and Gmail entries. Each provider can be enabled or disabled, selected as the
 single default, opened for manual login, and checked with a read-only probe.
 The panel reports bounded readiness metadata and an optional masked account

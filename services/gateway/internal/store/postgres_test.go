@@ -464,7 +464,7 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	if !ok || storedBinding.RequesterDeviceID != peer.DeviceID || storedBinding.LinkedSessionID == "" {
 		t.Fatalf("PostgreSQL binding did not recover: %#v ok=%v", storedBinding, ok)
 	}
-	if linked, ok := mustGetSession(t, restarted, storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
+	if linked, ok := mustGetSession(t, restarted, storedBinding.LinkedSessionID); !ok || !linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
 		t.Fatalf("PostgreSQL legacy MCP conversation was not normalized on restart: %#v ok=%v", linked, ok)
 	}
 	storedOperation, ok := mustGetMCPOperation(t, restarted, operation.ID)

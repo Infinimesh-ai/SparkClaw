@@ -91,6 +91,38 @@ func TestVaultFileBackendPersistsOnlyCiphertext(t *testing.T) {
 	}
 }
 
+func TestVaultDoesNotAutoCreateKeyOverExistingCredentials(t *testing.T) {
+	repository := store.NewMemoryStore()
+	if _, err := repository.SaveCredentialSecret(t.Context(), store.NewCredentialCreate(app.CredentialSecret{
+		Ref: "cred_existing", Kind: "token", Value: "persisted-ciphertext",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "relocated", "credential.key")
+	vault := New(repository, Options{KeyFile: keyPath, AutoCreate: true})
+	if err := vault.Ready(); ErrorCode(err) != CodeKeyUnavailable {
+		t.Fatalf("relocated vault readiness=%v code=%q", err, ErrorCode(err))
+	}
+	if _, err := os.Stat(keyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement key was created over existing credentials: %v", err)
+	}
+}
+
+func TestVaultValidatesEveryPersistedCredentialAgainstLoadedKey(t *testing.T) {
+	repository := store.NewMemoryStore()
+	original := New(repository, Options{Key: testKey(16)})
+	if _, err := original.Seal(t.Context(), "binding-startup-check", "token", []byte("startup-check-secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := original.ValidateExisting(t.Context()); err != nil {
+		t.Fatalf("matching key validation failed: %v", err)
+	}
+	wrong := New(repository, Options{Key: testKey(17)})
+	if err := wrong.ValidateExisting(t.Context()); ErrorCode(err) != CodeUnsealFailed {
+		t.Fatalf("wrong key validation=%v code=%q", err, ErrorCode(err))
+	}
+}
+
 func TestVaultBindingGenerationSurvivesRestartAndChangesOnReplacement(t *testing.T) {
 	repository := store.NewMemoryStore()
 	key := testKey(14)
@@ -246,6 +278,10 @@ func (r *unknownOnceRepository) SaveCredentialSecret(ctx context.Context, comman
 
 func (r *unknownOnceRepository) GetCredentialSecret(ctx context.Context, ref string) (app.CredentialSecret, bool, error) {
 	return r.inner.GetCredentialSecret(ctx, ref)
+}
+
+func (r *unknownOnceRepository) ListCredentialSecrets(ctx context.Context) ([]app.CredentialSecret, error) {
+	return r.inner.ListCredentialSecrets(ctx)
 }
 
 func (r *unknownOnceRepository) DeleteCredentialSecret(ctx context.Context, condition store.CredentialDeleteCondition) (app.CredentialSecret, error) {

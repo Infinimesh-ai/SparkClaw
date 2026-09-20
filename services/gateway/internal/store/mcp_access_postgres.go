@@ -204,7 +204,7 @@ func (s *PostgresStore) RedeemMCPAccessTicket(ctx context.Context, secretHash st
 	}
 	sessionTime := normalizeSessionTime(now)
 	if _, err := transaction.Exec(ctx, `
-		INSERT INTO sessions (id,owner_id,title,source,hidden,created_at,updated_at) VALUES ($1,$2,$3,'mcp',false,$4,$4)
+		INSERT INTO sessions (id,owner_id,title,source,hidden,created_at,updated_at) VALUES ($1,$2,$3,'mcp',true,$4,$4)
 	`, binding.LinkedSessionID, binding.OwnerID, mcpSessionTitle(binding.RequesterDeviceID), sessionTime); err != nil {
 		return finishMCPPostgresWrite(ctx, OperationMCPAccessTicketRedeem, binding, true, session, transaction, err, ErrMCPAccessTicketInvalid)
 	}

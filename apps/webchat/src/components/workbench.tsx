@@ -16,8 +16,8 @@ export const workbenchCopy = {
     prompts: ["帮我研究一个课题：", "请用浏览器帮我查找并对比：", "帮我整理本地文件，先给出计划并等待确认：", "请帮我创建定时任务："],
     stepTitles: ["本地理解", "网络搜索", "逻辑判断", "交付结果"],
     stepDescriptions: ["理解你的文件、偏好与目标", "连接公开信息，补全上下文", "拆解任务，形成执行计划", "留下结果，也留下完整过程"],
-    pageTitles: { schedules: "让日常，自动发生。", channels: "在你常用的地方，找到助手。", memory: "越了解你，越得心应手。", approvals: "关键操作，由你决定。", settings: "工作区设置" },
-    pageDescriptions: { schedules: "安排一次，按时执行。把重复的事留给 SparkClaw。", channels: "连接通讯工具，让任务与结果在对话间自然流转。", memory: "你决定 SparkClaw 记住什么。随时查看、编辑或移除。", approvals: "先查看影响范围，再允许 SparkClaw 继续。", settings: "按你的习惯，安排 SparkClaw 的工作方式。" },
+    pageTitles: { schedules: "让日常，自动发生。", channels: "所有连接，集中管理。", memory: "越了解你，越得心应手。", approvals: "关键操作，由你决定。", settings: "工作区设置" },
+    pageDescriptions: { schedules: "安排一次，按时执行。把重复的事留给 SparkClaw。", channels: "集中管理消息、浏览器、服务与外部工具连接。", memory: "你决定 SparkClaw 记住什么。随时查看、编辑或移除。", approvals: "先查看影响范围，再允许 SparkClaw 继续。", settings: "按你的习惯，安排 SparkClaw 的工作方式。" },
     local: "本地工作区", inspector: "任务检查", toggleNav: "切换侧栏", toggleInspector: "切换检查面板", model: "模型", newSchedule: "新建定时任务", addMemory: "添加记忆", memoryPrompt: "请记住："
   },
   en: {
@@ -31,8 +31,8 @@ export const workbenchCopy = {
     prompts: ["Help me research this topic: ", "Use the browser to find and compare: ", "Help organize my local files. Propose a plan and wait for approval: ", "Help me create a scheduled task: "],
     stepTitles: ["Local context", "Web search", "Reasoning", "Deliver results"],
     stepDescriptions: ["Understand your files, preferences, and goals", "Find public information and complete the context", "Break down tasks into a clear execution plan", "Keep the results and the full execution history"],
-    pageTitles: { schedules: "Make everyday work automatic.", channels: "Meet your assistant where you work.", memory: "An assistant that gets to know you.", approvals: "Important actions are your decision.", settings: "Workspace settings" },
-    pageDescriptions: { schedules: "Plan once. Let SparkClaw handle the repetition.", channels: "Connect messaging tools to exchange tasks and results.", memory: "Choose what SparkClaw remembers. Review, edit, or remove it anytime.", approvals: "Review the impact before allowing SparkClaw to continue.", settings: "Make SparkClaw work the way you do." },
+    pageTitles: { schedules: "Make everyday work automatic.", channels: "All connections, one place.", memory: "An assistant that gets to know you.", approvals: "Important actions are your decision.", settings: "Workspace settings" },
+    pageDescriptions: { schedules: "Plan once. Let SparkClaw handle the repetition.", channels: "Manage messaging, browser, service, and external tool connections in one place.", memory: "Choose what SparkClaw remembers. Review, edit, or remove it anytime.", approvals: "Review the impact before allowing SparkClaw to continue.", settings: "Make SparkClaw work the way you do." },
     local: "Local workspace", inspector: "Task inspector", toggleNav: "Toggle sidebar", toggleInspector: "Toggle inspector", model: "Model", newSchedule: "New scheduled task", addMemory: "Add memory", memoryPrompt: "Please remember: "
   }
 };

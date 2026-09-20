@@ -8,10 +8,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+type createScheduleInput struct {
+	Content        string `json:"content"`
+	ClientTimezone string `json:"client_timezone,omitempty"`
+}
+
+type createScheduleOutput struct {
+	State   string `json:"state"`
+	Message string `json:"message"`
+}
 
 type publicSchedule struct {
 	ID         app.ScheduleID         `json:"id"`
@@ -36,6 +47,60 @@ type publicScheduleEndpoint struct {
 	RecipientDisplayName string           `json:"recipient_display_name,omitempty"`
 	ConversationLabel    string           `json:"conversation_label,omitempty"`
 	Status               string           `json:"status"`
+}
+
+func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
+	var input createScheduleInput
+	if err := readJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	input.Content = strings.TrimSpace(input.Content)
+	if input.Content == "" {
+		writeError(w, http.StatusBadRequest, errors.New("schedule request is required"))
+		return
+	}
+
+	principal := principalForRequest(r)
+	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), principal.OwnerID)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, errors.New("profile not found"))
+		return
+	}
+
+	// Schedule creation needs a persisted execution context for workflow audit
+	// and later delivery, but it is a schedule resource rather than a WebChat
+	// conversation. Hidden sessions preserve that context without surfacing a
+	// new task in the workbench sidebar.
+	session, err := s.store.CreateSessionWithScope(r.Context(), "Scheduled tasks", profile.ID, profile.WorkspaceRoot, "schedule", true)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	ingress, err := s.webMessageIngress(r.Context(), r, session, "", input.ClientTimezone)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	result, err := s.runtime.HandleScheduleActionWithIngress(r.Context(), session.ID, input.Content, agent.ScheduleAction{
+		Operation: app.RouteOperationCreate,
+	}, ingress)
+	if err != nil {
+		writeConversationError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Do not deliver the creation acknowledgement into a conversation. The
+	// scheduled task itself is the user-facing result and is returned by GET
+	// /api/schedules.
+	writeJSON(w, http.StatusCreated, createScheduleOutput{
+		State:   result.Run.State,
+		Message: result.Message.Content,
+	})
 }
 
 func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {

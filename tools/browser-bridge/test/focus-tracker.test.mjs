@@ -106,7 +106,7 @@ test("background task pages share one unfocused dedicated window", async () => {
   assert.deepEqual(fixture.calls.tabsCreate, [
     {
       url: "chrome-extension://bridge/connect.html?first",
-      active: true,
+      active: false,
       pinned: false,
       windowId: 8,
     },
@@ -119,6 +119,26 @@ test("background task pages share one unfocused dedicated window", async () => {
   ]);
   assert.deepEqual(fixture.calls.tabsRemove, [[3]]);
   assert.deepEqual(fixture.calls.windowsUpdate, []);
+});
+
+test("a cold service worker reuses the persisted unfocused task window", async () => {
+  const fixture = createFixture({ sessionStorage: true });
+  const firstTracker = new FocusTracker(fixture.chromeAPI);
+
+  const firstTabID = await firstTracker.openBackgroundConnectionPage(
+    "chrome-extension://bridge/connect.html?first",
+  );
+  const secondTracker = new FocusTracker(fixture.chromeAPI);
+  const secondTabID = await secondTracker.openBackgroundConnectionPage(
+    "chrome-extension://bridge/connect.html?second",
+  );
+
+  assert.deepEqual([firstTabID, secondTabID], [4, 5]);
+  assert.deepEqual(fixture.calls.windowsCreate, [{ focused: false, type: "normal" }]);
+  assert.deepEqual(fixture.calls.tabsCreate.map((call) => call.windowId), [8, 8]);
+  assert.deepEqual(await fixture.chromeAPI.storage.session.get("sparkclawBackgroundTaskWindowID"), {
+    sparkclawBackgroundTaskWindowID: 8,
+  });
 });
 
 test("a released task window is never reused for later background work", async () => {
@@ -287,7 +307,12 @@ test("cold service worker closes grouped and ungrouped stale task tabs after res
   assert.deepEqual(fixture.calls.tabsRemove, [[3, 4]]);
 });
 
-function createFixture({ queryAllTabs = false, queryDelay = false, browserFocused = false } = {}) {
+function createFixture({
+  queryAllTabs = false,
+  queryDelay = false,
+  browserFocused = false,
+  sessionStorage = false,
+} = {}) {
   const events = {
     activated: event(), focused: event(), removed: event(), updated: event(), windowRemoved: event(),
   };
@@ -303,8 +328,15 @@ function createFixture({ queryAllTabs = false, queryDelay = false, browserFocuse
   const windows = new Set([7]);
   let nextTabID = 2;
   let nextWindowID = 7;
+  const sessionValues = new Map();
   const chromeAPI = {
     runtime: { id: "bridge" },
+    ...(sessionStorage ? { storage: { session: {
+      get: async (key) => sessionValues.has(key) ? { [key]: sessionValues.get(key) } : {},
+      set: async (items) => {
+        for (const [key, value] of Object.entries(items)) sessionValues.set(key, value);
+      },
+    } } } : {}),
     tabs: {
       onActivated: events.activated,
       onRemoved: events.removed,

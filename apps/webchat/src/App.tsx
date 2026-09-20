@@ -14,7 +14,7 @@ import { InspectorColumn } from "./components/inspector";
 import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
 import { DeliveryTargetPicker } from "./components/deliveryTargetPicker";
-import { ScheduleBar } from "./components/schedules";
+import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { NotificationCenter } from "./components/notificationCenter";
 import { EmailPopupEntry } from "./components/emailPopup";
@@ -57,6 +57,7 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [scheduleCreateOpen, setScheduleCreateOpen] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -539,6 +540,29 @@ export function App() {
     window.requestAnimationFrame(() => composerInputRef.current?.focus());
   }
 
+  async function createSchedule(request: string) {
+    if (busy || voice.active) return null;
+    try {
+      setBusy(true);
+      setError("");
+      setNotice("");
+      const result = await api.createSchedule(request);
+      await refreshGlobal();
+      const success = result.state === "completed";
+      const message = result.message.trim() || (success ? text.schedules.createSuccess : text.schedules.createNeedsAttention);
+      if (success) setNotice(message);
+      return {
+        success,
+        message
+      };
+    } catch (err) {
+      surfaceError(err, text.errors.message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const showHome = page === "chat" && messages.length === 0;
   const fullPanel = page !== "chat" && page !== "schedules";
   const pageLabel = page === "chat" ? (showHome ? copy.home : active?.title ?? text.app.titleFallback) : copy[page];
@@ -554,6 +578,10 @@ export function App() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, [busy, voice.active, createSession]);
+
+  useEffect(() => {
+    if (page !== "schedules") setScheduleCreateOpen(false);
+  }, [page]);
 
   return (
     <main className={`shell workbench ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
@@ -652,7 +680,7 @@ export function App() {
           </div>
         )}
 
-        {page === "schedules" && <div className="workbenchPage schedulePage"><div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => { void newTask(copy.prompts[3]); }}><Plus size={15} />{copy.newSchedule}</button></div><ScheduleBar
+        {page === "schedules" && <div className="workbenchPage schedulePage"><div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || voice.active}><Plus size={15} />{copy.newSchedule}</button></div><ScheduleBar
           schedules={schedules}
           open={scheduleBarOpen}
           loading={schedulesRefreshing}
@@ -663,7 +691,12 @@ export function App() {
           onRefresh={() => void refreshSchedules()}
           onEdit={editSchedule}
           onDelete={deleteSchedule}
-        /></div>}
+        />{scheduleCreateOpen ? <ScheduleCreateDialog
+          busy={busy || voice.active}
+          text={text}
+          onClose={() => setScheduleCreateOpen(false)}
+          onCreate={createSchedule}
+        /> : null}</div>}
 
         {page === "chat" && <section className={`chatColumn ${showHome ? "homeChat" : ""}`}>
           <div className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>

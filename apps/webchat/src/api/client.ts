@@ -40,6 +40,7 @@ import type {
   RunTrace,
   Schedule,
   ScheduleAction,
+  ScheduleCreation,
   Session,
   SpeechStatus,
   SpeechRealtimeTicket,
@@ -145,6 +146,13 @@ export function scheduleActionRequestBody(content: string, action: ScheduleActio
   return {
     content,
     schedule_action: action,
+    ...(timezone ? { client_timezone: timezone } : {})
+  };
+}
+
+export function scheduleCreateRequestBody(content: string, timezone = "") {
+  return {
+    content,
     ...(timezone ? { client_timezone: timezone } : {})
   };
 }
@@ -549,6 +557,11 @@ export const api = {
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),
+  createSchedule: (content: string) =>
+    request<ScheduleCreation>("/api/schedules", {
+      method: "POST",
+      body: JSON.stringify(scheduleCreateRequestBody(content, clientTimezone()))
+    }),
   scheduleAction: (sessionId: string, content: string, action: ScheduleAction) =>
     request<AgentResult>(`/api/sessions/${sessionId}/messages`, {
       method: "POST",

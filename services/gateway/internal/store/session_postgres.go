@@ -309,20 +309,35 @@ func (s *PostgresStore) UpdateSessionTitle(ctx context.Context, id, title string
 }
 
 func (s *PostgresStore) DeleteSession(ctx context.Context, id string) (app.Session, error) {
-	ctx, cancel := operationContext(ctx, OperationSessionDelete, s.operationTimeouts)
+	return s.deleteSession(ctx, id, false)
+}
+
+// DeleteMCPInvocationSession removes the complete session-scoped record of one
+// terminal inbound MCP request without exposing MCP deletion through the owner
+// session API.
+func (s *PostgresStore) DeleteMCPInvocationSession(ctx context.Context, id string) (app.Session, error) {
+	return s.deleteSession(ctx, id, true, OperationMCPInvocationSessionDelete)
+}
+
+func (s *PostgresStore) deleteSession(ctx context.Context, id string, mcpInvocation bool, operations ...StoreOperation) (app.Session, error) {
+	operation := OperationSessionDelete
+	if len(operations) > 0 {
+		operation = operations[0]
+	}
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
 	defer cancel()
-	if err := operationContextError(OperationSessionDelete, ctx); err != nil {
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Session{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return app.Session{}, storeError(ctx, OperationSessionDelete, StoreErrorInvalid, errors.New("session ID is required"))
+		return app.Session{}, storeError(ctx, operation, StoreErrorInvalid, errors.New("session ID is required"))
 	}
-	releaseCommand, err := s.acquireSessionCommand(ctx, OperationSessionDelete)
+	releaseCommand, err := s.acquireSessionCommand(ctx, operation)
 	if err != nil {
 		return app.Session{}, err
 	}
 	defer releaseCommand()
-	session, transaction, release, err := s.beginSessionTransaction(ctx, OperationSessionDelete, pgx.TxOptions{})
+	session, transaction, release, err := s.beginSessionTransaction(ctx, operation, pgx.TxOptions{})
 	if err != nil {
 		return app.Session{}, err
 	}
@@ -332,38 +347,52 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, id string) (app.Sessi
 		}
 	}()
 	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, sessionAdvisoryKey(id)); err != nil {
-		return finishPostgresSessionStatement(ctx, OperationSessionDelete, app.Session{}, session, transaction, release, err)
+		return finishPostgresSessionStatement(ctx, operation, app.Session{}, session, transaction, release, err)
 	}
 	candidate, err := scanSession(transaction.QueryRow(ctx, sessionSelectSQL+` WHERE id=$1 FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.Session{}, sessionBusinessError(ctx, OperationSessionDelete, StoreErrorNotFound, session, transaction, release, errors.New("session not found"))
+		return app.Session{}, sessionBusinessError(ctx, operation, StoreErrorNotFound, session, transaction, release, errors.New("session not found"))
 	}
 	if err != nil {
-		return finishPostgresSessionStatement(ctx, OperationSessionDelete, app.Session{}, session, transaction, release, err)
+		return finishPostgresSessionStatement(ctx, operation, app.Session{}, session, transaction, release, err)
 	}
 	if err := validatePersistedSession(id, candidate); err != nil {
-		return app.Session{}, sessionBusinessError(ctx, OperationSessionDelete, StoreErrorCorrupt, session, transaction, release, err)
+		return app.Session{}, sessionBusinessError(ctx, operation, StoreErrorCorrupt, session, transaction, release, err)
 	}
-	if candidate.Source == "mcp" {
-		return app.Session{}, sessionBusinessError(ctx, OperationSessionDelete, StoreErrorConflict, session, transaction, release, errors.New("MCP session history is binding-owned"))
+	if candidate.Source == "mcp" && !mcpInvocation {
+		return app.Session{}, sessionBusinessError(ctx, operation, StoreErrorConflict, session, transaction, release, errors.New("MCP session history is binding-owned"))
+	}
+	if mcpInvocation && (candidate.Source != "mcp" || !candidate.Hidden) {
+		return app.Session{}, sessionBusinessError(ctx, operation, StoreErrorConflict, session, transaction, release, errors.New("only hidden MCP invocation sessions can be deleted internally"))
+	}
+	if mcpInvocation {
+		var bindingAnchor bool
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM mcp_bindings WHERE payload->>'linked_session_id'=$1)`, id).Scan(&bindingAnchor); err != nil {
+			return finishPostgresSessionStatement(ctx, operation, candidate, session, transaction, release, err)
+		}
+		if bindingAnchor {
+			return app.Session{}, sessionBusinessError(ctx, operation, StoreErrorConflict, session, transaction, release, errors.New("MCP binding anchors cannot be deleted as invocation sessions"))
+		}
 	}
 	for _, statement := range sessionDeleteStatements {
 		tag, err := transaction.Exec(ctx, statement.sql, id)
 		if err != nil {
-			return finishPostgresSessionStatement(ctx, OperationSessionDelete, candidate, session, transaction, release, err)
+			return finishPostgresSessionStatement(ctx, operation, candidate, session, transaction, release, err)
 		}
 		if statement.requireOneRow && tag.RowsAffected() != 1 {
-			return app.Session{}, sessionBusinessError(ctx, OperationSessionDelete, StoreErrorInternal, session, transaction, release, errors.New("session delete affected an unexpected row count"))
+			return app.Session{}, sessionBusinessError(ctx, operation, StoreErrorInternal, session, transaction, release, errors.New("session delete affected an unexpected row count"))
 		}
 	}
-	if err := insertSessionLifecycle(ctx, transaction, "session.deleted", "", "owner", "Session deleted", map[string]any{
-		"session_id": candidate.ID, "title": candidate.Title,
-	}, candidate); err != nil {
-		return finishPostgresSessionStatement(ctx, OperationSessionDelete, candidate, session, transaction, release, err)
+	if !mcpInvocation {
+		if err := insertSessionLifecycle(ctx, transaction, "session.deleted", "", "owner", "Session deleted", map[string]any{
+			"session_id": candidate.ID, "title": candidate.Title,
+		}, candidate); err != nil {
+			return finishPostgresSessionStatement(ctx, operation, candidate, session, transaction, release, err)
+		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
-		return candidate, storeError(ctx, OperationSessionDelete, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return candidate, nil
 }

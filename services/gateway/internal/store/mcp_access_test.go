@@ -98,11 +98,11 @@ func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
 	if !ok || binding.OwnerID != ticket.OwnerID || binding.ActorID != ticket.ActorID || binding.RequesterDeviceID == binding.ActorID {
 		t.Fatalf("binding did not preserve requester/executor separation: %#v ok=%v", binding, ok)
 	}
-	if session, ok := mustGetSession(t, st, binding.LinkedSessionID); !ok || session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
+	if session, ok := mustGetSession(t, st, binding.LinkedSessionID); !ok || !session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
 		t.Fatalf("binding session was not created atomically: %#v ok=%v", session, ok)
 	}
-	if sessions := mustListSessions(t, st); len(sessions) != 1 || sessions[0].ID != binding.LinkedSessionID {
-		t.Fatalf("binding conversation was not visible in the ordinary session list: %#v", sessions)
+	if sessions := mustListSessions(t, st); len(sessions) != 0 {
+		t.Fatalf("binding conversation was visible in the ordinary session list: %#v", sessions)
 	}
 	if _, ok := mustFindMCPBindingForPeer(t, st, peer.DomainID, "device-b", peer.KeyThumbprint); ok {
 		t.Fatal("device substitution found a binding")
@@ -143,15 +143,15 @@ func TestFileStorePersistsMCPAccessWithoutPlaintextSecret(t *testing.T) {
 	if got, ok := mustGetMCPOperation(t, reloaded, operation.ID); !ok || got.Invocation.ID != "inv-file" {
 		t.Fatalf("operation did not persist: %#v ok=%v", got, ok)
 	}
-	if session, ok := mustGetSession(t, reloaded, binding.LinkedSessionID); !ok || session.Hidden || session.Title != "AI · device-file" {
-		t.Fatalf("visible MCP conversation did not survive restart: %#v ok=%v", session, ok)
+	if session, ok := mustGetSession(t, reloaded, binding.LinkedSessionID); !ok || !session.Hidden || session.Title != "AI · device-file" {
+		t.Fatalf("hidden MCP binding anchor did not survive restart: %#v ok=%v", session, ok)
 	}
 	if got, ok := mustFindMCPAccessTicketBySecretHash(t, reloaded, ticket.SecretHash); !ok || got.SecretHash != "sha256-only" {
 		t.Fatalf("ticket hash did not persist: %#v ok=%v", got, ok)
 	}
 }
 
-func TestFileStoreNormalizesLegacyHiddenMCPConversation(t *testing.T) {
+func TestFileStoreKeepsLegacyMCPConversationHidden(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-mcp-state.json")
 	now := time.Date(2026, 8, 22, 9, 0, 0, 123456789, time.UTC)
 	binding := app.MCPBinding{
@@ -176,7 +176,7 @@ func TestFileStoreNormalizesLegacyHiddenMCPConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	session, ok := mustGetSession(t, st, binding.LinkedSessionID)
-	if !ok || session.Hidden || session.Title != "AI · legacy-devic" || session.Source != "mcp" {
+	if !ok || !session.Hidden || session.Title != "AI · legacy-devic" || session.Source != "mcp" {
 		t.Fatalf("legacy MCP conversation was not normalized: %#v ok=%v", session, ok)
 	}
 	storedBinding, ok := mustGetMCPBinding(t, st, binding.ID)

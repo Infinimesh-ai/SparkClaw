@@ -105,6 +105,13 @@ bootstrap 默认使用 `main` 与 `$HOME/SparkClaw`。在 `bash` 进程上设置
 npm run deploy:local
 ```
 
+对已有部署修改 `SPARKCLAW_INSTALL_DIR` 属于数据搬迁，而不是全新安装。启动新 checkout
+之前，必须复制原来的 private environment file 与 bind-mounted `data/` 状态，尤其是仅
+owner 可读的 `data/memory/gateway-credentials.key`；只有 Compose PostgreSQL volume
+并不是完整备份。若检测到已有 SparkClaw PostgreSQL volume 而当前目录缺少该密钥，部署会
+拒绝启动。已有密文绝不能配用新生成的替代密钥。Gateway 还会在报告 ready 之前用配置密钥
+逐一打开全部持久化凭据，`/readyz` 会返回脱敏的 `credential_vault` readiness 投影。
+
 ## 产品入口
 
 | 部署 | 首次部署 | Reconcile/start | 配置 |
@@ -188,7 +195,7 @@ bash scripts/setup-browser.sh --check
 两种部署模式使用相同的生产 Browser Setup。它创建 Owner-only Controller、MCP Output、CLI
 Runtime、Profile 和 Native Messaging Host Directory，只把固定 Controller Path 写入所选
 mode-`0600` 环境文件。这些目录不持久化 Extension Token，也不形成 Email Message Archive。
-Bridge Token 通过 `设置 > 连接 > 浏览器控制` 登记，并在 Gateway Vault 中保持加密。
+Bridge Token 通过 `通讯工具 > 浏览器控制` 登记，并在 Gateway Vault 中保持加密。
 
 手动登录或 Human Verification 时使用 Desktop Launcher 或以下命令：
 

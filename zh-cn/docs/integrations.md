@@ -25,7 +25,7 @@
 使用提供方 Credential、OAuth Token、IMAP、SMTP、Gmail API 或 Microsoft Graph。认证
 状态只保留在宿主机所有的 SparkClaw 专用 Chromium Profile 中。
 
-WebChat 在 `设置 > 连接 > 浏览器邮箱` 中提供三个 Provider。打开登录入口时会创建
+WebChat 在 `通讯工具 > 浏览器邮箱` 中提供三个 Provider。打开登录入口时会创建
 Task-owned Provider Tab，并显式 Handoff 给 Owner 手动登录。登录检查、读取和发送使用独立的后台
 Task-owned Tab，不会复用 Owner Tab、此前的 Login Tab 或其他 Idle Tab。
 

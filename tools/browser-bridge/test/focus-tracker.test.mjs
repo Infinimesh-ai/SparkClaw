@@ -89,7 +89,7 @@ test("background connection and cleanup preserve focus on another app", async ()
   assert.deepEqual(fixture.calls.windowsCreate, []);
 });
 
-test("background task pages stay inactive in the existing owner window", async () => {
+test("background task pages share one unfocused dedicated window", async () => {
   const fixture = createFixture();
   const tracker = new FocusTracker(fixture.chromeAPI);
 
@@ -98,31 +98,34 @@ test("background task pages stay inactive in the existing owner window", async (
     tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?second"),
   ]);
 
-  assert.deepEqual([firstTabID, secondTabID], [3, 4]);
-  assert.deepEqual(fixture.calls.windowsCreate, []);
+  assert.deepEqual([firstTabID, secondTabID], [4, 5]);
+  assert.deepEqual(fixture.calls.windowsCreate, [{
+    focused: false,
+    type: "normal",
+  }]);
   assert.deepEqual(fixture.calls.tabsCreate, [
     {
       url: "chrome-extension://bridge/connect.html?first",
       active: false,
       pinned: false,
-      windowId: 7,
+      windowId: 8,
     },
     {
       url: "chrome-extension://bridge/connect.html?second",
       active: false,
       pinned: false,
-      windowId: 7,
+      windowId: 8,
     },
   ]);
-  assert.deepEqual(fixture.calls.tabsRemove, []);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3]]);
   assert.deepEqual(fixture.calls.windowsUpdate, []);
 });
 
-test("an existing QQ Mail window receives the inactive task tab without creating a third window", async () => {
-  const fixture = createFixture({ queryAllTabs: true, lastFocusedWindowID: 9 });
+test("an existing QQ Mail owner window is never used for background task tabs", async () => {
+  const fixture = createFixture({ queryAllTabs: true });
   fixture.tabs.set(10, {
     id: 10,
-    windowId: 9,
+    windowId: 7,
     url: "https://mail.qq.com/",
     active: true,
     lastAccessed: 300,
@@ -131,30 +134,52 @@ test("an existing QQ Mail window receives the inactive task tab without creating
 
   const tabID = await tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?qq");
 
-  assert.equal(tabID, 3);
+  assert.equal(tabID, 4);
   assert.deepEqual(fixture.calls.tabsCreate, [{
     url: "chrome-extension://bridge/connect.html?qq",
     active: false,
     pinned: false,
-    windowId: 9,
+    windowId: 8,
   }]);
-  assert.deepEqual(fixture.calls.windowsCreate, []);
+  assert.deepEqual(fixture.calls.windowsCreate, [{ focused: false, type: "normal" }]);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3]]);
   assert.deepEqual(fixture.calls.windowsUpdate, []);
 });
 
-test("a cold service worker also selects the existing owner window", async () => {
-  const fixture = createFixture();
+test("a cold service worker reuses the persisted unfocused task window", async () => {
+  const fixture = createFixture({ sessionStorage: true });
   const firstTracker = new FocusTracker(fixture.chromeAPI);
-  const firstTabID = await firstTracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?first");
+  const firstTabID = await firstTracker.openBackgroundConnectionPage(
+    "chrome-extension://bridge/connect.html?first",
+  );
   const secondTracker = new FocusTracker(fixture.chromeAPI);
-  const secondTabID = await secondTracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?second");
+  const secondTabID = await secondTracker.openBackgroundConnectionPage(
+    "chrome-extension://bridge/connect.html?second",
+  );
 
-  assert.deepEqual([firstTabID, secondTabID], [3, 4]);
-  assert.deepEqual(fixture.calls.windowsCreate, []);
-  assert.deepEqual(fixture.calls.tabsCreate.map((call) => call.windowId), [7, 7]);
+  assert.deepEqual([firstTabID, secondTabID], [4, 5]);
+  assert.deepEqual(fixture.calls.windowsCreate, [{ focused: false, type: "normal" }]);
+  assert.deepEqual(fixture.calls.tabsCreate.map((call) => call.windowId), [8, 8]);
+  assert.deepEqual(await fixture.chromeAPI.storage.session.get("sparkclawBackgroundTaskWindowID"), {
+    sparkclawBackgroundTaskWindowID: 8,
+  });
 });
 
-test("a task-tab creation failure leaves the owner window intact", async () => {
+test("a released task window is never reused for later background work", async () => {
+  const fixture = createFixture();
+  const tracker = new FocusTracker(fixture.chromeAPI);
+  const firstTabID = await tracker.openBackgroundConnectionPage(
+    "chrome-extension://bridge/connect.html?first",
+  );
+
+  tracker.releaseTaskTab(firstTabID);
+  await tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?second");
+
+  assert.equal(fixture.calls.windowsCreate.length, 2);
+  assert.deepEqual(fixture.calls.tabsCreate.map((call) => call.windowId), [8, 9]);
+});
+
+test("a task-tab creation failure closes its new dedicated window", async () => {
   const fixture = createFixture();
   const tracker = new FocusTracker(fixture.chromeAPI);
   fixture.chromeAPI.tabs.create = async () => { throw new Error("tab failed"); };
@@ -164,8 +189,8 @@ test("a task-tab creation failure leaves the owner window intact", async () => {
     /tab failed/,
   );
 
-  assert.deepEqual(fixture.calls.windowsCreate, []);
-  assert.deepEqual(fixture.calls.windowsRemove, []);
+  assert.equal(fixture.calls.windowsCreate.length, 1);
+  assert.deepEqual(fixture.calls.windowsRemove, [8]);
 });
 
 test("connection page first observed as about:blank restores the prior owner tab", async () => {
@@ -310,7 +335,7 @@ function createFixture({
   queryAllTabs = false,
   queryDelay = false,
   browserFocused = false,
-  lastFocusedWindowID = 7,
+  sessionStorage = false,
 } = {}) {
   const events = {
     activated: event(), focused: event(), removed: event(), updated: event(), windowRemoved: event(),
@@ -327,8 +352,15 @@ function createFixture({
   const windows = new Set([7]);
   let nextTabID = 2;
   let nextWindowID = 7;
+  const sessionValues = new Map();
   const chromeAPI = {
     runtime: { id: "bridge" },
+    ...(sessionStorage ? { storage: { session: {
+      get: async (key) => sessionValues.has(key) ? { [key]: sessionValues.get(key) } : {},
+      set: async (items) => {
+        for (const [key, value] of Object.entries(items)) sessionValues.set(key, value);
+      },
+    } } } : {}),
     tabs: {
       onActivated: events.activated,
       onRemoved: events.removed,
@@ -361,7 +393,7 @@ function createFixture({
       WINDOW_ID_NONE: -1,
       onFocusChanged: events.focused,
       onRemoved: events.windowRemoved,
-      getLastFocused: async () => ({ id: lastFocusedWindowID, focused: browserFocused }),
+      getLastFocused: async () => ({ id: 7, focused: browserFocused }),
       get: async (windowId) => {
         if (!windows.has(windowId)) throw new Error("window not found");
         return { id: windowId };

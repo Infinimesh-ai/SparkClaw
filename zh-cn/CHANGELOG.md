@@ -42,9 +42,10 @@
 
 ### Changed
 
-- Browser Bridge 后台邮件任务现在会在最近使用的现有 Owner 窗口内创建非激活 Task Tab，
-  已有 Provider 页面时不再额外创建专用后台窗口；Manifest V3 Worker 重启后会从存活标签页
-  恢复同一 Owner 窗口选择。Task Tab 隔离与显式聚焦 Handoff 语义保持不变。
+- Browser Bridge 后台邮件任务现在统一复用一个非聚焦的专用任务窗口，Task Tab 绝不进入
+  Owner 正在使用的窗口。首个 Task Tab 以非激活方式创建，专用窗口 ID 持久化在扩展 Session
+  Storage 中，使 Manifest V3 Worker 重启后继续复用该窗口而不会再开一个；显式聚焦 Handoff
+  语义保持不变。
 - 凭据密钥迁移改为 fail-closed：部署与启动预检发现已有 SparkClaw PostgreSQL volume、
   但当前安装目录缺少 `data/memory/gateway-credentials.key` 时会拒绝启动，并校验恢复后
   密钥文件的格式与权限；Gateway 在 readiness 前用当前密钥验证全部已存凭据，`/readyz`

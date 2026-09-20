@@ -54,11 +54,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
-- Browser Bridge background mail tasks now create inactive Task Tabs in the
-  most recently used existing owner window. They no longer create a dedicated
-  background window beside an already-open provider page, while Manifest V3
-  worker restarts reseed the same owner-window choice from live tabs. Task Tab
-  isolation and explicit focused handoff remain unchanged.
+- Browser Bridge background mail tasks now share one dedicated, unfocused task
+  window and never place Task Tabs in an owner's active window. The first Task
+  Tab is created inactive, while the dedicated window identity is persisted in
+  extension session storage so Manifest V3 worker restarts reuse it instead of
+  opening another window. Explicit focused handoff remains unchanged.
 - Credential-key migration now fails closed. Deployment and start preflight
   reject an existing SparkClaw PostgreSQL volume when the installation-local
   `data/memory/gateway-credentials.key` is missing, validate restored key file

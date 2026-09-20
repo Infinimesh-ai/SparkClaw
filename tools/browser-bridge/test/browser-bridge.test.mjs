@@ -137,7 +137,7 @@ test("discard, tab removal, and replacement cancel pending expiry", async () => 
   }
 });
 
-test("native host requests create an inactive task tab in the existing owner window", async () => {
+test("native host requests create an unfocused dedicated task window", async () => {
   const fixture = createBridgeFixture();
   const port = nativePort();
   fixture.chromeAPI.runtime.connectNative = (name) => {
@@ -161,14 +161,14 @@ test("native host requests create an inactive task tab in the existing owner win
   port.messages.emit({ type: "openConnection", id: 7, url });
   await tick();
 
-  assert.deepEqual(fixture.calls.windowsCreate, []);
+  assert.deepEqual(fixture.calls.windowsCreate, [{ focused: false, type: "normal" }]);
   assert.deepEqual(fixture.calls.tabsCreate, [{
     url,
     active: false,
     pinned: false,
-    windowId: 7,
+    windowId: 8,
   }]);
-  assert.deepEqual(fixture.calls.tabsRemove, [[3]]);
+  assert.deepEqual(fixture.calls.tabsRemove, [[3], [4]]);
   assert.deepEqual(port.sent, [
     {
       type: "bridgeReady",
@@ -193,9 +193,9 @@ test("native host cleanup closes a restored owned group before opening another t
   fixture.chromeAPI.tabs.query = async (query = {}) => query.groupId === 81
     ? [fixture.tabs.get(5)] : [...fixture.tabs.values()];
   await fixture.chromeAPI.storage.local.set({ sparkclawTaskGroupTokens: [token] });
-  const create = fixture.chromeAPI.tabs.create;
+  const create = fixture.chromeAPI.windows.create;
   const remove = fixture.chromeAPI.tabs.remove;
-  fixture.chromeAPI.tabs.create = async options => { order.push("create"); return create(options); };
+  fixture.chromeAPI.windows.create = async options => { order.push("create"); return create(options); };
   fixture.chromeAPI.tabs.remove = async ids => { order.push("remove"); return remove(ids); };
   fixture.chromeAPI.runtime.connectNative = () => port;
   new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] });

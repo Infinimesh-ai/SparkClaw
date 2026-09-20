@@ -57,3 +57,97 @@ The reply region was compared in two states: empty intent and edited polished dr
 - P3: a future compact-toolbar option could reduce SparkClaw's existing desktop mail controls when the popup is used primarily for reading, but it is not required for this interaction change.
 
 final result: passed
+
+---
+
+# Design QA — WebChat full-page settings shell
+
+- Source visual truth path: `/tmp/codex-clipboard-abd01b14-cf85-42b2-aa60-2e173929b493.png`
+- Implementation capture: Codex in-app Browser tab 7, current QA turn
+- Viewport and density: source 1259 × 927 px; implementation 1259 × 927 CSS px at device pixel ratio 1
+- State: “常规” selected, settings search empty, local preview without loaded Gateway configuration
+- Comparison scope: full-page settings shell, left navigation, right content placement, and navigation behavior. The source includes about 22 px of desktop application menu chrome that is not owned by this web app.
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+- Fonts and typography: the implementation keeps SparkClaw's established system/Inter typography while matching the reference's compact 12–14 px navigation hierarchy and large right-side page title.
+- Spacing and layout: settings replace the task workspace rather than opening in a modal or nesting inside it. At the reference viewport, the left rail is 232 px wide; the search field begins at x=9 and is 213 × 31 px, the selected navigation row begins at x=9 and is 205 × 31 px, and the right heading begins at approximately x=370 and y=135.
+- Colors and visual tokens: the light settings surface, soft-gray search/selected states, hairline divider, and neutral icon treatment align with the supplied Codex reference while preserving SparkClaw's existing control tokens.
+- Image and asset fidelity: the reference has no product imagery. The implementation uses the existing Lucide line-icon family; no raster placeholders, generated illustrations, gradients, or fabricated logos were introduced.
+- Copy and content: the shell follows the reference structure, while navigation labels and detail panels remain SparkClaw-specific. Existing settings, connection, Agent, account, and system content is preserved in the right detail area.
+- Accessibility and behavior: the back action, search field, and navigation buttons expose accessible names and selected state. Search filtering, navigation switching, and returning to the prior task page were exercised successfully.
+
+## Comparison history
+
+1. The first full-page pass placed the right heading about 30 px too high and made the selected navigation row about 8 px too wide.
+2. The content top inset was adjusted from 105 px to 135 px, and the navigation row width was reduced to `calc(100% - 8px)`.
+3. The final 1259 × 927 capture aligned the settings rail and right heading with the reference. A fresh preview tab reported no console warnings or errors.
+
+## Implementation Checklist
+
+- [x] Settings replace the main application surface
+- [x] Persistent left settings navigation with back action and search
+- [x] Right-side detail content for the selected settings section
+- [x] No modal overlay or nested workbench split
+- [x] Search, section switching, and back navigation verified
+- [x] 43 test files / 161 tests and production build passed
+- [x] Clean browser console on a fresh implementation tab
+
+## Follow-up Polish
+
+- None required for this scoped correction.
+
+final result: passed
+
+---
+
+# Design QA — WebChat new conversation controls
+
+- Source visual truth path: `/home/infinimesh/Documents/SparkClaw-workbench-page/design-qa-artifacts/sidebar-new-conversation-reference.png`
+- Implementation screenshot path: `/home/infinimesh/Documents/SparkClaw-workbench-page/design-qa-artifacts/sidebar-new-conversation-implementation.jpg`
+- Combined comparison path: `/home/infinimesh/Documents/SparkClaw-workbench-page/design-qa-artifacts/sidebar-new-conversation-comparison.png`
+- Viewport and density: 1280 × 720 CSS px at device pixel ratio 1; source crop 28 × 27 px; implementation button 28 × 28 CSS px with a 16 × 16 SVG slot
+- State: empty chat, left sidebar expanded, right inspector closed; the development-only authentication banner is outside the target sidebar and topbar regions
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+- Fonts and typography: the new-chat action is intentionally icon-only and exposes its name through `aria-label`/title; “最近任务” retains the existing 12 px sidebar label treatment.
+- Spacing and layout rhythm: the 28 px action sits on the same row as “最近任务”; the prior full-width action row is gone. The brand-row left-sidebar toggle is restored, the main breadcrumb row contains no workspace/title copy, and the right-panel toggle is aligned to the far right.
+- Colors and visual tokens: the implementation uses the existing sidebar surface plus neutral `#777c82` icon color. The supplied reference uses a neutral gray icon on a light-gray surface; the comparison shows equivalent contrast without introducing a one-off image asset.
+- Image quality and asset fidelity: the source’s 14 px visible edit-square silhouette maps to the existing Lucide `SquarePen` icon inside a 16 px SVG slot. The icon remains vector-sharp in production code; the enlarged QA crop uses nearest-neighbor scaling only to expose pixel differences.
+- Copy and content: “个人工作区 › 工作台” and its fallback/connecting/model-mode translation logic were removed, not hidden. User-visible `SparkClaw Browser Bridge` wording was removed from the settings directory and browser-control detail while the underlying connection behavior remains unchanged.
+- Accessibility and interaction: the icon-only new-chat action keeps an accessible name. The restored left sidebar toggle and the new right sidebar toggle were each exercised in the in-app browser; expanded/collapsed state changed correctly. The final preview tab reported no console warnings or errors.
+
+## Full-view comparison evidence
+
+The implementation screenshot confirms the requested global composition: original left-panel icon in the brand row, icon-only new conversation action beside “最近任务”, no workspace breadcrumb text, a mirrored right-panel control at the far right, the retained right-edge pull handle, centered “我们要做什么”, and the bottom composer.
+
+## Focused region comparison evidence
+
+The combined comparison places the exact 28 × 27 source crop and the 28 × 28 rendered button crop together at 6× scale. The edit-square proportions, diagonal pencil, visual footprint, neutral gray treatment, and surrounding spacing align. The one-pixel slot-height difference is the existing even-pixel control grid and does not create visible drift.
+
+## Comparison history
+
+1. Initial implementation used a full-width text button and a different `PanelLeftClose` control on the same row; the owner clarified that only the reference icon should remain beside “最近任务”.
+2. The button was reduced to a 28 px icon-only action, the original `PanelLeft` control returned to the brand row, the breadcrumb render and translation logic were removed, and a symmetric `PanelRight` control was added to the main topbar.
+3. Final measured comparison and interaction checks found no actionable P0/P1/P2 mismatch.
+
+## Implementation Checklist
+
+- [x] Icon-only new conversation action beside recent tasks
+- [x] Original left sidebar toggle restored
+- [x] Right sidebar toggle added and interactive
+- [x] Workspace breadcrumb copy and dead translation logic removed
+- [x] User-visible Browser Bridge wording removed
+- [x] Reference/implementation comparison captured
+- [x] Clean console and left/right toggle interaction checks
+
+## Follow-up Polish
+
+- None required for this scoped change.
+
+final result: passed

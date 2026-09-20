@@ -102,7 +102,7 @@ export function BrowserControlSettings({ text, language }: { text: Copy; languag
     <div className="integrationDetail browserControlDetail" aria-busy={displayedState === "checking"}>
       <div className="integrationStatusBar">
         <div>
-          <strong>{text.settings.browserBridge}</strong>
+          <strong>{text.settings.browserControl}</strong>
           <span className="muted">{text.settings.browserControlSharedProfile}</span>
         </div>
         <span className={`integrationState ${displayedState}`}>{integrationStateLabel(displayedState, text)}</span>

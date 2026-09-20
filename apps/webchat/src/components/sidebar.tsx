@@ -1,26 +1,22 @@
-// Session sidebar: brand row, gateway status, session list with rename and
-// delete affordances. Extracted from App.tsx so the root component stays
-// below the size baseline; all state stays in the parent so behavior is
-// unchanged.
-import { Clock3, Grid2X2, Languages, Link, MemoryStick, Monitor, PanelLeft, Pencil, Plus, Save, Search, Settings, ShieldCheck, Trash2, X } from "lucide-react";
+// Session sidebar: the task conversation list and its direct actions. Workspace
+// tools live in Settings so the navigation stays focused on conversations.
+import { useEffect, useRef, useState } from "react";
+import { MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import { workbenchCopy, type WorkspacePage } from "./workbench";
 import { workbenchWordmark } from "./workbenchBrand";
 import type { Copy, Language } from "../i18n";
-import type { ReadyStatus, Session } from "../api/types";
+import type { OwnerProfile, Session } from "../api/types";
 import { shortId } from "../lib/format";
 
 type SessionSidebarProps = {
   text: Copy;
   language: Language;
-  ready: ReadyStatus | null;
+  ownerProfile: OwnerProfile | null;
   sessions: Session[];
   activeSession: string;
-  pendingApprovalCount: number;
-  pendingCandidateCount: number;
   editingSession: string;
   sessionTitleDraft: string;
   sessionActionId: string;
-  onLanguageChange: (language: Language) => void;
   onCreateSession: () => void;
   onSelectSession: (session: Session) => void;
   onStartRename: (session: Session) => void;
@@ -28,24 +24,20 @@ type SessionSidebarProps = {
   onRenameSubmit: (sessionId: string) => void;
   onTitleDraftChange: (value: string) => void;
   onDeleteSession: (sessionId: string) => void;
-  page?: WorkspacePage;
   onNavigate?: (page: WorkspacePage) => void;
-  onSearch?: () => void;
+  onSearch: () => void;
   onToggleSidebar?: () => void;
 };
 
 export function SessionSidebar({
   text,
   language,
-  ready,
+  ownerProfile,
   sessions,
   activeSession,
-  pendingApprovalCount,
-  pendingCandidateCount,
   editingSession,
   sessionTitleDraft,
   sessionActionId,
-  onLanguageChange,
   onCreateSession,
   onSelectSession,
   onStartRename,
@@ -53,20 +45,36 @@ export function SessionSidebar({
   onRenameSubmit,
   onTitleDraftChange,
   onDeleteSession,
-  page = "chat",
   onNavigate,
   onSearch,
   onToggleSidebar
 }: SessionSidebarProps) {
-  const languageLabel = language === "zh" ? "中" : "EN";
-  const nextLanguage: Language = language === "zh" ? "en" : "zh";
   const copy = workbenchCopy[language];
-  const navigation = [
-    ["chat", copy.home, Grid2X2], ["schedules", copy.schedules, Clock3],
-    ["channels", copy.channels, Link], ["memory", copy.memory, MemoryStick],
-    ["approvals", copy.approvals, ShieldCheck]
-  ] as const;
   const visibleSessions = sessions.filter((session) => session.source !== "mcp");
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+  const accountName = ownerProfile?.display_name.trim() || text.app.name;
+  const accountEmail = ownerProfile?.email?.trim();
+  const accountInitial = Array.from(accountName)[0]?.toLocaleUpperCase() || "S";
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+
+    function dismissAccountMenu(event: PointerEvent) {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    }
+
+    function dismissAccountMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", dismissAccountMenu);
+    document.addEventListener("keydown", dismissAccountMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissAccountMenu);
+      document.removeEventListener("keydown", dismissAccountMenuOnEscape);
+    };
+  }, [accountMenuOpen]);
 
   return (
     <aside className="sidebar">
@@ -79,15 +87,17 @@ export function SessionSidebar({
         </button>
       </div>
 
-      <button className="primaryButton" onClick={onCreateSession} title={text.nav.newSession}>
-        <Plus size={17} />
-        <span>{copy.newTask}</span><kbd>⌘ N</kbd>
-      </button>
-      <nav className="workbenchNav" aria-label={copy.workspace} title={`${text.nav.approvals}: ${pendingApprovalCount} · ${text.nav.memories}: ${pendingCandidateCount}`}>
-        <button onClick={onSearch}><Search size={18} /><span>{copy.search}</span><kbd>⌘ K</kbd></button>
-        {navigation.map(([target, label, Icon]) => <button key={target} className={page === target ? "selected" : ""} aria-current={page === target ? "page" : undefined} onClick={() => onNavigate?.(target)}><Icon size={18} /><span>{label}</span>{target === "approvals" && pendingApprovalCount > 0 && <small>{pendingApprovalCount}</small>}{target === "memory" && pendingCandidateCount > 0 && <small>{pendingCandidateCount}</small>}</button>)}
-      </nav>
-      <div className="historyLabel">{copy.recent}<span>{visibleSessions.length}</span></div>
+      <div className="conversationListHeader">
+        <span>{copy.recent}</span>
+        <div className="conversationListActions">
+          <button className="conversationHeaderButton" onClick={onSearch} title={copy.search} aria-label={copy.search}>
+            <Search size={15.5} strokeWidth={1.7} />
+          </button>
+          <button className="conversationHeaderButton newConversationButton" onClick={onCreateSession} title={text.nav.newSession} aria-label={text.nav.newSession}>
+            <SquarePen size={16} strokeWidth={1.6} />
+          </button>
+        </div>
+      </div>
       <div className="sessionList" aria-label={text.nav.sessions}>
         {visibleSessions.map((session) => (
           <div className={`sessionItem ${session.id === activeSession ? "active" : ""}`} key={session.id}>
@@ -132,10 +142,43 @@ export function SessionSidebar({
         ))}
       </div>
       <div className="sidebarFooter">
-        <button className="navStatus" onClick={() => onNavigate?.("settings")}>
-          <Monitor size={18} /><div><strong>{copy.local}</strong><span>{ready?.ok ? text.nav.ready : text.nav.offline}{ready ? ` · ${ready.model_mode}` : ""}</span></div><i className={`statusDot ${ready?.ok ? "ready" : "offline"}`} />
-        </button>
-        <div className="workspaceProfile"><button onClick={() => onNavigate?.("settings")}><span className="workspaceAvatar">S</span>{copy.workspace}<Settings size={16} /></button><button className="iconButton subtle" onClick={() => onLanguageChange(nextLanguage)} title={text.nav.language}><Languages size={15} /><span>{languageLabel}</span></button></div>
+        <div className="sidebarAccount" ref={accountMenuRef}>
+          {accountMenuOpen && <div className="sidebarAccountMenu" role="menu">
+            <div className="sidebarAccountSummary">
+              <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
+              <span className="sidebarAccountIdentity">
+                <strong>{accountName}</strong>
+                {accountEmail && <small>{accountEmail}</small>}
+              </span>
+            </div>
+            <button
+              className="sidebarAccountMenuItem"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAccountMenuOpen(false);
+                onNavigate?.("settings");
+              }}
+            >
+              <Settings size={16} />
+              <span>{copy.settings}</span>
+            </button>
+          </div>}
+          <button
+            className="sidebarAccountTrigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={accountMenuOpen}
+            onClick={() => setAccountMenuOpen((current) => !current)}
+          >
+            <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
+            <span className="sidebarAccountIdentity">
+              <strong>{accountName}</strong>
+              {accountEmail && <small>{accountEmail}</small>}
+            </span>
+            <MoreHorizontal size={16} aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </aside>
   );

@@ -52,7 +52,8 @@ describe("Browser control settings", () => {
     expect(input.value).toBe("");
     expect(container.innerHTML).not.toContain(secret);
     expect(container.textContent).toContain("extension rejected the credential");
-    expect(container.textContent).toContain(dictionaries.en.settings.browserBridge);
+    expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
+    expect(container.textContent).not.toContain("Bridge");
     expect(container.innerHTML).not.toContain("chromewebstore.google.com");
     await act(async () => root.unmount());
   });

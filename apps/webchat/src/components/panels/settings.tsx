@@ -7,8 +7,10 @@ import {
   Check,
   ChevronRight,
   CircleUserRound,
+  Clock3,
   Cpu,
   DatabaseZap,
+  Languages,
   Mail,
   MessageSquare,
   Network,
@@ -42,10 +44,11 @@ import { IntegrationCredentialSettings } from "./settingsIntegrations";
 import { integrationStateLabel } from "./settingsIntegrationState";
 import { OwnerProfileSettings } from "./settingsOwner";
 
-type SettingsCategory = "account" | "agent" | "system";
+type SettingsCategory = "account" | "connections" | "agent" | "system";
 type SettingsDetail =
   | "owner"
   | "clients"
+  | "language"
   | "messaging"
   | "browser-control"
   | "ai-platform-login"
@@ -66,6 +69,8 @@ export function SettingsPanel({
   notificationBindings,
   text,
   language,
+  onLanguageChange,
+  onOpenSchedules,
   onUpdateOwner,
   onRevokeClient,
   onStartNotificationBinding,
@@ -83,6 +88,8 @@ export function SettingsPanel({
   notificationBindings: NotificationBinding[];
   text: CopyText;
   language: Language;
+  onLanguageChange?: (language: Language) => void;
+  onOpenSchedules?: () => void;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onRevokeClient: (id: string) => Promise<void>;
   onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
@@ -165,6 +172,7 @@ export function SettingsPanel({
       {!connectionsOnly && <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />}
       {!connectionsOnly && <div className="settingsCategoryTabs" role="tablist" aria-label={text.settings.categories}>
         <CategoryTab selected={category === "account"} label={text.settings.account} icon={<CircleUserRound size={15} />} onClick={() => changeCategory("account")} />
+        <CategoryTab selected={category === "connections"} label={text.settings.connections} icon={<Cable size={15} />} onClick={() => changeCategory("connections")} />
         <CategoryTab selected={category === "agent"} label={text.settings.agent} icon={<Bot size={15} />} onClick={() => changeCategory("agent")} />
         <CategoryTab selected={category === "system"} label={text.settings.system} icon={<ServerCog size={15} />} onClick={() => changeCategory("system")} />
       </div>}
@@ -177,6 +185,15 @@ export function SettingsPanel({
           </button>
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
           {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} onRevokeClient={onRevokeClient} />}
+          {detail === "language" && (
+            <article className="settingsBlock">
+              <strong>{text.nav.language}</strong>
+              <div className="settingsLanguageChoices" role="radiogroup" aria-label={text.nav.language}>
+                <button type="button" className={language === "zh" ? "selected" : ""} role="radio" aria-checked={language === "zh"} onClick={() => onLanguageChange?.("zh")}>简体中文</button>
+                <button type="button" className={language === "en" ? "selected" : ""} role="radio" aria-checked={language === "en"} onClick={() => onLanguageChange?.("en")}>English</button>
+              </div>
+            </article>
+          )}
           {detail === "messaging" && (
             <ConnectorBindingSettings
               connectors={connectors}
@@ -311,12 +328,13 @@ export function SettingsPanel({
             <>
               <DirectoryRow icon={<CircleUserRound size={17} />} title={text.settings.ownerProfile} status={ownerProfile?.display_name || text.settings.ownerUnavailable} onClick={() => setDetail("owner")} />
               <DirectoryRow icon={<Users size={17} />} title={text.settings.pairedClients} status={String(clients.length)} onClick={() => setDetail("clients")} />
+              {onLanguageChange && <DirectoryRow icon={<Languages size={17} />} title={text.nav.language} status={language === "zh" ? "简体中文" : "English"} onClick={() => setDetail("language")} />}
             </>
           )}
-          {connectionsOnly && (
+          {(connectionsOnly || (!connectionsOnly && category === "connections")) && (
             <>
               <DirectoryRow icon={<MessageSquare size={17} />} title={text.settings.messaging} status={connectionCountLabel(connectors, text)} onClick={() => setDetail("messaging")} />
-              <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.browserBridge} onClick={() => setDetail("browser-control")} />
+              <DirectoryRow icon={<Cable size={17} />} title={text.settings.browserControl} status={text.settings.browserControlSharedProfile} onClick={() => setDetail("browser-control")} />
               <DirectoryRow icon={<Bot size={17} />} title={text.settings.aiPlatformLogin} status={text.settings.aiPlatformNames} onClick={() => setDetail("ai-platform-login")} />
               <DirectoryRow icon={<Mail size={17} />} title={text.settings.browserEmail} status={text.settings.browserEmailProviders} onClick={() => setDetail("browser-email")} />
               <DirectoryRow icon={<DatabaseZap size={17} />} title={text.settings.info} status={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} onClick={() => setDetail("info")} />
@@ -326,6 +344,7 @@ export function SettingsPanel({
           )}
           {!connectionsOnly && category === "agent" && (
             <>
+              {onOpenSchedules && <DirectoryRow icon={<Clock3 size={17} />} title={text.schedules.title} status={text.schedules.nextRun} onClick={onOpenSchedules} />}
               <DirectoryRow icon={<ShieldCheck size={17} />} title={text.settings.toolPolicy} status={`${policy.definition_count} ${text.trace.tools}`} onClick={() => setDetail("tool-policy")} />
               <DirectoryRow icon={<Cpu size={17} />} title={text.settings.modelProfiles} status={runtimeConfig.model.mock ? text.settings.mock : text.settings.externalModel} onClick={() => setDetail("models")} />
             </>
@@ -355,6 +374,7 @@ function settingsDetailTitle(detail: SettingsDetail, text: CopyText) {
   const labels: Record<SettingsDetail, string> = {
     owner: text.settings.ownerProfile,
     clients: text.settings.pairedClients,
+    language: text.nav.language,
     messaging: text.settings.messaging,
     "browser-control": text.settings.browserControl,
     "ai-platform-login": text.settings.aiPlatformLogin,

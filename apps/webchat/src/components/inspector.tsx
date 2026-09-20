@@ -42,6 +42,7 @@ export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" 
 
 type InspectorColumnProps = {
   connectionsOnly?: boolean;
+  showTabs?: boolean;
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   text: Copy;
@@ -76,10 +77,13 @@ type InspectorColumnProps = {
   setConnectors: Dispatch<SetStateAction<ConnectorStatus[]>>;
   setRuntimeConfig: (config: PublicConfig) => void;
   setOwnerProfile: (owner: OwnerProfile) => void;
+  onLanguageChange: (language: Language) => void;
+  onOpenSchedules: () => void;
 };
 
 export function InspectorColumn({
   connectionsOnly = false,
+  showTabs = true,
   tab,
   onTabChange,
   text,
@@ -113,7 +117,9 @@ export function InspectorColumn({
   setNotificationBindings,
   setConnectors,
   setRuntimeConfig,
-  setOwnerProfile
+  setOwnerProfile,
+  onLanguageChange,
+  onOpenSchedules
 }: InspectorColumnProps) {
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
@@ -290,18 +296,20 @@ export function InspectorColumn({
   return (
     <aside className="inspectorColumn">
       <div className="inspectorTitle">INSPECTOR</div>
-      <div className="tabs">
+      {showTabs && <div className="tabs">
         <button className={tab === "timeline" ? "selected" : ""} onClick={() => onTabChange("timeline")} title={text.tabs.timeline}>
           <FileSearch size={16} />
           <span>{text.tabs.timeline}</span>
         </button>
         <button className={tab === "approvals" ? "selected" : ""} onClick={() => onTabChange("approvals")} title={text.tabs.approvals}>
           <ShieldAlert size={16} />
-          <span>{pendingApprovalCount}</span>
+          <span>{text.tabs.approvals}</span>
+          {pendingApprovalCount > 0 && <small>{pendingApprovalCount}</small>}
         </button>
         <button className={tab === "memory" ? "selected" : ""} onClick={() => onTabChange("memory")} title={text.tabs.memory}>
           <MemoryStick size={16} />
-          <span>{pendingCandidateCount}</span>
+          <span>{text.tabs.memory}</span>
+          {pendingCandidateCount > 0 && <small>{pendingCandidateCount}</small>}
         </button>
         <button className={tab === "trace" ? "selected" : ""} onClick={() => onTabChange("trace")} title={text.tabs.trace}>
           <ScrollText size={16} />
@@ -315,7 +323,7 @@ export function InspectorColumn({
           <Settings size={16} />
           <span>{text.tabs.settings}</span>
         </button>
-      </div>
+      </div>}
 
       {tab === "timeline" && <ToolTimelinePanel calls={toolCalls} text={text} onTrace={onOpenTrace} />}
       {tab === "approvals" && (
@@ -376,6 +384,8 @@ export function InspectorColumn({
           notificationBindings={notificationBindings}
           text={text}
           language={language}
+          onLanguageChange={onLanguageChange}
+          onOpenSchedules={onOpenSchedules}
           onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
           onRevokeClient={(id) => revokeClient(id)}
           onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}

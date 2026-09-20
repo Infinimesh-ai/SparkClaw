@@ -23,6 +23,7 @@ import {
 } from "../lib/format";
 import type { DocumentUsage } from "../lib/format";
 import type { ArtifactObject, MessageAttachment } from "../api/types";
+import { EmailPopupEntry } from "./emailPopup";
 
 type ComposerDockProps = {
   modelLabel?: string;
@@ -245,6 +246,7 @@ export function ComposerDock({
           >
             <FileSearch size={18} />
           </button>
+          <EmailPopupEntry text={text} language={language} />
           <VoiceInputControl
             voice={voice}
             text={text}

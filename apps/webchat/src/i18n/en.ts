@@ -2,7 +2,6 @@ export const en = {
     app: {
       name: "SparkClaw",
       tagline: "Local agent runtime",
-      titleFallback: "Agent Workbench",
     },
     common: {
       approve: "Approve",
@@ -27,17 +26,13 @@ export const en = {
       no: "no"
     },
     nav: {
-      newSession: "New Session",
+      newSession: "New conversation",
       renameSession: "Rename session",
       saveSessionName: "Save session name",
       deleteSession: "Delete session",
       confirmDeleteSession: "Delete this session?",
       language: "Language",
-      sessions: "Sessions",
-      approvals: "Approvals",
-      memories: "Memories",
-      ready: "Ready",
-      offline: "Offline"
+      sessions: "Sessions"
     },
     email: {
       summaryPartial: "Summary covers only the available source excerpts. Open the original mail for full context.",
@@ -242,10 +237,6 @@ export const en = {
       open: "Open in LocalMind",
       markAllRead: "Mark all as read",
       dismiss: "Dismiss notification"
-    },
-    topbar: {
-      connecting: "Connecting to Gateway",
-      modelMode: "model mode"
     },
     tabs: {
       timeline: "Timeline",
@@ -507,6 +498,7 @@ export const en = {
       title: "Settings",
 	  categories: "Settings categories",
 	  account: "Account",
+	  connections: "Connections",
 	  agent: "Agent",
 	  system: "System",
 	  messaging: "Messaging",
@@ -527,7 +519,6 @@ export const en = {
   aiPlatformRecentCheck: "Last checked (valid for 5 minutes)",
   aiPlatformRefresh: "Refresh status",
   browserControl: "Browser control",
-	  browserBridge: "SparkClaw Browser Bridge",
 	  browserControlSharedProfile: "Shared browser profile · default",
 	  browserControlLoading: "Loading browser control status",
 	  browserControlLoadFailed: "Browser control status unavailable",

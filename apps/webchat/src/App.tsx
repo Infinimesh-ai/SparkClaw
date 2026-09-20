@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, KeyRound, PanelLeft, PanelRight, Plus, RefreshCw, Settings, X } from "lucide-react";
-import { TaskSearch, WorkbenchGuide, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
+import { ChevronLeft, ChevronRight, KeyRound, PanelLeft, PanelRight, Plus, X } from "lucide-react";
+import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
 import { api, APIError, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
@@ -13,16 +13,13 @@ import type { StreamStatus } from "./components/messages";
 import { InspectorColumn } from "./components/inspector";
 import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
-import { DeliveryTargetPicker } from "./components/deliveryTargetPicker";
 import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
-import { NotificationCenter } from "./components/notificationCenter";
-import { EmailPopupEntry } from "./components/emailPopup";
+import { WorkspaceSettingsSidebar } from "./components/settingsSidebar";
 import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
-import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
@@ -105,8 +102,8 @@ export function App() {
   }, []);
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const settingsReturnPageRef = useRef<WorkspacePage>("chat");
   const activeMessageStreamRef = useRef<string>("");
-  const notificationCenter = usePassiveNotifications();
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
@@ -152,12 +149,8 @@ export function App() {
   } = useSchedules({ activeSession, language, text, setError, surfaceError, refreshSession });
 
   const {
-    deliveryEndpoints,
     activeTargetEndpointID,
-    activeDeliveryEndpoint,
-    externalDeliveryIntent,
     refreshDeliverySurface,
-    selectDeliveryTarget,
     clearSessionTarget
   } = useDeliveryTarget(activeSession);
 
@@ -459,8 +452,8 @@ export function App() {
       setTraceLoading(true);
       setError("");
       setTab("trace");
-      setPage("chat");
-      setInspectorOpen(true);
+      setPage("settings");
+      setInspectorOpen(false);
       const [trace, traces] = await Promise.all([api.trace(runId), api.traces()]);
       setTraceRun(trace);
       setTraceList(traces.traces ?? []);
@@ -512,9 +505,15 @@ export function App() {
 
   function navigate(next: WorkspacePage) {
     if (window.matchMedia("(max-width: 700px)").matches) setSidebarCollapsed(false);
+    if (next === "settings") {
+      if (page !== "settings") settingsReturnPageRef.current = page;
+      setTab("settings");
+      setPage("settings");
+      return;
+    }
     setPage(next);
     if (next === "chat") setTab("timeline");
-    if (next === "memory" || next === "approvals" || next === "settings") setTab(next);
+    if (next === "memory" || next === "approvals") setTab(next);
     if (next === "channels") setTab("settings");
     if (next === "schedules") { setScheduleBarOpen(true); void refreshSchedules(); }
   }
@@ -564,8 +563,7 @@ export function App() {
   }
 
   const showHome = page === "chat" && messages.length === 0;
-  const fullPanel = page !== "chat" && page !== "schedules";
-  const pageLabel = page === "chat" ? (showHome ? copy.home : active?.title ?? text.app.titleFallback) : copy[page];
+  const fullPanel = page !== "chat" && page !== "schedules" && page !== "settings";
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
@@ -583,25 +581,69 @@ export function App() {
     if (page !== "schedules") setScheduleCreateOpen(false);
   }, [page]);
 
-  return (
-    <main className={`shell workbench ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
-      <div className="connectionBar" aria-hidden="true" />
-      <SessionSidebar
+  function renderInspectorColumn(connectionsOnly = false, showTabs = true) {
+    return (
+      <InspectorColumn
+        key={connectionsOnly ? "channels" : showTabs ? "inspector" : "settings-page"}
+        connectionsOnly={connectionsOnly}
+        showTabs={showTabs}
+        tab={tab}
+        onTabChange={setTab}
         text={text}
         language={language}
+        pendingApprovalCount={pendingApprovals.length}
+        pendingCandidateCount={pendingCandidates.length}
+        toolCalls={toolCalls}
+        approvals={approvals}
+        candidates={candidates}
+        memories={memories}
+        traceRun={traceRun}
+        traceList={traceList}
+        traceLoading={traceLoading}
         ready={ready}
-        page={page}
+        modelCalls={modelCalls}
+        auditEvents={auditEvents}
+        artifacts={artifacts}
+        episodes={episodes}
+        evalRuns={evalRuns}
+        runtimeConfig={runtimeConfig}
+        ownerProfile={ownerProfile}
+        clients={clients}
+        connectors={connectors}
+        notificationBindings={notificationBindings}
+        onOpenTrace={(runId) => void openTrace(runId)}
+        setError={setError}
+        surfaceError={surfaceError}
+        refreshGlobal={refreshGlobal}
+        refreshActiveSession={() => refreshSession(activeSession)}
+        setEvalRuns={setEvalRuns}
+        setNotificationBindings={setNotificationBindings}
+        setConnectors={setConnectors}
+        setRuntimeConfig={setRuntimeConfig}
+        setOwnerProfile={setOwnerProfile}
+        onLanguageChange={setLanguage}
+        onOpenSchedules={() => navigate("schedules")}
+      />
+    );
+  }
+
+  const settingsPageTitle = tab === "settings" ? copy.general : text.tabs[tab];
+
+  return (
+    <main className={`shell workbench ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
+      <div className="connectionBar" aria-hidden="true" />
+      {page !== "settings" && <SessionSidebar
+        text={text}
+        language={language}
+        ownerProfile={ownerProfile}
         onNavigate={(next) => { if (next === "chat") { if (messages.length) void newTask(); else navigate(next); } else navigate(next); }}
         onSearch={() => setSearchOpen(true)}
         onToggleSidebar={() => setSidebarCollapsed(current => !current)}
         sessions={sessions}
         activeSession={activeSession}
-        pendingApprovalCount={pendingApprovals.length}
-        pendingCandidateCount={pendingCandidates.length}
         editingSession={editingSession}
         sessionTitleDraft={sessionTitleDraft}
         sessionActionId={sessionActionId}
-        onLanguageChange={setLanguage}
         onCreateSession={() => void newTask()}
         onSelectSession={selectTask}
         onStartRename={startRenameSession}
@@ -609,41 +651,25 @@ export function App() {
         onRenameSubmit={(id) => void renameSession(id)}
         onTitleDraftChange={setSessionTitleDraft}
         onDeleteSession={(id) => void deleteSession(id)}
-      />
+      />}
 
-      <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""}`}>
+      {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""}`}>
         <header className="topbar">
           <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
-          <div className="workbenchBreadcrumb" title={ready ? `${ready.model_mode} ${text.topbar.modelMode}` : text.topbar.connecting}><span>{copy.workspace}</span><ChevronRight size={15} /><h1>{pageLabel}</h1></div>
-          <div className="topbarActions">
-            <EmailPopupEntry text={text} language={language} />
-            <NotificationCenter
-              notifications={notificationCenter.notifications}
-              unreadCount={notificationCenter.unreadCount}
-              open={notificationCenter.open}
-              toast={notificationCenter.toast}
-              error={notificationCenter.error}
-              language={language}
-              text={text}
-              onToggle={() => notificationCenter.setOpen((current) => !current)}
-              onDismissToast={notificationCenter.dismissToast}
-              onRead={notificationCenter.markRead}
-              onReadAll={notificationCenter.markAllRead}
-            />
-            <DeliveryTargetPicker
-              endpoints={deliveryEndpoints}
-              activeEndpoint={activeDeliveryEndpoint}
-              hasExternalIntent={externalDeliveryIntent}
-              disabled={busy || voice.active || active?.source === "mcp"}
-              text={text}
-              onSelect={selectDeliveryTarget}
-            />
-            <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), notificationCenter.refresh(), refreshDeliverySurface(), refreshSession(activeSession)])} title={text.common.refresh}>
-              <RefreshCw size={18} />
-            </button>
-            <button className="iconButton" onClick={() => page === "chat" && !showHome ? setInspectorOpen(current => !current) : navigate("settings")} aria-label={page === "chat" && !showHome ? copy.toggleInspector : copy.settings}>{page === "chat" && !showHome ? <PanelRight size={18} /> : <Settings size={18} />}</button>
-          </div>
+          {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} onClick={() => setInspectorOpen(current => !current)} aria-label={copy.toggleInspector} aria-expanded={inspectorOpen}><PanelRight size={18} /></button>}
         </header>
+
+        {page === "chat" && (
+          <button
+            className={`inspectorEdgeHandle ${inspectorOpen ? "open" : ""}`}
+            type="button"
+            onClick={() => setInspectorOpen((current) => !current)}
+            aria-label={copy.toggleInspector}
+            aria-expanded={inspectorOpen}
+          >
+            {inspectorOpen ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+          </button>
+        )}
 
         {error && (
           <div className="errorBanner">
@@ -735,49 +761,31 @@ export function App() {
               onSend={() => void send()}
             />
           )}
-          {showHome && <WorkbenchGuide language={language} sessions={sessions.filter(session => session.id !== activeSession)} onSelect={selectTask} onSearch={() => setSearchOpen(true)} onSuggest={(prompt) => { if (activeSession) setDraftsBySession(current => ({ ...current, [activeSession]: prompt })); composerInputRef.current?.focus(); }} />}
         </section>}
-      {(fullPanel || (page === "chat" && inspectorOpen)) && <div className={fullPanel ? "workbenchPage" : "taskInspector"}>
-      {fullPanel ? <div className="workbenchPageHeader"><div><h1>{copy.pageTitles[page as Exclude<WorkspacePage, "chat" | "schedules">]}</h1><p>{copy.pageDescriptions[page as Exclude<WorkspacePage, "chat" | "schedules">]}</p></div>{page === "memory" && <button className="primaryButton" onClick={() => void newTask(copy.memoryPrompt)}><Plus size={15} />{copy.addMemory}</button>}</div> : <div className="taskInspectorHeader">{copy.inspector}<button className="iconButton" onClick={() => setInspectorOpen(false)} aria-label={text.common.close}><X size={16} /></button></div>}
-      <InspectorColumn
-        key={page === "channels" ? "channels" : "inspector"}
-        connectionsOnly={page === "channels"}
-        tab={tab}
-        onTabChange={setTab}
-        text={text}
-        language={language}
-        pendingApprovalCount={pendingApprovals.length}
-        pendingCandidateCount={pendingCandidates.length}
-        toolCalls={toolCalls}
-        approvals={approvals}
-        candidates={candidates}
-        memories={memories}
-        traceRun={traceRun}
-        traceList={traceList}
-        traceLoading={traceLoading}
-        ready={ready}
-        modelCalls={modelCalls}
-        auditEvents={auditEvents}
-        artifacts={artifacts}
-        episodes={episodes}
-        evalRuns={evalRuns}
-        runtimeConfig={runtimeConfig}
-        ownerProfile={ownerProfile}
-        clients={clients}
-        connectors={connectors}
-        notificationBindings={notificationBindings}
-        onOpenTrace={(runId) => void openTrace(runId)}
-        setError={setError}
-        surfaceError={surfaceError}
-        refreshGlobal={refreshGlobal}
-        refreshActiveSession={() => refreshSession(activeSession)}
-        setEvalRuns={setEvalRuns}
-        setNotificationBindings={setNotificationBindings}
-        setConnectors={setConnectors}
-        setRuntimeConfig={setRuntimeConfig}
-        setOwnerProfile={setOwnerProfile}
-      /></div>}
-      </section>
+      {page === "chat" && inspectorOpen && <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />}
+      {fullPanel && <div className="workbenchPage">
+      <div className="workbenchPageHeader"><div><h1>{copy.pageTitles[page as Exclude<WorkspacePage, "chat" | "schedules">]}</h1><p>{copy.pageDescriptions[page as Exclude<WorkspacePage, "chat" | "schedules">]}</p></div>{page === "memory" && <button className="primaryButton" onClick={() => void newTask(copy.memoryPrompt)}><Plus size={15} />{copy.addMemory}</button>}</div>
+      {renderInspectorColumn(page === "channels")}</div>}
+      </section>}
+      {page === "settings" && <>
+        <WorkspaceSettingsSidebar
+          text={text}
+          language={language}
+          tab={tab}
+          pendingApprovalCount={pendingApprovals.length}
+          pendingCandidateCount={pendingCandidates.length}
+          onTabChange={setTab}
+          onBack={() => navigate(settingsReturnPageRef.current === "settings" ? "chat" : settingsReturnPageRef.current)}
+        />
+        <section className="settingsPageMain">
+          <div className="settingsPageContent">
+            <header className="settingsPageHeader">
+              <h1>{settingsPageTitle}</h1>
+            </header>
+            {renderInspectorColumn(false, false)}
+          </div>
+        </section>
+      </>}
       {searchOpen && <TaskSearch language={language} sessions={sessions} onSelect={selectTask} onClose={() => setSearchOpen(false)} />}
     </main>
   );

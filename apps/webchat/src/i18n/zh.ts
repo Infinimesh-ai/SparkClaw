@@ -4,7 +4,6 @@ export const zh = {
     app: {
       name: "SparkClaw",
       tagline: "本地 Agent Runtime",
-      titleFallback: "Agent 工作台",
     },
     common: {
       approve: "批准",
@@ -29,17 +28,13 @@ export const zh = {
       no: "否"
     },
     nav: {
-      newSession: "新会话",
+      newSession: "新建对话",
       renameSession: "重命名会话",
       saveSessionName: "保存会话名称",
       deleteSession: "删除会话",
       confirmDeleteSession: "确定删除这个会话吗？",
       language: "语言",
-      sessions: "会话",
-      approvals: "审批",
-      memories: "记忆",
-      ready: "就绪",
-      offline: "离线"
+      sessions: "会话"
     },
     email: {
       summaryPartial: "摘要仅覆盖当前可用的原文片段，可打开邮件正文查看完整上下文。",
@@ -244,10 +239,6 @@ export const zh = {
       open: "在 LocalMind 中打开",
       markAllRead: "全部标为已读",
       dismiss: "关闭通知"
-    },
-    topbar: {
-      connecting: "正在连接 Gateway",
-      modelMode: "模型模式"
     },
     tabs: {
       timeline: "时间线",
@@ -509,6 +500,7 @@ export const zh = {
       title: "设置",
 	  categories: "设置分类",
 	  account: "账户",
+	  connections: "连接",
 	  agent: "Agent",
 	  system: "系统",
 	  messaging: "消息渠道",
@@ -529,7 +521,6 @@ export const zh = {
   aiPlatformRecentCheck: "最近检测（5 分钟内有效）",
   aiPlatformRefresh: "刷新状态",
   browserControl: "浏览器控制",
-	  browserBridge: "SparkClaw Browser Bridge",
 	  browserControlSharedProfile: "共享浏览器 Profile · default",
 	  browserControlLoading: "正在加载浏览器控制状态",
 	  browserControlLoadFailed: "无法获取浏览器控制状态",

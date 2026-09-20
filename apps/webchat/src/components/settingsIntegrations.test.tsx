@@ -217,7 +217,7 @@ describe("Connection directory navigation", () => {
     await act(async () => root.unmount());
   });
 
-  it("keeps workspace settings free of connection entries", async () => {
+  it("keeps every connection available from the workspace settings connection category", async () => {
     vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [infoStatus, localMindStatus] });
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -232,11 +232,14 @@ describe("Connection directory navigation", () => {
         />
       );
     });
-    expect(container.querySelectorAll(".settingsCategoryTabs button")).toHaveLength(3);
+    expect(container.querySelectorAll(".settingsCategoryTabs button")).toHaveLength(4);
     expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(2);
-    expect(container.textContent).not.toContain(dictionaries.en.settings.messaging);
-    expect(container.textContent).not.toContain(dictionaries.en.settings.browserControl);
-    expect(container.textContent).not.toContain(dictionaries.en.settings.externalMCP);
+    const connections = findButton(container, dictionaries.en.settings.connections);
+    await act(async () => connections.click());
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    expect(container.textContent).toContain(dictionaries.en.settings.messaging);
+    expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
+    expect(container.textContent).toContain(dictionaries.en.settings.externalMCP);
     await act(async () => root.unmount());
   });
 });

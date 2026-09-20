@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "extensionID": "mmlmfjhmonkocbjadbfplnigmagldckm",
   "version": "1.0.26",
-  "sourceSHA256": "d3b4b9f36d3907956c4f192431bec6c46984a6ebf2ee6dda9894458361991abd",
+  "sourceSHA256": "161221e113317b1a36b7d58c1d81dc1e8747be4644b2e2b2b636bc1a73c9a4ef",
   "upstreamCommit": "260eae31113073927b93c5c7591b5ae039952dd0",
   "files": {
     "LICENSE": "45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb",
@@ -11,7 +11,7 @@
     "connect.html": "81d372e50c18b41eda1e0eb2bf4739195a1ac26af6944ea3191c34c9357aad5e",
     "manifest.json": "3dc530c73c3ca0b4330fc9f9c92b90a04ec6a4b93d18b6b60b9c6a558894b4d1",
     "package.json": "5fc5c7840458162b6bd6a7b4bd440cd4fe9444f605b99d1566824193d7963865",
-    "src/background.mjs": "47a4ba9439418700da26fb16e243173b9f0ef92b12c701f1fe0e31b8c48a7157",
+    "src/background.mjs": "75578916b5a15843ebad26a6139f5ec34c701d195a52dc05a4378f1ede5634bf",
     "src/bootstrap-1.0.26.mjs": "602e9c9a2618de177ab540e59d88feda5cf7f7dec404d6c55d9657359b5a70d5",
     "src/connect.mjs": "d23e76c4dd8e8887bead790f097c6b7f4a36d832fda69135047c67a4fa907647",
     "src/downloads.mjs": "8651c3897063ac816f2f54369b813b7153fa5fce95034976795dcef4650e6e5a",

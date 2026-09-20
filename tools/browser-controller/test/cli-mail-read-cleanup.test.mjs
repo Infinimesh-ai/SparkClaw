@@ -32,6 +32,27 @@ test('runtime removal retry never reopens already-reaped CLI',async()=>{
   assert.deepEqual(calls,['page','stop','reap','remove','remove']);
 });
 
+test('QQ round preparation retries a transient document replacement before any provider query',async()=>{
+  const task=new PlaywrightCLITask({
+    state:{sessionID:'qq-round-retry'},
+    registration:{provider:'qq_mail',operation:'collect_page',timeoutMS:10_000},
+  });
+  let reads=0,urlChecks=0;
+  task.runReadCode=async()=>{
+    reads++;
+    if(reads===1)throw new ControllerError('browser_extension_unavailable','context replaced',{
+      status:503,retryable:true,diagnosticReason:'process_exit_context_destroyed',
+    });
+    return {provider:'qq_mail',account_address:'owner@example.test'};
+  };
+  task.currentURL=async()=>{urlChecks++;return 'https://wx.mail.qq.com/';};
+
+  await task.prepareMailRound('Owner@Example.Test');
+
+  assert.equal(reads,2);
+  assert.equal(urlChecks,1);
+});
+
 function roundOptions(){return {provider:'gmail',operation:'collect_page',scriptID:'gmail.collect_page',revision:1,credentialGeneration:7,token:'private',sessionID:'session_'+'a'.repeat(32),input:{owner_scope:'a'.repeat(64),discovery:{provider_mode:'time_range',account_address:'owner@example.test'}}};}
 function roundRegistry(handler){
   const registration={provider:'gmail',operation:'collect_page',timeoutMS:1000,sourceChecksum:'sha256:'+'b'.repeat(64),origins:['https://mail.google.com'],loginURL:'https://mail.google.com/mail/u/0/',validate(){},handler};

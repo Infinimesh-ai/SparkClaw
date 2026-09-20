@@ -63,6 +63,7 @@ for(const [mode,commands,reason]of [
  ['foreign',['tab-list','run-code','tab-list'],'page_unregistered_other_origin'],
  ['private-output',['tab-list','run-code'],'forbidden_output'],
  ['private-error',['tab-list','run-code'],'forbidden_output'],
+ ['context-destroyed',['tab-list','run-code'],'process_exit_context_destroyed'],
  ['hang',['tab-list','run-code'],'timeout'],
  ['overflow',['tab-list','run-code'],'output_overflow'],
 ])test(`batch fails closed: ${mode}`,async t=>{

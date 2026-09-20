@@ -25,6 +25,7 @@ const server=net.createServer(socket=>{
    ran=true;if(mode.startsWith('hang'))return;
    if(mode==='overflow'){socket.write('x'.repeat(34<<20));return;}
    if(mode==='private-error'){socket.end(JSON.stringify({id:request.id,result:{isError:true,text:process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN}})+'\n');return;}
+   if(mode==='context-destroyed'){socket.end(JSON.stringify({id:request.id,result:{isError:true,text:'Error: Execution context was destroyed, most likely because of a navigation'}})+'\n');return;}
    text=JSON.stringify({initial_url:'https://mail.google.test/',final_url:mode==='foreign'?'https://foreign.test/':'https://mail.google.test/',result:mode==='private-output'?process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN:{ok:true}});
   }
   socket.end(JSON.stringify({id:request.id,result:{text,isError:false}})+'\n');

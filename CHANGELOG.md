@@ -59,6 +59,10 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   Tab is created inactive, while the dedicated window identity is persisted in
   extension session storage so Manifest V3 worker restarts reuse it instead of
   opening another window. Explicit focused handoff remains unchanged.
+- QQ Mail collection now tolerates a transient initial-document replacement
+  while its managed Reader becomes ready. Only the local, pre-query round reset
+  is retried after origin and signed-in-route validation, so a healthy page can
+  enter the 30-minute reuse pool without replaying provider requests.
 - Credential-key migration now fails closed. Deployment and start preflight
   reject an existing SparkClaw PostgreSQL volume when the installation-local
   `data/memory/gateway-credentials.key` is missing, validate restored key file

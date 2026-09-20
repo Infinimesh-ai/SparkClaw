@@ -17,7 +17,7 @@ Each provider has at most one retained lease (QQ, Gmail and consumer Outlook: at
 
 Each new business round still has a new invocation identity. A repeated invocation may replay its verified durable receipt; this is different from a new poll and does not demonstrate incremental discovery by itself. The [timeline rules](email-timeline-incremental-sync-design.md) remain unchanged, including two qualified message failures, operational-error handling and persistent warnings.
 
-Account/ownership/origin checks have not been cached away. A stale page/connection may be rebuilt once only before the provider handler starts. Failed provider requests are not silently reissued within the same round. Exclusive validation, login, sending and generic browser access drain idle reads first; shutdown waits for active reads and then closes the pool. Cleanup failures retain a fenced lease and recovery metadata until owned-process cleanup succeeds.
+Account/ownership/origin checks have not been cached away. A stale page/connection may be rebuilt once only before the provider handler starts. QQ may replace its initial document while the managed Reader is becoming ready; only the local `resetRound` preparation is retried after revalidating the owned tab's origin and signed-in route, before any provider query runs. Failed provider requests are not silently reissued within the same round. Exclusive validation, login, sending and generic browser access drain idle reads first; shutdown waits for active reads and then closes the pool. Cleanup failures retain a fenced lease and recovery metadata until owned-process cleanup succeeds.
 
 ## Avoiding repeated full admission probes
 

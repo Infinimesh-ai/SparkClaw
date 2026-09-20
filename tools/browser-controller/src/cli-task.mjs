@@ -80,7 +80,7 @@ export class PlaywrightCLITask {
   }
 
   async prepareMailRound(account, reused = false) {
-    const result = await this.runReadCode(`async page=>page.evaluate(async options=>{
+    const resetCode = `async page=>page.evaluate(async options=>{
       if(options.reused&&window.__sparkclawMailDocument!==options.nonce)return {stale:true};
       const deadline=Date.now()+5000;
       for(;;){
@@ -96,7 +96,22 @@ export class PlaywrightCLITask {
           return {error:error.code||'email_network_read_failed'};
         }
       }
-    },${JSON.stringify({provider:this.registration.provider,account,nonce:this.mailDocumentNonce,reused})})`);
+    },${JSON.stringify({provider:this.registration.provider,account,nonce:this.mailDocumentNonce,reused})})`;
+    let result;
+    for (let attempt = 0; attempt < TRANSIENT_EVALUATION_ATTEMPTS; attempt += 1) {
+      try {
+        result = await this.runReadCode(resetCode);
+        break;
+      } catch (error) {
+        // QQ Mail can replace its initial document while the userscript is
+        // becoming ready. resetRound is local-only and runs before any
+        // provider query, so retry only this preparation step after proving
+        // that the owned task still has an allowed, signed-in provider URL.
+        if (!isContextDestroyed(error) || attempt === TRANSIENT_EVALUATION_ATTEMPTS - 1) throw error;
+        await abortableDelay(TRANSIENT_EVALUATION_DELAY_MS, this.signal);
+        this.#assertProviderURL(await this.currentURL());
+      }
+    }
     if (result?.stale) throw pageStale('task_page_missing');
     if (result?.error) throw Object.assign(new Error(result.error),{code:result.error});
     if(result?.provider!==this.registration.provider||result?.account_address!==account.toLowerCase()) throw clientContractError();

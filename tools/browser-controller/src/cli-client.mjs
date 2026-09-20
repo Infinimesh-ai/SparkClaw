@@ -200,6 +200,9 @@ export class PlaywrightCLIClientFactory {
           if(!signal?.aborted) retained = this.mailReads.keep(provider,lease);
         } catch(error) {cleanupFailure=error;cleanupPhase='park_mail_round';}
       }
+      if (poolReserved && client && !failure && !signal?.aborted && result && !retained) {
+        this.#diagnosePoolRejection(provider, result);
+      }
       if(poolReserved && !retained) {
         if(state) {
           lease??={state,client,createdAt:Date.now()};
@@ -378,6 +381,28 @@ export class PlaywrightCLIClientFactory {
   #diagnose(record) {
     try {
       this.diagnostic({ event: "browser_cli_script_failed", ...record });
+    } catch {
+      // Diagnostics must not change browser execution behavior.
+    }
+  }
+
+  #diagnosePoolRejection(provider, result) {
+    const status = ["partial", "collected", "empty"].includes(result?.status)
+      ? result.status
+      : "unknown";
+    const failureCodes = Array.isArray(result?.failures)
+      ? [...new Set(result.failures
+        .map((failure) => failure?.error_code)
+        .filter((code) => typeof code === "string" && /^[a-z0-9_]{1,64}$/u.test(code)))]
+        .slice(0, 8)
+      : [];
+    try {
+      this.diagnostic({
+        event: "browser_mail_pool_not_retained",
+        provider: ["gmail", "qq_mail", "outlook"].includes(provider) ? provider : "unknown",
+        status,
+        failure_codes: failureCodes,
+      });
     } catch {
       // Diagnostics must not change browser execution behavior.
     }

@@ -1106,6 +1106,17 @@ test('successive timeline rounds reuse exactly one owned task and dispose it on 
   assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
 });
 
+test('a non-reusable mail round emits only bounded failure codes before disposal',async t=>{
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1'},{readOperation:'collect_page',readHandler:async()=>({
+    status:'partial',failures:[{error_code:'email_network_list_unqualified'},{error_code:'PRIVATE value'}],
+  })});
+  assert.equal((await runPooled(harness,309)).state,'completed');
+  assert.deepEqual(harness.diagnostics,[{
+    event:'browser_mail_pool_not_retained',provider:'gmail',status:'partial',failure_codes:['email_network_list_unqualified'],
+  }]);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
 test('pool binding changes evict old pages before another owner/account/credential uses them',async t=>{
   const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1'},{readOperation:'collect_page',readHandler:async()=>({status:'empty',failures:[]})});
   await runPooled(harness,310);

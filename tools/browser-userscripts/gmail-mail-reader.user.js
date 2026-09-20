@@ -379,6 +379,20 @@ const parseQQMailList=function parseQQMailList(value) {
   function qqListSource() {
     const source = listRequest || binding;
     if (source) return new URL(source.url || source, location.href);
+    // The current QQ client can restore /home/index from its own cache without
+    // issuing /list/maillist again. Its signed-in route still carries the same
+    // first-party session id required by /list/search, so construct only the
+    // fixed list binding instead of depending on an incidental resource entry.
+    try {
+      const current = new URL(location.href);
+      const sid = current.origin===location.origin && current.pathname==='/home/index'
+        ? current.searchParams.get('sid') : '';
+      if(sid && sid.length<=4096) {
+        const url=new URL('/list/maillist',location.origin);
+        url.searchParams.set('func','1');url.searchParams.set('sid',sid);
+        return url;
+      }
+    } catch {}
     // QQ can load its first list before the userscript's fetch/XHR hooks run.
     const resources = performance.getEntriesByType('resource');
     for (let index = resources.length - 1; index >= 0; index--) {
@@ -537,6 +551,7 @@ const parseQQMailList=function parseQQMailList(value) {
     checkedAccount(account_address);
     if(config.provider==='outlook' && transport?.listPage)return transport.listPage({account_address,interval_start,interval_end,page,folder,provider_mode});
     if (config.provider === 'qq_mail') {
+      listStage='qq_source';
       const start=instantNanos(interval_start), end=instantNanos(interval_end);
       if (start===null||end===null||start>=end||!Number.isInteger(page)||page<0||page>128) failure('invalid_request');
       const deadline=Date.now()+5000;
@@ -553,16 +568,20 @@ const parseQQMailList=function parseQQMailList(value) {
         const search=new URL('/list/search',location.origin);
         search.searchParams.set('sid',url.searchParams.get('sid'));
         const body=new URLSearchParams({page_now:'0',page_size:'50',after:String(start/1000000000n-1n),before:String((end+999999999n)/1000000000n),sort_type:'1',sort_direction:'1'});
+        listStage='qq_request';
         const response=await originalFetch.call(window,search.href,{method:'POST',credentials:'same-origin',redirect:'error',headers:{'content-type':'application/x-www-form-urlencoded'},body,signal:AbortSignal.timeout(20000)});
         if([401,403].includes(response.status))failure('email_login_required');if(!response.ok)failure('email_network_read_failed');
         const reader=response.body.getReader(),chunks=[];let length=0;
         try {for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>10<<20){void reader.cancel();failure('email_capture_limit');}chunks.push(value);}}finally{reader.releaseLock();}
         const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+        listStage='qq_json';
         let value;try{value=JSON.parse(new TextDecoder().decode(bytes));}catch{failure('email_network_list_unqualified');}
         checkedAccount(account_address);
-        if(value?.head?.ret!==0||!Number.isInteger(value.body?.total_num)||value.body.total_num<0||!Number.isInteger(value.body.lock_num)||value.body.lock_num<0)failure('email_network_list_unqualified');
+        listStage='qq_head';if(value?.head?.ret!==0)failure('email_network_list_unqualified');
+        listStage='qq_total';if(!Number.isInteger(value.body?.total_num)||value.body.total_num<0)failure('email_network_list_unqualified');
+        listStage='qq_lock';if(!Number.isInteger(value.body.lock_num)||value.body.lock_num<0)failure('email_network_list_unqualified');
         if(value.body.total_num===0&&value.body.list===undefined)value.body.list=[];
-        if(!Array.isArray(value.body.list)||value.body.list.length>50)failure('email_network_list_unqualified');
+        listStage='qq_list';if(!Array.isArray(value.body.list)||value.body.list.length>50)failure('email_network_list_unqualified');
         const parsed=config.parse(value),rows=[];
         let unsupported=value.body.list.length-parsed.length+value.body.lock_num;
         for(const row of parsed){
@@ -572,6 +591,7 @@ const parseQQMailList=function parseQQMailList(value) {
           if(at>=start&&at<end){records.set(row.provider_message_id,row);rows.push(row);}
         }
         binding=url;
+        listStage='qq_complete';
         return {provider:config.provider,account_address:account,rows,unsupported_rows:unsupported,has_next:value.body.total_num>value.body.list.length,page:0,scope:'inbound_received',folder_scope_id:'search_inbound_v1'};
       }
       const dir=folder==='inbox'?1:/^qq:[1-9][0-9]{3,9}$/u.test(folder)?Number(folder.slice(3)):folder==='sent'?3:null;

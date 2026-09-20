@@ -1151,9 +1151,19 @@ test('provider failures are not retried inside a lease and never return a poison
   await runPooled(harness,330);
   assert.equal((await runPooled(harness,331)).state,'failed');
   assert.equal(calls,2);
+  assert.deepEqual(harness.diagnostics,[{event:'browser_cli_script_failed',provider:'gmail',operation:'collect_page',scriptID:'gmail.test_read',phase:'provider_handler',code:'email_network_read_failed'}]);
+  assert.equal(JSON.stringify(harness.diagnostics).includes('failed query'),false);
   assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
   await runPooled(harness,332);
   assert.equal((await commandRecords(harness)).filter(r=>r.command==='attach').length,2);
+});
+
+test('pooled QQ diagnostics admit only fixed reader stages',async t=>{
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1',FAKE_CLI_MAIL_PROVIDER:'qq_mail'},{readProvider:'qq_mail',readOperation:'collect_page',readHandler:async()=>{throw Object.assign(new Error('private response'),{code:'email_network_list_unqualified',diagnosticStage:'qq_lock'});}});
+  const input=pooledInput({provider:'qq_mail'});
+  const result=await harness.factory.runScript({token,sessionID:sessionID(333),provider:'qq_mail',operation:'collect_page',scriptID:'qq_mail.test_read',revision:1,credentialGeneration:1,input});
+  assert.equal(result.state,'failed');
+  assert.deepEqual(harness.diagnostics,[{event:'browser_cli_script_failed',provider:'qq_mail',operation:'collect_page',scriptID:'qq_mail.test_read',phase:'provider_handler',code:'email_network_list_unqualified',provider_stage:'qq_lock'}]);
 });
 
 function createRegistry(options = {}) {

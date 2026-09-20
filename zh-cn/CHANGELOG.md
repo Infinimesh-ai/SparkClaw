@@ -48,7 +48,9 @@
   语义保持不变。
 - QQ 邮箱采集现在允许受管 Reader 就绪期间发生一次瞬时的初始文档替换。只有尚未发出
   Provider 查询的本地轮次重置会在重新核验来源与已登录路由后重试，使健康页面能够进入
-  30 分钟复用池，同时不会重放 Provider 请求。
+  30 分钟复用池，同时不会重放 Provider 请求。缓存客户端未再次发出 `/list/maillist`
+  请求时，恢复后的已登录 `/home/index` 路由也可提供其同源 Session 绑定；有界且仅含阶段名的
+  诊断能够区分列表契约失败，不记录账户、邮件数据、URL 或 Provider 响应。
 - 凭据密钥迁移改为 fail-closed：部署与启动预检发现已有 SparkClaw PostgreSQL volume、
   但当前安装目录缺少 `data/memory/gateway-credentials.key` 时会拒绝启动，并校验恢复后
   密钥文件的格式与权限；Gateway 在 readiness 前用当前密钥验证全部已存凭据，`/readyz`

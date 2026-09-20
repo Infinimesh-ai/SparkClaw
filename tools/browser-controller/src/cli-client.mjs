@@ -65,6 +65,7 @@ const DIAGNOSTIC_COMMANDS = new Set([
   "tab-list",
   "tab-select",
 ]);
+const SAFE_PROVIDER_FAILURE_CODE = /^[a-z0-9_]{1,64}$/u;
 
 export class PlaywrightCLIClientFactory {
   constructor(options = {}) {
@@ -295,6 +296,18 @@ export class PlaywrightCLIClientFactory {
           ...context,
         });
         throw runtimeFailure;
+      }
+      if (poolReserved && typeof failure?.code === "string" && SAFE_PROVIDER_FAILURE_CODE.test(failure.code)) {
+        this.#diagnose({
+          provider,
+          operation,
+          scriptID,
+          phase,
+          code: failure.code,
+          ...(provider === "qq_mail" && /^(?:qq_(?:source|request|json|head|total|lock|list|complete))$/u.test(failure.diagnosticStage)
+            ? { provider_stage: failure.diagnosticStage }
+            : {}),
+        });
       }
       return failedResult(registration, providerFailureEnvelope(provider, failure));
     }

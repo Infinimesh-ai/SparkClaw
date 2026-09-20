@@ -2,8 +2,8 @@
 // Provider adapters own URLs, request templates, parsing and account checks.
 const NETWORK_READER_VERSION = '0.2.0';
 
-function networkError(code) {
-  return Object.assign(new Error(code), { code });
+function networkError(code, diagnosticStage) {
+  return Object.assign(new Error(code), { code }, /^(?:qq_(?:source|request|json|head|total|lock|list|complete))$/u.test(diagnosticStage) ? { diagnosticStage } : {});
 }
 
 async function callReader(tab, provider, method, request, { required = false } = {}) {
@@ -32,11 +32,13 @@ async function callReader(tab, provider, method, request, { required = false } =
         // Initial page hydration may precede the account header. Waiting for
         // local identity is not another list request, and has no fixed delay.
         if(method==='snapshot'&&error.code==='email_account_identity_unavailable'&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,100));continue;}
-        return {error:error.code||'email_network_read_failed'};
+        let diagnostic_stage;
+        try {diagnostic_stage=reader.diagnostics?.().list?.stage;} catch {}
+        return {error:error.code||'email_network_read_failed',diagnostic_stage};
       }
     }
   },${JSON.stringify({provider,method,request})})`);
-  if (value?.error) throw networkError(value.error);
+  if (value?.error) throw networkError(value.error, value.diagnostic_stage);
   if (value === null && required) {
     throw networkError('email_network_capability_unavailable');
   }

@@ -235,6 +235,20 @@ test('QQ replays an observed same-origin list resource when its initial request 
   f.context.SparkClawMailReader.dispose();
 });
 
+test('QQ restores its fixed list binding from the signed-in home route',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index?sid=private-home-session'};
+  f.context.performance={getEntriesByType:()=>[]};
+  const requests=[];
+  f.context.fetch=async(url,init)=>{requests.push({url,init});return new Response(JSON.stringify({head:{ret:0},body:{total_num:0,lock_num:0}}));};
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list??[]});`,f.context);
+  const result=await f.context.SparkClawMailReader.listPage({...interval,provider_mode:'time_range'});
+  assert.equal(result.rows.length,0);assert.equal(requests.length,1);
+  const requestURL=new URL(requests[0].url);
+  assert.equal(requestURL.pathname,'/list/search');assert.equal(requestURL.searchParams.get('sid'),'private-home-session');
+  assert.equal(f.context.SparkClawMailReader.diagnostics().list.stage,'qq_complete');
+});
+
 test('QQ stops native pagination after an ordered qualified page crosses the lower bound',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};

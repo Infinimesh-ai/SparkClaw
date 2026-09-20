@@ -62,7 +62,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 - QQ Mail collection now tolerates a transient initial-document replacement
   while its managed Reader becomes ready. Only the local, pre-query round reset
   is retried after origin and signed-in-route validation, so a healthy page can
-  enter the 30-minute reuse pool without replaying provider requests.
+  enter the 30-minute reuse pool without replaying provider requests. A restored
+  signed-in `/home/index` route may also supply its same-origin session binding
+  when the cached client does not issue another `/list/maillist` request; bounded
+  stage-only diagnostics distinguish list contract failures without logging
+  accounts, message data, URLs or provider responses.
 - Credential-key migration now fails closed. Deployment and start preflight
   reject an existing SparkClaw PostgreSQL volume when the installation-local
   `data/memory/gateway-credentials.key` is missing, validate restored key file

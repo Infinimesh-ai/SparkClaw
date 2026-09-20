@@ -47,3 +47,11 @@ test('timeline readiness and list share one browser command; only local pre-requ
   await assert.rejects(networkListPage(tab,'qq_mail',options,null),{code:'email_account_identity_unavailable'});
   assert.equal(lists,2); // A post-request account failure must never replay the query.
 });
+
+test('timeline list failures retain only a bounded managed-reader diagnostic stage', async()=>{
+  const options={account_address:'owner@example.test',provider_mode:'time_range',lane:'recent_inbound',interval_start:'2026-09-16T00:00:00Z',interval_end:'2026-09-16T00:01:00Z',limit:50};
+  const staged={provider:'qq_mail',version:'0.2.0',snapshot(){},diagnostics(){return {list:{stage:'qq_lock'}};},async listPage(){throw Object.assign(new Error('private response'),{code:'email_network_list_unqualified'});}};
+  const context=vm.createContext({window:{SparkClawMailReader:staged},Date,setTimeout});
+  const tab={runReadCode:async code=>vm.runInContext('('+code+')',context)({evaluate:(fn,args)=>fn(args)})};
+  await assert.rejects(networkListPage(tab,'qq_mail',options,null),error=>error.code==='email_network_list_unqualified'&&error.diagnosticStage==='qq_lock'&&!error.message.includes('private'));
+});

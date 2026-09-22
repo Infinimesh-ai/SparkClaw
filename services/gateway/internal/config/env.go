@@ -147,6 +147,8 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_BIND", doc: "Gateway listen address.", apply: envString(func(c *Config) *string { return &c.Gateway.Bind })},
 	{name: "SPARKCLAW_PORT", doc: "Gateway listen port.", apply: envInt(func(c *Config) *int { return &c.Gateway.Port })},
 	{name: "SPARKCLAW_API_TOKEN", doc: "Static gateway bearer token; empty means pairing-only auth.", apply: envString(func(c *Config) *string { return &c.Gateway.APIToken })},
+	{name: "SPARKCLAW_DEPLOYMENT_ID", doc: "Persistent identity of this SparkClaw product installation.", apply: envString(func(c *Config) *string { return &c.Gateway.DeploymentID })},
+	{name: "SPARKCLAW_DESKTOP_CLIENT_FILE", doc: "Restricted local desktop Client provisioning file.", apply: envString(func(c *Config) *string { return &c.Gateway.DesktopClientFile })},
 	{name: "SPARKCLAW_WEBCHAT_PROXY_TOKEN", doc: "Private token that authenticates the WebChat reverse proxy for pairing bootstrap.", apply: envString(func(c *Config) *string { return &c.Gateway.WebChatProxyToken })},
 	{name: "SPARKCLAW_BRIDGE_TOKEN", doc: "Dedicated bearer for the loopback ISCP bridge dispatch routes.", apply: envString(func(c *Config) *string { return &c.Gateway.BridgeToken })},
 	{name: "SPARKCLAW_JINGSI_LAN_ENABLED", doc: "Enable the JingSi LAN listener.", apply: envBool(func(c *Config) *bool { return &c.JingSiLAN.Enabled })},

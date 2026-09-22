@@ -20,11 +20,16 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 		writeMemoryStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"memories": memories})
+	visible, err := s.filterMemoriesForOwner(r.Context(), memories, principalForRequest(r).OwnerID)
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memories": visible})
 }
 
 func (s *Server) getMemoryExport(w http.ResponseWriter, r *http.Request) {
-	export, err := s.buildMemoryExport(r.Context())
+	export, err := s.buildMemoryExport(r.Context(), principalForRequest(r).OwnerID)
 	if err != nil {
 		writeMemoryStoreError(w, err)
 		return
@@ -33,7 +38,7 @@ func (s *Server) getMemoryExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
-	export, err := s.buildMemoryExport(r.Context())
+	export, err := s.buildMemoryExport(r.Context(), principalForRequest(r).OwnerID)
 	if err != nil {
 		writeMemoryStoreError(w, err)
 		return
@@ -82,13 +87,22 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"export": export, "artifact": artifactObject})
 }
 
-func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error) {
+func (s *Server) buildMemoryExport(ctx context.Context, ownerID string) (app.MemoryExport, error) {
 	candidates, err := s.store.ListMemoryCandidates(ctx, "")
 	if err != nil {
 		return app.MemoryExport{}, err
 	}
+	visibleCandidates := make([]app.MemoryCandidate, 0, len(candidates))
 	pending := 0
 	for _, candidate := range candidates {
+		visible, visibilityErr := s.sessionIDVisibleToOwner(ctx, candidate.SessionID, ownerID)
+		if visibilityErr != nil {
+			return app.MemoryExport{}, visibilityErr
+		}
+		if !visible {
+			continue
+		}
+		visibleCandidates = append(visibleCandidates, candidate)
 		if candidate.Status == "pending" {
 			pending++
 		}
@@ -97,30 +111,51 @@ func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error
 	if err != nil {
 		return app.MemoryExport{}, err
 	}
+	memories, err = s.filterMemoriesForOwner(ctx, memories, ownerID)
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	episodes, err := s.store.ListEpisodeSummaries(ctx, "")
 	if err != nil {
 		return app.MemoryExport{}, err
 	}
-	ownerProfile, err := s.store.GetOwnerProfile(ctx)
+	visibleEpisodes := make([]app.EpisodeSummary, 0, len(episodes))
+	for _, episode := range episodes {
+		visible, visibilityErr := s.sessionIDVisibleToOwner(ctx, episode.SessionID, ownerID)
+		if visibilityErr != nil {
+			return app.MemoryExport{}, visibilityErr
+		}
+		if visible {
+			visibleEpisodes = append(visibleEpisodes, episode)
+		}
+	}
+	ownerProfile, found, err := s.store.GetOwnerProfileByID(ctx, ownerID)
 	if err != nil {
 		return app.MemoryExport{}, err
+	}
+	if !found {
+		ownerProfile = app.DefaultOwnerProfile()
+		ownerProfile.ID = ownerID
 	}
 	return app.MemoryExport{
 		GeneratedAt:      time.Now().UTC(),
 		OwnerProfile:     ownerProfile,
 		Memories:         memories,
-		MemoryCandidates: candidates,
-		Episodes:         episodes,
+		MemoryCandidates: visibleCandidates,
+		Episodes:         visibleEpisodes,
 		Counts: app.MemoryExportCounts{
 			Memories:          len(memories),
-			MemoryCandidates:  len(candidates),
+			MemoryCandidates:  len(visibleCandidates),
 			PendingCandidates: pending,
-			Episodes:          len(episodes),
+			Episodes:          len(visibleEpisodes),
 		},
 	}, nil
 }
 
 func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
+	if !s.memoryIDVisibleToOwner(r.Context(), r.PathValue("id"), principalForRequest(r).OwnerID, w) {
+		return
+	}
 	var req struct {
 		Kind    string `json:"kind"`
 		Content string `json:"content"`
@@ -154,6 +189,9 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMemory(w http.ResponseWriter, r *http.Request) {
+	if !s.memoryIDVisibleToOwner(r.Context(), r.PathValue("id"), principalForRequest(r).OwnerID, w) {
+		return
+	}
 	memory, err := s.store.DeleteMemory(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeMemoryStoreError(w, err)
@@ -185,7 +223,7 @@ func memorySensitivePattern(content string, patterns []string) (string, bool) {
 }
 
 func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
-	ownerID := queryOwnerID(r)
+	ownerID := principalForRequest(r).OwnerID
 	candidates := []app.MemoryCandidate{}
 	stored, err := s.store.ListMemoryCandidates(r.Context(), r.URL.Query().Get("status"))
 	if err != nil {
@@ -206,6 +244,9 @@ func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) acceptMemoryCandidate(w http.ResponseWriter, r *http.Request) {
+	if !s.memoryCandidateVisibleToOwner(r.Context(), r.PathValue("id"), principalForRequest(r).OwnerID, w) {
+		return
+	}
 	candidate, memory, err := s.store.ResolveMemoryCandidate(r.Context(), r.PathValue("id"), "accepted")
 	if err != nil {
 		writeMemoryStoreError(w, err)
@@ -215,12 +256,91 @@ func (s *Server) acceptMemoryCandidate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) rejectMemoryCandidate(w http.ResponseWriter, r *http.Request) {
+	if !s.memoryCandidateVisibleToOwner(r.Context(), r.PathValue("id"), principalForRequest(r).OwnerID, w) {
+		return
+	}
 	candidate, _, err := s.store.ResolveMemoryCandidate(r.Context(), r.PathValue("id"), "rejected")
 	if err != nil {
 		writeMemoryStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, candidate)
+}
+
+func (s *Server) filterMemoriesForOwner(ctx context.Context, memories []app.Memory, ownerID string) ([]app.Memory, error) {
+	visible := make([]app.Memory, 0, len(memories))
+	for _, memory := range memories {
+		allowed, err := s.memoryVisibleToOwner(ctx, memory, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			visible = append(visible, memory)
+		}
+	}
+	return visible, nil
+}
+
+func (s *Server) memoryVisibleToOwner(ctx context.Context, memory app.Memory, ownerID string) (bool, error) {
+	if strings.TrimSpace(memory.SourceID) == "" {
+		return strings.TrimSpace(ownerID) == app.DefaultOwnerID, nil
+	}
+	run, found, err := s.store.GetRun(ctx, memory.SourceID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	return s.sessionIDVisibleToOwner(ctx, run.SessionID, ownerID)
+}
+
+func (s *Server) memoryIDVisibleToOwner(ctx context.Context, memoryID, ownerID string, w http.ResponseWriter) bool {
+	memories, err := s.store.SearchMemories(ctx, "")
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return false
+	}
+	for _, memory := range memories {
+		if memory.ID != memoryID {
+			continue
+		}
+		visible, visibilityErr := s.memoryVisibleToOwner(ctx, memory, ownerID)
+		if visibilityErr != nil {
+			writeMemoryStoreError(w, visibilityErr)
+			return false
+		}
+		if !visible {
+			writeError(w, http.StatusNotFound, errors.New("memory record not found"))
+		}
+		return visible
+	}
+	writeError(w, http.StatusNotFound, errors.New("memory record not found"))
+	return false
+}
+
+func (s *Server) memoryCandidateVisibleToOwner(ctx context.Context, candidateID, ownerID string, w http.ResponseWriter) bool {
+	candidates, err := s.store.ListMemoryCandidates(ctx, "")
+	if err != nil {
+		writeMemoryStoreError(w, err)
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate.ID != candidateID {
+			continue
+		}
+		visible, visibilityErr := s.sessionIDVisibleToOwner(ctx, candidate.SessionID, ownerID)
+		if visibilityErr != nil {
+			writeMemoryStoreError(w, visibilityErr)
+			return false
+		}
+		if !visible {
+			writeError(w, http.StatusNotFound, errors.New("memory record not found"))
+		}
+		return visible
+	}
+	writeError(w, http.StatusNotFound, errors.New("memory record not found"))
+	return false
 }
 
 func writeMemoryStoreError(w http.ResponseWriter, err error) {

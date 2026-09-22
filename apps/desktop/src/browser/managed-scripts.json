@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "scripts": [
+    {
+      "id": "80700eb2-0fe8-46ea-902f-f4463134057d",
+      "file": "revivalstack.user.js",
+      "version": "3.1.0-sparkclaw.1",
+      "sha256": "a1ce2c17d0058a433659e2985c3d393f0181fa4eaa31c94f4a1eed7dc528738c",
+      "origins": [
+        "https://chat.openai.com",
+        "https://chatgpt.com",
+        "https://claude.ai",
+        "https://gemini.google.com",
+        "https://grok.com",
+        "https://www.copilot.com"
+      ],
+      "runAt": "document-end",
+      "grants": [
+        "GM_getValue",
+        "GM_setValue",
+        "GM_registerMenuCommand"
+      ],
+      "noframes": true,
+      "matches": [
+        {
+          "origin": "https://chat.openai.com",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://chatgpt.com",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://claude.ai",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://www.copilot.com",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://gemini.google.com",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://grok.com",
+          "pathPrefix": "/"
+        }
+      ]
+    },
+    {
+      "id": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0",
+      "file": "qq-mail-reader.user.js",
+      "version": "0.2.0",
+      "sha256": "f42c08b3b43aeb73101bcd93cdaa6e6b26f5d6ca4f73585c4982d543569d6379",
+      "origins": [
+        "https://wx.mail.qq.com"
+      ],
+      "runAt": "document-start",
+      "grants": [
+        "none"
+      ],
+      "noframes": true,
+      "matches": [
+        {
+          "origin": "https://wx.mail.qq.com",
+          "pathPrefix": "/"
+        }
+      ]
+    },
+    {
+      "id": "1b57e83c-a914-48c1-a490-77d4bca191d5",
+      "file": "gmail-mail-reader.user.js",
+      "version": "0.2.0",
+      "sha256": "cbaac6e8fabb8679651753e6852986b70792bb0d34b5204046016df326f7068f",
+      "origins": [
+        "https://mail.google.com"
+      ],
+      "runAt": "document-start",
+      "grants": [
+        "none"
+      ],
+      "noframes": true,
+      "matches": [
+        {
+          "origin": "https://mail.google.com",
+          "pathPrefix": "/"
+        }
+      ]
+    },
+    {
+      "id": "c2b90f5c-629d-41bd-8fc8-179729ad70b4",
+      "file": "outlook-mail-reader.user.js",
+      "version": "0.2.0",
+      "sha256": "ff5afbb8af361fbfba4262bfa023d06410f4f2b2f8030a2378144b11ff9be3fb",
+      "origins": [
+        "https://outlook.live.com",
+        "https://outlook.office.com",
+        "https://outlook.office365.com"
+      ],
+      "runAt": "document-start",
+      "grants": [
+        "none"
+      ],
+      "noframes": true,
+      "matches": [
+        {
+          "origin": "https://outlook.live.com",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://outlook.office.com",
+          "pathPrefix": "/"
+        },
+        {
+          "origin": "https://outlook.office365.com",
+          "pathPrefix": "/"
+        }
+      ]
+    }
+  ]
+}

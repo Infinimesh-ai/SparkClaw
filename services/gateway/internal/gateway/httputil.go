@@ -42,14 +42,6 @@ func queryInt(r *http.Request, key string, fallback int) int {
 	return value
 }
 
-func queryOwnerID(r *http.Request) string {
-	ownerID := strings.TrimSpace(r.URL.Query().Get("owner_id"))
-	if ownerID == "" {
-		return app.DefaultOwnerID
-	}
-	return ownerID
-}
-
 func sessionOwnerID(session app.Session) string {
 	if strings.TrimSpace(session.OwnerID) == "" {
 		return app.DefaultOwnerID
@@ -74,6 +66,18 @@ func (s *Server) sessionIDVisibleToOwner(ctx context.Context, sessionID, ownerID
 		return ownerID == app.DefaultOwnerID, nil
 	}
 	return sessionOwnerID(session) == ownerID, nil
+}
+
+func (s *Server) sessionForRequest(ctx context.Context, r *http.Request, sessionID string) (app.Session, bool, error) {
+	session, found, err := s.store.GetSession(ctx, strings.TrimSpace(sessionID))
+	if err != nil || !found {
+		return app.Session{}, false, err
+	}
+	principal := principalForRequest(r)
+	if strings.TrimSpace(principal.ClientID) != "" && sessionOwnerID(session) != principal.OwnerID {
+		return app.Session{}, false, nil
+	}
+	return session, true, nil
 }
 
 func (s *Server) artifactVisibleToOwner(ctx context.Context, object app.ArtifactObject, ownerID string) (bool, error) {

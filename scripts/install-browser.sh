@@ -188,7 +188,13 @@ def contains_argument(value: str) -> bool:
             return True
         start = index + 1
 
-required = {sys.argv[2], f"--user-data-dir={sys.argv[3]}", f"--disable-extensions-except={sys.argv[4]}", f"--load-extension={sys.argv[4]}"}
+required = {
+    sys.argv[2],
+    "--silent-debugger-extension-api",
+    f"--user-data-dir={sys.argv[3]}",
+    f"--disable-extensions-except={sys.argv[4]}",
+    f"--load-extension={sys.argv[4]}",
+}
 if not all(contains_argument(value) for value in required):
     raise SystemExit("SparkClaw browser command line is stale")
 tokens = command_line.split()

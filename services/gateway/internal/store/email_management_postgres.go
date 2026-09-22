@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -224,13 +225,26 @@ func emailPostgresRun[T any](s *PostgresStore, ctx context.Context, op StoreOper
 			return out, classifyPostgresReadError(op, ctx, err)
 		}
 	}
-	e := &emailEngine{db: &emailPostgresRecords{ctx: ctx, tx: tx, owner: owner}, owner: owner, now: postgresTime(time.Now())}
+	records := &emailPostgresRecords{ctx: ctx, tx: tx, owner: owner}
+	e := &emailEngine{db: records, owner: owner, now: postgresTime(time.Now())}
 	out, err = emailRun(e, op, key, input, fn)
 	if err != nil {
 		if errors.Is(err, errEmailCorrupt) || errors.Is(err, errEmailInvalid) || errors.Is(err, errEmailConflict) || errors.Is(err, errEmailNotFound) {
 			return out, emailClassify(ctx, op, err)
 		}
 		return out, classifyPostgresReadError(op, ctx, err)
+	}
+	if write && records.changed() {
+		if _, eventErr := tx.Exec(ctx, `
+			INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
+			VALUES ($1, $2, 'email.changed', NULL, NULL, $3)
+		`, app.NewID("evt"), e.now, mustJSON(map[string]any{
+			"owner_id":  owner,
+			"operation": string(op),
+			"id":        key,
+		})); eventErr != nil {
+			return out, classifyPostgresReadError(op, ctx, eventErr)
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

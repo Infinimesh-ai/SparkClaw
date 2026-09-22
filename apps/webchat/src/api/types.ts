@@ -407,6 +407,20 @@ export type Client = {
   revoked_at?: string;
 };
 
+export type IssuedClientCredential = {
+  client: Client;
+  token: string;
+};
+
+export type WorkbenchInvalidation = {
+  schema_version: 1;
+  epoch: string;
+  sequence: number;
+  category: "all" | "sessions" | "conversation" | "tasks" | "approvals" | "memories" | "schedules" | "notifications" | "email" | "clients" | "settings" | "files" | "evaluations" | "shared";
+  resource_id?: string;
+  reason?: "resync" | string;
+};
+
 export type NotificationBinding = {
   id: string;
   owner_id: string;

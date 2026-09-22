@@ -3,6 +3,7 @@ import { BRIDGE_EXTENSION_ID } from "./bridge-native-protocol.mjs";
 import { clientContractError } from "./mcp-errors.mjs";
 
 export const BRIDGE_CONNECT_URL_PREFIX = `chrome-extension://${BRIDGE_EXTENSION_ID}/connect.html?`;
+export const ELECTRON_CONNECT_URL = "sparkclaw-internal://extension-connect";
 
 // browser_tabs renders its tab list as markdown in `result` even under
 // `_meta.json`; playwright-output.mjs owns that format.
@@ -17,7 +18,8 @@ export function tabFingerprint(tab) {
 }
 
 export function isBridgeConnectionPage(tab) {
-  return typeof tab?.url === "string" && tab.url.startsWith(BRIDGE_CONNECT_URL_PREFIX);
+  return typeof tab?.url === "string" &&
+    (tab.url.startsWith(BRIDGE_CONNECT_URL_PREFIX) || tab.url === ELECTRON_CONNECT_URL);
 }
 
 export function sameFingerprintList(left, right) {

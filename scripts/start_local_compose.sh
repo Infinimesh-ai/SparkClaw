@@ -67,6 +67,12 @@ sparkclaw_tcp_port_valid "$webchat_port" || {
   exit 1
 }
 export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
+workbench_runtime_dir="${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-$ROOT/data/runtime}"
+node "$ROOT/scripts/provision-local-workbench.mjs" \
+  --check \
+  --runtime-dir "$workbench_runtime_dir" \
+  --origin "http://127.0.0.1:$webchat_port" \
+  --deployment-id "${SPARKCLAW_DEPLOYMENT_ID:-}" >/dev/null
 
 sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
 

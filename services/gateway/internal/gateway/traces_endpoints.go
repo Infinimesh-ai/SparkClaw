@@ -18,6 +18,22 @@ import (
 
 func (s *Server) getTrace(w http.ResponseWriter, r *http.Request) {
 	runID := filepath.Base(r.PathValue("run_id"))
+	run, found, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, errors.New("trace not found"))
+		return
+	}
+	if _, visible, err := s.sessionForRequest(r.Context(), r, run.SessionID); err != nil {
+		writeSessionStoreError(w, err)
+		return
+	} else if !visible {
+		writeError(w, http.StatusNotFound, errors.New("trace not found"))
+		return
+	}
 	path := filepath.Join(s.cfg.Storage.TraceDir, runID+".json")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -46,6 +62,12 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]app.TraceMetadata, 0, min(limit, len(runs)))
 	for _, run := range runs {
+		if _, visible, visibilityErr := s.sessionForRequest(r.Context(), r, run.SessionID); visibilityErr != nil {
+			writeSessionStoreError(w, visibilityErr)
+			return
+		} else if !visible {
+			continue
+		}
 		if len(out) >= limit {
 			break
 		}
@@ -106,7 +128,7 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	ownerID := queryOwnerID(r)
+	ownerID := principalForRequest(r).OwnerID
 	objects := []app.ArtifactObject{}
 	storedObjects, err := s.store.ListArtifactObjects(r.Context(), 0)
 	if err != nil {

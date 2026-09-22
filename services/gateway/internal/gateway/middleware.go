@@ -70,7 +70,9 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 					writeError(w, http.StatusUnauthorized, errors.New("valid bridge token required"))
 					return
 				}
-				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
+				principal := defaultRequestPrincipal()
+				principal.Authenticated = true
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, principal)))
 				return
 			}
 			if !s.authRequired() {
@@ -182,7 +184,9 @@ func (s *Server) isTrustedPairingBootstrap(r *http.Request) bool {
 func (s *Server) authenticateBearer(ctx context.Context, token string) (requestPrincipal, bool, error) {
 	if configured := strings.TrimSpace(s.cfg.Gateway.APIToken); configured != "" {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(configured)) == 1 {
-			return defaultRequestPrincipal(), true, nil
+			principal := defaultRequestPrincipal()
+			principal.Authenticated = true
+			return principal, true, nil
 		}
 	}
 	client, ok, err := s.store.FindClientByTokenHash(ctx, hashSecret(token))
@@ -207,15 +211,16 @@ func (s *Server) authenticateBearer(ctx context.Context, token string) (requestP
 	if actorID == "" {
 		actorID = ownerID
 	}
-	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID}, true, nil
+	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID, Authenticated: true}, true, nil
 }
 
 type requestPrincipalContextKey struct{}
 
 type requestPrincipal struct {
-	OwnerID  string
-	ActorID  string
-	ClientID string
+	OwnerID       string
+	ActorID       string
+	ClientID      string
+	Authenticated bool
 }
 
 func defaultRequestPrincipal() requestPrincipal {

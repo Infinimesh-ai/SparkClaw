@@ -19,6 +19,7 @@ import {
   runProcess,
   scrubPlaywrightEnvironment,
 } from "./cli-runtime.mjs";
+import { electronConnectionEnvironment } from "./electron-adapter-client.mjs";
 
 const TRANSIENT_EVALUATION_ATTEMPTS = 4;
 const TRANSIENT_EVALUATION_DELAY_MS = 250;
@@ -804,6 +805,7 @@ export class PlaywrightCLITask {
       NO_COLOR: "1",
       NO_UPDATE_NOTIFIER: "1",
     });
+    Object.assign(env, electronConnectionEnvironment(this.electronConnection));
     if (this.executablePath) env.PLAYWRIGHT_MCP_EXECUTABLE_PATH = this.executablePath;
     if (this.userDataDir) env.PLAYWRIGHT_MCP_USER_DATA_DIR = this.userDataDir;
     if (this.state.secretsPath) env.PLAYWRIGHT_MCP_CONFIG = this.state.secretsPath;

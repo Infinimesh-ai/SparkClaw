@@ -24,6 +24,17 @@ func (s *FileStore) ListClients(ctx context.Context) ([]app.Client, error) {
 	return s.inner.ListClients(ctx)
 }
 
+func (s *FileStore) RegisterClient(ctx context.Context, client app.Client) (app.Client, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientRegister, fileAdmissionCapacity)
+	if err != nil {
+		return app.Client{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationClientRegister, func(ctx context.Context) (app.Client, error) {
+		return s.inner.RegisterClient(ctx, client)
+	})
+}
+
 func (s *FileStore) RevokeClient(ctx context.Context, id string) (app.Client, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationClientRevoke, fileAdmissionCapacity)
 	if err != nil {

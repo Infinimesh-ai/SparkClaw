@@ -114,8 +114,34 @@ class RemoteComposeTest(unittest.TestCase):
             curl = temp_path / "curl"
             browser_setup = temp_path / "setup-browser.sh"
             systemctl = temp_path / "systemctl"
+            webchat_port = "18790"
+            for line in private_extra.splitlines():
+                if line.startswith("SPARKCLAW_WEBCHAT_PORT="):
+                    webchat_port = line.split("=", 1)[1]
+            runtime_dir = temp_path / "runtime"
+            runtime_dir.mkdir(mode=0o700)
+            (runtime_dir / "local-workbench.json").write_text(
+                json.dumps({"schema_version": 1, "origin": f"http://127.0.0.1:{webchat_port}", "deployment_id": "deployment-test"}),
+                encoding="utf-8",
+            )
+            (runtime_dir / "desktop-client.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "deployment_id": "deployment-test",
+                    "client_id": "client-desktop-test",
+                    "owner_id": "owner",
+                    "client_name": "SparkClaw Desktop Test",
+                    "token": "x" * 48,
+                }),
+                encoding="utf-8",
+            )
+            for runtime_file in runtime_dir.iterdir():
+                runtime_file.chmod(0o600)
             private_env.write_text(
                 f"SPARKCLAW_WEBCHAT_PROXY_TOKEN={TEST_PROXY_TOKEN}\n"
+                "SPARKCLAW_DEPLOYMENT_ID=deployment-test\n"
+                "SPARKCLAW_DESKTOP_CLIENT_FILE=/run/sparkclaw/runtime/desktop-client.json\n"
+                f"SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR={runtime_dir}\n"
                 f"{private_extra}",
                 encoding="utf-8",
             )
@@ -344,7 +370,7 @@ class RemoteComposeTest(unittest.TestCase):
                 self.assertEqual(local_environment, remote_environment)
                 self.assertEqual(local_environment["SPARKCLAW_API_TOKEN"], "")
                 self.assertEqual(local_environment["SPARKCLAW_PAIRING_REQUIRED"], "true")
-                self.assertEqual(local_environment["SPARKCLAW_WEBCHAT_PROXY_TOKEN"], TEST_PROXY_TOKEN)
+                self.assertNotIn("SPARKCLAW_WEBCHAT_PROXY_TOKEN", local_environment)
                 self.assertEqual(local_environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"], "sparkclaw-product-v1")
                 self.assertEqual(local_environment["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "200000")
                 self.assertEqual(local_environment["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"], "72000")
@@ -355,11 +381,8 @@ class RemoteComposeTest(unittest.TestCase):
         config = compose_config(REMOTE_PROFILE, local_models=False)
         environment = config["services"]["gateway"]["environment"]
         self.assertEqual(environment["SPARKCLAW_PAIRING_REQUIRED"], "true")
-        self.assertEqual(environment["SPARKCLAW_WEBCHAT_PROXY_TOKEN"], TEST_PROXY_TOKEN)
-        self.assertEqual(
-            config["services"]["webchat"]["environment"]["SPARKCLAW_WEBCHAT_PROXY_TOKEN"],
-            TEST_PROXY_TOKEN,
-        )
+        self.assertNotIn("SPARKCLAW_WEBCHAT_PROXY_TOKEN", environment)
+        self.assertNotIn("environment", config["services"]["webchat"])
         self.assertEqual(environment["SPARKCLAW_FAST_BASE_URL"], "https://sparkclaw.infinimesh.cloud/fast/v1")
         self.assertEqual(environment["SPARKCLAW_SPEECH_BASE_URL"], "https://sparkclaw.infinimesh.cloud/asr")
         self.assertEqual(config["services"]["gateway"]["depends_on"]["gotenberg"]["condition"], "service_healthy")

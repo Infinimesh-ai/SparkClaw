@@ -2,6 +2,11 @@
 
 [English](../../docs/browser-components.md)
 
+> 架构决策（2026-09-21）：唯一目标为 Electron 自带 Chromium、原生浏览视图，以及
+> 现有 Controller / Playwright 控制链的 Electron 适配层。以已确定的
+> [桌面浏览器设计](desktop-client-embedded-browser-design.md)为准。
+> 本页描述切换前的独立浏览器部署基线，不是另一套目标方案，也不代表 Electron 已部署。
+
 油猴及 `configs/browser-components.json` 中列出的用户脚本是由 SparkClaw 长期管理的产品组件。AI 对话导出使用 SparkClaw RevivalStack 派生版本，包含[时间线批量导出](ai-conversation-batch-export.md)。该派生版本只暴露隐藏的固定命令自动化桥接点，不向服务商页面添加导出按钮、对话大纲或批量控件。所有 Local／Remote 安装使用相同组件清单与统一安装流程；用户无需手工安装这些组件或配置扩展路径。账号登录仍保存在各自专用 Chromium profile。
 
 ## 发布职责

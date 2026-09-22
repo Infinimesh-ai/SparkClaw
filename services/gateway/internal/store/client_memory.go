@@ -63,6 +63,44 @@ func compareClients(left, right app.Client) int {
 	return strings.Compare(left.ID, right.ID)
 }
 
+func (s *MemoryStore) RegisterClient(ctx context.Context, client app.Client) (app.Client, error) {
+	ctx, cancel := operationContext(ctx, OperationClientRegister, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientRegister, ctx); err != nil {
+		return app.Client{}, err
+	}
+	client, err := normalizeClaimClient(client)
+	if err != nil {
+		return app.Client{}, storeError(ctx, OperationClientRegister, StoreErrorInvalid, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := operationContextError(OperationClientRegister, ctx); err != nil {
+		return app.Client{}, err
+	}
+	if existing, exists := s.clients[client.ID]; exists {
+		if err := validatePersistedClient(existing); err != nil {
+			return app.Client{}, storeError(ctx, OperationClientRegister, StoreErrorCorrupt, err)
+		}
+		if existing.RevokedAt == nil && sameClientRegistration(existing, client) {
+			return cloneClient(existing), nil
+		}
+		return app.Client{}, storeError(ctx, OperationClientRegister, StoreErrorConflict, errors.New("client identity already exists"))
+	}
+	for _, existing := range s.clients {
+		if strings.TrimSpace(existing.TokenHash) != "" && existing.TokenHash == client.TokenHash {
+			return app.Client{}, storeError(ctx, OperationClientRegister, StoreErrorConflict, errors.New("client token hash already exists"))
+		}
+	}
+	createdAt := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[client.ID])
+	client.CreatedAt = createdAt
+	s.clientWriteHighWater[client.ID] = createdAt
+	s.clients[client.ID] = cloneClient(client)
+	s.appendAuditLockedAt(createdAt, "client.saved", "", "", "gateway", client.Name, map[string]any{"client_id": client.ID})
+	s.appendEventLockedAt(createdAt, "client.saved", "", "", cloneClient(client))
+	return cloneClient(client), nil
+}
+
 func (s *MemoryStore) RevokeClient(ctx context.Context, id string) (app.Client, error) {
 	ctx, cancel := operationContext(ctx, OperationClientRevoke, s.operationTimeouts)
 	defer cancel()

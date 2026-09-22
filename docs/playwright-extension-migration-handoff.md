@@ -2,6 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/playwright-extension-migration-handoff.md)
 
+> Architecture decision (2026-09-21): the sole target is Electron's bundled
+> Chromium with native browser views and an adapter for the existing Controller /
+> Playwright control chain. See the accepted
+> [desktop browser design](desktop-client-embedded-browser-design.md).
+> This page describes the deployed standalone-browser baseline before cutover;
+> it is not an alternative target architecture or a claim that Electron is deployed.
+
 ## Snapshot
 
 The Playwright Extension migration is complete as of 2026-09-05. The

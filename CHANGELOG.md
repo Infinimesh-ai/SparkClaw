@@ -10,6 +10,16 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
+- A fully authenticated shared-local-backend path for ordinary Web and Electron
+  workbenches: installation-provisioned desktop Clients, Owner-issued one-time
+  Web Client credentials, one Gateway/PostgreSQL/workspace, authenticated
+  invalidation SSE with bounded polling recovery, strict Owner isolation, and
+  no workbench pairing listener on `18795`. A disposable PostgreSQL plus
+  Docker-LAN qualification covers independent desktop/Web identities,
+  bidirectional CRUD, files, sub-two-second refresh, and forged-local-source
+  rejection; rebuilt ARM64 AppImage and DEB candidates independently pass
+  authenticated HTTP/SSE/WebSocket package qualification. Production rollout
+  and target-device microphone/HTTPS acceptance remain separate release gates.
 - ISCP v0.2 managed Bridge operation: an `iscp-bridge enroll-ticket`
   subcommand that redeems a Cloud-issued pairing ticket v3 into a
   `mode: "managed"` enrollment bundle, a managed session layer in which the
@@ -47,6 +57,20 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   a global WebChat notification center.
 - WeChat notification-binding QR login now opens inside the managed visible
   Chromium profile instead of the host default browser.
+- An isolated diagnostic suite for the historical X11 browser surface host. A
+  disposable Electron anchor and synthetic child now cover exact anchor
+  identity, focus preservation, clipping, and host/anchor crash detach recovery
+  on a process-owned Xvfb display, without the live Browser Bridge or production
+  Chromium profile. The route remains retired from product implementation.
+- A complete software-qualified Electron desktop candidate pinned to Electron
+  `44.4.3`: sandboxed personal/task `WebContentsView` pages, exact task and
+  generation ownership, owner-local single-use adapter credentials, managed
+  provider/export scripts, scoped downloads and permissions, optional WebChat
+  “My browsing / Task observation”, packaged Gateway HTTP/SSE/pairing/speech
+  connectivity, and truthful crash recovery. ARM64 AppImage/DEB artifacts and
+  checksums are produced and independently extracted/launched. Real provider
+  login, target GPU/DPI/IME/audio/video, branded icon, clean-host operation, and
+  production cutover remain owner release gates.
 - Current-state architecture, deployment and development documentation.
 - Chinese documentation mirror under `zh-cn/` for project docs.
 - DGX Spark model-serving guidance and benchmark evidence.
@@ -54,6 +78,21 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Accepted Electron's bundled Chromium as the sole desktop browser architecture,
+  with native personal/task views and an Electron adapter preserving the existing
+  Controller, Playwright MCP/CLI, task ownership, and fixed-script control model.
+  The bilingual design now specifies script capability migration, new Session
+  enrollment, background residency, and truthful crash recovery. External-window
+  embedding, dedicated X servers, streaming, and alternative engines are retired
+  design routes; the X11 suite in CI is diagnostic only. All software-only
+  implementation stages are complete, but no deployed browser-runtime cutover
+  has occurred.
+- SparkClaw Chromium now starts with the Chromium-supported
+  `--silent-debugger-extension-api` switch, so temporary Browser Bridge control
+  no longer adds Chrome's debugger infobar above the page. Control remains
+  scoped to the task-owned tab: closing that tab revokes its attachment and
+  closes the connection when no task tabs remain, without closing Chromium or
+  touching owner tabs.
 - Browser Bridge background mail tasks now share one dedicated, unfocused task
   window and never place Task Tabs in an owner's active window. The first Task
   Tab is created inactive, while the dedicated window identity is persisted in

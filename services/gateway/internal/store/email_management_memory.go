@@ -228,6 +228,13 @@ func emailMemoryRun[T any](s *MemoryStore, ctx context.Context, op StoreOperatio
 		for k, v := range db.writes {
 			s.emailRecords[k] = v
 		}
+		if db.changed() {
+			s.appendEventLockedAt(e.now, "email.changed", "", "", map[string]any{
+				"owner_id":  db.owner,
+				"operation": string(op),
+				"id":        key,
+			})
+		}
 	}
 	return out, emailClassify(ctx, op, err)
 }

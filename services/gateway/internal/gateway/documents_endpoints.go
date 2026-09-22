@@ -58,9 +58,13 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	name = ensureUploadFilenameExtension(name, contentType, detectedContentType)
 	sessionID := strings.TrimSpace(r.FormValue("session_id"))
-	workspaceRoot, err := s.workspaceRootForSession(r.Context(), sessionID)
+	workspaceRoot, visible, err := s.workspaceRootForRequest(r.Context(), r, sessionID)
 	if err != nil {
 		writeSessionStoreError(w, err)
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
 	now := time.Now().UTC()
@@ -143,9 +147,13 @@ func (s *Server) listAvailableDocuments(w http.ResponseWriter, r *http.Request) 
 	}
 	out := []app.ArtifactObject{}
 	seen := map[string]bool{}
-	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
+	workspaceRoot, visible, err := s.workspaceRootForRequest(r.Context(), r, strings.TrimSpace(r.URL.Query().Get("session_id")))
 	if err != nil {
 		writeSessionStoreError(w, err)
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
 	for _, rootName := range []string{"uploads", "media"} {
@@ -263,9 +271,13 @@ func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errors.New("email sources require the owner-scoped email file endpoint"))
 		return
 	}
-	workspaceRoot, err := s.workspaceRootForSession(r.Context(), strings.TrimSpace(r.URL.Query().Get("session_id")))
+	workspaceRoot, visible, err := s.workspaceRootForRequest(r.Context(), r, strings.TrimSpace(r.URL.Query().Get("session_id")))
 	if err != nil {
 		writeSessionStoreError(w, err)
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
 	path := filepath.Join(workspaceRoot, clean)
@@ -310,17 +322,35 @@ func documentResolvesIntoEmail(workspaceRoot, requestedPath, resolvedPath string
 	return false
 }
 
-func (s *Server) workspaceRootForSession(ctx context.Context, sessionID string) (string, error) {
+func (s *Server) workspaceRootForRequest(ctx context.Context, r *http.Request, sessionID string) (string, bool, error) {
 	if strings.TrimSpace(sessionID) != "" {
-		session, ok, err := s.store.GetSession(ctx, sessionID)
+		session, ok, err := s.sessionForRequest(ctx, r, sessionID)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		if ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
-			return strings.TrimSpace(session.WorkspaceRoot), nil
+		if !ok {
+			if strings.TrimSpace(principalForRequest(r).ClientID) == "" {
+				return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), true, nil
+			}
+			return "", false, nil
 		}
+		if strings.TrimSpace(session.WorkspaceRoot) != "" {
+			return strings.TrimSpace(session.WorkspaceRoot), true, nil
+		}
+		return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), true, nil
 	}
-	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), nil
+	profile, found, err := s.store.GetOwnerProfileByID(ctx, principalForRequest(r).OwnerID)
+	if err != nil {
+		return "", false, err
+	}
+	if found && strings.TrimSpace(profile.WorkspaceRoot) != "" {
+		return strings.TrimSpace(profile.WorkspaceRoot), true, nil
+	}
+	principal := principalForRequest(r)
+	if strings.TrimSpace(principal.ClientID) != "" && principal.OwnerID != app.DefaultOwnerID {
+		return "", false, nil
+	}
+	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), true, nil
 }
 
 func (s *Server) getWorkspaceScreenshot(w http.ResponseWriter, r *http.Request) {
@@ -334,7 +364,16 @@ func (s *Server) getWorkspaceScreenshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, errors.New("unsupported screenshot type"))
 		return
 	}
-	dir := filepath.Join(s.cfg.Workspaces.DefaultRoot, ".sparkclaw", "screenshots")
+	workspaceRoot, visible, workspaceErr := s.workspaceRootForRequest(r.Context(), r, "")
+	if workspaceErr != nil {
+		writeOwnerStoreError(w, workspaceErr)
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusNotFound, errors.New("workspace not found"))
+		return
+	}
+	dir := filepath.Join(workspaceRoot, ".sparkclaw", "screenshots")
 	path := filepath.Join(dir, name)
 	cleanDir, err := filepath.Abs(dir)
 	if err != nil {

@@ -2,6 +2,11 @@
 
 > Language: [English](../../docs/browser-runtime.md) | 简体中文
 
+> 架构决策（2026-09-21）：唯一目标为 Electron 自带 Chromium、原生浏览视图，以及
+> 现有 Controller / Playwright 控制链的 Electron 适配层。以已确定的
+> [桌面浏览器设计](desktop-client-embedded-browser-design.md)为准。
+> 本页描述切换前的独立浏览器部署基线，不是另一套目标方案，也不代表 Electron 已部署。
+
 本文描述当前生产浏览器实现。SparkClaw 使用一个持久的 Owner Session Chromium Profile、
 校验和固定的 SparkClaw Browser Bridge，以及 Owner-scoped Playwright Controller。旧的
 browserd、Host-CDP 和 `agent-browser` 路径已在 Phase 6 原子切换中删除。
@@ -41,7 +46,9 @@ Xvfb 或浏览器自动化引擎。
 
 `sparkclaw-browser.service` 是默认 Profile 唯一的长驻 Owner。它以固定 User Data
 Directory 和 Unpacked Bridge 启动正常的 Headed Chromium。命令行有意不包含
-remote-debugging、automation 或 headless Flag。
+浏览器级 remote-debugging endpoint、`--enable-automation` 或 headless Flag；同时使用
+Chromium 支持的 `--silent-debugger-extension-api`，使任务范围内的 Bridge 附着不再在页面
+上方增加浏览器级调试状态栏。
 
 从桌面 Launcher 打开 **SparkClaw Browser**，或运行：
 
@@ -55,6 +62,9 @@ Owner 窗口添加 Tab；只有显式 Owner Handoff 才允许自动化把 Task T
 
 后台连接和清理保留操作系统当前的窗口焦点。恢复 Owner Tab 时不得让浏览器窗口失焦：
 用户此前从其他应用切入浏览器，不代表开始检查登录时应将那个应用重新置于前台。
+任务标签页组继续作为 Owner 可见的控制边界。关闭一个受控任务标签页会立即撤销该标签页
+的控制；关闭最后一个任务标签页还会结束对应 Bridge 连接。两种操作都不会关闭 Chromium，
+也不会修改 Owner 标签页。
 
 认证只保留在持久 Profile 内。SparkClaw 不复制 Cookie、不导出 Storage State、不把
 Profile 挂入容器，也不附着其他浏览器 Profile。

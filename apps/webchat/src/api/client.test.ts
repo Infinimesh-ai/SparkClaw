@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
-import { api, APIError, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody, scheduleCreateRequestBody } from "./client";
+import { api, APIError, apiToken, bindAPITokenToDeployment, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody, scheduleCreateRequestBody, streamWorkbenchInvalidations } from "./client";
 
 describe("email refresh request identity", () => {
   let values: Map<string, string>;
@@ -24,6 +24,23 @@ describe("email refresh request identity", () => {
     values.set(key, "old-user-guard"); saveAPIToken("new-token"); expect(values.has(key)).toBe(false);
     values.set(key, "current-user-guard"); saveAPIToken("new-token"); expect(values.has(key)).toBe(true);
     clearAPIToken(); expect(values.has(key)).toBe(false);
+  });
+  it("binds a staged token to the authenticated deployment namespace", () => {
+    saveAPIToken("deployment-a-token");
+    bindAPITokenToDeployment("deployment-a");
+    expect(apiToken()).toBe("deployment-a-token");
+    expect([...values.entries()]).toEqual(expect.arrayContaining([
+      [expect.stringContaining("sparkclaw.deployment_id."), "deployment-a"],
+      [expect.stringContaining(".deployment-a"), "deployment-a-token"]
+    ]));
+    expect([...values.keys()].filter((key) => key.startsWith("sparkclaw.api_token.") && !key.endsWith(".deployment-a"))).toHaveLength(0);
+
+    saveAPIToken("deployment-b-token");
+    expect(apiToken()).toBe("deployment-b-token");
+    bindAPITokenToDeployment("deployment-b");
+    expect(apiToken()).toBe("deployment-b-token");
+    expect([...values.values()]).toContain("deployment-a-token");
+    expect([...values.values()]).toContain("deployment-b-token");
   });
 });
 
@@ -145,5 +162,27 @@ describe("sendMessageStream failure events", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).not.toBeInstanceOf(MessageStreamDeliveryError);
     expect(errors[0].message).toBe("model failed");
+  });
+});
+
+describe("workbench invalidation stream", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("uses the Web bearer and accepts only valid invalidation events", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => "web-client-token" });
+    const fetcher = vi.fn(async () => sseResponse(
+      ': heartbeat\n\n' +
+      'event: other\ndata: {"schema_version":1}\n\n' +
+      'event: invalidation\ndata: not-json\n\n' +
+      'event: invalidation\ndata: {"schema_version":1,"epoch":"epoch-a","sequence":7,"category":"sessions","resource_id":"session-a"}\n\n'
+    ));
+    vi.stubGlobal("fetch", fetcher);
+    const received: unknown[] = [];
+    await streamWorkbenchInvalidations(new AbortController().signal, (event) => received.push(event));
+    expect(received).toEqual([expect.objectContaining({ epoch: "epoch-a", sequence: 7, category: "sessions" })]);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/api/workbench/events/stream"), expect.objectContaining({
+      method: "GET",
+      headers: expect.objectContaining({ Authorization: "Bearer web-client-token", Accept: "text/event-stream" })
+    }));
   });
 });

@@ -84,9 +84,31 @@ class LocalComposeTest(unittest.TestCase):
             browser_setup = temp_path / "setup-browser.sh"
             systemctl = temp_path / "systemctl"
             private_env = temp_path / ".env.local"
+            runtime_dir = temp_path / "runtime"
+            runtime_dir.mkdir(mode=0o700)
+            (runtime_dir / "local-workbench.json").write_text(
+                json.dumps({"schema_version": 1, "origin": f"http://127.0.0.1:{port}", "deployment_id": "deployment-test"}),
+                encoding="utf-8",
+            )
+            (runtime_dir / "desktop-client.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "deployment_id": "deployment-test",
+                    "client_id": "client-desktop-test",
+                    "owner_id": "owner",
+                    "client_name": "SparkClaw Desktop Test",
+                    "token": "x" * 48,
+                }),
+                encoding="utf-8",
+            )
+            for runtime_file in runtime_dir.iterdir():
+                runtime_file.chmod(0o600)
             private_env.write_text(
                 f"SPARKCLAW_WEBCHAT_PROXY_TOKEN={TEST_PROXY_TOKEN}\n"
                 f"SPARKCLAW_WEBCHAT_PORT={port}\n"
+                "SPARKCLAW_DEPLOYMENT_ID=deployment-test\n"
+                "SPARKCLAW_DESKTOP_CLIENT_FILE=/run/sparkclaw/runtime/desktop-client.json\n"
+                f"SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR={runtime_dir}\n"
                 f"{private_extra}",
                 encoding="utf-8",
             )
@@ -313,24 +335,9 @@ class LocalComposeTest(unittest.TestCase):
         )
         self.assertEqual(config["services"]["gateway"]["environment"]["SPARKCLAW_API_TOKEN"], "")
         self.assertEqual(config["services"]["gateway"]["environment"]["SPARKCLAW_PAIRING_REQUIRED"], "true")
-        self.assertEqual(
-            config["services"]["gateway"]["environment"]["SPARKCLAW_WEBCHAT_PROXY_TOKEN"],
-            TEST_PROXY_TOKEN,
-        )
-        self.assertEqual(
-            config["services"]["webchat"]["environment"]["SPARKCLAW_WEBCHAT_PROXY_TOKEN"],
-            TEST_PROXY_TOKEN,
-        )
-        self.assertIn(
-            {
-                "mode": "ingress",
-                "host_ip": "127.0.0.1",
-                "target": 18795,
-                "published": "18795",
-                "protocol": "tcp",
-            },
-            config["services"]["webchat"]["ports"],
-        )
+        self.assertNotIn("SPARKCLAW_WEBCHAT_PROXY_TOKEN", config["services"]["gateway"]["environment"])
+        self.assertNotIn("environment", config["services"]["webchat"])
+        self.assertFalse(any(port["target"] == 18795 for port in config["services"]["webchat"]["ports"]))
         base_text = COMPOSE.read_text(encoding="utf-8")
         models_text = MODELS_COMPOSE.read_text(encoding="utf-8")
         for service in (
@@ -401,16 +408,10 @@ class LocalComposeTest(unittest.TestCase):
         self.assertIn("browser_controller_smoke.mjs", dockerfile)
         self.assertIn("pypdfium2==5.12.1", DOCUMENT_REQUIREMENTS.read_text(encoding="utf-8"))
 
-    def test_webchat_pairing_proxy_is_loopback_only_and_route_bounded(self) -> None:
+    def test_webchat_has_no_pairing_listener(self) -> None:
         nginx = WEBCHAT_NGINX.read_text(encoding="utf-8")
-        pairing_server = nginx.split("listen 18795;", 1)[1].split("listen ${SPARKCLAW_JINGSI_LAN_PORT};", 1)[0]
-        main_server = nginx.split("listen 18795;", 1)[0]
-
-        self.assertNotIn("X-SparkClaw-WebChat-Proxy", main_server)
-        self.assertIn("location = /api/pairing/start", pairing_server)
-        self.assertIn("location = /api/pairing/claim", pairing_server)
-        self.assertIn("X-SparkClaw-WebChat-Proxy", pairing_server)
-        self.assertIn("location / {\n    return 404;", pairing_server)
+        self.assertNotIn("listen 18795", nginx)
+        self.assertNotIn("X-SparkClaw-WebChat-Proxy", nginx)
 
 
 if __name__ == "__main__":

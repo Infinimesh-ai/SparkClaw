@@ -215,6 +215,18 @@ export function InspectorColumn({
     }
   }
 
+  async function issueClient(name: string, idempotencyKey: string) {
+    try {
+      setError("");
+      const issued = await api.issueClient(name, idempotencyKey);
+      await refreshGlobal();
+      return issued;
+    } catch (err) {
+      surfaceError(err, text.errors.clientIssue);
+      throw err;
+    }
+  }
+
   async function startNotificationBinding(channel: string, botToken = "") {
     try {
       setError("");
@@ -387,6 +399,7 @@ export function InspectorColumn({
           onLanguageChange={onLanguageChange}
           onOpenSchedules={onOpenSchedules}
           onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
+          onIssueClient={(name, idempotencyKey) => issueClient(name, idempotencyKey)}
           onRevokeClient={(id) => revokeClient(id)}
           onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
           onRefreshNotificationBinding={(id, signal) => refreshNotificationBinding(id, signal)}

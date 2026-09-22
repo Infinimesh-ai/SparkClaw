@@ -9,6 +9,7 @@ import { ControllerError, invalidRequest } from "./errors.mjs";
 import { collectSnapshotRefs, comparePlaywrightRefs } from "./playwright-output.mjs";
 import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
 import { clientError, pageStale, clientContractError } from "./mcp-errors.mjs";
+import { electronConnectionEnvironment, registerElectronConnection } from "./electron-adapter-client.mjs";
 import { MAX_MCP_RESPONSE_BYTES, StdioJSONRPC, waitForExit } from "./mcp-stdio-rpc.mjs";
 import {
   createSessionOutputDir,
@@ -82,6 +83,7 @@ export class PlaywrightMCPClientFactory {
     this.connectTimeoutMS = options.connectTimeoutMS ?? 15_000;
     this.spawn = options.spawn ?? spawn;
     this.extraEnv = options.extraEnv ?? {};
+    this.electronAdapter = options.electronAdapter ?? null;
     this.outputRoot = options.outputRoot ?? path.join(os.tmpdir(), "sparkclaw-browser-controller", "mcp-output");
     validateOutputRoot(this.outputRoot);
     this.outputReady = prepareOutputRoot(this.outputRoot);
@@ -100,9 +102,23 @@ export class PlaywrightMCPClientFactory {
     await this.outputReady;
   }
 
-  async open({ token, sessionID }) {
+  async open({ token, sessionID, taskID = "validation", controllerGeneration, sessionGeneration = 1, pageGeneration = 1 }) {
     await this.outputReady;
     const outputDir = await createSessionOutputDir(this.outputRoot, sessionID);
+    let electronConnection;
+    if (this.electronAdapter) {
+      electronConnection = await registerElectronConnection({
+        adapter: this.electronAdapter,
+        token,
+        binding: {
+          task_id: taskID,
+          session_id: sessionID,
+          controller_generation: controllerGeneration,
+          session_generation: sessionGeneration,
+          page_generation: pageGeneration,
+        },
+      });
+    }
     const args = [
       this.entryPoint,
       "--extension",
@@ -131,6 +147,7 @@ export class PlaywrightMCPClientFactory {
     const env = scrubPlaywrightEnvironment({ ...process.env, ...this.extraEnv });
     env.DEBUG = RELAY_DEBUG_NAMESPACE;
     env.PLAYWRIGHT_MCP_EXTENSION_TOKEN = token;
+    Object.assign(env, electronConnectionEnvironment(electronConnection));
 
     let child;
     try {
@@ -146,7 +163,9 @@ export class PlaywrightMCPClientFactory {
     }
 
     const rpc = new StdioJSONRPC(child, this.connectTimeoutMS);
-    const client = new PlaywrightMCPClient(child, rpc, outputDir);
+    const client = new PlaywrightMCPClient(child, rpc, outputDir, {
+      adoptTaskPopups: Boolean(this.electronAdapter),
+    });
     try {
       await rpc.request("initialize", {
         protocolVersion: MCP_PROTOCOL_VERSION,
@@ -167,7 +186,7 @@ export class PlaywrightMCPClientFactory {
 }
 
 export class PlaywrightMCPClient {
-  constructor(child, rpc, outputDir) {
+  constructor(child, rpc, outputDir, { adoptTaskPopups = false } = {}) {
     this.child = child;
     this.rpc = rpc;
     this.outputDir = outputDir;
@@ -177,6 +196,8 @@ export class PlaywrightMCPClient {
     this.nextPageID = 1;
     this.bridgeConnectionPage = false;
     this.closePromise = null;
+    this.adoptTaskPopups = adoptTaskPopups;
+    this.lastProviderTabs = null;
   }
 
   get closed() {
@@ -308,6 +329,7 @@ export class PlaywrightMCPClient {
       ...(url ? { url } : {}),
     });
     const after = tabsFromPayload(result.payload);
+    this.lastProviderTabs = after;
     const inserted = findCurrentInsertion(before, after);
     if (inserted < 0) throw pageStale("task page creation was ambiguous");
     for (const page of this.pages.values()) {
@@ -327,6 +349,7 @@ export class PlaywrightMCPClient {
     this.#assertTopology(before);
     const result = await this.#callJSONTool("browser_tabs", { action: "close", index: page.index });
     const after = tabsFromPayload(result.payload);
+    this.lastProviderTabs = after;
     if (!sameTabsAfterRemoval(before, after, page.index)) {
       throw pageStale("task page closure was ambiguous");
     }
@@ -352,6 +375,7 @@ export class PlaywrightMCPClient {
     if (tabs.length !== 1 || !isBridgeConnectionPage(tabs[0])) return;
     this.bridgeConnectionPage = false;
     await this.#callJSONTool("browser_tabs", { action: "close", index: 0 });
+    this.lastProviderTabs = [];
   }
 
   async #selectPage(candidate) {
@@ -519,7 +543,23 @@ export class PlaywrightMCPClient {
 
   async #providerTabs() {
     const result = await this.#callJSONTool("browser_tabs", { action: "list" });
-    return tabsFromPayload(result.payload);
+    const tabs = tabsFromPayload(result.payload);
+    if (this.adoptTaskPopups && this.lastProviderTabs && tabs.length === this.lastProviderTabs.length + 1) {
+      const inserted = findCurrentInsertion(this.lastProviderTabs, tabs) >= 0
+        ? findCurrentInsertion(this.lastProviderTabs, tabs)
+        : findInsertion(this.lastProviderTabs, tabs);
+      if (inserted >= 0) {
+        for (const page of this.pages.values()) {
+          if (page.index >= inserted) page.index++;
+        }
+        const pageID = `page_${this.nextPageID++}`;
+        this.pages.set(pageID, { pageID, index: inserted, refs: null });
+        this.currentPageID = pageID;
+        this.#invalidateSnapshots();
+      }
+    }
+    this.lastProviderTabs = tabs;
+    return tabs;
   }
 
   #ownedPages(tabs) {
@@ -614,6 +654,16 @@ export class PlaywrightMCPClient {
       await removeSessionOutputDir(this.outputDir);
     }
   }
+}
+
+function findInsertion(before, after) {
+  if (after.length !== before.length + 1) return -1;
+  const expected = before.map(tabFingerprint);
+  for (let index = 0; index < after.length; index++) {
+    const reduced = after.filter((_, candidate) => candidate !== index).map(tabFingerprint);
+    if (sameFingerprintList(reduced, expected)) return index;
+  }
+  return -1;
 }
 
 function scrubPlaywrightEnvironment(env) {

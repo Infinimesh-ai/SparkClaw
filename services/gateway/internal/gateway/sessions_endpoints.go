@@ -1,11 +1,13 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
@@ -62,7 +64,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
-	ownerID := queryOwnerID(r)
+	ownerID := principalForRequest(r).OwnerID
 	sessions := []app.Session{}
 	listed, err := s.store.ListSessions(r.Context())
 	if err != nil {
@@ -86,9 +88,10 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	ownerID := strings.TrimSpace(input.OwnerID)
-	if ownerID == "" {
-		ownerID = app.DefaultOwnerID
+	ownerID := principalForRequest(r).OwnerID
+	if requestedOwner := strings.TrimSpace(input.OwnerID); requestedOwner != "" && requestedOwner != ownerID {
+		writeError(w, http.StatusForbidden, errors.New("owner_id must match the authenticated Owner"))
+		return
 	}
 	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), ownerID)
 	if err != nil {
@@ -108,7 +111,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	session, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	session, ok, err := s.sessionForRequest(r.Context(), r, r.PathValue("id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
@@ -128,9 +131,13 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	current, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	current, ok, err := s.sessionForRequest(r.Context(), r, r.PathValue("id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
 	if ok && current.Source == "mcp" {
@@ -146,9 +153,13 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	current, ok, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	current, ok, err := s.sessionForRequest(r.Context(), r, r.PathValue("id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
 	if ok && current.Source == "mcp" {
@@ -164,6 +175,13 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
+	if _, ok, err := s.sessionForRequest(r.Context(), r, r.PathValue("id")); err != nil {
+		writeSessionStoreError(w, err)
+		return
+	} else if !ok {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
 	messages, err := s.store.ListMessages(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeConversationError(w, http.StatusInternalServerError, err)
@@ -174,7 +192,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	session, ok, err := s.sessionForRequest(r.Context(), r, sessionID)
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
@@ -196,6 +214,14 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
 		return
 	}
+	releaseAdmission := s.tryAdmitSessionMessage(sessionID)
+	if releaseAdmission == nil {
+		writeError(w, http.StatusConflict, errors.New("another message is already running for this conversation"))
+		return
+	}
+	defer releaseAdmission()
+	executionCtx, finishExecution := s.detachedExecutionContext()
+	defer finishExecution()
 	var result agent.Result
 	if input.Schedule != nil {
 		if input.Schedule.Operation == app.RouteOperationCreate {
@@ -207,7 +233,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, ingressErr)
 			return
 		}
-		result, err = s.runtime.HandleScheduleActionWithIngress(r.Context(), sessionID, input.Content, input.Schedule.agentAction(), ingress)
+		result, err = s.runtime.HandleScheduleActionWithIngress(executionCtx, sessionID, input.Content, input.Schedule.agentAction(), ingress)
 	} else {
 		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID, input.ClientTimezone)
 		if ingressErr != nil {
@@ -218,13 +244,13 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, status, ingressErr)
 			return
 		}
-		result, err = s.runtime.HandleMessageWithIngress(r.Context(), sessionID, "", "", input.Content, sanitizeMessageAttachments(input.Attachments), ingress)
+		result, err = s.runtime.HandleMessageWithIngress(executionCtx, sessionID, "", "", input.Content, sanitizeMessageAttachments(input.Attachments), ingress)
 	}
 	if err != nil {
 		writeConversationError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if _, err := s.deliverAgentResult(r.Context(), result); err != nil {
+	if _, err := s.deliverAgentResult(executionCtx, result); err != nil {
 		writeConversationError(w, http.StatusBadGateway, err)
 		return
 	}
@@ -250,7 +276,7 @@ func (input scheduleActionInput) agentAction() agent.ScheduleAction {
 
 func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	session, ok, err := s.store.GetSession(r.Context(), sessionID)
+	session, ok, err := s.sessionForRequest(r.Context(), r, sessionID)
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
@@ -281,6 +307,17 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
+	releaseAdmission := s.tryAdmitSessionMessage(sessionID)
+	if releaseAdmission == nil {
+		writeError(w, http.StatusConflict, errors.New("another message is already running for this conversation"))
+		return
+	}
+	workerStarted := false
+	defer func() {
+		if !workerStarted {
+			releaseAdmission()
+		}
+	}()
 	initialEvents, err := s.store.EventsAfter(r.Context(), sessionID, "")
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -327,8 +364,10 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	results := make(chan streamResult, 1)
 	executionCtx, finishExecution := s.detachedExecutionContext()
 	s.streamWG.Add(1)
+	workerStarted = true
 	go func() {
 		defer s.streamWG.Done()
+		defer releaseAdmission()
 		defer finishExecution()
 		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, ingress, func(event agent.StreamEvent) error {
 			select {
@@ -419,7 +458,24 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) tryAdmitSessionMessage(sessionID string) func() {
+	sessionID = strings.TrimSpace(sessionID)
+	value, _ := s.sessionMessageAdmissions.LoadOrStore(sessionID, &atomic.Bool{})
+	admission := value.(*atomic.Bool)
+	if !admission.CompareAndSwap(false, true) {
+		return nil
+	}
+	return func() { s.sessionMessageAdmissions.CompareAndDelete(sessionID, admission) }
+}
+
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
+	if _, ok, err := s.sessionForRequest(r.Context(), r, r.PathValue("id")); err != nil {
+		writeSessionStoreError(w, err)
+		return
+	} else if !ok {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
 	events, err := s.store.EventsAfter(r.Context(), r.PathValue("id"), r.URL.Query().Get("after"))
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -430,7 +486,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	_, ok, err := s.store.GetSession(r.Context(), sessionID)
+	_, ok, err := s.sessionForRequest(r.Context(), r, sessionID)
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
@@ -496,6 +552,9 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionToolCalls(w http.ResponseWriter, r *http.Request) {
+	if !s.requireVisibleSession(w, r) {
+		return
+	}
 	toolCalls, err := s.store.ListToolCalls(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -505,6 +564,9 @@ func (s *Server) listSessionToolCalls(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionAudit(w http.ResponseWriter, r *http.Request) {
+	if !s.requireVisibleSession(w, r) {
+		return
+	}
 	events, err := s.store.ListAudit(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -514,6 +576,9 @@ func (s *Server) listSessionAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionEpisodes(w http.ResponseWriter, r *http.Request) {
+	if !s.requireVisibleSession(w, r) {
+		return
+	}
 	episodes, err := s.store.ListEpisodeSummaries(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -523,6 +588,9 @@ func (s *Server) listSessionEpisodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionModelCalls(w http.ResponseWriter, r *http.Request) {
+	if !s.requireVisibleSession(w, r) {
+		return
+	}
 	modelCalls, err := s.store.ListModelCalls(r.Context(), r.PathValue("id"), r.URL.Query().Get("run_id"))
 	if err != nil {
 		writeSessionStoreError(w, err)
@@ -531,8 +599,30 @@ func (s *Server) listSessionModelCalls(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"model_calls": modelCalls})
 }
 
+func (s *Server) requireVisibleSession(w http.ResponseWriter, r *http.Request) bool {
+	_, found, err := s.sessionForRequest(r.Context(), r, r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return false
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return false
+	}
+	return true
+}
+
 func (s *Server) listRunFeedback(w http.ResponseWriter, r *http.Request) {
-	feedback, err := s.store.ListRunFeedback(r.Context(), r.PathValue("id"))
+	run, visible, err := s.runForRequest(r.Context(), r, r.PathValue("id"))
+	if err != nil {
+		writeSessionStoreError(w, err)
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusNotFound, errors.New("run not found"))
+		return
+	}
+	feedback, err := s.store.ListRunFeedback(r.Context(), run.ID)
 	if err != nil {
 		writeSessionStoreError(w, err)
 		return
@@ -548,6 +638,13 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("run not found"))
+		return
+	}
+	if _, visible, visibilityErr := s.sessionForRequest(r.Context(), r, run.SessionID); visibilityErr != nil {
+		writeSessionStoreError(w, visibilityErr)
+		return
+	} else if !visible {
 		writeError(w, http.StatusNotFound, errors.New("run not found"))
 		return
 	}
@@ -580,6 +677,15 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.refreshTrace(r.Context(), run.ID)
 	writeJSON(w, http.StatusOK, feedback)
+}
+
+func (s *Server) runForRequest(ctx context.Context, r *http.Request, runID string) (app.AgentRun, bool, error) {
+	run, found, err := s.store.GetRun(ctx, strings.TrimSpace(runID))
+	if err != nil || !found {
+		return app.AgentRun{}, false, err
+	}
+	_, visible, err := s.sessionForRequest(ctx, r, run.SessionID)
+	return run, visible, err
 }
 
 func sanitizeMessageAttachments(attachments []agent.MessageAttachment) []agent.MessageAttachment {

@@ -138,21 +138,13 @@ sparkclaw_export_profile_env() {
   done
 }
 
-sparkclaw_generate_webchat_proxy_token() {
-  python3 - <<'PY'
-import secrets
-
-print(secrets.token_urlsafe(32))
-PY
-}
-
 sparkclaw_private_override_allowed() {
   local key="$1"
 
   case "$key" in
     HF_TOKEN|HUGGING_FACE_HUB_TOKEN|OPENAI_API_KEY) return 0 ;;
     SPARKCLAW_CONTAINER_UID|SPARKCLAW_CONTAINER_GID) return 0 ;;
-    SPARKCLAW_WEBCHAT_BIND|SPARKCLAW_WEBCHAT_PORT|SPARKCLAW_WEBCHAT_PROXY_TOKEN) return 0 ;;
+    SPARKCLAW_WEBCHAT_BIND|SPARKCLAW_WEBCHAT_PORT|SPARKCLAW_WEBCHAT_PROXY_TOKEN|SPARKCLAW_DEPLOYMENT_ID|SPARKCLAW_DESKTOP_CLIENT_FILE|SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR|SPARKCLAW_DESKTOP_EXECUTABLE) return 0 ;;
     SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT) return 0 ;;
     SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST|SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID|SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS) return 0 ;;
     SPARKCLAW_AUTOSTART_ENABLED|SPARKCLAW_AUTOSTART_READY_TIMEOUT_SECONDS|SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS|SPARKCLAW_FORCE_MODEL_RECREATE|SPARKCLAW_MODEL_CACHE|SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS) return 0 ;;
@@ -358,11 +350,6 @@ sparkclaw_validate_product_profile() {
   }
   [[ "$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_PAIRING_REQUIRED '')" == "true" ]] || {
     printf 'SPARKCLAW_PAIRING_REQUIRED must be true for product entrypoints\n' >&2
-    return 1
-  }
-  value="$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_WEBCHAT_PROXY_TOKEN '')"
-  [[ "$value" =~ ^[A-Za-z0-9_-]{43,128}$ ]] || {
-    printf 'SPARKCLAW_WEBCHAT_PROXY_TOKEN must be a 43-128 character private base64url token; rerun the deployment entrypoint\n' >&2
     return 1
   }
   for key in \

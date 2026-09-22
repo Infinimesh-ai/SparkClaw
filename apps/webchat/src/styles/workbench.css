@@ -6,6 +6,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 ::-webkit-scrollbar-thumb { background: #d1d5dc; }
 .workbench { grid-template-columns: 244px minmax(0, 1fr); gap: 0; padding: 0; height: 100dvh; min-height: 0; overflow: hidden; }
 .workbench .connectionBar { display: none; }
+
+.desktopConnectionBanner {
+  position: fixed;
+  z-index: 1000;
+  top: 12px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(680px, calc(100vw - 32px));
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid #e6b34a;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #6c4a00;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+}
 .workbench .sidebar, .workbench .workspace, .workbench .inspectorColumn { border: 0; border-radius: 0; box-shadow: none; }
 .workbench .sidebar { padding: 26px 16px 16px; gap: 0; border-right: 1px solid var(--border-subtle); height: 100dvh; max-height: none; }
 .workbench .brandRow { padding: 0 10px 22px; gap: 8px; }
@@ -127,6 +145,39 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .taskInspector .inspectorTitle { display: none; }
 .taskInspector .panelStack { overflow: auto; }
 .workbench .withInspector .chatColumn { margin-right: 360px; }
+.workbench .desktopWorkbench.withInspector .chatColumn { margin-right: 640px; }
+.workbench .desktopWorkbench .taskInspector { width: min(640px, 100%); }
+.desktopWorkbench .inspectorEdgeHandle.open { right: calc(min(640px, 100vw) - 28px); }
+.desktopBrowserPanel { color: #30343a; overflow: hidden; }
+.desktopBrowserModes { display: flex; align-items: center; min-height: 42px; padding: 5px 8px; gap: 4px; border-bottom: 1px solid #e8e9ec; }
+.desktopBrowserModes button { display: flex; align-items: center; gap: 6px; min-height: 31px; padding: 0 10px; border-radius: 7px; color: #6f747d; background: transparent; font-size: 12px; }
+.desktopBrowserModes button.selected { color: #1f5fbf; background: #e8edf7; }
+.desktopBrowserModes .desktopNewTab { margin-left: auto; width: 31px; padding: 0; justify-content: center; }
+.desktopBrowserModes .desktopTransfersButton { position: relative; width: 31px; padding: 0; justify-content: center; }
+.desktopTransfersButton small { position: absolute; top: -2px; right: -2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 8px; color: white; background: #4285f4; font-size: 9px; line-height: 14px; }
+.desktopTabStrip { display: flex; min-height: 34px; overflow-x: auto; border-bottom: 1px solid #eceef1; background: #f7f8fa; }
+.desktopTabStrip button { display: flex; align-items: center; gap: 6px; min-width: 110px; max-width: 190px; padding: 0 9px; border-right: 1px solid #e3e5e9; color: #6f747d; background: #f7f8fa; font-size: 11px; }
+.desktopTabStrip button.selected { color: #30343a; background: white; }
+.desktopTabStrip button span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktopAddressBar { display: grid; grid-template-columns: 30px 30px 30px minmax(0, 1fr) auto; gap: 4px; min-height: 42px; padding: 5px 8px; border-bottom: 1px solid #e8e9ec; }
+.desktopAddressBar button { display: grid; place-items: center; min-width: 30px; padding: 0 8px; border-radius: 6px; color: #646a73; background: transparent; font-size: 11px; }
+.desktopAddressBar button:hover:not(:disabled) { background: #eceef2; }
+.desktopAddressBar input { min-width: 0; padding: 0 10px; border: 1px solid #dfe2e7; border-radius: 7px; color: #30343a; background: white; font-size: 11px; }
+.desktopTaskPicker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-bottom: 1px solid #e8e9ec; color: #747983; font-size: 11px; }
+.desktopTaskPicker select { min-width: 0; height: 30px; border: 1px solid #dfe2e7; border-radius: 7px; color: #30343a; background: white; font-size: 11px; }
+.desktopBrowserHost { position: relative; flex: 1; min-width: 0; min-height: 240px; background: #f5f6f8; }
+.desktopBrowserHost > p { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; color: #777d87; text-align: center; }
+.desktopBrowserError { flex-shrink: 0; padding: 7px 10px; color: #a62032; background: #fff1f2; font-size: 11px; }
+.desktopTransfers { flex: 0 0 auto; max-height: 190px; padding: 6px 8px; overflow: auto; border-bottom: 1px solid #e8e9ec; background: #fbfbfc; }
+.desktopTransfers > p { margin: 8px; color: #777d87; font-size: 11px; }
+.desktopPermissionRequest, .desktopDownload { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 7px; border-radius: 7px; }
+.desktopPermissionRequest:hover, .desktopDownload:hover { background: #f0f1f3; }
+.desktopPermissionRequest span, .desktopDownload span { display: grid; min-width: 0; gap: 2px; }
+.desktopPermissionRequest strong, .desktopPermissionRequest small, .desktopDownload strong, .desktopDownload small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktopPermissionRequest strong, .desktopDownload strong { font-size: 11px; font-weight: 550; }
+.desktopPermissionRequest small, .desktopDownload small { color: #7b8089; font-size: 9px; }
+.desktopPermissionRequest button, .desktopDownload button { min-height: 25px; padding: 0 7px; border-radius: 6px; color: #646a73; background: #e8eaee; font-size: 10px; }
+.desktopPermissionRequest button.allow { color: white; background: #4285f4; }
 .taskSearchDialog { width: min(520px, calc(100% - 40px)); margin: 14vh auto 0; border: 0; color: #202226; background: white; border-radius: 14px; box-shadow: 0 20px 70px #20222624; padding: 0 20px 20px; }
 .taskSearchDialog::backdrop { background: #20222640; }
 .taskSearchDialog .taskInspectorHeader { padding-inline: 0; }
@@ -149,6 +200,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .workbench .deliveryTargetPicker { width: 120px; flex-basis: 120px; }
   .workbench .withInspector .chatColumn { margin-right: 0; }
   .workbench .taskInspector { box-shadow: -12px 0 40px #20222610; }
+}
+@media (max-width: 1419px) {
+  .workbench .desktopWorkbench.withInspector .chatColumn { margin-right: 0; }
+  .workbench .desktopWorkbench .taskInspector { box-shadow: -12px 0 40px #20222618; }
 }
 @media (max-width: 900px) {
   .settingsPageContent { padding-left: clamp(28px, 8vw, 70px); }

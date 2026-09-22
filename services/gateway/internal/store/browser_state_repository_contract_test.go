@@ -43,7 +43,7 @@ func TestBrowserStateRepositoryMemoryAndFileContract(t *testing.T) {
 
 func exerciseBrowserStateRepositoryContract(t *testing.T, repository testBackend, restart func() testBackend) {
 	t.Helper()
-	expiresAt := time.Date(2026, 9, 21, 12, 0, 0, 123456789, time.FixedZone("contract", 8*60*60))
+	expiresAt := time.Date(2099, 9, 21, 12, 0, 0, 123456789, time.FixedZone("contract", 8*60*60))
 	authB, err := repository.SaveBrowserAuthRecord(t.Context(), app.BrowserAuthRecord{
 		ID: " auth-b ", OwnerID: " owner-browser ", BrowserProfileID: " profile-browser ",
 		SiteOrigin: "HTTPS://EXAMPLE.COM/", AccountHint: " USER@EXAMPLE.COM ", ExpiresAt: &expiresAt,

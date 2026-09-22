@@ -63,48 +63,52 @@ type Repository interface {
 }
 
 type Server struct {
-	cfg                      config.Config
-	store                    Repository
-	tools                    *toolhub.ToolHub
-	runtime                  agent.Runtime
-	models                   modelrouter.Router
-	traces                   *trace.Writer
-	artifacts                artifact.Store
-	policies                 policy.Engine
-	speech                   speech.Transcriber
-	speechRealtimeMu         sync.Mutex
-	speechRealtimeTickets    map[string]*speechRealtimeTicket
-	speechRealtimeTicketIDs  map[string]string
-	managedBrowserWindows    ManagedBrowserWindowController
-	delivery                 *delivery.Gateway
-	endpoints                *messagecontrol.EndpointRegistry
-	providers                *delivery.ProviderRegistry
-	connectors               ConnectorController
-	mcp                      MCPController
-	integrations             IntegrationController
-	email                    EmailController
-	emailManagement          *emailmanagement.Service
-	aiPlatformLogin          *aichatexport.LoginManager
-	browserControl           BrowserControlController
-	mcpAccess                *mcpaccess.Service
-	iscpPairing              *iscppairing.Service
-	externalApprovalResolver ExternalApprovalResolver
-	bridge                   *iscpbridge.GatewayAdapter
-	deliveryMu               sync.Mutex
-	mux                      *http.ServeMux
-	started                  time.Time
-	limiter                  *rateLimiter
-	lifecycleMu              sync.RWMutex
-	lifecycleCtx             context.Context
-	passiveStreamMu          sync.Mutex
-	passiveStreams           map[string]int
-	streamMessage            streamMessageExecutor
-	streamWG                 sync.WaitGroup
-	approvalLocks            sync.Map
-	pairing                  *pairingCoordinator
-	storeRuntime             StoreRuntimeMonitor
-	credentialVault          CredentialVaultMonitor
-	jingsiRuntime            *jingsiruntime.Provider
+	cfg                       config.Config
+	store                     Repository
+	tools                     *toolhub.ToolHub
+	runtime                   agent.Runtime
+	models                    modelrouter.Router
+	traces                    *trace.Writer
+	artifacts                 artifact.Store
+	policies                  policy.Engine
+	speech                    speech.Transcriber
+	speechRealtimeMu          sync.Mutex
+	speechRealtimeTickets     map[string]*speechRealtimeTicket
+	speechRealtimeTicketIDs   map[string]string
+	managedBrowserWindows     ManagedBrowserWindowController
+	delivery                  *delivery.Gateway
+	endpoints                 *messagecontrol.EndpointRegistry
+	providers                 *delivery.ProviderRegistry
+	connectors                ConnectorController
+	mcp                       MCPController
+	integrations              IntegrationController
+	email                     EmailController
+	emailManagement           *emailmanagement.Service
+	aiPlatformLogin           *aichatexport.LoginManager
+	browserControl            BrowserControlController
+	mcpAccess                 *mcpaccess.Service
+	iscpPairing               *iscppairing.Service
+	externalApprovalResolver  ExternalApprovalResolver
+	bridge                    *iscpbridge.GatewayAdapter
+	deliveryMu                sync.Mutex
+	mux                       *http.ServeMux
+	started                   time.Time
+	limiter                   *rateLimiter
+	lifecycleMu               sync.RWMutex
+	lifecycleCtx              context.Context
+	passiveStreamMu           sync.Mutex
+	passiveStreams            map[string]int
+	streamMessage             streamMessageExecutor
+	streamWG                  sync.WaitGroup
+	approvalLocks             sync.Map
+	sessionMessageAdmissions  sync.Map
+	pairing                   *pairingCoordinator
+	clientIssuance            *clientIssuanceCoordinator
+	workbenchEvents           *workbenchEventHub
+	workbenchEventMonitorOnce sync.Once
+	storeRuntime              StoreRuntimeMonitor
+	credentialVault           CredentialVaultMonitor
+	jingsiRuntime             *jingsiruntime.Provider
 	// pptxSealedSweepCursor is the artifact key the next sealed-candidate
 	// expiry sweep resumes after; only the retention coordinator goroutine
 	// reads or writes it.
@@ -295,6 +299,8 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		speechRealtimeTickets:   map[string]*speechRealtimeTicket{},
 		speechRealtimeTicketIDs: map[string]string{},
 		pairing:                 newPairingCoordinator(),
+		clientIssuance:          newClientIssuanceCoordinator(),
+		workbenchEvents:         newWorkbenchEventHub(),
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
@@ -357,6 +363,7 @@ func (s *Server) BindLifecycleContext(ctx context.Context) {
 	s.lifecycleMu.Lock()
 	s.lifecycleCtx = ctx
 	s.lifecycleMu.Unlock()
+	s.startWorkbenchEventMonitor(ctx)
 	if s.jingsiRuntime != nil {
 		s.jingsiRuntime.Start(ctx)
 	}
@@ -416,6 +423,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /metrics", s.metrics)
 	s.mux.HandleFunc("POST /chat", s.chat)
 	s.mux.HandleFunc("GET /api/config", s.getConfig)
+	s.mux.HandleFunc("GET /api/workbench/identity", s.getWorkbenchIdentity)
 	s.mux.HandleFunc("GET /api/owner", s.getOwnerProfile)
 	s.mux.HandleFunc("POST /api/owner", s.updateOwnerProfile)
 	s.mux.HandleFunc("PUT /api/owner/language", s.updateOwnerLanguage)
@@ -423,7 +431,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/profiles/{owner_id}", s.getOwnerProfileByID)
 	s.mux.HandleFunc("PATCH /api/profiles/{owner_id}", s.patchOwnerProfile)
 	s.mux.HandleFunc("GET /api/clients", s.listClients)
+	s.mux.HandleFunc("POST /api/clients", s.issueClient)
 	s.mux.HandleFunc("POST /api/clients/{id}/revoke", s.revokeClient)
+	s.mux.HandleFunc("GET /api/workbench/events/stream", s.streamWorkbenchEvents)
 	s.mux.HandleFunc("POST /api/tool-policy", s.updateToolPolicy)
 	s.mux.HandleFunc("POST /api/pairing/start", s.startPairing)
 	s.mux.HandleFunc("POST /api/pairing/claim", s.claimPairing)

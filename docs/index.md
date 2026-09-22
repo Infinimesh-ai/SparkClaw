@@ -30,6 +30,10 @@ documentation tree.
 | [Model input and output capacity contract](model-capacity-contract-design.md) | Accepted physical-window and output-capability-class contract, oversized-question rejection, final admission, completion handling, and fail-fast profile authority |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
 | [Browser runtime](browser-runtime.md) | Current persistent Chromium, SparkClaw Browser Bridge, owner-scoped Controller, task-tab ownership, login handoff, deployment, and security |
+| [Desktop client and embedded browser design](desktop-client-embedded-browser-design.md) | Accepted sole target: Electron bundled Chromium, native browser views, and an adapter preserving the Controller / Playwright control chain; software implementation complete, owner release gates pending |
+| [Electron desktop browser implementation handoff](desktop-electron-implementation-handoff.md) | Implemented phase record, code entry points, qualification evidence, and remaining owner acceptance gates |
+| [Desktop release and cutover plan](desktop-release-plan.md) | Candidate hashes, install/update/uninstall policy, target-host acceptance, atomic cutover, and whole-release rollback |
+| [Web and desktop shared local backend design](local-shared-backend-design.md) | Implemented shared Gateway/PostgreSQL, LAN Web plus local desktop on one port, separate client credentials without port 18795, and dual-client refresh |
 | [Export AI platform conversations: login and workspace persistence](ai-conversation-export-design.md) | Four AI-provider branches alongside browser/document; listen for userscript downloads, preserve original JSON in session workspace and return receipts |
 | [AI conversation timeline batch export](ai-conversation-batch-export.md) | RevivalStack batch controls, native Bridge CLI, verified file checkpoints, discovered collections and coverage limits |
 | [Host-CDP browser design](host-cdp-browser-design.md) | Historical record of the retired browserd/Host-CDP implementation that preceded the Playwright cutover |

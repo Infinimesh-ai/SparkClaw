@@ -217,6 +217,7 @@ const (
 	OperationOwnerProfileFindExternalRef StoreOperation = "owner_profile.find_external_ref"
 	OperationClientGet                   StoreOperation = "client.get"
 	OperationClientList                  StoreOperation = "client.list"
+	OperationClientRegister              StoreOperation = "client.register"
 	OperationClientRevoke                StoreOperation = "client.revoke"
 	OperationClientFindTokenHash         StoreOperation = "client.find_token_hash"
 	OperationClientTouch                 StoreOperation = "client.touch"
@@ -779,6 +780,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationClientList: {
 		ID: OperationClientList, Repository: "ClientRepository",
 		Method: "ListClients", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationClientRegister: {
+		ID: OperationClientRegister, Repository: "ClientRepository",
+		Method: "RegisterClient", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationClientRevoke: {
 		ID: OperationClientRevoke, Repository: "ClientRepository",

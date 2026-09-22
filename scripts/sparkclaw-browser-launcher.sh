@@ -52,6 +52,7 @@ extension_paths="$(python3 "$(dirname "${BASH_SOURCE[0]}")/browser_extensions.py
 browser_args=(
   --ozone-platform=x11
   --force-renderer-accessibility
+  --silent-debugger-extension-api
   --user-data-dir="$profile_dir"
   --disable-extensions-except="$extension_paths"
   --load-extension="$extension_paths"

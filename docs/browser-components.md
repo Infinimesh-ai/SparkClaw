@@ -2,6 +2,13 @@
 
 [简体中文](../zh-cn/docs/browser-components.md)
 
+> Architecture decision (2026-09-21): the sole target is Electron's bundled
+> Chromium with native browser views and an adapter for the existing Controller /
+> Playwright control chain. See the accepted
+> [desktop browser design](desktop-client-embedded-browser-design.md).
+> This page describes the deployed standalone-browser baseline before cutover;
+> it is not an alternative target architecture or a claim that Electron is deployed.
+
 Tampermonkey and the userscripts listed in `configs/browser-components.json` are maintained SparkClaw product components. AI conversation export uses the SparkClaw RevivalStack fork, including its [timeline batch export](ai-conversation-batch-export.md). The fork exposes only a hidden fixed-command automation bridge and does not add export buttons, outlines, or batch controls to provider pages. Every Local/Remote installation uses the same component manifest and shared setup; no user must manually install these assets or add extension paths. Account logins remain in each owner's dedicated Chromium profile.
 
 ## Release ownership

@@ -2,6 +2,7 @@ import type {
   SpeechRealtimeEvent,
   SpeechRealtimeTicket
 } from "../api/types";
+import { desktopSpeechBase } from "../desktop/capability";
 
 export const SPEECH_REALTIME_PROTOCOL = "sparkclaw.speech.realtime.v1";
 export const SPEECH_REALTIME_SAMPLE_RATE = 16_000;
@@ -291,7 +292,7 @@ function validReady(event: SpeechRealtimeEvent, ticket: SpeechRealtimeTicket) {
 }
 
 function webSocketURL(path: string) {
-  const target = new URL(path, window.location.href);
+  const target = new URL(path, desktopSpeechBase() || window.location.href);
   target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
   return target.toString();
 }

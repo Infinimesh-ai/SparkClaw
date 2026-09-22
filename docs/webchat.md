@@ -32,16 +32,16 @@ The workbench includes:
 ## State And Refresh
 
 Startup loads readiness first, then authentication and private state. Bearer
-tokens come from `VITE_SPARKCLAW_API_TOKEN` or the local token flow. Pairing and
-token failures remain visible; language switching does not depend on Gateway
-availability. In product Compose, the local token flow uses the exact
-host-loopback pairing proxy on `127.0.0.1:18795`; the normal WebChat ingress
-never receives its private proxy credential.
+tokens come from `VITE_SPARKCLAW_API_TOKEN` or the token form. Authentication
+failures remain visible; language switching does not depend on Gateway
+availability. An authenticated Owner can issue a separate Web Client in
+Settings; the token is displayed once and entered on the target browser. No
+pairing proxy or `18795` listener participates in the ordinary workbench flow.
 
-State is separated into global data and active-session data. Session events
-drive prompt refreshes when possible, with bounded polling as fallback. Native
-`EventSource` cannot attach bearer headers, so authenticated mode uses the
-implemented compatible path rather than opening an unauthenticated stream.
+State is separated into global data and active-session data. Authenticated
+fetch-based workbench invalidations drive prompt refreshes, with foreground
+five-second reconciliation as fallback. Initial connection, overflow and
+Gateway restart cause a full resync; stale responses are generation-guarded.
 
 Mutations refresh their affected state immediately: chat send, schedule change,
 delivery, approval resolution, memory action, feedback, owner/client/policy

@@ -2,6 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/playwright-extension-browser-design.md)
 
+> Architecture decision (2026-09-21): the sole target is Electron's bundled
+> Chromium with native browser views and an adapter for the existing Controller /
+> Playwright control chain. See the accepted
+> [desktop browser design](desktop-client-embedded-browser-design.md).
+> This page describes the deployed standalone-browser baseline before cutover;
+> it is not an alternative target architecture or a claim that Electron is deployed.
+
 ## Status
 
 Proposed on 2026-09-04 and completed on 2026-09-05. All phases and cutover gates
@@ -40,7 +47,9 @@ baseline, not the production extension.
 SparkClaw qualified a Playwright Extension architecture in which the owner
 uses an ordinarily launched browser and SparkClaw attaches only while it owns a
 task tab. Browser startup must not expose a remote-debugging port or add
-automation startup flags.
+`--enable-automation`; the dedicated browser uses only Chromium's
+`--silent-debugger-extension-api` presentation switch to suppress the debugger
+infobar for these task-scoped attachments.
 
 The implementation divides browser control into two lanes:
 
@@ -411,7 +420,10 @@ exactly one automation owner at a time:
 Normal tasks create a background tab and do not select an existing owner tab.
 The browser remains headed and owner-visible; "background" describes tab focus,
 not a hidden or headless browser. A task may request foreground focus only for
-an explicit owner handoff.
+an explicit owner handoff. The tab group is the visible control boundary instead
+of a browser-wide debugger infobar. Closing a task tab revokes its attachment;
+closing the last tab also closes that Bridge connection while leaving Chromium
+and every owner tab running.
 
 MCP and CLI must not attach to the same tab concurrently. QQ, Gmail and Outlook
 read/intake/probe scripts may run concurrently in isolated CLI sessions and Bridge

@@ -82,6 +82,11 @@ func normalizeClaimClient(client app.Client) (app.Client, error) {
 	return client, nil
 }
 
+func sameClientRegistration(left, right app.Client) bool {
+	return left.ID == right.ID && left.OwnerID == right.OwnerID && left.ActorID == right.ActorID &&
+		left.Name == right.Name && left.TokenHash == right.TokenHash
+}
+
 func normalizePairingSave(code app.PairingCode) (app.PairingCode, error) {
 	code.ID = strings.TrimSpace(code.ID)
 	code.CodeHash = strings.TrimSpace(code.CodeHash)

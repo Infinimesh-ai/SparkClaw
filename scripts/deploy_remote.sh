@@ -194,14 +194,10 @@ else
   set_dotenv_value SPARKCLAW_CONTAINER_UID "$(id -u)"
   set_dotenv_value SPARKCLAW_CONTAINER_GID "$(id -g)"
   set_dotenv_value SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT "$ROOT/data/workspaces"
-  if [[ -z "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_WEBCHAT_PROXY_TOKEN '')" ]]; then
-    set_dotenv_value SPARKCLAW_WEBCHAT_PROXY_TOKEN "$(sparkclaw_generate_webchat_proxy_token)"
-    log "created the private WebChat-to-Gateway pairing credential"
-  fi
   if [[ "$CONFIGURE_CREDENTIALS" == true ]]; then
     configure_credentials
   fi
-  for directory in data/workspaces data/traces data/artifacts data/logs data/memory data/eval; do
+  for directory in data/workspaces data/traces data/artifacts data/logs data/memory data/eval data/runtime; do
     mkdir -p "$directory"
     [[ -w "$directory" ]] || fail "$ROOT/$directory is not writable by $(id -un)"
     chmod u+rwx "$directory"
@@ -210,6 +206,39 @@ fi
 
 refresh_effective_env
 sparkclaw_validate_product_profile remote "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" || fail "invalid remote product profile"
+
+webchat_port="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
+sparkclaw_tcp_port_valid "$webchat_port" || fail "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535"
+workbench_runtime_dir="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR "$ROOT/data/runtime")"
+[[ "$workbench_runtime_dir" == /* ]] || fail "SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR must be absolute"
+workbench_provision_args=(
+  --runtime-dir "$workbench_runtime_dir"
+  --origin "http://127.0.0.1:$webchat_port"
+  --deployment-id "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DEPLOYMENT_ID '')"
+)
+if [[ "$MODE" == "check" ]]; then
+  workbench_provision_args+=(--check)
+fi
+deployment_id="$(node "$ROOT/scripts/provision-local-workbench.mjs" "${workbench_provision_args[@]}")" ||
+  fail "local workbench provisioning failed"
+if [[ "$MODE" != "check" && -z "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DEPLOYMENT_ID '')" ]]; then
+  set_dotenv_value SPARKCLAW_DEPLOYMENT_ID "$deployment_id"
+  log "created the persistent local workbench deployment identity and desktop Client"
+fi
+if [[ "$MODE" != "check" && -z "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DESKTOP_CLIENT_FILE '')" ]]; then
+  set_dotenv_value SPARKCLAW_DESKTOP_CLIENT_FILE /run/sparkclaw/runtime/desktop-client.json
+fi
+if [[ "$MODE" != "check" ]]; then
+  refresh_effective_env
+fi
+desktop_executable="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DESKTOP_EXECUTABLE '')"
+if [[ -n "$desktop_executable" ]]; then
+  desktop_launcher_args=(--executable "$desktop_executable" --runtime-dir "$workbench_runtime_dir")
+  if [[ "$MODE" == "check" ]]; then
+    desktop_launcher_args+=(--check)
+  fi
+  bash "$ROOT/scripts/install-desktop-launcher.sh" "${desktop_launcher_args[@]}"
+fi
 
 if [[ "$MODE" == "check" ]]; then
   sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
@@ -255,7 +284,6 @@ fi
 sparkclaw_begin_email_deployment "$ROOT" "${email_docker_cmd[@]}"
 bash "$ROOT/scripts/start_remote_compose.sh"
 
-webchat_port="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
 vm_address="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 if [[ -n "$vm_address" ]]; then
   log "WebChat: http://${vm_address}:${webchat_port}"

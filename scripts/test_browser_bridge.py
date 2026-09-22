@@ -94,8 +94,9 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_persistent_browser_uses_only_profile_and_bridge_startup_flags(self) -> None:
+    def test_persistent_browser_suppresses_debugger_infobar_without_browser_wide_debugging(self) -> None:
         script = LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn("--silent-debugger-extension-api", script)
         self.assertIn('--user-data-dir="$profile_dir"', script)
         self.assertIn('--disable-extensions-except="$extension_paths"', script)
         self.assertIn('--load-extension="$extension_paths"', script)

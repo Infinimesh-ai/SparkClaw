@@ -75,6 +75,13 @@ func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if _, visible, err := s.sessionForRequest(r.Context(), r, input.SessionID); err != nil {
+		writeSessionStoreError(w, err)
+		return
+	} else if !visible {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
 	invocation, err := s.runtime.InvokeToolManually(r.Context(), r.PathValue("name"), input.Args, input.SessionID)
 	if err != nil {
 		var argErr agent.ManualArgumentError
@@ -109,6 +116,13 @@ func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
+		return
+	}
+	if _, visible, visibilityErr := s.sessionForRequest(r.Context(), r, call.SessionID); visibilityErr != nil {
+		writeSessionStoreError(w, visibilityErr)
+		return
+	} else if !visible {
 		writeError(w, http.StatusNotFound, errors.New("tool call not found"))
 		return
 	}

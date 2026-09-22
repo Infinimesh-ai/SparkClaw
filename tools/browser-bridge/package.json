@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "SparkClaw-owned Playwright extension bridge with task-tab isolation.",
+  "exports": {
+    "./protocol": "./src/protocol.mjs",
+    "./relay-connection": "./src/relay-connection.mjs"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs"
   }

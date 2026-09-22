@@ -20,7 +20,8 @@ services:
       SPARKCLAW_PORT: ${SPARKCLAW_PORT:-18789}
       SPARKCLAW_API_TOKEN: ""
       SPARKCLAW_PAIRING_REQUIRED: ${SPARKCLAW_PAIRING_REQUIRED:-true}
-      SPARKCLAW_WEBCHAT_PROXY_TOKEN: ${SPARKCLAW_WEBCHAT_PROXY_TOKEN:?run npm run deploy:local or npm run deploy:remote first}
+      SPARKCLAW_DEPLOYMENT_ID: ${SPARKCLAW_DEPLOYMENT_ID:-}
+      SPARKCLAW_DESKTOP_CLIENT_FILE: ${SPARKCLAW_DESKTOP_CLIENT_FILE:-}
       SPARKCLAW_DEPLOYMENT_PROFILE: ${SPARKCLAW_DEPLOYMENT_PROFILE:?select deploy:local/start:local or deploy:remote/start:remote}
       SPARKCLAW_WORKSPACE_ROOT: ${SPARKCLAW_WORKSPACE_ROOT:-/var/lib/sparkclaw/workspaces}
       SPARKCLAW_TRACE_DIR: ${SPARKCLAW_TRACE_DIR:-/var/lib/sparkclaw/traces}
@@ -159,6 +160,7 @@ services:
       - ../data/artifacts:/var/lib/sparkclaw/artifacts
       - ../data/memory:/var/lib/sparkclaw/memory
       - ../data/logs:/var/log/sparkclaw
+      - ../data/runtime:/run/sparkclaw/runtime:ro
       - ${SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST:-/run/user/1000/sparkclaw/browser-controller}:/run/sparkclaw/browser-controller:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
@@ -216,11 +218,8 @@ services:
       context: ..
       dockerfile: docker/images/webchat.Dockerfile
     restart: unless-stopped
-    environment:
-      SPARKCLAW_WEBCHAT_PROXY_TOKEN: ${SPARKCLAW_WEBCHAT_PROXY_TOKEN:?run npm run deploy:local or npm run deploy:remote first}
     ports:
       - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:${SPARKCLAW_WEBCHAT_PORT:-18790}:18790"
-      - "127.0.0.1:18795:18795"
     depends_on:
       gateway:
         condition: service_healthy

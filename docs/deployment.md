@@ -161,17 +161,20 @@ before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
-Both product modes require Gateway pairing while keeping
-`SPARKCLAW_API_TOKEN` empty. The deployment entrypoint creates a random
-`SPARKCLAW_WEBCHAT_PROXY_TOKEN` in the selected mode-`0600` private environment
-file and injects it only into Gateway and the WebChat reverse proxy. Nginx uses
-it only on the exact pairing bootstrap routes exposed at
-`http://127.0.0.1:18795`; that listener is never published to the LAN. On the
-first product WebChat visit, open `http://127.0.0.1:18790` on the SparkClaw host
-and choose **Pair**. WebChat stores the returned per-client Gateway token in
-that browser. A LAN browser cannot self-pair and must use an owner-provisioned
-Gateway client token in the existing token form. Gateway client tokens, MCP
-Access Tickets, and the Playwright Extension token are separate credentials.
+Both product modes keep `SPARKCLAW_API_TOKEN` empty and require per-client
+Gateway bearer credentials. Deployment creates `data/runtime/local-workbench.json`
+and the mode-`0600` `data/runtime/desktop-client.json`, then Gateway registers
+that stable desktop Client in PostgreSQL. The installed desktop launcher passes
+both absolute paths to Electron; no token is placed in the application bundle,
+WebChat assets, or launcher configuration. There is no `18795` listener or
+ordinary workbench pairing bootstrap.
+
+An authenticated Owner issues a separate Web credential from **Settings →
+Clients**. The plaintext token is shown once and is entered in the target
+browser's existing token form. Browser storage is namespaced by service origin
+and deployment; the desktop token is never copied into it. Gateway client
+tokens, MCP Access Tickets, ISCP pairing tickets, and the Browser Controller
+credential remain separate authorities.
 
 ## Remote Deployment
 
@@ -272,10 +275,11 @@ the controller recognizes only that exact page-closed terminal class and then
 reaps the metadata-bound daemon. The qualification Chromium stays running, the
 private runtime directories return to empty, and no send operation is invoked.
 
-Gateway remains Docker-internal; WebChat publishes `18790` by default, while
-the exact pairing bootstrap is host-loopback-only on `18795`. This topology
-installs neither TLS nor firewall rules, so restrict the main WebChat port to
-an owner-trusted network.
+Gateway remains Docker-internal and WebChat publishes the only ordinary
+workbench entrance on `18790` by default. This topology installs neither TLS
+nor firewall rules, so restrict that port to an owner-trusted network. Use an
+HTTPS reverse proxy when LAN microphone capture is required by browser
+secure-context policy.
 
 ## Product Runtime
 
@@ -351,9 +355,19 @@ bash scripts/doctor.sh
 ```
 
 Open WebChat locally at [http://127.0.0.1:18790](http://127.0.0.1:18790), or
-from another LAN device at `http://<host-lan-ip>:18790`. Complete first-time
-self-pairing in a browser on the SparkClaw host; LAN browsers must enter an
-already provisioned Gateway client token.
+from another LAN device at `http://<host-lan-ip>:18790`. Desktop reads its
+installation-provisioned Client automatically. LAN browsers enter a separate
+Owner-issued Client token; neither flow uses a pairing code.
+
+To install a desktop launcher for a verified AppImage or packaged executable:
+
+```bash
+npm run install:desktop-launcher -- --executable /absolute/path/to/sparkclaw
+```
+
+Set `SPARKCLAW_DESKTOP_EXECUTABLE` in the private deployment environment to
+have `deploy:local` or `deploy:remote` install/check the same launcher. The
+launcher configuration contains only controlled file paths, never the bearer.
 
 ### JingSi LAN Presentation (Experimental)
 
@@ -1008,8 +1022,13 @@ For filesystem state, stop Gateway before copying state files if possible.
 
 1. Save or export important state.
 2. Pull or apply code changes.
-3. Run `npm run start:local` or `npm run start:remote`; the selected entrypoint
-   rebuilds changed images and reconciles the complete mode.
+3. When upgrading from a build that predates `data/runtime/local-workbench.json`
+   and `desktop-client.json`, run `npm run deploy:local` or
+   `npm run deploy:remote` once so deployment can provision the stable Desktop
+   Client. The `start:*` entrypoints intentionally fail closed when these files
+   are absent. For later upgrades, run `npm run start:local` or
+   `npm run start:remote`; the selected entrypoint rebuilds changed images and
+   reconciles the complete mode.
 4. Confirm the target profile is ready.
 5. Run `bash scripts/doctor.sh`.
 6. Run mock golden eval.
@@ -1054,7 +1073,7 @@ For filesystem state, stop Gateway before copying state files if possible.
   private to the Docker network in the shipped Compose topology.
 - Restrict WebChat `18790` to an owner-trusted LAN. Per-client Gateway tokens
   authenticate the owner API, and MCP Access Tickets separately protect
-  `/mcp`. Keep the exact pairing bootstrap bound to host loopback `18795`.
+  `/mcp`. No workbench pairing listener is published.
 - Keep the unauthenticated experimental JingSi listener unpublished unless it
   is actively being tested; when enabled, bind `18793` to one RFC1918 address,
   never a wildcard or public interface.

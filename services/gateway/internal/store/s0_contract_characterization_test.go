@@ -34,7 +34,7 @@ var s0RepositoryMethods = map[string][]string{
 	},
 	"ClientRepository": {
 		"ClaimPairingCode", "FindClientByTokenHash", "GetClient", "GetPairingCode", "ListClients", "RevokeClient",
-		"SavePairingCode", "TouchClient",
+		"RegisterClient", "SavePairingCode", "TouchClient",
 	},
 	"ConnectorRepository": {
 		"CreateNotificationBinding", "GetConnectorSetting", "GetNotificationBinding", "ListAllConnectorSettings", "ListConnectorSettings",
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 154 {
-		t.Fatalf("repository method count = %d, want migrated baseline 154", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 155 {
+		t.Fatalf("repository method count = %d, want migrated baseline 155", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

@@ -72,6 +72,7 @@ export function SettingsPanel({
   onLanguageChange,
   onOpenSchedules,
   onUpdateOwner,
+  onIssueClient,
   onRevokeClient,
   onStartNotificationBinding,
   onRefreshNotificationBinding,
@@ -91,6 +92,7 @@ export function SettingsPanel({
   onLanguageChange?: (language: Language) => void;
   onOpenSchedules?: () => void;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
+  onIssueClient?: (name: string, idempotencyKey: string) => Promise<import("../../api/types").IssuedClientCredential>;
   onRevokeClient: (id: string) => Promise<void>;
   onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
   onRefreshNotificationBinding: (id: string, signal?: AbortSignal) => Promise<NotificationBinding>;
@@ -184,7 +186,7 @@ export function SettingsPanel({
             <span>{detailTitle}</span>
           </button>
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
-          {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} onRevokeClient={onRevokeClient} />}
+          {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} />}
           {detail === "language" && (
             <article className="settingsBlock">
               <strong>{text.nav.language}</strong>
@@ -327,7 +329,7 @@ export function SettingsPanel({
           {!connectionsOnly && category === "account" && (
             <>
               <DirectoryRow icon={<CircleUserRound size={17} />} title={text.settings.ownerProfile} status={ownerProfile?.display_name || text.settings.ownerUnavailable} onClick={() => setDetail("owner")} />
-              <DirectoryRow icon={<Users size={17} />} title={text.settings.pairedClients} status={String(clients.length)} onClick={() => setDetail("clients")} />
+              <DirectoryRow icon={<Users size={17} />} title={text.settings.clients} status={String(clients.length)} onClick={() => setDetail("clients")} />
               {onLanguageChange && <DirectoryRow icon={<Languages size={17} />} title={text.nav.language} status={language === "zh" ? "简体中文" : "English"} onClick={() => setDetail("language")} />}
             </>
           )}
@@ -373,7 +375,7 @@ function DirectoryRow({ icon, title, status, onClick }: { icon: ReactNode; title
 function settingsDetailTitle(detail: SettingsDetail, text: CopyText) {
   const labels: Record<SettingsDetail, string> = {
     owner: text.settings.ownerProfile,
-    clients: text.settings.pairedClients,
+    clients: text.settings.clients,
     language: text.nav.language,
     messaging: text.settings.messaging,
     "browser-control": text.settings.browserControl,

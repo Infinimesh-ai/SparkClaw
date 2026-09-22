@@ -9,6 +9,7 @@ configs/iscp-bridge.local-lab.json
 node_modules/
 dist/
 build/
+tools/browser-surface-host/bin/
 coverage/
 *.tsbuildinfo
 *.log
@@ -33,6 +34,7 @@ data/eval/*
 data/models/*
 data/workspaces/*
 data/browser-profiles/*
+data/runtime/*
 data/qq-thread-trial/
 data/jingsi-runtime-v1/*
 !data/browser-profiles/.gitkeep

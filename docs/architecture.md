@@ -608,7 +608,6 @@ projections. They must not maintain competing literal maps or duplicate stores.
 |---|---|
 | Gateway | `gateway:18789` (Docker internal, no host publication) |
 | WebChat | `0.0.0.0:18790` |
-| WebChat pairing bootstrap | `127.0.0.1:18795` (exact routes only) |
 | JingSi LAN presentation | `<selected RFC1918 host>:18793` (optional overlay only) |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

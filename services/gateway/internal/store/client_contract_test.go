@@ -82,6 +82,47 @@ func TestClientRepositoryMemoryAndFileContract(t *testing.T) {
 	}
 }
 
+func TestClientRepositoryRegisterIsIdempotentAndNeverReactivates(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		new  func(*testing.T) ClientRepository
+	}{
+		{name: "memory", new: func(*testing.T) ClientRepository { return NewMemoryStore() }},
+		{name: "file", new: func(t *testing.T) ClientRepository {
+			value, err := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return value
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repository := testCase.new(t)
+			candidate := app.Client{ID: "client-desktop", OwnerID: "owner-a", ActorID: "owner-a", Name: "Desktop", TokenHash: "desktop-hash"}
+			first, err := repository.RegisterClient(t.Context(), candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := repository.RegisterClient(t.Context(), candidate)
+			if err != nil || !ClientsEqual(first, second) {
+				t.Fatalf("exact registration replay = %#v, %v; want %#v", second, err, first)
+			}
+			if _, err := repository.RegisterClient(t.Context(), app.Client{ID: candidate.ID, OwnerID: candidate.OwnerID, ActorID: candidate.ActorID, Name: "Changed", TokenHash: candidate.TokenHash}); StoreErrorCodeOf(err) != StoreErrorConflict {
+				t.Fatalf("semantic drift error = %v, want conflict", err)
+			}
+			if _, err := repository.RegisterClient(t.Context(), app.Client{ID: "client-other", OwnerID: candidate.OwnerID, ActorID: candidate.ActorID, Name: "Other", TokenHash: candidate.TokenHash}); StoreErrorCodeOf(err) != StoreErrorConflict {
+				t.Fatalf("duplicate token error = %v, want conflict", err)
+			}
+			if _, err := repository.RevokeClient(t.Context(), candidate.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repository.RegisterClient(t.Context(), candidate); StoreErrorCodeOf(err) != StoreErrorConflict {
+				t.Fatalf("revoked registration replay error = %v, want conflict", err)
+			}
+		})
+	}
+}
+
 func TestClientRepositoryPointerIsolation(t *testing.T) {
 	for _, backend := range []struct {
 		name string
@@ -272,6 +313,7 @@ func TestClientRepositoryCancellationAndTimeoutAcrossEveryMethod(t *testing.T) {
 func clientRepositoryErrorCalls(repository ClientRepository) []func(context.Context) error {
 	return []func(context.Context) error{
 		func(ctx context.Context) error { _, _, err := repository.GetClient(ctx, ""); return err },
+		func(ctx context.Context) error { _, err := repository.RegisterClient(ctx, app.Client{}); return err },
 		func(ctx context.Context) error { _, err := repository.ListClients(ctx); return err },
 		func(ctx context.Context) error { _, err := repository.RevokeClient(ctx, ""); return err },
 		func(ctx context.Context) error { _, _, err := repository.FindClientByTokenHash(ctx, ""); return err },

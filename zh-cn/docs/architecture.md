@@ -453,7 +453,6 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 |---|---|
 | Gateway | `gateway:18789`（Docker 内部，不发布 host port） |
 | WebChat | `0.0.0.0:18790` |
-| WebChat 配对 bootstrap | `127.0.0.1:18795`（仅精确路由） |
 | JingSi LAN presentation | `<指定 RFC1918 host>:18793`（仅可选 overlay） |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

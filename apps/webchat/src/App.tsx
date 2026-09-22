@@ -1,9 +1,11 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, KeyRound, PanelLeft, PanelRight, Plus, X } from "lucide-react";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
-import { api, APIError, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
+import { api, APIError, apiToken, clearAPIToken, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
+import { BrowserPanel } from "./desktop/BrowserPanel";
+import { desktopCapability } from "./desktop/capability";
 import {
   MessageBubble,
   streamStatusFromEvent,
@@ -47,6 +49,7 @@ import type {
 } from "./api/types";
 
 export function App() {
+  const desktop = desktopCapability();
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const text = dictionaries[language];
   const copy = workbenchCopy[language];
@@ -82,14 +85,15 @@ export function App() {
   draftsBySessionRef.current = draftsBySession;
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
   const [busy, setBusy] = useState(false);
-  const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setErrorMessage] = useState("");
   // True when the current error came from a 401 response, i.e. the gateway
-  // rejected our credentials and the token/pairing recovery UI applies.
+  // rejected our credentials and the token recovery UI applies.
   // Detected from the typed APIError status, never from display strings.
   const [authRecovery, setAuthRecovery] = useState(false);
+  const [authEpoch, setAuthEpoch] = useState(0);
   const [notice, setNotice] = useState("");
+  const [desktopConnectionState, setDesktopConnectionState] = useState("checking");
 
   const setError = useCallback((message: string) => {
     setAuthRecovery(false);
@@ -97,13 +101,20 @@ export function App() {
   }, []);
 
   const surfaceError = useCallback((err: unknown, fallback: string) => {
-    setAuthRecovery(err instanceof APIError && err.status === 401);
+    const unauthorized = err instanceof APIError && err.status === 401;
+    if (desktop && unauthorized) setDesktopConnectionState("invalid_authentication");
+    setAuthRecovery(!desktop && unauthorized);
     setErrorMessage(err instanceof Error && err.message ? err.message : fallback);
-  }, []);
+  }, [desktop]);
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const settingsReturnPageRef = useRef<WorkspacePage>("chat");
   const activeMessageStreamRef = useRef<string>("");
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
+  const sessionRefreshGenerationRef = useRef<Record<string, number>>({});
+  const sessionListRefreshGenerationRef = useRef(0);
+  const globalRefreshGenerationRef = useRef(0);
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
@@ -120,6 +131,8 @@ export function App() {
 
   const refreshSession = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
+    const generation = (sessionRefreshGenerationRef.current[sessionId] ?? 0) + 1;
+    sessionRefreshGenerationRef.current[sessionId] = generation;
     const [messageList, callList, modelCallList, auditList, episodeList] = await Promise.all([
       api.messages(sessionId),
       api.toolCalls(sessionId),
@@ -127,6 +140,7 @@ export function App() {
       api.audit(sessionId),
       api.episodes(sessionId)
     ]);
+    if (sessionRefreshGenerationRef.current[sessionId] !== generation || activeSessionRef.current !== sessionId) return;
     if (activeMessageStreamRef.current !== sessionId) {
       setMessages(messageList.messages ?? []);
     }
@@ -135,6 +149,48 @@ export function App() {
     setAuditEvents(auditList.audit_events ?? []);
     setEpisodes(episodeList.episodes ?? []);
   }, []);
+
+  useEffect(() => {
+    if (!desktop) {
+      setDesktopConnectionState("web");
+      return;
+    }
+    let active = true;
+    const unsubscribe = desktop.onLocalConnection((status) => {
+      if (active) setDesktopConnectionState(status.state);
+    });
+    void desktop.localConnection().then((status) => {
+      if (active) setDesktopConnectionState(status.state);
+    }).catch(() => {
+      if (active) setDesktopConnectionState("service_unavailable");
+    });
+    return () => { active = false; unsubscribe(); };
+  }, [desktop]);
+
+  const refreshSessionList = useCallback(async () => {
+    const generation = sessionListRefreshGenerationRef.current + 1;
+    sessionListRefreshGenerationRef.current = generation;
+    const sessionList = await api.sessions();
+    const nextSessions = sessionList.sessions ?? [];
+    if (sessionListRefreshGenerationRef.current !== generation) return null;
+    setSessions(nextSessions);
+    const currentID = activeSessionRef.current;
+    if (!currentID || !nextSessions.some((session) => session.id === currentID)) {
+      const nextID = nextSessions[0]?.id ?? "";
+      activeSessionRef.current = nextID;
+      setActiveSession(nextID);
+      if (nextID) {
+        await refreshSession(nextID);
+      } else {
+        setMessages([]);
+        setToolCalls([]);
+        setModelCalls([]);
+        setAuditEvents([]);
+        setEpisodes([]);
+      }
+    }
+    return nextSessions;
+  }, [refreshSession]);
 
   const {
     schedules,
@@ -155,6 +211,8 @@ export function App() {
   } = useDeliveryTarget(activeSession);
 
   const refreshGlobal = useCallback(async () => {
+    const generation = globalRefreshGenerationRef.current + 1;
+    globalRefreshGenerationRef.current = generation;
     const [readyStatus, configStatus, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
       await Promise.all([
         api.ready(),
@@ -171,6 +229,7 @@ export function App() {
         api.traces(),
         api.schedules()
       ]);
+    if (globalRefreshGenerationRef.current !== generation) return;
     setReady(readyStatus);
     setRuntimeConfig(configStatus);
     setOwnerProfile(owner);
@@ -218,19 +277,13 @@ export function App() {
   });
 
   useEffect(() => {
+    if (desktop && desktopConnectionState !== "connected") return;
     let cancelled = false;
     async function boot() {
       try {
         setError("");
-        const [sessionList] = await Promise.all([api.sessions(), refreshGlobal(), refreshDeliverySurface()]);
+        await Promise.all([refreshSessionList(), api.workbenchIdentity(), refreshGlobal(), refreshDeliverySurface()]);
         if (cancelled) return;
-        let next = sessionList.sessions[0];
-        if (!next) {
-          next = await api.createSession();
-        }
-        setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
-        setActiveSession(next.id);
-        await refreshSession(next.id);
       } catch (err) {
         surfaceError(err, dictionaries[initialLanguage()].errors.connect);
       }
@@ -239,49 +292,81 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshDeliverySurface, refreshGlobal, refreshSession]);
+  }, [desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSessionList]);
 
   useEffect(() => {
-    if (!activeSession) return;
-    let refreshQueued = false;
-    const refreshFromEvent = () => {
-      if (refreshQueued) return;
-      refreshQueued = true;
-      window.setTimeout(() => {
-        refreshQueued = false;
-        void refreshSession(activeSession);
-        void refreshGlobal();
-        void refreshDeliverySurface();
+    if (!apiToken() && (!desktop || desktopConnectionState !== "connected")) return;
+    let stopped = false;
+    let retryTimer = 0;
+    let flushTimer = 0;
+    let controller: AbortController | null = null;
+    const dirty = new Set<string>();
+
+    const reconcile = async (full = false) => {
+      if (document.visibilityState === "hidden" && !full) return;
+      const categories = new Set(dirty);
+      dirty.clear();
+      const refreshEverything = full || categories.has("all") || categories.has("shared");
+      const listChanged = refreshEverything || categories.has("sessions");
+      const currentID = activeSessionRef.current;
+      const tasksChanged = refreshEverything || categories.has("conversation") || categories.has("tasks") || categories.has("approvals") || categories.has("memories");
+      const globalChanged = refreshEverything || categories.size === 0 || [...categories].some((category) => !["sessions", "conversation"].includes(category));
+      await Promise.allSettled([
+        listChanged ? refreshSessionList() : Promise.resolve(),
+        currentID && tasksChanged && activeMessageStreamRef.current !== currentID ? refreshSession(currentID) : Promise.resolve(),
+        globalChanged ? refreshGlobal() : Promise.resolve(),
+        globalChanged ? refreshDeliverySurface() : Promise.resolve()
+      ]);
+    };
+    const queue = (category: string) => {
+      dirty.add(category || "all");
+      if (flushTimer) return;
+      flushTimer = window.setTimeout(() => {
+        flushTimer = 0;
+        void reconcile(false);
       }, 80);
     };
-    let events: EventSource | null = null;
-    if (!apiToken() && "EventSource" in window) {
-      events = new EventSource(sessionEventsURL(activeSession));
-      events.onmessage = refreshFromEvent;
-      events.addEventListener("message.created", refreshFromEvent);
-      events.addEventListener("tool_call.completed", refreshFromEvent);
-      events.addEventListener("tool_call.approval_pending", refreshFromEvent);
-      events.addEventListener("tool_call.completed_after_approval", refreshFromEvent);
-      events.addEventListener("approval.pending", refreshFromEvent);
-      events.addEventListener("approval.approved", refreshFromEvent);
-      events.addEventListener("approval.rejected", refreshFromEvent);
-      events.addEventListener("memory_candidate.created", refreshFromEvent);
-      events.addEventListener("memory.updated", refreshFromEvent);
-      events.addEventListener("memory.deleted", refreshFromEvent);
-      events.addEventListener("episode_summary.saved", refreshFromEvent);
-    }
-    const id = window.setInterval(() => {
-      if (activeMessageStreamRef.current !== activeSession) {
-        void refreshSession(activeSession);
-        void refreshGlobal();
-        void refreshDeliverySurface();
+    const subscribe = async () => {
+      if (stopped) return;
+      controller = new AbortController();
+      try {
+        await streamWorkbenchInvalidations(controller.signal, (event) => queue(event.reason === "resync" ? "all" : event.category));
+      } catch (err) {
+        if (controller.signal.aborted || stopped) return;
+        if (err instanceof APIError && err.status === 401) {
+          surfaceError(err, text.auth.unauthorized);
+          return;
+        }
       }
-    }, 5000);
-    return () => {
-      window.clearInterval(id);
-      events?.close();
+      if (!stopped) retryTimer = window.setTimeout(() => void subscribe(), 1000);
     };
-  }, [activeSession, refreshDeliverySurface, refreshGlobal, refreshSession]);
+    const foregroundReconcile = () => {
+      if (document.visibilityState !== "hidden") void reconcile(true);
+    };
+    void subscribe();
+    const poll = window.setInterval(() => void reconcile(true), 5000);
+    window.addEventListener("focus", foregroundReconcile);
+    window.addEventListener("online", foregroundReconcile);
+    document.addEventListener("visibilitychange", foregroundReconcile);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      window.clearInterval(poll);
+      window.clearTimeout(retryTimer);
+      window.clearTimeout(flushTimer);
+      window.removeEventListener("focus", foregroundReconcile);
+      window.removeEventListener("online", foregroundReconcile);
+      document.removeEventListener("visibilitychange", foregroundReconcile);
+    };
+  }, [authEpoch, desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSession, refreshSessionList, surfaceError, text.auth.unauthorized]);
+
+  async function retryDesktopConnection() {
+    if (!desktop) return;
+    setDesktopConnectionState("reconnecting");
+    const status = await desktop.retryLocalConnection().catch(() => ({ state: "service_unavailable" } as const));
+    setDesktopConnectionState(status.state);
+    if (status.state === "connected") await bootstrappedRefresh().catch((err) => surfaceError(err, text.errors.connect));
+  }
 
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
@@ -464,21 +549,6 @@ export function App() {
     }
   }
 
-  async function pairClient() {
-    try {
-      setPairing(true);
-      setError("");
-      const started = await api.startPairing();
-      const claimed = await api.claimPairing(started.pairing_id, started.code, "WebChat");
-      saveAPIToken(claimed.token);
-      await bootstrappedRefresh();
-    } catch (err) {
-      surfaceError(err, text.errors.pairing);
-    } finally {
-      setPairing(false);
-    }
-  }
-
   async function submitToken(event: FormEvent) {
     event.preventDefault();
     const token = tokenInput.trim();
@@ -486,6 +556,7 @@ export function App() {
     try {
       setError("");
       saveAPIToken(token);
+      setAuthEpoch((current) => current + 1);
       await bootstrappedRefresh();
       setTokenInput("");
     } catch (err) {
@@ -495,12 +566,7 @@ export function App() {
   }
 
   async function bootstrappedRefresh() {
-    const [sessionList] = await Promise.all([api.sessions(), refreshGlobal(), refreshDeliverySurface()]);
-    let next = sessionList.sessions[0];
-    if (!next) next = await api.createSession();
-    setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
-    setActiveSession(next.id);
-    await refreshSession(next.id);
+    await Promise.all([refreshSessionList(), api.workbenchIdentity(), refreshGlobal(), refreshDeliverySurface()]);
   }
 
   function navigate(next: WorkspacePage) {
@@ -522,6 +588,7 @@ export function App() {
     if (window.matchMedia("(max-width: 700px)").matches) setSidebarCollapsed(false);
     setPage("chat");
     setInspectorOpen(false);
+    activeSessionRef.current = session.id;
     setActiveSession(session.id);
     setTab("timeline");
     setSearchOpen(false);
@@ -632,6 +699,10 @@ export function App() {
   return (
     <main className={`shell workbench ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
       <div className="connectionBar" aria-hidden="true" />
+      {desktop && desktopConnectionState !== "connected" ? <div className="desktopConnectionBanner" role="status">
+        <span>{text.auth.desktopConnection[desktopConnectionState as keyof typeof text.auth.desktopConnection] ?? text.auth.desktopConnection.service_unavailable}</span>
+        <button type="button" disabled={desktopConnectionState === "reconnecting" || desktopConnectionState === "checking"} onClick={() => void retryDesktopConnection()}>{text.auth.retryConnection}</button>
+      </div> : null}
       {page !== "settings" && <SessionSidebar
         text={text}
         language={language}
@@ -653,7 +724,7 @@ export function App() {
         onDeleteSession={(id) => void deleteSession(id)}
       />}
 
-      {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""}`}>
+      {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""}`}>
         <header className="topbar">
           <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
           {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} onClick={() => setInspectorOpen(current => !current)} aria-label={copy.toggleInspector} aria-expanded={inspectorOpen}><PanelRight size={18} /></button>}
@@ -688,10 +759,6 @@ export function App() {
                     <KeyRound size={15} />
                   </button>
                 </form>
-                <button className="dangerButton" onClick={() => void pairClient()} disabled={pairing}>
-                  <KeyRound size={15} />
-                  <span>{pairing ? text.common.pairing : text.common.pair}</span>
-                </button>
               </div>
             ) : null}
           </div>
@@ -762,7 +829,9 @@ export function App() {
             />
           )}
         </section>}
-      {page === "chat" && inspectorOpen && <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />}
+      {page === "chat" && inspectorOpen && (desktopCapability()
+        ? <BrowserPanel language={language} />
+        : <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />)}
       {fullPanel && <div className="workbenchPage">
       <div className="workbenchPageHeader"><div><h1>{copy.pageTitles[page as Exclude<WorkspacePage, "chat" | "schedules">]}</h1><p>{copy.pageDescriptions[page as Exclude<WorkspacePage, "chat" | "schedules">]}</p></div>{page === "memory" && <button className="primaryButton" onClick={() => void newTask(copy.memoryPrompt)}><Plus size={15} />{copy.addMemory}</button>}</div>
       {renderInspectorColumn(page === "channels")}</div>}

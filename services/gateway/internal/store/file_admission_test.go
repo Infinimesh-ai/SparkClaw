@@ -20,7 +20,7 @@ var migratedFileAdmissions = map[string]string{
 	"GetOwnerProfile":     "admitMigrated", "UpdateOwnerProfile": "admitMigrated",
 	"GetOwnerProfileByID": "admitMigrated", "SaveOwnerProfile": "admitMigrated",
 	"ListOwnerProfiles": "admitMigrated", "FindOwnerProfileByExternalRef": "admitMigrated",
-	"GetClient": "admitMigrated", "ListClients": "admitMigrated", "RevokeClient": "admitMigrated",
+	"GetClient": "admitMigrated", "ListClients": "admitMigrated", "RegisterClient": "admitMigrated", "RevokeClient": "admitMigrated",
 	"FindClientByTokenHash": "admitMigrated", "TouchClient": "admitMigrated",
 	"SavePairingCode": "admitMigrated", "GetPairingCode": "admitMigrated", "ClaimPairingCode": "admitMigrated",
 	"SaveCredentialSecret": "admitMigrated", "GetCredentialSecret": "admitMigrated", "ListCredentialSecrets": "admitMigrated", "DeleteCredentialSecret": "admitMigrated",

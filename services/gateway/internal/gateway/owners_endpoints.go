@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) getOwnerProfile(w http.ResponseWriter, r *http.Request) {
-	profile, err := s.store.GetOwnerProfile(r.Context())
+	profile, _, err := s.ownerProfileForRequest(r)
 	if err != nil {
 		writeOwnerStoreError(w, err)
 		return
@@ -29,7 +29,7 @@ func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	current, err := s.store.GetOwnerProfile(r.Context())
+	current, _, err := s.ownerProfileForRequest(r)
 	if err != nil {
 		writeOwnerStoreError(w, err)
 		return
@@ -39,7 +39,7 @@ func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	updated, err := s.store.UpdateOwnerProfile(r.Context(), profile)
+	updated, err := s.store.SaveOwnerProfile(r.Context(), profile)
 	updated, err = store.ReconcileOwnerProfileWrite(r.Context(), s.store, updated, err)
 	if err != nil {
 		writeOwnerStoreError(w, err)
@@ -90,6 +90,20 @@ func (s *Server) updateOwnerLanguage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
+	principal := principalForRequest(r)
+	if strings.TrimSpace(principal.ClientID) != "" {
+		profile, found, err := s.ownerProfileForRequest(r)
+		if err != nil {
+			writeOwnerStoreError(w, err)
+			return
+		}
+		profiles := []app.OwnerProfile{}
+		if found {
+			profiles = append(profiles, profile)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
+		return
+	}
 	profiles, err := s.store.ListOwnerProfiles(r.Context())
 	if err != nil {
 		writeOwnerStoreError(w, err)
@@ -100,6 +114,10 @@ func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("owner_id"))
+	if !ownerPathVisibleToPrincipal(r, id) {
+		writeError(w, http.StatusNotFound, errors.New("profile not found"))
+		return
+	}
 	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), id)
 	if err != nil {
 		writeOwnerStoreError(w, err)
@@ -114,6 +132,10 @@ func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("owner_id"))
+	if !ownerPathVisibleToPrincipal(r, id) {
+		writeError(w, http.StatusNotFound, errors.New("profile not found"))
+		return
+	}
 	current, ok, err := s.store.GetOwnerProfileByID(r.Context(), id)
 	if err != nil {
 		writeOwnerStoreError(w, err)
@@ -156,6 +178,27 @@ func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (s *Server) ownerProfileForRequest(r *http.Request) (app.OwnerProfile, bool, error) {
+	principal := principalForRequest(r)
+	if strings.TrimSpace(principal.ClientID) == "" {
+		profile, err := s.store.GetOwnerProfile(r.Context())
+		return profile, err == nil, err
+	}
+	ownerID := principal.OwnerID
+	profile, found, err := s.store.GetOwnerProfileByID(r.Context(), ownerID)
+	if err != nil || found {
+		return profile, found, err
+	}
+	profile = app.DefaultOwnerProfile()
+	profile.ID = ownerID
+	return profile, false, nil
+}
+
+func ownerPathVisibleToPrincipal(r *http.Request, ownerID string) bool {
+	principal := principalForRequest(r)
+	return strings.TrimSpace(principal.ClientID) == "" || strings.TrimSpace(ownerID) == principal.OwnerID
+}
+
 func writeOwnerStoreError(w http.ResponseWriter, err error) {
 	if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
 		writeError(w, http.StatusGatewayTimeout, errors.New("owner profile request timed out"))
@@ -174,11 +217,28 @@ func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("clients are temporarily unavailable"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
+	principal := principalForRequest(r)
+	visible := make([]app.Client, 0, len(clients))
+	for _, client := range clients {
+		if strings.TrimSpace(client.OwnerID) == principal.OwnerID {
+			visible = append(visible, client)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clients": visible})
 }
 
 func (s *Server) revokeClient(w http.ResponseWriter, r *http.Request) {
-	client, err := s.store.RevokeClient(r.Context(), r.PathValue("id"))
+	id := strings.TrimSpace(r.PathValue("id"))
+	existing, found, err := s.store.GetClient(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("clients are temporarily unavailable"))
+		return
+	}
+	if !found || strings.TrimSpace(existing.OwnerID) != principalForRequest(r).OwnerID {
+		writeError(w, http.StatusNotFound, errors.New("client not found"))
+		return
+	}
+	client, err := s.store.RevokeClient(r.Context(), id)
 	if err != nil {
 		switch store.StoreErrorCodeOf(err) {
 		case store.StoreErrorNotFound:

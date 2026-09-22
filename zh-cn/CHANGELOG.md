@@ -10,6 +10,13 @@
 
 ### Added
 
+- 新增普通 Web 与 Electron 工作台完整认证的本机共享后端链路：部署预置桌面
+  Client、Owner 签发一次性 Web Client 凭据，共用一套 Gateway／PostgreSQL／
+  workspace，使用认证失效通知 SSE 与有界轮询恢复，严格按 Owner 隔离，并移除
+  `18795` 工作台配对监听。一次性 PostgreSQL 与 Docker LAN 资格测试已覆盖独立
+  桌面／Web 身份、双向 CRUD、文件、两秒内刷新及伪造本机来源拒绝；重建的 ARM64
+  AppImage／DEB 也分别通过认证 HTTP／SSE／WebSocket 制品资格测试。生产上线及
+  目标设备麦克风／HTTPS 验收仍是独立发布门槛。
 - 新增 ISCP v0.2 托管模式：`iscp-bridge enroll-ticket` 子命令把 Cloud 签发的 pairing
   ticket v3 兑换为 `mode: "managed"` 注册 bundle；新增托管 session 层，由 Bridge 持有
   Trust Grant 并主动向只作应答方的手机发起会话；并按 Relay descriptor 声明的能力，主动
@@ -35,6 +42,15 @@
   与访问记录删除。
 - 被动 ISCP 协作通知：按 owner 的持久化收件箱与 WebChat 全局通知中心。
 - 微信通知绑定的 QR 登录改在受管可见 Chromium 配置内打开，不再调用宿主默认浏览器。
+- 为历史 X11 浏览器表面 Host 新增隔离诊断套件：使用一次性 Electron 锚点和合成子窗口，
+  在 runner 自建的 Xvfb 上验证精确锚点身份、焦点保持、裁剪及 Host／锚点崩溃后的安全
+  detach；不连接在线 Browser Bridge 或生产 Chromium Profile。该路线仍退出产品实施。
+- 新增完成纯软件资格验证的 Electron 桌面候选版本，锁定 Electron `44.4.3`：个人／任务页
+  使用 sandboxed `WebContentsView`，具备精确任务／generation 归属、owner-local 单次
+  Adapter 凭据、托管 Provider／导出脚本、范围化下载与权限、可选 WebChat“我的浏览 / 任务观察”、
+  打包 Gateway HTTP/SSE／配对／语音连接和如实故障恢复。ARM64 AppImage／DEB 及校验和已生成，
+  两种制品均独立解包启动通过；真实 Provider 登录、目标 GPU／DPI／IME／音视频、品牌图标、
+  干净主机运行与生产切换仍是用户发布门槛。
 - 当前态 architecture、deployment 和 development documentation。
 - `zh-cn/` 下的中文项目文档镜像。
 - DGX Spark model-serving guidance 和 benchmark evidence。
@@ -42,6 +58,15 @@
 
 ### Changed
 
+- 确立 Electron 自带 Chromium 为唯一桌面浏览器架构，使用原生个人／任务视图，
+  通过 Electron 适配层保留现有 Controller、Playwright MCP/CLI、任务归属及固定脚本
+  控制模式。双语设计明确脚本能力迁移、新 Session 登录、后台常驻和如实故障恢复；
+  外部窗口挂载、专用 X Server、串流及其他引擎路线退役；CI 中的 X11 套件仅作诊断。
+  纯软件实施阶段现已全部完成，但尚未部署或切换浏览器运行时。
+- SparkClaw Chromium 现在使用 Chromium 支持的
+  `--silent-debugger-extension-api` 参数启动，Browser Bridge 临时控制不再在页面上方显示
+  Chrome 调试状态栏。控制范围仍严格绑定任务标签页：用户关闭该标签页即撤销对应附着，
+  最后一个任务标签关闭后连接随即结束，不关闭 Chromium，也不触碰 Owner 标签页。
 - Browser Bridge 后台邮件任务现在统一复用一个非聚焦的专用任务窗口，Task Tab 绝不进入
   Owner 正在使用的窗口。首个 Task Tab 以非激活方式创建，专用窗口 ID 持久化在扩展 Session
   Storage 中，使 Manifest V3 Worker 重启后继续复用该窗口而不会再开一个；显式聚焦 Handoff

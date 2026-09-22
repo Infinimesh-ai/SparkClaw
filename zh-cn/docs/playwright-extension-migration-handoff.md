@@ -2,6 +2,11 @@
 
 > Language: [English](../../docs/playwright-extension-migration-handoff.md) | 简体中文
 
+> 架构决策（2026-09-21）：唯一目标为 Electron 自带 Chromium、原生浏览视图，以及
+> 现有 Controller / Playwright 控制链的 Electron 适配层。以已确定的
+> [桌面浏览器设计](desktop-client-embedded-browser-design.md)为准。
+> 本页描述切换前的独立浏览器部署基线，不是另一套目标方案，也不代表 Electron 已部署。
+
 ## 快照
 
 Playwright Extension 迁移已于 2026-09-05 完成。SparkClaw Browser Bridge

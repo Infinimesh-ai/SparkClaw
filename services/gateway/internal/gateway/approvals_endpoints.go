@@ -16,18 +16,28 @@ import (
 )
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	approvals, err := s.store.ListApprovals(r.Context(), app.ApprovalStatus(r.URL.Query().Get("status")))
+	storedApprovals, err := s.store.ListApprovals(r.Context(), app.ApprovalStatus(r.URL.Query().Get("status")))
 	if err != nil {
 		writeApprovalStoreError(w, err)
 		return
 	}
-	for index := range approvals {
-		presentation, err := s.approvalPresentation(r.Context(), approvals[index])
+	approvals := make([]app.Approval, 0, len(storedApprovals))
+	for _, approval := range storedApprovals {
+		visible, visibilityErr := s.approvalVisibleToRequest(r.Context(), r, approval)
+		if visibilityErr != nil {
+			writeSessionStoreError(w, visibilityErr)
+			return
+		}
+		if !visible {
+			continue
+		}
+		presentation, err := s.approvalPresentation(r.Context(), approval)
 		if err != nil {
 			writeSessionStoreError(w, err)
 			return
 		}
-		approvals[index].Presentation = presentation
+		approval.Presentation = presentation
+		approvals = append(approvals, approval)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"approvals": approvals})
 }
@@ -102,6 +112,13 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("approval not found"))
+		return
+	}
+	if visible, visibilityErr := s.approvalVisibleToRequest(r.Context(), r, approval); visibilityErr != nil {
+		writeSessionStoreError(w, visibilityErr)
+		return
+	} else if !visible {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
 	}
@@ -238,6 +255,13 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("approval not found"))
+		return
+	}
+	if visible, visibilityErr := s.approvalVisibleToRequest(r.Context(), r, approval); visibilityErr != nil {
+		writeSessionStoreError(w, visibilityErr)
+		return
+	} else if !visible {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
 		return
 	}
@@ -485,6 +509,24 @@ func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request
 
 func (s *Server) findApproval(ctx context.Context, id string) (app.Approval, bool, error) {
 	return s.store.GetApproval(ctx, id)
+}
+
+func (s *Server) approvalVisibleToRequest(ctx context.Context, r *http.Request, approval app.Approval) (bool, error) {
+	sessionID := strings.TrimSpace(approval.SessionID)
+	if sessionID == "" && strings.TrimSpace(approval.RunID) != "" {
+		run, found, err := s.store.GetRun(ctx, approval.RunID)
+		if err != nil {
+			return false, err
+		}
+		if found {
+			sessionID = run.SessionID
+		}
+	}
+	if sessionID == "" {
+		return strings.TrimSpace(principalForRequest(r).ClientID) == "", nil
+	}
+	_, visible, err := s.sessionForRequest(ctx, r, sessionID)
+	return visible, err
 }
 
 func (s *Server) lockApproval(id string) func() {

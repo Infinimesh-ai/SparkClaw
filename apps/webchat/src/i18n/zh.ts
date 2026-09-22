@@ -15,8 +15,6 @@ export const zh = {
       gatewayUnavailable: "Gateway 不可用。",
       none: "无",
       notSet: "未设置",
-      pair: "配对",
-      pairing: "配对中",
       refresh: "刷新",
       reject: "拒绝",
       revoked: "已撤销",
@@ -340,7 +338,17 @@ export const zh = {
     },
     auth: {
       gatewayToken: "Gateway token",
-      unauthorized: "Token 认证失败"
+      unauthorized: "Token 认证失败",
+      retryConnection: "重试",
+      desktopConnection: {
+        checking: "正在检查本机 SparkClaw 服务…",
+        reconnecting: "正在重新连接本机 SparkClaw 服务…",
+        incomplete_setup: "桌面端本机配置未完成。请修复安装文件后重试。",
+        service_unavailable: "本机 SparkClaw 服务不可用。",
+        invalid_authentication: "桌面凭据无效或已撤销。",
+        identity_conflict: "本机服务身份与此桌面安装不匹配。",
+        web: ""
+      }
     },
     errors: {
       connect: "无法连接 SparkClaw Gateway",
@@ -359,12 +367,12 @@ export const zh = {
       feedback: "反馈保存失败",
       memoryExport: "记忆导出失败",
       clientRevoke: "客户端撤销失败",
+      clientIssue: "客户端凭据签发失败",
       policyUpdate: "工具策略更新失败",
       ownerUpdate: "Owner 资料更新失败",
       binding: "微信绑定失败",
       connectorUpdate: "消息渠道更新失败",
       trace: "Trace 不可用",
-      pairing: "配对失败",
       eval: "Eval 失败"
 	  , externalMCP: "外部 MCP 管理失败"
 	  , integration: "集成配置失败"
@@ -664,9 +672,15 @@ export const zh = {
       deepCheck: "深度检查",
       standard: "标准",
       mutationsRequireSandbox: "变更需要沙箱",
-      pairedClients: "已配对客户端",
-      noClients: "没有已配对客户端。",
+      clients: "客户端",
+      noClients: "没有客户端。",
       revokeClient: "撤销客户端",
+      newWebClient: "新 Web 客户端",
+      webClientDefaultName: "SparkClaw Web",
+      issueClient: "签发凭据",
+      issueClientFailed: "无法签发客户端凭据。",
+      issuedClientToken: "新客户端 token（仅显示一次）",
+      issuedClientTokenWarning: "请安全保存，然后在目标浏览器中输入。离开此视图后不会再次显示。",
       seen: "最后活跃",
       notSeen: "未活跃",
       definitionApprovalTools: "定义中需审批工具",

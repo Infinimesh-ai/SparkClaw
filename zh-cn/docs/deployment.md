@@ -130,14 +130,16 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 容器前失败。
 模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
 
-两种产品模式都要求 Gateway 配对，同时保持 `SPARKCLAW_API_TOKEN` 为空。部署入口会在所选
-mode-`0600` 私有环境文件中生成随机 `SPARKCLAW_WEBCHAT_PROXY_TOKEN`，并且只注入 Gateway
-与 WebChat reverse proxy。Nginx 只在 `http://127.0.0.1:18795` 暴露的精确配对 bootstrap
-路由上使用该凭据；此 listener 不向局域网发布。首次进入产品 WebChat 时，应在 SparkClaw
-宿主浏览器打开 `http://127.0.0.1:18790` 并选择“配对”。WebChat 会把返回的逐客户端 Gateway
-token 保存在该浏览器中。局域网浏览器不能自行配对，必须在现有 token 表单中输入由 Owner
-预先提供的 Gateway client token。Gateway client token、MCP Access Ticket 与 Playwright
-Extension token 是三类彼此独立的凭据。
+两种产品模式都保持 `SPARKCLAW_API_TOKEN` 为空，并要求逐客户端 Gateway bearer credential。
+部署会生成 `data/runtime/local-workbench.json` 与 mode-`0600` 的
+`data/runtime/desktop-client.json`，随后由 Gateway 在 PostgreSQL 中登记稳定的 Desktop Client。
+已安装的桌面 launcher 只把两个绝对路径传给 Electron；token 不进入应用包、WebChat 资源或
+launcher 配置。产品不再监听 `18795`，普通工作台也不再使用 pairing bootstrap。
+
+已认证 Owner 在“设置 → 客户端”中签发独立 Web credential。明文 token 只展示一次，由用户填入
+目标浏览器现有 token 表单。浏览器存储按 service origin 和 deployment 隔离，绝不复制 desktop
+token。Gateway client token、MCP Access Ticket、ISCP pairing ticket 与 Browser Controller
+credential 仍是彼此独立的 authority。
 
 ## 远端部署
 
@@ -221,9 +223,9 @@ Deadline；其他 Probe 保持 45 秒上限。关闭官方扩展任务页可能�
 连接，因此 Controller 只识别这一精确的 Page-closed 终态，并随后回收 Metadata-bound Daemon。
 资格 Chromium 保持运行，私有 Runtime Directory 恢复为空，且没有调用 Send Operation。
 
-Gateway 仍只在 Docker 内部可达，WebChat 默认发布 `18790`，精确配对 bootstrap 则只在宿主
-回环地址 `18795` 可达。该拓扑不安装 TLS 或防火墙规则，主 WebChat 端口应只放在 Owner
-可信网络中。
+Gateway 仍只在 Docker 内部可达，WebChat 默认把唯一普通工作台入口发布在 `18790`。该拓扑
+不安装 TLS 或防火墙规则，因此此端口只应放在 Owner 可信网络中。局域网浏览器需要麦克风采集
+时，应使用满足 secure-context 要求的 HTTPS reverse proxy。
 
 ## Product Runtime
 
@@ -288,8 +290,17 @@ bash scripts/doctor.sh
 ```
 
 本机打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的
-其他设备使用 `http://<主机局域网-IP>:18790`。首次自配对必须在 SparkClaw 宿主浏览器完成；
-局域网浏览器需要输入已预先提供的 Gateway client token。
+其他设备使用 `http://<主机局域网-IP>:18790`。桌面端自动读取安装时生成的 Client；局域网
+浏览器输入 Owner 另行签发的 Client token，两条路径都不使用 pairing code。
+
+为已校验的 AppImage 或打包 executable 安装桌面 launcher：
+
+```bash
+npm run install:desktop-launcher -- --executable /absolute/path/to/sparkclaw
+```
+
+也可在私有部署环境中设置 `SPARKCLAW_DESKTOP_EXECUTABLE`，让 `deploy:local` 或
+`deploy:remote` 安装／检查同一 launcher。launcher 配置只保存受控文件路径，不保存 bearer。
 
 ### JingSi LAN 呈现（实验性）
 
@@ -876,8 +887,11 @@ filesystem state 最好在 Gateway 停止后复制。
 
 1. 保存或导出重要 state。
 2. 拉取或应用代码变更。
-3. 运行 `npm run start:local` 或 `npm run start:remote`；所选入口会重建发生变化的 image，
-   并 reconcile 完整模式。
+3. 从尚无 `data/runtime/local-workbench.json` 与 `desktop-client.json` 的旧版本升级时，
+   首次必须运行 `npm run deploy:local` 或 `npm run deploy:remote`，由部署流程生成稳定的
+   Desktop Client；文件缺失时 `start:*` 会按设计 fail-closed。后续普通升级再运行
+   `npm run start:local` 或 `npm run start:remote`，所选入口会重建变化的 image 并
+   reconcile 完整模式。
 4. 确认目标 profile ready。
 5. 运行 `bash scripts/doctor.sh`。
 6. 运行 mock golden eval。
@@ -915,7 +929,7 @@ filesystem state 最好在 Gateway 停止后复制。
 - 除非局域网 MCP client 确实需要直连，否则保持“允许局域网访问”关闭；出厂 Compose 中
   Gateway 仅在 Docker 私有网络可达。
 - 把 WebChat `18790` 限制在 Owner 可信局域网。逐客户端 Gateway token 认证 Owner API，
-  MCP Access Ticket 独立保护 `/mcp`；精确配对 bootstrap 必须保持在宿主回环端口 `18795`。
+  MCP Access Ticket 独立保护 `/mcp`；不发布工作台 pairing listener。
 - 未实际测试时保持无鉴权的实验性 JingSi listener 不发布；启用时只把 `18793` 绑定到一个
   RFC1918 address，绝不能使用 wildcard 或 public interface。
 - dangerous 和 reversible tools 保持 approval-gated。

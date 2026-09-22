@@ -2639,7 +2639,12 @@ func TestOwnerProfileEndpointUpdatesProfile(t *testing.T) {
 func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
+	cfg.Gateway.PairingRequired = true
 	st := store.NewMemoryStore()
+	const wxToken = "weixin-owner-client-token-long-enough"
+	if _, err := st.RegisterClient(t.Context(), app.Client{ID: "client-wx", OwnerID: "wx_owner", ActorID: "wx_owner", Name: "WX", TokenHash: hashSecret(wxToken)}); err != nil {
+		t.Fatal(err)
+	}
 	wxRoot := filepath.Join(root, "users", "wx_owner")
 	if _, err := st.SaveOwnerProfile(context.Background(), app.OwnerProfile{
 		ID:               "wx_owner",
@@ -2659,7 +2664,13 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
-	createResp, err := http.Post(ts.URL+"/api/sessions", "application/json", bytes.NewBufferString(`{"title":"wx session","owner_id":"wx_owner"}`))
+	createRequest, err := http.NewRequest(http.MethodPost, ts.URL+"/api/sessions", bytes.NewBufferString(`{"title":"wx session","owner_id":"wx_owner"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createRequest.Header.Set("Authorization", "Bearer "+wxToken)
+	createRequest.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2675,22 +2686,19 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 		t.Fatalf("session did not inherit profile scope: %#v", created)
 	}
 
-	defaultList, err := http.Get(ts.URL + "/api/sessions")
+	defaultRequest, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/sessions", nil)
+	defaultList, err := http.DefaultClient.Do(defaultRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer defaultList.Body.Close()
-	var defaultPayload struct {
-		Sessions []app.Session `json:"sessions"`
-	}
-	if err := json.NewDecoder(defaultList.Body).Decode(&defaultPayload); err != nil {
-		t.Fatal(err)
-	}
-	if len(defaultPayload.Sessions) != 0 {
-		t.Fatalf("default owner list should not include weixin session: %#v", defaultPayload.Sessions)
+	if defaultList.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated owner list status = %d", defaultList.StatusCode)
 	}
 
-	wxList, err := http.Get(ts.URL + "/api/sessions?owner_id=wx_owner")
+	wxRequest, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/sessions?owner_id=ignored", nil)
+	wxRequest.Header.Set("Authorization", "Bearer "+wxToken)
+	wxList, err := http.DefaultClient.Do(wxRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2705,7 +2713,9 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 		t.Fatalf("weixin owner list missing scoped session: %#v", wxPayload.Sessions)
 	}
 
-	profilesResp, err := http.Get(ts.URL + "/api/profiles")
+	profilesRequest, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/profiles", nil)
+	profilesRequest.Header.Set("Authorization", "Bearer "+wxToken)
+	profilesResp, err := http.DefaultClient.Do(profilesRequest)
 	if err != nil {
 		t.Fatal(err)
 	}

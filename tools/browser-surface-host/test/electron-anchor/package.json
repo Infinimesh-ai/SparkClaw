@@ -1,0 +1,10 @@
+{
+  "name": "@sparkclaw/browser-surface-electron-anchor-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Disposable Electron anchor fixture for isolated X11 surface-host qualification.",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "electron": "44.4.3"
+  }
+}

@@ -2,6 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-runtime.md)
 
+> Architecture decision (2026-09-21): the sole target is Electron's bundled
+> Chromium with native browser views and an adapter for the existing Controller /
+> Playwright control chain. See the accepted
+> [desktop browser design](desktop-client-embedded-browser-design.md).
+> This page describes the deployed standalone-browser baseline before cutover;
+> it is not an alternative target architecture or a claim that Electron is deployed.
+
 This document describes the current production browser implementation. SparkClaw
 uses one persistent owner-session Chromium profile, the checksum-pinned
 SparkClaw Browser Bridge, and an owner-scoped Playwright Controller. The old
@@ -45,8 +52,10 @@ rejects changed or extra files.
 
 `sparkclaw-browser.service` is the sole long-lived owner of the default profile.
 It starts a normal headed Chromium process with the fixed user-data directory
-and unpacked Bridge. Its command line intentionally contains no remote-debugging,
-automation, or headless flag.
+and unpacked Bridge. Its command line intentionally contains no browser-wide
+remote-debugging endpoint, `--enable-automation`, or headless flag. It does use
+Chromium's `--silent-debugger-extension-api` switch so a task-scoped Bridge
+attachment does not add the browser-level debugger infobar above the page.
 
 Use **SparkClaw Browser** from the desktop launcher, or run:
 
@@ -63,6 +72,9 @@ operation allowed to move a task tab into a focused window.
 Background connection and cleanup preserve the current OS window focus. Restoring
 the owner tab must not blur its browser window: a prior switch from another app
 does not mean that app should return to the foreground when a login check starts.
+The task-tab group remains the owner-visible boundary. Closing a controlled task
+tab immediately revokes control of that tab; closing the last task tab also ends
+its Bridge connection. Neither action closes Chromium or changes owner tabs.
 
 Authentication remains inside the persistent profile. SparkClaw never copies
 cookies, exports storage state, mounts the profile into a container, or attaches

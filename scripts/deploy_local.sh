@@ -143,10 +143,6 @@ else
     log "preserving private overrides in $ENV_FILE"
   fi
 fi
-if [[ "$MODE" != "check" && -z "$(dotenv_value SPARKCLAW_WEBCHAT_PROXY_TOKEN)" ]]; then
-  set_dotenv_value SPARKCLAW_WEBCHAT_PROXY_TOKEN "$(sparkclaw_generate_webchat_proxy_token)"
-  log "created the private WebChat-to-Gateway pairing credential"
-fi
 refresh_effective_env
 sparkclaw_validate_product_profile local "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" || fail "invalid local product profile"
 
@@ -155,6 +151,37 @@ sparkclaw_tcp_port_valid "$webchat_port" ||
   fail "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535"
 export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
 webchat_base_url="http://127.0.0.1:$webchat_port"
+workbench_runtime_dir="$(dotenv_value SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR)"
+workbench_runtime_dir="${workbench_runtime_dir:-$ROOT/data/runtime}"
+[[ "$workbench_runtime_dir" == /* ]] || fail "SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR must be absolute"
+workbench_provision_args=(
+  --runtime-dir "$workbench_runtime_dir"
+  --origin "$webchat_base_url"
+  --deployment-id "$(dotenv_value SPARKCLAW_DEPLOYMENT_ID)"
+)
+if [[ "$MODE" == "check" ]]; then
+  workbench_provision_args+=(--check)
+fi
+deployment_id="$(node "$ROOT/scripts/provision-local-workbench.mjs" "${workbench_provision_args[@]}")" ||
+  fail "local workbench provisioning failed"
+if [[ "$MODE" != "check" && -z "$(dotenv_value SPARKCLAW_DEPLOYMENT_ID)" ]]; then
+  set_dotenv_value SPARKCLAW_DEPLOYMENT_ID "$deployment_id"
+  log "created the persistent local workbench deployment identity and desktop Client"
+fi
+if [[ "$MODE" != "check" && -z "$(dotenv_value SPARKCLAW_DESKTOP_CLIENT_FILE)" ]]; then
+  set_dotenv_value SPARKCLAW_DESKTOP_CLIENT_FILE /run/sparkclaw/runtime/desktop-client.json
+fi
+if [[ "$MODE" != "check" ]]; then
+  refresh_effective_env
+fi
+desktop_executable="$(dotenv_value SPARKCLAW_DESKTOP_EXECUTABLE)"
+if [[ -n "$desktop_executable" ]]; then
+  desktop_launcher_args=(--executable "$desktop_executable" --runtime-dir "$workbench_runtime_dir")
+  if [[ "$MODE" == "check" ]]; then
+    desktop_launcher_args+=(--check)
+  fi
+  bash "$ROOT/scripts/install-desktop-launcher.sh" "${desktop_launcher_args[@]}"
+fi
 
 autostart_enabled="$(dotenv_value SPARKCLAW_AUTOSTART_ENABLED)"
 if [[ -z "$autostart_enabled" ]]; then
@@ -210,7 +237,7 @@ else
 fi
 
 for directory in \
-  data/models data/workspaces data/traces data/artifacts data/logs data/memory \
+  data/models data/workspaces data/traces data/artifacts data/logs data/memory data/runtime \
   data/eval; do
   if [[ "$MODE" == "check" ]]; then
     [[ -d "$directory" && -w "$directory" ]] ||

@@ -100,6 +100,23 @@ test("foreground activation requires and consumes the exact handoff marker", asy
   assert.deepEqual(completed, [2, 2]);
 });
 
+test("Electron task mode rejects handoff while keeping background page selection inert", async () => {
+  const fixture = createFixture();
+  const relay = new RelayConnection({ ...fixture.options, allowTaskHandoff: false });
+  await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+  await assert.rejects(relay.handleCommand({
+    id: 2,
+    method: "chrome.debugger.sendCommand",
+    params: [{ tabId: 2 }, "Runtime.evaluate", { expression: HANDOFF_EVALUATE_FUNCTION }],
+  }), /Task handoff is unavailable/);
+  assert.deepEqual(await relay.handleCommand({
+    id: 3,
+    method: "chrome.debugger.sendCommand",
+    params: [{ tabId: 2 }, "Page.bringToFront", {}],
+  }), {});
+  assert.deepEqual(fixture.calls.sendCommand, []);
+});
+
 test("background input enables only the owned renderer and never grants window handoff", async () => {
   for (const wrapped of [false, true]) {
     const fixture = createFixture();
@@ -171,6 +188,34 @@ test("only same-window children of allowed tabs enter the task allowlist", async
   assert.deepEqual(relay.connectedTabIds().sort((a, b) => a - b), [2, 4]);
   assert.deepEqual(fixture.calls.update, [[4, { active: false }]]);
   assert.deepEqual(fixture.calls.remove, [5]);
+});
+
+test("closing a controlled task tab cancels only its control and closes an empty connection", async () => {
+  const fixture = createFixture();
+  const relay = new RelayConnection(fixture.options);
+  const detached = [];
+  relay.ontabdetached = tabId => detached.push(tabId);
+  await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+  await relay.handleCommand({ id: 2, method: "chrome.tabs.create", params: [{ url: "https://example.com/task" }] });
+  await relay.handleCommand({ id: 3, method: "chrome.debugger.attach", params: [{ tabId: 3 }, "1.3"] });
+
+  fixture.events.tabsRemoved.emit(3, { windowId: 7, isWindowClosing: false });
+
+  assert.deepEqual(detached, [3]);
+  assert.deepEqual(relay.connectedTabIds(), [2]);
+  assert.equal(relay.closed, false);
+  await assert.rejects(relay.handleCommand({ id: 4, method: "chrome.debugger.sendCommand",
+    params: [{ tabId: 3 }, "Runtime.evaluate", { expression: "1" }] }), /not attached/);
+  await relay.handleCommand({ id: 5, method: "chrome.debugger.sendCommand",
+    params: [{ tabId: 2 }, "Runtime.evaluate", { expression: "1" }] });
+
+  fixture.events.tabsRemoved.emit(2, { windowId: 7, isWindowClosing: false });
+
+  assert.deepEqual(detached, [3, 2]);
+  assert.deepEqual(relay.connectedTabIds(), []);
+  assert.equal(relay.closed, true);
+  assert.equal(fixture.webSocket.readyState, 3);
+  assert.deepEqual(fixture.calls.detach, [], "Chrome already detached the debugger when the tab disappeared");
 });
 
 test("concurrent relay groups isolate events, popups and disconnect cleanup", async () => {

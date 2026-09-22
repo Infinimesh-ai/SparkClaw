@@ -174,6 +174,77 @@ func (s *PostgresStore) ListClients(ctx context.Context) ([]app.Client, error) {
 	return out, nil
 }
 
+func (s *PostgresStore) RegisterClient(ctx context.Context, client app.Client) (app.Client, error) {
+	ctx, cancel := operationContext(ctx, OperationClientRegister, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientRegister, ctx); err != nil {
+		return app.Client{}, err
+	}
+	client, err := normalizeClaimClient(client)
+	if err != nil {
+		return app.Client{}, storeError(ctx, OperationClientRegister, StoreErrorInvalid, err)
+	}
+	releaseCommand, err := s.acquireClientCommand(ctx, OperationClientRegister)
+	if err != nil {
+		return app.Client{}, err
+	}
+	defer releaseCommand()
+	session, transaction, release, err := s.beginClientTransaction(ctx, OperationClientRegister, pgx.TxOptions{})
+	if err != nil {
+		return app.Client{}, err
+	}
+	defer func() {
+		if *release {
+			session.Release()
+		}
+	}()
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, clientAdvisoryKey(client.ID)); err != nil {
+		return app.Client{}, finishClientPreCandidate(ctx, OperationClientRegister, session, transaction, release, err)
+	}
+	existing, err := scanClient(transaction.QueryRow(ctx, clientSelectSQL+` WHERE id=$1 OR token_hash=$2 ORDER BY CASE WHEN id=$1 THEN 0 ELSE 1 END LIMIT 1`, client.ID, client.TokenHash))
+	if err == nil {
+		existing, normalizeErr := normalizePostgresClient(existing)
+		if normalizeErr != nil {
+			return app.Client{}, clientBusinessError(ctx, OperationClientRegister, StoreErrorCorrupt, session, transaction, release, normalizeErr)
+		}
+		if existing.RevokedAt == nil && sameClientRegistration(existing, client) {
+			if err := commitClientRead(ctx, OperationClientRegister, session, transaction, release); err != nil {
+				return app.Client{}, err
+			}
+			return existing, nil
+		}
+		return app.Client{}, clientBusinessError(ctx, OperationClientRegister, StoreErrorConflict, session, transaction, release, errors.New("client identity or token hash already exists"))
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return app.Client{}, finishClientPreCandidate(ctx, OperationClientRegister, session, transaction, release, err)
+	}
+	commandAt := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[client.ID])
+	client.CreatedAt = commandAt
+	s.clientWriteHighWater[client.ID] = commandAt
+	statements := []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO clients (id,owner_id,actor_id,name,token_hash,created_at,last_seen_at,revoked_at) VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL)`, []any{client.ID, client.OwnerID, client.ActorID, client.Name, client.TokenHash, commandAt}},
+		{`INSERT INTO audit_events (id,happened_at,type,session_id,run_id,actor,summary,fields) VALUES ($1,$2,'client.saved',NULL,NULL,'gateway',$3,$4)`, []any{app.NewID("audit"), commandAt, client.Name, optionalJSON(map[string]any{"client_id": client.ID})}},
+		{`INSERT INTO events (id,happened_at,type,session_id,run_id,payload) VALUES ($1,$2,'client.saved',NULL,NULL,$3)`, []any{app.NewID("evt"), commandAt, mustJSON(client)}},
+	}
+	for _, statement := range statements {
+		if _, err := transaction.Exec(ctx, statement.sql, statement.args...); err != nil {
+			unknown, resultErr := finishClientStatement(ctx, OperationClientRegister, session, transaction, release, err)
+			if unknown {
+				return cloneClient(client), resultErr
+			}
+			return app.Client{}, resultErr
+		}
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		*release = false
+		return cloneClient(client), storeError(ctx, OperationClientRegister, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneClient(client), nil
+}
+
 func (s *PostgresStore) FindClientByTokenHash(ctx context.Context, tokenHash string) (app.Client, bool, error) {
 	ctx, cancel := operationContext(ctx, OperationClientFindTokenHash, s.operationTimeouts)
 	defer cancel()

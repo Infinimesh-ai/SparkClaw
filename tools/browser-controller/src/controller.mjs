@@ -106,7 +106,14 @@ export class BrowserController {
     let client;
     try {
       if (this.scriptFactory) await this.scriptFactory.drainIdleMailReads();
-      client = await this.clientFactory.open({ token, sessionID: reservation.sessionID });
+      client = await this.clientFactory.open({
+        token,
+        sessionID: reservation.sessionID,
+        taskID: reservation.taskID,
+        controllerGeneration: this.controllerGeneration,
+        sessionGeneration: reservation.sessionGeneration,
+        pageGeneration: 1,
+      });
       await client.createTaskPage();
       reservation.pageGeneration = 1;
       await client.closeTaskPage();
@@ -156,7 +163,14 @@ export class BrowserController {
     let client;
     try {
       if (this.scriptFactory) await this.scriptFactory.drainIdleMailReads();
-      client = await this.clientFactory.open({ token, sessionID: reservation.sessionID });
+      client = await this.clientFactory.open({
+        token,
+        sessionID: reservation.sessionID,
+        taskID: reservation.taskID,
+        controllerGeneration: this.controllerGeneration,
+        sessionGeneration: reservation.sessionGeneration,
+        pageGeneration: 1,
+      });
       await client.createTaskPage();
       if (this.shuttingDown) throw new ControllerError("browser_controller_stopping", "browser controller is stopping", { status: 503, retryable: true });
       reservation.client = client;
@@ -310,8 +324,12 @@ export class BrowserController {
         if (!providerKey) await this.scriptFactory.drainIdleMailReads();
         const result = await this.scriptFactory.runScript({
           token,
+          taskID,
           credentialGeneration,
           sessionID: reservation.sessionID,
+          controllerGeneration: this.controllerGeneration,
+          sessionGeneration: reservation.sessionGeneration,
+          pageGeneration: 1,
           provider,
           operation,
           scriptID,

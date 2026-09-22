@@ -1,0 +1,64 @@
+{
+  "name": "@sparkclaw/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SparkClaw Electron desktop runtime and task-scoped browser adapter.",
+  "author": "SparkClaw contributors",
+  "homepage": "https://github.com/Infinimesh-ai/SparkClaw#readme",
+  "license": "Apache-2.0",
+  "desktopName": "sparkclaw",
+  "main": "src/main/main.mjs",
+  "scripts": {
+    "dev": "electron src/main/main.mjs",
+    "test": "node --test test/*.test.mjs",
+    "qualify": "node test/run-isolated-qualification.mjs",
+    "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never"
+  },
+  "dependencies": {
+    "@sparkclaw/browser-bridge": "1.0.26"
+  },
+  "engines": {
+    "node": ">=26 <27",
+    "npm": ">=11 <12"
+  },
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ai.infinimesh.sparkclaw",
+    "productName": "SparkClaw",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "bin/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../webchat/dist",
+        "to": "webchat",
+        "filter": ["**/*"]
+      }
+    ],
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["arm64"] },
+        { "target": "deb", "arch": ["arm64"] }
+      ],
+      "category": "Utility",
+      "executableName": "sparkclaw",
+      "maintainer": "SparkClaw contributors",
+      "vendor": "Infinimesh AI",
+      "syncDesktopName": true,
+      "artifactName": "SparkClaw-${version}-linux-${arch}.${ext}"
+    },
+    "deb": {
+      "priority": "optional"
+    }
+  }
+}

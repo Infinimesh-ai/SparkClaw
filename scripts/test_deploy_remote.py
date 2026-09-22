@@ -65,6 +65,28 @@ class DeployRemoteTest(unittest.TestCase):
                 folder.mkdir(parents=True)
                 (folder / ".gitkeep").touch()
             private_env = temp_path / ".env.remote"
+            if "--check" in args:
+                webchat_port = "18790"
+                for line in private_text.splitlines():
+                    if line.startswith("SPARKCLAW_WEBCHAT_PORT="):
+                        webchat_port = line.split("=", 1)[1]
+                runtime_dir = repository / "data" / "runtime"
+                runtime_dir.mkdir(mode=0o700)
+                (runtime_dir / "local-workbench.json").write_text(json.dumps({
+                    "schema_version": 1, "origin": f"http://127.0.0.1:{webchat_port}", "deployment_id": "deployment-test",
+                }), encoding="utf-8")
+                (runtime_dir / "desktop-client.json").write_text(json.dumps({
+                    "schema_version": 1, "deployment_id": "deployment-test", "client_id": "client-desktop-test",
+                    "owner_id": "owner", "client_name": "SparkClaw Desktop Test", "token": "x" * 48,
+                }), encoding="utf-8")
+                for runtime_file in runtime_dir.iterdir():
+                    runtime_file.chmod(0o600)
+                private_text = (
+                    "SPARKCLAW_DEPLOYMENT_ID=deployment-test\n"
+                    "SPARKCLAW_DESKTOP_CLIENT_FILE=/run/sparkclaw/runtime/desktop-client.json\n"
+                    f"SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR={runtime_dir}\n"
+                    + private_text
+                )
             private_env.write_text(private_text, encoding="utf-8")
             docker = temp_path / "docker"
             curl = temp_path / "curl"
@@ -135,10 +157,9 @@ class DeployRemoteTest(unittest.TestCase):
         self.assertIn("SPARKCLAW_CONTAINER_UID=", final_env)
         self.assertIn("SPARKCLAW_CONTAINER_GID=", final_env)
         self.assertIn("SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT=", final_env)
-        match = re.search(r"^SPARKCLAW_WEBCHAT_PROXY_TOKEN=([A-Za-z0-9_-]{43,128})$", final_env, re.MULTILINE)
-        self.assertIsNotNone(match)
-        self.assertNotIn(match.group(1), result.stdout)
-        self.assertNotIn(match.group(1), result.stderr)
+        self.assertNotIn("SPARKCLAW_WEBCHAT_PROXY_TOKEN=", final_env)
+        self.assertRegex(final_env, r"(?m)^SPARKCLAW_DEPLOYMENT_ID=[0-9a-f-]+$")
+        self.assertIn("SPARKCLAW_DESKTOP_CLIENT_FILE=/run/sparkclaw/runtime/desktop-client.json", final_env)
         for profile_key in (
             "SPARKCLAW_DEPLOYMENT_PROFILE",
             "SPARKCLAW_MODEL_CAPACITY_PROFILE",

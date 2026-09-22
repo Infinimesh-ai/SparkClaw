@@ -85,6 +85,52 @@ jobs:
           print(f"checked {len(base)} project markdown files")
           PY
 
+  browser-surface-electron-anchor:
+    name: Browser surface Electron anchor (isolated X11)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: tools/browser-surface-host/test/electron-anchor/package-lock.json
+      - name: Install isolated X11 qualification dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libx11-dev libxtst6 x11-utils xvfb
+          npm ci --prefix tools/browser-surface-host/test/electron-anchor
+      - name: Run synthetic surface-host regression checks
+        run: make -C tools/browser-surface-host test
+      - name: Qualify the disposable Electron anchor
+        run: make -C tools/browser-surface-host test-electron-anchor
+
+  desktop-electron-adapter:
+    name: Desktop Electron adapter (isolated display)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install Electron qualification dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2t64 libgbm1 libgtk-3-0 libnss3 libxtst6 python3 xvfb
+          npm ci
+      - name: Test desktop ownership and protocol guards
+        run: npm run test:desktop
+      - name: Verify generated managed-script preload
+        run: npm run check:desktop-managed-scripts
+      - name: Qualify actual pinned MCP and CLI on disposable Electron
+        run: npm run qualify:desktop
+
   webchat:
     name: WebChat
     runs-on: ubuntu-24.04
@@ -316,12 +362,6 @@ jobs:
               "target": 18790,
               "published": "18790",
               "protocol": "tcp",
-          }, {
-              "mode": "ingress",
-              "host_ip": "127.0.0.1",
-              "target": 18795,
-              "published": "18795",
-              "protocol": "tcp",
           }]
           PY
           docker compose \
@@ -358,12 +398,6 @@ jobs:
               "host_ip": "0.0.0.0",
               "target": 18790,
               "published": "19876",
-              "protocol": "tcp",
-          }, {
-              "mode": "ingress",
-              "host_ip": "127.0.0.1",
-              "target": 18795,
-              "published": "18795",
               "protocol": "tcp",
           }]
           assert config["services"]["webchat"]["ports"] == expected_product_ports

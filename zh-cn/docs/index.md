@@ -27,6 +27,10 @@
 | [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
+| [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 已确定唯一路线：Electron 自带 Chromium、原生浏览视图，适配保留 Controller / Playwright 控制链；软件实施完成，仍待用户发布验收 |
+| [Electron 桌面浏览器实施交接](desktop-electron-implementation-handoff.md) | 四阶段实施记录、代码入口、资格证据和剩余用户验收门槛 |
+| [桌面发布与切换方案](desktop-release-plan.md) | 候选哈希、安装／更新／卸载策略、目标主机验收、原子切换与整版回滚 |
+| [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现：共享 Gateway／PostgreSQL、同端口 LAN Web 与本机桌面、无需 18795 的独立客户端认证与双端刷新 |
 | [导出 AI 平台对话：登录与 workspace 保存](ai-conversation-export-design.md) | 与浏览器／文档同级的四平台分支；监听油猴下载、原始 JSON 入 workspace 与文件回执 |
 | [AI 对话时间线批量导出](ai-conversation-batch-export.md) | RevivalStack 批量控件、原生 Bridge CLI、校验后的文件进度、集合检索与覆盖限制 |
 | [Host-CDP 浏览器设计](host-cdp-browser-design.md) | Playwright 切换前已退役 browserd/Host-CDP 实现的历史记录 |

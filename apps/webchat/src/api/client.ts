@@ -26,6 +26,7 @@ import type {
   ISCPPairingStatus,
   IntegrationID,
   IntegrationStatus,
+  IssuedClientCredential,
   IssuedISCPPairing,
   IssuedMCPAccessTicket,
   MCPAccessRecordDeletion,
@@ -46,16 +47,18 @@ import type {
   SpeechRealtimeTicket,
   SpeechTranscriptionResult,
   TraceMetadata,
-  ToolCall
+  ToolCall,
+  WorkbenchInvalidation
 } from "./types";
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 import { clientTimezone } from "../lib/timezone";
 import { emailQuery } from "./email";
+import { desktopGatewayBase } from "../desktop/capability";
 import type { EmailVerification, EmailDraft, EmailDraftInput, EmailReplyPolishInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailConversationDeleteResult, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus, EmailSyncWarning, EmailSyncWarningPage, EmailRenderPreview, EmailCleanupScope, EmailCleanupResult } from "./email";
 
-const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
-const PAIRING_API_BASE = import.meta.env.VITE_SPARKCLAW_PAIRING_API_BASE ?? "http://127.0.0.1:18795";
+const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE || desktopGatewayBase();
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
+const DEPLOYMENT_STORAGE_KEY = "sparkclaw.deployment_id";
 
 export class APIError extends Error {
   readonly status: number;
@@ -73,17 +76,57 @@ export class APIError extends Error {
 }
 
 export function apiToken() {
-  return import.meta.env.VITE_SPARKCLAW_API_TOKEN ?? window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
+	return import.meta.env.VITE_SPARKCLAW_API_TOKEN ??
+		window.localStorage.getItem(pendingTokenStorageKey()) ??
+		window.localStorage.getItem(tokenStorageKey()) ?? "";
 }
 
 export function saveAPIToken(token: string) {
-  if (window.localStorage.getItem(TOKEN_STORAGE_KEY) !== token) clearEmailRefreshGuard();
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+	if (apiToken() !== token) clearEmailRefreshGuard();
+	// A newly entered token is deliberately staged outside any previously
+	// remembered deployment. The authenticated identity response binds it to
+	// the deployment that actually accepted it.
+	window.localStorage.setItem(pendingTokenStorageKey(), token);
 }
 
 export function clearAPIToken() {
-  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  clearEmailRefreshGuard();
+	window.localStorage.removeItem(pendingTokenStorageKey());
+	window.localStorage.removeItem(tokenStorageKey());
+	clearEmailRefreshGuard();
+}
+
+export function bindAPITokenToDeployment(deploymentID: string) {
+	deploymentID = deploymentID.trim();
+	if (!deploymentID || import.meta.env.VITE_SPARKCLAW_API_TOKEN) return;
+	const token = apiToken();
+	if (!token) return;
+	window.localStorage.setItem(deploymentStorageKey(), deploymentID);
+	window.localStorage.setItem(tokenStorageKey(deploymentID), token);
+	window.localStorage.removeItem(pendingTokenStorageKey());
+}
+
+function serviceNamespace() {
+	if (!API_BASE) return window.location.origin;
+	try {
+		const parsed = new URL(API_BASE, window.location.origin);
+		return parsed.origin === "null" ? `${parsed.protocol}//${parsed.host}` : parsed.origin;
+	} catch {
+		return API_BASE;
+	}
+}
+
+function deploymentStorageKey() {
+	return `${DEPLOYMENT_STORAGE_KEY}.${encodeURIComponent(serviceNamespace())}`;
+}
+
+function pendingTokenStorageKey() {
+	return `${TOKEN_STORAGE_KEY}.${encodeURIComponent(serviceNamespace())}`;
+}
+
+function tokenStorageKey(deploymentID = window.localStorage.getItem(deploymentStorageKey()) ?? "") {
+	return deploymentID
+		? `${pendingTokenStorageKey()}.${encodeURIComponent(deploymentID)}`
+		: pendingTokenStorageKey();
 }
 
 function clearEmailRefreshGuard() {
@@ -221,12 +264,7 @@ async function requestEventStream(path: string, init: RequestInit, onBlock: (eve
 
 export function sessionEventsURL(sessionId: string) {
   const path = `/api/sessions/${sessionId}/events/stream`;
-  if (!API_BASE) return path;
-  const url = new URL(path, window.location.origin);
-  const base = new URL(API_BASE, window.location.origin);
-  url.protocol = base.protocol;
-  url.host = base.host;
-  return url.toString();
+  return apiRoute(path);
 }
 
 export async function streamPassiveNotifications(
@@ -251,19 +289,38 @@ export async function streamPassiveNotifications(
   );
 }
 
+export async function streamWorkbenchInvalidations(
+  signal: AbortSignal,
+  onInvalidation: (event: WorkbenchInvalidation) => void
+) {
+  await requestEventStream(
+    "/api/workbench/events/stream",
+    { method: "GET", signal },
+    (event, rawData) => {
+      if (event !== "invalidation") return;
+      try {
+        const invalidation = JSON.parse(rawData) as WorkbenchInvalidation;
+        if (invalidation?.schema_version === 1 && typeof invalidation.epoch === "string" && Number.isFinite(invalidation.sequence)) {
+          onInvalidation(invalidation);
+        }
+      } catch {
+        // A later resync or foreground reconciliation remains authoritative.
+      }
+    }
+  );
+}
+
 export function workspaceScreenshotURL(path: string) {
   const name = path.split(/[\\/]/).pop() ?? "";
   const route = `/api/workspace/screenshots/${encodeURIComponent(name)}`;
-  if (!API_BASE) return route;
-  return new URL(route, new URL(API_BASE, window.location.origin)).toString();
+  return apiRoute(route);
 }
 
 export function documentFileURL(path: string, sessionId = "") {
   const params = new URLSearchParams({ path });
   if (sessionId) params.set("session_id", sessionId);
   const route = `/api/documents/file?${params.toString()}`;
-  if (!API_BASE) return route;
-  return new URL(route, new URL(API_BASE, window.location.origin)).toString();
+  return apiRoute(route);
 }
 
 // Shared fetch for binary endpoints (documents, screenshots) that need the
@@ -307,7 +364,11 @@ export async function openDocumentFile(path: string, sessionId = "") {
 export function emailFileURL(mailId: string, partId = "") {
   const query = partId ? `?part_id=${encodeURIComponent(partId)}` : "";
   const route = `/api/email/messages/${encodeURIComponent(mailId)}/file${query}`;
-  return API_BASE ? new URL(route, new URL(API_BASE, window.location.origin)).toString() : route;
+  return apiRoute(route);
+}
+
+function apiRoute(route: string) {
+  return API_BASE ? `${API_BASE}${route}` : route;
 }
 
 export async function openEmailFile(mailId: string, partId = "", name = "original.eml") {
@@ -325,6 +386,11 @@ export async function openEmailFile(mailId: string, partId = "", name = "origina
 
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
+  workbenchIdentity: async () => {
+    const identity = await request<{ deployment_id: string; owner_id: string; client_id: string }>("/api/workbench/identity");
+    bindAPITokenToDeployment(identity.deployment_id);
+    return identity;
+  },
   speechStatus: () => request<SpeechStatus>("/api/speech/status"),
   createSpeechRealtimeSession: (sessionId: string, requestId: string, language: string, signal?: AbortSignal) =>
     request<SpeechRealtimeTicket>("/api/speech/realtime-sessions", {
@@ -361,6 +427,11 @@ export const api = {
       body: JSON.stringify({ display_name: displayName, email, preferences })
     }),
   clients: () => request<{ clients: Client[] }>("/api/clients"),
+  issueClient: (clientName: string, idempotencyKey: string) => request<IssuedClientCredential>("/api/clients", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ client_name: clientName })
+  }),
   revokeClient: (id: string) => request<Client>(`/api/clients/${id}/revoke`, { method: "POST", body: "{}" }),
   notificationBindings: (channel = "", status = "") => {
     const params = new URLSearchParams();
@@ -572,12 +643,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ deny, approval_required: approvalRequired })
     }),
-  startPairing: () => request<{ pairing_id: string; code: string; expires_at: string }>("/api/pairing/start", { method: "POST", body: "{}" }, PAIRING_API_BASE),
-  claimPairing: (pairingId: string, code: string, clientName = "WebChat") =>
-    request<{ client: { id: string; name: string; created_at: string }; token: string }>("/api/pairing/claim", {
-      method: "POST",
-      body: JSON.stringify({ pairing_id: pairingId, code, client_name: clientName })
-    }, PAIRING_API_BASE),
   sessions: () => request<{ sessions: Session[] }>("/api/sessions"),
   createSession: (title = "") =>
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify({ title }) }),

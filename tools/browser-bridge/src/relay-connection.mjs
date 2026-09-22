@@ -36,17 +36,23 @@ const BLOCKED_CDP_METHODS = new Set([
   "Storage.setCookies",
   "Target.getBrowserContexts",
   "Target.getTargets",
+  "Target.createBrowserContext",
+  "Target.disposeBrowserContext",
+  "Target.createTarget",
+  "Target.closeTarget",
   "Target.setDiscoverTargets",
 ]);
 
 export class RelayConnection {
-  constructor({ webSocket, chromeAPI = chrome, initialTab, taskWindowID = initialTab?.windowId }) {
+  constructor({ webSocket, chromeAPI = chrome, initialTab, taskWindowID = initialTab?.windowId,
+    allowTaskHandoff = true }) {
     if (!webSocket || !validTab(initialTab) || !Number.isInteger(taskWindowID)) {
       throw new TypeError("Relay connection requires one initial task tab");
     }
     this.webSocket = webSocket;
     this.chrome = chromeAPI;
     this.taskWindowID = taskWindowID;
+    this.allowTaskHandoff = allowTaskHandoff;
     this.allowedTabs = new Set([initialTab.id]);
     this.attachedTabs = new Set();
     this.handoffGrants = new Set();
@@ -185,11 +191,13 @@ export class RelayConnection {
     if (BLOCKED_CDP_METHODS.has(method)) throw new Error("Browser-wide command is unavailable");
     const params = args[2];
     const grantsHandoff = isRuntimeMarker(method, params, HANDOFF_EVALUATE_FUNCTION);
+    if (!this.allowTaskHandoff && grantsHandoff) throw new Error("Task handoff is unavailable");
     if (isRuntimeMarker(method, params, BACKGROUND_INPUT_EVALUATE_FUNCTION)) {
       // Keep this task's renderer responsive without activating its tab or window.
       await this.chrome.debugger.sendCommand(args[0], "Emulation.setFocusEmulationEnabled", { enabled: true });
     }
     if (method === "Page.bringToFront") {
+      if (!this.allowTaskHandoff) return {};
       if (!this.handoffGrants.delete(tabId)) return {};
       this.onhandoff?.(tabId);
     }

@@ -2,6 +2,11 @@
 
 > 语言：简体中文 | [English](../../docs/playwright-extension-browser-design.md)
 
+> 架构决策（2026-09-21）：唯一目标为 Electron 自带 Chromium、原生浏览视图，以及
+> 现有 Controller / Playwright 控制链的 Electron 适配层。以已确定的
+> [桌面浏览器设计](desktop-client-embedded-browser-design.md)为准。
+> 本页描述切换前的独立浏览器部署基线，不是另一套目标方案，也不代表 Electron 已部署。
+
 ## 状态
 
 本文于 2026-09-04 提出，并于 2026-09-05 完成。全部阶段和切换门槛均已实施。
@@ -31,7 +36,8 @@ Handoff 行为。官方扩展仍是集成基线，不是生产扩展。
 
 SparkClaw 已验证一套 Playwright Extension 架构：Owner 日常使用正常启动的浏览器，
 SparkClaw 仅在拥有任务标签页时临时连接。浏览器启动时不得暴露 remote-debugging
-端口，也不得增加 automation 启动参数。
+端口，也不得增加 `--enable-automation`；专用浏览器只使用 Chromium 的
+`--silent-debugger-extension-api` 展示参数，隐藏这些任务范围附着产生的调试状态栏。
 
 当前实现把浏览器控制分为两条通道：
 
@@ -347,7 +353,9 @@ Automation Owner：
 
 普通任务新建后台标签页，不选择已有 Owner 标签页。浏览器始终为 Headed 且 Owner
 可见；“后台”表示标签页不抢占焦点，不代表隐藏或 Headless 浏览器。只有显式 Owner
-Handoff 才可以请求前台聚焦。
+Handoff 才可以请求前台聚焦。任务标签页组取代浏览器级调试状态栏，作为可见控制边界；
+关闭一个任务标签页即撤销其附着，关闭最后一个任务标签页还会结束对应 Bridge 连接，
+但 Chromium 与全部 Owner 标签页继续运行。
 
 MCP 和 CLI 不得并发连接同一标签页。QQ、Gmail、Outlook 的读取／接收／探测脚本
 可在独立 CLI 会话和 Bridge 任务标签页组中并行；同 provider 仍串行。每个连接按自己的

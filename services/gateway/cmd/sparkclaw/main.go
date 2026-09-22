@@ -41,12 +41,19 @@ func main() {
 		time.Duration(cfg.State.StartupTimeoutSeconds)*time.Second,
 	)
 	storeRuntime, err := newStore(storeStartupCtx, cfg)
-	cancelStoreStartup()
 	if err != nil {
+		cancelStoreStartup()
 		slog.Error("failed to initialize store", "error", err)
 		os.Exit(1)
 	}
 	st := backendFromRuntime(storeRuntime)
+	if err := registerProvisionedDesktopClient(storeStartupCtx, cfg, st); err != nil {
+		// Desktop provisioning is an installation-specific access path. A
+		// revoked, incomplete, or conflicting desktop credential must not take
+		// the otherwise healthy shared Gateway away from Web and integrations.
+		slog.Error("provisioned desktop Client is unavailable", "error", err)
+	}
+	cancelStoreStartup()
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
 	defer tools.Close()

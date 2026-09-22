@@ -13,8 +13,6 @@ export const en = {
       gatewayUnavailable: "Gateway unavailable.",
       none: "none",
       notSet: "not set",
-      pair: "Pair",
-      pairing: "Pairing",
       refresh: "Refresh",
       reject: "Reject",
       revoked: "revoked",
@@ -338,7 +336,17 @@ export const en = {
     },
     auth: {
       gatewayToken: "Gateway token",
-      unauthorized: "Token authentication failed"
+      unauthorized: "Token authentication failed",
+      retryConnection: "Retry",
+      desktopConnection: {
+        checking: "Checking the local SparkClaw service…",
+        reconnecting: "Reconnecting to the local SparkClaw service…",
+        incomplete_setup: "Desktop local setup is incomplete. Repair the installation files, then retry.",
+        service_unavailable: "The local SparkClaw service is unavailable.",
+        invalid_authentication: "The desktop credential is invalid or revoked.",
+        identity_conflict: "The local service identity does not match this desktop installation.",
+        web: ""
+      }
     },
     errors: {
       connect: "Failed to connect to SparkClaw Gateway",
@@ -357,12 +365,12 @@ export const en = {
       feedback: "Feedback save failed",
       memoryExport: "Memory export failed",
       clientRevoke: "Client revoke failed",
+      clientIssue: "Client credential issuance failed",
       policyUpdate: "Tool policy update failed",
       ownerUpdate: "Owner profile update failed",
       binding: "Weixin binding failed",
       connectorUpdate: "Connector update failed",
       trace: "Trace unavailable",
-      pairing: "Pairing failed",
       eval: "Eval failed"
 	  , externalMCP: "External MCP management failed"
 	  , integration: "Integration configuration failed"
@@ -662,9 +670,15 @@ export const en = {
       deepCheck: "deep check",
       standard: "standard",
       mutationsRequireSandbox: "mutations require sandbox",
-      pairedClients: "Paired Clients",
-      noClients: "No paired clients.",
+      clients: "Clients",
+      noClients: "No clients.",
       revokeClient: "Revoke client",
+      newWebClient: "New Web client",
+      webClientDefaultName: "SparkClaw Web",
+      issueClient: "Issue credential",
+      issueClientFailed: "Could not issue the client credential.",
+      issuedClientToken: "New client token — shown once",
+      issuedClientTokenWarning: "Store it securely, then enter it on the target browser. It will not be shown again after leaving this view.",
       seen: "seen",
       notSeen: "not seen",
       definitionApprovalTools: "Definition Approval Tools",

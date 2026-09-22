@@ -15,6 +15,7 @@ import {
 import { ControllerError } from "./errors.mjs";
 import { ProviderScriptRegistry, providerFailureEnvelope } from "./provider-scripts.mjs";
 import {MailReadPool} from './mail-read-pool.mjs';
+import { electronConnectionEnvironment, registerElectronConnection } from "./electron-adapter-client.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_CLI_ENTRY = path.join(
@@ -79,6 +80,7 @@ export class PlaywrightCLIClientFactory {
     this.navigationTimeoutMS = options.navigationTimeoutMS ?? 30_000;
     this.spawn = options.spawn ?? spawn;
     this.extraEnv = options.extraEnv ?? {};
+    this.electronAdapter = options.electronAdapter ?? null;
     this.diagnostic = options.diagnostic ?? (() => {});
     this.timingDiagnostic = options.timingDiagnostic ?? (() => {});
     this.captureTimingDiagnostic = options.captureTimingDiagnostic;
@@ -111,7 +113,7 @@ export class PlaywrightCLIClientFactory {
     await this.registry.prepare();
   }
 
-  async runScript({ token, sessionID, provider, operation, scriptID, revision, input, signal, credentialGeneration }) {
+  async runScript({ token, sessionID, taskID = "provider-task", controllerGeneration, sessionGeneration = 1, pageGeneration = 1, provider, operation, scriptID, revision, input, signal, credentialGeneration }) {
     const started = performance.now();
     const timings = {};
     const measure = async (name, action) => {
@@ -154,6 +156,17 @@ export class PlaywrightCLIClientFactory {
         }
       }
       if (!client) {
+        const electronConnection = this.electronAdapter ? await registerElectronConnection({
+          adapter: this.electronAdapter,
+          token,
+          binding: {
+            task_id: taskID,
+            session_id: sessionID,
+            controller_generation: controllerGeneration,
+            session_generation: sessionGeneration,
+            page_generation: pageGeneration,
+          },
+        }) : null;
         state = await createInvocationState(this.runtimeRoot, sessionID, input, operation);
         client = new PlaywrightCLITask({
           entryPoint: this.entryPoint,
@@ -172,6 +185,7 @@ export class PlaywrightCLIClientFactory {
           emailWorkspaceRoot: this.emailWorkspaceRoot,
           captureTimingDiagnostic: this.captureTimingDiagnostic,
           batchReadCommands: this.batchReadCommands,
+          electronConnection,
         });
         phase = "attach";
         await measure("attach", () => client.attach());
@@ -375,7 +389,14 @@ export class PlaywrightCLIClientFactory {
       [`--user-data-dir=${this.userDataDir}`, registration.loginURL],
       {
         cwd: this.cwd,
-        env: scrubPlaywrightEnvironment({ ...process.env, ...this.extraEnv }),
+        env: scrubPlaywrightEnvironment({
+          ...process.env,
+          ...this.extraEnv,
+          ...(this.electronAdapter ? {
+            SPARKCLAW_ELECTRON_ADAPTER_SOCKET: this.electronAdapter.socketPath,
+            SPARKCLAW_ELECTRON_ADAPTER_SECRET_FILE: this.electronAdapter.secretPath,
+          } : {}),
+        }),
         detached: true,
         stdio: "ignore",
         windowsHide: true,

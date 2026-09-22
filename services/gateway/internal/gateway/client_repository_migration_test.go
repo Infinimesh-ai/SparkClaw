@@ -652,7 +652,11 @@ func TestClientListAndRevokeSafeStoreFailureProjection(t *testing.T) {
 		{name: "list unknown", code: store.StoreErrorUnknownOutcome, wantStatus: http.StatusServiceUnavailable, wantError: "clients are temporarily unavailable"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			faults := &clientRepositoryFaultStore{Repository: store.NewMemoryStore()}
+			base := store.NewMemoryStore()
+			if _, err := base.RegisterClient(t.Context(), app.Client{ID: "client-a", Name: "Client A", TokenHash: "client-a-hash"}); err != nil {
+				t.Fatal(err)
+			}
+			faults := &clientRepositoryFaultStore{Repository: base}
 			faults.listClientsFn = func(context.Context) ([]app.Client, error) {
 				return nil, clientRepositoryStoreError(testCase.code, store.OperationClientList)
 			}
@@ -676,7 +680,11 @@ func TestClientListAndRevokeSafeStoreFailureProjection(t *testing.T) {
 		{name: "revoke unknown", code: store.StoreErrorUnknownOutcome, wantStatus: http.StatusServiceUnavailable, wantError: "clients are temporarily unavailable"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			faults := &clientRepositoryFaultStore{Repository: store.NewMemoryStore()}
+			base := store.NewMemoryStore()
+			if _, err := base.RegisterClient(t.Context(), app.Client{ID: "client-a", Name: "Client A", TokenHash: "client-a-hash"}); err != nil {
+				t.Fatal(err)
+			}
+			faults := &clientRepositoryFaultStore{Repository: base}
 			faults.revokeClientFn = func(context.Context, string) (app.Client, error) {
 				return app.Client{}, clientRepositoryStoreError(testCase.code, store.OperationClientRevoke)
 			}

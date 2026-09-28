@@ -41,6 +41,7 @@ export class SparkClawBrowserBridge {
     this.pendingConnectionTTLMS = pendingConnectionTTLMS;
     this.connections = new Map();
     this.pending = new Map();
+    this.connectionPages = new Map();
     this.nextConnectionID = 0;
     this.nativePort = null;
     this.nativeReconnectTimer = null;
@@ -138,6 +139,15 @@ export class SparkClawBrowserBridge {
     if (!exactKeys(message, ["type", "mcpRelayUrl"])) throw new Error("Invalid request");
     const tabId = sender.tab.id;
     const relayURL = parseRelayURL(message.mcpRelayUrl);
+    // Only a fresh page issued by this worker's native broker may attach. A
+    // restored/reloaded connect URL still carries credentials, but is not a
+    // new task and must never be adopted from an owner/login window.
+    const admission = this.connectionPages.get(sender.url);
+    if (!admission || await admission.opened !== tabId || this.connectionPages.get(sender.url) !== admission) {
+      throw new Error("Task connection page expired");
+    }
+    this.connectionPages.delete(sender.url);
+    if (admission.timer) this.clearTimeout(admission.timer);
     this.#clearPending(tabId);
     this.#releaseTab(tabId);
     await ungroupTabs(this.chrome, [tabId]);
@@ -218,6 +228,9 @@ export class SparkClawBrowserBridge {
 
   #protectedTaskTabIDs() {
     const tabIDs = new Set(this.pending.keys());
+    for (const admission of this.connectionPages.values()) {
+      if (Number.isInteger(admission.tabID)) tabIDs.add(admission.tabID);
+    }
     for (const group of this.connections.values()) {
       for (const tabId of group.connectedTabIds()) tabIDs.add(tabId);
     }
@@ -239,6 +252,7 @@ export class SparkClawBrowserBridge {
       this.focus,
       this.ownedGroups,
       () => this.#protectedTaskTabIDs(),
+      tab => this.connectionPages.has(tab.url) || this.connectionPages.has(tab.pendingUrl),
     ));
     this.staleCleanupQueue = cleanup.catch(() => {});
     return cleanup;
@@ -276,6 +290,33 @@ export class SparkClawBrowserBridge {
   }
 
   async #onNativeMessage(port, message) {
+    if (exactKeys(message, ["type", "id"]) && message.type === "taskStatus" &&
+        Number.isSafeInteger(message.id) && message.id > 0) {
+      try {
+        const tabs = await this.chrome.tabs.query({});
+        const groups = await this.ownedGroups.ownership();
+        const ownedGroupIDs = new Set((await this.chrome.tabGroups.query({}))
+          .filter(group => groups.groupIDs.has(group.id) || groups.tokens.has(ownershipTokenFromTitle(group.title)))
+          .map(group => group.id));
+        const active = this.#protectedTaskTabIDs();
+        const windows = [];
+        for (const windowID of new Set(tabs.map(tab => tab.windowId))) {
+          const window = await this.chrome.windows.get(windowID);
+          const members = tabs.filter(tab => tab.windowId === windowID);
+          windows.push({
+            window_id: windowID,
+            focused: window.focused === true,
+            task_tabs: members.filter(tab => active.has(tab.id)).length,
+            stale_task_tabs: members.filter(tab => !active.has(tab.id) && ownedGroupIDs.has(tab.groupId)).length,
+            other_tabs: members.filter(tab => !active.has(tab.id) && !ownedGroupIDs.has(tab.groupId)).length,
+          });
+        }
+        port.postMessage({ type: "taskStatusResult", id: message.id, windows });
+      } catch {
+        port.postMessage({ type: "taskStatusResult", id: message.id, windows: null });
+      }
+      return;
+    }
     if (!exactKeys(message, ["type", "id", "url"]) || message.type !== "openConnection" ||
         !Number.isSafeInteger(message.id) || message.id < 1) {
       return;
@@ -286,7 +327,24 @@ export class SparkClawBrowserBridge {
       // Reconcile durable ownership before adding another task page. A browser
       // restart may preserve groups while assigning them new numeric IDs.
       await this.#cleanupStaleTaskTabs();
-      await this.focus.openBackgroundConnectionPage(url);
+      if (this.connectionPages.has(url)) throw new Error("Connection page already pending");
+      const admission = {};
+      this.connectionPages.set(url, admission);
+      admission.opened = this.focus.openBackgroundConnectionPage(url);
+      try {
+        admission.tabID = await admission.opened;
+        if (this.connectionPages.get(url) === admission) {
+          admission.timer = this.setTimeout(() => {
+            if (this.connectionPages.get(url) !== admission) return;
+            this.connectionPages.delete(url);
+            void this.focus.closeTaskTabs([admission.tabID]).catch(() => this.#scheduleStaleTaskCleanup(1000));
+          }, this.pendingConnectionTTLMS);
+          admission.timer?.unref?.();
+        }
+      } catch (error) {
+        if (this.connectionPages.get(url) === admission) this.connectionPages.delete(url);
+        throw error;
+      }
       success = true;
     } catch {
       // The native host receives only a fixed result; connection details remain in-browser.
@@ -410,7 +468,11 @@ export class TaskTabGroup {
     try {
       let assignedGroup;
       if (this.groupID === null || createGroup) {
-        assignedGroup = await this.chrome.tabs.group({ tabIds: [tabId] });
+        const tab = await this.chrome.tabs.get(tabId);
+        if (!Number.isInteger(tab?.windowId) || this.closed || !this.ownedTabs.has(tabId)) return;
+        // Chrome defaults a new group to the current (often owner) window and
+        // moves its tabs there. Group presentation must never move a task.
+        assignedGroup = await this.chrome.tabs.group({ tabIds: [tabId], createProperties: { windowId: tab.windowId } });
         this.groupID = assignedGroup;
         this.createdGroupIDs.add(assignedGroup);
         await this.ownedGroups.add(assignedGroup, this.ownershipToken);
@@ -715,10 +777,12 @@ export class FocusTracker {
       return null;
     }
     const tabs = await this.chrome.tabs.query({ windowId });
-    if (tabs.length > 0 && !tabs.some((tab) =>
-      (Number.isInteger(tab.id) && this.taskTabs.has(tab.id)) ||
-      (!this.releasedTaskTabs.has(tab.id) &&
-        (this.#isConnectionURL(tab.url) || this.#isConnectionURL(tab.pendingUrl))))) {
+    // A login handoff or personal tab turns this into an owner window. One
+    // remaining task is not proof that the entire window is still dedicated.
+    if (tabs.length === 0 || !tabs.every((tab) =>
+      Number.isInteger(tab.id) && !this.releasedTaskTabs.has(tab.id) &&
+      !this.handoffWindows.has(tab.id) &&
+      (this.taskTabs.has(tab.id) || this.#isConnectionURL(tab.url) || this.#isConnectionURL(tab.pendingUrl)))) {
       this.backgroundTaskWindowID = null;
       await this.#persistBackgroundTaskWindowID(null);
       return null;
@@ -872,7 +936,7 @@ async function openRelayConnection(WebSocketClass, relayURL, timers) {
   return socket;
 }
 
-export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protectedTabIDs = new Set()) {
+export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protectedTabIDs = new Set(), protectedConnection = () => false) {
   const protectedNow = () => typeof protectedTabIDs === "function" ? protectedTabIDs() : protectedTabIDs;
   const staleTabIDs = new Set();
   const { groupIDs: ownedGroupIDs, tokens: ownedTokens } = await ownedGroups.ownership();
@@ -896,7 +960,7 @@ export async function cleanupStaleTaskTabs(chromeAPI, focus, ownedGroups, protec
   const tabs = await chromeAPI.tabs.query({});
   const connectionPrefix = `chrome-extension://${chromeAPI.runtime.id}/connect.html?`;
   for (const tab of tabs) {
-    if (Number.isInteger(tab.id) && typeof tab.url === "string" && tab.url.startsWith(connectionPrefix)) {
+    if (Number.isInteger(tab.id) && typeof tab.url === "string" && tab.url.startsWith(connectionPrefix) && !protectedConnection(tab)) {
       staleTabIDs.add(tab.id);
     }
   }

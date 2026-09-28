@@ -179,6 +179,24 @@ test("a released task window is never reused for later background work", async (
   assert.deepEqual(fixture.calls.tabsCreate.map((call) => call.windowId), [8, 9]);
 });
 
+test("a task window contaminated by a personal or released login tab is never reused", async () => {
+  for (const released of [false, true]) {
+    const fixture = createFixture();
+    const tracker = new FocusTracker(fixture.chromeAPI);
+    const first = await tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?first");
+    const second = await tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?second");
+    if (released) tracker.releaseTaskTab(second);
+    else fixture.tabs.set(100, { id: 100, windowId: fixture.tabs.get(first).windowId, url: "https://owner.example/login" });
+
+    await tracker.openBackgroundConnectionPage("chrome-extension://bridge/connect.html?third");
+
+    assert.equal(fixture.calls.windowsCreate.length, 2);
+    assert.deepEqual(fixture.calls.tabsCreate.map(call => call.windowId), [8, 8, 9]);
+    assert.ok(fixture.tabs.has(first));
+    assert.ok(fixture.tabs.has(second));
+  }
+});
+
 test("a task-tab creation failure closes its new dedicated window", async () => {
   const fixture = createFixture();
   const tracker = new FocusTracker(fixture.chromeAPI);
@@ -382,7 +400,10 @@ function createFixture({
         }
         return queryAllTabs ? [...tabs.values()] : [{ id: 1, windowId: 7, url: "https://owner.example/" }];
       },
-      remove: async (tabIds) => { calls.tabsRemove.push(tabIds); },
+      remove: async (tabIds) => {
+        calls.tabsRemove.push(tabIds);
+        for (const id of tabIds) { tabs.delete(id); events.removed.emit(id); }
+      },
       ungroup: async (tabIds) => { calls.tabsUngroup.push(tabIds); },
       update: async (...args) => { calls.tabsUpdate.push(args); },
     },

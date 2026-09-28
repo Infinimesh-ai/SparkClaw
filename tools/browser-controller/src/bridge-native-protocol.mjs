@@ -1,7 +1,7 @@
 import path from "node:path";
 
 export const BRIDGE_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
-export const BRIDGE_VERSION = "1.0.26";
+export const BRIDGE_VERSION = "1.0.28";
 export const BRIDGE_NATIVE_HOST = "com.sparkclaw.browser_bridge";
 export const MAX_NATIVE_MESSAGE_BYTES = 20 << 10;
 export const BRIDGE_PROTOCOL_VERSION = 2;
@@ -20,6 +20,7 @@ export function nativeSocketPath(env = process.env) {
 
 export function parseLauncherArguments(args) {
   if (args.length === 1 && args[0] === "--check") return { operation: "status" };
+  if (args.length === 1 && args[0] === "--task-status") return { operation: "taskStatus" };
   let connectionURL = "";
   for (const argument of args) {
     if (argument === "--no-sandbox" || argument.startsWith("--user-data-dir=") ||
@@ -39,6 +40,9 @@ export function parseNativeClientRequest(value) {
   }
   if (value.operation === "status" && Object.keys(value).sort().join("\n") === "operation\nschema_version") {
     return { operation: "status" };
+  }
+  if (value.operation === "taskStatus" && Object.keys(value).sort().join("\n") === "operation\nschema_version") {
+    return { operation: "taskStatus" };
   }
   if (value.operation === "openConnection" &&
       Object.keys(value).sort().join("\n") === "operation\nschema_version\nurl") {

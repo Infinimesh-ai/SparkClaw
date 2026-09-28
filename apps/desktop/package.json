@@ -16,7 +16,7 @@
     "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never"
   },
   "dependencies": {
-    "@sparkclaw/browser-bridge": "1.0.26"
+    "@sparkclaw/browser-bridge": "1.0.28"
   },
   "engines": {
     "node": ">=26 <27",

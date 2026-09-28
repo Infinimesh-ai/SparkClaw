@@ -36,6 +36,7 @@ test("native launcher accepts only one exact Bridge connection URL", () => {
     URL,
   ]), { operation: "openConnection", url: URL });
   assert.deepEqual(parseLauncherArguments(["--check"]), { operation: "status" });
+  assert.deepEqual(parseLauncherArguments(["--task-status"]), { operation: "taskStatus" });
   assert.throws(() => parseLauncherArguments(["https://example.com/"]), /invalid/);
   assert.throws(() => parseLauncherArguments([URL, "--new-window"]), /invalid/);
   assert.throws(() => parseConnectionURL(URL.replace("protocolVersion=2", "protocolVersion=3")), /invalid/);
@@ -44,6 +45,8 @@ test("native launcher accepts only one exact Bridge connection URL", () => {
 
 test("native client protocol exposes only loaded Bridge readiness", () => {
   assert.deepEqual(parseNativeClientRequest({ schema_version: 1, operation: "status" }), { operation: "status" });
+  assert.deepEqual(parseNativeClientRequest({ schema_version: 1, operation: "taskStatus" }), { operation: "taskStatus" });
+  assert.throws(() => parseNativeClientRequest({ schema_version: 1, operation: "taskStatus", tab_id: 1 }), /invalid/);
   assert.deepEqual(parseNativeClientRequest({ schema_version: 1, operation: "openConnection", url: URL }), {
     operation: "openConnection",
     url: URL,
@@ -110,6 +113,15 @@ test("native host entrypoint publishes loaded Bridge readiness", async (t) => {
   const status = await requestStatus(socketPath);
   assert.doesNotThrow(() => assertExpectedReadyStatus(status));
 
+  const windows = [{ window_id: 1, focused: false, task_tabs: 3, stale_task_tabs: 0, other_tabs: 0 }];
+  const forwarded = once(child.stdout, "data");
+  const inspecting = requestStatus(socketPath, "taskStatus");
+  const [data] = await forwarded;
+  const [request] = decodeNativeMessages(data).messages;
+  assert.equal(request.type, "taskStatus");
+  child.stdin.write(encodeNativeMessage({ type: "taskStatusResult", id: request.id, windows }));
+  assert.deepEqual(await inspecting, { schema_version: 1, state: "ready", windows });
+
   child.stdin.end();
   const [code] = await once(child, "exit");
   assert.equal(code, 0, stderr);
@@ -134,13 +146,13 @@ async function waitForSocket(socketPath, child, stderr) {
   throw new Error(`native host socket was not ready (${observed}): ${stderr()}`);
 }
 
-function requestStatus(socketPath) {
+function requestStatus(socketPath, operation = "status") {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
     let response = "";
     socket.setEncoding("utf8");
     socket.on("connect", () => {
-      socket.write(`${JSON.stringify({ schema_version: 1, operation: "status" })}\n`);
+      socket.write(`${JSON.stringify({ schema_version: 1, operation })}\n`);
     });
     socket.on("data", (chunk) => { response += chunk; });
     socket.on("end", () => {

@@ -42,7 +42,7 @@ automation engine.
 | Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-The pinned compatibility set is Browser Bridge `1.0.26`, Playwright MCP
+The pinned compatibility set is Browser Bridge `1.0.28`, Playwright MCP
 `0.0.80`, Playwright CLI `0.1.19`, Playwright Library
 `1.63.0-alpha-2026-08-31`, and Chromium `148.0.7778.0`. The Bridge source
 closure is recorded in `configs/browser-bridge-artifacts.json`; installation
@@ -258,4 +258,27 @@ See [Playwright Extension browser design](playwright-extension-browser-design.md
 for the migration decisions and [Browser email Workflow](browser-email-workflow-design.md)
 for provider and approval semantics.
 
-Bridge `1.0.26` serializes creation and reuse of one dedicated, unfocused task window for all Bridge clients, so Task Tabs never enter the owner's active window. Its window ID is kept in extension session storage so a Manifest V3 worker restart reuses the same live window. A removed window or a window with no remaining task-owned tab is never reused, while explicit handoff still creates a focused owner-visible window. Chromium first creates the empty dedicated window, then the Bridge creates an inactive connection tab inside that exact window and removes the placeholder, avoiding both foreground focus theft and the platform rejection seen when an extension URL was passed directly to window creation. It also serializes task grouping and waits for pending grouping before close. Each task group carries a random ownership token backed by extension-local storage, so a restored group can be verified even when Chromium assigns it a new numeric ID. Every native connection request reconciles verified stale groups before opening another task page. Failed native tab removal preserves ownership for bounded cleanup retries; active connections and tabs explicitly released by the owner are protected, and ordinary groups are never deleted by their human-readable title alone. The Controller service allows 60 seconds for its bounded task-page and CLI cleanup before systemd termination.
+Bridge `1.0.28` serializes creation and reuse of one dedicated, unfocused task window for all Bridge clients, so Task Tabs never enter the owner's active window. Its window ID is kept in extension session storage so a Manifest V3 worker restart reuses the same live window. A removed or empty window, or one containing any personal, released, or handoff tab, is never reused, while explicit handoff still creates a focused owner-visible window. Chromium first creates the empty dedicated window, then the Bridge creates an inactive connection tab inside that exact window and removes the placeholder, avoiding both foreground focus theft and the platform rejection seen when an extension URL was passed directly to window creation. It also serializes task grouping and waits for pending grouping before close. Each task group carries a random ownership token backed by extension-local storage, so a restored group can be verified even when Chromium assigns it a new numeric ID. Every native connection request reconciles verified stale groups before opening another task page. Failed native tab removal preserves ownership for bounded cleanup retries; active connections and tabs explicitly released by the owner are protected, and ordinary groups are never deleted by their human-readable title alone. The Controller service allows 60 seconds for its bounded task-page and CLI cleanup before systemd termination.
+
+Task-group creation explicitly sets `createProperties.windowId` to the task tab's
+actual window. Omitting it makes Chrome create the group in its current window,
+which can move an otherwise correctly background-created task into the owner's
+window. See the [Chrome tabs.group API](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-group).
+
+Connection-page admission is single-use and bound to the exact tab created by the
+native broker in the current worker. Restored, copied, or reloaded connection pages
+cannot acquire a new task, even if their old URL still has a valid credential.
+Unconsumed connection pages expire; authenticated tasks close through their existing
+completion/cancellation/disconnect paths. Login probes close their temporary task
+pages on both success and failure. Resident mail observers and bounded read leases
+remain live work and are not stale merely because several task tabs are visible.
+Personal login pages never become task targets.
+
+For a read-only inventory without page URLs, titles, or credentials, run:
+
+```bash
+node tools/browser-controller/src/browser-bridge-launcher.mjs --task-status
+```
+
+It reports active task, verified stale task, and other tab counts by window. It does
+not adopt or close any page; cleanup still requires the Bridge's ownership records.

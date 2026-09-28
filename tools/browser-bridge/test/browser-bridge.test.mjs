@@ -32,7 +32,7 @@ test("default browser timers retain their required global receiver", () => {
 test("pending connection expiry restores the owner tab and closes the connection page", async () => {
   const fixture = createBridgeFixture();
   const clock = createClock();
-  new SparkClawBrowserBridge({
+  admittedBridge({
     chromeAPI: fixture.chromeAPI,
     setTimeoutFn: clock.setTimeout,
     clearTimeoutFn: clock.clearTimeout,
@@ -56,7 +56,7 @@ test("pending connection expiry restores the owner tab and closes the connection
 test("successful connection cancels pending expiry", async () => {
   const fixture = createBridgeFixture();
   const clock = createClock();
-  new SparkClawBrowserBridge({
+  admittedBridge({
     chromeAPI: fixture.chromeAPI,
     WebSocketClass: OpenWebSocket,
     setTimeoutFn: clock.setTimeout,
@@ -88,7 +88,7 @@ test("relay connect timeout and error close the pending socket", async () => {
       close(code, reason) { this.readyState = 3; this.closed.push([code, reason]); }
       send() {}
     }
-    new SparkClawBrowserBridge({
+    admittedBridge({
       chromeAPI: fixture.chromeAPI,
       WebSocketClass: StalledWebSocket,
       setTimeoutFn: clock.setTimeout,
@@ -111,11 +111,11 @@ test("relay connect timeout and error close the pending socket", async () => {
   }
 });
 
-test("discard, tab removal, and replacement cancel pending expiry", async () => {
-  for (const action of ["discard", "remove", "replace"]) {
+test("discard and tab removal cancel pending expiry", async () => {
+  for (const action of ["discard", "remove"]) {
     const fixture = createBridgeFixture();
     const clock = createClock();
-    new SparkClawBrowserBridge({
+    admittedBridge({
       chromeAPI: fixture.chromeAPI,
       setTimeoutFn: clock.setTimeout,
       clearTimeoutFn: clock.clearTimeout,
@@ -129,8 +129,6 @@ test("discard, tab removal, and replacement cancel pending expiry", async () => 
       assert.deepEqual(await fixture.send({ type: "discardConnectionPage" }), { success: true });
     } else if (action === "remove") {
       fixture.events.removed.emit(3);
-    } else {
-      assert.deepEqual(await fixture.send({ type: "connectionRequested", mcpRelayUrl: RELAY_URL }), { success: true });
     }
 
     assert.equal(clock.has(firstExpiry), false, `${action} did not cancel the first expiry`);
@@ -345,6 +343,7 @@ test("handoff regrouping cannot release the task tab before Chrome resolves tabs
   };
   const chromeAPI = {
     tabs: {
+      get: async tabId => ({ id: tabId, windowId: 8 }),
       group: async ({ tabIds }) => {
         const groupID = ++nextGroupID;
         updated.emit(tabIds[0], { groupId: groupID });
@@ -683,13 +682,14 @@ function groupingFixture({ failClose = false } = {}) {
   const base = createBridgeFixture();
   const registry = new OwnedGroupRegistry(base.chromeAPI);
   const pending = [], released = [], closed = [], ungrouped = [];
-  const tabs = new Map([[2, { id: 2, groupId: -1 }], [3, { id: 3, groupId: -1 }]]);
+  const tabs = new Map([[2, { id: 2, windowId: 8, groupId: -1 }], [3, { id: 3, windowId: 8, groupId: -1 }]]);
   let nextGroupID = 90;
   base.chromeAPI.tabs.get = async id => tabs.get(id);
   base.chromeAPI.tabs.group = options => {
     const id = options.groupId ?? ++nextGroupID;
     for (const tabId of options.tabIds) {
       tabs.get(tabId).groupId = id;
+      if (options.groupId === undefined) tabs.get(tabId).windowId = options.createProperties?.windowId ?? 7;
       base.events.updated.emit(tabId, { groupId: id });
     }
     return new Promise(resolve => pending.push({ options, resolve: () => resolve(id) }));
@@ -757,4 +757,53 @@ test("owner ungroup while close restores focus is rechecked before native remova
   await closing;
   assert.deepEqual(f.released, [2]);
   assert.deepEqual(actuallyClosed, []);
+});
+
+function admittedBridge(options) {
+  const bridge = new SparkClawBrowserBridge(options);
+  bridge.connectionPages.set(CONNECT_URL, { opened: Promise.resolve(3), tabID: 3 });
+  return bridge;
+}
+
+test("restored and replayed connection pages cannot acquire another task", async () => {
+  const fixture = createBridgeFixture();
+  const bridge = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] });
+  const message = { type: "connectionRequested", mcpRelayUrl: RELAY_URL };
+  assert.equal((await fixture.send(message)).success, false);
+  assert.equal(bridge.pending.size, 0);
+  bridge.connectionPages.set(CONNECT_URL, { opened: Promise.resolve(999), tabID: 999 });
+  assert.equal((await fixture.send(message)).success, false, "another tab cannot consume admission");
+  assert.equal(bridge.connectionPages.size, 1);
+  bridge.connectionPages.set(CONNECT_URL, { opened: Promise.resolve(3), tabID: 3 });
+  const concurrent = await Promise.all([fixture.send(message), fixture.send(message)]);
+  assert.deepEqual(concurrent.map(result => result.success).sort(), [false, true], "admission is single use even concurrently");
+  assert.equal((await fixture.send(message)).success, false, "reload cannot reacquire admission");
+  await fixture.send({ type: "discardConnectionPage" });
+});
+
+test("native task status reports only window counts and never URLs or credentials", async () => {
+  const fixture = createBridgeFixture();
+  const port = nativePort();
+  fixture.chromeAPI.runtime.connectNative = () => port;
+  const bridge = new SparkClawBrowserBridge({ chromeAPI: fixture.chromeAPI, staleCleanupDelays: [] });
+  bridge.pending.set(3, { timer: null });
+  fixture.tabs.set(6, { id: 6, windowId: 8, groupId: 9, url: "https://private.example/mail" });
+  fixture.chromeAPI.tabGroups.query = async () => [{ id: 9 }];
+  await bridge.ownedGroups.add(9);
+  port.messages.emit({ type: "taskStatus", id: 7 });
+  await tick();
+  assert.deepEqual(port.sent.at(-1), { type: "taskStatusResult", id: 7, windows: [
+    { window_id: 7, focused: false, task_tabs: 1, stale_task_tabs: 0, other_tabs: 1 },
+    { window_id: 8, focused: false, task_tabs: 0, stale_task_tabs: 1, other_tabs: 0 },
+  ] });
+});
+
+test("group creation stays in the task window even while the owner window is current", async () => {
+  const f = groupingFixture();
+  f.relay.ontabattached(2);
+  await tick();
+  assert.equal(f.tabs.get(2).windowId, 8, "Chrome defaults an unpinned new group to the owner window");
+  assert.deepEqual(f.pending[0].options.createProperties, { windowId: 8 });
+  f.pending[0].resolve();
+  await f.relay.onclose();
 });

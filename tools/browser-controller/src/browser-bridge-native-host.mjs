@@ -66,8 +66,10 @@ function handleClient(client) {
       }
       if (!bridgeReady) throw new Error("bridge is not ready");
       const id = ++nextID;
-      pending.set(id, { client, timer, windowSnapshot: snapshotBrowserWindows() });
-      process.stdout.write(encodeNativeMessage({ type: "openConnection", id, url: request.url }));
+      pending.set(id, { client, timer, operation: request.operation,
+        windowSnapshot: request.operation === "openConnection" ? snapshotBrowserWindows() : null });
+      process.stdout.write(encodeNativeMessage(request.operation === "taskStatus"
+        ? { type: "taskStatus", id } : { type: "openConnection", id, url: request.url }));
     } catch {
       clearTimeout(timer);
       client.end(`${JSON.stringify({ schema_version: 1, state: "rejected" })}\n`);
@@ -84,6 +86,21 @@ function handleClient(client) {
 }
 
 function handleNativeMessage(message) {
+  if (message?.type === "taskStatusResult" && Number.isSafeInteger(message.id) &&
+      Object.keys(message).sort().join("\n") === "id\ntype\nwindows") {
+    const entry = pending.get(message.id);
+    if (entry?.operation !== "taskStatus") return;
+    const windows = message.windows;
+    if (!Array.isArray(windows) || windows.length > 100 || windows.some(window =>
+      !window || Object.keys(window).sort().join(",") !== "focused,other_tabs,stale_task_tabs,task_tabs,window_id" ||
+      typeof window.focused !== "boolean" ||
+      [window.window_id, window.task_tabs, window.stale_task_tabs, window.other_tabs]
+        .some(value => !Number.isSafeInteger(value) || value < 0))) return;
+    pending.delete(message.id);
+    clearTimeout(entry.timer);
+    entry.client.end(`${JSON.stringify({ schema_version: 1, state: "ready", windows })}\n`);
+    return;
+  }
   if (message?.type === "bridgeReady" &&
       Object.keys(message).sort().join("\n") === "extension_id\nprotocol_version\ntype\nversion" &&
       message.extension_id === BRIDGE_EXTENSION_ID && message.version === BRIDGE_VERSION &&
@@ -100,7 +117,7 @@ function handleNativeMessage(message) {
     return;
   }
   const entry = pending.get(message.id);
-  if (!entry) return;
+  if (entry?.operation !== "openConnection") return;
   pending.delete(message.id);
   clearTimeout(entry.timer);
   if (message.success) lowerNewBrowserWindow(entry.windowSnapshot);

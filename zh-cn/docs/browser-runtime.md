@@ -37,7 +37,7 @@ Xvfb 或浏览器自动化引擎。
 | Controller Socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop Launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-固定兼容组合为 Browser Bridge `1.0.26`、Playwright MCP `0.0.80`、Playwright CLI
+固定兼容组合为 Browser Bridge `1.0.28`、Playwright MCP `0.0.80`、Playwright CLI
 `0.1.19`、Playwright Library `1.63.0-alpha-2026-08-31` 和 Chromium
 `148.0.7778.0`。Bridge Source Closure 记录在 `configs/browser-bridge-artifacts.json`，
 安装时拒绝发生修改或出现额外文件的 Source Tree。
@@ -222,4 +222,24 @@ Execution 和 Terminal Unknown-outcome Handling。
 迁移决策见 [Playwright Extension 浏览器设计](playwright-extension-browser-design.md)，Provider
 与 Approval 语义见[浏览器邮箱 Workflow](browser-email-workflow-design.md)。
 
-Bridge `1.0.26` 为所有 Bridge Client 串行创建并复用一个非聚焦的专用任务窗口，使 Task Tab 绝不进入 Owner 正在使用的窗口；窗口 ID 保存在扩展 Session Storage 中，因此 Manifest V3 Worker 重启后仍会复用同一存活窗口。窗口已删除或不再包含任务归属标签时不会误复用，显式 Handoff 仍会创建并聚焦 Owner 可见窗口。Chromium 会先创建空的专用窗口，Bridge 再在该精确窗口内创建非激活连接页并移除占位页，既避免前台焦点被抢，也规避把扩展 URL 直接传给窗口创建接口时的 Chromium 拒绝。Bridge 同时串行处理任务分组，关闭任务前等待尚未完成的分组操作。每个任务组均带有由扩展本地存储佐证的随机归属标记，因此 Chromium 重启后即使重分配了数字组 ID，仍可验证恢复组的归属；每次原生连接请求都会先收敛已验证的残留组，再创建新任务页。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面，普通用户组不会仅因可读标题相同而被删除。Controller Service 为有界的任务页与 CLI 清理预留 60 秒，之后 systemd 才会终止进程。
+Bridge `1.0.28` 为所有 Bridge Client 串行创建并复用一个非聚焦的专用任务窗口，使 Task Tab 绝不进入 Owner 正在使用的窗口；窗口 ID 保存在扩展 Session Storage 中，因此 Manifest V3 Worker 重启后仍会复用同一存活窗口。窗口已删除或不再包含任务归属标签时不会误复用，显式 Handoff 仍会创建并聚焦 Owner 可见窗口。Chromium 会先创建空的专用窗口，Bridge 再在该精确窗口内创建非激活连接页并移除占位页，既避免前台焦点被抢，也规避把扩展 URL 直接传给窗口创建接口时的 Chromium 拒绝。Bridge 同时串行处理任务分组，关闭任务前等待尚未完成的分组操作。每个任务组均带有由扩展本地存储佐证的随机归属标记，因此 Chromium 重启后即使重分配了数字组 ID，仍可验证恢复组的归属；每次原生连接请求都会先收敛已验证的残留组，再创建新任务页。原生关闭失败时保留归属记录并有限重试清理，同时保护活动连接及用户明确接管的页面，普通用户组不会仅因可读标题相同而被删除。Controller Service 为有界的任务页与 CLI 清理预留 60 秒，之后 systemd 才会终止进程。
+
+创建任务标签组时必须显式把 `createProperties.windowId` 绑定到任务标签页所在的
+窗口。省略该值会让 Chrome 在当前窗口创建组，导致原本正确建在后台的任务页
+被移动到用户窗口。参见 [Chrome tabs.group API](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-group)。
+
+连接页准入只能使用一次，且绑定当前 worker 通过 native broker 新建的确切标签页。
+恢复、复制或重新加载的旧连接页即使仍带有有效凭据，也不能再次取得任务控制权；
+未使用的连接页到期关闭。任务继续通过完成、取消、断连路径清理，登录检查的一次性
+任务页在成功和失败时均关闭。窗口只要为空或含任一个个人页、已释放页、交接页，
+后续任务就必须另建后台窗口。邮件常驻监听和有界读取租约仍属于活跃工作，不能
+仅因多个 task 标签可见就当作遗留；个人登录页永远不会成为自动任务目标。
+
+可通过以下只读命令核查窗口归属，不输出页面 URL、标题或凭据：
+
+```bash
+node tools/browser-controller/src/browser-bridge-launcher.mjs --task-status
+```
+
+结果逐窗口列出活跃任务页、可验证的遗留任务页、其他页面数量。查询不会接管或
+关闭页面；实际清理仍需 Bridge 的归属记录。

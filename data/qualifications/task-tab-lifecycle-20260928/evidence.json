@@ -1,0 +1,77 @@
+{
+  "before_probes": {
+    "schema_version": 1,
+    "state": "ready",
+    "windows": [
+      {
+        "window_id": 2061433788,
+        "focused": true,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 6
+      },
+      {
+        "window_id": 2061433847,
+        "focused": false,
+        "task_tabs": 6,
+        "stale_task_tabs": 0,
+        "other_tabs": 0
+      }
+    ]
+  },
+  "after_probes": {
+    "schema_version": 1,
+    "state": "ready",
+    "windows": [
+      {
+        "window_id": 2061433788,
+        "focused": true,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 6
+      },
+      {
+        "window_id": 2061433847,
+        "focused": false,
+        "task_tabs": 6,
+        "stale_task_tabs": 0,
+        "other_tabs": 0
+      }
+    ]
+  },
+  "controller_drained": {
+    "schema_version": 1,
+    "state": "ready",
+    "windows": [
+      {
+        "window_id": 2061433788,
+        "focused": true,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 6
+      }
+    ]
+  },
+  "timestamp": "2026-09-28T05:56:43.941158+00:00",
+  "bridge_version": "1.0.28",
+  "source_sha256": "ab7058a05a5cca0baaaa6210d4694c6b241f594a56c07918e5f8111e0aee9fbb",
+  "login_probes": {
+    "qq_mail": "passed",
+    "outlook": "passed",
+    "gmail": "passed",
+    "duration_seconds": 30.37
+  },
+  "tests": {
+    "bridge": 67,
+    "controller_passed": 433,
+    "controller_skipped": 1,
+    "desktop": 17,
+    "artifact": 11,
+    "docs": 92,
+    "go_build": "passed",
+    "go_tests_vet_disabled": "passed",
+    "go_vet": "blocked by existing local_shared_backend_qualification_test.go:221 no-value append"
+  },
+  "production_settings_changed": false,
+  "sent_mail": false
+}

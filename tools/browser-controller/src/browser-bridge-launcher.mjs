@@ -20,12 +20,18 @@ socket.on("connect", () => {
 });
 socket.on("data", (chunk) => {
   received += chunk;
-  if (received.length > 4096) socket.destroy(new Error("Browser Bridge native host response is invalid"));
+  if (received.length > 20 << 10) socket.destroy(new Error("Browser Bridge native host response is invalid"));
   const newline = received.indexOf("\n");
   if (newline < 0) return;
   const result = JSON.parse(received.slice(0, newline));
   try {
     if (request.operation === "status") assertExpectedReadyStatus(result);
+    else if (request.operation === "taskStatus") {
+      if (result?.schema_version !== 1 || result?.state !== "ready" || !Array.isArray(result.windows)) {
+        throw new Error("Browser Bridge task status is unavailable");
+      }
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    }
     else if (result?.schema_version !== 1 || result?.state !== "opened") {
       throw new Error("Browser Bridge native host rejected the connection");
     }

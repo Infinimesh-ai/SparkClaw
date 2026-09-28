@@ -2,14 +2,20 @@
 set -Eeuo pipefail
 
 mode="${1:-serve}"
+if [[ $# -gt 0 ]]; then shift; fi
 config_path="${SPARKCLAW_BROWSER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/sparkclaw/browser.json}"
 resolver="${SPARKCLAW_BROWSER_DISPLAY_RESOLVER:-}"
 
 case "$mode" in
-  serve) ;;
-  open) ;;
-  *) printf 'usage: sparkclaw-browser-launcher [serve|open]\n' >&2; exit 2 ;;
+  serve) [[ $# -eq 0 ]] || { printf 'serve does not accept URLs\n' >&2; exit 2; } ;;
+  open) [[ $# -le 1 ]] || { printf 'open accepts one URL\n' >&2; exit 2; } ;;
+  *) printf 'usage: sparkclaw-browser-launcher [serve|open [http(s) URL]]\n' >&2; exit 2 ;;
 esac
+url="${1:-}"
+if [[ -n "$url" && "$url" != http://* && "$url" != https://* ]]; then
+  printf 'SparkClaw browser accepts only HTTP(S) URLs\n' >&2
+  exit 2
+fi
 
 [[ -r "$config_path" ]] || { printf 'SparkClaw browser config is unavailable: %s\n' "$config_path" >&2; exit 1; }
 mapfile -t browser_values < <(python3 - "$config_path" <<'PY'
@@ -51,6 +57,7 @@ extension_paths="$(python3 "$(dirname "${BASH_SOURCE[0]}")/browser_extensions.py
 
 browser_args=(
   --ozone-platform=x11
+  --class=sparkclaw-browser
   --force-renderer-accessibility
   --silent-debugger-extension-api
   --user-data-dir="$profile_dir"
@@ -76,6 +83,10 @@ if [[ "$mode" == "open" ]]; then
   }
   for _ in $(seq 1 50); do
     if env DISPLAY="$display" XAUTHORITY="$xauthority" python3 "$focus_helper" "$browser_pid"; then
+      if [[ -n "$url" ]]; then
+        env DISPLAY="$display" XAUTHORITY="$xauthority" CHROME_DEVEL_SANDBOX="$browser_sandbox" \
+          "$browser_executable" --user-data-dir="$profile_dir" --class=sparkclaw-browser --new-window "$url"
+      fi
       exit 0
     fi
     sleep 0.1

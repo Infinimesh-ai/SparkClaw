@@ -63,6 +63,13 @@ Use **SparkClaw Browser** from the desktop launcher, or run:
 npm run open:browser
 ```
 
+The desktop entry registers the persistent profile as **SparkClaw Browser** for
+HTTP and HTTPS links in the system browser chooser. It does not change the
+system default browser. The browser process uses a matching X11 window class, so
+manually created windows keep the SparkClaw Browser app identity. Opening a link
+through the system creates an owner window in this same profile; the desktop
+launcher without a link still focuses an existing window.
+
 The explicit open command brings the browser forward for owner work such as
 login or human verification. It activates an existing browser window without
 launching a second `about:blank` window. The first background task opens one dedicated,

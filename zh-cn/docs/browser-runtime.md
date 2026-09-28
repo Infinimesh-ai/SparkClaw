@@ -56,6 +56,11 @@ Chromium 支持的 `--silent-debugger-extension-api`，使任务范围内的 Bri
 npm run open:browser
 ```
 
+桌面启动项把持久 Profile 以 **SparkClaw Browser** 注册为 HTTP／HTTPS 链接的
+系统浏览器候选，但不会修改系统默认浏览器。浏览器进程使用对应的 X11 窗口类，
+因此手动新建的窗口也归属 SparkClaw Browser。通过系统打开链接时，会在同一
+Profile 中创建 Owner 窗口；不带链接的桌面入口仍聚焦已有窗口。
+
 显式 Open Command 会把已有浏览器窗口带到前台，供 Owner 完成登录或 Human Verification，
 不会再启动一个仅有 `about:blank` 的新窗口。
 首个后台任务会创建一个不聚焦的专用浏览器窗口，后续所有任务都复用该窗口，不再向

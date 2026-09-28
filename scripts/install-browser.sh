@@ -81,6 +81,8 @@ systemd_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 unit_path="$systemd_dir/sparkclaw-browser.service"
 applications_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 desktop_path="$applications_dir/sparkclaw-browser.desktop"
+icon_source="$ROOT/apps/desktop/src/assets/icon.png"
+icon_path="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/sparkclaw-browser.png"
 browser_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser"
 browser_bin_dir="$browser_data_dir/bin"
 launcher="$browser_bin_dir/sparkclaw-browser"
@@ -152,8 +154,9 @@ verify_runtime() {
   for item in "$profile_dir" "$controller_runtime_dir"; do
     [[ -d "$item" && ! -L "$item" && "$(stat -c '%u:%a' "$item")" == "$(id -u):700" ]] || fail "owner-only browser directory is missing or unsafe: $item"
   done
-  [[ -x "$launcher" && -r "$focus_helper" && -x "$resolver" && -r "$config_path" && -r "$unit_path" && -r "$desktop_path" ]] || fail "browser runtime files are incomplete"
+  [[ -x "$launcher" && -r "$focus_helper" && -x "$resolver" && -r "$config_path" && -r "$unit_path" && -r "$desktop_path" && -r "$icon_path" ]] || fail "browser runtime files are incomplete"
   cmp -s "$ROOT/scripts/sparkclaw-browser-launcher.sh" "$launcher" || fail "installed browser launcher is stale"
+  cmp -s "$icon_source" "$icon_path" || fail "installed browser icon is stale"
   cmp -s "$ROOT/tools/browser-controller/src/browser-bridge-focus.py" "$focus_helper" || fail "installed browser focus helper is stale"
   cmp -s "$ROOT/scripts/resolve-browser-display.sh" "$resolver" || fail "installed display resolver is stale"
   cmp -s "$ROOT/scripts/browser_extensions.py" "$extensions_helper" || fail "installed extension resolver is stale"
@@ -168,7 +171,10 @@ if value != expected:
     raise SystemExit("SparkClaw browser config is stale")
 PY
   grep -Fqx "ExecStart=$launcher serve" "$unit_path" || fail "browser service is stale"
-  grep -Fqx "Exec=$launcher open" "$desktop_path" || fail "browser desktop launcher is stale"
+  grep -Fqx "Exec=$launcher open %u" "$desktop_path" || fail "browser desktop launcher is stale"
+  grep -Fqx "StartupWMClass=sparkclaw-browser" "$desktop_path" || fail "browser desktop window class is stale"
+  grep -Fqx "MimeType=x-scheme-handler/http;x-scheme-handler/https;" "$desktop_path" || fail "browser desktop MIME registration is stale"
+  grep -Fqx "Icon=sparkclaw-browser" "$desktop_path" || fail "browser desktop icon registration is stale"
   systemctl --user is-active --quiet sparkclaw-browser.service || fail "sparkclaw-browser is not active"
   main_pid="$(systemctl --user show --property MainPID --value sparkclaw-browser.service)"
   [[ "$main_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$main_pid/cmdline" ]] || fail "SparkClaw browser PID is unavailable"
@@ -192,6 +198,7 @@ def contains_argument(value: str) -> bool:
 
 required = {
     sys.argv[2],
+    "--class=sparkclaw-browser",
     "--silent-debugger-extension-api",
     f"--user-data-dir={sys.argv[3]}",
     f"--disable-extensions-except={sys.argv[4]}",
@@ -258,8 +265,10 @@ bash "$ROOT/scripts/install-browser-components.sh"
 bash "$ROOT/scripts/resolve-browser-display.sh" >/dev/null || fail "an active owner X11/XWayland session is required"
 
 mkdir -p "$controller_runtime_dir" "$profile_dir" "$config_dir" "$systemd_dir" "$applications_dir" "$browser_bin_dir"
+mkdir -p "$(dirname "$icon_path")"
 chmod 700 "$controller_runtime_dir" "$profile_dir" "$config_dir" "$browser_data_dir" "$browser_bin_dir"
 install -m 700 "$ROOT/scripts/sparkclaw-browser-launcher.sh" "$launcher"
+install -m 644 "$icon_source" "$icon_path"
 install -m 600 "$ROOT/tools/browser-controller/src/browser-bridge-focus.py" "$focus_helper"
 install -m 700 "$ROOT/scripts/resolve-browser-display.sh" "$resolver"
 install -m 700 "$ROOT/scripts/browser_extensions.py" "$extensions_helper"
@@ -296,11 +305,15 @@ cat >"$desktop_path" <<EOF
 [Desktop Entry]
 Type=Application
 Name=SparkClaw Browser
+GenericName=Web Browser
 Comment=Open the persistent SparkClaw browser profile
-Exec=$launcher open
-Icon=web-browser
+Exec=$launcher open %u
+TryExec=$launcher
+Icon=sparkclaw-browser
 Terminal=false
 Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=sparkclaw-browser
 StartupNotify=true
 EOF
 chmod 644 "$desktop_path"

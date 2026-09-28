@@ -109,8 +109,17 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         script = LAUNCHER.read_text(encoding="utf-8")
         open_branch = script.split('if [[ "$mode" == "open" ]]; then', 1)[1].split("\nfi", 1)[0]
         self.assertIn('python3 "$focus_helper" "$browser_pid"', open_branch)
-        self.assertNotIn('"$browser_executable"', open_branch)
+        self.assertIn('if [[ -n "$url" ]]; then', open_branch)
+        self.assertIn('"$browser_executable" --user-data-dir="$profile_dir" --class=sparkclaw-browser --new-window "$url"', open_branch)
         self.assertNotIn('about:blank', open_branch)
+
+    def test_browser_desktop_identity_and_http_registration_are_consistent(self) -> None:
+        launcher = LAUNCHER.read_text(encoding="utf-8")
+        install = (ROOT / "scripts" / "install-browser.sh").read_text(encoding="utf-8")
+        self.assertIn('--class=sparkclaw-browser', launcher)
+        self.assertIn('StartupWMClass=sparkclaw-browser', install)
+        self.assertIn('MimeType=x-scheme-handler/http;x-scheme-handler/https;', install)
+        self.assertIn('Exec=$launcher open %u', install)
 
     def test_background_restack_requires_exactly_one_new_browser_window(self) -> None:
         spec = importlib.util.spec_from_file_location("browser_bridge_focus", FOCUS_HELPER)

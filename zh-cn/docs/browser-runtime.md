@@ -56,9 +56,14 @@ Chromium 支持的 `--silent-debugger-extension-api`，使任务范围内的 Bri
 npm run open:browser
 ```
 
-显式 Open Command 会把浏览器带到前台，供 Owner 完成登录或 Human Verification。
+显式 Open Command 会把已有浏览器窗口带到前台，供 Owner 完成登录或 Human Verification，
+不会再启动一个仅有 `about:blank` 的新窗口。
 首个后台任务会创建一个不聚焦的专用浏览器窗口，后续所有任务都复用该窗口，不再向
 Owner 窗口添加 Tab；只有显式 Owner Handoff 才允许自动化把 Task Tab 移入聚焦窗口。
+
+在 X11 上，原生宿主会在每次任务连接前记录浏览器窗口。如果恰好新增一个浏览器窗口，
+宿主会把它移到当前桌面窗口之后；只有 Chromium 意外激活任务窗口时才恢复先前的活动窗口。
+已有浏览器窗口的层叠顺序不会被改动。
 
 后台连接和清理保留操作系统当前的窗口焦点。恢复 Owner Tab 时不得让浏览器窗口失焦：
 用户此前从其他应用切入浏览器，不代表开始检查登录时应将那个应用重新置于前台。

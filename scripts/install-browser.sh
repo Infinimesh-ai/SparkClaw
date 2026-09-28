@@ -84,6 +84,7 @@ desktop_path="$applications_dir/sparkclaw-browser.desktop"
 browser_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser"
 browser_bin_dir="$browser_data_dir/bin"
 launcher="$browser_bin_dir/sparkclaw-browser"
+focus_helper="$browser_bin_dir/browser-window-focus.py"
 resolver="$browser_bin_dir/resolve-browser-display.sh"
 extensions_helper="$browser_bin_dir/browser_extensions.py"
 BROWSER_VERSION_TEXT=""
@@ -151,8 +152,9 @@ verify_runtime() {
   for item in "$profile_dir" "$controller_runtime_dir"; do
     [[ -d "$item" && ! -L "$item" && "$(stat -c '%u:%a' "$item")" == "$(id -u):700" ]] || fail "owner-only browser directory is missing or unsafe: $item"
   done
-  [[ -x "$launcher" && -x "$resolver" && -r "$config_path" && -r "$unit_path" && -r "$desktop_path" ]] || fail "browser runtime files are incomplete"
+  [[ -x "$launcher" && -r "$focus_helper" && -x "$resolver" && -r "$config_path" && -r "$unit_path" && -r "$desktop_path" ]] || fail "browser runtime files are incomplete"
   cmp -s "$ROOT/scripts/sparkclaw-browser-launcher.sh" "$launcher" || fail "installed browser launcher is stale"
+  cmp -s "$ROOT/tools/browser-controller/src/browser-bridge-focus.py" "$focus_helper" || fail "installed browser focus helper is stale"
   cmp -s "$ROOT/scripts/resolve-browser-display.sh" "$resolver" || fail "installed display resolver is stale"
   cmp -s "$ROOT/scripts/browser_extensions.py" "$extensions_helper" || fail "installed extension resolver is stale"
   python3 - "$config_path" "$INSTALL_ROOT/chrome" "$profile_dir" "$BRIDGE_ROOT" "$BROWSER_VERSION_TEXT" "$BRIDGE_VERSION" <<'PY'
@@ -258,6 +260,7 @@ bash "$ROOT/scripts/resolve-browser-display.sh" >/dev/null || fail "an active ow
 mkdir -p "$controller_runtime_dir" "$profile_dir" "$config_dir" "$systemd_dir" "$applications_dir" "$browser_bin_dir"
 chmod 700 "$controller_runtime_dir" "$profile_dir" "$config_dir" "$browser_data_dir" "$browser_bin_dir"
 install -m 700 "$ROOT/scripts/sparkclaw-browser-launcher.sh" "$launcher"
+install -m 600 "$ROOT/tools/browser-controller/src/browser-bridge-focus.py" "$focus_helper"
 install -m 700 "$ROOT/scripts/resolve-browser-display.sh" "$resolver"
 install -m 700 "$ROOT/scripts/browser_extensions.py" "$extensions_helper"
 python3 - "$config_path" "$INSTALL_ROOT/chrome" "$profile_dir" "$BRIDGE_ROOT" "$BROWSER_VERSION_TEXT" "$BRIDGE_VERSION" <<'PY'

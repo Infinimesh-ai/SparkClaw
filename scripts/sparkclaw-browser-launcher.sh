@@ -68,8 +68,20 @@ if [[ "$mode" == "open" ]]; then
     printf 'SparkClaw browser service did not start\n' >&2
     exit 1
   }
-  exec env DISPLAY="$display" XAUTHORITY="$xauthority" CHROME_DEVEL_SANDBOX="$browser_sandbox" \
-    "$browser_executable" "${browser_args[@]}" about:blank
+  browser_pid="$(systemctl --user show --property MainPID --value sparkclaw-browser.service)"
+  focus_helper="$(dirname "${BASH_SOURCE[0]}")/browser-window-focus.py"
+  [[ "$browser_pid" =~ ^[1-9][0-9]*$ && -r "$focus_helper" ]] || {
+    printf 'SparkClaw browser window focus helper is unavailable\n' >&2
+    exit 1
+  }
+  for _ in $(seq 1 50); do
+    if env DISPLAY="$display" XAUTHORITY="$xauthority" python3 "$focus_helper" "$browser_pid"; then
+      exit 0
+    fi
+    sleep 0.1
+  done
+  printf 'SparkClaw browser window is unavailable\n' >&2
+  exit 1
 fi
 
 exec env DISPLAY="$display" XAUTHORITY="$xauthority" CHROME_DEVEL_SANDBOX="$browser_sandbox" \

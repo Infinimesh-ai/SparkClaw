@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,7 +66,7 @@ function handleClient(client) {
       }
       if (!bridgeReady) throw new Error("bridge is not ready");
       const id = ++nextID;
-      pending.set(id, { client, timer });
+      pending.set(id, { client, timer, windowSnapshot: snapshotBrowserWindows() });
       process.stdout.write(encodeNativeMessage({ type: "openConnection", id, url: request.url }));
     } catch {
       clearTimeout(timer);
@@ -103,6 +103,7 @@ function handleNativeMessage(message) {
   if (!entry) return;
   pending.delete(message.id);
   clearTimeout(entry.timer);
+  if (message.success) lowerNewBrowserWindow(entry.windowSnapshot);
   entry.client.end(`${JSON.stringify({
     schema_version: 1,
     state: message.success ? "opened" : "rejected",
@@ -110,14 +111,45 @@ function handleNativeMessage(message) {
 }
 
 let focusProcess = null;
+function snapshotBrowserWindows() {
+  if (!process.env.DISPLAY) return null;
+  try {
+    return execFileSync("python3", [focusHelper, String(process.ppid), "snapshot"], {
+      encoding: "utf8",
+      env: focusEnvironment(),
+      timeout: 1000,
+      maxBuffer: 8192,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function lowerNewBrowserWindow(snapshot) {
+  if (!snapshot || !process.env.DISPLAY) return;
+  const child = spawn("python3", [focusHelper, String(process.ppid), "lower-new", snapshot], {
+    env: focusEnvironment(),
+    stdio: "ignore",
+  });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 2000);
+  timer.unref?.();
+  child.once("error", () => clearTimeout(timer));
+  child.once("exit", () => clearTimeout(timer));
+}
+
+function focusEnvironment() {
+  return {
+    DISPLAY: process.env.DISPLAY,
+    XAUTHORITY: process.env.XAUTHORITY || "",
+    PATH: process.env.PATH || "/usr/bin:/bin",
+  };
+}
+
 function focusBrowserWindow() {
   if (focusProcess || !process.env.DISPLAY) return;
   const child = spawn("python3", [focusHelper, String(process.ppid)], {
-    env: {
-      DISPLAY: process.env.DISPLAY,
-      XAUTHORITY: process.env.XAUTHORITY || "",
-      PATH: process.env.PATH || "/usr/bin:/bin",
-    },
+    env: focusEnvironment(),
     stdio: "ignore",
   });
   focusProcess = child;

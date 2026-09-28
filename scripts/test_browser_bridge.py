@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -22,6 +23,7 @@ SOURCE = ROOT / "tools" / "browser-bridge"
 LAUNCHER = ROOT / "scripts" / "sparkclaw-browser-launcher.sh"
 CONTROLLER_SETUP = ROOT / "scripts" / "setup-browser-controller.sh"
 GATEWAY_DOCKERFILE = ROOT / "docker" / "images" / "gateway.Dockerfile"
+FOCUS_HELPER = ROOT / "tools" / "browser-controller" / "src" / "browser-bridge-focus.py"
 
 
 class BrowserBridgeArtifactTest(unittest.TestCase):
@@ -102,6 +104,22 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertIn('--load-extension="$extension_paths"', script)
         for forbidden in ("--remote-debugging-", "--enable-automation", "--headless"):
             self.assertNotIn(forbidden, script)
+
+    def test_open_reuses_an_existing_browser_window(self) -> None:
+        script = LAUNCHER.read_text(encoding="utf-8")
+        open_branch = script.split('if [[ "$mode" == "open" ]]; then', 1)[1].split("\nfi", 1)[0]
+        self.assertIn('python3 "$focus_helper" "$browser_pid"', open_branch)
+        self.assertNotIn('"$browser_executable"', open_branch)
+        self.assertNotIn('about:blank', open_branch)
+
+    def test_background_restack_requires_exactly_one_new_browser_window(self) -> None:
+        spec = importlib.util.spec_from_file_location("browser_bridge_focus", FOCUS_HELPER)
+        self.assertIsNotNone(spec)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.only_new_window([10, 20, 30], [10, 20]), 30)
+        self.assertIsNone(module.only_new_window([10, 20], [10, 20]))
+        self.assertIsNone(module.only_new_window([10, 20, 30, 40], [10, 20]))
 
     def test_browser_manifest_validation_normalizes_only_version_whitespace(self) -> None:
         script = (ROOT / "scripts" / "install-browser.sh").read_text(encoding="utf-8")

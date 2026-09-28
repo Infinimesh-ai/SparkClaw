@@ -64,10 +64,16 @@ npm run open:browser
 ```
 
 The explicit open command brings the browser forward for owner work such as
-login or human verification. The first background task opens one dedicated,
+login or human verification. It activates an existing browser window without
+launching a second `about:blank` window. The first background task opens one dedicated,
 unfocused browser window, and every later task reuses that window instead of
 adding tabs to an owner window. An explicit owner handoff is the only automation
 operation allowed to move a task tab into a focused window.
+
+On X11, the native host records the browser's windows before each task connection.
+If exactly one new browser window appears, it lowers that window behind the
+current desktop window and restores the prior active window only if Chromium
+activated the task window. Existing browser windows are left in place.
 
 Background connection and cleanup preserve the current OS window focus. Restoring
 the owner tab must not blur its browser window: a prior switch from another app

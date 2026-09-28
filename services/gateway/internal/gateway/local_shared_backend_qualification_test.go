@@ -218,14 +218,14 @@ func TestLocalSharedBackendDualClientQualification(t *testing.T) {
 	assertQualificationSessions(t, finalDesktop.Body, finalDesktop.StatusCode, 0, "")
 	finalDesktop.Body.Close()
 
-	forgedCommand := exec.CommandContext(ctx, "docker", append([]string{
+	forgedCommand := exec.CommandContext(ctx, "docker", []string{
 		"run", "--rm", curlImage, "--silent", "--show-error",
 		"-o", "/dev/null", "-w", "%{http_code}", "-X", http.MethodPost,
 		"-H", "Host: 127.0.0.1:18790", "-H", "X-Forwarded-For: 127.0.0.1",
 		"-H", "X-SparkClaw-Electron: true", "-H", "Idempotency-Key: forged-qualification",
 		"-H", "Content-Type: application/json", "--data-binary", `{"client_name":"Forged"}`,
 		webOrigin + "/api/clients",
-	})...)
+	}...)
 	forgedRaw, err := forgedCommand.CombinedOutput()
 	if err != nil {
 		t.Fatalf("forged LAN request failed to complete: %v: %s", err, forgedRaw)

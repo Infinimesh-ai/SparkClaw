@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "at": "2026-09-28T10:23:28.109449+00:00",
+  "action": "gateway_bind_mount_repair",
+  "old_image": "sha256:56f8f961d1050a094b05cea3ad5bd03e7b03cfc82d5c20c1a9494d3a54cc39e0",
+  "new_image": "sha256:56f8f961d1050a094b05cea3ad5bd03e7b03cfc82d5c20c1a9494d3a54cc39e0",
+  "environment_preserved": true,
+  "credential_key_preserved": true,
+  "database_unchanged": true,
+  "mounts_changed": [
+    "/var/lib/sparkclaw/artifacts",
+    "/var/lib/sparkclaw/memory",
+    "/var/log/sparkclaw",
+    "/run/sparkclaw/runtime",
+    "/app/configs",
+    "/var/lib/sparkclaw/workspaces",
+    "/var/lib/sparkclaw/traces"
+  ],
+  "restored_missing_files": 1143,
+  "newer_live_state_files": 3,
+  "private_backup": "/tmp/sparkclaw-mount-recovery-ueueauok",
+  "retired_container": "sparkclaw-gateway-1-before-mount-repair-20260928"
+}

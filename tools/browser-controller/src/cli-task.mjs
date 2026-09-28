@@ -125,6 +125,15 @@ export class PlaywrightCLITask {
     this.signal = undefined;
   }
 
+  async activateMailObserver() {
+    if (!this.mailObserverConfig) throw clientContractError();
+    await this.#assertAllowedOrigin();
+    await this.#withTaskSelected(() => this.#run(['--raw',`-s=${this.sessionName}`,'run-code',
+      '/* sparkclaw:activate-mail-observer:v1 */ async page => true']));
+    await this.#assertAllowedOrigin();
+    this.signal = undefined;
+  }
+
   async attach() {
     await this.state.writeAttachIntent?.(this.sessionName,fileURLToPath(new URL('../node_modules/playwright-core/lib/entry/cliDaemon.js',import.meta.url)));
     const output = await this.#run(
@@ -925,6 +934,7 @@ export function createProviderRuntime(client, registration) {
     },
     emailWorkspaceRoot: client.emailWorkspaceRoot,
     captureTimingDiagnostic: client.captureTimingDiagnostic,
+    capturePhaseEvidence: client.capturePhaseEvidence,
   };
 }
 

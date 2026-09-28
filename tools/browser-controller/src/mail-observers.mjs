@@ -32,6 +32,7 @@ export class ResidentMailObservers {
     this.evidence = evidence;
     this.healthMS = healthMS;
     this.recoveries = new Map();
+    this.pendingRecovery = new Map();
     this.slots = new Map();
     this.connections = new Set();
     this.closed = false;
@@ -62,6 +63,38 @@ export class ResidentMailObservers {
     await listenOwnerOnlyUnixSocket(this.server, this.socketPath);
     this.healthTimer = setInterval(() => this.checkHealth(), this.healthMS);
     this.healthTimer.unref();
+  }
+
+  async createConfig(provider, account, runtime, key) {
+    await this.prepare();
+    const registration = this.factory.registry.entries.get(`${provider}:collect_page`);
+    if (!registration || !/^[a-f0-9]{64}$/u.test(key)) throw invalidRequest();
+    const configPath = path.join(runtime.directory, 'observer.json');
+    await fs.writeFile(configPath, JSON.stringify({key, socket:this.socketPath, evidence:this.evidence, shared:true,
+      provider,account:account.toLowerCase(),
+      origins:registration.origins.filter(origin => !/login|accounts|www\.microsoft/.test(origin))}),
+    {mode:0o600,flag:'wx'});
+    return configPath;
+  }
+
+  revoke(provider) {
+    const slot = this.slots.get(provider);
+    if (!slot) return;
+    if (!this.factory.sharedMailPages) return;
+    slot.key = '';
+    slot.state = 'stopped';
+    this.slots.delete(provider);
+    this.pendingRecovery.delete(provider);
+    if (this.factory.sharedMailPages) void this.factory.mailReads.retire(provider).catch(error => {
+      try {this.factory.diagnostic?.({event:'mail_observer_retire_failed',provider,
+        code:/^[a-z_]{1,80}$/u.test(error?.code ?? '') ? error.code : 'cleanup_failed'});} catch {}
+    });
+  }
+
+  suspendAll() {
+    for (const slot of this.slots.values()) {slot.key='';slot.state='stopped';}
+    this.slots.clear();
+    this.pendingRecovery.clear();
   }
 
   receive({key, value, dropped}) {
@@ -125,13 +158,25 @@ export class ResidentMailObservers {
     if (input.action === 'status') return this.status(provider);
     if (prior) {
       if (this.status(provider).state !== 'degraded') return this.status(provider);
-      await this.stop(provider);
+      await this.stop(provider,{recover:true});
     }
+    const recovery = this.pendingRecovery.get(provider);
+    if (recovery?.identity !== identity) this.pendingRecovery.delete(provider);
     const slot = {identity, key: crypto.randomBytes(32).toString('hex'), started: Date.now(), state: 'starting', epoch: crypto.randomUUID(),
-      events: [], counts: {}, sequence: 0, hints: args.recoveryHints ?? 0, restarts: args.restarts ?? 0, dropped: 0, resyncRequired: true, lastEvent: 0, ready: false, args: {...args, signal: undefined}};
+      events: [], counts: {}, sequence: 0, hints: recovery?.identity===identity ? recovery.hints : args.recoveryHints ?? 0,
+      restarts: recovery?.identity===identity ? recovery.restarts : args.restarts ?? 0,
+      dropped: 0, resyncRequired: true, lastEvent: 0, ready: false, args: {...args, signal: undefined}};
     this.slots.set(provider, slot);
     let phase = 'runtime';
     try {
+      if (this.factory.sharedMailPages) {
+        phase = 'shared_page';
+        await this.factory.startSharedWatch(args,slot);
+        if (slot.state !== 'degraded') slot.state = 'watching';
+        slot.ready = true;
+        this.pendingRecovery.delete(provider);
+        return this.status(provider);
+      }
       const registration = {...this.factory.registry.entries.get(`${provider}:read`), timeoutMS: 120000};
       slot.runtime = await createInvocationState(this.factory.runtimeRoot, `session_${crypto.randomBytes(16).toString('hex')}`, {}, 'read');
       const configPath = path.join(slot.runtime.directory, 'observer.json');
@@ -147,6 +192,7 @@ export class ResidentMailObservers {
       await slot.client.prepareBackgroundPage();
       phase = 'account';
       await slot.client.prepareMailRound(input.account_address);
+      await slot.client.activateMailObserver();
       slot.client.signal = undefined;
       if (slot.state !== 'degraded') slot.state = 'watching';
       slot.ready = true;
@@ -154,7 +200,7 @@ export class ResidentMailObservers {
     } catch (error) {
       try { this.factory.diagnostic?.({event: 'mail_observer_start_failed', provider, phase,
         code: /^[a-z_]{1,80}$/.test(error?.code ?? '') ? error.code : 'observer_failed'}); } catch {}
-      await this.stop(provider); throw error;
+      await this.stop(provider,{recover:Boolean(recovery?.identity===identity && this.factory.sharedMailPages)}); throw error;
     }
   }
 
@@ -173,6 +219,11 @@ export class ResidentMailObservers {
       if (!slot.ready || this.recoveries.has(provider) || slot.state === 'login_required') continue;
       if (Date.now() - (slot.lastEvent || slot.started) <= 45000 && slot.state !== 'degraded') continue;
       slot.state = 'degraded'; slot.resyncRequired = true;
+      if (this.factory.sharedMailPages) {
+        slot.retryAt ??= Date.now() + 15000 * 2 ** Math.min(slot.restarts,3);
+        this.factory.mailObserverSink?.(provider,slot,'state');
+        continue;
+      }
       // Three bounded reconstructions per lease. A failed recovery is visible
       // and never loops in a busy CLI poll; an explicit start may retry later.
       if (slot.restarts >= 3 || slot.recoveryFailed || Date.now() < (slot.retryAt ?? 0)) continue;
@@ -187,9 +238,16 @@ export class ResidentMailObservers {
     }
   }
 
-  async stop(provider) {
+  async stop(provider,{recover=false}={}) {
     const slot = this.slots.get(provider); if (!slot) return;
     slot.state = 'stopped'; slot.key = '';
+    if (this.factory.sharedMailPages) {
+      this.slots.delete(provider);
+      if (recover) this.pendingRecovery.set(provider,{identity:slot.identity,hints:slot.hints,restarts:slot.restarts+1});
+      else this.pendingRecovery.delete(provider);
+      await this.factory.mailReads.retire(provider);
+      return;
+    }
     let cleanupWarning;
     for (const action of [() => slot.client?.closeTaskPage(), () => slot.client?.stop()]) {
       try { await action(); } catch (error) { cleanupWarning ??= error; }

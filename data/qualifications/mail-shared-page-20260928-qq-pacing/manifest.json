@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "scope": "QQ original response diagnosis and cross-round pacing",
+  "diagnostic_runs": [
+    {
+      "layout": "candidate",
+      "result": "FAIL",
+      "failed_round": 149,
+      "completed_stress_rounds": 148,
+      "error": "email_network_original_unqualified",
+      "original_state": "invalid_headers",
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "bytes": 127,
+        "provider_code": -20003
+      }
+    },
+    {
+      "layout": "baseline",
+      "result": "FAIL",
+      "failed_round": 134,
+      "completed_stress_rounds": 133,
+      "error": "email_network_original_unqualified",
+      "original_state": "invalid_headers",
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "bytes": 127,
+        "provider_code": -20003
+      }
+    }
+  ],
+  "provider_failure_evidence": {
+    "head_ret": -20003,
+    "head_stack": "Block by spam",
+    "http_status": 200,
+    "content_type": "application/json",
+    "inference": "Repeated original downloads trigger provider abuse control in both layouts; the provider does not publish a quota in this response."
+  },
+  "repair": {
+    "qq_original_completion_to_next_request_min_ms": 1000,
+    "retained_across_round_reset": true,
+    "cancellable": true,
+    "automatic_retry": false,
+    "known_rejection_error": "email_network_read_failed"
+  },
+  "source_sha256": {
+    "scripts/email/userscripts/lib/reader-core.mjs": "3170e90a9030cab4e4191e2157f977d0dc70651185bdc39abb54a5fe66f9c4b0",
+    "tools/browser-controller/src/cli-client.mjs": "a2102084ae94efb382cbd38b5fcc3119c1199ff283690c1d31bfb77cf37a2c00",
+    "tools/browser-controller/test/mail-userscripts.test.mjs": "b7b9288e140ace19c5bc5e8d04e54033c1c77d4e5b31aa72cde28a214528a11d",
+    "tools/browser-userscripts/qq-mail-reader.user.js": "0106a88e36aa385324767a592a05bf3c1b3f2b0d051f15cfa080605c406910d2"
+  },
+  "installed_reader_sha256": {
+    "qq-mail-reader.user.js": "0106a88e36aa385324767a592a05bf3c1b3f2b0d051f15cfa080605c406910d2",
+    "gmail-mail-reader.user.js": "5afb40c7264a49a615173d8f4d51ac33bb0baefc7ba910b1e9e3ea733e00bc96",
+    "outlook-mail-reader.user.js": "588f5d6a65dad49890286c47ed23d794ca316cfda0794a756e908cdb34761f1f"
+  },
+  "post_fix_runs": [
+    {
+      "layout": "baseline",
+      "result": "PASS",
+      "elapsed_seconds": 409.1,
+      "qq_stress_completed": 150,
+      "qq_stress_failures": 0,
+      "qq_stress_capture_p95_ms": 1082.947944000014,
+      "qq_stress_capture_mean_ms": 1055.6136650133326,
+      "providers": [
+        "qq_mail",
+        "outlook",
+        "gmail"
+      ],
+      "empty_rounds_per_provider": 2,
+      "one_and_two_originals_with_replay_per_provider": "PASS",
+      "observer_after_reads": "watching",
+      "retained_sessions": 6,
+      "task_windows": [
+        {
+          "focused": false,
+          "task_tabs": 6,
+          "stale_task_tabs": 0,
+          "other_tabs": 0
+        }
+      ],
+      "provider_rejections": 0,
+      "remaining_owned_session_directories": 0,
+      "controller_shutdown": "PASS"
+    },
+    {
+      "layout": "candidate",
+      "result": "PASS",
+      "elapsed_seconds": 382.72,
+      "qq_stress_completed": 150,
+      "qq_stress_failures": 0,
+      "qq_stress_capture_p95_ms": 1076.1546049999888,
+      "qq_stress_capture_mean_ms": 1047.8748631533329,
+      "providers": [
+        "qq_mail",
+        "outlook",
+        "gmail"
+      ],
+      "empty_rounds_per_provider": 2,
+      "one_and_two_originals_with_replay_per_provider": "PASS",
+      "cross_layout_frozen_original_hashes_equal": true,
+      "observer_after_reads": "watching",
+      "retained_sessions": 3,
+      "task_windows": [
+        {
+          "focused": false,
+          "task_tabs": 3,
+          "stale_task_tabs": 0,
+          "other_tabs": 0
+        }
+      ],
+      "provider_rejections": 0,
+      "remaining_owned_session_directories": 0,
+      "controller_shutdown": "PASS"
+    }
+  ],
+  "remaining_release_gates": [
+    "B02 complete provider/phase arrival matrix",
+    "B04 45-minute watch-only idle and unpinned expiry",
+    "B05 two-hour soak",
+    "C01-C05 live faults",
+    "30 paired samples per provider/workload"
+  ],
+  "production_layout": "separate_pages",
+  "validation": {
+    "controller": {
+      "passed": 448,
+      "skipped": 1,
+      "failed": 0
+    },
+    "provider_scripts": {
+      "passed": 11,
+      "failed": 0
+    },
+    "browser_component_tests": {
+      "passed": 13,
+      "failed": 0
+    },
+    "gateway": {
+      "build": "PASS",
+      "vet": "PASS",
+      "tests": "PASS"
+    },
+    "bilingual_docs": {
+      "files": 93,
+      "result": "PASS"
+    },
+    "generated_userscripts": "PASS",
+    "provider_contract": "PASS"
+  },
+  "additional_fix": {
+    "file": "services/gateway/internal/gateway/local_shared_backend_qualification_test.go",
+    "issue": "go vet: append with no values",
+    "change": "Remove the redundant append wrapper; preserve exact docker arguments."
+  },
+  "deployment_notes": [
+    "The first post-fix run stopped before provider tests because managed-script import readiness timed out.",
+    "A second controlled browser restart imported the exact pinned Reader; check-profile passed before either post-fix layout ran."
+  ],
+  "decision": "The reproduced QQ rapid-original failure is repaired in this comparison; the complete shared-page rollout gate remains incomplete.",
+  "production_restore": {
+    "browser_service": "active",
+    "controller_service": "active",
+    "shared_page_candidate_enabled": false,
+    "managed_component_pins": "PASS",
+    "task_tabs": 6,
+    "stale_task_tabs": 0,
+    "task_window_focused": false,
+    "watch_states": {
+      "qq_mail": "watching",
+      "outlook": "watching",
+      "gmail": "watching"
+    }
+  }
+}

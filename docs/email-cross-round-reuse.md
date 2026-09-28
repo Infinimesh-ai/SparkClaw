@@ -8,7 +8,7 @@ This extends the [first performance optimization](email-sync-performance-2026091
 
 Each provider has at most one retained lease (QQ, Gmail and consumer Outlook: at most three). Reuse requires the same owner scope, mailbox account, browser credential generation/token and registered script source checksum. The idle expiry is 30 minutes; the fixed two-hour age limit was removed on 2026-09-23. Idle expiry or an identity change closes the old owned page and connection before creating another. Restarting the Controller clears this in-memory pool. Pausing receiving stops scheduled mail requests but does not immediately close an idle page; the idle timer still applies. A mailbox website may generate its own background traffic.
 
-The accepted [notification-wakeup design](email-notification-wakeup-design.md) adds an independent watch registration that will keep an enabled observer page alive beyond the read pool's idle expiry and stop it when receiving is disabled. That lifecycle is pending implementation; the pool described here is the current behavior.
+As of 2026-09-28, the [resident observer](email-resident-observer.md) and Reader share one page by default. A watch pin retains the pooled page independently of the Reader’s 30-minute idle timer; stopping the watch retires that shared page after any active borrower finishes. The idle and pause behavior above applies to unpinned read-only pages. Explicit `SPARKCLAW_MAIL_SHARED_PAGE_CANDIDATE=0` restores separate pages. The [shared-page validation design](email-shared-page-validation-design.md) records the user’s rollout decision, completed evidence and remaining checks.
 
 ## What each round does
 
@@ -22,6 +22,15 @@ Each new business round still has a new invocation identity. A repeated invocati
 Account/ownership/origin checks have not been cached away. A stale page/connection may be rebuilt once only before the provider handler starts. QQ may replace its initial document while the managed Reader is becoming ready; only the local `resetRound` preparation is retried after revalidating the owned tab's origin and signed-in route, before any provider query runs. Failed provider requests are not silently reissued within the same round. Exclusive validation, login, sending and generic browser access drain idle reads first; shutdown waits for active reads and then closes the pool. Cleanup failures retain a fenced lease and recovery metadata until owned-process cleanup succeeds.
 
 QQ's cached web client may restore the signed-in `/home/index` route without issuing another `/list/maillist` request. The Reader now derives the fixed list binding from the same-origin session parameter on that exact signed-in route, then continues to use the existing bounded `/list/search` request and response qualification. It does not accept a cross-origin or arbitrary route as a session source. If qualification still fails, diagnostics carry only an allowlisted stage name and stable error code; they contain no account, message, URL, session value or provider payload. A live post-deployment check on 2026-09-20 observed two consecutive successful production polls with the same retained CLI daemon, a cleared mailbox error and an advancing poll watermark.
+
+QQ original downloads now leave at least one second after the previous original
+request completes, including across round resets. Rapid repeated downloads
+reproduced QQ's HTTP 200 JSON `head.ret=-20003` (`Block by spam`) in both separate
+and shared pages. The wait is cancellable, retains account checks and makes no
+extra request; this known rejection is a provider operational failure
+(`email_network_read_failed`), with no automatic retry. Unknown JSON/HTML still
+fails original qualification. Earlier throughput tables below predate this
+spacing and are historical measurements. The mailbox polling cadence is unchanged.
 
 ## Avoiding repeated full admission probes
 

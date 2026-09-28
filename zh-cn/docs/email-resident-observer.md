@@ -2,7 +2,9 @@
 
 [English](../../docs/email-resident-observer.md)
 
-Controller 为 QQ、Gmail 和个人 Outlook 注册了独立的 `observe` 操作：建立自有后台邮箱页并核实账号后立即返回，CLI daemon 保持连接，通过页面 binding 和仅当前用户可访问的 Unix socket 推送事件。空闲观察不占用提供商预留，也不占用 Reader 页面租约；列表查询与原文获取继续使用原有 Reader。
+Controller 为 QQ、Gmail 和个人 Outlook 注册了独立的 `observe` 操作：建立自有后台邮箱页并核实账号后立即返回，CLI daemon 保持连接，通过页面 binding 和仅当前用户可访问的 Unix socket 推送事件。空闲观察保留页面监听标记，不占用提供商预留或 Reader 的主动读取借用；列表查询与原文获取继续使用原有 Reader。
+
+按用户 2026-09-28 的上线决定，监听与 Reader 默认共用每个邮箱的一个有头任务页；显式 `SPARKCLAW_MAIL_SHARED_PAGE_CANDIDATE=0` 保留双页回退方式。[合并页验证设计](email-shared-page-validation-design.md)记录当前合并页证据及剩余验证项；下文较早的实测结果描述当时测试的双页布局。
 
 ## 生命周期与边界
 

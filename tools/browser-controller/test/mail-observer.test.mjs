@@ -8,7 +8,7 @@ import {installMailObserverPage} from '../src/mail-observer-page.mjs';
 import {classifyMailNotification} from '../src/mail-notification-rules.mjs';
 import {ResidentMailObservers} from '../src/mail-observers.mjs';
 
-function pageFixture(provider) {
+function pageFixture(provider,{dormant=false}={}) {
   const events = [], sockets = [], timers = new Set();
   class Socket extends EventTarget { constructor() {super(); sockets.push(this);} }
   class XHR extends EventTarget {
@@ -25,11 +25,28 @@ function pageFixture(provider) {
     setInterval(fn) {timers.add(fn); return fn;}, clearInterval(fn) {timers.delete(fn);},
     fetch: nativeFetch,
     __sparkclawMailObservation: async event => events.push(event),
-    SparkClawMailReader:{provider,version:'0.2.0',snapshot(){return {};}}};
+    SparkClawMailReader:{provider,version:'0.2.0',checkAccount(){return true;}}};
   context.window=context;context.top=context;
-  vm.runInNewContext(`(${installMailObserverPage.toString()})(${JSON.stringify({provider,origins:[origin],account:'test@example.test',evidence:true})}, ${classifyMailNotification.toString()})`,context);
+  vm.runInNewContext(`(${installMailObserverPage.toString()})(${JSON.stringify({provider,origins:[origin],account:'test@example.test',evidence:true,dormant})}, ${classifyMailNotification.toString()})`,context);
   return {context,events,sockets,timers,nativeFetch,Worker,Channel};
 }
+
+test('dormant early hooks emit no pre-registration backlog and account checks do not traverse Reader rows',async()=>{
+  const f=pageFixture('gmail',{dormant:true});
+  let checks=0;
+  f.context.SparkClawMailReader.checkAccount=()=>{checks++;return true;};
+  f.context.SparkClawMailReader.snapshot=()=>{throw new Error('row traversal is forbidden');};
+  const xhr=new f.context.XMLHttpRequest();
+  xhr.open('POST','/punctual/multi-watch/channel');xhr.send();
+  xhr.progress('3\n{}\n');
+  assert.equal(f.events.length,0);
+  assert.equal(f.context.__sparkclawMailObserver.activate(),true);
+  assert.equal(f.context.__sparkclawMailObserver.activate(),true);
+  await new Promise(setImmediate);
+  assert.equal(f.events.filter(event=>event.kind==='document').length,1);
+  assert.equal(f.events.filter(event=>event.kind==='mailbox_changed').length,0);
+  assert.equal(checks,1);
+});
 
 test('Gmail fragmented length frames and multiple frames preserve the native XHR return', () => {
   const f=pageFixture('gmail'),xhr=new f.context.XMLHttpRequest();
@@ -105,7 +122,7 @@ test('start returns a parked lease, repeated start reuses it, scope changes fenc
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'sc-mail-watch-'));
   const calls=[];
   const factory={runtimeRoot:root,registry:{entries:new Map([['gmail:read',{provider:'gmail',operation:'read',origins:['https://mail.google.com'],loginURL:'https://mail.google.com/'}]])}};
-  const observer=new ResidentMailObservers(factory,{taskFactory:()=>Object.fromEntries(['attach','createTaskPage','navigate','prepareBackgroundPage','prepareMailRound','closeTaskPage','stop'].map(name=>[name,async()=>{calls.push(name);}]))});
+  const observer=new ResidentMailObservers(factory,{taskFactory:()=>Object.fromEntries(['attach','createTaskPage','navigate','prepareBackgroundPage','prepareMailRound','activateMailObserver','closeTaskPage','stop'].map(name=>[name,async()=>{calls.push(name);}]))});
   const args={provider:'gmail',token:'proof',credentialGeneration:1,input:{schema_version:1,action:'start',account_address:'test@example.test',owner_scope:'a'.repeat(64)}};
   try {
     await observer.prepare();

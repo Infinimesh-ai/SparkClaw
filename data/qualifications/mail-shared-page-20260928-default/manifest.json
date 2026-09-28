@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "at": "2026-09-28T10:25:32.620593+00:00",
+  "decision": "User explicitly selected shared pages as the default and fixes during use. Remaining qualification cases are not marked as passed.",
+  "shared_page_env": null,
+  "shared_page_default": true,
+  "explicit_separate_page_rollback": "SPARKCLAW_MAIL_SHARED_PAGE_CANDIDATE=0",
+  "before_task_tabs": 6,
+  "after_topology": {
+    "schema_version": 1,
+    "state": "ready",
+    "windows": [
+      {
+        "window_id": 2061435990,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 1
+      },
+      {
+        "window_id": 2061435992,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 1
+      },
+      {
+        "window_id": 2061435994,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 1
+      },
+      {
+        "window_id": 2061435996,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 2
+      },
+      {
+        "window_id": 2061435998,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 1
+      },
+      {
+        "window_id": 2061436205,
+        "focused": false,
+        "task_tabs": 3,
+        "stale_task_tabs": 0,
+        "other_tabs": 0
+      }
+    ]
+  },
+  "retained_sessions": 3,
+  "mailboxes": [
+    {
+      "provider": "gmail",
+      "sync_state": "coverage_gap",
+      "watch_state": "watching",
+      "poll_through": "2026-09-28T10:24:50.576358Z",
+      "last_checked_at": "2026-09-28T10:24:51.105702Z",
+      "signal_revision": "67",
+      "coverage_gap_count": "1",
+      "reconciled_revision": "67",
+      "last_sync_error_code": null
+    },
+    {
+      "provider": "outlook",
+      "sync_state": "idle",
+      "watch_state": "watching",
+      "poll_through": "2026-09-28T10:25:18.105652Z",
+      "last_checked_at": "2026-09-28T10:25:23.446956Z",
+      "signal_revision": "59",
+      "coverage_gap_count": null,
+      "reconciled_revision": "59",
+      "last_sync_error_code": null
+    },
+    {
+      "provider": "qq_mail",
+      "sync_state": "idle",
+      "watch_state": "watching",
+      "poll_through": "2026-09-28T10:23:51.124844Z",
+      "last_checked_at": "2026-09-28T10:24:51.066489Z",
+      "signal_revision": "75",
+      "coverage_gap_count": null,
+      "reconciled_revision": "75",
+      "last_sync_error_code": null
+    }
+  ],
+  "gateway_health": "healthy",
+  "gateway_image": "sha256:56f8f961d1050a094b05cea3ad5bd03e7b03cfc82d5c20c1a9494d3a54cc39e0",
+  "gateway_started_at": "2026-09-28T10:23:28.009791025Z",
+  "mount_repair": "mount-repair.json",
+  "source_sha256": {
+    "tools/browser-controller/src/cli-client.mjs": "9b8ed650a9e7e5012a837733c473133c1c550ed78a17fd413d3b5efea76d0a64",
+    "tools/browser-controller/test/mail-shared-page.test.mjs": "d1aab29f6b92b890046297aaf89aa6d207c995c662c705b242550a0e0a5f156b"
+  },
+  "validation": {
+    "controller_pass": 449,
+    "controller_skip": 1,
+    "go_build": "PASS",
+    "go_test": "PASS",
+    "go_vet": "PASS",
+    "provider_contract": "PASS",
+    "managed_script_build_check": "PASS",
+    "installed_components": "PASS",
+    "markdown_files": 93,
+    "webchat_readyz_http": 200
+  },
+  "test_sends": 0,
+  "remaining_qualification": "Full positive-arrival matrix, 45-minute idle, two-hour soak and fault matrix remain incomplete."
+}

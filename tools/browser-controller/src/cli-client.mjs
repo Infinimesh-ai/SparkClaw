@@ -1,7 +1,9 @@
 import {AI_PLATFORM_URLS} from './ai-platform-login.mjs';
 import { spawn } from "node:child_process";
+import fs from 'node:fs/promises';
 import os from "node:os";
 import path from "node:path";
+import crypto from 'node:crypto';
 import { fileURLToPath } from "node:url";
 
 import { PlaywrightCLITask, createProviderRuntime } from "./cli-task.mjs";
@@ -85,6 +87,7 @@ export class PlaywrightCLIClientFactory {
     this.diagnostic = options.diagnostic ?? (() => {});
     this.timingDiagnostic = options.timingDiagnostic ?? (() => {});
     this.captureTimingDiagnostic = options.captureTimingDiagnostic;
+    this.capturePhaseEvidence = options.capturePhaseEvidence === true;
     this.batchReadCommands = options.batchReadCommands !== false;
     this.runtimeRoot = options.runtimeRoot ?? path.join(
       os.tmpdir(),
@@ -93,6 +96,8 @@ export class PlaywrightCLIClientFactory {
     );
     this.emailWorkspaceRoot = options.emailWorkspaceRoot ?? "";
     this.registry = options.registry ?? new ProviderScriptRegistry();
+    this.sharedMailPages = options.sharedMailPages ?? (process.env.SPARKCLAW_MAIL_SHARED_PAGE_CANDIDATE !== '0');
+    this.mailTaskFactory = options.mailTaskFactory ?? (taskOptions => new PlaywrightCLITask(taskOptions));
     this.mailReads = new MailReadPool({idleMS:options.mailReadIdleMS,dispose:lease=>this.#disposeMailRead(lease),diagnostic:this.diagnostic});
     if (
       this.executablePath && !path.isAbsolute(this.executablePath) ||
@@ -112,18 +117,101 @@ export class PlaywrightCLIClientFactory {
   async prepare() {
     await prepareRuntimeRoot(this.runtimeRoot);
     await this.registry.prepare();
+    const manifest = JSON.parse(await fs.readFile(path.resolve(PACKAGE_ROOT,'../../configs/browser-components.json'),'utf8'));
+    this.readerArtifactChecksums = new Map(manifest.scripts.filter(item =>
+      ['qq-mail-reader.user.js','gmail-mail-reader.user.js','outlook-mail-reader.user.js'].includes(item.file))
+      .map(item => [item.file,item.sha256]));
+  }
+
+  #observerVersion(provider) {
+    const file = {qq_mail:'qq-mail-reader.user.js',gmail:'gmail-mail-reader.user.js',outlook:'outlook-mail-reader.user.js'}[provider];
+    const observer = this.registry.entries?.get(`${provider}:observe`)?.sourceChecksum ?? '';
+    const reader = this.readerArtifactChecksums?.get(file) ?? '';
+    return observer || reader ? `${observer}:${reader}` : '';
+  }
+
+  async #ensureMailObservers() {
+    if (!this.mailObservers) {
+      this.mailObservers = new ResidentMailObservers(this);
+      this.mailObserverReady = this.mailObservers.prepare();
+    }
+    await this.mailObserverReady;
+    return this.mailObservers;
+  }
+
+  sharedMailKey({provider, ownerScope, account, token, credentialGeneration}) {
+    const registration = this.registry.entries?.get(`${provider}:collect_page`);
+    const observerChecksum = this.#observerVersion(provider);
+    if (!registration) return null;
+    return this.mailReads.identity({provider, operation:'collect_page',
+      input:{owner_scope:ownerScope,discovery:{provider_mode:'time_range',account_address:account}},
+      credentialGeneration, token, registration, observerChecksum});
+  }
+
+  async createSharedMailPage({provider, account, token, signal, sessionID, taskID, controllerGeneration, sessionGeneration, pageGeneration}, onLease) {
+    const registration = this.registry.entries.get(`${provider}:collect_page`);
+    if (!registration) throw new ControllerError('browser_script_unavailable','mail reader unavailable',{status:503});
+    const state = await createInvocationState(this.runtimeRoot, sessionID, {}, 'collect_page');
+    const lease = {state, client:null, observerKey:crypto.randomBytes(32).toString('hex')};
+    onLease?.(lease);
+    const observer = await this.#ensureMailObservers();
+    const mailObserverConfig = await observer.createConfig(provider, account, state, lease.observerKey);
+    const electronConnection = this.electronAdapter ? await registerElectronConnection({adapter:this.electronAdapter,token,
+      binding:{task_id:taskID,session_id:sessionID,controller_generation:controllerGeneration,
+        session_generation:sessionGeneration,page_generation:pageGeneration}}) : null;
+    lease.client = this.mailTaskFactory({...this, registration:{...registration,timeoutMS:120_000}, state, token, signal,
+      mailObserverConfig, electronConnection});
+    await lease.client.attach();
+    await lease.client.createTaskPage();
+    await lease.client.navigate(registration.loginURL);
+    await lease.client.prepareBackgroundPage();
+    await lease.client.prepareMailRound(account);
+    lease.client.signal = undefined;
+    return lease;
+  }
+
+  async startSharedWatch(args, slot) {
+    const {provider,input,token,credentialGeneration} = args;
+    const key = this.sharedMailKey({provider,ownerScope:input.owner_scope,account:input.account_address,token,credentialGeneration});
+    if (!key) throw new ControllerError('browser_script_unavailable','mail reader unavailable',{status:503});
+    let lease = await this.mailReads.take(provider,key);
+    try {
+      if (lease) {
+        lease.client.renewReadInvocation(this.registry.entries.get(`${provider}:collect_page`),args.signal);
+        await lease.client.prepareMailRound(input.account_address,true);
+      } else lease = await this.createSharedMailPage({...args,account:input.account_address}, value => {lease=value;});
+      slot.key = lease.observerKey;
+      slot.lease = lease;
+      await lease.client.activateMailObserver();
+      if (!this.mailReads.keep(provider,lease,{watch:true})) throw new ControllerError('browser_controller_stopping','browser controller is stopping',{status:503});
+      return lease;
+    } catch (error) {
+      slot.key = '';
+      if (lease) {
+        try {await this.#disposeMailRead(lease);this.mailReads.discard(provider);}
+        catch (cleanupError) {this.mailReads.fenceFailedCleanup(provider,lease);error.cause = cleanupError;}
+      } else this.mailReads.discard(provider);
+      throw error;
+    }
+  }
+
+  invalidateSharedWatch(provider, lease) {
+    const slot = this.mailObservers?.slots.get(provider);
+    if (slot?.lease === lease) {
+      slot.key = '';
+      slot.state = 'degraded';
+      slot.ready = false;
+      this.mailObservers.slots.delete(provider);
+    }
   }
 
   async runScript({ token, sessionID, taskID = "provider-task", controllerGeneration, sessionGeneration = 1, pageGeneration = 1, provider, operation, scriptID, revision, input, signal, credentialGeneration }) {
     if (operation === 'observe') {
       const registration = this.registry.resolve({provider, operation, scriptID, revision});
       registration.validate(input);
-      if (!this.mailObservers) {
-        this.mailObservers = new ResidentMailObservers(this);
-        this.mailObserverReady = this.mailObservers.prepare();
-      }
-      await this.mailObserverReady;
-      const result = await this.mailObservers.run({provider, input, token, credentialGeneration, signal});
+      const observer = await this.#ensureMailObservers();
+      const result = await observer.run({provider, input, token, credentialGeneration, signal,
+        sessionID,taskID,controllerGeneration,sessionGeneration,pageGeneration});
       return {state: 'completed', result, sourceChecksum: registration.sourceChecksum};
     }
     const started = performance.now();
@@ -149,7 +237,8 @@ export class PlaywrightCLIClientFactory {
       registration = this.registry.resolve({ provider, operation, scriptID, revision });
       registration.validate(input);
       phase = "runtime";
-      poolKey = this.mailReads.identity({provider,operation,input,credentialGeneration,token,registration});
+      poolKey = this.mailReads.identity({provider,operation,input,credentialGeneration,token,registration,
+        observerChecksum:this.#observerVersion(provider)});
       if (poolKey) {
         lease = await this.mailReads.take(provider,poolKey);
         poolReserved = true;
@@ -162,7 +251,10 @@ export class PlaywrightCLIClientFactory {
             // No provider query has run yet. Only a broken task/connection may
             // be rebuilt once; an account/login failure is never papered over.
             if (!(error instanceof ControllerError) || !['browser_page_stale','browser_extension_unavailable'].includes(error.code)) throw error;
+            this.invalidateSharedWatch(provider,lease);
             await this.#disposeMailRead(lease);
+            this.mailReads.discard(provider);
+            await this.mailReads.take(provider,poolKey);
             state = client = lease = undefined;
           }
         }
@@ -180,7 +272,9 @@ export class PlaywrightCLIClientFactory {
           },
         }) : null;
         state = await createInvocationState(this.runtimeRoot, sessionID, input, operation);
-        client = new PlaywrightCLITask({
+        const observerKey = this.sharedMailPages && poolKey && this.registry.entries?.has(`${provider}:observe`) ? crypto.randomBytes(32).toString('hex') : undefined;
+        const mailObserverConfig = observerKey ? await (await this.#ensureMailObservers()).createConfig(provider,input.discovery.account_address,state,observerKey) : undefined;
+        client = this.mailTaskFactory({
           entryPoint: this.entryPoint,
           browserChannel: this.browserChannel,
           connectTimeoutMS: this.connectTimeoutMS,
@@ -196,8 +290,10 @@ export class PlaywrightCLIClientFactory {
           userDataDir: this.userDataDir,
           emailWorkspaceRoot: this.emailWorkspaceRoot,
           captureTimingDiagnostic: this.captureTimingDiagnostic,
+          capturePhaseEvidence: this.capturePhaseEvidence,
           batchReadCommands: this.batchReadCommands,
           electronConnection,
+          mailObserverConfig,
         });
         phase = "attach";
         await measure("attach", () => client.attach());
@@ -213,7 +309,7 @@ export class PlaywrightCLIClientFactory {
           phase = 'prepare_mail_round';
           await measure(phase,()=>client.prepareMailRound(input.discovery.account_address));
         }
-        lease = {state,client};
+        lease = {state,client,observerKey};
       }
       phase = "provider_handler";
       result = await measure("provider_handler", () => registration.handler(input, createProviderRuntime(client, registration)));
@@ -228,11 +324,12 @@ export class PlaywrightCLIClientFactory {
         } catch(error) {cleanupFailure=error;cleanupPhase='park_mail_round';}
       }
       if (poolReserved && client && !failure && !signal?.aborted && result && !retained) {
-        this.#diagnosePoolRejection(provider, result);
+        await this.#diagnosePoolRejection(provider, result, client);
       }
       if(poolReserved && !retained) {
         if(state) {
           lease??={state,client};
+          this.invalidateSharedWatch(provider,lease);
           try {
             await measure('dispose_mail_round',()=>this.#disposeMailRead(lease));
             this.mailReads.discard(provider);
@@ -383,7 +480,10 @@ export class PlaywrightCLIClientFactory {
     if(failure)throw failure;
   }
 
-  async drainIdleMailReads() {await this.mailReads.drain();}
+  async drainIdleMailReads() {
+    if (this.sharedMailPages) this.mailObservers?.suspendAll();
+    await this.mailReads.drain();
+  }
   async close() {
     let failure;
     try {await this.mailObservers?.close();} catch(error) {failure=error;}
@@ -438,7 +538,7 @@ export class PlaywrightCLIClientFactory {
     }
   }
 
-  #diagnosePoolRejection(provider, result) {
+  async #diagnosePoolRejection(provider, result, client) {
     const status = ["partial", "collected", "empty"].includes(result?.status)
       ? result.status
       : "unknown";
@@ -457,6 +557,30 @@ export class PlaywrightCLIClientFactory {
       });
     } catch {
       // Diagnostics must not change browser execution behavior.
+    }
+    if (this.capturePhaseEvidence && client && failureCodes.length) {
+      try {
+        const details = await client.runReadCode(`async page=>page.evaluate(()=>{
+          const value=window.SparkClawMailReader?.diagnostics?.();
+          return {original_state:value?.original?.state,original_response:value?.original?.response,list_stage:value?.list?.stage,
+            list_template:value?.list?.template,records:value?.records};
+        })`, 5_000);
+        const state = typeof details?.original_state === 'string' && /^[a-z_0-9]{1,40}$/u.test(details.original_state)
+          ? details.original_state : 'unavailable';
+        const stage = typeof details?.list_stage === 'string' && /^[a-z_0-9]{1,40}$/u.test(details.list_stage)
+          ? details.list_stage : 'unavailable';
+        this.diagnostic({event:'browser_mail_reader_rejection',provider,original_state:state,
+          original_response: {
+            status:Number.isInteger(details?.original_response?.status)?details.original_response.status:0,
+            type:['message/rfc822','text/plain','text/html','application/json','application/octet-stream'].includes(details?.original_response?.type)?details.original_response.type:'other',
+            bytes:Number.isSafeInteger(details?.original_response?.bytes)?details.original_response.bytes:0,
+            provider_code:Number.isSafeInteger(details?.original_response?.provider_code)?details.original_response.provider_code:null,
+          },
+          list_stage:stage,list_template:details?.list_template===true,
+          records:Number.isSafeInteger(details?.records)?details.records:0});
+      } catch {
+        // Qualification diagnostics cannot affect failure cleanup.
+      }
     }
   }
 }

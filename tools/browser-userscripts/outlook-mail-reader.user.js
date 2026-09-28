@@ -293,6 +293,11 @@ const parseQQMailList=function parseQQMailList(value) {
   let listRequest = null, networkQuery = null, inbox = null, transport = null, objectURL = null, originalAbort = null;
   let originalBytes = null, originalMessageID = '';
   let originalState = 'unlearned', responseOrigin = '';
+  let originalResponse = null;
+  // QQ rejects bursts of otherwise valid /read/readmail requests with its
+  // -20003 abuse-control envelope. Space completed original requests across
+  // Reader rounds; resetting source buffers must not reset this pacing.
+  let qqOriginalReadyAt = 0;
   let listStage = 'idle';
   let nativeQueryReply = null;
   let active = true, account = '', binding = null, anchor = null;
@@ -316,7 +321,7 @@ const parseQQMailList=function parseQQMailList(value) {
     anchor?.remove(); anchor=null;
     if(objectURL)URL.revokeObjectURL(objectURL);
     objectURL=null; originalBytes=null; originalMessageID='';
-    originalState='unlearned'; responseOrigin=''; listStage='idle';
+    originalState='unlearned'; responseOrigin=''; originalResponse=null; listStage='idle';
     return {provider:config.provider,account_address:account};
   }
   // Gateway checkpoints carry micro/nanoseconds; Date.parse alone truncates
@@ -507,11 +512,32 @@ const parseQQMailList=function parseQQMailList(value) {
             !(config.provider === 'outlook' && url.origin === 'https://attachment.outlook.live.net'))) failure('email_network_original_unqualified');
     } catch (error) { failure(error.code || 'email_network_original_unqualified'); }
     if(originalAbort)failure('email_network_original_unqualified');
-    originalState='fetching';originalAbort=new AbortController();
+    originalState='fetching';originalResponse=null;originalAbort=new AbortController();
+    const originalSignal=AbortSignal.any([originalAbort.signal,AbortSignal.timeout(20000)]);
+    let requested=false;
     return (async()=>{
       try {
-        const response=await originalFetch.call(window,url.href,{credentials:url.origin===location.origin?'same-origin':'omit',redirect:config.provider==='gmail'?'follow':'error',cache:'no-store',signal:AbortSignal.any([originalAbort.signal,AbortSignal.timeout(20000)])});
-        originalState='http_'+response.status;responseOrigin=response.url?new URL(response.url).origin:'';if(response.url&&responseOrigin!==url.origin&&!(config.provider==='gmail'&&responseOrigin==='https://mail-attachment.googleusercontent.com'))failure('email_network_original_unqualified');if(!response.ok)failure('email_network_original_unqualified');
+        if(config.provider==='qq_mail') {
+          const delay=qqOriginalReadyAt-performance.now();
+          if(delay>0) {
+            originalState='pacing';
+            await new Promise((resolve,reject)=>{
+              const aborted=()=>{clearTimeout(timer);originalSignal.removeEventListener('abort',aborted);reject(originalSignal.reason);};
+              const timer=setTimeout(()=>{originalSignal.removeEventListener('abort',aborted);resolve();},delay);
+              originalSignal.addEventListener('abort',aborted,{once:true});
+              if(originalSignal.aborted)aborted();
+            });
+          }
+          checkedAccount(account_address);
+        }
+        originalSignal.throwIfAborted();
+        if(!active)failure('email_network_original_unqualified');
+        originalState='fetching';requested=true;
+        const response=await originalFetch.call(window,url.href,{credentials:url.origin===location.origin?'same-origin':'omit',redirect:config.provider==='gmail'?'follow':'error',cache:'no-store',signal:originalSignal});
+        originalState='http_'+response.status;responseOrigin=response.url?new URL(response.url).origin:'';
+        const mediaType=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
+        originalResponse={status:response.status,type:['message/rfc822','text/plain','text/html','application/json','application/octet-stream'].includes(mediaType)?mediaType:'other',bytes:0};
+        if(response.url&&responseOrigin!==url.origin&&!(config.provider==='gmail'&&responseOrigin==='https://mail-attachment.googleusercontent.com'))failure('email_network_original_unqualified');if(!response.ok)failure('email_network_original_unqualified');
         const reader=response.body.getReader(),chunks=[];let length=0;
         try {
           for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>110<<20){void reader.cancel();failure('email_capture_limit');}chunks.push(value);}
@@ -519,6 +545,7 @@ const parseQQMailList=function parseQQMailList(value) {
         checkedAccount(account_address);
         if(!active)failure('email_network_original_unqualified');
         const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+        originalResponse.bytes=length;
         const header=new TextDecoder().decode(bytes.subarray(0,Math.min(bytes.length,65536)));
         const headerEnd=header.search(/\r?\n\r?\n/);
         const headerBlock=headerEnd<0?'':header.slice(0,headerEnd);
@@ -531,7 +558,19 @@ const parseQQMailList=function parseQQMailList(value) {
         // A provider's HTML "show original" page may embed From: and a blank
         // line much later. It is an adapter response error, not a bad email and
         // must never consume a mail-specific retry allowance.
-        if(headerEnd<0||!validHeaders||!/^From:/im.test(headerBlock))failure('email_network_original_unqualified');
+        if(headerEnd<0||!validHeaders||!/^From:/im.test(headerBlock)) {
+          originalState='invalid_headers';
+          // Retain only bounded numeric provider status, never response text,
+          // headers, request URLs or mailbox identities in diagnostics.
+          if(config.provider==='qq_mail' && length<=65536) {
+            try {const code=JSON.parse(header)?.head?.ret;if(Number.isSafeInteger(code)&&Math.abs(code)<=1000000)originalResponse.provider_code=code;} catch {}
+            if(mediaType==='application/json' && originalResponse.provider_code===-20003) {
+              originalState='provider_rejected';
+              failure('email_network_read_failed');
+            }
+          }
+          failure('email_network_original_unqualified');
+        }
         anchor?.remove();if(objectURL)URL.revokeObjectURL(objectURL);
         originalBytes = bytes;
         originalMessageID = provider_message_id;
@@ -543,9 +582,12 @@ const parseQQMailList=function parseQQMailList(value) {
         if(bytes.length<=inlineOriginalLimit) { result.inline_bytes=bytes.length; result.inline_base64=base64(bytes); }
         return result;
       }catch(error){
-        if(['email_account_identity_mismatch','email_account_identity_unavailable','email_capture_limit'].includes(error.code))throw error;
+        if(['email_account_identity_mismatch','email_account_identity_unavailable','email_capture_limit','email_network_read_failed'].includes(error.code))throw error;
         if(originalState==='fetching')originalState='fetch_failed';failure('email_network_original_unqualified');
-      }finally{originalAbort=null;}
+      }finally{
+        if(config.provider==='qq_mail' && requested)qqOriginalReadyAt=performance.now()+1000;
+        originalAbort=null;
+      }
     })();
   }
 
@@ -719,7 +761,12 @@ const parseQQMailList=function parseQQMailList(value) {
   }});
   Object.defineProperty(window, 'SparkClawMailReader', {configurable:true, value:Object.freeze({
     armRangeSearch(request){checkedAccount(request.account_address);if(!transport?.armRangeSearch)failure('email_network_list_unqualified');return transport.armRangeSearch(request);},
-    version:'0.2.0', provider:config.provider, diagnostics:()=>({original:{state:originalState,responseOrigin},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
+    version:'0.2.0', provider:config.provider, checkAccount({account_address}) {
+      const current=config.account()?.toLowerCase();
+      if(!current)failure('email_account_identity_unavailable');
+      if(account && account!==current || account_address?.toLowerCase()!==current)failure('email_account_identity_mismatch');
+      return true;
+    }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
     listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,
     verifyTarget({account_address,provider_message_id,provider_selection_id,folder}) {
       checkedAccount(account_address);

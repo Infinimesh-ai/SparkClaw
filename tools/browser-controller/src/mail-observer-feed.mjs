@@ -55,6 +55,7 @@ export class MailObserverFeed {
         const next=desired.get(provider);
         if (!next || next.identity!==b.identity || next.mailbox_id!==b.mailbox_id || next.binding_generation!==b.binding_generation) {
           b.retired=true; this.bindings.delete(provider); this.work.get(provider)?.abort.abort();
+          if (this.controller.scriptFactory?.sharedMailPages) this.controller.scriptFactory.mailObservers?.revoke?.(provider);
         }
       }
       for (const [provider,b] of desired) if (!this.bindings.has(provider)) {
@@ -124,21 +125,27 @@ export class MailObserverFeed {
     if (this.now()>=this.expires) {
       this.bindings.clear(); this.token=undefined; this.notify();
       for (const work of this.work.values()) work.abort.abort();
+      if (this.controller.scriptFactory?.sharedMailPages) for (const provider of providers) this.controller.scriptFactory.mailObservers?.revoke?.(provider);
     }
     for (const provider of providers) {
       if (this.work.has(provider)) continue;
       const b=this.bindings.get(provider), manager=this.controller.scriptFactory?.mailObservers;
       const slot=manager?.slots.get(provider);
       if (b && manager?.recoveries.has(provider)) continue;
+      if (b && !slot && (manager?.pendingRecovery?.get(provider)?.restarts??0)>=3) continue;
       if (!b && (!slot || !this.owned.has(provider))) continue;
-      if (b && slot?.identity===b.identity && slot.ready) {
+      if (b && slot?.identity===b.identity && slot.ready && manager.status(provider).state!=='degraded') {
         this.observe(provider,{...slot,state:manager.status(provider).state},'state'); continue;
+      }
+      if (b && slot?.identity===b.identity && slot.ready && manager.status(provider).state==='degraded' &&
+          (slot.restarts>=3 || this.now()<(slot.retryAt??0))) {
+        this.observe(provider,{...slot,state:'degraded'},'state'); continue;
       }
       if (b && this.now()<(b.retryAt??0)) continue;
       const abort=new AbortController();
       const promise=(async () => {
-        // Retire only the observer task. Never operate on Reader's page.
-        if (slot) {await manager.recoveries.get(provider); await manager.stop(provider); this.owned.delete(provider);}
+        if (slot) {await manager.recoveries.get(provider); await manager.stop(provider,
+          {recover:Boolean(b && slot.identity===b.identity && manager.status(provider).state==='degraded')}); this.owned.delete(provider);}
         if (!b || this.bindings.get(provider)!==b || this.closed) return;
         this.owned.add(provider);
         await this.controller.runScript({profile_id:this.controller.profileID,token:this.token,credential_generation:this.generation,

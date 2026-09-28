@@ -55,6 +55,35 @@ For an Outlook recipient, SPARKCLAW_TEST_NOTIFICATION_OUTLOOK_IDENTITY must name
 a private JSON proof exported from a verified outgoing original with
 SPARKCLAW_TEST_NOTIFICATION_RECEIPT_IDENTITY; a login alias is insufficient.
 All uncertain sends are reconciled by unique-marker original, never repeated.
+SPARKCLAW_TEST_NOTIFICATION_SENDER_CONTROLLER_SOCKET selects a second, isolated
+Controller for sending from the same dedicated browser while the observer
+Controller keeps its recipient watch. The sender Controller must not register
+the recipient binding; both Controllers must be stopped before the production
+Controller returns. This intentionally tests same-profile sender isolation.
+SPARKCLAW_TEST_NOTIFICATION_SHARED_READ_LOOP=1 repeatedly collects and verifies
+one frozen historical original on the receiver's shared page during a send.
+Set SPARKCLAW_MAIL_CAPTURE_PHASE_EVIDENCE=1 on that Controller for redacted
+list/original stage timestamps. An event overlapping the whole collect_page
+call alone is not a phase-level B02 pass.
+
+SPARKCLAW_TEST_SHARED_PAGE=1 runs a read-only three-provider shared-page smoke
+through --controller-socket. Run it sequentially with an isolated Controller
+started with SPARKCLAW_MAIL_SHARED_PAGE_CANDIDATE=0 (baseline) or 1 (candidate),
+never alongside another Controller for the same dedicated browser profile.
+SPARKCLAW_TEST_SHARED_PAGE_CLI_RUNTIME_DIR and
+SPARKCLAW_TEST_SHARED_PAGE_EXPECT_SESSIONS may assert the retained owner count;
+SPARKCLAW_TEST_SHARED_PAGE_HOLD_SECONDS=1..120 leaves a bounded observation
+window for an external task-tab snapshot. Set
+SPARKCLAW_TEST_SHARED_PAGE_NONEMPTY=1 with
+SPARKCLAW_TEST_SHARED_PAGE_LABEL=baseline or candidate,
+an absolute SPARKCLAW_TEST_SHARED_PAGE_FIXTURE_DIR and an absolute
+SPARKCLAW_TEST_EMAIL_WORKSPACE_ROOT to compare frozen historical 1/2-original
+rounds and replay. Run baseline first; retain the private fixture directory for
+the candidate. This smoke does not qualify in-flight arrivals, fault injection
+or the two-hour release gate.
+SPARKCLAW_TEST_SHARED_PAGE_STRESS_QQ_ROUNDS=1..150 adds fresh, verified QQ
+historical-original rounds during a nonempty comparison; record every failed
+run as well as successful reruns.
 
 Options:
   --profile local|remote       Product profile to load (default: remote)
@@ -221,5 +250,11 @@ if [[ "${SPARKCLAW_TEST_NOTIFICATION_OBSERVE:-}" == 1 ]]; then
 fi
 if [[ "${SPARKCLAW_TEST_RESIDENT_NOTIFICATION:-}" == 1 ]]; then
   live_test='^TestEmailResidentNotificationLive$'
+fi
+if [[ "${SPARKCLAW_TEST_SHARED_PAGE:-}" == 1 ]]; then
+  live_test='^TestMailSharedPageLive$'
+fi
+if [[ "${SPARKCLAW_TEST_SHARED_PAGE_SENDER_PROOF:-}" == 1 ]]; then
+  live_test='^TestMailSharedPageHistoricalSenderProof$'
 fi
 go test -timeout=30m -count=1 -run "$live_test" -v ./internal/emailautomation

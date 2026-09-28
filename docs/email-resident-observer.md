@@ -2,7 +2,9 @@
 
 [简体中文](../zh-cn/docs/email-resident-observer.md)
 
-The Controller now has a registered `observe` operation for `qq_mail`, `gmail` and consumer `outlook`. It creates one owned background mailbox task per provider and returns after account validation. The CLI daemon stays attached; a native page binding pushes events to an owner-only Unix socket. Idle observation does not retain the Controller's provider reservation or the Reader lease. Reader discovery and original acquisition continue through their existing registered operations.
+The Controller now has a registered `observe` operation for `qq_mail`, `gmail` and consumer `outlook`. It creates one owned background mailbox task per provider and returns after account validation. The CLI daemon stays attached; a native page binding pushes events to an owner-only Unix socket. Idle observation holds a page watch pin, but does not retain the Controller's provider reservation or an active Reader borrower. Reader discovery and original acquisition continue through their existing registered operations.
+
+Since the user’s 2026-09-28 rollout decision, observer and Reader share one headed task page per mailbox by default. Explicit `SPARKCLAW_MAIL_SHARED_PAGE_CANDIDATE=0` retains the separate-page fallback. The [shared-page validation design](email-shared-page-validation-design.md) records current shared-page evidence and remaining checks; the earlier live results below describe the separate-page layout tested at that time.
 
 ## Lifecycle and boundaries
 

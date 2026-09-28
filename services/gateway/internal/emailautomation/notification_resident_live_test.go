@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/mail"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -154,12 +155,39 @@ func TestEmailResidentNotificationLive(t *testing.T) {
 	if os.Getenv("SPARKCLAW_TEST_RESIDENT_SEND") != "1" {
 		return
 	}
+	sendRunner := runner
+	if socket := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_SENDER_CONTROLLER_SOCKET"); socket != "" {
+		sendClient, senderErr := browsercontrol.NewHTTPControllerClient(socket, 15*time.Second)
+		if senderErr != nil {
+			t.Fatal("independent sender Controller unavailable")
+		}
+		defer sendClient.Close()
+		sender := browsercontrol.New(vault, sendClient, "default")
+		sender.Initialize(ctx)
+		defer sender.Close()
+		if senderStatus, checkErr := sender.Check(ctx); checkErr != nil || !senderStatus.Configured || senderStatus.CredentialGeneration != status.CredentialGeneration {
+			t.Fatal("independent sender credential does not match receiver")
+		}
+		sendRunner = NewPlaywrightRunner(liveWaitingController{Service: sender, t: t})
+	}
 	routes := [][2]string{{"outlook", "qq_mail"}, {"gmail", "qq_mail"}, {"qq_mail", "gmail"}, {"gmail", "outlook"}, {"outlook", "gmail"}, {"qq_mail", "outlook"}}
 	recipients := map[string]string{}
 	for id, identity := range accounts {
 		if id != "outlook" {
 			recipients[id] = identity.address
 		}
+	}
+	if proofPath := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_OUTLOOK_IDENTITY"); proofPath != "" {
+		var proof struct {
+			Marker string `json:"marker"`
+			Sender string `json:"sender"`
+		}
+		raw, readErr := os.ReadFile(proofPath)
+		if !filepath.IsAbs(proofPath) || readErr != nil || json.Unmarshal(raw, &proof) != nil ||
+			!strings.HasPrefix(proof.Marker, "SCW-mail-") || !mailAddressPattern.MatchString(proof.Sender) {
+			t.Fatal("verified Outlook outgoing identity required")
+		}
+		recipients["outlook"] = proof.Sender
 	}
 	if route := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_ROUTE"); route != "" {
 		parts := strings.Split(route, ":")
@@ -179,6 +207,81 @@ func TestEmailResidentNotificationLive(t *testing.T) {
 		}
 		marker := "SCW-" + strings.ReplaceAll(app.NewID("mail"), "_", "-")
 		start := time.Now().UTC().Add(-time.Minute)
+		type readInterval struct{ began, ended time.Time }
+		type readLoopResult struct {
+			intervals []readInterval
+			failure   string
+		}
+		var completedIntervals []readInterval
+		var readDone chan readLoopResult
+		var stopReads func()
+		if os.Getenv("SPARKCLAW_TEST_NOTIFICATION_SHARED_READ_LOOP") == "1" {
+			workspace := os.Getenv("SPARKCLAW_TEST_EMAIL_WORKSPACE_ROOT")
+			if !filepath.IsAbs(workspace) {
+				t.Fatal("shared read loop needs an absolute workspace root")
+			}
+			inventoryStart := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+			if route[1] == "outlook" {
+				inventoryStart = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+			}
+			inventory, inventoryErr := runner.Discover(ctx, to.provider, ReadRequest{Provider: route[1], Account: app.EmailAccountDefault,
+				OwnerScope: scope, InvocationID: app.NewID("resident_shared_inventory"), BrowserCredentialGeneration: to.probe.Generation,
+				ProbeRevision: to.provider.Probe.Revision, ScriptRevision: to.provider.Discover.Revision,
+				Discovery: &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: to.address,
+					IntervalStart: inventoryStart, IntervalEnd: time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC),
+					Limit: 50, ProviderMode: app.EmailProviderModeTimeRange}})
+			if inventoryErr != nil || len(inventory.Candidates) == 0 {
+				t.Fatal("shared read loop requires a historical target")
+			}
+			target := inventory.Candidates[0]
+			stopChannel := make(chan struct{})
+			stopReads = func() { close(stopChannel) }
+			readDone = make(chan readLoopResult, 1)
+			go func() {
+				intervals := []readInterval{}
+				failure := ""
+				emptyStart := map[string]time.Time{
+					"qq_mail": time.UnixMilli(1789477863000).UTC(),
+					"gmail":   time.UnixMilli(1789533548432).UTC(),
+					"outlook": time.UnixMilli(1788851630069).UTC(),
+				}[route[1]].Truncate(time.Second).Add(time.Second)
+				for len(intervals) < 300 {
+					select {
+					case <-stopChannel:
+						readDone <- readLoopResult{intervals, failure}
+						return
+					default:
+					}
+					request := ReadRequest{Provider: route[1], Account: app.EmailAccountDefault, OwnerScope: scope,
+						InvocationID: app.NewID("resident_shared_round"), BrowserCredentialGeneration: to.probe.Generation,
+						ProbeRevision: to.provider.Probe.Revision, ScriptRevision: to.provider.CollectPage.Revision,
+						Discovery: &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: to.address,
+							IntervalStart: emptyStart, IntervalEnd: emptyStart.Add(time.Second), Limit: 50,
+							ProviderMode: app.EmailProviderModeTimeRange, RetryTargets: []app.EmailCaptureTarget{target}}}
+					began := time.Now().UTC()
+					page, readErr := runner.CollectPage(ctx, to.provider, request)
+					ended := time.Now().UTC()
+					if readErr != nil {
+						failure = string(ErrorCode(readErr))
+						break
+					}
+					if len(page.Captures) != 1 || len(page.Failures) != 0 {
+						failure = "incomplete_original"
+						break
+					}
+					bind := request
+					bind.Target = &page.Captures[0].Target
+					bind.InvocationID = PageCaptureInvocationID(request.InvocationID, route[1], page.Captures[0].Target)
+					if verifyCapture(ctx, workspace, bind, page.Captures[0].Result) != nil {
+						failure = "original_verification_failed"
+						break
+					}
+					intervals = append(intervals, readInterval{began, ended})
+					t.Logf("shared receiver collect_page round=%d began=%s ended=%s", len(intervals), began.Format(time.RFC3339Nano), ended.Format(time.RFC3339Nano))
+				}
+				readDone <- readLoopResult{intervals, failure}
+			}()
+		}
 		t.Logf("sending %s -> %s marker=%s", route[0], route[1], marker)
 		sendRequest := SendRequest{Provider: route[0], Account: app.EmailAccountDefault, Recipient: recipients[route[1]], Subject: marker, Body: "SparkClaw resident notification qualification " + marker, InvocationID: app.NewID("resident_send"), BrowserCredentialGeneration: from.probe.Generation, ProbeRevision: from.provider.Probe.Revision, ScriptRevision: from.provider.Send.Revision}
 		if route[0] == "outlook" {
@@ -187,14 +290,54 @@ func TestEmailResidentNotificationLive(t *testing.T) {
 			sendRequest.To = []string{recipients[route[1]]}
 			sendRequest.Recipient = ""
 		}
-		_, err := runner.Send(ctx, from.provider, sendRequest)
+		_, err := sendRunner.Send(ctx, from.provider, sendRequest)
 		if err != nil {
 			t.Logf("send outcome uncertain (%s); reconcile without resend", ErrorCode(err))
 		} else {
 			t.Log("send confirmed")
 		}
-		time.Sleep(15 * time.Second)
-		t.Logf("%s after send: %s", route[1], observe(route[1], "status"))
+		if stopReads != nil {
+			time.Sleep(25 * time.Second)
+			stopReads()
+			readResult := <-readDone
+			completedIntervals = readResult.intervals
+			t.Logf("%s shared receiver completed rounds=%d", route[1], len(readResult.intervals))
+			if readResult.failure != "" || len(readResult.intervals) == 0 {
+				t.Fatalf("shared receiver Reader loop failed: %s", readResult.failure)
+			}
+		} else {
+			time.Sleep(15 * time.Second)
+		}
+		afterSend := observe(route[1], "status")
+		t.Logf("%s after send: %s", route[1], afterSend)
+		if len(completedIntervals) > 0 {
+			var watch struct {
+				Events []struct {
+					At   string `json:"at"`
+					Kind string `json:"kind"`
+				} `json:"events"`
+			}
+			if json.Unmarshal(afterSend, &watch) != nil {
+				t.Fatal("shared receiver watch evidence invalid")
+			}
+			overlaps := 0
+			for _, event := range watch.Events {
+				if event.Kind != "mailbox_changed" {
+					continue
+				}
+				at, parseErr := time.Parse(time.RFC3339Nano, event.At)
+				if parseErr != nil {
+					continue
+				}
+				for _, interval := range completedIntervals {
+					if !at.Before(interval.began) && !at.After(interval.ended) {
+						overlaps++
+						break
+					}
+				}
+			}
+			t.Logf("%s native event overlapping whole collect_page=%d", route[1], overlaps)
+		}
 		original := verifyLiveNotificationReceipt(t, ctx, runner, to.provider, scope, to.address, to.probe, marker, start)
 		message, err := mail.ReadMessage(bytes.NewReader(original))
 		if err != nil {

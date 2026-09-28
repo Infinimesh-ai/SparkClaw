@@ -178,6 +178,7 @@ switch (command) {
       evaluate: async (callback, argument) => {
         const window={__sparkclawMailDocument:state.mailDocumentNonce};
         if(process.env.FAKE_CLI_MAIL_READER==='1') window.SparkClawMailReader={
+          diagnostics:()=>JSON.parse(process.env.FAKE_CLI_MAIL_DIAGNOSTICS||'{}'),
           provider:process.env.FAKE_CLI_MAIL_PROVIDER??'gmail',version:'0.2.0',resetRound:request=>{
             if(state.mailAccountMismatch)throw Object.assign(new Error('account mismatch'),{code:'email_account_identity_mismatch'});
             state.mailResets=(state.mailResets??0)+1;

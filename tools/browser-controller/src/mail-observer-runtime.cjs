@@ -3,6 +3,7 @@
 const fs = require('node:fs/promises');
 const net = require('node:net');
 const installed = new WeakSet();
+const activated = new WeakSet();
 async function install(page) {
   if (installed.has(page)) return;
   const configPath = process.env.SPARKCLAW_MAIL_OBSERVER_CONFIG;
@@ -22,7 +23,18 @@ async function install(page) {
     socket.write(data + '\n'); dropped = 0;
   });
   page.once('close', () => socket.end());
-  await page.addInitScript({content: `(${installMailObserverPage.toString()})(${JSON.stringify({provider: config.provider, account: config.account, origins: config.origins, evidence: config.evidence === true})}, ${classifyMailNotification.toString()});`});
+  await page.addInitScript({content: `(${installMailObserverPage.toString()})(${JSON.stringify({provider: config.provider, account: config.account, origins: config.origins, evidence: config.evidence === true, dormant: true, fastAccount:config.shared===true})}, ${classifyMailNotification.toString()});`});
   installed.add(page);
 }
-module.exports = {install};
+async function activate(page) {
+  if (!installed.has(page)) throw new Error('mail_observer_not_installed');
+  if (!activated.has(page)) {
+    activated.add(page);
+    page.on('domcontentloaded', () => {
+      void page.evaluate(() => window.__sparkclawMailObserver?.activate()).catch(() => {});
+    });
+  }
+  const active = await page.evaluate(() => window.__sparkclawMailObserver?.activate());
+  if (active !== true) throw new Error('mail_observer_not_ready');
+}
+module.exports = {install,activate};

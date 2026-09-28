@@ -673,15 +673,21 @@ export async function capturePage(input, runtime, provider, adapter) {
 // commits, so a lost response replays this exact batch without another download.
 async function captureTimelinePage(input, runtime, provider, adapter) {
   const started=performance.now(),milliseconds={},counts={originals_acquired:0,original_bytes:0,reused:0,failures:0};
+  const phaseEvidence=runtime.capturePhaseEvidence===true,intervals={};
   const timing={counts,measure:async(name,action)=>{
     const start=performance.now();
-    try{return await action();}finally{milliseconds[name]=(milliseconds[name]??0)+Math.max(0,performance.now()-start);}
+    const beganAt=phaseEvidence?new Date().toISOString():'';
+    try{return await action();}finally{
+      milliseconds[name]=(milliseconds[name]??0)+Math.max(0,performance.now()-start);
+      if(phaseEvidence)(intervals[name]??=[]).push({began_at:beganAt,ended_at:new Date().toISOString()});
+    }
   }};
   try{return await captureTimelinePageMeasured(input,runtime,provider,adapter,timing);}
   finally{
     try{
       // Local opt-in diagnostics only; no account, message, path, or error text.
       const record={provider:['gmail','qq_mail','outlook'].includes(provider)?provider:'unknown',operation:'collect_page',milliseconds:{...milliseconds,total:Math.max(0,performance.now()-started)},counts:{...counts}};
+      if(phaseEvidence){record.round_alias=hash(input.invocation_id).slice(0,16);record.intervals=intervals;}
       Promise.resolve(runtime.captureTimingDiagnostic?.(record)).catch(()=>{});
     }catch{/* Observability must never affect capture or durability. */}
   }

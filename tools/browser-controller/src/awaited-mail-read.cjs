@@ -9,6 +9,10 @@ async function waitForMailRead(tab, params, callback) {
     await require('./mail-observer-runtime.cjs').install(tab.page);
     return await callback();
   }
+  if (process.env.SPARKCLAW_MAIL_OBSERVER_CONFIG && params.code === '/* sparkclaw:activate-mail-observer:v1 */ async page => true') {
+    await require('./mail-observer-runtime.cjs').activate(tab.page);
+    return await callback();
+  }
   if (process.env.SPARKCLAW_AWAITED_MAIL_READ === '1' &&
       typeof params.code === 'string' && params.code.startsWith(MARKER) &&
       !params.filename) return await callback();

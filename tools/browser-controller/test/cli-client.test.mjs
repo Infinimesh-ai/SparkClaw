@@ -1064,6 +1064,7 @@ async function createHarness(t, extraEnv = {}, options = {}) {
     extraEnv: { FAKE_CLI_LOG: logPath, ...extraEnv },
     diagnostic: (record) => diagnostics.push(record),
     timingDiagnostic: options.timingDiagnostic,
+    capturePhaseEvidence: options.capturePhaseEvidence,
     mailReadIdleMS:options.mailReadIdleMS,
     registry: createRegistry(options),
   });
@@ -1114,6 +1115,23 @@ test('a non-reusable mail round emits only bounded failure codes before disposal
   assert.deepEqual(harness.diagnostics,[{
     event:'browser_mail_pool_not_retained',provider:'gmail',status:'partial',failure_codes:['email_network_list_unqualified'],
   }]);
+  assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
+});
+
+test('opt-in rejection diagnostics preserve response classification without private payloads',async t=>{
+  const harness=await createHarness(t,{FAKE_CLI_MAIL_READER:'1',FAKE_CLI_MAIL_DIAGNOSTICS:JSON.stringify({
+    original:{state:'invalid_headers',responseOrigin:'private origin',response:{status:200,type:'application/json',bytes:71,provider_code:-77,body:'private payload'}},
+    list:{stage:'qq_complete',template:true},records:0,
+  })},{capturePhaseEvidence:true,readOperation:'collect_page',readHandler:async()=>({
+    status:'partial',failures:[{error_code:'email_network_original_unqualified'}],
+  })});
+  assert.equal((await runPooled(harness,308)).state,'completed');
+  assert.deepEqual(harness.diagnostics.at(-1),{
+    event:'browser_mail_reader_rejection',provider:'gmail',original_state:'invalid_headers',
+    original_response:{status:200,type:'application/json',bytes:71,provider_code:-77},
+    list_stage:'qq_complete',list_template:true,records:0,
+  });
+  assert.equal(JSON.stringify(harness.diagnostics).includes('private'),false);
   assert.deepEqual(await fs.readdir(harness.runtimeRoot),[]);
 });
 

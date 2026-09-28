@@ -18,7 +18,7 @@ test('mail pool identity separates every authority and excludes non-timeline ope
   assert.equal(pool.identity({...base,input:{...base.input,discovery:{...base.input.discovery,account_address:'owner@example.test'}}}),key);
   for(const operation of ['probe','send','read','capture','discover','mark_read']) assert.equal(pool.identity({...base,operation}),null);
   for(const change of [{provider:'unknown'},{credentialGeneration:0},{input:{...base.input,owner_scope:'bad'}},{input:{...base.input,discovery:{provider_mode:'change_cursor'}}}]) assert.equal(pool.identity({...base,...change}),null);
-  assert.equal(new MailReadPool({idleMS:0,dispose:async()=>{}}).identity(base),null);
+  assert.equal(new MailReadPool({idleMS:0,dispose:async()=>{}}).identity(base),key);
   assert.throws(()=>new MailReadPool({idleMS:MAIL_READ_IDLE_MS+1,dispose:async()=>{}}));
   assert.throws(()=>new MailReadPool({}));
 });
@@ -80,4 +80,18 @@ test('failed checkout cleanup retains old lease and drain attempts all idle prov
   assert.equal(pool.slots.get('gmail').lease,first);
   await assert.rejects(pool.drain(),/cleanup/);assert.ok(seen.includes(second));assert.equal(pool.slots.size,1);
   failing=false;await pool.close();assert.equal(pool.slots.size,0);
+});
+
+test('pinned retirement fences replacement until owned cleanup succeeds',async()=>{
+  let fail=true,disposals=0;
+  const pool=new MailReadPool({idleMS:10,dispose:async()=>{disposals++;if(fail)throw new Error('reap failed');}});
+  await pool.take('gmail','same');pool.keep('gmail',{owned:true},{watch:true});
+  await assert.rejects(pool.retire('gmail'),/reap failed/);
+  assert.equal(pool.slots.get('gmail').cleanupFailed,true);
+  await assert.rejects(pool.take('gmail','new'),/reap failed/);
+  assert.equal(disposals,2);
+  fail=false;
+  assert.equal(await pool.take('gmail','new'),null);
+  assert.equal(disposals,3);
+  pool.discard('gmail');await pool.close();
 });

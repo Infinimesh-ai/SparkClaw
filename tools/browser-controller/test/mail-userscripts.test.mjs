@@ -14,12 +14,12 @@ function fixture() {
     addEventListener(_name, callback) {this.callback=callback;}
     deliver(url, value) {this.open('GET',url);this.send();this.status=200;this.responseText=JSON.stringify(value);this.callback();}
   }
-  const context=vm.createContext({URL,URLSearchParams,Map,Date,JSON,Object,Number,Error,TextDecoder,Uint8Array,Response,Blob,AbortSignal,AbortController,setTimeout,clearTimeout,structuredClone,
+  const context=vm.createContext({URL,URLSearchParams,Map,Date,JSON,Object,Number,Error,TextDecoder,Uint8Array,Response,Blob,AbortSignal,AbortController,setTimeout,clearTimeout,structuredClone,performance,
     btoa:value=>Buffer.from(value,'binary').toString('base64'),
     XMLHttpRequest:XHR,MutationObserver:class {observe(){} disconnect(){}},
     location:{origin:'https://mail.google.com',href:'https://mail.google.com/mail/u/0/'},
     document:{addEventListener(name,callback){listeners[name]=callback;},removeEventListener(){},body:{append(node){nodes.push(node);}},createElement:()=>({remove(){}})},
-    requests:[],fetch:async url=>{context.requests.push(url);const response=new Response(context.originalBytes??'From: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.');if(context.responseURL)Object.defineProperty(response,'url',{value:context.responseURL});return response;},open(){},nodes,account:'owner@example.test',
+    requests:[],fetch:async url=>{context.requests.push(url);const response=new Response(context.originalBytes??'From: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.',{headers:context.responseHeaders});if(context.responseURL)Object.defineProperty(response,'url',{value:context.responseURL});return response;},open(){},nodes,account:'owner@example.test',
   });
   vm.runInContext('window=globalThis;window.top=window;',context);
   vm.runInContext(`(${installReader.toString()})({provider:'gmail',origins:['https://mail.google.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows,download:({id})=>new URL('/download?id='+encodeURIComponent(id),location.origin)});`,context);
@@ -40,6 +40,16 @@ test('round reset discards originals and source rows without network and cannot 
   await assert.rejects(f.reader.prepareOriginal({account_address:interval.account_address,provider_message_id:'a'}),{code:'email_network_target_unobserved'});
   assert.throws(()=>f.reader.resetRound({account_address:'other@example.test'}),{code:'email_account_identity_mismatch'});
   f.reader.dispose();assert.throws(()=>f.reader.resetRound(interval),{code:'email_network_list_unqualified'});
+});
+
+test('observer account check does not mutate an active Reader round',()=>{
+  const f=fixture();f.deliver([row('a')]);
+  const before=f.reader.diagnostics().records;
+  assert.equal(f.reader.checkAccount({account_address:interval.account_address}),true);
+  assert.equal(f.reader.diagnostics().records,before);
+  f.context.account='other@example.test';
+  assert.throws(()=>f.reader.checkAccount({account_address:interval.account_address}),{code:'email_account_identity_mismatch'});
+  assert.equal(f.reader.diagnostics().records,before);
 });
 
 test('round reset rejects in-flight original preparation and becomes available after completion',async()=>{
@@ -148,6 +158,89 @@ test('HTML original overview containing embedded RFC headers is a provider opera
   f.context.originalBytes='<html><head><title>Original message</title></head><body><pre>\nFrom: sender@example.test\r\nMessage-ID: <fixture@example.test>\r\n\r\nSynthetic original.</pre></body></html>';
   await assert.rejects(f.reader.prepareOriginal(target),{code:'email_network_original_unqualified'});
   assert.equal(f.nodes.length,0);
+  assert.equal(f.reader.diagnostics().original.state,'invalid_headers');
+  assert.equal(f.reader.diagnostics().original.response.bytes,Buffer.byteLength(f.context.originalBytes));
+  assert.equal(JSON.stringify(f.reader.diagnostics()).includes('sender@example.test'),false);
+});
+
+test('QQ rejected originals retain only bounded response metadata and clear it at the round boundary',async()=>{
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index?sid=private'};
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows,download:()=>new URL('/original',location.origin)});`,f.context);
+  const reader=f.context.SparkClawMailReader;
+  const target={account_address:interval.account_address,provider_message_id:'a',provider_selection_id:'a',folder:'inbox'};
+  f.context.originalBytes=JSON.stringify({head:{ret:-77},body:{message:'private response',sid:'secret'}});
+  await assert.rejects(reader.prepareRetainedOriginal(target),{code:'email_network_original_unqualified'});
+  const diagnostic=JSON.parse(JSON.stringify(reader.diagnostics().original));
+  assert.equal(diagnostic.state,'invalid_headers');
+  assert.deepEqual(diagnostic.response,{status:200,type:'text/plain',bytes:Buffer.byteLength(f.context.originalBytes),provider_code:-77});
+  assert.equal(JSON.stringify(diagnostic).includes('private'),false);
+  assert.equal(JSON.stringify(diagnostic).includes('secret'),false);
+  assert.equal(f.nodes.length,0);
+  reader.resetRound(interval);
+  assert.equal(reader.diagnostics().original.response,null);
+  f.context.originalBytes=JSON.stringify({head:{ret:'private-code'}});
+  await assert.rejects(reader.prepareRetainedOriginal(target),{code:'email_network_original_unqualified'});
+  assert.equal(Object.hasOwn(reader.diagnostics().original.response,'provider_code'),false);
+});
+
+function qqOriginalFixture() {
+  const f=fixture();f.reader.dispose();
+  f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index?sid=private'};
+  vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list',parse:value=>value.rows,download:()=>new URL('/original',location.origin)});`,f.context);
+  return {...f,reader:f.context.SparkClawMailReader,target:{account_address:interval.account_address,provider_message_id:'a',provider_selection_id:'a',folder:'inbox'}};
+}
+
+test('QQ original requests remain paced across successful round resets',async()=>{
+  const f=qqOriginalFixture();
+  await f.reader.prepareRetainedOriginal(f.target);
+  f.reader.resetRound(interval);
+  let release,delay;
+  f.context.setTimeout=(callback,ms)=>{release=callback;delay=ms;return 1;};
+  f.context.clearTimeout=()=>{};
+  const pending=f.reader.prepareRetainedOriginal(f.target);
+  await new Promise(setImmediate);
+  assert.equal(f.reader.diagnostics().original.state,'pacing');
+  assert.equal(f.context.requests.length,1);
+  assert.ok(delay>0&&delay<=1000);
+  assert.throws(()=>f.reader.resetRound(interval),{code:'email_network_list_unqualified'});
+  release();
+  const result=await pending;
+  assert.equal(f.context.requests.length,2);
+  assert.equal(result.provider_message_id,'a');
+  f.reader.dispose();
+});
+
+test('QQ pacing cancels on disposal and rechecks account before another request',async()=>{
+  for(const action of ['dispose','change_account']) {
+    const f=qqOriginalFixture();
+    await f.reader.prepareRetainedOriginal(f.target);
+    f.reader.resetRound(interval);
+    let release;
+    f.context.setTimeout=callback=>{release=callback;return 1;};
+    f.context.clearTimeout=()=>{};
+    const pending=f.reader.prepareRetainedOriginal(f.target);
+    await new Promise(setImmediate);
+    assert.equal(f.context.requests.length,1);
+    if(action==='dispose')f.reader.dispose();
+    else {f.context.account='other@example.test';release();}
+    await assert.rejects(pending,{code:action==='dispose'?'email_network_original_unqualified':'email_account_identity_mismatch'});
+    assert.equal(f.context.requests.length,1);
+    f.reader.dispose();
+  }
+});
+
+test('QQ abuse-control response is a provider failure, with no automatic retry or original publication',async()=>{
+  const f=qqOriginalFixture();
+  f.context.originalBytes=JSON.stringify({head:{ret:-20003,cgi:'xmreadlogicsvr/readmail',msg:'',stack:'Block by spam',show_err_msg:false}});
+  f.context.responseHeaders={'content-type':'application/json; charset=utf-8'};
+  await assert.rejects(f.reader.prepareRetainedOriginal(f.target),{code:'email_network_read_failed'});
+  assert.equal(f.context.requests.length,1);
+  assert.equal(f.nodes.length,0);
+  assert.equal(f.reader.diagnostics().original.state,'provider_rejected');
+  assert.equal(f.reader.diagnostics().original.response.provider_code,-20003);
+  assert.equal(JSON.stringify(f.reader.diagnostics()).includes('Block by spam'),false);
+  f.reader.dispose();
 });
 
 test('large network originals keep the controlled download fallback instead of embedding bytes',async()=>{
@@ -185,7 +278,7 @@ test('mark-read fails closed without a provider network mutation',async()=>{
 test('QQ mark-read triggers only the exact visible row and confirms unread=0 from a fresh list response',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'}]};
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'}]};
   let clicked=false,requests=0;
   const raw=()=>({head:{ret:0,time:Math.floor(Date.now()/1000)},body:{total_num:1,list:[{emailid:'qq-message',dirid:1,totime:Math.floor(Date.now()/1000)-1,unread:clicked?0:1}]}});
   f.context.document.querySelectorAll=()=>[{isConnected:true,getAttribute:name=>name==='data-mailid'?'qq-message':null,getClientRects:()=>[{}],click:()=>{clicked=true;}}];
@@ -210,7 +303,7 @@ test('account changes fail closed and disposal restores only owned network hooks
 test('QQ replays an observed same-origin list resource when its initial request predates the hooks',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-  f.context.performance={getEntriesByType:()=>[
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[
     {name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'},
     {name:'https://wx.mail.qq.com/list/maillist?func=1'},
     {name:'https://wx.mail.qq.com/list/maillist?func=2&sid=wrong-operation'},
@@ -238,7 +331,7 @@ test('QQ replays an observed same-origin list resource when its initial request 
 test('QQ restores its fixed list binding from the signed-in home route',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index?sid=private-home-session'};
-  f.context.performance={getEntriesByType:()=>[]};
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[]};
   const requests=[];
   f.context.fetch=async(url,init)=>{requests.push({url,init});return new Response(JSON.stringify({head:{ret:0},body:{total_num:0,lock_num:0}}));};
   vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list??[]});`,f.context);
@@ -252,7 +345,7 @@ test('QQ restores its fixed list binding from the signed-in home route',async()=
 test('QQ stops native pagination after an ordered qualified page crosses the lower bound',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'}]};
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session&dirid=1'}]};
   let rows=Array.from({length:50},(_,index)=>row(`old-${index}`,{folder:'inbox',provider_selection_id:`old-${index}`,provider_thread_id:`old-${index}`,
     received_at:new Date(Date.parse(interval.interval_start)-index*1000-1000).toISOString()}));
   f.context.fetch=async()=>new Response(JSON.stringify({head:{ret:0},body:{list:rows,total_num:5000}}));
@@ -268,7 +361,7 @@ test('QQ stops native pagination after an ordered qualified page crosses the low
 test('QQ timeline sends a server-side range once and fences locked results',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
   const requests=[];let locked=0;
   f.context.fetch=async(url,init)=>{requests.push({url,init});return new Response(JSON.stringify({head:{ret:0},body:{total_num:2,lock_num:locked,list:[row('in',{folder:'inbox'}),row('sent',{folder:'sent'})]}}));};
   vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list});`,f.context);
@@ -286,7 +379,7 @@ test('QQ timeline sends a server-side range once and fences locked results',asyn
 test('QQ refuses a non-list operation even when it carries a session id',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-  f.context.performance={getEntriesByType:()=>[
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[
     {name:'https://wx.mail.qq.com/list/maillist?func=2&sid=private-qq-session&dirid=1'},
   ]};
   vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list,download:()=>null});`,f.context);
@@ -298,7 +391,7 @@ test('QQ refuses a non-list operation even when it carries a session id',async()
 test('QQ true empty search omits list, while a rejected future interval is not certified empty',async()=>{
   const f=fixture();f.reader.dispose();
   f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-  f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
+  f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
   let rejected=false;
   f.context.fetch=async()=>new Response(JSON.stringify(rejected?{head:{ret:-5002},body:{}}:{head:{ret:0},body:{total_num:0,lock_num:0,search_ts:1,is_lock:0}}));
   vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list});`,f.context);
@@ -312,7 +405,7 @@ for(const provider of ['qq_mail','gmail'])test(`${provider} preserves nanosecond
   f.context.rangeRows=[row('at-ms',{folder:'inbox',received_at:'2026-09-10T00:00:00.123Z'})];
   if(provider==='qq_mail'){
     f.context.location={origin:'https://wx.mail.qq.com',href:'https://wx.mail.qq.com/home/index'};
-    f.context.performance={getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
+    f.context.performance={now:()=>performance.now(),getEntriesByType:()=>[{name:'https://wx.mail.qq.com/list/maillist?func=1&sid=private-qq-session'}]};
     f.context.fetch=async()=>new Response(JSON.stringify({head:{ret:0},body:{total_num:1,lock_num:0,list:f.context.rangeRows}}));
     vm.runInContext(`(${installReader.toString()})({provider:'qq_mail',origins:['https://wx.mail.qq.com'],account:()=>account,listURL:u=>u.pathname==='/list/maillist',parse:value=>value.body.list});`,f.context);
   }else{

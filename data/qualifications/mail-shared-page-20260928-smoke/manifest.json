@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "run_id": "mail-shared-page-20260928-smoke",
+  "recorded_at": "2026-09-28T07:48:37.059940+00:00",
+  "git_head": "c9c29a179b3bc3a8b9232c53cab8685d34ea4fde",
+  "managed_manifest_sha256": "fa9f200c4cf11b5e43da8239eeb24a8b9bff3feb3e4eff4476d8eebc420a1ff7",
+  "installed_receipt_sha256": "322a950a863f5e534c2b3bc859e9c57cf3fc44403c107aaec886ac4a33dcf69d",
+  "environment": "existing dedicated headed Chromium; sequential isolated Controllers; same signed-in QQ Mail, consumer Outlook and Gmail; production Controller stopped for each run and restored afterward",
+  "providers": [
+    "qq_mail",
+    "outlook",
+    "gmail"
+  ],
+  "read_interval": "one frozen previously qualified empty second per provider, reused in both runs",
+  "actions": "identity probes, watch start, 30-second watch idle, two empty Reader rounds per provider, post-round watch status, 80-second observation hold, watch stop",
+  "sending": false,
+  "receiving_setting_changed": false,
+  "fault_injection": false,
+  "cases": {
+    "A01": "NOT_RUN",
+    "A02": "NOT_RUN",
+    "A03": "NOT_RUN",
+    "A04": "NOT_RUN",
+    "A05": "NOT_RUN",
+    "A06": "NOT_RUN",
+    "A07": "NOT_RUN",
+    "A08": "NOT_RUN",
+    "B01": "INCONCLUSIVE",
+    "B02": "NOT_RUN",
+    "B03": "INCONCLUSIVE",
+    "B04": "NOT_RUN",
+    "B05": "NOT_RUN",
+    "C01": "NOT_RUN",
+    "C02": "NOT_RUN",
+    "C03": "NOT_RUN",
+    "C04": "NOT_RUN",
+    "C05": "NOT_RUN"
+  },
+  "notes": [
+    "The smoke passes its own assertions. It does not meet the B01 nonempty/original/replay workload or any complete release case.",
+    "Separate task window remained unfocused in both snapshots; one preexisting non-task tab remained in another unfocused window.",
+    "Candidate remained opt-in; deployed Controller resumed with default separate-page mode.",
+    "The live harness log label was edited after execution; candidate runtime source and managed artifacts were unchanged."
+  ],
+  "baseline": {
+    "candidate_flag": false,
+    "smoke": "PASS",
+    "elapsed_seconds": 229.05,
+    "runtime_sessions": 6,
+    "task_windows": [
+      {
+        "window_id": 2061433966,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 1
+      },
+      {
+        "window_id": 2061434098,
+        "focused": false,
+        "task_tabs": 6,
+        "stale_task_tabs": 0,
+        "other_tabs": 0
+      }
+    ],
+    "empty_round_ms": {
+      "qq_mail": [
+        3760,
+        379
+      ],
+      "outlook": [
+        23983,
+        5678
+      ],
+      "gmail": [
+        8940,
+        545
+      ]
+    },
+    "observation_hold_seconds": 80
+  },
+  "candidate": {
+    "candidate_flag": true,
+    "smoke": "PASS",
+    "elapsed_seconds": 215.68,
+    "runtime_sessions": 3,
+    "task_windows": [
+      {
+        "window_id": 2061433966,
+        "focused": false,
+        "task_tabs": 0,
+        "stale_task_tabs": 0,
+        "other_tabs": 1
+      },
+      {
+        "window_id": 2061434150,
+        "focused": false,
+        "task_tabs": 3,
+        "stale_task_tabs": 0,
+        "other_tabs": 0
+      }
+    ],
+    "empty_round_ms": {
+      "qq_mail": [
+        450,
+        372
+      ],
+      "outlook": [
+        5554,
+        5411
+      ],
+      "gmail": [
+        720,
+        575
+      ]
+    },
+    "observation_hold_seconds": 80
+  },
+  "selected_runtime_source_paths": [
+    "tools/browser-controller/src/awaited-mail-read.cjs",
+    "tools/browser-controller/src/cli-client.mjs",
+    "tools/browser-controller/src/cli-task.mjs",
+    "tools/browser-controller/src/mail-observer-feed.mjs",
+    "tools/browser-controller/src/mail-observer-page.mjs",
+    "tools/browser-controller/src/mail-observer-runtime.cjs",
+    "tools/browser-controller/src/mail-observers.mjs",
+    "tools/browser-controller/src/mail-read-pool.mjs",
+    "scripts/email/userscripts/lib/reader-core.mjs"
+  ],
+  "selected_runtime_source_sha256": "df21a91a4dc080f2ae4515dfa45c1da8da54fea158b606dc57cf7c47c68a3690"
+}

@@ -18,25 +18,30 @@ export class MailReadPool {
     this.closed = false;
   }
 
-  identity({provider, operation, input, credentialGeneration, token, registration}) {
-    if (!this.idleMS || operation !== 'collect_page' || !['qq_mail','gmail','outlook'].includes(provider) ||
+  identity({provider, operation, input, credentialGeneration, token, registration, observerChecksum = ''}) {
+    if (operation !== 'collect_page' || !['qq_mail','gmail','outlook'].includes(provider) ||
         input?.discovery?.provider_mode !== 'time_range' || !/^[a-f0-9]{64}$/u.test(input?.owner_scope ?? '') ||
         typeof input.discovery.account_address !== 'string' || !input.discovery.account_address ||
         !Number.isSafeInteger(credentialGeneration) || credentialGeneration < 1) return null;
     return crypto.createHash('sha256').update(JSON.stringify([provider,input.owner_scope,
-      input.discovery.account_address.toLowerCase(),credentialGeneration,token,registration.sourceChecksum])).digest('hex');
+      input.discovery.account_address.toLowerCase(),credentialGeneration,token,registration.sourceChecksum,observerChecksum])).digest('hex');
   }
 
   async take(provider, key) {
     if (this.closed) throw new ControllerError('browser_controller_stopping','browser controller is stopping',{status:503,retryable:true});
     const prior = this.slots.get(provider);
     if (prior?.busy) throw new ControllerError('browser_busy','browser session is busy',{status:409,retryable:true});
+    if (prior?.retiring) {
+      await this.retire(provider);
+      return this.take(provider,key);
+    }
+    if (prior?.watch && prior.key !== key) throw new ControllerError('browser_page_stale','mail observer binding does not match',{status:409});
     clearTimeout(prior?.timer);
-    const slot = {key,busy:true,lease:null};
+    const slot = {key,busy:true,lease:null,watch:prior?.watch ?? false};
     this.slots.set(provider,slot);
     try {
       const now=this.now();
-      if (prior?.lease && !prior.cleanupFailed && prior.key === key && now>=prior.usedAt && now-prior.usedAt < this.idleMS) {
+      if (prior?.lease && !prior.cleanupFailed && prior.key === key && (prior.watch || now>=prior.usedAt && now-prior.usedAt < this.idleMS)) {
         slot.lease = prior.lease;
         return slot.lease;
       }
@@ -51,12 +56,14 @@ export class MailReadPool {
     }
   }
 
-  keep(provider, lease) {
+  keep(provider, lease, {watch = false} = {}) {
     const slot = this.slots.get(provider);
-    if (this.closed || !slot?.busy) return false;
+    if (this.closed || !slot?.busy || slot.retiring || !this.idleMS && !slot.watch && !watch) return false;
     slot.lease = lease;
     slot.busy = false;
+    slot.watch ||= watch;
     slot.usedAt = this.now();
+    if (slot.watch) return true;
     slot.timer = setTimeout(() => {
       if (this.slots.get(provider) !== slot || slot.busy) return;
       slot.busy = true;
@@ -81,6 +88,41 @@ export class MailReadPool {
     const slot = this.slots.get(provider);
     clearTimeout(slot?.timer);
     this.slots.delete(provider);
+    slot?.finishRetirement?.resolve();
+  }
+
+  // A revoked watch stops admitting callbacks immediately. If a Reader is
+  // borrowing the page, its normal finalizer observes `retiring` and performs
+  // the single owned cleanup after the borrower quiesces.
+  async retire(provider) {
+    const slot = this.slots.get(provider);
+    if (!slot) return;
+    clearTimeout(slot.timer);
+    slot.watch = false;
+    slot.retiring = true;
+    if (slot.retirement) return slot.retirement;
+    if (slot.busy) {
+      slot.retirement = new Promise((resolve,reject) => {slot.finishRetirement={resolve,reject};});
+      return slot.retirement;
+    }
+    if (!slot.retirement) {
+      slot.busy = true;
+      slot.retirement = Promise.resolve().then(async () => {
+        try {
+          if (slot.lease) await this.dispose(slot.lease);
+          if (this.slots.get(provider) === slot) this.slots.delete(provider);
+        } catch (error) {
+          slot.cleanupFailed = true;
+          throw error;
+        } finally {
+          slot.busy = false;
+          this.closing.delete(slot.retirement);
+          slot.retirement = null;
+        }
+      });
+      this.closing.add(slot.retirement);
+    }
+    return slot.retirement;
   }
 
   fenceFailedCleanup(provider, lease) {
@@ -90,6 +132,9 @@ export class MailReadPool {
     slot.lease=lease;
     slot.cleanupFailed=true;
     slot.busy=false;
+    slot.finishRetirement?.reject(new ControllerError('browser_extension_unavailable','mail page cleanup failed',{status:503,retryable:true}));
+    slot.finishRetirement=undefined;
+    slot.retirement=null;
   }
 
   async drain() {

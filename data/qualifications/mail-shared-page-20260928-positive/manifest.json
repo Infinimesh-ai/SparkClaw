@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "run_id": "mail-shared-page-20260928-positive",
+  "recorded_at": "2026-09-28T08:41:51.832627+00:00",
+  "git_head": "c9c29a179b3bc3a8b9232c53cab8685d34ea4fde",
+  "managed_manifest_sha256": "fa9f200c4cf11b5e43da8239eeb24a8b9bff3feb3e4eff4476d8eebc420a1ff7",
+  "installed_receipt_sha256": "322a950a863f5e534c2b3bc859e9c57cf3fc44403c107aaec886ac4a33dcf69d",
+  "selected_runtime_source_paths": [
+    "tools/browser-controller/src/awaited-mail-read.cjs",
+    "tools/browser-controller/src/cli-client.mjs",
+    "tools/browser-controller/src/cli-task.mjs",
+    "tools/browser-controller/src/mail-observer-feed.mjs",
+    "tools/browser-controller/src/mail-observer-page.mjs",
+    "tools/browser-controller/src/mail-observer-runtime.cjs",
+    "tools/browser-controller/src/mail-observers.mjs",
+    "tools/browser-controller/src/mail-read-pool.mjs",
+    "scripts/email/userscripts/lib/reader-core.mjs"
+  ],
+  "selected_runtime_source_sha256": "c9e87a5b8e903b953d01ad8420bd2d9894c18564429b7a670c70ff029fabe832",
+  "environment": "existing dedicated headed Chromium and signed-in QQ Mail, consumer Outlook, Gmail; isolated sequential baseline/candidate Controllers; separate isolated sender Controller for positive sends; original production Controller restored",
+  "receiving_setting_changed": false,
+  "providers": [
+    "qq_mail",
+    "outlook",
+    "gmail"
+  ],
+  "nonempty_comparison": {
+    "baseline": {
+      "candidate_flag": false,
+      "result": "PASS",
+      "elapsed_seconds": 229.48,
+      "runtime_sessions": 6,
+      "task_windows": [
+        {
+          "focused": false,
+          "task_tabs": 0,
+          "stale_task_tabs": 0,
+          "other_tabs": 1
+        },
+        {
+          "focused": false,
+          "task_tabs": 6,
+          "stale_task_tabs": 0,
+          "other_tabs": 0
+        }
+      ],
+      "empty_round_ms": {
+        "qq_mail": [
+          3747,
+          379
+        ],
+        "outlook": [
+          23769,
+          5284
+        ],
+        "gmail": [
+          6180,
+          685
+        ]
+      },
+      "nonempty_round_ms": {
+        "qq_mail": {
+          "one": [
+            601,
+            94
+          ],
+          "two": [
+            833,
+            142
+          ]
+        },
+        "outlook": {
+          "one": [
+            12449,
+            2187
+          ],
+          "two": [
+            19272,
+            2156
+          ]
+        },
+        "gmail": {
+          "one": [
+            1962,
+            99
+          ],
+          "two": [
+            2377,
+            122
+          ]
+        }
+      },
+      "verified_originals_per_provider": {
+        "one_target": 2,
+        "two_targets": 4
+      },
+      "cross_layout_original_hashes_equal": true,
+      "replay_original_hashes_equal": true,
+      "observation_hold_seconds": 20
+    },
+    "candidate": {
+      "candidate_flag": true,
+      "result": "PASS",
+      "elapsed_seconds": 208.28,
+      "runtime_sessions": 3,
+      "task_windows": [
+        {
+          "focused": false,
+          "task_tabs": 0,
+          "stale_task_tabs": 0,
+          "other_tabs": 1
+        },
+        {
+          "focused": false,
+          "task_tabs": 3,
+          "stale_task_tabs": 0,
+          "other_tabs": 0
+        }
+      ],
+      "empty_round_ms": {
+        "qq_mail": [
+          392,
+          378
+        ],
+        "outlook": [
+          6856,
+          5340
+        ],
+        "gmail": [
+          697,
+          570
+        ]
+      },
+      "nonempty_round_ms": {
+        "qq_mail": {
+          "one": [
+            665,
+            114
+          ],
+          "two": [
+            908,
+            124
+          ]
+        },
+        "outlook": {
+          "one": [
+            12354,
+            2189
+          ],
+          "two": [
+            19300,
+            2192
+          ]
+        },
+        "gmail": {
+          "one": [
+            1240,
+            125
+          ],
+          "two": [
+            2307,
+            126
+          ]
+        }
+      },
+      "verified_originals_per_provider": {
+        "one_target": 2,
+        "two_targets": 4
+      },
+      "cross_layout_original_hashes_equal": true,
+      "replay_original_hashes_equal": true,
+      "observation_hold_seconds": 20
+    }
+  },
+  "controlled_idle_arrivals": [
+    {
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "send": "confirmed",
+      "native_hint_reason": "qq_inbound_envelope",
+      "native_hint_at": "2026-09-28T08:16:05.918Z",
+      "exact_original_verified": true,
+      "watch_after_read": "watching",
+      "arrival_phase": "idle",
+      "arrival_count": 1,
+      "receiver_reader_on_shared_page": false
+    },
+    {
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "send": "confirmed",
+      "native_hint_reason": "gmail_topic_invalidation",
+      "native_hint_at": "2026-09-28T08:20:02.690Z",
+      "exact_original_verified": true,
+      "watch_after_read": "watching",
+      "arrival_phase": "idle",
+      "arrival_count": 1,
+      "receiver_reader_on_shared_page": false
+    },
+    {
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "send": "confirmed",
+      "native_hint_reason": "outlook_delivery_change",
+      "native_hint_at": "2026-09-28T08:27:42.310Z",
+      "exact_original_verified": true,
+      "watch_after_read": "watching",
+      "arrival_phase": "idle",
+      "arrival_count": 1,
+      "receiver_reader_on_shared_page": false
+    }
+  ],
+  "uncertain_send": {
+    "sender": "outlook",
+    "receiver": "qq_mail",
+    "failure_code": "email_page_contract_changed",
+    "send_state": "uncertain",
+    "receiver_original_verified": false,
+    "automatically_resent": false
+  },
+  "cases": {
+    "A01": "INCONCLUSIVE",
+    "A02": "INCONCLUSIVE",
+    "A03": "INCONCLUSIVE",
+    "A04": "INCONCLUSIVE",
+    "A05": "INCONCLUSIVE",
+    "A06": "INCONCLUSIVE",
+    "A07": "INCONCLUSIVE",
+    "A08": "INCONCLUSIVE",
+    "B01": "INCONCLUSIVE",
+    "B02": "INCONCLUSIVE",
+    "B03": "INCONCLUSIVE",
+    "B04": "NOT_RUN",
+    "B05": "NOT_RUN",
+    "C01": "NOT_RUN",
+    "C02": "NOT_RUN",
+    "C03": "NOT_RUN",
+    "C04": "NOT_RUN",
+    "C05": "NOT_RUN"
+  },
+  "release_gate": "NOT_MET",
+  "production_layout": "existing separate observer and Reader pages",
+  "limitations": [
+    "Nonempty workload uses two frozen historical retry targets per provider; no natural nonempty interval parity claim.",
+    "Each receiver has only one controlled idle arrival; list/original-phase arrivals were not tested.",
+    "Positive arrival originals were independently read using Discover/Capture paths, not the shared CollectPage borrower.",
+    "No 45-minute pinned idle, read-only >30-minute idle, two-hour/100-round soak, applicable faults or 30 paired warm samples.",
+    "The separate sender Controller shares the dedicated browser profile; sender exclusivity was not tested through the receiver Controller."
+  ]
+}

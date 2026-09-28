@@ -34,6 +34,10 @@ const scriptFactory = new PlaywrightCLIClientFactory({
   actionTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_ACTION_TIMEOUT_MS", 10_000, 500, 120_000),
   navigationTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_NAVIGATION_TIMEOUT_MS", 30_000, 1_000, 120_000),
   diagnostic: (event) => process.stderr.write(`${JSON.stringify(event)}\n`),
+  capturePhaseEvidence: process.env.SPARKCLAW_MAIL_CAPTURE_PHASE_EVIDENCE === '1',
+  captureTimingDiagnostic: process.env.SPARKCLAW_MAIL_CAPTURE_PHASE_EVIDENCE === '1'
+    ? (record) => process.stderr.write(`${JSON.stringify({event:'mail_capture_phase_evidence',...record})}\n`)
+    : undefined,
 });
 await Promise.all([clientFactory.prepare(), scriptFactory.prepare()]);
 const controller = new BrowserController({ profileID, clientFactory, scriptFactory });

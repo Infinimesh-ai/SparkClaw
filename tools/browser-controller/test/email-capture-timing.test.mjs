@@ -53,3 +53,30 @@ test('failed discovery still records its entered stage and total without error t
  assert.equal(f.records[0].milliseconds.prepare_original,undefined);
  assert.equal(JSON.stringify(f.records).includes('private discovery'),false);
 });
+
+test('provider download rejection neither publishes an original nor becomes a mail-specific failure',async t=>{
+ const f=await fixture(t);let attempts=0;
+ f.adapter.collect=async()=>{attempts++;throw Object.assign(new Error('private provider response'),{code:'email_network_read_failed'});};
+ const result=await f.run();
+ assert.equal(attempts,1);
+ assert.equal(result.status,'partial');assert.deepEqual(result.captures,[]);
+ assert.equal(result.failures.length,1);
+ assert.equal(result.failures[0].error_code,'email_network_read_failed');
+ assert.equal(result.failures[0].failure_scope,'provider_operational');
+ assert.equal(result.failures[0].qualified,false);
+ assert.equal(f.records[0].counts.failures,1);assert.equal(f.records[0].counts.originals_acquired,0);
+ assert.equal(JSON.stringify(result).includes('private provider response'),false);
+});
+
+test('opt-in phase evidence exposes bounded stage intervals without private values',async t=>{
+ const f=await fixture(t);f.runtime.capturePhaseEvidence=true;
+ await f.run();
+ const [record]=f.records;
+ assert.match(record.round_alias,/^[a-f0-9]{16}$/u);
+ for(const stage of ['discover','prepare_original','original_transfer_write']){
+  assert.equal(record.intervals[stage].length,1);
+  const {began_at,ended_at}=record.intervals[stage][0];
+  assert.ok(Date.parse(began_at)<=Date.parse(ended_at));
+ }
+ for(const secret of [f.root,'private@example.test','private-id','private body'])assert.equal(JSON.stringify(record).includes(secret),false);
+});

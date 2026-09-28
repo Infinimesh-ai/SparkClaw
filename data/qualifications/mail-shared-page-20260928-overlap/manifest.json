@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "run_id": "mail-shared-page-20260928-overlap",
+  "recorded_at": "2026-09-28T09:18:26.466632+00:00",
+  "git_head": "c9c29a179b3bc3a8b9232c53cab8685d34ea4fde",
+  "environment": "existing dedicated signed-in headed Chromium; isolated sequential Controllers, separate sender Controller on same browser profile; production separate-page Controller restored between runs",
+  "providers": [
+    "qq_mail",
+    "outlook",
+    "gmail"
+  ],
+  "receiving_setting_changed": false,
+  "production_layout": "separate observer and Reader pages",
+  "phase_instrumentation": "opt-in redacted wall-clock stage intervals from Controller-owned collect_page; no account/message/body/payload fields",
+  "outlook_original_overlap": {
+    "result": "PASS",
+    "sender": "qq_mail",
+    "receiver": "outlook",
+    "send": "confirmed",
+    "native_hint_reason": "outlook_delivery_change",
+    "native_hint_at": "2026-09-28T08:55:44.970Z",
+    "prepare_original_began_at": "2026-09-28T08:55:38.971Z",
+    "prepare_original_ended_at": "2026-09-28T08:55:46.006Z",
+    "receiver_collect_page_rounds_verified": 6,
+    "test_message_unique_original_verified": true,
+    "watch_after_original": "watching",
+    "source_log_run": "wp0Pe2"
+  },
+  "qq_arrival_stress": {
+    "result": "FAIL",
+    "sender": "gmail",
+    "receiver": "qq_mail",
+    "send": "confirmed",
+    "completed_verified_collect_page_rounds": 80,
+    "next_round_failure_code": "email_network_original_unqualified",
+    "watch_state_after_failure": "stopped",
+    "test_message_original_verified_later": true,
+    "native_hint_before_page_retirement": "UNKNOWN",
+    "phase_overlap": "INCONCLUSIVE",
+    "automatically_resent": false,
+    "source_log_run": "ShhV5Q"
+  },
+  "no_send_qq_stress": {
+    "baseline": {
+      "result": "PASS",
+      "verified_rounds": 100,
+      "watch_after": "watching"
+    },
+    "candidate_first": {
+      "result": "FAIL",
+      "verified_rounds": 77,
+      "next_round_failure_code": "email_network_original_unqualified"
+    },
+    "candidate_second": {
+      "result": "PASS",
+      "verified_rounds": 100,
+      "watch_after": "watching"
+    },
+    "historical_original_targets_frozen": true,
+    "each_round_new_invocation": true
+  },
+  "cases": {
+    "B02": "INCONCLUSIVE",
+    "B05": "INCONCLUSIVE",
+    "C01": "NOT_RUN",
+    "C02": "NOT_RUN",
+    "C03": "NOT_RUN",
+    "C04": "NOT_RUN",
+    "C05": "NOT_RUN"
+  },
+  "release_gate": "NOT_MET",
+  "notes": [
+    "Outlook has one natural original-phase native event overlap, below three-per-phase/provider gate.",
+    "QQ rapid original acquisition failed twice near 80 rounds on candidate, while one candidate and one baseline 100-round run passed; cause and frequency remain unresolved.",
+    "The QQ incoming message was verified later on the restored production Controller; the test exited before recording whether the isolated shared watch admitted a native hint.",
+    "No two-hour continuous duration, list-phase matrix, 45-minute idle, fault injection or 30-pair p95 qualification.",
+    "A local diagnostic-only code change followed the Outlook run; current working-tree source hash would not precisely identify that earlier run."
+  ]
+}

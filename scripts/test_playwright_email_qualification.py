@@ -123,6 +123,7 @@ class PlaywrightEmailQualificationTest(unittest.TestCase):
             payload["argv"],
             [
                 "test",
+                "-timeout=30m",
                 "-count=1",
                 "-run",
                 "^TestPlaywrightExtensionLiveEmailProbes$",

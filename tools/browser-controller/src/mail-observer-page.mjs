@@ -13,7 +13,7 @@ export function installMailObserverPage(options, classify) {
     } catch { inFlight--; }
   };
   const doc = crypto.randomUUID();
-  let sequence = 0, active = true, unknownReported = false;
+  let sequence = 0, active = options.dormant !== true, unknownReported = false;
   const seenHints = new Set(), classifierState = new Map();
   const classifyRecord = (channel, value) => {
     if (!active || !classify) return;
@@ -55,7 +55,9 @@ export function installMailObserverPage(options, classify) {
     try {
       const reader = window.SparkClawMailReader;
       if (reader?.provider !== options.provider || reader.version !== '0.2.0') return false;
-      reader.snapshot({account_address: options.account, interval_start: '2000-01-01T00:00:00Z', interval_end: '2000-01-01T00:00:01Z'});
+      if (typeof reader.checkAccount === 'function') reader.checkAccount({account_address: options.account});
+      else if (!options.fastAccount) reader.snapshot({account_address: options.account, interval_start: '2000-01-01T00:00:00Z', interval_end: '2000-01-01T00:00:01Z'});
+      else return false;
       return true;
     } catch { return false; }
   };
@@ -183,6 +185,12 @@ export function installMailObserverPage(options, classify) {
   }
   const heartbeat = setInterval(() => report('liveness'), 15000);
   Object.defineProperty(window, '__sparkclawMailObserver', {value: Object.freeze({
+    activate() {
+      if (active) return true;
+      active = true;
+      report('document');
+      return true;
+    },
     dispose() { active = false; clearInterval(heartbeat);
       if (window.Worker === ObserverWorker) window.Worker = NativeWorker;
       if (window.MessageChannel === ObserverChannel) window.MessageChannel = NativeChannel;

@@ -1,5 +1,7 @@
 # 邮箱常驻观察器
 
+[English](../../docs/email-resident-observer.md)
+
 Controller 为 QQ、Gmail 和个人 Outlook 注册了独立的 `observe` 操作：建立自有后台邮箱页并核实账号后立即返回，CLI daemon 保持连接，通过页面 binding 和仅当前用户可访问的 Unix socket 推送事件。空闲观察不占用提供商预留，也不占用 Reader 页面租约；列表查询与原文获取继续使用原有 Reader。
 
 ## 生命周期与边界

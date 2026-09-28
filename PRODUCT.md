@@ -1,5 +1,7 @@
 # SparkClaw Workbench
 
+[简体中文](zh-cn/PRODUCT.md)
+
 ## Product
 
 SparkClaw is a local agent workbench for starting, monitoring, and reviewing bounded agent tasks. It connects to a SparkClaw gateway and runtime, then keeps task history, runtime state, approvals, memory, scheduled work, connections, artifacts, and traces in one operator surface.

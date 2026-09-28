@@ -286,6 +286,11 @@ func TestRecentPartialCoverageRetainsFixedInterval(t *testing.T) {
 	if _, err = s.Sync(t.Context(), "email-owner", box.ID); err != nil {
 		t.Fatal(err)
 	}
+	jobs, err := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID})
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("confirmation deadline: %v %+v", err, jobs)
+	}
+	s.now = func() time.Time { return jobs[0].NextAttemptAt }
 	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
 		t.Fatalf("second: %v", err)
 	}

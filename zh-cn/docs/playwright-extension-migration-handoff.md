@@ -19,7 +19,6 @@ Playwright Extension 迁移已于 2026-09-05 完成。SparkClaw Browser Bridge
    记录已接受的架构和迁移门槛。
 2. [浏览器 Runtime](browser-runtime.md)记录当前生产实现。
 3. 当前源码定义精确协议和行为。
-4. [Host-CDP 浏览器设计](host-cdp-browser-design.md)仅作为历史记录。
 
 ## 最终架构
 

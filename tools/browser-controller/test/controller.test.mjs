@@ -25,6 +25,27 @@ test("validateToken opens and closes one ephemeral task page", async () => {
   assert.equal(controller.health().active_session, false);
 });
 
+test('resident observe releases its reservation while later Reader work receives events', async () => {
+  const scripts=new FakeScriptFactory();
+  let watching=false, hintCount=0, readStarted;
+  const entered=new Promise(resolve=>{readStarted=resolve;});
+  let finishRead;
+  scripts.runScript=async args=>{
+    if(args.operation==='observe') watching=true;
+    else {readStarted();await new Promise(resolve=>{finishRead=resolve;});}
+    return {state:'completed',sourceChecksum:'sha256:'+'a'.repeat(64),result:{watching}};
+  };
+  scripts.close=async()=>{watching=false;};
+  const controller=new BrowserController({clientFactory:new FakeFactory(),scriptFactory:scripts});
+  await controller.runScript(runScriptInput({provider:'gmail',operation:'observe',script_id:'gmail.observe'}));
+  assert.equal(controller.health().active_session,false);
+  const read=controller.runScript(runScriptInput({provider:'gmail',operation:'discover',script_id:'gmail.discover'}));
+  await entered;
+  if(watching)hintCount++;
+  assert.equal(hintCount,1);assert.equal(controller.health().active_session,true);
+  finishRead();await read;await controller.shutdown();assert.equal(watching,false);
+});
+
 test("acquire serializes one profile and returns stable generations", async () => {
   const factory = new FakeFactory();
   const controller = new BrowserController({

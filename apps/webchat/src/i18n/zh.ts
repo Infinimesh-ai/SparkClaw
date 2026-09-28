@@ -35,6 +35,12 @@ export const zh = {
       sessions: "会话"
     },
     email: {
+      windowDescription: "查看对话、处理邮件并检查接收状态。",
+      categories: "邮件分类",
+      categoryNote: "接收和处理状态可在上方同步栏查看。",
+      syncConnected: "接收已开启",
+      syncPaused: "已暂停",
+      syncUnknown: "状态待检查",
       summaryPartial: "摘要仅覆盖当前可用的原文片段，可打开邮件正文查看完整上下文。",
       loginExpired: "邮箱登录已失效，请重新登录。",
       signInAgain: "重新登录",
@@ -329,12 +335,7 @@ export const zh = {
       correction: "修正内容",
       helpful: "标记有用",
       unhelpful: "标记无用",
-      saveCorrection: "保存修正",
-      sendTo: "发送至",
-      chooseDestination: "选择发送目标",
-      currentConversation: "当前对话",
-      destinationUnavailable: "目标已不可用",
-      noDeliveryEndpoints: "暂无已授权且可发送的收件人。"
+      saveCorrection: "保存修正"
     },
     auth: {
       gatewayToken: "Gateway token",

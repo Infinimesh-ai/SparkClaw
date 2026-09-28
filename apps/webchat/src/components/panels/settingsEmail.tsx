@@ -34,6 +34,15 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
     setProviders(response.providers);
   }
 
+  async function checkProviderStatus() {
+    if (busy) return;
+    setBusy("refresh");
+    setFeedback(null);
+    try { await refreshProviders(); }
+    catch (reason) { setFeedback({ tone: "error", title: text.settings.browserEmailLoadFailed, message: errorMessage(reason) }); }
+    finally { setBusy(""); }
+  }
+
   async function run(
     key: string,
     action: () => Promise<EmailProviderStatus>,
@@ -91,26 +100,25 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
     }
   }
 
-  if (!providers) {
-    return (
-      <div className="emailProviderLoading">
-        {feedback ? <EmailFeedback feedback={feedback} /> : <><LoaderCircle className="spin" size={16} /><span>{text.settings.browserEmailLoading}</span></>}
-      </div>
-    );
-  }
+  const visibleProviders = EMAIL_PROVIDERS.map((fallback) => providers?.find((item) => item.provider === fallback.provider) ?? fallback);
 
   return (
     <div className="integrationDetail">
       <div className="integrationStatusBar">
         <div>
           <strong>{text.settings.browserEmail}</strong>
-          <span className="muted">{text.settings.browserEmailProviders}</span>
+          <span className="muted">{providers ? text.settings.browserEmailProviders : feedback ? text.settings.integrationUnavailable : text.settings.browserEmailLoading}</span>
         </div>
+        <button className="secondaryButton" type="button" onClick={() => void checkProviderStatus()} disabled={Boolean(busy)}>
+          {busy === "refresh" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+          {text.settings.checkConnection}
+        </button>
       </div>
 
       <div className="emailProviderList">
-        {providers.map((provider) => {
-          const state = emailStateLabel(provider.state, text);
+        {visibleProviders.map((provider) => {
+          const known = Boolean(providers?.some((item) => item.provider === provider.provider));
+          const state = known ? emailStateLabel(provider.state, text) : text.settings.integrationUnavailable;
           const actionBusy = busy.endsWith(`:${provider.provider}`);
           const toggleTitle = provider.enabled ? text.settings.browserEmailDisable : text.settings.browserEmailEnable;
           return (
@@ -125,7 +133,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
                   className={`miniIconButton ${provider.default ? "selected" : ""}`}
                   type="button"
                   onClick={() => void selectDefault(provider)}
-                  disabled={Boolean(busy) || !provider.enabled || provider.default}
+                  disabled={Boolean(busy) || !known || !provider.enabled || provider.default}
                   title={provider.default ? text.settings.browserEmailDefault : text.settings.browserEmailSetDefault}
                   aria-label={provider.default ? text.settings.browserEmailDefault : text.settings.browserEmailSetDefault}
                 >
@@ -140,7 +148,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
                     text.settings.browserEmailLoginOpened,
                     text.settings.browserEmailLoginOpenedDetail
                   )}
-                  disabled={Boolean(busy) || !provider.enabled}
+                  disabled={Boolean(busy) || !known || !provider.enabled}
                   title={text.settings.browserEmailOpenLogin}
                   aria-label={text.settings.browserEmailOpenLogin}
                 >
@@ -155,7 +163,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
                     text.settings.browserEmailCheckSucceeded,
                     text.settings.browserEmailCheckSucceededDetail
                   )}
-                  disabled={Boolean(busy) || !provider.enabled}
+                  disabled={Boolean(busy) || !known || !provider.enabled}
                   title={text.settings.checkConnection}
                   aria-label={text.settings.checkConnection}
                 >
@@ -166,7 +174,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
                     type="checkbox"
                     checked={provider.enabled}
                     onChange={() => void toggleProvider(provider)}
-                    disabled={Boolean(busy)}
+                    disabled={Boolean(busy) || !known}
                     aria-label={toggleTitle}
                   />
                   <span aria-hidden="true" />
@@ -181,6 +189,12 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
     </div>
   );
 }
+
+const EMAIL_PROVIDERS: EmailProviderStatus[] = [
+  { provider: "qq_mail", display_name: "QQ Mail", enabled: false, default: false, account: "default", state: "not_configured", version: 0 },
+  { provider: "outlook", display_name: "Outlook", enabled: false, default: false, account: "default", state: "not_configured", version: 0 },
+  { provider: "gmail", display_name: "Gmail", enabled: false, default: false, account: "default", state: "not_configured", version: 0 }
+];
 
 function EmailFeedback({ feedback }: { feedback: Feedback }) {
   return (

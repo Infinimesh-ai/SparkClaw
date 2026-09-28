@@ -94,7 +94,7 @@ func (r *PlaywrightRunner) Read(ctx context.Context, provider Provider, request 
 	}{1, operation, request.InvocationID, provider.ID, app.EmailAccountDefault, request.OwnerScope, request.Target}
 	ctx, cancel := scriptContext(ctx, script)
 	defer cancel()
-	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{
+	result, err := r.runScript(ctx, browsercontrol.RunScriptRequest{
 		TaskID: request.InvocationID, CredentialGeneration: generation, Provider: provider.ID,
 		Operation: operation, ScriptID: script.ID, Revision: script.Revision, Input: input,
 	})

@@ -55,6 +55,22 @@ test('empty timeline poll writes no recovery journal',async t=>{
   assert.deepEqual(await fs.readdir(path.join(root,'email',input.owner_scope,'batches')),[]);
 });
 
+test('latest-interval reread lists stable IDs without reopening completed originals',async t=>{
+  const f=await fixture(t);
+  await f.run();
+  const already=f.events.filter(event=>event.startsWith('download:')).length;
+  const discovery={...request().discovery,skip_provider_message_ids:['a','b']};
+  const reread=await f.run({invocation_id:`email_changes_${'d'.repeat(64)}_r2`,discovery});
+  assert.equal(reread.status,'partial');
+  assert.deepEqual(reread.discovery.candidates.map(row=>row.provider_message_id),['a','b']);
+  assert.deepEqual(reread.captures,[]);
+  assert.equal(f.events.filter(event=>event.startsWith('download:')).length,already);
+  f.targets.push(target('c'));
+  const extended=await f.run({invocation_id:`email_changes_${'e'.repeat(64)}_r3`,discovery});
+  assert.deepEqual(extended.captures.map(row=>row.target.provider_message_id),['c']);
+  assert.deepEqual(f.events.filter(event=>event.startsWith('download:')).map(event=>event.slice(9)),['a','b','c']);
+});
+
 function networkTab(provider, url, state) {
   const calls = [], downloads = [];
   const reader = {

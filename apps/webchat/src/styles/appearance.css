@@ -1,0 +1,88 @@
+.settingsSwitch { position: relative; flex: none; width: 36px; height: 21px; padding: 0; border: 0; border-radius: 999px; background: #c8ccd2; transition: background .18s ease; }
+.settingsSwitch span { position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0003; transition: transform .18s ease; }
+.settingsSwitch[aria-checked="true"] { background: #3b82f6; }
+.settingsSwitch[aria-checked="true"] span { transform: translateX(15px); }
+.settingsSwitch:disabled { opacity: .5; }
+.settingsSegmented { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; border-radius: 8px; background: #eff0f2; }
+.settingsSegmented button { min-width: 54px; min-height: 28px; padding: 5px 8px; border-radius: 6px; color: #666b74; background: transparent; font-size: 11px; white-space: nowrap; }
+.settingsSegmented button.selected { color: #202226; background: #fff; box-shadow: 0 1px 4px #20222617; }
+.settingsSurfaceHint { display: block; margin-top: 8px; color: #666b74; font-size: 11px; }
+
+html[data-text-size="large"] .workbench { zoom: 1.1; height: calc(100dvh / 1.1); }
+html[data-text-size="large"] .settingsPageSidebar,
+html[data-text-size="large"] .settingsPageMain { height: calc(100dvh / 1.1); }
+
+html[data-resolved-theme="dark"] {
+  color-scheme: dark;
+  --background: #171a1f;
+  --surface-deep: #1f242b;
+  --panel-surface: #1f242b;
+  --surface: #242a32;
+  --surface-hover: #303741;
+  --surface-muted: #272d35;
+  --surface-solid: #242a32;
+  --text-primary: #edf0f4;
+  --text-secondary: #b9c1cb;
+  --text-muted: #aab3bf;
+  --text-tertiary: #aab3bf;
+  --border-subtle: #414954;
+  --border-strong: #535d69;
+  color: var(--text-primary);
+  background: var(--background);
+}
+html[data-resolved-theme="dark"] body,
+html[data-resolved-theme="dark"] .workbench,
+html[data-resolved-theme="dark"] .settingsPageMain,
+html[data-resolved-theme="dark"] .workbench.settingsPageMode,
+html[data-resolved-theme="dark"] .workbench .workbenchPage .inspectorColumn,
+html[data-resolved-theme="dark"] .workbench .taskInspector,
+html[data-resolved-theme="dark"] .workbench .taskInspector .inspectorColumn { background: #171a1f; color: #edf0f4; }
+html[data-resolved-theme="dark"] .settingsPageSidebar,
+html[data-resolved-theme="dark"] .workbench .sidebar { background: #20252c; border-color: #3a424c; }
+html[data-resolved-theme="dark"] .settingsPageSearch,
+html[data-resolved-theme="dark"] .settingsPageNavigation button.selected,
+html[data-resolved-theme="dark"] .settingsSegmented { background: #303741; }
+html[data-resolved-theme="dark"] .settingsPageNavigation button:hover,
+html[data-resolved-theme="dark"] .settingsConnectionRow:hover,
+html[data-resolved-theme="dark"] .settingsPageMain .settingsDirectoryRow:hover { background: #272d35; }
+html[data-resolved-theme="dark"] .settingsPageHeader h1,
+html[data-resolved-theme="dark"] .settingsSurfaceCopy strong,
+html[data-resolved-theme="dark"] .settingsPageBack,
+html[data-resolved-theme="dark"] .settingsPageNavigation button,
+html[data-resolved-theme="dark"] .settingsConnectionRow,
+html[data-resolved-theme="dark"] .settingsPageMain .settingsBlock strong,
+html[data-resolved-theme="dark"] .settingsPolicySummary > strong,
+html[data-resolved-theme="dark"] .settingsPolicyColumns strong,
+html[data-resolved-theme="dark"] .settingsSegmented button.selected,
+html[data-resolved-theme="dark"] .workbenchWelcome,
+html[data-resolved-theme="dark"] .workbenchPageHeader h1 { color: #edf0f4; }
+html[data-resolved-theme="dark"] .settingsPageHeader p,
+html[data-resolved-theme="dark"] .settingsSurfaceCopy small,
+html[data-resolved-theme="dark"] .settingsSurfaceSection > h2,
+html[data-resolved-theme="dark"] .settingsSurfaceSectionHeading h2,
+html[data-resolved-theme="dark"] .settingsPageGroupLabel,
+html[data-resolved-theme="dark"] .settingsSurfaceRow output,
+html[data-resolved-theme="dark"] .settingsSurfaceHint,
+html[data-resolved-theme="dark"] .workbenchPageHeader p { color: #b9c1cb; }
+html[data-resolved-theme="dark"] .settingsSurfaceRow,
+html[data-resolved-theme="dark"] .settingsStatusBar,
+html[data-resolved-theme="dark"] .settingsConnectionRow,
+html[data-resolved-theme="dark"] .settingsPolicySummary,
+html[data-resolved-theme="dark"] .settingsPolicyColumns,
+html[data-resolved-theme="dark"] .settingsPageMain .settingsBlock { border-color: #3a424c; }
+html[data-resolved-theme="dark"] .settingsSurfaceRow select,
+html[data-resolved-theme="dark"] .settingsConnectionAction,
+html[data-resolved-theme="dark"] .settingsSegmented button.selected,
+html[data-resolved-theme="dark"] .settingsConnectionIcon,
+html[data-resolved-theme="dark"] .settingsPageMain input,
+html[data-resolved-theme="dark"] .settingsPageMain textarea,
+html[data-resolved-theme="dark"] .settingsPageMain select,
+html[data-resolved-theme="dark"] .workbench .composer { border-color: #414954; background: #242a32; color: #edf0f4; }
+html[data-resolved-theme="dark"] .settingsPageSearch input,
+html[data-resolved-theme="dark"] .workbench .composer textarea { color: #edf0f4; background: transparent; }
+html[data-resolved-theme="dark"] .settingsSegmented button:not(.selected),
+html[data-resolved-theme="dark"] .settingsPageSearch input::placeholder { color: #b9c1cb; }
+html[data-resolved-theme="dark"] .workbench .message.user { background: #303741; }
+html[data-resolved-theme="dark"] .welcomeBrandMark { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
+html[data-resolved-theme="dark"] .workbench :is(.message, .taskSearchDialog, .notificationCenter) { color: #edf0f4; }
+@media (max-width: 600px) { .settingsSegmented button { min-width: 0; padding-inline: 6px; } }

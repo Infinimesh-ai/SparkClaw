@@ -7,12 +7,13 @@ import { describe, expect, it, vi } from "vitest";
 import { dictionaries } from "../i18n";
 import { SessionSidebar } from "./sidebar";
 
-describe("SessionSidebar MCP conversations", () => {
+describe("SessionSidebar navigation and conversations", () => {
   it("omits managed MCP conversations from recent sessions", () => {
     const markup = renderToStaticMarkup(
       <SessionSidebar
         text={dictionaries.en}
         language="en"
+        page="schedules"
         ownerProfile={null}
         sessions={[{
           id: "s_mcp_binding_a",
@@ -37,6 +38,7 @@ describe("SessionSidebar MCP conversations", () => {
     );
 
     expect(markup).not.toContain("AI · device-a");
+    expect(markup).toContain('aria-current="page"');
     expect(markup).not.toContain(dictionaries.en.nav.renameSession);
     expect(markup).not.toContain(dictionaries.en.nav.deleteSession);
   });
@@ -46,6 +48,7 @@ describe("SessionSidebar MCP conversations", () => {
       <SessionSidebar
         text={dictionaries.en}
         language="en"
+        page="chat"
         ownerProfile={{
           id: "owner-one",
           display_name: "Ada Lovelace",
@@ -75,6 +78,8 @@ describe("SessionSidebar MCP conversations", () => {
     );
 
     expect(markup).toContain("Review the launch plan");
+    expect(markup).toContain(">Schedule</span>");
+    expect(markup.indexOf("sidebarScheduleLink")).toBeLessThan(markup.indexOf("conversationListHeader"));
     expect(markup).toContain("Recent tasks");
     expect(markup).toContain("newConversationButton");
     expect(markup).toContain(`aria-label="${dictionaries.en.nav.newSession}"`);
@@ -87,7 +92,7 @@ describe("SessionSidebar MCP conversations", () => {
     expect(markup).toContain("Ada Lovelace");
     expect(markup).toContain("ada@example.com");
     expect(markup).not.toContain(">Workspace settings<");
-    for (const removed of ["New task", "Search tasks", "Schedules", "Connections", "Memory", "Approvals"]) {
+    for (const removed of ["New task", "Search tasks", "Connections", "Memory", "Approvals"]) {
       expect(markup).not.toContain(`>${removed}<`);
     }
   });
@@ -103,6 +108,7 @@ describe("SessionSidebar MCP conversations", () => {
         <SessionSidebar
           text={dictionaries.en}
           language="en"
+          page="chat"
           ownerProfile={{
             id: "owner-one",
             display_name: "Ada Lovelace",
@@ -130,6 +136,9 @@ describe("SessionSidebar MCP conversations", () => {
       await act(async () => (host.querySelector('[aria-label="Search tasks"]') as HTMLButtonElement).click());
       expect(onSearch).toHaveBeenCalledOnce();
       expect(host.querySelector('[role="menu"]')).toBeNull();
+
+      await act(async () => (host.querySelector(".sidebarScheduleLink") as HTMLButtonElement).click());
+      expect(onNavigate).toHaveBeenCalledWith("schedules");
 
       await act(async () => (host.querySelector(".sidebarAccountTrigger") as HTMLButtonElement).click());
       expect(host.querySelector('[role="menu"]')).not.toBeNull();

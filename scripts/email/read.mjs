@@ -32,18 +32,42 @@ export async function collectUnread(tab, provider, options = {}) {
     if (options.discovery) return page.discovery;
     return collectNetworkListed(tab, provider, options, page.listed);
   }
-  if (provider === 'qq_mail' && pinned) {
+  if (provider === 'outlook' && pinned && options.pinned_received_at) {
+    // Outlook's native search qualifies an immutable message ID, whereas its
+    // ordinary folder list exposes a movable ItemId. Search around the
+    // discovered receipt time and require that exact immutable ID again.
+    const received = Date.parse(options.pinned_received_at);
+    if (!Number.isFinite(received)) throw fail('invalid_request');
+    const page = await networkListPage(tab, provider, {
+      account_address:networkAccount, lane:'recent_inbound', provider_mode:'time_range', limit:50,
+      interval_start:new Date(received-1000).toISOString(), interval_end:new Date(received+1000).toISOString(),
+    }, null);
+    if (!page) throw fail('email_network_capability_unavailable');
+    return collectNetworkListed(tab, provider, options, page.listed);
+  }
+  if ((provider === 'qq_mail' || provider === 'gmail' || provider === 'outlook') && pinned) {
     const pageOptions = {
       ...networkInterval, lane:'recent_inbound', limit:100, continuation:'', folder:options.folder ?? 'inbox',
     };
-    let page = await networkListPage(tab, provider, pageOptions, snapshot);
+    const hasTarget = page => page.listed.rows?.some(row =>
+      (!options.pinned_message_id || row.provider_message_id === options.pinned_message_id || row.members?.some(member => member.provider_message_id === options.pinned_message_id)) &&
+      (!options.pinned_selection_id || row.provider_selection_id === options.pinned_selection_id || row.provider_thread_id === options.pinned_selection_id));
+    let page;
+    try {
+      page = await networkListPage(tab, provider, pageOptions, snapshot);
+    } catch (error) {
+      if (provider !== 'qq_mail' || error?.code !== 'email_network_list_unqualified') throw error;
+      // The current QQ range search can still qualify a recently discovered
+      // target when the native folder listing changes shape. Its bounded first
+      // page is sufficient only when that exact stable ID is present.
+      const range = await networkListPage(tab, provider, {...pageOptions, provider_mode:'time_range'}, null);
+      if (!range || !hasTarget(range)) throw error;
+      page = range;
+    }
     // A new task page can observe a newer first page than discovery did. Keep
-    // the target bound to network identities while walking QQ's bounded pages.
+    // the target bound to network identities while walking bounded pages.
     for (let attempt = 0; page && page.discovery.coverage.continuation && attempt < 128; attempt += 1) {
-      const hasTarget = page.listed.rows?.some(row =>
-        (!options.pinned_message_id || row.provider_message_id === options.pinned_message_id || row.members?.some(member => member.provider_message_id === options.pinned_message_id)) &&
-        (!options.pinned_selection_id || row.provider_selection_id === options.pinned_selection_id || row.provider_thread_id === options.pinned_selection_id));
-      if (hasTarget) break;
+      if (hasTarget(page)) break;
       page = await networkListPage(tab, provider, {
         ...pageOptions, continuation:page.discovery.coverage.continuation,
       }, page.listed);

@@ -1,9 +1,8 @@
-// Session sidebar: the task conversation list and its direct actions. Workspace
-// tools live in Settings so the navigation stays focused on conversations.
+// Session sidebar: the schedule entry, task conversation list, and direct actions.
 import { useEffect, useRef, useState } from "react";
-import { MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { CalendarDays, MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import { workbenchCopy, type WorkspacePage } from "./workbench";
-import { workbenchWordmark } from "./workbenchBrand";
+import workbenchMark from "../../../desktop/src/assets/icon.png";
 import type { Copy, Language } from "../i18n";
 import type { OwnerProfile, Session } from "../api/types";
 import { shortId } from "../lib/format";
@@ -11,6 +10,7 @@ import { shortId } from "../lib/format";
 type SessionSidebarProps = {
   text: Copy;
   language: Language;
+  page: WorkspacePage;
   ownerProfile: OwnerProfile | null;
   sessions: Session[];
   activeSession: string;
@@ -32,6 +32,7 @@ type SessionSidebarProps = {
 export function SessionSidebar({
   text,
   language,
+  page,
   ownerProfile,
   sessions,
   activeSession,
@@ -55,7 +56,11 @@ export function SessionSidebar({
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const accountName = ownerProfile?.display_name.trim() || text.app.name;
   const accountEmail = ownerProfile?.email?.trim();
-  const accountInitial = Array.from(accountName)[0]?.toLocaleUpperCase() || "S";
+  const accountInitial = (accountName.match(/[A-Z\p{L}]/gu) ?? Array.from(accountName))
+    .slice(0, 2)
+    .join("")
+    .toLocaleUpperCase() || "SC";
+  const accountContext = accountEmail || copy.local;
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -79,13 +84,24 @@ export function SessionSidebar({
   return (
     <aside className="sidebar">
       <div className="brandRow">
-        <div className="brand">
-          <img className="workbenchWordmark" src={workbenchWordmark} alt={text.app.name} title={text.app.tagline} />
-        </div>
+        <button className="brand" type="button" onClick={() => onNavigate?.("chat")} title={text.app.tagline}>
+          <img className="workbenchBrandMark" src={workbenchMark} alt="" aria-hidden="true" />
+          <span className="workbenchBrandName">Spark<span>Claw</span></span>
+        </button>
         <button className="iconButton subtle" onClick={onToggleSidebar} title={copy.toggleNav} aria-label={copy.toggleNav}>
           <PanelLeft size={17} />
         </button>
       </div>
+
+      <button
+        className="sidebarScheduleLink"
+        type="button"
+        aria-current={page === "schedules" ? "page" : undefined}
+        onClick={() => onNavigate?.("schedules")}
+      >
+        <CalendarDays size={17} strokeWidth={1.7} aria-hidden="true" />
+        <span>{copy.schedules}</span>
+      </button>
 
       <div className="conversationListHeader">
         <span>{copy.recent}</span>
@@ -100,7 +116,7 @@ export function SessionSidebar({
       </div>
       <div className="sessionList" aria-label={text.nav.sessions}>
         {visibleSessions.map((session) => (
-          <div className={`sessionItem ${session.id === activeSession ? "active" : ""}`} key={session.id}>
+          <div className={`sessionItem ${page === "chat" && session.id === activeSession ? "active" : ""}`} key={session.id}>
             {editingSession === session.id ? (
               <form
                 className="sessionRenameForm"
@@ -148,7 +164,7 @@ export function SessionSidebar({
               <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
               <span className="sidebarAccountIdentity">
                 <strong>{accountName}</strong>
-                {accountEmail && <small>{accountEmail}</small>}
+                <small>{accountContext}</small>
               </span>
             </div>
             <button
@@ -174,7 +190,7 @@ export function SessionSidebar({
             <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
             <span className="sidebarAccountIdentity">
               <strong>{accountName}</strong>
-              {accountEmail && <small>{accountEmail}</small>}
+              <small>{accountContext}</small>
             </span>
             <MoreHorizontal size={16} aria-hidden="true" />
           </button>

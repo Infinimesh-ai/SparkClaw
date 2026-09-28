@@ -43,8 +43,12 @@ class DesktopLauncherTest(unittest.TestCase):
             subprocess.run(command, cwd=ROOT, env=env, check=True, capture_output=True, text=True)
             subprocess.run([*command, "--check"], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
             launcher = root / "data/sparkclaw/desktop/bin/sparkclaw-desktop"
+            desktop_entry = root / "data/applications/sparkclaw.desktop"
+            installed_icon = root / "data/icons/hicolor/512x512/apps/sparkclaw.png"
             result = subprocess.run([str(launcher)], env=env, check=True, capture_output=True, text=True)
             self.assertEqual(result.stdout.splitlines(), [str(runtime / "local-workbench.json"), str(credential)])
+            self.assertIn("Icon=sparkclaw", desktop_entry.read_text(encoding="utf-8"))
+            self.assertEqual(installed_icon.read_bytes(), (ROOT / "apps/desktop/src/assets/icon.png").read_bytes())
             self.assertNotIn("secret-that-must-not-appear", launcher.read_text(encoding="utf-8"))
             self.assertNotIn("secret-that-must-not-appear", (root / "config/sparkclaw/desktop-launcher.conf").read_text(encoding="utf-8"))
 

@@ -57,6 +57,9 @@ launcher_dir="$data_home/sparkclaw/desktop/bin"
 launcher_path="$launcher_dir/sparkclaw-desktop"
 applications_dir="$data_home/applications"
 desktop_path="$applications_dir/sparkclaw.desktop"
+icon_source="$ROOT/apps/desktop/src/assets/icon.png"
+icon_dir="$data_home/icons/hicolor/512x512/apps"
+icon_path="$icon_dir/sparkclaw.png"
 config_dir="$config_home/sparkclaw"
 config_path="$config_dir/desktop-launcher.conf"
 launcher_source="$ROOT/scripts/sparkclaw-desktop-launcher.sh"
@@ -64,11 +67,13 @@ launcher_source="$ROOT/scripts/sparkclaw-desktop-launcher.sh"
 expected_config="$(printf 'executable=%s\ndescriptor=%s\ncredential=%s\n' "$DESKTOP_EXECUTABLE" "$descriptor_path" "$credential_path")"
 
 verify() {
-  [[ -x "$launcher_path" && -f "$config_path" && -f "$desktop_path" ]] || fail "desktop launcher installation is incomplete"
+  [[ -x "$launcher_path" && -f "$config_path" && -f "$desktop_path" && -f "$icon_path" ]] || fail "desktop launcher installation is incomplete"
   cmp -s "$launcher_source" "$launcher_path" || fail "installed desktop launcher is stale"
+  cmp -s "$icon_source" "$icon_path" || fail "installed desktop icon is stale"
   [[ "$(cat "$config_path")" == "$expected_config" ]] || fail "desktop launcher configuration is stale"
   grep -Fqx "TryExec=$launcher_path" "$desktop_path" || fail "desktop entry TryExec is stale"
   grep -Fqx "Exec=$launcher_path" "$desktop_path" || fail "desktop entry Exec is stale"
+  grep -Fqx "Icon=sparkclaw" "$desktop_path" || fail "desktop entry icon is stale"
   [[ "$(stat -c '%u:%a' "$config_path")" == "$(id -u):600" ]] || fail "desktop launcher configuration must be mode 0600"
 }
 
@@ -78,9 +83,10 @@ if [[ "$MODE" == "check" ]]; then
   exit 0
 fi
 
-mkdir -p "$launcher_dir" "$applications_dir" "$config_dir"
+mkdir -p "$launcher_dir" "$applications_dir" "$icon_dir" "$config_dir"
 chmod 700 "$launcher_dir" "$config_dir"
 install -m 700 "$launcher_source" "$launcher_path"
+install -m 644 "$icon_source" "$icon_path"
 temporary_config="$(mktemp "$config_dir/desktop-launcher.conf.XXXXXX")"
 printf '%s\n' "$expected_config" >"$temporary_config"
 chmod 600 "$temporary_config"
@@ -93,6 +99,7 @@ Name=SparkClaw
 Comment=SparkClaw local workbench
 Exec=$launcher_path
 TryExec=$launcher_path
+Icon=sparkclaw
 Terminal=false
 Categories=Utility;
 StartupNotify=true

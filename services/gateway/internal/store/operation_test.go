@@ -9,6 +9,7 @@ import (
 
 func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 	want := map[StoreOperation]operationSpec{
+		OperationApplyEmailObserver:          {ID: OperationApplyEmailObserver, Repository: "EmailRepository", Method: "ApplyEmailObserver", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationReadEmailPresentations:      {ID: OperationReadEmailPresentations, Repository: "EmailPresentationRepository", Method: "ReadEmailPresentations", Mode: operationRead, Timeout: timeoutRead},
 		OperationEnsureEmailPresentations:    {ID: OperationEnsureEmailPresentations, Repository: "EmailPresentationRepository", Method: "EnsureEmailPresentations", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationGetEmailPresentation:        {ID: OperationGetEmailPresentation, Repository: "EmailPresentationRepository", Method: "GetEmailPresentation", Mode: operationRead, Timeout: timeoutRead},

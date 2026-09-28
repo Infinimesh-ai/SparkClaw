@@ -19,12 +19,42 @@ usage() {
 Usage: bash scripts/qualify-playwright-email.sh [options]
 
 Run the fixed Playwright Extension login probes through the installed host
-controller. This command never invokes an email send script.
+controller. The default qualification does not send mail.
 Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_DISCOVER=1 for read-only list discovery.
 Also set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE=1 to exercise a one-hour
 timeline query. A passing smoke is not full incremental coverage qualification.
 Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ=1 and SPARKCLAW_TEST_EMAIL_OWNER_ID
 to also capture one unread inbox message per provider and verify its local files.
+Set SPARKCLAW_TEST_NOTIFICATION_OBSERVE=1 only for an authorized real-mail
+qualification, with SPARKCLAW_TEST_NOTIFICATION_OBSERVER_SOCKET and
+SPARKCLAW_NOTIFICATION_OBSERVER_READY_DIR set to an isolated observer runtime.
+This mode sends one uniquely marked Gmail-to-QQ test message by default.
+SPARKCLAW_TEST_NOTIFICATION_ROUTE=sender:receiver selects any two distinct
+qq_mail, gmail or outlook providers. Set SPARKCLAW_TEST_NOTIFICATION_DRY_RUN=1
+to observe without sending. SPARKCLAW_TEST_NOTIFICATION_DURATION_MS bounds
+the observation window (1000..120000). To verify an already sent message's
+original without sending, set SPARKCLAW_TEST_NOTIFICATION_RECONCILE_MARKER.
+For a no-send Reader concurrency control, set
+SPARKCLAW_TEST_NOTIFICATION_DRY_RUN=1 and
+SPARKCLAW_TEST_NOTIFICATION_TRIGGER_READ=1. Also set
+SPARKCLAW_TEST_NOTIFICATION_QUERY_ONLY=1 for the same bounded query without
+starting an observer. SPARKCLAW_TEST_NOTIFICATION_SAME_CONTROLLER=1 runs the
+Reader query through the isolated observer Controller to test provider-slot
+coordination. These controls never change receiving settings.
+
+For the resident Controller capability use SPARKCLAW_TEST_RESIDENT_NOTIFICATION=1
+and --controller-socket pointing to an isolated Controller built from this tree.
+It starts all selected watchers, observes 30 idle seconds, runs a real Reader
+query per provider through that same Controller, and stops its owned watchers.
+SPARKCLAW_TEST_RESIDENT_HOLD_SECONDS=1..900 retains observation for authorized
+manual mutual sends. SPARKCLAW_MAIL_OBSERVER_EVIDENCE=1 on the Controller enables
+bounded redacted protocol evidence (off by default).
+While that hold is active, SPARKCLAW_TEST_NOTIFICATION_RESIDENT_SEND=1 plus the
+NOTIFICATION_OBSERVE/ROUTE settings sends once without the old blocking probe.
+For an Outlook recipient, SPARKCLAW_TEST_NOTIFICATION_OUTLOOK_IDENTITY must name
+a private JSON proof exported from a verified outgoing original with
+SPARKCLAW_TEST_NOTIFICATION_RECEIPT_IDENTITY; a login alias is insufficient.
+All uncertain sends are reconciled by unique-marker original, never repeated.
 
 Options:
   --profile local|remote       Product profile to load (default: remote)
@@ -186,4 +216,10 @@ fi
 if [[ "${SPARKCLAW_TEST_EMAIL_PERFORMANCE:-}" == 1 ]]; then
   live_test='^TestTimelineLivePerformance$'
 fi
-go test -count=1 -run "$live_test" -v ./internal/emailautomation
+if [[ "${SPARKCLAW_TEST_NOTIFICATION_OBSERVE:-}" == 1 ]]; then
+  live_test='^TestEmailNotificationMutualSendLive$'
+fi
+if [[ "${SPARKCLAW_TEST_RESIDENT_NOTIFICATION:-}" == 1 ]]; then
+  live_test='^TestEmailResidentNotificationLive$'
+fi
+go test -timeout=30m -count=1 -run "$live_test" -v ./internal/emailautomation

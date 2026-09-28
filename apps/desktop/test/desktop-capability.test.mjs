@@ -53,16 +53,23 @@ test("desktop capability admits only the trusted workbench main frame and opaque
     revision: 1,
     bounds: { x: 680, y: 80, width: 640, height: 720 },
   });
+  await handler(event, {
+    schema_version: 1,
+    operation: "setBounds",
+    revision: 2,
+    bounds: { x: 1120, y: 80, width: 320, height: 180 },
+  });
   await assert.rejects(handler(event, {
     schema_version: 1,
     operation: "setBounds",
-    revision: 1,
+    revision: 3,
     bounds: { x: 0, y: 0, width: 1440, height: 900 },
-  }), /invalid/);
+  }), /outside the workbench/);
   assert.deepEqual(calls, [
     ["create", "https://example.test/path"],
     ["show", "page_0123456789abcdef0123456789abcdef", "task"],
     ["bounds", { x: 680, y: 80, width: 640, height: 720 }],
+    ["bounds", { x: 1120, y: 80, width: 320, height: 180 }],
   ]);
   registry.listener();
   await new Promise((resolve) => setImmediate(resolve));

@@ -81,13 +81,16 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
     finally { setBusy(""); }
   }
   const unacknowledged = (status?.mailboxes ?? []).reduce((count, mailbox) => count + (mailbox.unacknowledged_warning_count ?? 0), 0);
+  const intakeActive = Boolean(status?.mailboxes.some((mailbox) => mailbox.active_binding && mailbox.intake_enabled));
+  const latestSync = (status?.mailboxes ?? []).map((mailbox) => mailbox.last_sync_at).filter((value): value is string => Boolean(value)).sort().at(-1);
   return (
     <div className="emailSync">
       <div className="emailSyncBar">
-        <button className="emailTextButton" aria-expanded={open} onClick={() => setOpen(!open)}><ChevronDown size={15} />{text.email.receivingSettings}</button>
-        <span>{text.email.backlog}: {status?.backlog ?? "—"}</span>
-        {scheduled && manualRefresh.pending && <span role="status">{text.email.syncScheduled}</span>}
-        <button className="emailTextButton" disabled={Boolean(busy) || !status || manualRefresh.pending} aria-busy={manualRefresh.pending} onClick={() => void sync()}><RefreshCw size={14} className={manualRefresh.pending ? "spin" : ""} />{text.email.sync}</button>
+        <span className={`emailSyncState ${intakeActive ? "active" : ""}`}><i aria-hidden="true" /><button className="emailTextButton" aria-expanded={open} onClick={() => setOpen(!open)}>{text.email.receivingSettings}<ChevronDown size={13} /></button><small>{status ? intakeActive ? text.email.syncConnected : text.email.syncPaused : text.email.syncUnknown}</small></span>
+        <span className="emailSyncQueue">{text.email.backlog} <strong>{status?.backlog ?? "—"}</strong></span>
+        {scheduled && <span role="status">{text.email.syncScheduled}</span>}
+        <span className="emailSyncLast">{text.email.lastSync}: {latestSync ? formatDateTime(latestSync, language) : "—"}</span>
+        <button className="emailTextButton emailSyncNow" disabled={Boolean(busy) || !status || manualRefresh.pending} aria-busy={manualRefresh.pending} onClick={() => void sync()}><RefreshCw size={14} className={manualRefresh.pending ? "spin" : ""} />{text.email.sync}</button>
       </div>
       {unacknowledged > 0 && <div className="emailCapacityWarning" role="alert">
         <strong>{text.email.syncWarnings}: {unacknowledged}</strong>

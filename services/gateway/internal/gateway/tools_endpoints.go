@@ -13,13 +13,15 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 )
 
 func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Deny             []string `json:"deny"`
-		ApprovalRequired []string `json:"approval_required"`
+		Deny             []string                     `json:"deny"`
+		ApprovalRequired []string                     `json:"approval_required"`
+		OperatorControls *config.OperatorToolControls `json:"operator_controls"`
 	}
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -41,12 +43,21 @@ func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := writeToolPolicyFile(s.cfg.Security.ToolPolicyPath, deny, approvalRequired); err != nil {
+	controls := s.cfg.Security.OperatorControls
+	if input.OperatorControls != nil {
+		controls = *input.OperatorControls
+		if err := controls.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if err := writeToolPolicyFile(s.cfg.Security.ToolPolicyPath, deny, approvalRequired, controls); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	s.cfg.Security.DeniedTools = deny
 	s.cfg.Security.ApprovalRequiredTools = approvalRequired
+	s.cfg.Security.OperatorControls = controls
 	s.policies = policy.New(s.cfg)
 	s.runtime = s.runtime.WithPolicy(s.policies)
 	s.addAudit(r.Context(), app.AuditEvent{
@@ -152,13 +163,14 @@ func normalizePolicyToolList(values []string) ([]string, error) {
 	return out, nil
 }
 
-func writeToolPolicyFile(path string, deny, approvalRequired []string) error {
+func writeToolPolicyFile(path string, deny, approvalRequired []string, controls config.OperatorToolControls) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("tool policy path is not configured")
 	}
 	raw, err := json.MarshalIndent(map[string]any{
 		"deny":              deny,
 		"approval_required": approvalRequired,
+		"operator_controls": controls,
 	}, "", "  ")
 	if err != nil {
 		return err

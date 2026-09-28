@@ -8,7 +8,7 @@ function identity(overrides={}) {
 function fixture(options={}) {
   let now=1000;const disposed=[];
   const pool=new MailReadPool({dispose:async lease=>{disposed.push(lease);},now:()=>now,...options});
-  return {pool,disposed,setNow:value=>{now=value;},lease:()=>({createdAt:now})};
+  return {pool,disposed,setNow:value=>{now=value;},lease:()=>({})};
 }
 test('mail pool identity separates every authority and excludes non-timeline operations',async()=>{
   const {pool}=fixture();const base=identity(),key=pool.identity(base);
@@ -32,11 +32,24 @@ test('one lease per provider reuses within idle limit while providers remain ind
   assert.equal(await pool.take('gmail','changed'),null);assert.deepEqual(disposed,[first]);
   pool.discard('gmail');await pool.close();
 });
-test('idle expiry, maximum age and clock rollback cannot reuse old lease',async()=>{
-  for(const mode of ['idle','maximum','clock']){
+test('successive minute polls retain one page past two hours',async()=>{
+  const {pool,disposed,lease,setNow}=fixture();
+  await pool.take('qq_mail','key');
+  const first=lease();
+  assert.equal(pool.keep('qq_mail',first),true);
+  for(let minute=1;minute<=121;minute++){
+    setNow(1000+minute*60_000);
+    assert.equal(await pool.take('qq_mail','key'),first);
+    assert.equal(pool.keep('qq_mail',first),true);
+  }
+  assert.deepEqual(disposed,[]);
+  await pool.close();
+  assert.deepEqual(disposed,[first]);
+});
+test('idle expiry and clock rollback cannot reuse old lease',async()=>{
+  for(const mode of ['idle','clock']){
     const {pool,disposed,lease,setNow}=fixture();await pool.take('gmail','key');const first=lease();pool.keep('gmail',first);
-    if(mode==='maximum') {first.createdAt=1000-2*60*60_000;setNow(1001);}
-    else setNow(mode==='clock'?999:1000+MAIL_READ_IDLE_MS);
+    setNow(mode==='clock'?999:1000+MAIL_READ_IDLE_MS);
     assert.equal(await pool.take('gmail','key'),null);assert.deepEqual(disposed,[first]);pool.discard('gmail');await pool.close();
   }
 });

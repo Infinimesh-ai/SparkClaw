@@ -45,6 +45,7 @@ const (
 	OperationAcknowledgeEmailSyncWarning StoreOperation = "email_management.AcknowledgeEmailSyncWarning"
 	OperationAdmitEmailDiscovery         StoreOperation = "email_management.AdmitEmailDiscovery"
 	OperationRequestEmailJob             StoreOperation = "email_management.RequestEmailJob"
+	OperationApplyEmailObserver          StoreOperation = "email_management.ApplyEmailObserver"
 	OperationClaimEmailJob               StoreOperation = "email_management.ClaimEmailJob"
 	OperationRenewEmailJob               StoreOperation = "email_management.RenewEmailJob"
 	OperationFinishEmailJob              StoreOperation = "email_management.FinishEmailJob"
@@ -326,6 +327,7 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationAcknowledgeEmailSyncWarning: {ID: OperationAcknowledgeEmailSyncWarning, Repository: "EmailRepository", Method: "AcknowledgeEmailSyncWarning", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationAdmitEmailDiscovery:         {ID: OperationAdmitEmailDiscovery, Repository: "EmailRepository", Method: "AdmitEmailDiscovery", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationRequestEmailJob:             {ID: OperationRequestEmailJob, Repository: "EmailRepository", Method: "RequestEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationApplyEmailObserver:          {ID: OperationApplyEmailObserver, Repository: "EmailRepository", Method: "ApplyEmailObserver", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationClaimEmailJob:               {ID: OperationClaimEmailJob, Repository: "EmailRepository", Method: "ClaimEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationRenewEmailJob:               {ID: OperationRenewEmailJob, Repository: "EmailRepository", Method: "RenewEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationFinishEmailJob:              {ID: OperationFinishEmailJob, Repository: "EmailRepository", Method: "FinishEmailJob", Mode: operationWrite, Timeout: timeoutTransaction},

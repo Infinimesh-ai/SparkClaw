@@ -86,18 +86,6 @@
   gap: 12px;
 }
 
-.brandMark {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 4px;
-  color: var(--cyber-blue);
-  background: #0c0f10;
-  box-shadow: 0 0 18px rgba(66, 133, 244, 0.24);
-}
-
 .brand strong,
 .brand span {
   display: block;
@@ -211,18 +199,6 @@
   background: var(--crimson-danger);
 }
 
-.navStatus {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
-}
-
 .statusDot {
   width: 7px;
   height: 7px;
@@ -234,9 +210,6 @@
 .statusDot.ready {
   background: var(--emerald-success);
   box-shadow: 0 0 10px rgba(66, 133, 244, 0.55);
-}
-
-.statusDot.ready {
   animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
@@ -250,62 +223,6 @@
     opacity: 0.55;
     box-shadow: 0 0 4px rgba(66, 133, 244, 0.2);
   }
-}
-
-.navStatus strong,
-.navStatus span {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.navStatus strong {
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.navStatus span {
-  color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.navMetrics {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: auto auto;
-  gap: 8px;
-  margin: 0;
-}
-
-.navMetrics dt,
-.navMetrics dd {
-  min-width: 0;
-  margin: 0;
-}
-
-.navMetrics dt {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.navMetrics dd {
-  margin-top: 5px;
-  color: var(--text-primary);
-  font-family: var(--mono);
-  font-size: 18px;
-  font-weight: 700;
 }
 
 .sessionList {

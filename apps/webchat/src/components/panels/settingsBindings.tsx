@@ -124,7 +124,9 @@ export function ConnectorBindingSettings({
     const scannedInstruction = text.settings.scannedWeixin;
     const tokenEditable = isSecret && connector.enabled && connector.binding_startable;
     const startDisabled = connectorBindingStartDisabled(connector, bindingBusy || connectorBusy !== "", Boolean(telegramToken.trim()));
-    const capabilityNote = connectorStatusLabel(connector, text);
+    const capabilityNote = connector.state === "status_pending"
+      ? language === "zh" ? "状态待检查" : "Status pending"
+      : connectorStatusLabel(connector, text);
     const toggleTitle = connector.enabled ? text.settings.disableConnector : text.settings.enableConnector;
     return (
       <article className="settingsBlock" key={channel}>
@@ -139,7 +141,7 @@ export function ConnectorBindingSettings({
                 type="checkbox"
                 checked={connector.enabled}
                 onChange={() => void toggleConnector(connector)}
-                disabled={connectorBusy !== ""}
+                disabled={connectorBusy !== "" || !connector.available}
                 aria-label={toggleTitle}
               />
               <span aria-hidden="true" />

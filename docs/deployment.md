@@ -355,19 +355,30 @@ bash scripts/doctor.sh
 ```
 
 Open WebChat locally at [http://127.0.0.1:18790](http://127.0.0.1:18790), or
-from another LAN device at `http://<host-lan-ip>:18790`. Desktop reads its
-installation-provisioned Client automatically. LAN browsers enter a separate
-Owner-issued Client token; neither flow uses a pairing code.
+from another LAN device at `http://<host-lan-ip>:18790`. Local and remote
+deployment write an owner-only desktop connection file containing paths to the
+installation-provisioned Client. The packaged DEB and AppImage read this file
+when launched directly from the application menu or executable; no separate
+desktop launcher is needed. The backend services must still be running. LAN
+browsers enter a separate Owner-issued Client token; neither flow uses a pairing
+code.
 
-To install a desktop launcher for a verified AppImage or packaged executable:
+For an existing healthy deployment that predates the connection file, register
+its runtime directory once without restarting backend services:
+
+```bash
+node scripts/configure-desktop-connection.mjs --runtime-dir "$PWD/data/runtime"
+```
+
+The older launcher remains available for existing installations:
 
 ```bash
 npm run install:desktop-launcher -- --executable /absolute/path/to/sparkclaw
 ```
 
 Set `SPARKCLAW_DESKTOP_EXECUTABLE` in the private deployment environment to
-have `deploy:local` or `deploy:remote` install/check the same launcher. The
-launcher configuration contains only controlled file paths, never the bearer.
+have `deploy:local` or `deploy:remote` install/check that older launcher. Both
+connection files contain only controlled file paths, never the bearer.
 
 ### JingSi LAN Presentation (Experimental)
 

@@ -33,6 +33,12 @@ export const en = {
       sessions: "Sessions"
     },
     email: {
+      windowDescription: "Review conversations, manage mail, and check intake status.",
+      categories: "Categories",
+      categoryNote: "Check intake and processing status in the sync bar above.",
+      syncConnected: "Intake on",
+      syncPaused: "Paused",
+      syncUnknown: "Status pending",
       summaryPartial: "Summary covers only the available source excerpts. Open the original mail for full context.",
       loginExpired: "Mailbox login expired. Please sign in again.",
       signInAgain: "Sign in again",
@@ -327,12 +333,7 @@ export const en = {
       correction: "Correction",
       helpful: "Mark helpful",
       unhelpful: "Mark not helpful",
-      saveCorrection: "Save correction",
-      sendTo: "Send to",
-      chooseDestination: "Choose destination",
-      currentConversation: "Current conversation",
-      destinationUnavailable: "Unavailable destination",
-      noDeliveryEndpoints: "No authorized recipients are available."
+      saveCorrection: "Save correction"
     },
     auth: {
       gatewayToken: "Gateway token",

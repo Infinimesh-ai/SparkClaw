@@ -36,7 +36,6 @@ documentation tree.
 | [Web and desktop shared local backend design](local-shared-backend-design.md) | Implemented shared Gateway/PostgreSQL, LAN Web plus local desktop on one port, separate client credentials without port 18795, and dual-client refresh |
 | [Export AI platform conversations: login and workspace persistence](ai-conversation-export-design.md) | Four AI-provider branches alongside browser/document; listen for userscript downloads, preserve original JSON in session workspace and return receipts |
 | [AI conversation timeline batch export](ai-conversation-batch-export.md) | RevivalStack batch controls, native Bridge CLI, verified file checkpoints, discovered collections and coverage limits |
-| [Host-CDP browser design](host-cdp-browser-design.md) | Historical record of the retired browserd/Host-CDP implementation that preceded the Playwright cutover |
 | [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |
 | [Browser email Workflow design](browser-email-workflow-design.md) | Single unread-message source capture, sending, deterministic admission, send approval, and unknown-outcome invariants |
 | [Email management system and stages](email-management-design.md) | Implementation contracts: cross-account topics, bounded intake, fixed membership, per-mail viewing and five acceptance stages |
@@ -45,6 +44,7 @@ documentation tree.
 | [Email pipeline optimization](email-pipeline-optimization-design.md) | Proposed QQ/Gmail/Outlook network readers, managed Tampermonkey import, durable incremental sync, summaries and on-demand bodies |
 | [Email timeline incremental sync](email-timeline-incremental-sync-design.md) | Acceptance-gated true incrementality for QQ/Gmail/Outlook, dual watermarks, direct-local batch journal, one carry-forward retry, bounded overflow gaps, scheduler-free terminal warnings, and immediate Refresh |
 | [Mail cross-round reuse](email-cross-round-reuse.md) | Bounded owned-page/connection reuse, per-round identity checks, intake-proof freshness and cold/warm performance evidence |
+| [Email notification wakeups](email-notification-wakeup-design.md) | Accepted design, pending implementation: provider hints wake existing collection, 60-second periodic verification, independent observer lifetime, coalescing and recovery |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |

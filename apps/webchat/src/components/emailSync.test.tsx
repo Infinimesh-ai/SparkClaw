@@ -125,18 +125,18 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(api.acknowledgeEmailSyncWarning).not.toHaveBeenCalled(); noReceiveSideEffects();
   });
 
-  it("guards rapid clicks and stays pending after HTTP success until the matching round completes", async () => {
+  it("guards rapid clicks only until HTTP acceptance, then permits another request", async () => {
     await render();
     await act(async () => { buttons(text.email.sync)[0].click(); buttons(text.email.sync)[0].click(); });
     expect(api.syncEmail).toHaveBeenCalledOnce();
-    expect(buttons(text.email.sync)[0].disabled).toBe(true);
-    expect(buttons(text.email.sync)[0].querySelector(".spin")).not.toBeNull();
-    await render(status()); // stale false must not release the new request
-    expect(buttons(text.email.sync)[0].disabled).toBe(true);
+    expect(buttons(text.email.sync)[0].disabled).toBe(false);
+    await render(status());
+    expect(buttons(text.email.sync)[0].disabled).toBe(false);
+    await click(text.email.sync);
+    expect(api.syncEmail).toHaveBeenCalledTimes(2);
     const done = status(); Object.assign(done.mailboxes[1], { refresh_pending: false, refresh_request_id: "refresh-1" });
     await render(done);
     expect(buttons(text.email.sync)[0].disabled).toBe(false);
-    expect(container.textContent).not.toContain(text.email.syncScheduled);
   });
 
   it("submits on LAN HTTP contexts without crypto.randomUUID", async () => {
@@ -145,7 +145,7 @@ describe("email sync persistent warnings and Refresh", () => {
     try {
       await render(); await click(text.email.sync);
       expect(api.syncEmail).toHaveBeenCalledOnce();
-      expect(buttons(text.email.sync)[0].disabled).toBe(true);
+      expect(buttons(text.email.sync)[0].disabled).toBe(false);
     } finally {
       if (original) Object.defineProperty(crypto, "randomUUID", original);
       else Reflect.deleteProperty(crypto, "randomUUID");
@@ -158,22 +158,26 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(buttons(text.email.sync)[0].disabled).toBe(false);
     await click(text.email.sync);
     expect(api.syncEmail).toHaveBeenCalledOnce();
-    expect(buttons(text.email.sync)[0].disabled).toBe(true);
+    expect(buttons(text.email.sync)[0].disabled).toBe(false);
+    await click(text.email.sync);
+    expect(api.syncEmail).toHaveBeenCalledTimes(2);
   });
 
-  it("restores the pending guard after remount and observes another tab's mailbox request", async () => {
+  it("does not lock a confirmed request across remount; retains an uncertain other-tab guard", async () => {
     await render(); await click(text.email.sync);
     await act(async () => { root.unmount(); }); root = createRoot(container);
     await render();
-    expect(buttons(text.email.sync)[0].disabled).toBe(true);
+    expect(buttons(text.email.sync)[0].disabled).toBe(false);
     await act(async () => {
       window.localStorage.setItem("sparkclaw.email.refresh.v1", JSON.stringify({ "mailbox-gmail": { baseline: "", request: "other-tab" } }));
       window.dispatchEvent(new StorageEvent("storage", { key: "sparkclaw.email.refresh.v1" }));
     });
-    await click(text.email.sync);
+    expect(buttons(text.email.sync)[0].disabled).toBe(true);
     expect(api.syncEmail).toHaveBeenCalledOnce();
     const done = status(); Object.assign(done.mailboxes[1], { refresh_pending: false, refresh_request_id: "other-tab" });
+    vi.mocked(api.emailSyncStatus).mockResolvedValue(done);
     await render(done);
+    expect(JSON.parse(window.localStorage.getItem("sparkclaw.email.refresh.v1") || "{}")).toEqual({});
     expect(buttons(text.email.sync)[0].disabled).toBe(false);
   });
 
@@ -188,10 +192,10 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(buttons(text.email.sync)[0].disabled).toBe(true);
   });
 
-  it.each(["newer-request", ""])("releases a settled request when a fresh GET reports completed replacement %s", async (requestId) => {
+  it.each(["newer-request", ""])("keeps a confirmed request enabled after fresh GET replacement %s", async (requestId) => {
     vi.useFakeTimers();
     await render(); await click(text.email.sync);
-    expect(buttons(text.email.sync)[0].disabled).toBe(true);
+    expect(buttons(text.email.sync)[0].disabled).toBe(false);
     const done = status(); Object.assign(done.mailboxes[1], { refresh_pending: false, refresh_request_id: requestId });
     vi.mocked(api.emailSyncStatus).mockResolvedValue(done);
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
@@ -216,7 +220,7 @@ describe("email sync persistent warnings and Refresh", () => {
     await render(done); expect(buttons(text.email.sync)[0].disabled).toBe(false);
   });
 
-  it("does not let a GET started before POST settlement clear the pending request", async () => {
+  it("allows a new request after POST confirmation despite a stale GET", async () => {
     let finish!: (value: Awaited<ReturnType<typeof api.syncEmail>>) => void;
     let oldStatus!: (value: EmailSyncStatus) => void;
     vi.mocked(api.syncEmail).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
@@ -224,7 +228,7 @@ describe("email sync persistent warnings and Refresh", () => {
     await render(); await click(text.email.sync);
     await act(async () => finish({ scheduled: true, refresh_requests: [{ mailbox_id: "mailbox-gmail", refresh_request_id: "refresh-1" }] }));
     await act(async () => oldStatus(status()));
-    expect(buttons(text.email.sync)[0].disabled).toBe(true);
+    expect(buttons(text.email.sync)[0].disabled).toBe(false);
     expect(api.syncEmail).toHaveBeenCalledOnce();
   });
 

@@ -395,5 +395,19 @@ func toolPolicySummary(security config.SecurityConfig, defs []app.ToolDefinition
 		"configured_approval_required_tools":    security.ApprovalRequiredTools,
 		"denied_tools":                          security.DeniedTools,
 		"browser_read_allow_hosts":              security.BrowserReadAllowHosts,
+		"operator_controls": map[string]any{
+			"web_access":       security.OperatorControls.WebAccess == nil || *security.OperatorControls.WebAccess,
+			"workspace_files":  security.OperatorControls.WorkspaceFiles == nil || *security.OperatorControls.WorkspaceFiles,
+			"shell_commands":   security.OperatorControls.ShellCommands == nil || *security.OperatorControls.ShellCommands,
+			"file_changes":     defaultOperatorMode(security.OperatorControls.FileChanges, "default"),
+			"external_actions": defaultOperatorMode(security.OperatorControls.ExternalActions, "current"),
+		},
 	}
+}
+
+func defaultOperatorMode(mode, fallback string) string {
+	if mode == "" {
+		return fallback
+	}
+	return mode
 }

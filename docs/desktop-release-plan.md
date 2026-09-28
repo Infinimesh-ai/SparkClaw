@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-release-plan.md)
 >
-> Candidate status: rebuilt and qualified on 2026-09-22 (Asia/Shanghai). This plan is preparation, not authorization to deploy, switch production, delete a profile, or perform real provider effects.
+> Candidate status: rebuilt and package-qualified on 2026-09-23 (Asia/Shanghai). This plan is preparation, not authorization to switch production, delete a profile, or perform real provider effects.
 
 The [shared local backend design](local-shared-backend-design.md) is included in
 this candidate: LAN Web and local desktop use one workbench port without
@@ -15,15 +15,15 @@ The candidate is Linux/ARM64 SparkClaw Desktop `0.1.0`, built with Electron `44.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `SparkClaw-0.1.0-linux-arm64.AppImage` | 126,602,324 | `5503b59447bf548259b87e030f4f6636bdef9e3ed8b5c27411816d6f9c9cc3e5` |
-| `SparkClaw-0.1.0-linux-arm64.deb` | 94,339,016 | `0a40de431b3e1715048b472bce37470c1d7f527e76db687f72f3f7b40691aa7f` |
+| `SparkClaw-0.1.0-linux-arm64.AppImage` | 126,631,016 | `bb14c8ce347ecb0154423973bf40a8a688a5f66096af75c97b8c4d86cc68b8bc` |
+| `SparkClaw-0.1.0-linux-arm64.deb` | 94,359,320 | `1f5843bf45bb136aa9e91c498a0706c04eee39c2d1ecb6d77c724ecd877906fc` |
 
-The generated sources of truth are `apps/desktop/dist/release-manifest.json` and `apps/desktop/dist/SHA256SUMS`. Rebuilding changes the hashes; regenerate this table before release. The candidate currently uses Electron's default icon, so branded-icon approval remains a release gate.
+The generated sources of truth are `apps/desktop/dist/release-manifest.json` and `apps/desktop/dist/SHA256SUMS`. Rebuilding changes the hashes; regenerate this table before release. The packaged icon and target-host desktop entry still require owner acceptance.
 
 ## Evidence Already Complete
 
 - `npm run qualify:desktop` uses a runner-owned Xvfb and disposable user data. It covers actual MCP and CLI, task/personal isolation, nested targets and popups, native input exclusion, approved automation, downloads, managed scripts, background execution, close-to-hide, renderer/main crashes, persistent browser state, generation invalidation, and no automatic replay of unknown effects.
-- `npm run qualify:desktop-artifacts` checks both hashes and DEB architecture, independently extracts each artifact, launches the packaged app with separate temporary user data, and proves packaged WebChat, bounded desktop IPC, installation-provisioned Gateway identity plus HTTP/SSE proxying, speech WebSocket Origin rewriting, and browser-panel creation.
+- `npm run qualify:desktop-artifacts` checks both hashes and DEB architecture, independently extracts each artifact, launches the packaged app without launcher-provided connection environment variables, and proves owner-only connection discovery, packaged WebChat, bounded desktop IPC, installation-provisioned Gateway identity plus HTTP/SSE proxying, speech WebSocket Origin rewriting, and browser-panel creation.
 - `npm run qualify:local-shared-backend` uses disposable PostgreSQL and a Docker-network LAN client to prove separate desktop/Web identities for one Owner, empty startup, bidirectional CRUD, sub-two-second invalidation, identical file bytes, and rejection of forged local-source headers.
 - These are isolated software-rendered tests. They do not certify a clean target OS, real GPU/DPI/native IME/audio/video devices, operating-system microphone prompts, or provider login policies.
 

@@ -50,6 +50,20 @@ export function createRequestHandler(controller) {
         rejectQuery(url);
         return writeJSON(response, 200, await controller.openProviderLogin(await readJSON(request)));
       }
+      if (request.method === 'POST' && ['/v1/mail-observers/reconcile','/v1/mail-observers/events','/v1/mail-observers/ack'].includes(url.pathname)) {
+        rejectQuery(url);
+        const abort = new AbortController();
+        const disconnected = () => {if (!response.writableEnded) abort.abort();};
+        response.once('close', disconnected);
+        try {
+          const input = await readJSON(request);
+          if (response.destroyed) abort.abort();
+          const action = url.pathname.split('/').at(-1);
+          const feed = controller.mailObserverFeed;
+          const result = action === 'reconcile' ? await feed.reconcile(input) : action === 'ack' ? feed.ack(input) : await feed.poll(input, abort.signal);
+          return writeJSON(response, 200, result);
+        } finally {response.removeListener('close', disconnected);}
+      }
       return writeJSON(response, 404, {
         error: "browser controller route was not found",
         code: "not_found",
@@ -76,11 +90,16 @@ export async function startUnixServer({ socketPath, controller }) {
     server,
     socketPath,
     async close() {
-      await controller.shutdown();
+      let failure;
+      try {await controller.shutdown();} catch (error) {failure=error;}
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
+        // A failed owned-page cleanup must not leave the listener alive until
+        // systemd's stop timeout. All request work was already retired above.
+        server.closeAllConnections();
       });
       await fs.rm(socketPath, { force: true });
+      if (failure) throw failure;
     },
   };
 }

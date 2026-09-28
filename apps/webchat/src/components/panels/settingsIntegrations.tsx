@@ -143,30 +143,41 @@ export function IntegrationCredentialSettings({
     void run(`delete:${credentialId}`, () => api.deleteIntegrationCredential(id, credentialId));
   }
 
-  const integrationTitle = id === "infinimesh-info" ? text.settings.info : text.settings.localMind;
-  if (!status) {
-    return <span className="muted">{busy ? text.settings.loadingIntegrations : text.settings.integrationUnavailable}</span>;
+  async function checkStatus() {
+    if (busy) return;
+    setBusy("refresh");
+    setFeedback(null);
+    try { onStatus(await api.integration(id)); }
+    catch (reason) { setFeedback({ tone: "error", title: text.errors.integration, message: errorMessage(reason, text.errors.integration) }); }
+    finally { setBusy(""); }
   }
 
+  const integrationTitle = id === "infinimesh-info" ? text.settings.info : text.settings.localMind;
   const validationActivity = busy === "add"
     ? { tone: "progress" as const, title: text.settings.validationInProgress, message: text.settings.validationInProgressDetail }
     : busy.startsWith("check:")
       ? { tone: "progress" as const, title: text.settings.connectionCheckInProgress, message: text.settings.connectionCheckInProgressDetail }
       : feedback;
-  const displayedState = validationActivity?.tone === "progress" ? "checking" : status.state;
+  const displayedState = validationActivity?.tone === "progress" ? "checking" : status?.state;
+  const stateLabel = displayedState ? integrationStateLabel(displayedState, text) : text.settings.integrationUnavailable;
 
   return (
     <div className="integrationDetail" aria-busy={validationActivity?.tone === "progress"}>
       <div className="integrationStatusBar">
         <div>
           <strong>{integrationTitle}</strong>
-          <span className="muted">{integrationStateLabel(displayedState, text)}</span>
+          <span className="muted">{stateLabel}</span>
         </div>
-        <span className={`integrationState ${displayedState}`}>{integrationStateLabel(displayedState, text)}</span>
+        <div className="integrationStatusActions">
+          <span className={`integrationState ${displayedState ?? ""}`}>{stateLabel}</span>
+          <button className="secondaryButton" type="button" onClick={() => void checkStatus()} disabled={Boolean(busy)}>
+            <RefreshCw size={14} className={busy === "refresh" ? "spin" : ""} />{text.settings.checkConnection}
+          </button>
+        </div>
       </div>
 
       <div className="credentialList" aria-label={text.settings.savedCredentials}>
-        {status.operator_available && (
+        {status?.operator_available && (
           <div className={`credentialRow ${status.source === "operator" ? "selected" : ""}`}>
             <span className="credentialIcon"><ServerCog size={16} /></span>
             <div className="credentialIdentity">
@@ -184,7 +195,7 @@ export function IntegrationCredentialSettings({
             </button>
           </div>
         )}
-        {status.credentials.map((credential) => (
+        {status?.credentials.map((credential) => (
           <div className={`credentialRow ${credential.active ? "selected" : ""}`} key={credential.id}>
             <span className="credentialIcon"><KeyRound size={16} /></span>
             <div className="credentialIdentity">
@@ -229,9 +240,10 @@ export function IntegrationCredentialSettings({
             </div>
           </div>
         ))}
-        {status.credentials.length === 0 && !status.operator_available && (
+        {status && status.credentials.length === 0 && !status.operator_available && (
           <span className="integrationEmpty muted">{text.settings.noSavedCredentials}</span>
         )}
+        {!status && <span className="integrationEmpty muted">{text.settings.integrationUnavailable}</span>}
       </div>
 
       <form className="credentialForm" onSubmit={(event) => { event.preventDefault(); void addCredential(); }}>

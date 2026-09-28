@@ -19,6 +19,7 @@ import { ControllerError, invalidRequest } from "./errors.mjs";
 import { readQQMail, readOutlook, readGmail, readEmail, discoverEmail, enumerateThread, markEmailRead, collectEmailPage } from "../../../scripts/email/read.mjs";
 import { READ_PROVIDERS } from "../../../scripts/email/lib/provider-account.mjs";
 import { validateCaptureInput } from "../../../scripts/email/lib/read-capture.mjs";
+import {validateMailObserverInput} from './mail-observers.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SCRIPT_CODE_PATTERN = /^[a-z0-9_]{1,64}$/u;
@@ -154,6 +155,14 @@ const registrations = [
     ],
   }),
   ...readRegistrations,
+  ...Object.entries(READ_PROVIDERS).map(([provider, site]) => registration({
+    provider, operation: 'observe', scriptID: `${provider}.observe`, revision: 1,
+    loginURL: site.url, origins: site.origins, timeoutMS: 120000,
+    validate: input => validateMailObserverInput(provider, input),
+    sourceFiles: ['tools/browser-controller/src/mail-observers.mjs', 'tools/browser-controller/src/mail-observer-page.mjs',
+      'tools/browser-controller/src/mail-notification-rules.mjs',
+      'tools/browser-controller/src/mail-observer-runtime.cjs', 'tools/browser-controller/src/awaited-mail-read.cjs'],
+  })),
 ];
 
 function outlookSignedOutURL(rawURL) {

@@ -26,7 +26,83 @@ type PageMarkReadBrowser interface {
 	MarkReadForOwner(context.Context, string, app.EmailMarkReadRequest) (app.EmailMarkReadResult, error)
 }
 
+type timelinePagePart struct {
+	request app.EmailReadRequest
+	page    app.EmailPageResult
+}
+
 func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser PageBrowser) error {
+	hasTrigger := job.SyncTrigger == "manual_refresh" || job.SyncTrigger == "notification_hint"
+	for slice := 0; slice < 8; slice++ {
+		before, err := s.activeMailbox(ctx, job)
+		if err != nil {
+			return err
+		}
+		hasTrigger = hasTrigger || before.SignalRevision > before.ReconciledRevision
+		finalCheck := before.InflightKind == "final_check"
+		if !finalCheck {
+			if wait := 2*time.Second - time.Since(before.LastIncrementStartedAt); !before.LastIncrementStartedAt.IsZero() && wait > 0 {
+				wait = min(wait, 2*time.Second)
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+			}
+		}
+		if err := s.collectPageIncrement(ctx, job, browser, finalCheck); err != nil {
+			return err
+		}
+		after, found, err := s.repository.GetEmailMailbox(ctx, job.OwnerID, job.MailboxID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errors.New("email_mailbox_missing")
+		}
+		if after.SyncState != app.EmailSyncIdle && after.SyncState != app.EmailSyncCoverageGap {
+			if finalCheck {
+				return errors.New("email_final_check_incomplete")
+			}
+			return nil
+		}
+		if after.SyncState == app.EmailSyncCoverageGap && after.LastSyncErrorCode == "email_interval_overflow" {
+			return nil
+		}
+		if after.SignalRevision > after.ReconciledRevision {
+			hasTrigger = true
+			continue
+		}
+		if finalCheck {
+			return nil
+		}
+		if hasTrigger && after.LastIntervalEnd.Equal(after.PollThrough) && after.LastIntervalStart.Before(after.LastIntervalEnd) {
+			if err := s.collectPageIncrement(ctx, job, browser, true); err != nil {
+				return err
+			}
+			checked, found, err := s.repository.GetEmailMailbox(ctx, job.OwnerID, job.MailboxID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return errors.New("email_mailbox_missing")
+			}
+			if checked.SyncState != app.EmailSyncIdle && checked.SyncState != app.EmailSyncCoverageGap {
+				return errors.New("email_final_check_incomplete")
+			}
+			if checked.SignalRevision > checked.ReconciledRevision {
+				continue
+			}
+		}
+		return nil
+	}
+	// The unfinished intent remains durable; FinishEmailJob will requeue it.
+	return nil
+}
+
+func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, browser PageBrowser, finalCheck bool) error {
 	mailbox, err := s.activeMailbox(ctx, job)
 	if err != nil {
 		return err
@@ -40,11 +116,17 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 	if lower.IsZero() {
 		lower = mailbox.Boundary
 	}
-	if !upper.After(lower) {
+	if finalCheck {
+		upper = mailbox.PollThrough
+	} else if !upper.After(lower) {
 		upper = lower.Add(time.Microsecond)
 	}
-	beginKey := fmt.Sprintf("timeline-begin:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, mailbox.CheckpointRevision+1)
-	checkpoint, err := s.repository.BeginEmailSync(ctx, store.EmailSyncBeginCommand{EmailCommand: command(job.OwnerID, beginKey), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, ProviderMode: mode, ProviderCursor: mailbox.ProviderCursor, UpperBound: upper, Trigger: syncTrigger(job), Actor: syncActor(job)})
+	// A resource yield keeps the checkpoint revision frozen. A new worker
+	// lease must not replay a prior Begin command with a different upper-bound
+	// proposal (or trigger); the Store itself retains the frozen interval.
+	leaseDigest := sha256.Sum256([]byte(job.LeaseToken))
+	beginKey := fmt.Sprintf("timeline-begin:%s:%d:%d:%x", mailbox.ID, mailbox.BindingGeneration, mailbox.CheckpointRevision+1, leaseDigest)
+	checkpoint, err := s.repository.BeginEmailSync(ctx, store.EmailSyncBeginCommand{EmailCommand: command(job.OwnerID, beginKey), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, ProviderMode: mode, ProviderCursor: mailbox.ProviderCursor, UpperBound: upper, FinalCheck: finalCheck, Trigger: syncTrigger(job), Actor: syncActor(job)})
 	if err != nil {
 		return err
 	}
@@ -55,6 +137,9 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 	retryTargets := make([]app.EmailCaptureTarget, 0, len(checkpoint.RetryFailures))
 	retryBudget := timelineRetryBudget{} // Omitted failures remain open for a later poll.
 	for _, failure := range checkpoint.RetryFailures {
+		if finalCheck && !failure.LastFailedAt.Before(job.RoundStartedAt) {
+			continue
+		}
 		mail, found, readErr := s.repository.GetEmailMail(ctx, job.OwnerID, failure.MailID)
 		if readErr != nil {
 			return readErr
@@ -63,6 +148,10 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 			continue
 		}
 		target := app.EmailCaptureTarget{AccountAddress: mailbox.Address, ProviderMessageID: mail.ProviderMessageID, ProviderNativeID: mail.ProviderNativeID, ProviderSelectionID: mail.ProviderSelectionID, ProviderThreadID: mail.ProviderThreadID, Folder: mail.Folder}
+		if mailbox.Provider == app.EmailProviderOutlook && !mail.SourceTime.IsZero() {
+			received := mail.SourceTime
+			target.ReceivedAt = &received
+		}
 		if mail.CaptureState == app.EmailCaptureSourceMissing && mail.CaptureID != "" {
 			capture, exists, err := s.repository.GetEmailCapture(ctx, job.OwnerID, mail.CaptureID)
 			if err != nil {
@@ -85,64 +174,164 @@ func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser Pa
 	intervalID := sha256.Sum256([]byte(mailbox.ID + "\x00" + checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano) + "\x00" + checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano)))
 	binding.InvocationID = fmt.Sprintf("email_changes_%s_r%d", hex.EncodeToString(intervalID[:]), mailbox.CheckpointRevision)
 	binding.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: mailbox.Address, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, Limit: 50, ProviderMode: mode, RetryTargets: retryTargets}
-	if recovered, found, recoveryErr := s.recoverTimelineBatch(ctx, job.OwnerID, binding); found || recoveryErr != nil {
-		if recoveryErr != nil {
-			return recoveryErr
+	if checkpoint.IntervalStart.Before(checkpoint.OverlapEnd) {
+		for _, id := range mailbox.LastIntervalCapturedIDs {
+			if _, repairing := retryMails[id]; !repairing {
+				binding.Discovery.SkipProviderMessageIDs = append(binding.Discovery.SkipProviderMessageIDs, id)
+			}
 		}
-		return s.publishIncrementalPage(ctx, job, mailbox, binding, recovered, checkpoint, retryMails, mode)
 	}
-	admitted, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, binding.InvocationID)
+	if finalCheck {
+		// A mail first failed in this round cannot spend its second automatic
+		// attempt during the final list check.
+		seen := map[string]bool{}
+		ids := make([]string, 0, 100)
+		for _, failure := range checkpoint.RetryFailures {
+			if !failure.LastFailedAt.Before(job.RoundStartedAt) && failure.ProviderMessageID != "" && !seen[failure.ProviderMessageID] {
+				seen[failure.ProviderMessageID] = true
+				ids = append(ids, failure.ProviderMessageID)
+			}
+		}
+		for _, id := range binding.Discovery.SkipProviderMessageIDs {
+			if len(ids) == 100 {
+				break
+			}
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		binding.Discovery.SkipProviderMessageIDs = ids
+	}
+	part, err := s.collectTimelinePart(ctx, job, browser, mailbox, binding)
 	if err != nil {
 		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, err)
 	}
-	admitted.ScriptRevision, admitted.Discovery = registered.CollectPage.Revision, binding.Discovery
-	binding = admitted
-	page, err := browser.CollectPageForOwner(ctx, job.OwnerID, binding)
-	if err != nil {
-		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, err)
+	parts := []timelinePagePart{part}
+	if checkpoint.IntervalStart.Before(checkpoint.OverlapEnd) && pageOverflow(part.page) {
+		// A combined overflow proves neither constituent range overflowed.
+		// Query them separately, each with the unchanged 50-mail Reader limit.
+		parts = make([]timelinePagePart, 0, 2)
+		for index, bounds := range [][2]time.Time{{checkpoint.IntervalStart, checkpoint.OverlapEnd}, {checkpoint.OverlapEnd, checkpoint.IntervalEnd}} {
+			segment := binding
+			options := *binding.Discovery
+			options.IntervalStart, options.IntervalEnd = bounds[0], bounds[1]
+			options.RetryTargets = nil // existing failures remain open for a later round
+			if index == 1 {
+				options.SkipProviderMessageIDs = nil
+			}
+			segment.Discovery = &options
+			digest := sha256.Sum256([]byte(mailbox.ID + "\x00" + bounds[0].UTC().Format(time.RFC3339Nano) + "\x00" + bounds[1].UTC().Format(time.RFC3339Nano)))
+			segment.InvocationID = fmt.Sprintf("email_changes_%s_r%d", hex.EncodeToString(digest[:]), mailbox.CheckpointRevision)
+			piece, segmentErr := s.collectTimelinePart(ctx, job, browser, mailbox, segment)
+			if segmentErr != nil {
+				return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, segmentErr)
+			}
+			parts = append(parts, piece)
+		}
 	}
-	if page.DiscoveryOptions.Lane != "recent_inbound" || !page.DiscoveryOptions.IntervalStart.Equal(checkpoint.IntervalStart) || !page.DiscoveryOptions.IntervalEnd.Equal(checkpoint.IntervalEnd) || !strings.EqualFold(page.AccountAddress, mailbox.Address) {
-		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, errors.New("email_account_changed"))
-	}
-	return s.publishIncrementalPage(ctx, job, mailbox, binding, page, checkpoint, retryMails, mode)
+	return s.publishIncrementalPage(ctx, job, mailbox, binding, parts, checkpoint, retryMails, mode)
 }
 
-func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, request app.EmailReadRequest, page app.EmailPageResult, checkpoint store.EmailSyncCheckpoint, retryMails map[string]app.EmailMail, mode string) error {
+func pageOverflow(page app.EmailPageResult) bool {
+	coverage := page.Discovery.Coverage
+	return coverage.Continuation != "" || coverage.Reason == "network_page_continues"
+}
+
+func (s *Service) collectTimelinePart(ctx context.Context, job app.EmailJob, browser PageBrowser, mailbox app.EmailMailbox, request app.EmailReadRequest) (timelinePagePart, error) {
+	if recovered, found, err := s.recoverTimelineBatch(ctx, job.OwnerID, request); found || err != nil {
+		return timelinePagePart{request, recovered}, err
+	}
+	admitted, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, request.InvocationID)
+	if err != nil {
+		return timelinePagePart{}, err
+	}
+	admitted.ScriptRevision, admitted.Discovery = request.ScriptRevision, request.Discovery
+	page, err := browser.CollectPageForOwner(ctx, job.OwnerID, admitted)
+	if err != nil {
+		return timelinePagePart{}, err
+	}
+	if page.DiscoveryOptions.Lane != "recent_inbound" || !page.DiscoveryOptions.IntervalStart.Equal(request.Discovery.IntervalStart) || !page.DiscoveryOptions.IntervalEnd.Equal(request.Discovery.IntervalEnd) || !strings.EqualFold(page.AccountAddress, mailbox.Address) {
+		return timelinePagePart{}, errors.New("email_account_changed")
+	}
+	return timelinePagePart{admitted, page}, nil
+}
+
+func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, request app.EmailReadRequest, parts []timelinePagePart, checkpoint store.EmailSyncCheckpoint, retryMails map[string]app.EmailMail, mode string) error {
 	key := fmt.Sprintf("timeline-source:%s:%d:%s:%s", mailbox.ID, checkpoint.Mailbox.CheckpointRevision, checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano), checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano))
-	members := make([]store.EmailDiscoveryMember, 0, len(page.Discovery.Candidates))
-	for _, target := range page.Discovery.Candidates {
-		members = append(members, store.EmailDiscoveryMember{ProviderMessageID: target.ProviderMessageID, ProviderNativeID: target.ProviderNativeID, ProviderSelectionID: target.ProviderSelectionID, ProviderThreadID: target.ProviderThreadID, Folder: target.Folder, Direction: pageDirection(target.Folder), Reason: "recent_inbound", RemoteReadState: "unknown"})
+	members := make([]store.EmailDiscoveryMember, 0, 100)
+	seenMembers := map[string]bool{}
+	for _, part := range parts {
+		for _, target := range part.page.Discovery.Candidates {
+			if seenMembers[target.ProviderMessageID] {
+				return errors.New("email_duplicate_split_identity")
+			}
+			seenMembers[target.ProviderMessageID] = true
+			received := time.Time{}
+			if target.ReceivedAt != nil {
+				received = *target.ReceivedAt
+			}
+			members = append(members, store.EmailDiscoveryMember{ProviderMessageID: target.ProviderMessageID, ProviderNativeID: target.ProviderNativeID, ProviderSelectionID: target.ProviderSelectionID, ProviderThreadID: target.ProviderThreadID, Folder: target.Folder, Direction: pageDirection(target.Folder), Reason: "recent_inbound", SourceTime: received, RemoteReadState: "unknown"})
+		}
 	}
 	captures := []store.EmailSyncCapture{}
 	outcomes := []store.EmailSyncFailureOutcome{}
-	for _, captured := range page.Captures {
-		invocation := emailautomation.PageCaptureInvocationID(request.InvocationID, mailbox.Provider, captured.Target)
-		prepared, err := s.preparePageCapture(ctx, job.OwnerID, mailbox, captured.Target.ProviderMessageID, captured.Result, invocation)
-		if err != nil {
-			outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: safeCode(err)})
-			continue
-		}
-		if prior, repairing := retryMails[captured.Target.ProviderMessageID]; repairing && prior.CaptureID != "" {
-			old, found, err := s.repository.GetEmailCapture(ctx, job.OwnerID, prior.CaptureID)
+	for _, part := range parts {
+		for _, captured := range part.page.Captures {
+			invocation := emailautomation.PageCaptureInvocationID(part.request.InvocationID, mailbox.Provider, captured.Target)
+			prepared, err := s.preparePageCapture(ctx, job.OwnerID, mailbox, captured.Target.ProviderMessageID, captured.Result, invocation)
 			if err != nil {
-				return err
-			}
-			if !found || old.PurgedAt != nil || old.OriginalSHA256 != prepared.Capture.OriginalSHA256 ||
-				(old.ID == prepared.Capture.ID && old.ManifestSHA256 != prepared.Capture.ManifestSHA256) {
-				outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: "email_source_conflict"})
+				outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: safeCode(err)})
 				continue
 			}
+			if prior, repairing := retryMails[captured.Target.ProviderMessageID]; repairing && prior.CaptureID != "" {
+				old, found, err := s.repository.GetEmailCapture(ctx, job.OwnerID, prior.CaptureID)
+				if err != nil {
+					return err
+				}
+				if !found || old.PurgedAt != nil || old.OriginalSHA256 != prepared.Capture.OriginalSHA256 ||
+					(old.ID == prepared.Capture.ID && old.ManifestSHA256 != prepared.Capture.ManifestSHA256) {
+					outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: "email_source_conflict"})
+					continue
+				}
+			}
+			captures = append(captures, prepared)
+			outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "original", Success: true})
 		}
-		captures = append(captures, prepared)
-		outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "original", Success: true})
+		for _, failure := range part.page.Failures {
+			outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: failure.Target.ProviderMessageID, Stage: "original", Scope: failure.Scope, ErrorCode: failure.ErrorCode, Qualified: failure.Qualified})
+		}
 	}
-	for _, failure := range page.Failures {
-		outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: failure.Target.ProviderMessageID, Stage: "original", Scope: failure.Scope, ErrorCode: failure.ErrorCode, Qualified: failure.Qualified})
+	complete, overflow, unsupported, reason := true, false, 0, ""
+	observedAt := time.Time{}
+	overlapQualified := true
+	for index, part := range parts {
+		coverage := part.page.Discovery.Coverage
+		if part.page.Discovery.ObservedAt.After(observedAt) {
+			observedAt = part.page.Discovery.ObservedAt
+		}
+		unsupported += coverage.UnsupportedRows
+		qualified := coverage.ScanComplete && coverage.BoundaryQualified && coverage.UnsupportedRows == 0 && !coverage.Limited && !pageOverflow(part.page)
+		if index == 0 {
+			overlapQualified = qualified
+		}
+		if !qualified {
+			complete = false
+			reason = coverage.Reason
+			if pageOverflow(part.page) && (len(parts) == 1 || index == 1) {
+				overflow = true
+			}
+		}
 	}
-	coverage := page.Discovery.Coverage
-	overflow := coverage.Continuation != "" || coverage.Reason == "network_page_continues"
-	complete := coverage.ScanComplete && coverage.BoundaryQualified && coverage.UnsupportedRows == 0 && !coverage.Limited && !overflow
-	commit := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key+":commit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), InvocationID: request.InvocationID, ReaderRevision: request.ScriptRevision, Complete: complete, Overflow: overflow, UnsupportedItems: coverage.UnsupportedRows, ErrorCode: coverage.Reason, FailureScope: app.EmailSyncFailureProviderOperational, Outcomes: outcomes, Members: members, Captures: captures, Lease: lease(job, s.now()), ObservedAt: page.Discovery.ObservedAt}
+	if len(parts) == 2 && !overlapQualified {
+		// The overlap must qualify independently before the new tail can be
+		// certified; its failure cannot be promoted to new-tail overflow.
+		complete, overflow, reason = false, false, "email_overlap_incomplete"
+	}
+	commit := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key+":commit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), InvocationID: request.InvocationID, ReaderRevision: request.ScriptRevision, Complete: complete, Overflow: overflow, SplitOverlap: len(parts) == 2, UnsupportedItems: unsupported, ErrorCode: reason, FailureScope: app.EmailSyncFailureProviderOperational, Outcomes: outcomes, Members: members, Captures: captures, Lease: lease(job, s.now()), ObservedAt: observedAt}
+	if len(parts) == 2 && overflow {
+		commit.OverflowIntervalStart = checkpoint.OverlapEnd
+	}
 	_, err := s.repository.CommitEmailSync(ctx, commit)
 	if err = s.reconcileError(ctx, commit.EmailCommand, err); err != nil {
 		return err
@@ -152,16 +341,24 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 	// Store; a failed or uncertain effect never rolls back source durability.
 	if mailbox.Provider == app.EmailProviderQQMail {
 		if marker, ok := s.browser.(PageMarkReadBrowser); ok {
-			s.markCommittedQQPageRead(ctx, job, mailbox, request, page, captures, marker)
+			for _, part := range parts {
+				s.markCommittedQQPageRead(ctx, job, mailbox, part.request, part.page, captures, marker)
+			}
 		}
 	}
 	// Refetchable source bytes were journaled before their atomic rename. The
 	// journal may be removed only after the composite Store receipt is known.
-	digest := sha256.Sum256([]byte(mailbox.Provider + "\x00" + request.InvocationID))
 	root, openErr := os.OpenRoot(s.opts.WorkspaceRoot)
 	if openErr == nil {
 		defer root.Close()
-		_ = root.Remove(path.Join("email", ownerScope(job.OwnerID), "batches", hex.EncodeToString(digest[:])+".json"))
+		invocations := []string{request.InvocationID}
+		for _, part := range parts {
+			invocations = append(invocations, part.request.InvocationID)
+		}
+		for _, invocation := range invocations {
+			digest := sha256.Sum256([]byte(mailbox.Provider + "\x00" + invocation))
+			_ = root.Remove(path.Join("email", ownerScope(job.OwnerID), "batches", hex.EncodeToString(digest[:])+".json"))
+		}
 	}
 	return nil
 }
@@ -198,6 +395,7 @@ func (s *Service) markCommittedQQPageRead(ctx context.Context, job app.EmailJob,
 			continue
 		}
 		target := app.EmailCaptureTarget{AccountAddress: captured.Target.AccountAddress, ProviderMessageID: captured.Target.ProviderMessageID, ProviderNativeID: captured.Target.ProviderNativeID, ProviderSelectionID: captured.Target.ProviderSelectionID, ProviderThreadID: captured.Target.ProviderThreadID, Folder: captured.Target.Folder}
+		target.ReceivedAt = captured.Target.ReceivedAt
 		binding := request
 		binding.InvocationID = app.NewID("email_mark_read")
 		binding.ScriptRevision = registered.MarkRead.Revision
@@ -224,6 +422,11 @@ func (s *Service) markCommittedQQPageRead(ctx context.Context, job app.EmailJob,
 }
 
 func (s *Service) commitListFailure(ctx context.Context, job app.EmailJob, checkpoint store.EmailSyncCheckpoint, mode string, readerRevision int, cause error) error {
+	if emailautomation.ErrorCode(cause) == app.ToolErrorEmailBrowserBusy {
+		// No provider attempt occurred. Keep the frozen interval/revision for
+		// a short resource yield; do not create a mailbox failure or warning.
+		return cause
+	}
 	code := safeCode(cause)
 	if code == "" {
 		code = "email_provider_unavailable"

@@ -21,6 +21,7 @@ var intakeContinuationPattern = regexp.MustCompile(`^(?:[a-f0-9]{64}:[1-9][0-9]{
 
 func validMailTarget(target app.EmailCaptureTarget) bool {
 	return validRecoveryCapture(target) && len(target.AccountAddress) <= 320 && utf8.ValidString(target.AccountAddress) && mailAddressPattern.MatchString(target.AccountAddress) &&
+		(target.ReceivedAt == nil || !target.ReceivedAt.IsZero()) &&
 		len(target.ProviderMessageID) <= 1024 && len(target.ProviderSelectionID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderMessageID) && mailLocatorPattern.MatchString(target.ProviderSelectionID) &&
 		(target.ProviderThreadID == "" || len(target.ProviderThreadID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderThreadID)) &&
 		(target.ProviderNativeID == "" || len(target.ProviderNativeID) <= 1024 && mailLocatorPattern.MatchString(target.ProviderNativeID)) &&
@@ -107,7 +108,7 @@ func (r *PlaywrightRunner) Discover(ctx context.Context, provider Provider, requ
 	if request.Discovery != nil {
 		input["discovery"] = request.Discovery
 	}
-	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{TaskID: request.InvocationID, CredentialGeneration: generation, Provider: provider.ID, Operation: "discover", ScriptID: provider.Discover.ID, Revision: provider.Discover.Revision, Input: input})
+	result, err := r.runScript(ctx, browsercontrol.RunScriptRequest{TaskID: request.InvocationID, CredentialGeneration: generation, Provider: provider.ID, Operation: "discover", ScriptID: provider.Discover.ID, Revision: provider.Discover.Revision, Input: input})
 	if err != nil {
 		return app.EmailDiscoveryResult{}, mapPlaywrightError(err, false)
 	}

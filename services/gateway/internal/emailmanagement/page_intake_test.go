@@ -14,8 +14,29 @@ import (
 
 type pageFixture struct {
 	*intakeFixture
-	calls   []app.EmailReadRequest
-	pending map[string]app.EmailPageResult
+	calls     []app.EmailReadRequest
+	pending   map[string]app.EmailPageResult
+	onCollect func(int)
+}
+
+type splitRangeFixture struct {
+	*intakeFixture
+	calls        []app.EmailReadRequest
+	tailOverflow bool
+}
+
+func (f *splitRangeFixture) CollectPageForOwner(_ context.Context, _ string, request app.EmailReadRequest) (app.EmailPageResult, error) {
+	f.calls = append(f.calls, request)
+	index := len(f.calls)
+	coverage := app.EmailDiscoveryCoverage{Lane: request.Discovery.Lane, ScanComplete: true, BoundaryQualified: true}
+	status := "empty"
+	if index == 2 || index == 4 && f.tailOverflow {
+		coverage = app.EmailDiscoveryCoverage{Lane: request.Discovery.Lane, Limited: true, Continuation: "more", Reason: "network_page_continues"}
+		status = "partial"
+	}
+	observed := request.Discovery.IntervalEnd.Add(time.Second)
+	return app.EmailPageResult{SchemaVersion: 1, Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", PageID: "page_" + strings.Repeat("c", 64), DiscoveryOptions: *request.Discovery, ObservedAt: observed, Status: status,
+		Discovery: app.EmailDiscoveryResult{SchemaVersion: 1, Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", ObservedAt: observed, Candidates: []app.EmailCaptureTarget{}, Coverage: coverage}, Captures: []app.EmailPageCapture{}, Failures: []app.EmailPageFailure{}}, nil
 }
 
 type qqMarkReadPageFixture struct {
@@ -49,6 +70,9 @@ func (f *qqMarkReadPageFixture) MarkReadForOwner(_ context.Context, _ string, re
 
 func (f *pageFixture) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
 	f.calls = append(f.calls, r)
+	if f.onCollect != nil {
+		f.onCollect(len(f.calls))
+	}
 	if p, ok := f.pending[r.InvocationID]; ok {
 		return p, nil
 	}
@@ -70,6 +94,52 @@ func (f *pageFixture) CollectPageForOwner(ctx context.Context, owner string, r a
 	}
 	f.pending[r.InvocationID] = p
 	return p, nil
+}
+
+func TestNotificationDuringFinalCheckForcesNewTailQuery(t *testing.T) {
+	repo := store.NewMemoryStore()
+	s, base, _ := newFixtureService(t, repo)
+	browser := &pageFixture{intakeFixture: base, pending: map[string]app.EmailPageResult{}}
+	s.browser = browser
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	s.now = func() time.Time { return now }
+	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.plan(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+		t.Fatalf("initial: %t %v", worked, err)
+	}
+	browser.onCollect = func(call int) {
+		if call != 3 {
+			return
+		}
+		_, requestErr := repo.RequestEmailJob(t.Context(), store.EmailJobRequest{EmailCommand: command("email-owner", app.NewID("hint")), Kind: app.EmailJobDiscover, TargetID: box.ID, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, Rearm: true, SyncTrigger: "notification_hint", SyncActor: "email-owner", EventEpoch: "owned-document", EventSequence: 1})
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+	}
+	now = now.Add(time.Minute)
+	if _, err := s.Sync(t.Context(), "email-owner", box.ID); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+		t.Fatalf("notification round: %t %v", worked, err)
+	}
+	if len(browser.calls) != 5 || !browser.calls[2].Discovery.IntervalEnd.Equal(browser.calls[1].Discovery.IntervalEnd) || !browser.calls[3].Discovery.IntervalStart.Equal(browser.calls[2].Discovery.IntervalStart) || !browser.calls[3].Discovery.IntervalEnd.After(browser.calls[2].Discovery.IntervalEnd) {
+		t.Fatalf("hint during final check did not continue at live tail: %+v", browser.calls)
+	}
+	updated, _, err := repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SignalRevision != 2 || updated.ReconciledRevision != 2 {
+		t.Fatalf("hint was lost or never reconciled: %+v", updated)
+	}
 }
 
 func TestPageIntakePublishesSourceAndAdvancesOneFixedInterval(t *testing.T) {
@@ -110,6 +180,70 @@ func TestPageIntakePublishesSourceAndAdvancesOneFixedInterval(t *testing.T) {
 	}
 	if len(browser.calls) != 1 || browser.calls[0].Discovery.Continuation != "" {
 		t.Fatalf("incremental round performed hidden pagination: %+v", browser.calls)
+	}
+	now = now.Add(time.Minute)
+	if _, err := s.Sync(t.Context(), "email-owner", box.ID); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+		t.Fatalf("reread round: worked=%t err=%v", worked, err)
+	}
+	if len(browser.calls) != 3 || !browser.calls[1].Discovery.IntervalStart.Equal(browser.calls[0].Discovery.IntervalStart) ||
+		len(browser.calls[1].Discovery.SkipProviderMessageIDs) != 1 || browser.calls[1].Discovery.SkipProviderMessageIDs[0] != "message-1" {
+		t.Fatalf("latest interval reread did not skip completed original: %+v", browser.calls)
+	}
+	if !browser.calls[2].Discovery.IntervalStart.Equal(browser.calls[0].Discovery.IntervalEnd) || !browser.calls[2].Discovery.IntervalEnd.Equal(browser.calls[1].Discovery.IntervalEnd) {
+		t.Fatalf("final check scanned beyond newest interval: %+v", browser.calls)
+	}
+}
+
+func TestPageIntakeSplitsCombinedOverlapOverflow(t *testing.T) {
+	for _, tailOverflow := range []bool{false, true} {
+		t.Run(map[bool]string{false: "both_parts_complete", true: "tail_overflow"}[tailOverflow], func(t *testing.T) {
+			repo := store.NewMemoryStore()
+			s, base, _ := newFixtureService(t, repo)
+			browser := &splitRangeFixture{intakeFixture: base, tailOverflow: tailOverflow}
+			s.browser = browser
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			s.now = func() time.Time { return now }
+			box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.plan(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			now = now.Add(time.Second)
+			if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+				t.Fatalf("first round: %t %v", worked, err)
+			}
+			firstEnd := browser.calls[0].Discovery.IntervalEnd
+			now = now.Add(time.Minute)
+			if _, err := s.Sync(t.Context(), "email-owner", box.ID); err != nil {
+				t.Fatal(err)
+			}
+			if worked, err := s.workOne(t.Context(), []string{app.EmailJobDiscover}); err != nil || !worked {
+				t.Fatalf("split round: %t %v", worked, err)
+			}
+			wantCalls := 5
+			if tailOverflow {
+				wantCalls = 4
+			}
+			if len(browser.calls) != wantCalls || !browser.calls[2].Discovery.IntervalEnd.Equal(firstEnd) || !browser.calls[3].Discovery.IntervalStart.Equal(firstEnd) {
+				t.Fatalf("combined range was not split at prior watermark: %+v", browser.calls)
+			}
+			updated, _, err := repo.GetEmailMailbox(t.Context(), "email-owner", box.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tailOverflow {
+				if updated.SyncState != app.EmailSyncOverflowConfirmation || !updated.PollThrough.Equal(firstEnd) || updated.CoverageGapCount != 0 {
+					t.Fatalf("tail overflow affected overlap coverage: %+v", updated)
+				}
+			} else if !updated.PollThrough.Equal(browser.calls[1].Discovery.IntervalEnd) || updated.CoverageGapCount != 0 {
+				t.Fatalf("split qualified result did not advance tail: %+v", updated)
+			}
+		})
 	}
 }
 
@@ -239,6 +373,11 @@ func TestPageIntakeConfirmsOverflowOnceThenRecordsCoverageGap(t *testing.T) {
 	if _, err = s.Sync(t.Context(), "email-owner", box.ID); err != nil {
 		t.Fatal(err)
 	}
+	jobs, err := repo.ListEmailJobs(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID})
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("confirmation deadline: %v %+v", err, jobs)
+	}
+	s.now = func() time.Time { return jobs[0].NextAttemptAt }
 	if worked, workErr := s.workOne(t.Context(), []string{app.EmailJobDiscover}); !worked || workErr != nil {
 		t.Fatalf("confirmation round %v %v", worked, workErr)
 	}

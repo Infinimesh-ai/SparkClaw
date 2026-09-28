@@ -58,12 +58,16 @@ export function validateCaptureInput(input, provider) {
   if (Object.hasOwn(input,'discovery')) {
     const d = input.discovery;
     if (!d || ['account_address','continuation','lane','limit'].some(key=>!Object.hasOwn(d,key)) ||
-        Object.keys(d).some(key=>!['account_address','continuation','interval_end','interval_start','lane','limit','provider_mode','retry_targets'].includes(key)) ||
+        Object.keys(d).some(key=>!['account_address','continuation','interval_end','interval_start','lane','limit','provider_mode','retry_targets','skip_provider_message_ids'].includes(key)) ||
         ['interval_start','interval_end'].some(key=>Object.hasOwn(d,key) && typeof d[key]!=='string') ||
         d.lane !== 'recent_inbound' || !validContinuation(d.continuation) || !validBatchLimit(d.limit)) throw error('invalid_request');
     if (d.provider_mode !== undefined && !['change_cursor','time_range'].includes(d.provider_mode)) throw error('invalid_request');
     if (d.retry_targets !== undefined && (!Array.isArray(d.retry_targets) || d.retry_targets.length > 50)) throw error('invalid_request');
     for (const target of d.retry_targets ?? []) validateMailTarget(target);
+    if (d.skip_provider_message_ids !== undefined && (!Array.isArray(d.skip_provider_message_ids) || d.skip_provider_message_ids.length > 100 || new Set(d.skip_provider_message_ids).size !== d.skip_provider_message_ids.length)) throw error('invalid_request');
+    for (const id of d.skip_provider_message_ids ?? []) {
+      if (typeof id !== 'string' || !/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(id) || (d.retry_targets ?? []).some(target=>target.provider_message_id===id)) throw error('invalid_request');
+    }
     validateMailTarget({account_address:d.account_address,provider_message_id:'check',provider_selection_id:'check'});
     const start = receiptTimeNanos(d.interval_start), end = receiptTimeNanos(d.interval_end);
     if (start===null || end===null || start===receiptTimeNanos('0001-01-01T00:00:00Z') || start >= end) throw error('invalid_request');
@@ -90,12 +94,13 @@ const validBatchLimit = value => Number.isInteger(value) && value >= 1 && value 
 const validContinuation = value => typeof value === 'string' && (value === '' || /^(?:[a-f0-9]{64}:[1-9][0-9]{0,3}|(?:q1|n1):[A-Za-z0-9_-]{1,1000})$/u.test(value));
 
 export function validateMailTarget(target) {
-  if (!target || Array.isArray(target) || Object.keys(target).some(key => !['account_address','provider_message_id','provider_selection_id','provider_thread_id','provider_native_id','folder','recovery_capture'].includes(key)) ||
+  if (!target || Array.isArray(target) || Object.keys(target).some(key => !['account_address','provider_message_id','provider_selection_id','provider_thread_id','provider_native_id','received_at','folder','recovery_capture'].includes(key)) ||
       typeof target.account_address !== 'string' || target.account_address.length > 320 ||
       /[\x00-\x20\x7f]/u.test(target.account_address) ||
       !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/u.test(target.account_address) ||
       [target.provider_message_id,target.provider_selection_id,...(target.provider_thread_id === undefined ? [] : [target.provider_thread_id]),...(target.provider_native_id === undefined ? [] : [target.provider_native_id])].some(id=>typeof id!=='string'||!/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(id)) ||
-      target.folder !== undefined && !['inbox','sent','all'].includes(target.folder) && !/^qq:[1-9][0-9]{3,9}$/u.test(target.folder) && !/^outlook:[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(target.folder)) throw error('invalid_request');
+      target.folder !== undefined && !['inbox','sent','all'].includes(target.folder) && !/^qq:[1-9][0-9]{3,9}$/u.test(target.folder) && !/^outlook:[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(target.folder) ||
+      target.received_at !== undefined && (typeof target.received_at !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/u.test(target.received_at) || !Number.isFinite(Date.parse(target.received_at)))) throw error('invalid_request');
   if(target.recovery_capture){
     const v=target.recovery_capture;
     if(typeof v.manifest_json!=='string' || Buffer.byteLength(v.manifest_json)>64<<10 || !v.manifest_json || v.purged_at || v.purge_reason ||
@@ -359,7 +364,7 @@ export async function captureMail(input, runtime, provider, adapter) {
     await replaceJSON(journalPath, journal);
   };
   return runtime.withReadTab(async tab => {
-    let message = await adapter.collectUnread(tab, provider, { account_address:journal?.identity?.account_address, folder:journal?.selection?.folder, pinned_message_id: journal?.identity?.provider_message_id, pinned_selection_id: journal?.selection?.provider_selection_id, capture_required: !journal?.receipt, onSelected });
+    let message = await adapter.collectUnread(tab, provider, { account_address:journal?.identity?.account_address, folder:journal?.selection?.folder, pinned_message_id: journal?.identity?.provider_message_id, pinned_selection_id: journal?.selection?.provider_selection_id, pinned_received_at:input.target?.received_at, capture_required: !journal?.receipt, onSelected });
     if (message.status === "empty") {
       if (journal?.identity || journal?.selection) throw error("email_capture_invalid");
       const receipt = { schema_version: 1, status: "empty", provider, capture: null };
@@ -725,7 +730,8 @@ async function captureTimelinePageMeasured(input, runtime, provider, adapter, ti
   return runtime.withReadTab(async tab => {
     const {discovery,listed}=await timing.measure('discover',()=>adapter.discover(tab,input.discovery));
     if (discovery.account_address !== input.discovery.account_address.toLowerCase()) throw error('email_account_identity_mismatch');
-    const targets=[...discovery.candidates];
+    const skipped=new Set(input.discovery.skip_provider_message_ids??[]);
+    const targets=discovery.candidates.filter(target=>!skipped.has(target.provider_message_id));
     for (const target of input.discovery.retry_targets??[]) {
       const index=targets.findIndex(row=>row.provider_message_id===target.provider_message_id);
       if(index<0)targets.push(target);else if(target.recovery_capture)targets[index]=target;
@@ -792,7 +798,7 @@ async function captureTimelinePageMeasured(input, runtime, provider, adapter, ti
     }
     const result={schema_version:1,provider,page_id:`page_${hash(crypto.randomUUID())}`,account_address:discovery.account_address,
       discovery,discovery_options:input.discovery,captures,failures,observed_at:new Date().toISOString(),
-      status:failures.length||discovery.status==='partial'?'partial':captures.length?'collected':'empty'};
+      status:failures.length||discovery.status==='partial'?'partial':captures.length||discovery.candidates.length?'collected':'empty'};
     if (!entries.length) return result;
     const batch={schema_version:1,provider,invocation_id:input.invocation_id,entries,result};
     const bytes=json(batch);

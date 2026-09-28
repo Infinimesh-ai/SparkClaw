@@ -41,7 +41,7 @@ func PageCaptureInvocationID(batchInvocationID, provider string, target app.Emai
 func validPageRequest(request ReadRequest) bool {
 	d := request.Discovery
 	if request.Target != nil || d == nil || d.Lane != "recent_inbound" ||
-		(d.ProviderMode != app.EmailProviderModeChangeCursor && d.ProviderMode != app.EmailProviderModeTimeRange) || len(d.RetryTargets) > 50 ||
+		(d.ProviderMode != app.EmailProviderModeChangeCursor && d.ProviderMode != app.EmailProviderModeTimeRange) || len(d.RetryTargets) > 50 || len(d.SkipProviderMessageIDs) > 100 ||
 		!validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) ||
 		d.IntervalStart.IsZero() || !d.IntervalStart.Before(d.IntervalEnd) || d.Limit < 1 || d.Limit > 50 || d.Continuation != "" {
 		return false
@@ -52,6 +52,12 @@ func validPageRequest(request ReadRequest) bool {
 			return false
 		}
 		seen[target.ProviderMessageID] = true
+	}
+	for _, id := range d.SkipProviderMessageIDs {
+		if !validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: id, ProviderSelectionID: "check"}) || seen[id] {
+			return false
+		}
+		seen[id] = true
 	}
 	return true
 }
@@ -128,7 +134,7 @@ func decodePageResult(raw []byte, provider Provider, request ReadRequest) (app.E
 	}
 	checkpointRequest := request
 	checkpointRequest.Discovery = &wire.DiscoveryOptions
-	if !validPageRequest(checkpointRequest) || wire.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(wire.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) || !equalRetryTargets(wire.DiscoveryOptions.RetryTargets, request.Discovery.RetryTargets) {
+	if !validPageRequest(checkpointRequest) || wire.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(wire.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) || !equalRetryTargets(wire.DiscoveryOptions.RetryTargets, request.Discovery.RetryTargets) || !slices.Equal(wire.DiscoveryOptions.SkipProviderMessageIDs, request.Discovery.SkipProviderMessageIDs) {
 		return invalid()
 	}
 	if !wire.DiscoveryOptions.IntervalStart.Equal(request.Discovery.IntervalStart) || !wire.DiscoveryOptions.IntervalEnd.Equal(request.Discovery.IntervalEnd) || wire.DiscoveryOptions.ProviderMode != request.Discovery.ProviderMode {
@@ -170,7 +176,7 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 	}
 	checkpointRequest := request
 	checkpointRequest.Discovery = &output.DiscoveryOptions
-	if !validPageRequest(checkpointRequest) || output.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(output.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) || !equalRetryTargets(output.DiscoveryOptions.RetryTargets, request.Discovery.RetryTargets) {
+	if !validPageRequest(checkpointRequest) || output.DiscoveryOptions.Lane != request.Discovery.Lane || !strings.EqualFold(output.DiscoveryOptions.AccountAddress, request.Discovery.AccountAddress) || !equalRetryTargets(output.DiscoveryOptions.RetryTargets, request.Discovery.RetryTargets) || !slices.Equal(output.DiscoveryOptions.SkipProviderMessageIDs, request.Discovery.SkipProviderMessageIDs) {
 		return false
 	}
 	if !output.DiscoveryOptions.IntervalStart.Equal(request.Discovery.IntervalStart) || !output.DiscoveryOptions.IntervalEnd.Equal(request.Discovery.IntervalEnd) || output.DiscoveryOptions.ProviderMode != request.Discovery.ProviderMode {
@@ -189,7 +195,7 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 			return false
 		}
 	case "collected":
-		if len(output.Captures) == 0 || len(output.Failures) != 0 {
+		if len(output.Captures) == 0 && len(output.Discovery.Candidates) == 0 || len(output.Failures) != 0 {
 			return false
 		}
 	case "partial":
@@ -214,6 +220,11 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 			continue
 		}
 		candidates[target.ProviderMessageID] = target
+	}
+	for _, id := range request.Discovery.SkipProviderMessageIDs {
+		if _, found := candidates[id]; found {
+			delete(candidates, id)
+		}
 	}
 	if len(output.Captures)+len(output.Failures) != len(candidates) {
 		return false

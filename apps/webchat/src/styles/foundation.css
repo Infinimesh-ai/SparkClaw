@@ -8,21 +8,21 @@
 
   --background: #fff;
   --surface-deep: #fff;
-  --panel-surface: #f6f7f9;
+  --panel-surface: #fff;
   --surface: #fff;
   --surface-hover: #eceef2;
   --surface-muted: #f6f7f9;
   --surface-solid: #fff;
-  --cyber-blue: #4285f4;
-  --emerald-success: #1f5fbf;
-  --amber-warning: #f59e0b;
-  --crimson-danger: #ef4444;
+  --cyber-blue: #3b82f6;
+  --emerald-success: #2b7d56;
+  --amber-warning: #b96b16;
+  --crimson-danger: #b42335;
   --text-primary: #202226;
-  --text-secondary: #737780;
-  --text-muted: #737b88;
-  --text-tertiary: #737b88;
-  --border-subtle: #e8e9ec;
-  --border-strong: #dce0e6;
+  --text-secondary: #666b74;
+  --text-muted: #666b74;
+  --text-tertiary: #6f747c;
+  --border-subtle: #e3e5e8;
+  --border-strong: #d7dade;
   --gutter: 24px;
   --radius-panel: 14px;
   --radius-control: 8px;
@@ -51,7 +51,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -67,7 +68,7 @@ button:disabled {
 
 ::selection {
   color: #0c1409;
-  background: rgba(66, 133, 244, 0.32);
+  background: rgba(59, 130, 246, 0.26);
 }
 
 ::-webkit-scrollbar {
@@ -81,9 +82,9 @@ button:disabled {
 
 ::-webkit-scrollbar-thumb {
   border-radius: 4px;
-  background: rgba(233, 239, 234, 0.11);
+  background: #d1d5dc;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(233, 239, 234, 0.18);
+  background: #b9bec7;
 }

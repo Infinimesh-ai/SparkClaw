@@ -675,5 +675,4 @@ Controller Service 不保存 Extension Token；Token 仍只保存在 Gateway Cre
 - [Playwright CLI](https://github.com/microsoft/playwright-cli)
 - [Playwright Extension](https://github.com/microsoft/playwright/tree/main/packages/extension)
 - [当前浏览器 Runtime](../../docs/browser-runtime.md)
-- [已实施 Host-CDP 设计](../../docs/host-cdp-browser-design.md)
 - [当前浏览器邮箱 Workflow](../../docs/browser-email-workflow-design.md)

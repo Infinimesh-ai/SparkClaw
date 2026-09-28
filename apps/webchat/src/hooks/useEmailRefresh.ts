@@ -52,7 +52,7 @@ function reconcile(status: EmailSyncStatus, fence?: StatusFence) {
     // for a replacement/cleared ID. Old props and pre-submission GETs are not.
     const fresh = fence?.[mailbox.id]?.settled && fence[mailbox.id].generation === local.generation;
     const observed = mailbox.refresh_request_id || "";
-    if (fresh && mailbox.refresh_pending && observed && local.request !== observed) {
+    if (fresh && local.generation && mailbox.refresh_pending && observed && local.request !== observed) {
       local.request = observed; changed = true;
     }
     if (mailbox.refresh_pending === false && (fresh || (observed && local.request === observed))) {
@@ -65,7 +65,9 @@ function reconcile(status: EmailSyncStatus, fence?: StatusFence) {
 export function useEmailRefresh(status: EmailSyncStatus | null, mailboxId: string) {
   useSyncExternalStore(subscribe, () => revision, () => 0);
   const selected = (status?.mailboxes ?? []).filter((mailbox) => mailboxId ? mailbox.id === mailboxId : mailbox.active_binding && mailbox.intake_enabled);
-  const isPending = selected.some((mailbox) => mailbox.refresh_pending === true || Boolean(pending[mailbox.id]));
+  // The server's pending flag describes collection, not whether this client
+  // may submit another request while that collection is running.
+  const isPending = selected.some((mailbox) => Boolean(pending[mailbox.id]));
   useEffect(() => { if (status) reconcile(status); }, [status]);
   useEffect(() => {
     if (!isPending) return;
@@ -83,22 +85,17 @@ export function useEmailRefresh(status: EmailSyncStatus | null, mailboxId: strin
     const ids = selected.map((mailbox) => mailbox.id);
     // Synchronous guard is needed because two clicks may precede React's render.
     pending = read() ?? pending;
-    if (!status || !selected.length || selected.some((mailbox) => mailbox.refresh_pending || pending[mailbox.id])) return null;
+    if (!status || !selected.length || selected.some((mailbox) => pending[mailbox.id])) return null;
     const generation = nextGeneration();
     for (const mailbox of selected) { pending[mailbox.id] = { baseline: mailbox.refresh_request_id || "", submitted_at: Date.now(), generation }; submitting.add(mailbox.id); }
     write();
     try {
       const result = await api.syncEmail(targetMailboxId);
       pending = read() ?? pending;
-      ids.forEach((id) => { submitting.delete(id); if (pending[id]?.generation === generation) delete pending[id].submitted_at; });
-      for (const request of result.refresh_requests ?? []) {
-        if (pending[request.mailbox_id]?.generation === generation) pending[request.mailbox_id].request = request.refresh_request_id;
-      }
-      if (!result.scheduled) for (const id of ids) if (pending[id]?.generation === generation) delete pending[id];
+      // A successful POST response confirms acceptance. Keep the guard only
+      // for uncertain submissions, whose acceptance must be checked by GET.
+      ids.forEach((id) => { submitting.delete(id); if (pending[id]?.generation === generation) delete pending[id]; });
       write();
-      // Read after submission instead of accepting an already in-flight false.
-      const fence = statusFence();
-      try { reconcile(await api.emailSyncStatus(), fence); } catch { /* Status polling will resolve the request. */ }
       return result;
     } catch (reason) {
       pending = read() ?? pending;

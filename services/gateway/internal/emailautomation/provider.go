@@ -65,6 +65,7 @@ type Provider struct {
 	MarkRead        Script
 	Capture         Script
 	CollectPage     Script
+	Observe         Script
 }
 
 type Registry struct {
@@ -150,7 +151,7 @@ func registryFromContract(raw []byte) (Registry, error) {
 	}
 	scripts := map[string]Script{}
 	for _, entry := range contract.Scripts {
-		if !app.KnownEmailProvider(entry.Provider) || entry.Operation != "probe" && entry.Operation != "send" && entry.Operation != "read" && entry.Operation != "discover" && entry.Operation != "capture" && entry.Operation != "enumerate_thread" && entry.Operation != "mark_read" && entry.Operation != "collect_page" {
+		if !app.KnownEmailProvider(entry.Provider) || entry.Operation != "probe" && entry.Operation != "send" && entry.Operation != "read" && entry.Operation != "discover" && entry.Operation != "capture" && entry.Operation != "enumerate_thread" && entry.Operation != "mark_read" && entry.Operation != "collect_page" && entry.Operation != "observe" {
 			return Registry{}, fmt.Errorf("email provider script contract lists unknown %s %s", entry.Provider, entry.Operation)
 		}
 		key := entry.Provider + ":" + entry.Operation
@@ -169,15 +170,16 @@ func registryFromContract(raw []byte) (Registry, error) {
 		enumerate, enumerateOK := scripts[id+":enumerate_thread"]
 		markRead, markReadOK := scripts[id+":mark_read"]
 		collectPage, collectPageOK := scripts[id+":collect_page"]
-		if !probeOK || !sendOK || !readOK || !discoverOK || !captureOK || !enumerateOK || !markReadOK || !collectPageOK {
+		observe, observeOK := scripts[id+":observe"]
+		if !probeOK || !sendOK || !readOK || !discoverOK || !captureOK || !enumerateOK || !markReadOK || !collectPageOK || !observeOK {
 			return Registry{}, fmt.Errorf("email provider script contract has no probe, send, or read script for %s", id)
 		}
 		providers = append(providers, Provider{
 			ID: id, DisplayName: app.EmailProviderDisplayName(id), Aliases: providerAliases[id],
-			Probe: probe, Send: send, Read: read, Discover: discover, Capture: capture, EnumerateThread: enumerate, MarkRead: markRead, CollectPage: collectPage,
+			Probe: probe, Send: send, Read: read, Discover: discover, Capture: capture, EnumerateThread: enumerate, MarkRead: markRead, CollectPage: collectPage, Observe: observe,
 		})
 	}
-	if len(scripts) != 8*len(providers) {
+	if len(scripts) != 9*len(providers) {
 		return Registry{}, errors.New("email provider script contract lists scripts for an unregistered provider")
 	}
 	return NewRegistry(providers)

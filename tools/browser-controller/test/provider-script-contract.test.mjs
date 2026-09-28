@@ -27,7 +27,7 @@ test("every contract entry resolves to a prepared registration with the same bud
   await registry.prepare();
   const { schema_version, scripts } = providerScriptContract();
   assert.equal(schema_version, 1);
-  assert.equal(scripts.length, 24);
+  assert.equal(scripts.length, 27);
   assert.deepEqual(scripts.filter(entry => entry.operation === "collect_page").map(entry => entry.timeout_ms), [1_800_000,1_800_000,1_800_000]);
   for (const entry of scripts) {
     const registration = registry.resolve({

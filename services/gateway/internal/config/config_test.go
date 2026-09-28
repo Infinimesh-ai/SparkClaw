@@ -18,7 +18,8 @@ func TestLoadMergesToolsPolicyFile(t *testing.T) {
 	policyPath := filepath.Join(root, "tools.policy.json")
 	if err := os.WriteFile(policyPath, []byte(`{
   "deny": ["custom.blocked"],
-  "approval_required": ["files.write_draft"]
+  "approval_required": ["files.write_draft"],
+  "operator_controls": {"web_access": false, "workspace_files": true, "file_changes": "ask"}
 }`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -40,11 +41,29 @@ func TestLoadMergesToolsPolicyFile(t *testing.T) {
 	if !slices.Contains(cfg.Security.ApprovalRequiredTools, "files.write_draft") {
 		t.Fatalf("approval policy did not merge: %#v", cfg.Security.ApprovalRequiredTools)
 	}
+	if cfg.Security.OperatorControls.WebAccess == nil || *cfg.Security.OperatorControls.WebAccess || cfg.Security.OperatorControls.FileChanges != "ask" {
+		t.Fatalf("operator controls did not load: %+v", cfg.Security.OperatorControls)
+	}
 	if !filepath.IsAbs(cfg.Security.ToolPolicyPath) {
 		t.Fatalf("tool policy path was not normalized: %q", cfg.Security.ToolPolicyPath)
 	}
 	if !cfg.Gateway.RateLimit.Enabled || cfg.Gateway.RateLimit.RequestsPerMinute != 600 || cfg.Gateway.RateLimit.Burst != 120 {
 		t.Fatalf("default rate limit missing: %#v", cfg.Gateway.RateLimit)
+	}
+}
+
+func TestLoadRejectsInvalidOperatorControls(t *testing.T) {
+	root := t.TempDir()
+	policyPath := filepath.Join(root, "tools.policy.json")
+	if err := os.WriteFile(policyPath, []byte(`{"operator_controls":{"external_actions":"allow_all"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "sparkclaw.json")
+	if err := os.WriteFile(configPath, []byte(`{"security":{"tool_policy_path":"`+escapeJSONPath(policyPath)+`"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(configPath); err == nil || !strings.Contains(err.Error(), "operator tool controls") {
+		t.Fatalf("invalid mode was accepted: %v", err)
 	}
 }
 

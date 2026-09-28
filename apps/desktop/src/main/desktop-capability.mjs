@@ -124,7 +124,7 @@ export class DesktopCapability {
       throw new Error("Desktop browser bounds are invalid");
     }
     const content = this.window.getContentBounds();
-    if (value.x < 0 || value.y < 0 || value.width < 480 || value.width > 760 || value.height < 240 ||
+    if (value.x < 0 || value.y < 0 || value.width < 1 || value.width > 760 || value.height < 1 ||
         value.x + value.width > content.width || value.y + value.height > content.height) {
       throw new Error("Desktop browser bounds are outside the workbench");
     }

@@ -22,7 +22,7 @@ func (s *Service) RunScript(ctx context.Context, input RunScriptRequest) (Script
 	input.ScriptID = strings.TrimSpace(input.ScriptID)
 	if input.ProfileID != "" && input.ProfileID != s.profileID || input.TaskID == "" ||
 		!scriptIDPattern.MatchString(input.Provider) ||
-		input.Operation != "probe" && input.Operation != "send" && input.Operation != "read" && input.Operation != "discover" && input.Operation != "capture" && input.Operation != "enumerate_thread" && input.Operation != "mark_read" && input.Operation != "collect_page" ||
+		input.Operation != "probe" && input.Operation != "send" && input.Operation != "read" && input.Operation != "discover" && input.Operation != "capture" && input.Operation != "enumerate_thread" && input.Operation != "mark_read" && input.Operation != "collect_page" && input.Operation != "observe" ||
 		!scriptIDPattern.MatchString(input.ScriptID) || input.Revision <= 0 || input.Input == nil ||
 		input.CredentialGeneration <= 0 || input.WaitTimeoutMS < 0 ||
 		input.WaitTimeoutMS > maxRuntimeWaitTimeout.Milliseconds() {

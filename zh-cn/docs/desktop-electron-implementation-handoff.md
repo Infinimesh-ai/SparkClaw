@@ -17,7 +17,7 @@
 1. **唯一引擎为 Electron 自带 Chromium**，用 `WebContentsView` 显示个人页和任务页。由 Chromium 管理渲染及辅助进程，不要求一标签一操作系统进程。
 2. **同仓维护、按职责拆分**：复用 `apps/webchat` 的 React/Vite 工作台；新增 `apps/desktop` 放主进程、浏览器适配、脚本宿主及打包；WebChat 通过可选能力接入。普通浏览器中的 WebChat 继续可用。
 3. **保留现有控制方式**：Gateway → Browser Controller → Playwright MCP / 固定 CLI 脚本 → 任务范围 Bridge。通过 Electron Browser Adapter 迁移 Bridge 行为，不假设现有 Chrome 扩展和 Tampermonkey 能直接运行，也不增加给模型使用的任意 JS/CDP 工具。
-4. **右侧“我的浏览 / 任务观察”**：个人页可操作；任务页仅观察，无接管／交还／恢复功能。用户可切换观察任务标签页，不能改变 Controller 自动化目标、lease、任务 viewport 或焦点。个人页与任务页使用独立 WebContents 和归属注册表。
+4. **右侧浏览器入口与统一标签栏**：打开面板时只显示“浏览器”入口，不保留不可用的终端占位，也不立即呈现网页；进入后采用接近原生浏览器的标签栏／地址栏双层结构，不再显示“我的浏览 / 任务观察”两个 UI 模式。个人页可操作；任务页继续明确只读，无接管／交还／恢复功能。用户可切换观察任务标签页，不能改变 Controller 自动化目标、lease、任务 viewport 或焦点。个人页与任务页仍使用独立 WebContents 和归属注册表。
 5. **共享网站登录态**：个人页与任务页共享独立的持久化 Electron 浏览 Session；特权工作台使用另一 Session。新 Session 通过正常网页登录建立，不复用、复制或导出旧 Chromium Profile、Cookie、密码。换号／退出影响任务登录态，需保持现有账号校验。
 6. **登录讨论的结论**：当前流程是用户登录网站、浏览器保存 Cookie，不是 SparkClaw 获取 OAuth API token。不能单凭 OAuth 嵌入式授权政策断言该流程失败；Electron 实际网页登录与持久化尚未验证。按服务商实测并记录结果，不擅自换引擎、改为 API 工作流或导入 Cookie。
 7. **生命周期**：关闭工作台窗口隐藏窗口并保留 runtime／浏览页面；重开复用同一 runtime。主进程崩溃或明确退出可能中断任务，应撤销 generation、如实报告，不能自动重放结果未知的发送等副作用。
@@ -31,7 +31,7 @@
 
 **实施检查点（2026-09-21）**：`apps/desktop` 锁定 Electron `44.4.3`、ARM64 Chromium `152.0.7977.130` 与 Electron Node `24.21.0`。产品采用 sandboxed `WebContentsView`、独立工作台／浏览器 Session、不透明归属与 generation、任务范围 `webContents.debugger`，以及 owner-only Unix socket 和短时单次凭据。现有 Controller 可选择新 Adapter，旧扩展路径继续保留。托管脚本宿主在 document-start 安装精确的 QQ／Gmail／Outlook Reader，并以受限 GM 存储／菜单能力安装固定 AI 导出器；任务下载和个人下载均有明确归属、限制、取消及回执或 UI 语义。
 
-WebChat 的可选桌面能力已提供“我的浏览 / 任务观察”、受限个人导航、只读任务选择、权限和下载。主进程 IPC 验证精确工作台 frame、自定义 origin、不透明引用、generation／revision 和 bounds。打包资源经 `sparkclaw-app://` 提供；同源代理仅向受控回环 Gateway 注入安装时生成的 Client，并覆盖 HTTP／SSE／文件，语音使用同一配置 origin。关闭隐藏、工作台／任务／主进程故障、浏览 Session 持久化和未知副作用不重放均已验证。
+WebChat 的可选桌面能力已改为先显示单一浏览器入口，再进入接近原生浏览器的标签栏／地址栏双层结构；提供受限个人导航、非网址输入的 Google 搜索回退、只读任务标签、权限和下载。主进程 IPC 验证精确工作台 frame、自定义 origin、不透明引用、generation／revision 和 bounds。打包资源经 `sparkclaw-app://` 提供；同源代理仅向受控回环 Gateway 注入安装时生成的 Client，并覆盖 HTTP／SSE／文件，语音使用同一配置 origin。关闭隐藏、工作台／任务／主进程故障、浏览 Session 持久化和未知副作用不重放均已验证。
 
 隔离 runner 已覆盖真实 MCP `0.0.80`、CLI `0.1.19` 和 Playwright `1.63.0-alpha-2026-08-31`；worker／OOPIF／popup 范围；软件可测的完整原生输入边界；后台执行；固定 `640×720` 任务 viewport；托管脚本、下载与生命周期恢复。ARM64 AppImage／DEB、SHA-256 记录及两个成品的独立解包启动探针均已完成，详见[桌面发布与切换方案](desktop-release-plan.md)。
 

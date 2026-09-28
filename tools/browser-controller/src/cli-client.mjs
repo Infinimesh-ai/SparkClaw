@@ -15,6 +15,7 @@ import {
 import { ControllerError } from "./errors.mjs";
 import { ProviderScriptRegistry, providerFailureEnvelope } from "./provider-scripts.mjs";
 import {MailReadPool} from './mail-read-pool.mjs';
+import {ResidentMailObservers} from './mail-observers.mjs';
 import { electronConnectionEnvironment, registerElectronConnection } from "./electron-adapter-client.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -114,6 +115,17 @@ export class PlaywrightCLIClientFactory {
   }
 
   async runScript({ token, sessionID, taskID = "provider-task", controllerGeneration, sessionGeneration = 1, pageGeneration = 1, provider, operation, scriptID, revision, input, signal, credentialGeneration }) {
+    if (operation === 'observe') {
+      const registration = this.registry.resolve({provider, operation, scriptID, revision});
+      registration.validate(input);
+      if (!this.mailObservers) {
+        this.mailObservers = new ResidentMailObservers(this);
+        this.mailObserverReady = this.mailObservers.prepare();
+      }
+      await this.mailObserverReady;
+      const result = await this.mailObservers.run({provider, input, token, credentialGeneration, signal});
+      return {state: 'completed', result, sourceChecksum: registration.sourceChecksum};
+    }
     const started = performance.now();
     const timings = {};
     const measure = async (name, action) => {
@@ -201,7 +213,7 @@ export class PlaywrightCLIClientFactory {
           phase = 'prepare_mail_round';
           await measure(phase,()=>client.prepareMailRound(input.discovery.account_address));
         }
-        lease = {state,client,createdAt:Date.now()};
+        lease = {state,client};
       }
       phase = "provider_handler";
       result = await measure("provider_handler", () => registration.handler(input, createProviderRuntime(client, registration)));
@@ -220,7 +232,7 @@ export class PlaywrightCLIClientFactory {
       }
       if(poolReserved && !retained) {
         if(state) {
-          lease??={state,client,createdAt:Date.now()};
+          lease??={state,client};
           try {
             await measure('dispose_mail_round',()=>this.#disposeMailRead(lease));
             this.mailReads.discard(provider);
@@ -372,9 +384,15 @@ export class PlaywrightCLIClientFactory {
   }
 
   async drainIdleMailReads() {await this.mailReads.drain();}
-  async close() {await this.mailReads.close();}
+  async close() {
+    let failure;
+    try {await this.mailObservers?.close();} catch(error) {failure=error;}
+    try {await this.mailReads.close();} catch(error) {failure ??= error;}
+    if (failure) throw failure;
+  }
 
   async openProviderLogin(provider) {
+    await this.mailObservers?.stop(provider);
     const registration = Object.hasOwn(AI_PLATFORM_URLS, provider) ? {loginURL:AI_PLATFORM_URLS[provider]} : this.registry.provider(provider);
     if (
       !this.executablePath ||

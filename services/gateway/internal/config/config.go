@@ -50,6 +50,9 @@ func Load(path string) (Config, error) {
 	if err := applyToolPolicyFile(&cfg); err != nil {
 		return Config{}, err
 	}
+	if err := cfg.Security.OperatorControls.Validate(); err != nil {
+		return Config{}, err
+	}
 	if cfg.Gateway.Bind == "" {
 		return Config{}, errors.New("gateway.bind is required")
 	}
@@ -295,6 +298,9 @@ func applyToolPolicyFile(cfg *Config) error {
 	}
 	cfg.Security.DeniedTools = appendUnique(cfg.Security.DeniedTools, policy.Deny...)
 	cfg.Security.ApprovalRequiredTools = appendUnique(cfg.Security.ApprovalRequiredTools, policy.ApprovalRequired...)
+	if policy.OperatorControls != nil {
+		cfg.Security.OperatorControls = *policy.OperatorControls
+	}
 	if abs, err := filepath.Abs(path); err == nil {
 		cfg.Security.ToolPolicyPath = abs
 	}

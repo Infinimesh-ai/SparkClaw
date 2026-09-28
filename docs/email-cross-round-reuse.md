@@ -6,7 +6,9 @@ Language: English | [简体中文](../zh-cn/docs/email-cross-round-reuse.md)
 
 This extends the [first performance optimization](email-sync-performance-20260916.md): that version reused a task page within a batch, but recreated the page and CLI connection for the next poll. The new path keeps a bounded, Controller-owned read page and connection between successful time-range collection rounds. Sending, manual login and generic browser sessions do not use this pool.
 
-Each provider has at most one retained lease (QQ, Gmail and consumer Outlook: at most three). Reuse requires the same owner scope, mailbox account, browser credential generation/token and registered script source checksum. The idle expiry is 30 minutes; the maximum lease age is two hours. Expiry or an identity change closes the old owned page and connection before creating another. Restarting the Controller clears this in-memory pool. Pausing receiving stops scheduled mail requests but does not immediately close an idle page; the idle timer still applies. A mailbox website may generate its own background traffic.
+Each provider has at most one retained lease (QQ, Gmail and consumer Outlook: at most three). Reuse requires the same owner scope, mailbox account, browser credential generation/token and registered script source checksum. The idle expiry is 30 minutes; the fixed two-hour age limit was removed on 2026-09-23. Idle expiry or an identity change closes the old owned page and connection before creating another. Restarting the Controller clears this in-memory pool. Pausing receiving stops scheduled mail requests but does not immediately close an idle page; the idle timer still applies. A mailbox website may generate its own background traffic.
+
+The accepted [notification-wakeup design](email-notification-wakeup-design.md) adds an independent watch registration that will keep an enabled observer page alive beyond the read pool's idle expiry and stop it when receiving is disabled. That lifecycle is pending implementation; the pool described here is the current behavior.
 
 ## What each round does
 
@@ -25,7 +27,7 @@ QQ's cached web client may restore the signed-in `/home/index` route without iss
 
 At this optimization's original deployment, the intake-only admission cache expired after 60 seconds, shorter than the then-normal 20-minute polling interval. Its lifetime was extended to 30 minutes. The subsequent [one-minute scheduler](email-timeline-incremental-sync-design.md#19-one-minute-cadence-and-single-flight-refresh) changes the normal idle interval to 60 seconds without reducing this cache lifetime. A newly verified, complete, failure-free time-range result may renew cache freshness, while retaining the original login-proof timestamp. Cache hits alone, old journal replay, partial results and failures do not renew it. Local credential generation and setting/account bindings are still checked. First use, changed credentials/settings or a gap beyond the expiry requires a full probe. Send admission is unchanged.
 
-This removes repeated cold setup during healthy polling; it does not make every future call a warm call. Browser restarts, page reloads, idle expiry, the two-hour age limit and exclusive operations legitimately cause another cold setup.
+This removes repeated cold setup during healthy polling; it does not make every future call a warm call. Browser restarts, page reloads, idle expiry and exclusive operations legitimately cause another cold setup.
 
 ## Acceptance method
 

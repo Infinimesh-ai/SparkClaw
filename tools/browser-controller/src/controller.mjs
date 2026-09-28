@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { MailObserverFeed } from './mail-observer-feed.mjs';
 
 import { ControllerError } from "./errors.mjs";
 import {
@@ -46,8 +47,8 @@ const PAGE_MUTATING_OPERATIONS = new Set([
   "tabs.new",
 ]);
 const PARALLEL_PROVIDERS = new Set(["qq_mail", "gmail", "outlook"]);
-const PARALLEL_OPERATIONS = new Set(["probe", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"]);
-const SCRIPT_OPERATIONS = new Set(["probe", "send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page"]);
+const PARALLEL_OPERATIONS = new Set(["probe", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page", "observe"]);
+const SCRIPT_OPERATIONS = new Set(["probe", "send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page", "observe"]);
 
 export class BrowserController {
   constructor({
@@ -85,6 +86,7 @@ export class BrowserController {
     this.exclusiveWaiters = 0;
     this.changed = deferred();
     this.shuttingDown = false;
+    this.mailObserverFeed = new MailObserverFeed(this);
   }
 
   health() {
@@ -404,6 +406,7 @@ export class BrowserController {
     const reservations = [this.active, ...this.providerReservations.values()].filter(Boolean);
     for (const reservation of reservations) reservation.abortController.abort();
     this.shutdownPromise = (async () => {
+      await this.mailObserverFeed.close();
       await Promise.all(reservations.map(async reservation => {
         if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
         else await reservation.done.promise;

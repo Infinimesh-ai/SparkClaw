@@ -18,6 +18,7 @@ import {
   ToolTimelinePanel,
   TracePanel
 } from "./panels";
+import type { WorkspaceSettingsSection } from "./panels/settings";
 import type {
   Approval,
   ArtifactObject,
@@ -38,11 +39,12 @@ import type {
   TraceMetadata
 } from "../api/types";
 
-export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
+export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings" | "appearance" | "models-tools" | "permissions" | "connections";
 
 type InspectorColumnProps = {
   connectionsOnly?: boolean;
   showTabs?: boolean;
+  settingsPage?: boolean;
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   text: Copy;
@@ -84,6 +86,7 @@ type InspectorColumnProps = {
 export function InspectorColumn({
   connectionsOnly = false,
   showTabs = true,
+  settingsPage = false,
   tab,
   onTabChange,
   text,
@@ -123,6 +126,20 @@ export function InspectorColumn({
 }: InspectorColumnProps) {
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
+
+  async function checkSettingsStatus(section: WorkspaceSettingsSection) {
+    if (section === "connections") {
+      const [configResult, connectorResult, bindingResult] = await Promise.allSettled([
+        api.config(), api.connectors(), api.notificationBindings()
+      ]);
+      if (configResult.status === "fulfilled") setRuntimeConfig(configResult.value);
+      if (bindingResult.status === "fulfilled") setNotificationBindings(bindingResult.value.bindings);
+      if (connectorResult.status === "rejected") throw connectorResult.reason;
+      setConnectors(connectorResult.value.connectors);
+      return;
+    }
+    setRuntimeConfig(await api.config());
+  }
 
   async function resolveApproval(id: string, accepted: boolean) {
     if (resolvingApprovalId) return;
@@ -237,7 +254,6 @@ export function InspectorColumn({
       } else {
         await refreshGlobal();
       }
-      onTabChange("settings");
     } catch (err) {
       const message = notificationBindingErrorMessage(err, text);
       setError(message);
@@ -282,10 +298,10 @@ export function InspectorColumn({
     }
   }
 
-  async function updateToolPolicy(deny: string[], approvalRequired: string[]) {
+  async function updateToolPolicy(deny: string[], approvalRequired: string[], controls?: PublicConfig["tool_policy"]["operator_controls"]) {
     try {
       setError("");
-      await api.updateToolPolicy(deny, approvalRequired);
+      await api.updateToolPolicy(deny, approvalRequired, controls);
       await refreshGlobal();
     } catch (err) {
       surfaceError(err, text.errors.policyUpdate);
@@ -338,7 +354,7 @@ export function InspectorColumn({
       </div>}
 
       {tab === "timeline" && <ToolTimelinePanel calls={toolCalls} text={text} onTrace={onOpenTrace} />}
-      {tab === "approvals" && (
+      {tab === "approvals" && !settingsPage && (
         <ApprovalPanel
           approvals={approvals}
           text={text}
@@ -348,7 +364,7 @@ export function InspectorColumn({
           onModifyPlan={(id, plan) => void modifyApprovalPlan(id, plan)}
         />
       )}
-      {tab === "memory" && (
+      {tab === "memory" && !settingsPage && (
         <MemoryPanel
           candidates={candidates}
           memories={memories}
@@ -386,9 +402,10 @@ export function InspectorColumn({
           onError={(message) => setError(message)}
         />
       )}
-      {tab === "settings" && (
+      {(tab === "settings" || tab === "appearance" || tab === "models-tools" || tab === "permissions" || tab === "connections") && (
         <SettingsPanel
           connectionsOnly={connectionsOnly}
+          section={tab === "settings" ? "general" : tab}
           runtimeConfig={runtimeConfig}
           ownerProfile={ownerProfile}
           clients={clients}
@@ -406,7 +423,8 @@ export function InspectorColumn({
           onOpenNotificationBindingBrowser={(id) => openNotificationBindingBrowser(id)}
           onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
           onUpdateConnector={(channel, enabled, version) => updateConnector(channel, enabled, version)}
-          onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
+          onUpdatePolicy={(deny, approvalRequired, controls) => updateToolPolicy(deny, approvalRequired, controls)}
+          onCheckStatus={checkSettingsStatus}
         />
       )}
     </aside>

@@ -109,6 +109,7 @@ class DeployRemoteTest(unittest.TestCase):
                     "REMOTE_DEPLOY_BROWSER_LOG": str(browser_log),
                     "SPARKCLAW_BROWSER_SETUP": str(browser_setup),
                     "SPARKCLAW_TEST_BROWSER_PID": str(os.getpid()),
+                    "XDG_CONFIG_HOME": str(temp_path / "config"),
                 }
             )
             result = subprocess.run(

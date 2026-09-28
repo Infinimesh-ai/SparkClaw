@@ -50,6 +50,7 @@ export type SparkClawDesktop = {
   speechBase: string;
   localConnection(): Promise<{ schema_version: 1; state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" }>;
   retryLocalConnection(): Promise<{ schema_version: 1; state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" }>;
+  loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   onLocalConnection(listener: (status: { schema_version: 1; state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" }) => void): () => void;
   state(): Promise<DesktopState>;
   createPersonal(url?: string): Promise<{ page_ref: string }>;

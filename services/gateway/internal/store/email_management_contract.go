@@ -34,6 +34,7 @@ type EmailPauseCommand struct {
 // proposed upper bound so the exact frozen interval is attempted only once.
 type EmailSyncBeginCommand struct {
 	EmailCommand
+	FinalCheck        bool
 	MailboxID         string
 	BindingGeneration int64
 	ProviderMode      string
@@ -45,6 +46,9 @@ type EmailSyncBeginCommand struct {
 
 type EmailSyncCheckpoint struct {
 	Mailbox            app.EmailMailbox       `json:"mailbox"`
+	Kind               string                 `json:"kind"`
+	QueryRevision      int64                  `json:"query_revision"`
+	OverlapEnd         time.Time              `json:"overlap_end"`
 	IntervalStart      time.Time              `json:"interval_start"`
 	IntervalEnd        time.Time              `json:"interval_end"`
 	RetryFailures      []app.EmailSyncFailure `json:"retry_failures"`
@@ -83,10 +87,14 @@ type EmailSyncCommitCommand struct {
 	ReaderRevision    int
 	Complete          bool
 	Overflow          bool
-	UnsupportedItems  int
-	ErrorCode         string
-	FailureScope      string
-	Outcomes          []EmailSyncFailureOutcome
+	SplitOverlap      bool
+	// When a combined overlap query was split, overflow applies only to the
+	// new tail beginning at this bound, not to the combined query's lower bound.
+	OverflowIntervalStart time.Time
+	UnsupportedItems      int
+	ErrorCode             string
+	FailureScope          string
+	Outcomes              []EmailSyncFailureOutcome
 }
 
 type EmailSyncCapture struct {
@@ -170,6 +178,10 @@ type EmailJobRequest struct {
 	AutomaticPoll bool   `json:",omitempty"`
 	SyncTrigger   string `json:",omitempty"`
 	SyncActor     string `json:",omitempty"`
+	// A qualified observer event is scoped by the Controller registration.
+	// The Store deduplicates retransmission within one observer epoch.
+	EventEpoch    string `json:",omitempty"`
+	EventSequence int64  `json:",omitempty"`
 	// ForceAnalysis explicitly regenerates a succeeded semantic target on user request.
 	ForceAnalysis bool `json:",omitempty"`
 	// RearmFailed is reserved for self-healing infrastructure jobs and the

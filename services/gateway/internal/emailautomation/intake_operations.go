@@ -142,7 +142,7 @@ func (r *PlaywrightRunner) runIntakeScript(ctx context.Context, provider Provide
 	input["owner_scope"] = binding.OwnerScope
 	ctx, cancel := scriptContext(ctx, script)
 	defer cancel()
-	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{TaskID: binding.InvocationID, CredentialGeneration: generation, Provider: provider.ID, Operation: operation, ScriptID: script.ID, Revision: script.Revision, Input: input})
+	result, err := r.runScript(ctx, browsercontrol.RunScriptRequest{TaskID: binding.InvocationID, CredentialGeneration: generation, Provider: provider.ID, Operation: operation, ScriptID: script.ID, Revision: script.Revision, Input: input})
 	if err != nil {
 		return nil, mapPlaywrightError(err, false)
 	}

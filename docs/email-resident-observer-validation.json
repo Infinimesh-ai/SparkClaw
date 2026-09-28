@@ -1,0 +1,422 @@
+{
+  "date": "2026-09-24",
+  "adapter": "Browser Bridge dedicated authenticated profile",
+  "rules_version": 1,
+  "production_deployed": true,
+  "durable_gateway_wakeup_qualified": true,
+  "quiet_polling_tier_enabled": false,
+  "controls": [
+    {
+      "provider": "qq_mail",
+      "phase": "idle_30s",
+      "state": "watching",
+      "hints": 0
+    },
+    {
+      "provider": "gmail",
+      "phase": "idle_30s",
+      "state": "watching",
+      "hints": 0
+    },
+    {
+      "provider": "outlook",
+      "phase": "idle_30s",
+      "state": "watching",
+      "hints": 0
+    },
+    {
+      "provider": "qq_mail",
+      "phase": "reader",
+      "state": "watching",
+      "hints": 0
+    },
+    {
+      "provider": "gmail",
+      "phase": "reader",
+      "state": "watching",
+      "hints": 0
+    },
+    {
+      "provider": "outlook",
+      "phase": "reader",
+      "state": "watching",
+      "hints": 0
+    }
+  ],
+  "reader_duration_seconds": {
+    "qq_mail": 4.360925861,
+    "gmail": 9.244785586,
+    "outlook": 17.224338314
+  },
+  "positive_controls": [
+    {
+      "from": "gmail",
+      "to": "qq_mail",
+      "marker": "SCW-mail-935680acf76487f1",
+      "hints": 1,
+      "reason": "qq_inbound_envelope",
+      "original_verified": true
+    },
+    {
+      "from": "qq_mail",
+      "to": "gmail",
+      "marker": "SCW-mail-025becc34080122c",
+      "hints": 1,
+      "reason": "gmail_topic_invalidation",
+      "original_verified": true
+    },
+    {
+      "from": "qq_mail",
+      "to": "outlook",
+      "marker": "SCW-mail-fed11e7136b0d61d",
+      "hints": 1,
+      "reason": "outlook_delivery_change",
+      "original_verified": true
+    }
+  ],
+  "additional_controls": {
+    "gmail_outgoing_sends_hint_delta": 0,
+    "gmail_open_test_message_hint_delta": 0,
+    "outlook_read_flag_1_to_0_hint_delta": 0,
+    "outlook_final_signal_degraded_events": 0
+  },
+  "recovery": {
+    "forced_owned_page_close": true,
+    "new_owned_runtime_observed": true,
+    "received_verified_mail_after_recovery": true,
+    "final_state": "watching",
+    "restarts": 1,
+    "final_hints": 1,
+    "final_hold_test_passed": true,
+    "final_test_duration_seconds": 527.87,
+    "owned_observers_stopped": true
+  },
+  "qualification_limits": [
+    "The Gmail invalidation is a mailbox-change hint, not proof of a new mail.",
+    "Outlook Item-shaped arrival in Junk was observed for SCW-mail-82a4fa1a8b1dff80, but no Reader inbox original was verified; excluded from positive Reader controls.",
+    "The second 900-second hold exceeded Go test default 10-minute timeout after its idle/Reader controls. The qualification script now sets -timeout=30m.",
+    "Electron, the five-minute quiet tier, and the extended resource/sleep/folder coverage matrix remain unqualified.",
+    "Gmail activation encountered more than 50 historical messages in its initial interval. One durable coverage gap and its unacknowledged warning remain; current incoming mail continues to be reconciled. Historical completeness is not claimed."
+  ],
+  "tests": {
+    "controller": {
+      "passed": 432,
+      "skipped": 1,
+      "failed": 0,
+      "note": "Full run after feed recovery changes; subsequent shutdown-listener regression also passed in an 11-test focused run."
+    },
+    "focused_observer_and_contract": {
+      "passed": 15,
+      "failed": 0
+    },
+    "go_packages": [
+      "all services/gateway packages"
+    ],
+    "durable_wakeup": [
+      "Store owner transaction, epoch/binding/credential fences, replay, disabled intake, Reader in-flight signal and retry preservation",
+      "Gateway commits before ACK and rechecks intent after long polling",
+      "Controller auth caching, bounded replay/overflow, orphan lease expiry, supervisor recovery coexistence, shutdown listener cleanup"
+    ]
+  },
+  "production": {
+    "deployed_at_utc": "2026-09-24T10:51:14Z",
+    "services": [
+      "sparkclaw-gateway-1",
+      "sparkclaw-browser-controller.service"
+    ],
+    "active_intake_providers": [
+      "qq_mail",
+      "gmail",
+      "outlook"
+    ],
+    "disabled_intake_providers": [],
+    "fallback_seconds": 60,
+    "quiet_tier_enabled": false,
+    "controller_restart_seconds": 0.22,
+    "watch_state": "watching",
+    "originals_survived_restart": true,
+    "local_transport": "authenticated Unix POST long poll; 25s idle wait; 90s renewed intent lease; 128-record replay ring",
+    "smokes": [
+      {
+        "marker": "SCW-mail-349cb322e46cbbc1",
+        "route": "gmail:qq_mail",
+        "notification_accepted_at_utc": "2026-09-24T10:47:23.457499Z",
+        "reader_started_at_utc": "2026-09-24T10:47:23.597253Z",
+        "original_committed_at_utc": "2026-09-24T10:47:24.239137Z",
+        "original_sha256_verified": true,
+        "reader_started_after_hint_ms": 140,
+        "original_committed_after_hint_ms": 782,
+        "test_seconds": 81.016
+      },
+      {
+        "marker": "SCW-mail-23343fa87c5b040a",
+        "route": "gmail:qq_mail",
+        "after_gateway_controller_restart": true,
+        "notification_accepted_at_utc": "2026-09-24T10:53:00.117193Z",
+        "reader_started_at_utc": "2026-09-24T10:53:40.869311Z",
+        "existing_error_backoff_preserved": true,
+        "backoff_context": "A scheduled Reader attempt during the exclusive test send returned email_provider_unavailable at 10:52:40. The hint was persisted immediately without shortening the existing retry deadline.",
+        "original_sha256_verified": true,
+        "test_seconds": 118.156,
+        "original_committed_at_utc": "2026-09-24T10:53:45.079637Z",
+        "reader_started_after_hint_ms": 40752,
+        "original_committed_after_hint_ms": 44962
+      },
+      {
+        "marker": "SCW-mail-744e2d9d42900d56",
+        "route": "qq_mail:gmail",
+        "notification_reason": "gmail_topic_invalidation",
+        "notification_accepted_at_utc": "2026-09-24T11:04:41.055607Z",
+        "original_committed_at_utc": "2026-09-24T11:05:41.143568Z",
+        "original_committed_after_hint_ms": 60088,
+        "original_sha256_verified": true,
+        "signal_revision": 3,
+        "reconciled_revision": 3,
+        "test_seconds": 131.98,
+        "post_send_reader_invoked_by_test": false,
+        "existing_error_backoff_preserved": true,
+        "backoff_context": "A scheduled Reader collided with the exclusive test-send operation at 11:04:28. Its retry deadline 11:05:28.680835 UTC was retained after notification admission."
+      },
+      {
+        "marker": "SCW-mail-749af8363e730259",
+        "route": "qq_mail:outlook",
+        "notification_reason": "outlook_delivery_change",
+        "notification_accepted_at_utc": "2026-09-24T11:11:29.875987Z",
+        "reader_started_at_utc": "2026-09-24T11:11:43.042452Z",
+        "original_committed_at_utc": "2026-09-24T11:12:04.987498Z",
+        "reader_started_after_hint_ms": 13166,
+        "original_committed_after_hint_ms": 35112,
+        "original_sha256_verified": true,
+        "signal_revision": 3,
+        "reconciled_revision": 3,
+        "test_seconds": 132.886,
+        "post_send_reader_invoked_by_test": false,
+        "existing_error_backoff_preserved": true,
+        "backoff_context": "An earlier Reader attempt returned email_provider_unavailable during live qualification. Its 11:11:42.844220 UTC retry deadline remained intact."
+      }
+    ],
+    "deployment_notes": [
+      "Focused Gateway image replacement and host Controller restart; production deployment identity, desktop capability file and search setting preserved from the running service.",
+      "The full deploy wrapper check rejected the legacy all-in-one .env.local. Existing Compose files/configuration were used for the two-service update; private configuration and model services were retained.",
+      "Initial old Controller shutdowns reached the 60s systemd timeout. Listener teardown now runs even after cleanup errors and all factories are attempted. The subsequent service restart logged browser_controller_stopped and completed in 0.22s."
+    ],
+    "post_restart_idle_control": {
+      "checked_at_utc": "2026-09-24T10:57:02.744672+00:00",
+      "last_delivery_sequence": 5,
+      "additional_delivery_events_since_second_message": 0,
+      "watch_state": "watching",
+      "signal_revision": 11,
+      "reconciled_revision": 11
+    },
+    "receiving_switches_enabled_via": "authenticated Gateway provider PATCH with expected mailbox version",
+    "receiving_switches_left_enabled": true,
+    "provider_revisions": {
+      "qq_mail": {
+        "signal": 11,
+        "reconciled": 11
+      },
+      "gmail": {
+        "signal": 3,
+        "reconciled": 3
+      },
+      "outlook": {
+        "signal": 3,
+        "reconciled": 3
+      }
+    },
+    "three_provider_idle_controls": [
+      {
+        "started_at": "2026-09-24T11:02:33.059748+00:00",
+        "ended_at": "2026-09-24T11:03:18.293084+00:00",
+        "before": [
+          {
+            "watch": "watching",
+            "signal": "2",
+            "provider": "gmail",
+            "sequence": "9",
+            "reconciled": "2"
+          },
+          {
+            "watch": "watching",
+            "signal": "2",
+            "provider": "outlook",
+            "sequence": "13",
+            "reconciled": "1"
+          },
+          {
+            "watch": "watching",
+            "signal": "11",
+            "provider": "qq_mail",
+            "sequence": "5",
+            "reconciled": "11"
+          }
+        ],
+        "after": [
+          {
+            "watch": "watching",
+            "signal": "2",
+            "provider": "gmail",
+            "sequence": "9",
+            "reconciled": "2"
+          },
+          {
+            "watch": "watching",
+            "signal": "2",
+            "provider": "outlook",
+            "sequence": "13",
+            "reconciled": "2"
+          },
+          {
+            "watch": "watching",
+            "signal": "11",
+            "provider": "qq_mail",
+            "sequence": "5",
+            "reconciled": "11"
+          }
+        ],
+        "classified_hints": {
+          "gmail": 0,
+          "outlook": 0,
+          "qq_mail": 0
+        }
+      },
+      {
+        "started_at": "2026-09-24T11:12:16.819140+00:00",
+        "ended_at": "2026-09-24T11:13:47.050115+00:00",
+        "before": [
+          {
+            "watch": "watching",
+            "signal": "3",
+            "provider": "gmail",
+            "sequence": "14",
+            "reconciled": "3",
+            "sync_state": "coverage_gap",
+            "poll_through": "2026-09-24T11:11:52.612985Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:11:52.613105Z"
+          },
+          {
+            "watch": "watching",
+            "signal": "3",
+            "provider": "outlook",
+            "sequence": "15",
+            "reconciled": "3",
+            "sync_state": "idle",
+            "poll_through": "2026-09-24T11:11:43.042375Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:11:43.042452Z"
+          },
+          {
+            "watch": "watching",
+            "signal": "11",
+            "provider": "qq_mail",
+            "sequence": "5",
+            "reconciled": "11",
+            "sync_state": "incomplete",
+            "poll_through": "2026-09-24T11:09:22.188778Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": "email_provider_unavailable",
+            "last_increment_started_at": "2026-09-24T11:11:22.966657Z"
+          }
+        ],
+        "midpoint": [
+          {
+            "watch": "watching",
+            "signal": "3",
+            "provider": "gmail",
+            "sequence": "14",
+            "reconciled": "3",
+            "sync_state": "coverage_gap",
+            "poll_through": "2026-09-24T11:12:59.190452Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:12:59.190563Z"
+          },
+          {
+            "watch": "watching",
+            "signal": "3",
+            "provider": "outlook",
+            "sequence": "15",
+            "reconciled": "3",
+            "sync_state": "idle",
+            "poll_through": "2026-09-24T11:11:43.042375Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:11:43.042452Z"
+          },
+          {
+            "watch": "watching",
+            "signal": "11",
+            "provider": "qq_mail",
+            "sequence": "5",
+            "reconciled": "11",
+            "sync_state": "idle",
+            "poll_through": "2026-09-24T11:12:23.068619Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:12:23.068685Z"
+          }
+        ],
+        "after": [
+          {
+            "watch": "watching",
+            "signal": "3",
+            "provider": "gmail",
+            "sequence": "14",
+            "reconciled": "3",
+            "sync_state": "coverage_gap",
+            "poll_through": "2026-09-24T11:12:59.190452Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:12:59.190563Z"
+          },
+          {
+            "watch": "watching",
+            "signal": "3",
+            "provider": "outlook",
+            "sequence": "15",
+            "reconciled": "3",
+            "sync_state": "idle",
+            "poll_through": "2026-09-24T11:13:05.26097Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:13:05.261094Z"
+          },
+          {
+            "watch": "watching",
+            "signal": "11",
+            "provider": "qq_mail",
+            "sequence": "5",
+            "reconciled": "11",
+            "sync_state": "idle",
+            "poll_through": "2026-09-24T11:13:27.489426Z",
+            "intake_enabled": "true",
+            "last_sync_error_code": null,
+            "last_increment_started_at": "2026-09-24T11:13:27.489459Z"
+          }
+        ],
+        "classified_hints": {
+          "gmail": 0,
+          "outlook": 0,
+          "qq_mail": 0
+        },
+        "reader_watermark_advanced": {
+          "gmail": true,
+          "outlook": true,
+          "qq_mail": true
+        },
+        "passed": true
+      }
+    ],
+    "gmail_historical_coverage": {
+      "coverage_gap_count": 1,
+      "unacknowledged_warning_count": 1,
+      "cause": "initial historical interval exceeded the 50-message limit",
+      "new_mail_production_receipt_verified": true,
+      "warning_acknowledged_by_test": false
+    },
+    "verified_at_utc": "2026-09-24T11:13:47.050115+00:00"
+  }
+}

@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
-import type { IntegrationStatus, PublicConfig } from "../api/types";
+import type { ConnectorStatus, IntegrationStatus, PublicConfig } from "../api/types";
 import { dictionaries } from "../i18n";
 import { SettingsPanel } from "./panels";
 import { IntegrationCredentialSettings } from "./panels/settingsIntegrations";
@@ -37,7 +37,7 @@ const localMindStatus: IntegrationStatus = {
 };
 
 const runtimeConfig = {
-  tool_policy: { risk_counts: {}, definition_count: 2, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
+  tool_policy: { risk_counts: {}, definition_count: 2, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [], operator_controls: { web_access: true, workspace_files: true, shell_commands: true, file_changes: "default", external_actions: "current" } },
   iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
   model: {
     capacity_profile: "mock",
@@ -52,8 +52,32 @@ const runtimeConfig = {
   storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
 } as unknown as PublicConfig;
 
+const messageConnectors: ConnectorStatus[] = [
+  {
+    channel: "weixin", provider: "openclaw-weixin-qr", setup_kind: "qr", available: true, enabled: true,
+    running: true, state: "active", binding_status: "active", binding_startable: true,
+    supports_multiple_bindings: true, version: 2
+  },
+  {
+    channel: "telegram", provider: "telegram-bot-api", setup_kind: "secret", available: true, enabled: false,
+    running: false, state: "disabled", binding_status: "", binding_startable: false,
+    supports_multiple_bindings: true, version: 1
+  }
+];
+
 describe("Integration credential settings", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("keeps the credential form visible when status cannot be loaded", async () => {
+    vi.spyOn(api, "integration").mockRejectedValue(new Error("offline"));
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => root.render(<IntegrationCredentialSettings id="localmind" status={null} text={dictionaries.zh} language="zh" onStatus={() => {}} />));
+    expect(container.querySelector('input[type="url"]')).not.toBeNull();
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
+    expect(container.querySelector(".integrationStatusBar button")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
 
   it("renders only redacted summaries and clears secrets after failed validation", async () => {
     const add = vi.spyOn(api, "addInfoCredential").mockRejectedValue(new Error("credentials were rejected"));
@@ -241,6 +265,124 @@ describe("Connection directory navigation", () => {
     expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
     expect(container.textContent).toContain(dictionaries.en.settings.externalMCP);
     await act(async () => root.unmount());
+  });
+
+  it("renders each backend messaging channel as a connection row in the aligned settings surface", async () => {
+    vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [infoStatus, localMindStatus] });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <SettingsPanel
+          section="connections"
+          runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={messageConnectors} notificationBindings={[]}
+          text={dictionaries.zh} language="zh" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
+          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
+          onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("消息渠道");
+    expect(container.textContent).toContain(dictionaries.zh.settings.weixinBinding);
+    expect(container.textContent).toContain(dictionaries.zh.settings.telegramBinding);
+    expect(container.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+
+    const telegram = findButton(container, dictionaries.zh.settings.telegramBinding);
+    await act(async () => telegram.click());
+    expect(container.textContent).toContain(dictionaries.zh.settings.telegramToken);
+    expect(container.textContent).not.toContain(dictionaries.zh.settings.weixinBinding);
+    await act(async () => root.unmount());
+  });
+
+  it("keeps unsupported and explicitly removed settings out of the aligned pages", async () => {
+    vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [] });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <SettingsPanel
+          section="general"
+          runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={[]} notificationBindings={[]}
+          text={dictionaries.zh} language="zh" onLanguageChange={() => {}} onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
+          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
+          onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("界面语言");
+    expect(container.textContent).not.toMatch(/时区|启动页面|恢复未完成任务|界面密度|动态效果|默认模型|推理强度/);
+    await act(async () => root.unmount());
+  });
+
+  it("updates independent tool and approval controls through the gateway policy", async () => {
+    vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [] });
+    const onUpdatePolicy = vi.fn(async () => {});
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const props = {
+      runtimeConfig, ownerProfile: null, clients: [], connectors: [], notificationBindings: [],
+      text: dictionaries.en, language: "en" as const, onUpdateOwner: async () => {}, onRevokeClient: async () => {},
+      onStartNotificationBinding: async () => {}, onRefreshNotificationBinding: async () => ({}) as never,
+      onOpenNotificationBindingBrowser: async () => {}, onRevokeNotificationBinding: async () => {},
+      onUpdateConnector: async () => ({}) as never, onUpdatePolicy
+    };
+    try {
+      await act(async () => root.render(<SettingsPanel {...props} section="models-tools" />));
+      expect(container.textContent).not.toContain("Model profiles");
+      const webSwitch = container.querySelector('button[role="switch"][aria-label="Web access"]') as HTMLButtonElement;
+      await act(async () => webSwitch.click());
+      expect(onUpdatePolicy).toHaveBeenCalledWith([], [], expect.objectContaining({ web_access: false, external_actions: "current" }));
+
+      await act(async () => root.render(<SettingsPanel {...props} section="permissions" />));
+      const externalSelect = container.querySelector('select[aria-label="External actions"]') as HTMLSelectElement;
+      await act(async () => {
+        externalSelect.value = "block";
+        externalSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(onUpdatePolicy).toHaveBeenCalledWith([], [], expect.objectContaining({ external_actions: "block", web_access: true }));
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("keeps agent configuration visible while status is unavailable and offers a retry", async () => {
+    vi.spyOn(api, "integrations").mockRejectedValue(new Error("offline"));
+    const onCheckStatus = vi.fn(async () => {});
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const props = {
+      runtimeConfig: null, ownerProfile: null, clients: [], connectors: [], notificationBindings: [],
+      text: dictionaries.zh, language: "zh" as const, onUpdateOwner: async () => {}, onRevokeClient: async () => {},
+      onStartNotificationBinding: async () => {}, onRefreshNotificationBinding: async () => ({}) as never,
+      onOpenNotificationBindingBrowser: async () => {}, onRevokeNotificationBinding: async () => {},
+      onUpdateConnector: async () => ({}) as never, onUpdatePolicy: async () => {}, onCheckStatus
+    };
+    try {
+      await act(async () => root.render(<SettingsPanel {...props} section="models-tools" />));
+      expect(container.textContent).toContain("网络访问");
+      expect(container.textContent).toContain("工作区文件");
+      expect(container.textContent).toContain("终端命令");
+      expect(container.querySelector('button[aria-label="网络访问"]')?.hasAttribute("disabled")).toBe(true);
+      await act(async () => findButton(container, "检查状态").click());
+      expect(onCheckStatus).toHaveBeenCalledWith("models-tools");
+
+      await act(async () => root.render(<SettingsPanel {...props} section="permissions" />));
+      expect(container.querySelector('select[aria-label="文件变更"]')).not.toBeNull();
+      expect(container.querySelector('select[aria-label="外部操作"]')?.hasAttribute("disabled")).toBe(true);
+
+      await act(async () => root.render(<SettingsPanel {...props} section="connections" />));
+      expect(container.textContent).toContain(dictionaries.zh.settings.weixinBinding);
+      expect(container.textContent).toContain(dictionaries.zh.settings.telegramBinding);
+      await act(async () => findButton(container, dictionaries.zh.settings.telegramBinding).click());
+      expect(container.querySelector('input[type="password"]')).not.toBeNull();
+      expect(container.textContent).not.toContain("配置不可用");
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 });
 

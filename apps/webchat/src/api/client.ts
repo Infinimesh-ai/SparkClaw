@@ -262,11 +262,6 @@ async function requestEventStream(path: string, init: RequestInit, onBlock: (eve
   }
 }
 
-export function sessionEventsURL(sessionId: string) {
-  const path = `/api/sessions/${sessionId}/events/stream`;
-  return apiRoute(path);
-}
-
 export async function streamPassiveNotifications(
   after: string,
   handlers: {
@@ -638,10 +633,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(scheduleActionRequestBody(content, action, clientTimezone()))
     }),
-  updateToolPolicy: (deny: string[], approvalRequired: string[]) =>
+  updateToolPolicy: (deny: string[], approvalRequired: string[], controls?: PublicConfig["tool_policy"]["operator_controls"]) =>
     request<PublicConfig["tool_policy"]>("/api/tool-policy", {
       method: "POST",
-      body: JSON.stringify({ deny, approval_required: approvalRequired })
+      body: JSON.stringify({ deny, approval_required: approvalRequired, ...(controls ? { operator_controls: controls } : {}) })
     }),
   sessions: () => request<{ sessions: Session[] }>("/api/sessions"),
   createSession: (title = "") =>

@@ -225,15 +225,6 @@
     width: calc(100vw - 24px);
   }
 
-  .deliveryTargetPicker {
-    width: auto;
-    flex: 1 1 auto;
-  }
-
-  .deliveryTargetContext {
-    max-width: 100px;
-  }
-
   .scheduleCount {
     display: none;
   }

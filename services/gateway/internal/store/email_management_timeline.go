@@ -60,7 +60,7 @@ func emailBeginSync(e *emailEngine, c EmailSyncBeginCommand) (EmailSyncCheckpoin
 	if err != nil {
 		return out, err
 	}
-	if box.PollThrough.IsZero() || !c.UpperBound.After(box.PollThrough) {
+	if box.PollThrough.IsZero() || !c.FinalCheck && !c.UpperBound.After(box.PollThrough) {
 		return out, errEmailInvalid
 	}
 	confirmations := emailList[app.EmailSyncFailure](e, emailRowsQuery{Kind: "sync_failure", Parent: box.ID, State: app.EmailSyncFailureOverflowConfirmation, Limit: 2})
@@ -70,20 +70,48 @@ func emailBeginSync(e *emailEngine, c EmailSyncBeginCommand) (EmailSyncCheckpoin
 		}
 		return out, e.err
 	}
-	start, end := box.PollThrough, postgresTime(c.UpperBound)
-	if len(confirmations) == 1 {
+	overlapEnd := box.PollThrough
+	start, end := overlapEnd, postgresTime(c.UpperBound)
+	kind := "increment"
+	if c.FinalCheck {
+		if len(confirmations) != 0 || !box.LastIntervalEnd.Equal(box.PollThrough) || !box.LastIntervalStart.Before(box.PollThrough) || !c.UpperBound.Equal(box.PollThrough) || box.InflightKind != "" && box.InflightKind != "final_check" {
+			return out, errEmailConflict
+		}
+		kind, start, end = "final_check", box.LastIntervalStart, box.PollThrough
+	} else if box.InflightKind == "final_check" {
+		return out, errEmailConflict
+	} else if len(confirmations) == 1 {
 		start, end = confirmations[0].IntervalStart, confirmations[0].IntervalEnd
 		out.ConfirmingOverflow = true
 	} else if !box.InflightUntil.IsZero() {
 		// A process may have lost the Begin response. Reuse the already durable
 		// upper bound instead of widening or conflicting with the unfinished round.
 		end = box.InflightUntil
+		if !box.InflightStart.IsZero() {
+			start = box.InflightStart
+			overlapEnd = box.InflightOverlapEnd
+		}
+	} else if box.LastIntervalEnd.Equal(box.PollThrough) && box.LastIntervalStart.Before(box.LastIntervalEnd) {
+		start = box.LastIntervalStart
 	}
 	if box.InflightUntil.IsZero() {
 		box.InflightUntil = end
+		box.InflightStart = start
+		box.InflightOverlapEnd = overlapEnd
+		box.InflightKind = kind
+		// Freeze the intent with U before any provider I/O. A retry reuses the
+		// original promise even if another trigger arrived in the meantime.
+		if c.FinalCheck {
+			box.InflightQueryRevision = box.ReconciledRevision
+		} else {
+			box.InflightQueryRevision = box.SignalRevision
+		}
 		box.CheckpointRevision++
 	}
 	box.ProviderCursor = c.ProviderCursor
+	if !c.FinalCheck {
+		box.LastIncrementStartedAt = e.now
+	}
 	box.SyncState = app.EmailSyncRunning
 	box.LastSyncErrorCode = ""
 	box.UpdatedAt = e.now
@@ -101,7 +129,7 @@ func emailBeginSync(e *emailEngine, c EmailSyncBeginCommand) (EmailSyncCheckpoin
 			break
 		}
 	}
-	out.Mailbox, out.IntervalStart, out.IntervalEnd = box, start, end
+	out.Mailbox, out.Kind, out.IntervalStart, out.IntervalEnd, out.OverlapEnd, out.QueryRevision = box, kind, start, end, overlapEnd, box.InflightQueryRevision
 	return out, e.err
 }
 
@@ -144,11 +172,48 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 	if err != nil {
 		return out, err
 	}
-	if !box.PollThrough.Equal(postgresTime(c.IntervalStart)) || !box.InflightUntil.Equal(postgresTime(c.IntervalEnd)) {
+	if !box.InflightStart.Equal(postgresTime(c.IntervalStart)) || !box.InflightUntil.Equal(postgresTime(c.IntervalEnd)) || box.InflightOverlapEnd.After(box.PollThrough) {
 		return out, errEmailConflict
 	}
-	if len(c.Members) > 50 || len(c.Captures) > 100 {
+	overlapEnd := box.InflightOverlapEnd
+	if overlapEnd.IsZero() {
+		overlapEnd = box.PollThrough
+	}
+	if c.SplitOverlap && !overlapEnd.After(postgresTime(c.IntervalStart)) || !c.OverflowIntervalStart.IsZero() && !c.SplitOverlap {
 		return out, errEmailInvalid
+	}
+	if c.Overflow && overlapEnd.After(postgresTime(c.IntervalStart)) && !c.OverflowIntervalStart.Equal(overlapEnd) {
+		// A combined range cannot establish overflow of either constituent
+		// interval. Keep the previous watermark and record a coverage problem;
+		// a later query must not turn this into a terminal new-tail gap.
+		c.Overflow, c.Complete, c.ErrorCode = false, false, "email_combined_overlap_overflow"
+		box.LastIntervalStart, box.LastIntervalEnd = time.Time{}, time.Time{}
+	}
+	if box.InflightKind == "final_check" && c.Overflow {
+		// Checking cannot confirm overflow or create a terminal gap.
+		c.Overflow, c.Complete, c.ErrorCode = false, false, "email_final_check_overflow"
+	}
+	memberLimit := 50
+	if c.SplitOverlap {
+		memberLimit = 100
+	}
+	if len(c.Members) > memberLimit || len(c.Captures) > 100 {
+		return out, errEmailInvalid
+	}
+	newTail := map[string]bool{}
+	if c.Complete && !c.Overflow && box.InflightKind != "final_check" {
+		for _, member := range c.Members {
+			if member.Draft || member.SourceTime.Before(overlapEnd) || !member.SourceTime.Before(c.IntervalEnd) {
+				continue
+			}
+			id := emailID(e.owner, box.ID, member.ProviderMessageID)
+			if _, exists := emailGet[app.EmailMail](e, "mail", id); !exists {
+				newTail[member.ProviderMessageID] = true
+			}
+		}
+		if e.err != nil {
+			return out, e.err
+		}
 	}
 	if len(c.Members) > 0 {
 		_, err = emailAdmit(e, EmailDiscoveryCommand{MailboxID: box.ID, BindingGeneration: box.BindingGeneration, Lease: c.Lease, PageBatch: true, MaxPendingJobs: 1000, ObservedAt: c.ObservedAt, Coverage: "partial", Trigger: "recent_inbound", Members: c.Members})
@@ -282,10 +347,17 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 	}
 
 	if c.Overflow {
-		id := emailID(box.ID, "overflow", c.IntervalStart.UTC().Format(time.RFC3339Nano), c.IntervalEnd.UTC().Format(time.RFC3339Nano))
+		overflowStart := c.IntervalStart
+		if !c.OverflowIntervalStart.IsZero() {
+			if !c.OverflowIntervalStart.Equal(overlapEnd) {
+				return out, errEmailInvalid
+			}
+			overflowStart = c.OverflowIntervalStart
+		}
+		id := emailID(box.ID, "overflow", overflowStart.UTC().Format(time.RFC3339Nano), c.IntervalEnd.UTC().Format(time.RFC3339Nano))
 		failure, exists := emailGet[app.EmailSyncFailure](e, "sync_failure", id)
 		if !exists {
-			failure = app.EmailSyncFailure{ID: id, OwnerID: e.owner, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, WarningRef: "email-gap-" + id[:12], ProviderMode: c.ProviderMode, CheckpointRevision: box.CheckpointRevision, Stage: "overflow", Scope: app.EmailSyncFailureProviderOperational, ErrorCode: "email_interval_overflow", State: app.EmailSyncFailureOverflowConfirmation, IntervalStart: postgresTime(c.IntervalStart), IntervalEnd: postgresTime(c.IntervalEnd), ConfirmationCount: 1, FirstFailedAt: e.now, LastFailedAt: e.now, LastAttemptAt: e.now}
+			failure = app.EmailSyncFailure{ID: id, OwnerID: e.owner, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, WarningRef: "email-gap-" + id[:12], ProviderMode: c.ProviderMode, CheckpointRevision: box.CheckpointRevision, Stage: "overflow", Scope: app.EmailSyncFailureProviderOperational, ErrorCode: "email_interval_overflow", State: app.EmailSyncFailureOverflowConfirmation, IntervalStart: postgresTime(overflowStart), IntervalEnd: postgresTime(c.IntervalEnd), ConfirmationCount: 1, FirstFailedAt: e.now, LastFailedAt: e.now, LastAttemptAt: e.now}
 			box.SyncState = app.EmailSyncOverflowConfirmation
 		} else if failure.State == app.EmailSyncFailureOverflowConfirmation {
 			failure.State = app.EmailSyncFailureCoverageGap
@@ -303,6 +375,12 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 		box.InflightUntil = time.Time{}
 		box.LastSyncErrorCode = failure.ErrorCode
 	} else if c.Complete && c.UnsupportedItems == 0 {
+		for _, capture := range c.Captures {
+			if newTail[capture.ProviderMessageID] && capture.Capture.State == app.EmailCaptureComplete {
+				box.RoundNewTailFound = true
+				break
+			}
+		}
 		// A successful confirmation closes the frozen overflow record as well
 		// as advancing the watermark. Otherwise Begin would select it forever.
 		overflowID := emailID(box.ID, "overflow", c.IntervalStart.UTC().Format(time.RFC3339Nano), c.IntervalEnd.UTC().Format(time.RFC3339Nano))
@@ -317,8 +395,31 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 			emailSaveSyncFailure(e, failure)
 		}
 		box.PollThrough = postgresTime(c.IntervalEnd)
-		if box.CoverageGapCount == 0 && box.DiscoveredThrough.Equal(postgresTime(c.IntervalStart)) {
+		if box.InflightQueryRevision > box.ReconciledRevision {
+			box.ReconciledRevision = box.InflightQueryRevision
+		}
+		emailCloseSyncRefreshRequests(e, box.ID, box.BindingGeneration, box.ReconciledRevision, false)
+		// Refresh settlement belongs to the qualified source/checkpoint commit,
+		// not to the eventual end of a continuous notification round.
+		for _, job := range emailList[app.EmailJob](e, emailRowsQuery{Kind: "job", Parent: box.ID, Related: app.EmailJobDiscover, Limit: 100}) {
+			if job.BindingGeneration != box.BindingGeneration || !job.RefreshPending || job.RefreshRevision == 0 || job.RefreshRevision > box.ReconciledRevision {
+				continue
+			}
+			job.RefreshPending, job.RefreshActiveID = false, ""
+			emailSaveJob(e, job)
+			box.RefreshPending, box.RefreshRequestID = false, job.RefreshRequestID
+		}
+		if box.CoverageGapCount == 0 && box.DiscoveredThrough.Equal(overlapEnd) {
 			box.DiscoveredThrough = postgresTime(c.IntervalEnd)
+		}
+		if c.IntervalEnd.After(overlapEnd) {
+			box.LastIntervalStart, box.LastIntervalEnd = overlapEnd, postgresTime(c.IntervalEnd)
+			box.LastIntervalCapturedIDs = box.LastIntervalCapturedIDs[:0]
+			for _, capture := range c.Captures {
+				if capture.Capture.State == app.EmailCaptureComplete && len(box.LastIntervalCapturedIDs) < 100 {
+					box.LastIntervalCapturedIDs = append(box.LastIntervalCapturedIDs, capture.ProviderMessageID)
+				}
+			}
 		}
 		box.ProviderCursor = c.ProviderCursor
 		box.InflightUntil = time.Time{}
@@ -372,6 +473,13 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 		out.Failures = append(out.Failures, failure)
 	}
 	box.LastCheckedAt = e.now
+	if box.InflightKind != "final_check" || c.Complete && c.UnsupportedItems == 0 {
+		box.InflightQueryRevision = 0
+		box.InflightStart, box.InflightOverlapEnd, box.InflightUntil = time.Time{}, time.Time{}, time.Time{}
+		box.InflightKind = ""
+	} else {
+		box.InflightUntil = postgresTime(c.IntervalEnd)
+	}
 	box.CheckpointRevision++
 	box.UpdatedAt = e.now
 	emailSaveMailbox(e, box)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Mail, Search, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, AtSign, CircleAlert, Filter, Inbox, Info, Mail, PenLine, Search, ShieldCheck, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import type { EmailEntry, EmailMessage } from "../api/email";
 import type { Copy, Language } from "../i18n";
@@ -29,6 +29,10 @@ function uniqueAddresses(values: string[]) {
 function initialEntry(): Entry {
   return window.localStorage.getItem("sparkclaw.email.entry") === "notification" ? "notification" : "interaction";
 }
+function emailInitials(value: string) {
+  const name = value.split("@")[0]?.trim() || "?";
+  return name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase()).join("") || "?";
+}
 export function EmailPopupEntry({ text, language }: { text: Copy; language: Language }) {
   const loginRequired = useEmailLoginAlert();
   const [open, setOpen] = useState(false);
@@ -44,6 +48,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   text: Copy; language: Language; selection: string; onSelect: (id: string) => void; onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [mailboxId, setMailboxId] = useState("");
   const [query, setQuery] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
@@ -176,17 +181,21 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const sectionLabel = entry === "notification" ? text.email.information : pending ? text.email.pending : text.email.interactions;
   return (
     <dialog ref={dialog} className={`emailPopup ${detailVisible ? "detailVisible" : ""}`} aria-labelledby="email-popup-title" onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
-      <header className="emailPopupHeader"><div><Mail size={22} /><h2 id="email-popup-title">{text.email.title}</h2></div><button className="iconButton" onClick={() => void closePopup()} aria-label={text.common.close} title={text.common.close}><X size={19} /></button></header>
+      <header className="emailPopupHeader">
+        <div className="emailPopupTitle"><span className="emailPopupTitleIcon"><Mail size={19} /></span><span><h2 id="email-popup-title">{text.email.title}</h2><p>{text.email.windowDescription}</p></span></div>
+        <button className="iconButton emailPopupClose" onClick={() => void closePopup()} aria-label={text.common.close} title={text.common.close}><X size={19} /></button>
+      </header>
       <form className="emailFilters" onSubmit={(event) => { event.preventDefault(); setQuery(searchDraft.trim()); }}>
-        <select aria-label={text.email.receivingAddress} value={mailboxId} onChange={(event) => setMailboxId(event.target.value)}>
+        <label className="emailAddressFilter"><AtSign size={16} /><select aria-label={text.email.receivingAddress} value={mailboxId} onChange={(event) => setMailboxId(event.target.value)}>
           <option value="">{text.email.allAddresses}</option>
           {(overview.status?.mailboxes ?? []).map((mailbox) => <option value={mailbox.id} key={mailbox.id}>{mailbox.address}</option>)}
-        </select>
-        <label className="emailSearch"><Search size={16} /><input aria-label={text.email.search} placeholder={text.email.search} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} /></label>
-        <button className="emailTextButton" type="submit">{text.email.searchAction}</button>
-        <button className="emailTextButton" type="button" aria-expanded={rulesOpen} onClick={() => setRulesOpen(!rulesOpen)}>{text.email.senderRules}</button>
-        <button className="emailTextButton" type="button" onClick={() => void openComposer({ mode: "compose", mailboxId: mailboxId || undefined })}>{text.email.compose}</button>
-        <button className="emailTextButton" type="button" aria-expanded={draftsOpen} onClick={() => setDraftsOpen(!draftsOpen)}>{text.email.drafts}</button>
+        </select></label>
+        <label className="emailSearch"><Search size={16} /><input ref={searchInput} type="search" aria-label={text.email.search} placeholder={text.email.search} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} /><button type="submit" aria-label={text.email.searchAction} title={text.email.searchAction}><Search size={15} /></button></label>
+        <div className="emailToolbarActions">
+          <button className="emailTextButton" type="button" aria-expanded={rulesOpen} onClick={() => setRulesOpen(!rulesOpen)}><Filter size={16} /><span>{text.email.senderRules}</span></button>
+          <button className="emailTextButton" type="button" onClick={() => void openComposer({ mode: "compose", mailboxId: mailboxId || undefined })}><PenLine size={16} /><span>{text.email.compose}</span></button>
+          <button className="emailTextButton" type="button" aria-expanded={draftsOpen} onClick={() => setDraftsOpen(!draftsOpen)}><Archive size={16} /><span>{text.email.drafts}</span></button>
+        </div>
       </form>
       {composeTarget && <EmailCompose key={composeTarget.instanceId ?? composeTarget.draftId ?? `${composeTarget.mode}:${composeTarget.mailId ?? "new"}`} target={composeTarget} language={language} mailboxes={overview.status?.mailboxes ?? []} text={text} onClose={() => setComposeTarget(null)} onBeforeClose={registerBeforeClose} onSent={(draft) => {
         void refresh();
@@ -199,15 +208,16 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
       {reanalyzeQueued && <div className="emailNotice" role="status">{text.email.reanalysisQueued}</div>}
       <div className={`emailPanes ${detailVisible ? "detailVisible" : ""}`}>
         <nav className="emailCategoryPane" aria-label={text.email.title}>
+          <p className="emailCategoryHeading">{text.email.categories}</p>
           <div className="emailCategoryTabs">
-            <button className={entry === "interaction" ? "selected" : ""} aria-pressed={entry === "interaction"} onClick={() => switchEntry("interaction")}>{text.email.interactions}</button>
-            <button className={entry === "notification" ? "selected" : ""} aria-pressed={entry === "notification"} onClick={() => switchEntry("notification")}>{text.email.information}</button>
-            <button className={pending ? "selected" : ""} aria-pressed={pending} onClick={() => switchEntry("pending")}>{text.email.pending} <span>{overview.status?.pending_count ?? 0}</span></button>
+            <button className={entry === "interaction" ? "selected" : ""} aria-pressed={entry === "interaction"} onClick={() => switchEntry("interaction")}><CircleAlert size={16} /><span>{text.email.interactions}</span>{entry === "interaction" && entryCounts && <small>{entryCounts.total}</small>}</button>
+            <button className={entry === "notification" ? "selected" : ""} aria-pressed={entry === "notification"} onClick={() => switchEntry("notification")}><Info size={16} /><span>{text.email.information}</span>{entry === "notification" && entryCounts && <small>{entryCounts.total}</small>}</button>
+            <button className={pending ? "selected" : ""} aria-pressed={pending} onClick={() => switchEntry("pending")}><Inbox size={16} /><span>{text.email.pending}</span>{overview.status && <small>{overview.status.pending_count}</small>}</button>
           </div>
+          <p className="emailCategoryNote"><ShieldCheck size={16} /><span>{text.email.categoryNote}</span></p>
         </nav>
         <section className="emailConversationPane" aria-label={text.email.conversations}>
-          <h3 className="emailListTitle">{sectionLabel}</h3>
-          {entryCounts && <p className="emailResultCount">{text.email.matchingMessages}: {entryCounts.total.toLocaleString(language)} · {text.email.unseenMessages}: {entryCounts.unseen.toLocaleString(language)}</p>}
+          <header className="emailConversationHeader"><span><h3 className="emailListTitle">{sectionLabel}</h3>{entryCounts && <p className="emailResultCount">{text.email.matchingMessages}: {entryCounts.total.toLocaleString(language)} · {text.email.unseenMessages}: {entryCounts.unseen.toLocaleString(language)}</p>}</span><button type="button" onClick={() => searchInput.current?.focus()} aria-label={text.email.search} title={text.email.search}><SlidersHorizontal size={16} /></button></header>
           <div className="emailConversationList" onKeyDown={(event) => {
             if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
             const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(".emailConversationRow")];
@@ -218,17 +228,14 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
           }}>
             {!pending && conversations.items.length === 0 && loose.items.length === 0 && <p className="emailEmpty">{conversations.loading || loose.loading ? text.email.loading : text.email.emptyConversations}</p>}
             {!pending && conversations.items.map((conversation) => {
+              const sender = conversation.participants?.[0] || text.email.conversations;
               return <button key={conversation.id} className={`emailConversationRow ${selection === conversation.id ? "selected" : ""}`} aria-current={selection === conversation.id ? "true" : undefined} onClick={() => select(conversation.id)}>
-                <span className="emailRowHeading"><strong>{emailEventTitle(conversation, text)}</strong>{conversation.unseen_count > 0 && <span className="emailUnseen">{conversation.unseen_count}</span>}</span>
-                <span>{(conversation.participants ?? []).join(", ")}</span>
-                <span className="emailRowFooter">{conversation.last_activity_at && <time dateTime={conversation.last_activity_at}>{formatDateTime(conversation.last_activity_at, language)}</time>}{(conversation.concerns ?? []).length > 0 && <span className="emailWarning">{text.email.concern}</span>}</span>
+                <span className="emailThreadAvatar" aria-hidden="true">{emailInitials(sender)}</span><span className="emailThreadCopy"><span className="emailThreadMeta"><strong>{sender}</strong>{conversation.last_activity_at && <time dateTime={conversation.last_activity_at}>{formatDateTime(conversation.last_activity_at, language)}</time>}</span><b>{emailEventTitle(conversation, text)}</b><small>{(conversation.participants ?? []).slice(1).join(", ") || sender}</small><span className="emailThreadLabels">{conversation.unseen_count > 0 && <span className="emailUnseen">{conversation.unseen_count}</span>}{(conversation.concerns ?? []).length > 0 && <span className="emailWarning">{text.email.concern}</span>}</span></span>
               </button>;
             })}
             {!pending && conversations.nextCursor && <button className="emailLoadMore" disabled={conversations.loading} onClick={() => void conversations.loadMore()}>{text.email.moreConversations}</button>}
             {!pending && loose.items.map((mail) => <button key={mail.id} className={`emailConversationRow ${singleId === mail.id ? "selected" : ""}`} onClick={() => select(`mail:${mail.id}`)}>
-              <span className="emailRowHeading"><strong>{mail.subject || text.email.untitled}</strong>{!mail.viewed && <span className="emailUnseen">{text.email.unseen}</span>}</span>
-              <span>{mail.from}</span><small>{text.email.originalSubject}: {mail.subject || text.email.untitled}</small><p>{text.email.unassignedInteraction}</p>
-              <span>{formatDateTime(mail.sent_at || mail.arrived_at, language)}</span>
+              <span className="emailThreadAvatar" aria-hidden="true">{emailInitials(mail.from)}</span><span className="emailThreadCopy"><span className="emailThreadMeta"><strong>{mail.from}</strong><time dateTime={mail.sent_at || mail.arrived_at}>{formatDateTime(mail.sent_at || mail.arrived_at, language)}</time></span><b>{mail.subject || text.email.untitled}</b><small>{text.email.unassignedInteraction}</small>{!mail.viewed && <span className="emailUnseen">{text.email.unseen}</span>}</span>
             </button>)}
             {!pending && loose.nextCursor && <button className="emailLoadMore" disabled={loose.loading} onClick={() => void loose.loadMore()}>{text.email.moreMessages}</button>}
           </div>
@@ -237,7 +244,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
           <button className="emailMobileBack emailTextButton" onClick={() => setDetailVisible(false)}><ArrowLeft size={16} />{sectionLabel}</button>
           <div className="emailTimeline" ref={setViewport}>
             {pending ? <header className="emailDetailHeader"><h2 tabIndex={-1}>{text.email.pending}</h2><p>{text.email.pendingHelp}</p></header> : selected ? <header className="emailDetailHeader">
-              <h2 tabIndex={-1}>{title}</h2>
+              <div className="emailReaderHeading"><span className="emailThreadAvatar" aria-hidden="true">{emailInitials(replyTarget?.from || selected.participants?.[0] || title)}</span><span><h2 tabIndex={-1}>{title}</h2><p>{replyTarget?.from || selected.participants?.[0] || text.email.loading}</p></span></div>
               <dl className="emailConversationAddresses">
                 <div><dt>{text.email.conversationReceivingEmail}</dt><dd>{receivingAddresses.length ? receivingAddresses.map((address) => <span key={address}>{address}</span>) : addressFallback}</dd></div>
                 <div><dt>{text.email.conversationSenderEmail}</dt><dd>{senderAddresses.length ? senderAddresses.map((address) => <span key={address}>{address}</span>) : addressFallback}</dd></div>

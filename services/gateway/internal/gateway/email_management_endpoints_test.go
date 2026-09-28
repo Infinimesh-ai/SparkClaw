@@ -365,8 +365,8 @@ func TestEmailManagementHTTPBoundedInputAndCoalescedScheduling(t *testing.T) {
 		if len(result.RefreshRequests) != 1 || result.RefreshRequests[0].MailboxID != f.box.ID || result.RefreshRequests[0].RefreshRequestID == "" {
 			t.Fatal("refresh response missing request identity")
 		}
-		if i > 0 && refreshID != result.RefreshRequests[0].RefreshRequestID {
-			t.Fatal("duplicate HTTP request created a different refresh")
+		if i > 0 && refreshID == result.RefreshRequests[0].RefreshRequestID {
+			t.Fatal("second HTTP request did not receive its own refresh identity")
 		}
 		refreshID = result.RefreshRequests[0].RefreshRequestID
 	}

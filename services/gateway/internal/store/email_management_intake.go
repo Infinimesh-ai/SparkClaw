@@ -57,6 +57,22 @@ func emailSaveMail(e *emailEngine, m app.EmailMail) {
 	}
 	emailPut(e, "mail", m.ID, m.MailboxID, m.ConversationID, m.AssignmentState, search, emailOrder(m.SourceTime, m.ID), m)
 }
+
+func emailReanchorBinding(m *app.EmailMailbox) {
+	// A new binding must not resume a query or overlap that was frozen under a
+	// previous account/credential generation. The forward watermark and the
+	// lifetime signal counters remain durable.
+	m.InflightUntil, m.InflightStart, m.InflightOverlapEnd = time.Time{}, time.Time{}, time.Time{}
+	m.InflightKind, m.InflightQueryRevision = "", 0
+	m.LastIntervalStart, m.LastIntervalEnd = time.Time{}, time.Time{}
+	m.LastIntervalCapturedIDs = nil
+	m.LastEventEpoch, m.LastEventSequence = "", 0
+	m.ObserverEpoch, m.ObserverCredentialGeneration, m.WatchEpoch = "", 0, ""
+	m.WatchState, m.WakeAdapterQualified = "stopped", false
+	m.RoundNewTailFound, m.PeriodicEmptyStreak = false, 0
+	m.LastPeriodicOnlyDiscovery = time.Time{}
+	m.LastFinishedReconciledRevision = m.ReconciledRevision
+}
 func emailCounter(e *emailEngine, name string, bump bool) int64 {
 	v, _ := emailGet[struct{ Value int64 }](e, "counter", name)
 	if bump {
@@ -98,6 +114,7 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		old.IntakeEnabled = false
 		old.RefreshPending = false
 		old.BindingGeneration++
+		emailReanchorBinding(&old)
 		old.Version = selection.Version + 1
 		old.UpdatedAt = e.now
 		emailSaveMailbox(e, old)
@@ -122,6 +139,7 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		m = app.EmailMailbox{ID: id, OwnerID: e.owner, Provider: c.Provider, Address: c.Address, NormalizedAddress: address, Boundary: postgresTime(boundary), ActivatedAt: postgresTime(boundary)}
 	}
 	m.BindingGeneration++
+	emailReanchorBinding(&m)
 	m.RefreshPending = false
 	m.Version = selection.Version
 	m.Active = true
@@ -143,6 +161,7 @@ func emailPause(e *emailEngine, c EmailPauseCommand) (app.EmailMailbox, error) {
 	m.IntakeEnabled = false
 	m.RefreshPending = false
 	m.BindingGeneration++
+	emailReanchorBinding(&m)
 	selection, _ := emailGet[emailBindingSelection](e, "counter", "binding:"+m.Provider)
 	if selection.MailboxID == m.ID {
 		selection.Version++

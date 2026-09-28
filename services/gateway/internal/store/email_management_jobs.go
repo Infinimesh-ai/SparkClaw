@@ -69,6 +69,8 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 	}
 	priority := ""
 	if (c.ForceAnalysis && (!c.Rearm || !emailAnalysisKind(c.Kind))) ||
+		(c.SyncTrigger == "notification_hint" && (c.Kind != app.EmailJobDiscover || !c.Rearm || len(c.EventEpoch) == 0 || len(c.EventEpoch) > 128 || c.EventSequence < 1)) ||
+		(c.SyncTrigger != "notification_hint" && (c.EventEpoch != "" || c.EventSequence != 0)) ||
 		(c.AutomaticPoll && (c.Kind != app.EmailJobDiscover || !c.Rearm || c.RepeatInterval <= 0)) ||
 		(c.RearmFailed && (!c.Rearm || c.Kind != app.EmailJobSourceRecovery && c.Kind != app.EmailJobDiscover)) ||
 		!emailKnownJob(c.Kind) || c.TargetID == "" || len(c.Dependencies) > 200 || c.RepeatInterval < 0 || c.RepeatInterval > 24*time.Hour {
@@ -231,7 +233,9 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 	id := emailID(c.Kind, c.TargetID, fingerprint, strings.TrimSpace(c.MailboxID), string(emailJSON(c.BindingGeneration)))
 	j, exists := emailGet[app.EmailJob](e, "job", id)
 	if exists {
-		emailPollRequest(e, &j, c)
+		if !emailPollRequest(e, &j, c) {
+			return j, e.err
+		}
 		// An explicit sync bypasses only the idle polling delay. Preserve
 		// active leases, retry backoff, and explicitly scheduled requests.
 		if c.Rearm && c.RepeatInterval == 0 && c.NextAttemptAt.IsZero() &&
@@ -304,7 +308,9 @@ func emailRequest(e *emailEngine, c EmailJobRequest) (app.EmailJob, error) {
 	}
 	j = app.EmailJob{Priority: priority, ID: id, OwnerID: e.owner, Kind: c.Kind, TargetID: c.TargetID, MailboxID: c.MailboxID, BindingGeneration: c.BindingGeneration, InputFingerprint: fingerprint, Generation: generation, State: app.EmailJobQueued, MaxAttempts: 5, NextAttemptAt: postgresTime(at), CreatedAt: e.now, UpdatedAt: e.now}
 	j.SyncTrigger, j.SyncActor = c.SyncTrigger, c.SyncActor
-	emailPollRequest(e, &j, c)
+	if !emailPollRequest(e, &j, c) {
+		return zero, errEmailConflict
+	}
 	if emailEvents(e) && emailEventDisablesJob(e, j.Kind, j.TargetID) {
 		j.State = app.EmailJobPaused
 		j.ErrorCode = emailEventSuspended
@@ -543,7 +549,9 @@ func emailClaim(e *emailEngine, c EmailJobClaim) (app.EmailJob, bool, error) {
 			j.Attempt++
 			emailPollClaim(&j)
 			if j.Kind == app.EmailJobDiscover {
-				j.RoundStartedAt = postgresTime(now)
+				if j.RoundStartedAt.IsZero() || !j.RoundFinishedAt.Before(j.RoundStartedAt) {
+					j.RoundStartedAt = postgresTime(now)
+				}
 			}
 			j.State = app.EmailJobRunning
 			j.LeaseToken = emailToken()
@@ -618,14 +626,32 @@ func emailFinish(e *emailEngine, c EmailJobFinish) (app.EmailJob, error) {
 	if err := emailLeaseCheck(e, c.EmailJobLease, j.Kind, j.TargetID); err != nil {
 		return j, err
 	}
+	if c.ErrorCode == string(app.ToolErrorEmailBrowserBusy) {
+		now := c.Now
+		if now.IsZero() {
+			now = e.now
+		}
+		if !emailBrowserKind(j.Kind) || !c.RetryAt.After(now) || c.RetryAt.After(now.Add(5*time.Second)) {
+			return j, errEmailInvalid
+		}
+		// Resource contention is a scheduling yield, not a failed mailbox
+		// attempt. Keep the round/refresh intent and frozen checkpoint, release
+		// the lane, and preserve a bounded short deadline across restart.
+		j.LeaseToken = ""
+		j.LeaseExpiresAt = time.Time{}
+		j.State = app.EmailJobRetryWait
+		j.ErrorCode = ""
+		j.Attempt = max(0, j.Attempt-1)
+		j.NextAttemptAt = postgresTime(c.RetryAt)
+		j.UpdatedAt = e.now
+		emailSaveJob(e, j)
+		return j, e.err
+	}
 	j.LeaseToken = ""
 	j.LeaseExpiresAt = time.Time{}
 	j.ErrorCode = c.ErrorCode
 	j.UpdatedAt = e.now
 	j.State = app.EmailJobSucceeded
-	if j.Kind == app.EmailJobDiscover {
-		j.RoundFinishedAt = e.now
-	}
 	if c.ErrorCode != "" {
 		j.State = app.EmailJobFailed
 		if !c.RetryAt.IsZero() && j.Attempt < j.MaxAttempts {
@@ -635,6 +661,10 @@ func emailFinish(e *emailEngine, c EmailJobFinish) (app.EmailJob, error) {
 	}
 	emailFailureProjection(e, j)
 	emailPollFinish(e, &j)
+	if j.Kind == app.EmailJobDiscover && j.State != app.EmailJobRetryWait &&
+		(j.ErrorCode != "" || j.State != app.EmailJobQueued || j.NextAttemptAt.After(e.now)) {
+		j.RoundFinishedAt = e.now
+	}
 	if j.Kind == app.EmailJobMarkRead && j.State == app.EmailJobSucceeded {
 		m, err := emailMail(e, j.TargetID)
 		if err != nil {

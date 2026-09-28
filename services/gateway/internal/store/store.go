@@ -397,6 +397,7 @@ type EmailRepository interface {
 	AcknowledgeEmailSyncWarning(context.Context, EmailSyncWarningAck) (app.EmailSyncWarning, error)
 	AdmitEmailDiscovery(context.Context, EmailDiscoveryCommand) (EmailDiscoveryAdmission, error)
 	RequestEmailJob(context.Context, EmailJobRequest) (app.EmailJob, error)
+	ApplyEmailObserver(context.Context, EmailObserverCommand) (EmailObserverResult, error)
 	ClaimEmailJob(context.Context, EmailJobClaim) (app.EmailJob, bool, error)
 	RenewEmailJob(context.Context, EmailJobRenew) (app.EmailJob, error)
 	FinishEmailJob(context.Context, EmailJobFinish) (app.EmailJob, error)

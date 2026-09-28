@@ -230,6 +230,8 @@ if [[ "$MODE" != "check" && -z "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_
 fi
 if [[ "$MODE" != "check" ]]; then
   refresh_effective_env
+  node "$ROOT/scripts/configure-desktop-connection.mjs" --runtime-dir "$workbench_runtime_dir" ||
+    fail "desktop connection configuration failed"
 fi
 desktop_executable="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DESKTOP_EXECUTABLE '')"
 if [[ -n "$desktop_executable" ]]; then

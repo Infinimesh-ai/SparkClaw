@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import {ControllerError} from './errors.mjs';
 
 export const MAIL_READ_IDLE_MS = 30 * 60_000;
-const MAX_AGE_MS = 2 * 60 * 60_000;
 
 // At most one owned, idle read page per provider. A lease never contains caller
 // input, an active HTTP reservation, or a send capability. No durable pool cache.
@@ -37,7 +36,7 @@ export class MailReadPool {
     this.slots.set(provider,slot);
     try {
       const now=this.now();
-      if (prior?.lease && !prior.cleanupFailed && prior.key === key && now>=prior.usedAt && now>=prior.lease.createdAt && now-prior.usedAt < this.idleMS && now-prior.lease.createdAt < MAX_AGE_MS) {
+      if (prior?.lease && !prior.cleanupFailed && prior.key === key && now>=prior.usedAt && now-prior.usedAt < this.idleMS) {
         slot.lease = prior.lease;
         return slot.lease;
       }

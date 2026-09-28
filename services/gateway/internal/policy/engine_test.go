@@ -18,6 +18,42 @@ func TestPolicyApprovalRequiredTools(t *testing.T) {
 	}
 }
 
+func TestOperatorControlsEnforceIndependentToolAndApprovalChoices(t *testing.T) {
+	cfg := config.Default()
+	falseValue := false
+	cfg.Security.OperatorControls = config.OperatorToolControls{
+		WebAccess: &falseValue, FileChanges: "ask", ExternalActions: "block",
+	}
+	engine := New(cfg)
+	for _, name := range []string{"web.search", "browser.read", "browser.click"} {
+		def := app.ToolDefinition{Name: name, Risk: app.RiskRead}
+		if engine.MayExpose(def).Allowed || engine.Decide(def, nil, app.PolicyExecutionContext{}).Allowed {
+			t.Fatalf("%s bypassed an operator block", name)
+		}
+	}
+	fileWrite := app.ToolDefinition{Name: "files.write_draft", Risk: app.RiskDraft}
+	if decision := engine.Decide(fileWrite, nil, app.PolicyExecutionContext{}); !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("file change did not require approval: %#v", decision)
+	}
+	if decision := engine.Decide(app.ToolDefinition{Name: "files.read", Risk: app.RiskRead}, nil, app.PolicyExecutionContext{}); !decision.Allowed || decision.RequiresApproval {
+		t.Fatalf("read-only file access changed: %#v", decision)
+	}
+
+	trueValue := true
+	cfg.Security.OperatorControls.WebAccess = &trueValue
+	engine = New(cfg)
+	if !engine.Decide(app.ToolDefinition{Name: "browser.read", Risk: app.RiskRead}, nil, app.PolicyExecutionContext{}).Allowed ||
+		engine.Decide(app.ToolDefinition{Name: "browser.click", Risk: app.RiskDraft}, nil, app.PolicyExecutionContext{}).Allowed {
+		t.Fatal("enabling web access removed the independent external action block")
+	}
+
+	cfg.Security.OperatorControls.ExternalActions = "ask"
+	decision := New(cfg).Decide(app.ToolDefinition{Name: "browser.click", Risk: app.RiskDraft}, nil, app.PolicyExecutionContext{})
+	if !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("external action did not require approval: %#v", decision)
+	}
+}
+
 func TestMayExposeIsStaticAndExecutionRemainsArgumentAware(t *testing.T) {
 	cfg := config.Default()
 	cfg.Security.ApprovalRequiredTools = []string{"file.delete"}

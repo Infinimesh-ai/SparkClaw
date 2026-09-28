@@ -2,7 +2,7 @@
 // workspace images/screenshots, and stream status lines.
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Bot, Check, Download, FileQuestion, FileSearch, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
+import { Check, Download, FileQuestion, FileSearch, ThumbsDown, ThumbsUp } from "lucide-react";
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";

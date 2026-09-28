@@ -28,8 +28,14 @@ describe("WorkspaceSettingsSidebar", () => {
 
       expect(host.textContent).toContain("Back to app");
       expect(host.textContent).toContain("General");
+      expect(host.textContent).toContain("Models & tools");
+      expect(host.textContent).toContain("Permissions");
+      expect(host.textContent).toContain("Connections");
+      expect(host.textContent).not.toContain("Diagnostics");
       expect(host.textContent).toContain("Approvals");
       expect(host.textContent).toContain("Memory");
+      expect(host.textContent).toContain("Appearance");
+      expect(host.textContent).not.toContain("Trace");
       expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("General");
 
       const search = host.querySelector('input[type="search"]') as HTMLInputElement;

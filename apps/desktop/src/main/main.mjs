@@ -25,8 +25,11 @@ import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability } from "./desktop-capability.mjs";
 import { connectionStatus, loadLocalBackendConnection, loadLocalBackendDescriptor, verifyLocalBackend } from "./local-backend.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
+import { linuxLoginStartup } from "./login-startup.mjs";
+import { resolveDesktopConnectionPaths } from "./connection-paths.mjs";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
 const workbenchQualification = process.argv.includes("--qualification-workbench");
 const qualification = process.argv.includes("--qualification") || workbenchQualification;
 const configuredUserData = process.env.SPARKCLAW_DESKTOP_USER_DATA_DIR?.trim();
@@ -87,13 +90,13 @@ async function start() {
   let localBackendStatus;
 	let configuredOrigin = "http://127.0.0.1:18790";
 	try {
-		configuredOrigin = (await loadLocalBackendDescriptor(localBackendPaths())).origin;
+		configuredOrigin = (await loadLocalBackendDescriptor(await localBackendPaths())).origin;
 	} catch {
 		// The incomplete-setup UI still needs a safe CSP origin. A repaired
 		// custom-port descriptor is picked up on the next application start.
 	}
   try {
-    localBackend = await loadLocalBackendConnection(localBackendPaths());
+    localBackend = await loadLocalBackendConnection(await localBackendPaths());
     localBackendStatus = await verifyLocalBackend(localBackend, electronNet.fetch);
   } catch {
 		localBackend = unavailableLocalBackend(configuredOrigin);
@@ -107,7 +110,7 @@ async function start() {
   };
   const refreshLocalBackend = async () => {
     try {
-      const candidate = await loadLocalBackendConnection(localBackendPaths());
+      const candidate = await loadLocalBackendConnection(await localBackendPaths());
 			if (candidate.origin !== configuredOrigin) {
 				setLocalBackendStatus(connectionStatus("incomplete_setup"));
 				return localBackendStatus;
@@ -125,6 +128,19 @@ async function start() {
     setLocalBackendStatus(connectionStatus("reconnecting"));
     return refreshLocalBackend();
   });
+  ipcMain.handle("sparkclaw-desktop:login-startup", async (_event, enabled) => {
+    if (!app.isPackaged) return { supported: false, enabled: false };
+    if (typeof enabled !== "undefined" && typeof enabled !== "boolean") throw new TypeError("Invalid login startup value");
+    if (process.platform === "linux") {
+      const executable = process.env.APPIMAGE && path.isAbsolute(process.env.APPIMAGE) ? process.env.APPIMAGE : process.execPath;
+      return linuxLoginStartup({ home: app.getPath("home"), executable, enabled });
+    }
+    if (process.platform === "darwin" || process.platform === "win32") {
+      if (typeof enabled === "boolean") app.setLoginItemSettings({ openAtLogin: enabled });
+      return { supported: true, enabled: app.getLoginItemSettings().openAtLogin };
+    }
+    return { supported: false, enabled: false };
+  });
   const speechOrigin = localBackend.origin;
   workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(
     webchatDistPath(), electronNet, () => localBackend, () => localBackendStatus,
@@ -133,6 +149,7 @@ async function start() {
 
   window = new BrowserWindow({
     title: qualification ? "SparkClaw Electron Qualification" : "SparkClaw",
+    icon: DESKTOP_ICON_PATH,
     width: 1440,
     height: 900,
     minWidth: 1180,
@@ -294,6 +311,8 @@ async function waitForWorkbench() {
         document.querySelector('.rightSidebarToggle')?.click();
         await new Promise(resolve=>setTimeout(resolve,100));
         const panel = Boolean(document.querySelector('.desktopBrowserPanel'));
+        document.querySelector('.desktopToolLauncher button:not(:disabled)')?.click();
+        await new Promise(resolve=>setTimeout(resolve,50));
         document.querySelector('.desktopNewTab')?.click();
         let state;
         for(let attempt=0;attempt<40;attempt++){
@@ -446,20 +465,11 @@ function webchatDistPath() {
 }
 
 function localBackendPaths() {
-  const configuredDescription = process.env.SPARKCLAW_DESKTOP_CONNECTION_FILE?.trim();
-  const configuredCredential = process.env.SPARKCLAW_DESKTOP_CREDENTIAL_FILE?.trim();
-  if (Boolean(configuredDescription) !== Boolean(configuredCredential)) {
-    throw new Error("Both desktop local-backend paths must be configured together");
-  }
-  if (configuredDescription && configuredCredential) {
-    return { descriptorPath: configuredDescription, credentialPath: configuredCredential };
-  }
-  if (app.isPackaged) throw new Error("Desktop local-backend paths are not configured");
-  const runtimeDirectory = path.resolve(MODULE_DIR, "../../../../data/runtime");
-  return {
-    descriptorPath: path.join(runtimeDirectory, "local-workbench.json"),
-    credentialPath: path.join(runtimeDirectory, "desktop-client.json"),
-  };
+  return resolveDesktopConnectionPaths({
+    home: app.getPath("home"),
+    packaged: app.isPackaged,
+    moduleDirectory: MODULE_DIR,
+  });
 }
 
 function unavailableLocalBackend(origin = "http://127.0.0.1:18790") {

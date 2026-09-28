@@ -23,7 +23,6 @@ Authority order:
 2. [Browser runtime](browser-runtime.md) records the current production
    implementation.
 3. Current source code defines exact protocol and behavior.
-4. [Host-CDP browser design](host-cdp-browser-design.md) is historical only.
 
 ## Final Architecture
 

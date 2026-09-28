@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type Repository interface {
+	GetEmailProviderSetting(context.Context, string, string) (app.EmailProviderSetting, bool, error)
 	store.EmailRepository
 	store.EmailPresentationRepository
 	store.OwnerRepository
@@ -27,12 +29,36 @@ type Browser interface {
 }
 
 type Options struct {
+	ObserverTransport      browsercontrol.MailObserverTransport
 	WorkspaceRoot          string
 	ScanInterval           time.Duration
 	LeaseDuration          time.Duration
 	JobTimeout             time.Duration
 	ModelWorkers           int
 	QualifiedProviderModes map[string]string
+	// A provider may use the quiet tier only after its notification adapter
+	// passed protocol fixtures and live qualification on this runtime.
+	QualifiedWakeProviders map[string]bool
+}
+
+func (s *Service) verificationInterval(box app.EmailMailbox) time.Duration {
+	base := s.opts.ScanInterval
+	if !s.opts.QualifiedWakeProviders[box.Provider] || !box.WakeAdapterQualified || box.WatchState != "watching" {
+		return base
+	}
+	if box.LastPeriodicOnlyDiscovery.IsZero() {
+		return 5 * base
+	}
+	switch box.PeriodicEmptyStreak {
+	case 0:
+		return base
+	case 1:
+		return 2 * base
+	case 2:
+		return 4 * base
+	default:
+		return 5 * base
+	}
 }
 
 func (s *Service) incrementalMode(provider string) string {
@@ -92,6 +118,10 @@ func (s *Service) Start(parent context.Context) {
 	go func() {
 		defer close(s.done)
 		var workers sync.WaitGroup
+		if s.opts.ObserverTransport != nil {
+			workers.Add(1)
+			go func() { defer workers.Done(); s.observeMail(ctx) }()
+		}
 		// Verify committed originals once per service start, outside the polling
 		// ticker. Power-loss recovery must not add file hashing to every poll.
 		workers.Add(1)
@@ -191,7 +221,8 @@ func (s *Service) plan(ctx context.Context) error {
 			if s.incrementalMode(mailbox.Provider) == app.EmailProviderModeUnqualified {
 				continue
 			}
-			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner.ID, fmt.Sprintf("poll-v1:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, s.opts.ScanInterval)), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RearmFailed: true, AutomaticPoll: true, RepeatInterval: s.opts.ScanInterval})
+			interval := s.verificationInterval(mailbox)
+			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner.ID, fmt.Sprintf("poll-v1:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, interval)), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RearmFailed: true, AutomaticPoll: true, RepeatInterval: interval})
 			if err != nil {
 				return err
 			}
@@ -298,7 +329,9 @@ func (s *Service) execute(parent context.Context, job app.EmailJob) {
 	if err != nil {
 		finish.ErrorCode = safeCode(err)
 		delay := time.Duration(min(job.Attempt, 6)*min(job.Attempt, 6)) * 10 * time.Second
-		if _, pageMode := s.browser.(PageBrowser); pageMode && job.Kind == app.EmailJobDiscover {
+		if finish.ErrorCode == string(app.ToolErrorEmailBrowserBusy) {
+			delay = 2 * time.Second
+		} else if _, pageMode := s.browser.(PageBrowser); pageMode && job.Kind == app.EmailJobDiscover {
 			delay = max(delay, s.opts.ScanInterval)
 		}
 		finish.RetryAt = s.now().Add(delay)

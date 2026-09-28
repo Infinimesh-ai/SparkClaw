@@ -247,6 +247,10 @@ func qualifyLatestCapturedMarkRead(t *testing.T, ctx context.Context, repository
 	}
 	ownerScope := sha256.Sum256([]byte(ownerID))
 	target := app.EmailCaptureTarget{AccountAddress: mailbox.Address, ProviderMessageID: mail.ProviderMessageID, ProviderNativeID: mail.ProviderNativeID, ProviderSelectionID: mail.ProviderSelectionID, ProviderThreadID: mail.ProviderThreadID, Folder: mail.Folder}
+	if mailbox.Provider == app.EmailProviderOutlook && !mail.SourceTime.IsZero() {
+		received := mail.SourceTime
+		target.ReceivedAt = &received
+	}
 	binding := ReadRequest{Provider: provider.ID, Account: app.EmailAccountDefault, OwnerScope: hex.EncodeToString(ownerScope[:]), InvocationID: app.NewID("qq_mark_read_live"), BrowserCredentialGeneration: probe.Generation, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.MarkRead.Revision, Target: &target}
 	receipt := app.EmailCaptureReceipt{ManifestPath: capture.ManifestPath, ManifestSHA256: capture.ManifestSHA256, MailID: manifest.MailID, MailboxID: manifest.MailboxID, CaptureID: capture.ID, AttachmentsCount: attachments, ReadState: mail.RemoteReadState}
 	result, err := runner.MarkRead(ctx, provider, app.EmailMarkReadRequest{Binding: binding, CommittedCapture: receipt})

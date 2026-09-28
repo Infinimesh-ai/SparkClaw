@@ -13,6 +13,7 @@ import (
 
 type idleDiscoveryBrowser struct {
 	*intakeFixture
+	qualified  bool
 	admissions atomic.Int32
 	scans      atomic.Int32
 	started    chan struct{}
@@ -46,8 +47,12 @@ func (b *idleDiscoveryBrowser) DiscoverForOwner(ctx context.Context, owner strin
 		<-ctx.Done()
 		return app.EmailDiscoveryResult{}, ctx.Err()
 	}
+	coverage := app.EmailDiscoveryCoverage{Lane: request.Discovery.Lane, Reason: "partial_folder_scope"}
+	if b.qualified {
+		coverage = app.EmailDiscoveryCoverage{Lane: request.Discovery.Lane, ScanComplete: true, BoundaryQualified: true}
+	}
 	return app.EmailDiscoveryResult{Provider: app.EmailProviderGmail, AccountAddress: "owner@example.com", ObservedAt: time.Now().UTC(),
-		Candidates: []app.EmailCaptureTarget{}, Coverage: app.EmailDiscoveryCoverage{Lane: request.Discovery.Lane, Reason: "partial_folder_scope"}}, nil
+		Candidates: []app.EmailCaptureTarget{}, Coverage: coverage}, nil
 }
 
 func TestLongDiscoveryCompletionWaitsBeforeNextScanAndAcrossRestart(t *testing.T) {
@@ -104,7 +109,7 @@ func TestMinutePollManualResetsSameMinuteDeadlineAndStatus(t *testing.T) {
 	repo := store.NewMemoryStore()
 	s, fixture, _ := newFixtureService(t, repo)
 	s.opts.ScanInterval = time.Minute
-	s.browser = &idleDiscoveryBrowser{intakeFixture: fixture}
+	s.browser = &idleDiscoveryBrowser{intakeFixture: fixture, qualified: true}
 	box, err := s.Configure(t.Context(), "email-owner", app.EmailProviderGmail, true, 0)
 	if err != nil {
 		t.Fatal(err)

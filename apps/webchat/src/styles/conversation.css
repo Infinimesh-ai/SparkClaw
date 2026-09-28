@@ -68,17 +68,6 @@
   scrollbar-width: thin;
 }
 
-.emptyState {
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 10px;
-  min-height: 280px;
-  color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
 .message {
   flex: 0 0 auto;
   min-width: 0;

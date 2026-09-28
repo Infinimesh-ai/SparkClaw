@@ -26,7 +26,7 @@ func New(cfg config.Config) Engine {
 }
 
 func (e Engine) MayExpose(def app.ToolDefinition) Decision {
-	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) {
+	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) || !operatorAllows(def, e.cfg.Security.OperatorControls) {
 		return Decision{Allowed: false, Reason: "tool is denied by static exposure policy"}
 	}
 	return Decision{Allowed: true, Reason: "tool is statically exposable"}
@@ -37,11 +37,11 @@ func (e Engine) MayExpose(def app.ToolDefinition) Decision {
 // PolicyExecutionContext only where the invocation is genuinely
 // owner-principal (manual invocation, diagnostics).
 func (e Engine) Decide(def app.ToolDefinition, args map[string]any, execution app.PolicyExecutionContext) Decision {
-	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) {
+	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) || !operatorAllows(def, e.cfg.Security.OperatorControls) {
 		return Decision{Allowed: false, Reason: "tool is denied by policy"}
 	}
 	decision := Decision{Allowed: true, Reason: "allowed by default policy"}
-	if def.RequiresApproval || slices.Contains(e.cfg.Security.ApprovalRequiredTools, def.Name) || def.Risk == app.RiskDangerous && e.cfg.Security.ApprovalRequiredForDangerousTools {
+	if def.RequiresApproval || slices.Contains(e.cfg.Security.ApprovalRequiredTools, def.Name) || def.Risk == app.RiskDangerous && e.cfg.Security.ApprovalRequiredForDangerousTools || operatorNeedsApproval(def, e.cfg.Security.OperatorControls) {
 		decision.RequiresApproval = true
 		decision.Reason = "approval required by risk policy"
 	}

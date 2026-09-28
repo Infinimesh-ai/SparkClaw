@@ -285,25 +285,6 @@
   color: var(--text-secondary);
 }
 
-.browserControlNotice {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  min-width: 0;
-  padding: 9px 10px;
-  border-left: 3px solid var(--amber-warning);
-  color: var(--text-secondary);
-  background: var(--surface-muted);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.browserControlNotice svg {
-  color: var(--amber-warning);
-}
-
-.browserControlNotice span,
 .browserControlStatus dd {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -318,27 +299,6 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-
-.browserControlExtensionLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  min-height: 28px;
-  padding: 4px 6px;
-  color: var(--text-secondary);
-  font-size: 10px;
-  text-decoration: none;
-}
-
-.browserControlExtensionLink:hover {
-  color: var(--text-primary);
-}
-
-.browserControlExtensionLink span {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .credentialRow {

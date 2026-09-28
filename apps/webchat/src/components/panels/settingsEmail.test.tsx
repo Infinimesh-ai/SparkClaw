@@ -31,6 +31,7 @@ describe("Browser email settings", () => {
     const check = vi.spyOn(api, "checkEmailProvider").mockResolvedValue({ ...outlook, state: "ready", account_hint: "o***@outlook.com", version: 3 });
     const { container, root } = await renderEmailSettings();
 
+    expect(container.querySelectorAll(".emailProviderRow")).toHaveLength(3);
     expect(container.textContent).toContain(dictionaries.en.settings.browserEmailLoading);
     await act(async () => resolveProviders({ providers: [gmail, outlook, qq] }));
     expect(container.textContent).toContain("a***@gmail.com");
@@ -91,6 +92,22 @@ describe("Browser email settings", () => {
     expect(api.emailProviders).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("provider page changed");
     expect(providerRow(container, "Gmail").textContent).toContain(dictionaries.en.settings.integrationNeedsAttention);
+    await act(async () => root.unmount());
+  });
+
+  it("keeps provider controls visible after status loading fails and retries", async () => {
+    vi.spyOn(api, "emailProviders")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ providers: [gmail, outlook, qq] });
+    const { container, root } = await renderEmailSettings();
+    await flushEffects();
+    expect(container.querySelectorAll(".emailProviderRow")).toHaveLength(3);
+    expect(loginButton(providerRow(container, "Gmail")).disabled).toBe(true);
+    expect(container.textContent).toContain("offline");
+    const retry = container.querySelector(".integrationStatusBar button") as HTMLButtonElement;
+    await act(async () => retry.click());
+    expect(api.emailProviders).toHaveBeenCalledTimes(2);
+    expect(loginButton(providerRow(container, "Gmail")).disabled).toBe(false);
     await act(async () => root.unmount());
   });
 });

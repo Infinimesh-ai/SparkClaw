@@ -290,17 +290,25 @@ bash scripts/doctor.sh
 ```
 
 本机打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的
-其他设备使用 `http://<主机局域网-IP>:18790`。桌面端自动读取安装时生成的 Client；局域网
-浏览器输入 Owner 另行签发的 Client token，两条路径都不使用 pairing code。
+其他设备使用 `http://<主机局域网-IP>:18790`。本地／远程部署会写入仅当前用户可读的桌面连接
+文件，记录已签发 Client 的文件路径。DEB 和 AppImage 可直接从应用菜单或可执行文件启动并
+读取该配置，无需另装桌面 launcher；后端服务仍须运行。局域网浏览器输入 Owner 另行签发的
+Client token，两条路径都不使用 pairing code。
 
-为已校验的 AppImage 或打包 executable 安装桌面 launcher：
+已有后端部署若尚无桌面连接文件，可在不重启后端的情况下登记一次运行目录：
+
+```bash
+node scripts/configure-desktop-connection.mjs --runtime-dir "$PWD/data/runtime"
+```
+
+旧版桌面 launcher 仍可用于已有安装：
 
 ```bash
 npm run install:desktop-launcher -- --executable /absolute/path/to/sparkclaw
 ```
 
 也可在私有部署环境中设置 `SPARKCLAW_DESKTOP_EXECUTABLE`，让 `deploy:local` 或
-`deploy:remote` 安装／检查同一 launcher。launcher 配置只保存受控文件路径，不保存 bearer。
+`deploy:remote` 安装／检查旧版 launcher。两种连接文件都只保存受控文件路径，不保存 bearer。
 
 ### JingSi LAN 呈现（实验性）
 

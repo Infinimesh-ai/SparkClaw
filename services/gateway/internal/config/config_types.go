@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
@@ -275,14 +276,31 @@ type MCPServerConfig struct {
 }
 
 type SecurityConfig struct {
-	ExternalContentUntrusted              bool     `json:"external_content_untrusted"`
-	ApprovalRequiredForDangerousTools     bool     `json:"approval_required_for_dangerous_tools"`
-	SandboxRequiredForMutatingTools       bool     `json:"sandbox_required_for_mutating_tools"`
-	DangerousToolsRequireDeepVerification bool     `json:"dangerous_tools_require_deep_verification"`
-	DeniedTools                           []string `json:"denied_tools"`
-	ApprovalRequiredTools                 []string `json:"approval_required_tools"`
-	ToolPolicyPath                        string   `json:"tool_policy_path"`
-	BrowserReadAllowHosts                 []string `json:"browser_read_allow_hosts"`
+	ExternalContentUntrusted              bool                 `json:"external_content_untrusted"`
+	ApprovalRequiredForDangerousTools     bool                 `json:"approval_required_for_dangerous_tools"`
+	SandboxRequiredForMutatingTools       bool                 `json:"sandbox_required_for_mutating_tools"`
+	DangerousToolsRequireDeepVerification bool                 `json:"dangerous_tools_require_deep_verification"`
+	DeniedTools                           []string             `json:"denied_tools"`
+	ApprovalRequiredTools                 []string             `json:"approval_required_tools"`
+	ToolPolicyPath                        string               `json:"tool_policy_path"`
+	BrowserReadAllowHosts                 []string             `json:"browser_read_allow_hosts"`
+	OperatorControls                      OperatorToolControls `json:"operator_controls"`
+}
+
+type OperatorToolControls struct {
+	WebAccess       *bool  `json:"web_access,omitempty"`
+	WorkspaceFiles  *bool  `json:"workspace_files,omitempty"`
+	ShellCommands   *bool  `json:"shell_commands,omitempty"`
+	FileChanges     string `json:"file_changes,omitempty"`
+	ExternalActions string `json:"external_actions,omitempty"`
+}
+
+func (controls OperatorToolControls) Validate() error {
+	if controls.FileChanges != "" && controls.FileChanges != "default" && controls.FileChanges != "ask" ||
+		controls.ExternalActions != "" && controls.ExternalActions != "current" && controls.ExternalActions != "ask" && controls.ExternalActions != "block" {
+		return errors.New("invalid operator tool controls")
+	}
+	return nil
 }
 
 type MemoryConfig struct {
@@ -499,6 +517,7 @@ type LoggingConfig struct {
 }
 
 type toolPolicyFile struct {
-	Deny             []string `json:"deny"`
-	ApprovalRequired []string `json:"approval_required"`
+	Deny             []string              `json:"deny"`
+	ApprovalRequired []string              `json:"approval_required"`
+	OperatorControls *OperatorToolControls `json:"operator_controls,omitempty"`
 }

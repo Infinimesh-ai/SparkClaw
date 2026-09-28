@@ -164,8 +164,45 @@ func TestEmailTimelineSuccessfulOverflowConfirmationClosesFrozenRange(t *testing
 		confirmation := beginTimelineSync(t, f, first.IntervalEnd.Add(time.Minute))
 		commitTimelineSync(t, f, confirmation, nil)
 		next := beginTimelineSync(t, f, first.IntervalEnd.Add(2*time.Minute))
-		if next.ConfirmingOverflow || !next.IntervalStart.Equal(first.IntervalEnd) || next.Mailbox.CoverageGapCount != 0 {
+		if next.ConfirmingOverflow || !next.IntervalStart.Equal(first.IntervalStart) || !next.OverlapEnd.Equal(first.IntervalEnd) || next.Mailbox.CoverageGapCount != 0 {
 			t.Fatalf("successful confirmation retained stale overflow: %+v", next)
+		}
+	})
+}
+
+func TestEmailTimelineRereadsOnlyLatestSuccessfulInterval(t *testing.T) {
+	emailManagementBackends(t, func(t *testing.T, repo EmailRepository) {
+		f := emailFixture(t, repo)
+		first := beginTimelineSync(t, f, f.box.Boundary.Add(time.Minute))
+		commitTimelineSync(t, f, first, nil)
+		second := beginTimelineSync(t, f, first.IntervalEnd.Add(time.Minute))
+		if !second.IntervalStart.Equal(first.IntervalStart) || !second.OverlapEnd.Equal(first.IntervalEnd) {
+			t.Fatalf("latest interval was not reread: %+v", second)
+		}
+		commitTimelineSync(t, f, second, nil)
+		third := beginTimelineSync(t, f, second.IntervalEnd.Add(time.Minute))
+		if !third.IntervalStart.Equal(first.IntervalEnd) || !third.OverlapEnd.Equal(second.IntervalEnd) {
+			t.Fatalf("older interval was rescanned or latest interval lost: %+v", third)
+		}
+	})
+}
+
+func TestEmailCombinedOverlapOverflowDoesNotFabricateNewTailGap(t *testing.T) {
+	emailManagementBackends(t, func(t *testing.T, repo EmailRepository) {
+		f := emailFixture(t, repo)
+		first := beginTimelineSync(t, f, f.box.Boundary.Add(time.Minute))
+		commitTimelineSync(t, f, first, nil)
+		combined := beginTimelineSync(t, f, first.IntervalEnd.Add(time.Minute))
+		commitTimelineSync(t, f, combined, func(command *EmailSyncCommitCommand) {
+			command.Complete = false
+			command.Overflow = true
+		})
+		if !f.box.PollThrough.Equal(first.IntervalEnd) || f.box.CoverageGapCount != 0 || f.box.SyncState != app.EmailSyncIncomplete {
+			t.Fatalf("combined overflow was treated as new-tail overflow: %+v", f.box)
+		}
+		next := beginTimelineSync(t, f, combined.IntervalEnd.Add(time.Minute))
+		if !next.IntervalStart.Equal(first.IntervalEnd) || next.ConfirmingOverflow {
+			t.Fatalf("combined overflow did not preserve forward progress: %+v", next)
 		}
 	})
 }

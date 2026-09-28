@@ -167,6 +167,12 @@ export class PlaywrightCLITask {
       throw pageStale("task_page_missing");
     }
     this.taskReady = true;
+    if (this.mailObserverConfig) {
+      await this.#withTaskSelected(() => this.#run([
+        '--raw', `-s=${this.sessionName}`, 'run-code',
+        '/* sparkclaw:install-mail-observer:v1 */ async page => true',
+      ]));
+    }
     if (['read','discover','capture','enumerate_thread','mark_read','collect_page'].includes(this.registration.operation)) {
       // The fixed Bridge marker enables target-scoped CDP focus emulation,
       // which survives navigation. Do this before loading a busy provider page.
@@ -189,6 +195,13 @@ export class PlaywrightCLITask {
         `async page=>{await page.addInitScript(${installOutlookEarlyBridge.toString()});return true}`,
       ]));
     }
+	if (typeof this.registration.beforeNavigationScript === 'function' &&
+	    ['read','discover','capture','enumerate_thread','mark_read','collect_page'].includes(this.registration.operation)) {
+	  await this.#withTaskSelected(() => this.#run([
+	    '--raw', `-s=${this.sessionName}`, 'run-code',
+	    `async page=>{await page.addInitScript(${this.registration.beforeNavigationScript.toString()});return true}`,
+	  ]));
+	}
   }
 
   async navigate(url) {
@@ -806,6 +819,8 @@ export class PlaywrightCLITask {
       NO_UPDATE_NOTIFIER: "1",
     });
     Object.assign(env, electronConnectionEnvironment(this.electronConnection));
+    if (this.mailObserverConfig) env.SPARKCLAW_MAIL_OBSERVER_CONFIG = this.mailObserverConfig;
+    else delete env.SPARKCLAW_MAIL_OBSERVER_CONFIG;
     if (this.executablePath) env.PLAYWRIGHT_MCP_EXECUTABLE_PATH = this.executablePath;
     if (this.userDataDir) env.PLAYWRIGHT_MCP_USER_DATA_DIR = this.userDataDir;
     if (this.state.secretsPath) env.PLAYWRIGHT_MCP_CONFIG = this.state.secretsPath;
@@ -904,7 +919,7 @@ export function createProviderRuntime(client, registration) {
         fill: (selector, value) => client.runReadCode(`async page => { await page.locator(${JSON.stringify(selector)}).fill(${JSON.stringify(value)}); return true; }`),
         press: key => client.press(key),
         navigate: url => client.navigate(url),
-        runReadCode: code => client.runReadCode(code),
+        runReadCode: (code, timeoutMS) => client.runReadCode(code, timeoutMS),
         download: (selector, destination, maxBytes) => client.download(selector, destination, maxBytes),
       });
     },

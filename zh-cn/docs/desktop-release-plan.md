@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-release-plan.md)
 >
-> 候选状态：2026-09-22（Asia/Shanghai）已重新构建并通过资格验证。本方案只做准备，不构成部署、生产切换、删除 Profile 或执行真实 Provider 副作用的授权。
+> 候选状态：2026-09-23（Asia/Shanghai）已重新构建并通过安装包资格验证。本方案只做准备，不构成生产切换、删除 Profile 或执行真实 Provider 副作用的授权。
 
 [共享本机后端设计](local-shared-backend-design.md)已包含在本候选版本中：局域网 Web 与本机桌面共用一个
 工作台端口，各自使用独立 Client credential，不再需要 `18795`。生产发布或切换仍须完成下文验收并取得明确授权。
@@ -13,15 +13,15 @@
 
 | 制品 | 字节 | SHA-256 |
 |---|---:|---|
-| `SparkClaw-0.1.0-linux-arm64.AppImage` | 126,602,324 | `5503b59447bf548259b87e030f4f6636bdef9e3ed8b5c27411816d6f9c9cc3e5` |
-| `SparkClaw-0.1.0-linux-arm64.deb` | 94,339,016 | `0a40de431b3e1715048b472bce37470c1d7f527e76db687f72f3f7b40691aa7f` |
+| `SparkClaw-0.1.0-linux-arm64.AppImage` | 126,631,016 | `bb14c8ce347ecb0154423973bf40a8a688a5f66096af75c97b8c4d86cc68b8bc` |
+| `SparkClaw-0.1.0-linux-arm64.deb` | 94,359,320 | `1f5843bf45bb136aa9e91c498a0706c04eee39c2d1ecb6d77c724ecd877906fc` |
 
-生成后的事实来源是 `apps/desktop/dist/release-manifest.json` 和 `apps/desktop/dist/SHA256SUMS`。重新构建会改变哈希，发布前必须重新生成本表。候选版本目前使用 Electron 默认图标，因此品牌图标确认仍是发布门槛。
+生成后的事实来源是 `apps/desktop/dist/release-manifest.json` 和 `apps/desktop/dist/SHA256SUMS`。重新构建会改变哈希，发布前必须重新生成本表。已打包图标和目标机桌面入口仍需用户验收。
 
 ## 已完成证据
 
 - `npm run qualify:desktop` 使用 runner 自有 Xvfb 和临时 user-data，覆盖真实 MCP／CLI、任务／个人隔离、嵌套 target／popup、原生输入排除、批准的自动化、下载、托管脚本、后台执行、关闭隐藏、renderer／主进程崩溃、浏览状态持久化、generation 失效，以及不自动重放结果未知的副作用。
-- `npm run qualify:desktop-artifacts` 校验两份哈希和 DEB 架构，分别独立解包并以不同临时 user-data 启动，验证打包 WebChat、有界桌面 IPC、安装时生成的 Gateway identity 与 HTTP／SSE 代理、语音 WebSocket Origin 改写和浏览器面板建页。
+- `npm run qualify:desktop-artifacts` 校验两份哈希和 DEB 架构，分别独立解包，并在不注入旧 Launcher 连接环境变量的情况下启动，验证仅当前用户可读的连接配置发现、打包 WebChat、有界桌面 IPC、安装时生成的 Gateway identity 与 HTTP／SSE 代理、语音 WebSocket Origin 改写和浏览器面板建页。
 - `npm run qualify:local-shared-backend` 使用一次性 PostgreSQL 和 Docker 网络中的 LAN client，验证同一 Owner 下独立 desktop／Web identity、空启动、双向 CRUD、两秒内失效通知、文件字节一致及伪造本地来源拒绝。
 - 以上是隔离的软件渲染测试，不能证明目标干净系统、真实 GPU／DPI／原生 IME／音视频设备、操作系统麦克风提示或 Provider 登录政策。
 

@@ -807,5 +807,4 @@ qualified production set listed above and never installs a floating `latest`.
 - [Playwright CLI](https://github.com/microsoft/playwright-cli)
 - [Playwright Extension](https://github.com/microsoft/playwright/tree/main/packages/extension)
 - [Current browser runtime](browser-runtime.md)
-- [Implemented Host-CDP design](host-cdp-browser-design.md)
 - [Current browser email Workflow](browser-email-workflow-design.md)

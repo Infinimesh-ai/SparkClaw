@@ -70,19 +70,24 @@ browser workspace. Preserve the 1440 x 900 initial size and 1180 x 720 minimum.
 | Task sidebar | 244 px | Existing collapse and navigation |
 | Conversation | Flexible, minimum 520 px in split mode | Existing chat and approvals |
 | Divider | 6 px | Keyboard and pointer resize; no task viewport mutation |
-| Browser workspace | 640 px, 480-760 px in split mode | My browsing / Task observation |
+| Browser workspace | 640 px, 480-760 px in split mode | Tool launcher, then unified browser tabs |
 
 The default split needs at least 1410 px before borders and padding. Below the
 available-width threshold, browser focus mode occupies the main workspace while
 navigation stays accessible. Collapsing the sidebar can make room for a wider
 personal page. No panel opens itself merely because a task starts.
 
-The panel contains a 44 px header, the selected browser view, and a status area.
-SparkClaw supplies personal tab controls, address/navigation controls, download
-and permission UI; `WebContentsView` does not supply Chrome's complete browser
-chrome. These controls live in trusted client UI outside remote page content.
-Task observation has an authorized page selector and task identity, without
-editable address, close-tab, takeover, or resume controls.
+Opening the panel shows one Browser launcher entry rather than immediately
+presenting remote page content. It contains no unavailable Terminal placeholder.
+Selecting Browser enters a native-style two-row browser chrome with tabs first
+and navigation/address controls second; personal browsing and task observation
+are not separate UI modes. SparkClaw supplies personal tab creation,
+address/search and navigation controls, download and permission UI because
+`WebContentsView` does not supply Chrome's complete browser chrome. Non-address
+input is sent to Google Search. These controls live
+in trusted client UI outside remote page content. Task tabs remain visibly
+read-only and cannot be closed, taken over, or resumed by the user; entering an
+address while one is selected creates a personal page instead.
 
 ### Personal Pages And Task Pages
 

@@ -3,6 +3,7 @@ package emailautomation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -31,6 +32,37 @@ func NewPlaywrightRunner(controller PlaywrightController) *PlaywrightRunner {
 // scriptWaitGrace covers the controller's profile reservation wait and the
 // response round trip on top of a script's own budget.
 const scriptWaitGrace = 60 * time.Second
+
+const browserReservationWait = 2 * time.Second
+
+// Wait for a local browser reservation, not for provider recovery. The
+// Controller wakes on release; the short retry covers an active Gateway runtime
+// session that can reject before reaching that queue. Only explicit busy is
+// retried, never an ambiguous send or a script/transport failure.
+func (r *PlaywrightRunner) runScript(ctx context.Context, request browsercontrol.RunScriptRequest) (browsercontrol.ScriptExecutionResult, error) {
+	deadline := time.Now().Add(browserReservationWait)
+	for {
+		if err := ctx.Err(); err != nil {
+			return browsercontrol.ScriptExecutionResult{}, err
+		}
+		request.WaitTimeoutMS = max(1, time.Until(deadline).Milliseconds())
+		result, err := r.controller.RunScript(ctx, request)
+		remaining := time.Until(deadline)
+		if browsercontrol.ErrorCode(err) != browsercontrol.CodeBusy || remaining <= 0 {
+			return result, err
+		}
+		timer := time.NewTimer(min(200*time.Millisecond, remaining))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return browsercontrol.ScriptExecutionResult{}, ctx.Err()
+		case <-timer.C:
+		}
+		if !time.Now().Before(deadline) {
+			return result, err
+		}
+	}
+}
 
 // scriptContext bounds a controller call by the script's declared budget so a
 // wedged controller cannot pin the request and the per-provider operation gate.
@@ -73,7 +105,7 @@ func (r *PlaywrightRunner) Probe(
 	}{1, "probe", invocationID, provider.ID, app.EmailAccountDefault}
 	ctx, cancel := scriptContext(ctx, provider.Probe)
 	defer cancel()
-	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{
+	result, err := r.runScript(ctx, browsercontrol.RunScriptRequest{
 		TaskID: invocationID, CredentialGeneration: generation,
 		Provider: provider.ID, Operation: "probe", ScriptID: provider.Probe.ID,
 		Revision: provider.Probe.Revision, Input: input,
@@ -155,7 +187,7 @@ func (r *PlaywrightRunner) Send(
 	input.Message.Body.Content = request.Body
 	ctx, cancel := scriptContext(ctx, provider.Send)
 	defer cancel()
-	result, err := r.controller.RunScript(ctx, browsercontrol.RunScriptRequest{
+	result, err := r.runScript(ctx, browsercontrol.RunScriptRequest{
 		TaskID: request.InvocationID, CredentialGeneration: generation,
 		Provider: provider.ID, Operation: "send", ScriptID: provider.Send.ID,
 		Revision: provider.Send.Revision, Input: input,
@@ -226,7 +258,12 @@ func mapPlaywrightError(err error, send bool) error {
 	if err == nil {
 		return nil
 	}
+	if !send && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return err
+	}
 	switch browsercontrol.ErrorCode(err) {
+	case browsercontrol.CodeBusy:
+		return &Error{Code: app.ToolErrorEmailBrowserBusy, Message: "Email browser is busy; retry shortly", localOperational: true}
 	case browsercontrol.CodeInvalidRequest:
 		return codedError(app.ToolErrorEmailInvalidInput, "Email request is invalid")
 	case browsercontrol.CodeNotConfigured:

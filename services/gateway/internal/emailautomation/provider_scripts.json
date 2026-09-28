@@ -38,6 +38,13 @@
     },
     {
       "provider": "gmail",
+      "operation": "observe",
+      "script_id": "gmail.observe",
+      "revision": 1,
+      "timeout_ms": 120000
+    },
+    {
+      "provider": "gmail",
       "operation": "probe",
       "script_id": "gmail.login_probe",
       "revision": 1,
@@ -94,6 +101,13 @@
     },
     {
       "provider": "outlook",
+      "operation": "observe",
+      "script_id": "outlook.observe",
+      "revision": 1,
+      "timeout_ms": 120000
+    },
+    {
+      "provider": "outlook",
       "operation": "probe",
       "script_id": "outlook.login_probe",
       "revision": 1,
@@ -147,6 +161,13 @@
       "script_id": "qqmail.mark_read",
       "revision": 1,
       "timeout_ms": 180000
+    },
+    {
+      "provider": "qq_mail",
+      "operation": "observe",
+      "script_id": "qq_mail.observe",
+      "revision": 1,
+      "timeout_ms": 120000
     },
     {
       "provider": "qq_mail",

@@ -146,20 +146,22 @@ type EmailReadRequest struct {
 // account. The recent_inbound lane is the only discovery lane. An incomplete
 // observation never advances the interval boundary.
 type EmailDiscoveryOptions struct {
-	Lane           string               `json:"lane"`
-	AccountAddress string               `json:"account_address"`
-	IntervalStart  time.Time            `json:"interval_start"`
-	IntervalEnd    time.Time            `json:"interval_end"`
-	Continuation   string               `json:"continuation"`
-	Limit          int                  `json:"limit"`
-	ProviderMode   string               `json:"provider_mode,omitempty"`
-	RetryTargets   []EmailCaptureTarget `json:"retry_targets,omitempty"`
+	Lane                   string               `json:"lane"`
+	AccountAddress         string               `json:"account_address"`
+	IntervalStart          time.Time            `json:"interval_start"`
+	IntervalEnd            time.Time            `json:"interval_end"`
+	Continuation           string               `json:"continuation"`
+	Limit                  int                  `json:"limit"`
+	ProviderMode           string               `json:"provider_mode,omitempty"`
+	RetryTargets           []EmailCaptureTarget `json:"retry_targets,omitempty"`
+	SkipProviderMessageIDs []string             `json:"skip_provider_message_ids,omitempty"`
 }
 
 // EmailCaptureTarget is Runtime-owned discovery evidence, never model-selected.
 type EmailCaptureTarget struct {
 	RecoveryCapture     *EmailCaptureVersion `json:"recovery_capture,omitempty"`
 	ProviderNativeID    string               `json:"provider_native_id,omitempty"`
+	ReceivedAt          *time.Time           `json:"received_at,omitempty"`
 	AccountAddress      string               `json:"account_address"`
 	ProviderMessageID   string               `json:"provider_message_id"`
 	ProviderSelectionID string               `json:"provider_selection_id"`

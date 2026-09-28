@@ -38,7 +38,7 @@ func codedError(code app.ToolErrorCode, message string) error {
 
 func retryableEmailCode(code app.ToolErrorCode) bool {
 	switch code {
-	case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout:
+	case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout, app.ToolErrorEmailBrowserBusy:
 		return true
 	default:
 		return false

@@ -10,6 +10,17 @@ import { createRequestHandler, startUnixServer } from "../src/http-server.mjs";
 
 const token = "http-test-extension-token";
 
+test('shutdown closes its listener and removes the socket even if task cleanup failed',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'sc-observer-stop-'));
+ const socketPath=path.join(directory,'controller.sock');
+ const runtime=await startUnixServer({socketPath,controller:{async shutdown(){throw new Error('owned cleanup failed');}}});
+ try {
+   await assert.rejects(runtime.close(),/owned cleanup failed/);
+   assert.equal(runtime.server.listening,false);
+   await assert.rejects(fs.stat(socketPath),error=>error.code==='ENOENT');
+ } finally {await fs.rm(directory,{recursive:true,force:true});}
+});
+
 test("HTTP endpoints return redacted status and strict JSON errors", async (t) => {
   const controller = new BrowserController({
     profileID: "default",

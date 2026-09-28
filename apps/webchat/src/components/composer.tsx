@@ -5,7 +5,7 @@
 // Message sending and the voice hook stay in the parent.
 import { useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, KeyboardEvent, MutableRefObject, SetStateAction } from "react";
-import { ArrowUp, ChevronDown, FileSearch, Upload, X } from "lucide-react";
+import { ArrowUp, FileSearch, Upload, X } from "lucide-react";
 import { api, openDocumentFile } from "../api/client";
 import type { Copy as CopyText, Language } from "../i18n";
 import { isImageAttachment, isImageContentType, WorkspaceFileImage } from "./messages";
@@ -26,8 +26,6 @@ import type { ArtifactObject, MessageAttachment } from "../api/types";
 import { EmailPopupEntry } from "./emailPopup";
 
 type ComposerDockProps = {
-  modelLabel?: string;
-  onModelSettings?: () => void;
   text: CopyText;
   language: Language;
   activeSession: string;
@@ -44,8 +42,6 @@ type ComposerDockProps = {
 };
 
 export function ComposerDock({
-  modelLabel,
-  onModelSettings,
   text,
   language,
   activeSession,
@@ -269,7 +265,6 @@ export function ComposerDock({
             aria-label={text.chat.placeholder}
             disabled={busy || !activeSession}
           />
-          {modelLabel && <button type="button" className="composerModel" onClick={onModelSettings}>{modelLabel}<ChevronDown size={14} /></button>}
           <button
             className="sendButton"
             disabled={busy || !activeSession || voice.active || (!activeInput.trim() && activeAttachments.length === 0)}

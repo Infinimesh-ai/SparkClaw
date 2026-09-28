@@ -2544,6 +2544,49 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 	}
 }
 
+func TestToolPolicyOperatorControlsPersistAndRejectInvalidMode(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	cfg.Security.ToolPolicyPath = filepath.Join(root, "operator-tools.policy.json")
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
+	defer ts.Close()
+
+	update := `{"deny":[],"approval_required":[],"operator_controls":{"web_access":false,"workspace_files":true,"shell_commands":false,"file_changes":"ask","external_actions":"block"}}`
+	response, err := http.Post(ts.URL+"/api/tool-policy", "application/json", strings.NewReader(update))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("update status=%d", response.StatusCode)
+	}
+	raw, err := os.ReadFile(cfg.Security.ToolPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted struct {
+		OperatorControls config.OperatorToolControls `json:"operator_controls"`
+	}
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.OperatorControls.WebAccess == nil || *persisted.OperatorControls.WebAccess || persisted.OperatorControls.ExternalActions != "block" {
+		t.Fatalf("operator controls did not persist: %+v", persisted.OperatorControls)
+	}
+	invalid := `{"deny":[],"approval_required":[],"operator_controls":{"file_changes":"always_allow"}}`
+	response, err = http.Post(ts.URL+"/api/tool-policy", "application/json", strings.NewReader(invalid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid mode status=%d", response.StatusCode)
+	}
+}
+
 func TestOwnerProfileEndpointUpdatesProfile(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)

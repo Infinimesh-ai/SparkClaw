@@ -46,6 +46,7 @@
       }
     ],
     "linux": {
+      "icon": "src/assets/icon.png",
       "target": [
         { "target": "AppImage", "arch": ["arm64"] },
         { "target": "deb", "arch": ["arm64"] }

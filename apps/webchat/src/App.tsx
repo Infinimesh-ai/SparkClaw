@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, KeyRound, PanelLeft, PanelRight, Plus, X } from "lucide-react";
+import { KeyRound, PanelLeft, PanelRight, PlugZap, Plus, X } from "lucide-react";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
 import { api, APIError, apiToken, clearAPIToken, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
@@ -15,16 +15,19 @@ import type { StreamStatus } from "./components/messages";
 import { InspectorColumn } from "./components/inspector";
 import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
+import { NotificationCenter } from "./components/notificationCenter";
 import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { WorkspaceSettingsSidebar } from "./components/settingsSidebar";
 import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
+import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
+import { applyAppearance } from "./lib/appearance";
 import type {
   Approval,
   ArtifactObject,
@@ -49,6 +52,7 @@ import type {
 } from "./api/types";
 
 export function App() {
+  useEffect(() => applyAppearance(), []);
   const desktop = desktopCapability();
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const text = dictionaries[language];
@@ -91,12 +95,15 @@ export function App() {
   // rejected our credentials and the token recovery UI applies.
   // Detected from the typed APIError status, never from display strings.
   const [authRecovery, setAuthRecovery] = useState(false);
+  const [pairRuntimeOpen, setPairRuntimeOpen] = useState(false);
   const [authEpoch, setAuthEpoch] = useState(0);
   const [notice, setNotice] = useState("");
   const [desktopConnectionState, setDesktopConnectionState] = useState("checking");
+  const passiveNotifications = usePassiveNotifications();
 
   const setError = useCallback((message: string) => {
     setAuthRecovery(false);
+    setPairRuntimeOpen(false);
     setErrorMessage(message);
   }, []);
 
@@ -104,6 +111,7 @@ export function App() {
     const unauthorized = err instanceof APIError && err.status === 401;
     if (desktop && unauthorized) setDesktopConnectionState("invalid_authentication");
     setAuthRecovery(!desktop && unauthorized);
+    if (!unauthorized) setPairRuntimeOpen(false);
     setErrorMessage(err instanceof Error && err.message ? err.message : fallback);
   }, [desktop]);
   const [tab, setTab] = useState<PanelTab>("timeline");
@@ -213,10 +221,12 @@ export function App() {
   const refreshGlobal = useCallback(async () => {
     const generation = globalRefreshGenerationRef.current + 1;
     globalRefreshGenerationRef.current = generation;
-    const [readyStatus, configStatus, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
-      await Promise.all([
+    const configStatus = await api.config();
+    if (globalRefreshGenerationRef.current !== generation) return;
+    setRuntimeConfig(configStatus);
+    const [readyStatus, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
+      await Promise.allSettled([
         api.ready(),
-        api.config(),
         api.owner(),
         api.clients(),
         api.connectors(),
@@ -230,19 +240,18 @@ export function App() {
         api.schedules()
       ]);
     if (globalRefreshGenerationRef.current !== generation) return;
-    setReady(readyStatus);
-    setRuntimeConfig(configStatus);
-    setOwnerProfile(owner);
-    setClients(clientList.clients ?? []);
-    setConnectors(connectorList.connectors ?? []);
-    setNotificationBindings(bindingList.bindings ?? []);
-    setApprovals(approvalList.approvals);
-    setCandidates(candidateList.memory_candidates);
-    setMemories(memoryList.memories);
-    setEvalRuns(evalList.eval_runs ?? []);
-    setArtifacts(artifactList.artifacts ?? []);
-    setTraceList(traces.traces ?? []);
-    setSchedules(scheduleList.schedules ?? []);
+    if (readyStatus.status === "fulfilled") setReady(readyStatus.value);
+    if (owner.status === "fulfilled") setOwnerProfile(owner.value);
+    if (clientList.status === "fulfilled") setClients(clientList.value.clients ?? []);
+    if (connectorList.status === "fulfilled") setConnectors(connectorList.value.connectors ?? []);
+    if (bindingList.status === "fulfilled") setNotificationBindings(bindingList.value.bindings ?? []);
+    if (approvalList.status === "fulfilled") setApprovals(approvalList.value.approvals);
+    if (candidateList.status === "fulfilled") setCandidates(candidateList.value.memory_candidates);
+    if (memoryList.status === "fulfilled") setMemories(memoryList.value.memories);
+    if (evalList.status === "fulfilled") setEvalRuns(evalList.value.eval_runs ?? []);
+    if (artifactList.status === "fulfilled") setArtifacts(artifactList.value.artifacts ?? []);
+    if (traces.status === "fulfilled") setTraceList(traces.value.traces ?? []);
+    if (scheduleList.status === "fulfilled") setSchedules(scheduleList.value.schedules ?? []);
   }, []);
 
   const {
@@ -295,7 +304,7 @@ export function App() {
   }, [desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSessionList]);
 
   useEffect(() => {
-    if (!apiToken() && (!desktop || desktopConnectionState !== "connected")) return;
+    if (authRecovery || (!apiToken() && (!desktop || desktopConnectionState !== "connected"))) return;
     let stopped = false;
     let retryTimer = 0;
     let flushTimer = 0;
@@ -311,12 +320,14 @@ export function App() {
       const currentID = activeSessionRef.current;
       const tasksChanged = refreshEverything || categories.has("conversation") || categories.has("tasks") || categories.has("approvals") || categories.has("memories");
       const globalChanged = refreshEverything || categories.size === 0 || [...categories].some((category) => !["sessions", "conversation"].includes(category));
-      await Promise.allSettled([
+      const results = await Promise.allSettled([
         listChanged ? refreshSessionList() : Promise.resolve(),
         currentID && tasksChanged && activeMessageStreamRef.current !== currentID ? refreshSession(currentID) : Promise.resolve(),
         globalChanged ? refreshGlobal() : Promise.resolve(),
         globalChanged ? refreshDeliverySurface() : Promise.resolve()
       ]);
+      const unauthorized = results.find((result) => result.status === "rejected" && result.reason instanceof APIError && result.reason.status === 401);
+      if (unauthorized?.status === "rejected") surfaceError(unauthorized.reason, text.auth.unauthorized);
     };
     const queue = (category: string) => {
       dirty.add(category || "all");
@@ -358,7 +369,7 @@ export function App() {
       window.removeEventListener("online", foregroundReconcile);
       document.removeEventListener("visibilitychange", foregroundReconcile);
     };
-  }, [authEpoch, desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSession, refreshSessionList, surfaceError, text.auth.unauthorized]);
+  }, [authEpoch, authRecovery, desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSession, refreshSessionList, surfaceError, text.auth.unauthorized]);
 
   async function retryDesktopConnection() {
     if (!desktop) return;
@@ -648,12 +659,38 @@ export function App() {
     if (page !== "schedules") setScheduleCreateOpen(false);
   }, [page]);
 
+  useEffect(() => {
+    if (page !== "settings") return;
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".settingsPageMain")?.scrollTo({ top: 0, behavior: "auto" });
+    });
+  }, [page, tab]);
+
+  useEffect(() => {
+    if (page !== "settings" || !["models-tools", "permissions", "connections"].includes(tab) || authRecovery) return;
+    let active = true;
+    void api.config().then((config) => {
+      if (active) setRuntimeConfig(config);
+    }).catch((err) => {
+      if (active) surfaceError(err, text.settings.unavailable);
+    });
+    if (tab === "connections") {
+      void api.connectors().then((result) => {
+        if (active) setConnectors(result.connectors ?? []);
+      }).catch((err) => {
+        if (active) surfaceError(err, text.errors.connectorUpdate);
+      });
+    }
+    return () => { active = false; };
+  }, [authRecovery, page, surfaceError, tab, text.errors.connectorUpdate, text.settings.unavailable]);
+
   function renderInspectorColumn(connectionsOnly = false, showTabs = true) {
     return (
       <InspectorColumn
         key={connectionsOnly ? "channels" : showTabs ? "inspector" : "settings-page"}
         connectionsOnly={connectionsOnly}
         showTabs={showTabs}
+        settingsPage={page === "settings"}
         tab={tab}
         onTabChange={setTab}
         text={text}
@@ -694,7 +731,8 @@ export function App() {
     );
   }
 
-  const settingsPageTitle = tab === "settings" ? copy.general : text.tabs[tab];
+  const settingsPageTitle = copy.settingsTitles[tab];
+  const settingsPageDescription = tab === "memory" || tab === "approvals" ? "" : copy.settingsDescriptions[tab];
 
   return (
     <main className={`shell workbench ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
@@ -706,6 +744,7 @@ export function App() {
       {page !== "settings" && <SessionSidebar
         text={text}
         language={language}
+        page={page}
         ownerProfile={ownerProfile}
         onNavigate={(next) => { if (next === "chat") { if (messages.length) void newTask(); else navigate(next); } else navigate(next); }}
         onSearch={() => setSearchOpen(true)}
@@ -727,26 +766,34 @@ export function App() {
       {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""}`}>
         <header className="topbar">
           <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
-          {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} onClick={() => setInspectorOpen(current => !current)} aria-label={copy.toggleInspector} aria-expanded={inspectorOpen}><PanelRight size={18} /></button>}
+          <span className="workspaceLabel">{copy.local}</span>
+          <div className="topbarActions">
+            <NotificationCenter
+              notifications={passiveNotifications.notifications}
+              unreadCount={passiveNotifications.unreadCount}
+              open={passiveNotifications.open}
+              toast={passiveNotifications.toast}
+              error={passiveNotifications.error}
+              language={language}
+              text={text}
+              onToggle={() => passiveNotifications.setOpen((current) => !current)}
+              onDismissToast={passiveNotifications.dismissToast}
+              onRead={passiveNotifications.markRead}
+              onReadAll={passiveNotifications.markAllRead}
+            />
+            {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} onClick={() => setInspectorOpen(current => !current)} aria-label={copy.toggleInspector} aria-expanded={inspectorOpen}><PanelRight size={18} /></button>}
+          </div>
         </header>
 
-        {page === "chat" && (
-          <button
-            className={`inspectorEdgeHandle ${inspectorOpen ? "open" : ""}`}
-            type="button"
-            onClick={() => setInspectorOpen((current) => !current)}
-            aria-label={copy.toggleInspector}
-            aria-expanded={inspectorOpen}
-          >
-            {inspectorOpen ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
-          </button>
-        )}
-
-        {error && (
-          <div className="errorBanner">
-            <span>{error}</span>
-            {authRecovery ? (
-              <div className="authActions">
+        {error && (authRecovery || (!ready && showHome)) && (
+          <div className={`connectionNotice ${pairRuntimeOpen ? "pairing" : ""}`} role="status">
+            <span className="connectionNoticeIcon" aria-hidden="true"><PlugZap size={17} /></span>
+            <span className="connectionNoticeCopy">
+              <strong>{copy.connectGateway}</strong>
+              <small>{copy.connectGatewayDescription}</small>
+            </span>
+            {pairRuntimeOpen ? (
+              <div className="authActions connectionNoticeAuth">
                 <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
                   <input
                     aria-label={text.auth.gatewayToken}
@@ -760,7 +807,13 @@ export function App() {
                   </button>
                 </form>
               </div>
-            ) : null}
+            ) : <button className="connectionNoticeAction" type="button" onClick={() => setPairRuntimeOpen(true)}>{copy.pairRuntime}</button>}
+          </div>
+        )}
+
+        {error && !authRecovery && (ready || !showHome) && (
+          <div className="errorBanner">
+            <span>{error}</span>
           </div>
         )}
 
@@ -811,8 +864,6 @@ export function App() {
           </div>
           {active?.source !== "mcp" && (
             <ComposerDock
-              modelLabel={ready ? `${copy.model} · ${ready.model_mode}` : undefined}
-              onModelSettings={() => navigate("settings")}
               text={text}
               language={language}
               activeSession={activeSession}
@@ -841,15 +892,26 @@ export function App() {
           text={text}
           language={language}
           tab={tab}
-          pendingApprovalCount={pendingApprovals.length}
-          pendingCandidateCount={pendingCandidates.length}
+          pendingApprovalCount={0}
+          pendingCandidateCount={0}
           onTabChange={setTab}
           onBack={() => navigate(settingsReturnPageRef.current === "settings" ? "chat" : settingsReturnPageRef.current)}
         />
         <section className="settingsPageMain">
           <div className="settingsPageContent">
+            {authRecovery && !desktop && <div className="connectionNotice settingsConnectionNotice" role="status">
+              <span className="connectionNoticeIcon" aria-hidden="true"><PlugZap size={17} /></span>
+              <span className="connectionNoticeCopy"><strong>{copy.connectGateway}</strong><small>{copy.connectGatewayDescription}</small></span>
+              {pairRuntimeOpen ? <div className="authActions connectionNoticeAuth">
+                <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
+                  <input aria-label={text.auth.gatewayToken} value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder={text.auth.gatewayToken} type="password" />
+                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken}><KeyRound size={15} /></button>
+                </form>
+              </div> : <button className="connectionNoticeAction" type="button" onClick={() => setPairRuntimeOpen(true)}>{copy.pairRuntime}</button>}
+            </div>}
             <header className="settingsPageHeader">
               <h1>{settingsPageTitle}</h1>
+              {settingsPageDescription && <p>{settingsPageDescription}</p>}
             </header>
             {renderInspectorColumn(false, false)}
           </div>

@@ -768,6 +768,13 @@ export type PublicConfig = {
     };
   };
   tool_policy: {
+    operator_controls: {
+      web_access: boolean;
+      workspace_files: boolean;
+      shell_commands: boolean;
+      file_changes: "default" | "ask";
+      external_actions: "current" | "ask" | "block";
+    };
     policy_path: string;
     external_content_untrusted: boolean;
     approval_required_for_dangerous_tools: boolean;

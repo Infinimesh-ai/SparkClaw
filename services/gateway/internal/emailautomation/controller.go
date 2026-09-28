@@ -285,6 +285,10 @@ func (c *Controller) resolveProvider(ctx context.Context, ownerID, request strin
 }
 
 func (c *Controller) persistProbe(ctx context.Context, setting app.EmailProviderSetting, actorID string, result ProbeResult, probeErr error) (app.EmailProviderSetting, error) {
+	// Contention says nothing about the mailbox/login health.
+	if ErrorCode(probeErr) == app.ToolErrorEmailBrowserBusy {
+		return setting, nil
+	}
 	now := c.now()
 	setting.UpdatedBy = strings.TrimSpace(actorID)
 	setting.LastCheckedAt = &now

@@ -32,13 +32,18 @@ try {
     schema_version: 1, deployment_id: "qualification-deployment", client_id: "qualification-desktop",
     owner_id: "owner", client_name: "SparkClaw Desktop Qualification", token: DESKTOP_TOKEN,
   }), { mode: 0o600 });
+  const configHome = path.join(temporary, "config");
+  const env = { ...process.env, DISPLAY: display, XDG_CONFIG_HOME: configHome };
+  delete env.SPARKCLAW_DESKTOP_CONNECTION_FILE;
+  delete env.SPARKCLAW_DESKTOP_CREDENTIAL_FILE;
+  await run(process.execPath, [path.join(root, "scripts", "configure-desktop-connection.mjs"),
+    "--runtime-dir", runtimeDirectory], { env });
   const evidence = [];
   for (const artifact of manifest.artifacts) {
     const filename = path.join(output, artifact.name);
     const content = await fs.readFile(filename);
     assert.equal(crypto.createHash("sha256").update(content).digest("hex"), artifact.sha256);
     let executable = filename;
-    const env = { ...process.env, DISPLAY: display };
     if (artifact.name.endsWith(".deb")) {
       const field = await run("dpkg-deb", ["--field", filename, "Architecture"]);
       assert.equal(field.stdout.trim(), "arm64");
@@ -59,8 +64,6 @@ try {
       SPARKCLAW_DESKTOP_USER_DATA_DIR: userData,
       SPARKCLAW_ELECTRON_ADAPTER_SOCKET: path.join(adapterDirectory, "electron-adapter.sock"),
       SPARKCLAW_ELECTRON_ADAPTER_SECRET_FILE: path.join(adapterDirectory, "adapter-secret"),
-      SPARKCLAW_DESKTOP_CONNECTION_FILE: descriptorPath,
-      SPARKCLAW_DESKTOP_CREDENTIAL_FILE: credentialPath,
     });
     assert.equal(ready.architecture, "arm64");
     assert.equal(ready.runtime_kind, "electron");
@@ -154,9 +157,9 @@ async function launchAndStop(executable, args, env) {
   return ready;
 }
 
-async function run(executable, args, { cwd } = {}) {
+async function run(executable, args, { cwd, env } = {}) {
   return await new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(executable, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     const stdout = [];
     const stderr = [];
     child.stdout.on("data", (chunk) => stdout.push(chunk));

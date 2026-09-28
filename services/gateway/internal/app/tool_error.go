@@ -71,6 +71,7 @@ const (
 	ToolErrorEmailLoginRequired              ToolErrorCode = "email_login_required"
 	ToolErrorEmailAccountAmbiguous           ToolErrorCode = "email_account_ambiguous"
 	ToolErrorEmailProviderUnavailable        ToolErrorCode = "email_provider_unavailable"
+	ToolErrorEmailBrowserBusy                ToolErrorCode = "email_browser_busy"
 	ToolErrorEmailPageContractChanged        ToolErrorCode = "email_page_contract_changed"
 	ToolErrorEmailInvalidInput               ToolErrorCode = "email_invalid_input"
 	ToolErrorEmailDraftConflict              ToolErrorCode = "email_draft_conflict"

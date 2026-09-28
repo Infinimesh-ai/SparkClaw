@@ -8,8 +8,8 @@ resolver="${SPARKCLAW_BROWSER_DISPLAY_RESOLVER:-}"
 
 case "$mode" in
   serve) [[ $# -eq 0 ]] || { printf 'serve does not accept URLs\n' >&2; exit 2; } ;;
-  open) [[ $# -le 1 ]] || { printf 'open accepts one URL\n' >&2; exit 2; } ;;
-  *) printf 'usage: sparkclaw-browser-launcher [serve|open [http(s) URL]]\n' >&2; exit 2 ;;
+  open|new-window) [[ $# -le 1 ]] || { printf '%s accepts one URL\n' "$mode" >&2; exit 2; } ;;
+  *) printf 'usage: sparkclaw-browser-launcher [serve|open|new-window [http(s) URL]]\n' >&2; exit 2 ;;
 esac
 url="${1:-}"
 if [[ -n "$url" && "$url" != http://* && "$url" != https://* ]]; then
@@ -65,7 +65,7 @@ browser_args=(
   --load-extension="$extension_paths"
 )
 
-if [[ "$mode" == "open" ]]; then
+if [[ "$mode" == "open" || "$mode" == "new-window" ]]; then
   systemctl --user start sparkclaw-browser.service
   for _ in $(seq 1 50); do
     systemctl --user is-active --quiet sparkclaw-browser.service && break
@@ -83,9 +83,11 @@ if [[ "$mode" == "open" ]]; then
   }
   for _ in $(seq 1 50); do
     if env DISPLAY="$display" XAUTHORITY="$xauthority" python3 "$focus_helper" "$browser_pid"; then
-      if [[ -n "$url" ]]; then
+      if [[ "$mode" == "new-window" || -n "$url" ]]; then
+        owner_args=(--user-data-dir="$profile_dir" --class=sparkclaw-browser --new-window)
+        if [[ -n "$url" ]]; then owner_args+=("$url"); fi
         env DISPLAY="$display" XAUTHORITY="$xauthority" CHROME_DEVEL_SANDBOX="$browser_sandbox" \
-          "$browser_executable" --user-data-dir="$profile_dir" --class=sparkclaw-browser --new-window "$url"
+          "$browser_executable" "${owner_args[@]}"
       fi
       exit 0
     fi

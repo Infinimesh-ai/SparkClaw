@@ -171,7 +171,7 @@ if value != expected:
     raise SystemExit("SparkClaw browser config is stale")
 PY
   grep -Fqx "ExecStart=$launcher serve" "$unit_path" || fail "browser service is stale"
-  grep -Fqx "Exec=$launcher open %u" "$desktop_path" || fail "browser desktop launcher is stale"
+  grep -Fqx "Exec=$launcher new-window %u" "$desktop_path" || fail "browser desktop launcher is stale"
   grep -Fqx "StartupWMClass=sparkclaw-browser" "$desktop_path" || fail "browser desktop window class is stale"
   grep -Fqx "MimeType=x-scheme-handler/http;x-scheme-handler/https;" "$desktop_path" || fail "browser desktop MIME registration is stale"
   grep -Fqx "Icon=sparkclaw-browser" "$desktop_path" || fail "browser desktop icon registration is stale"
@@ -307,7 +307,7 @@ Type=Application
 Name=SparkClaw Browser
 GenericName=Web Browser
 Comment=Open the persistent SparkClaw browser profile
-Exec=$launcher open %u
+Exec=$launcher new-window %u
 TryExec=$launcher
 Icon=sparkclaw-browser
 Terminal=false

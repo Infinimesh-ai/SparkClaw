@@ -121,6 +121,7 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertIn('StartupWMClass=sparkclaw-browser', install)
         self.assertIn('MimeType=x-scheme-handler/http;x-scheme-handler/https;', install)
         self.assertIn('Exec=$launcher new-window %u', install)
+        self.assertIn('StartupNotify=false', install)
 
     def test_background_restack_requires_exactly_one_new_browser_window(self) -> None:
         spec = importlib.util.spec_from_file_location("browser_bridge_focus", FOCUS_HELPER)

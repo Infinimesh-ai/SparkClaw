@@ -70,6 +70,12 @@ manually created windows keep the SparkClaw Browser app identity. The system
 launcher and its New Window action create an owner window in this same profile.
 `npm run open:browser` still focuses an existing window.
 
+On GNOME, clicking a running application's Dock icon activates an existing
+window. Use Ctrl-click, Shift-click, middle-click, or **New Window** from the
+Dock menu to create another window. The desktop entry disables startup
+notification because Chromium handles the request in its existing process;
+otherwise the pointer can keep showing a launch indicator after the window opens.
+
 The explicit open command brings the browser forward for owner work such as
 login or human verification. It activates an existing browser window without
 launching a second `about:blank` window. The first background task opens one dedicated,

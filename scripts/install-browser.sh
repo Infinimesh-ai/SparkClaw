@@ -175,6 +175,7 @@ PY
   grep -Fqx "StartupWMClass=sparkclaw-browser" "$desktop_path" || fail "browser desktop window class is stale"
   grep -Fqx "MimeType=x-scheme-handler/http;x-scheme-handler/https;" "$desktop_path" || fail "browser desktop MIME registration is stale"
   grep -Fqx "Icon=sparkclaw-browser" "$desktop_path" || fail "browser desktop icon registration is stale"
+  grep -Fqx "StartupNotify=false" "$desktop_path" || fail "browser desktop startup notification is stale"
   systemctl --user is-active --quiet sparkclaw-browser.service || fail "sparkclaw-browser is not active"
   main_pid="$(systemctl --user show --property MainPID --value sparkclaw-browser.service)"
   [[ "$main_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$main_pid/cmdline" ]] || fail "SparkClaw browser PID is unavailable"
@@ -314,7 +315,7 @@ Terminal=false
 Categories=Network;WebBrowser;
 MimeType=x-scheme-handler/http;x-scheme-handler/https;
 StartupWMClass=sparkclaw-browser
-StartupNotify=true
+StartupNotify=false
 EOF
 chmod 644 "$desktop_path"
 

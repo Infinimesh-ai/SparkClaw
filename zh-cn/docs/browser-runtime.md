@@ -61,6 +61,11 @@ npm run open:browser
 因此手动新建的窗口也归属 SparkClaw Browser。系统桌面入口及其“新建窗口”
 操作会在同一 Profile 中创建 Owner 窗口；`npm run open:browser` 仍聚焦已有窗口。
 
+在 GNOME 中，点击 Dock 上运行中的应用图标会切换到已有窗口。要新建窗口，
+可按住 Ctrl 或 Shift 点击、单击鼠标中键，或从 Dock 右键菜单选择“新建窗口”。
+桌面入口关闭启动通知，因为 Chromium 会在已有进程中处理新窗口请求；否则窗口
+打开后鼠标仍可能显示加载状态。
+
 显式 Open Command 会把已有浏览器窗口带到前台，供 Owner 完成登录或 Human Verification，
 不会再启动一个仅有 `about:blank` 的新窗口。
 首个后台任务会创建一个不聚焦的专用浏览器窗口，后续所有任务都复用该窗口，不再向

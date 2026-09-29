@@ -41,8 +41,8 @@ Electron 44.4.3 / Chromium 152.0.7977.130 / embedded Node 24.21.0.
 | Verification | Result |
 | --- | --- |
 | App-CLI Python | 86 tests; original core/v1 and native lifecycle fixture retained; same suite against an independently installed wheel |
-| App-CLI runtime/provider | 273 passed, no skips; real resident process, lock/restart/lost reply, schemas, grants, task recovery, Host leases and migrated mail cases |
-| SparkClaw Controller | 121 passed, no skips with disposable Chromium download enabled |
+| App-CLI runtime/provider | 275 passed, no skips; real resident process, lock/restart/lost reply, schemas, grants, task recovery, Host leases and migrated mail cases |
+| SparkClaw Controller | 122 passed, no skips with disposable Chromium download enabled |
 | Desktop / Bridge | 17 / 67 passed |
 | Go Gateway | Entire `go test ./services/gateway/...` and `go vet ./services/gateway/...` passed |
 | WebChat | 43 files / 169 tests passed; production build passed with an existing bundle-size warning |
@@ -51,6 +51,7 @@ Electron 44.4.3 / Chromium 152.0.7977.130 / embedded Node 24.21.0.
 | Compatible whole-set rollback | Two distinct artifact digests; original consumer + wheel + runtime restored; same durable state and strictly increasing epoch |
 | Actual Electron | Installed Python public admission → resident Executor → signed HostPort → real owned non-mail page; original task replay and page/process cleanup |
 | Ordinary browser regression | MCP/CLI navigate, read, fill, click, screenshot, download, popup, worker/OOPIF scope, personal-page/input isolation, renderer/main failure and session-cookie persistence |
+| Gateway container | Actual Docker image build and isolated container entrypoint check passed; no host services replaced |
 | Generated/public artifacts | Schema and projection parity, managed preload check, source hygiene and bilingual Markdown links |
 
 An intermediate Electron run failed download qualification after dependencies
@@ -135,6 +136,16 @@ the matched release in the intended environment, verify the normal browser task
 page, then check QQ/Gmail/Outlook cold/warm reads, notifications, original files,
 account changes and explicitly approved send/reconciliation. Synthetic provider
 tests and actual local-browser tests are recorded separately from live-provider
-results. Cloud CI and non-POSIX Runtime v2 cleanup are not claimed as executed.
+results. App-CLI [cloud CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114) passed all seven jobs at the pinned source commit: Python 3.11/3.13 on Windows, macOS and Linux, plus the lifecycle runtime job. Windows skips four POSIX transport tests; non-POSIX Runtime v2 cleanup and SparkClaw cloud CI are not qualified by this run.
 
 Machine-readable sanitized evidence: [app-cli-extraction.json](evaluation/app-cli-extraction.json).
+
+If page cleanup cannot be proven, the Host writes a private `cleanup-fence.json`
+in its `cli-runtime` directory. Reaping a daemon does not erase this fence;
+application admission stays disabled across Host restarts while ordinary browser
+startup remains available. Stop Executor/Controller, restart the dedicated
+browser and verify that the previous owned task pages are gone before an operator
+archives the diagnostic and removes this **Host cleanup fence only**. Then rerun
+setup/check. Never remove `authority.json`, ledger, grant index or send journal.
+
+The initial Windows CI run exposed locale-dependent Unicode fixture reads; explicit UTF-8 fixed both failures. The final matrix is green.

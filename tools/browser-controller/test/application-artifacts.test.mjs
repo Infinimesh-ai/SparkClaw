@@ -47,3 +47,21 @@ test('an invalid application release disables only application admission, leavin
   await assert.rejects(factory.runScript({}), {code: 'browser_script_unavailable'});
   await factory.close();
 });
+
+test('unproven page cleanup stays fenced after daemon reaping and across Host restarts', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'application-cleanup-'));
+  await fs.chmod(root, 0o700); t.after(() => fs.rm(root, {recursive: true, force: true}));
+  let reaped = 0, removed = 0;
+  const failure = Object.assign(new Error('owned page close failed'), {code: 'browser_page_stale'});
+  const driver = new ApplicationHostDriver({runtimeRoot: root});
+  const handle = {activities: new Map(), page: {async closeTaskPage() {throw failure;}, async stop() {}},
+    state: {async reapDaemon() {reaped++;}, async remove() {removed++;}}};
+  driver.handles.add(handle);
+  await assert.rejects(driver.close(handle), failure);
+  assert.equal(reaped, 1); assert.equal(removed, 0);
+  await assert.rejects(driver.close(handle), failure);
+  await assert.rejects(driver.create({}), {code: 'browser_extension_unavailable'});
+  const restarted = new ApplicationHostDriver({runtimeRoot: root});
+  await assert.rejects(restarted.assertCleanupClear(), {code: 'browser_extension_unavailable'});
+  assert.equal((await fs.stat(path.join(root, 'cleanup-fence.json'))).mode & 0o777, 0o600);
+});

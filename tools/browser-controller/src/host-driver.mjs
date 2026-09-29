@@ -13,6 +13,7 @@ import {listenOwnerOnlyUnixSocket} from './unix-socket.mjs';
 export class ApplicationHostDriver {
   constructor(options) {Object.assign(this, options); this.handles = new Set(); this.connections = new Set();}
   async prepare() {
+    await this.assertCleanupClear();
     await prepareRuntimeRoot(this.runtimeRoot);
     this.eventSocket = path.join(this.runtimeRoot, `events-${process.pid}.sock`);
     this.events = net.createServer(socket => {
@@ -39,7 +40,25 @@ export class ApplicationHostDriver {
     });
     await listenOwnerOnlyUnixSocket(this.events, this.eventSocket);
   }
+  async assertCleanupClear() {
+    if (await fs.lstat(path.join(this.runtimeRoot, 'cleanup-fence.json')).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    })) throw clientContractError('application_cleanup_fenced');
+  }
+  async fenceCleanup(handle, error) {
+    handle.cleanupFailure = error;
+    const file = path.join(this.runtimeRoot, 'cleanup-fence.json');
+    const temporary = file + '.' + crypto.randomUUID();
+    const fd = await fs.open(temporary, 'wx', 0o600);
+    try {await fd.writeFile(JSON.stringify({schema_version: 1, reason: 'owned_resource_cleanup_unproven'})); await fd.sync();}
+    finally {await fd.close();}
+    await fs.rename(temporary, file);
+    const directory = await fs.open(this.runtimeRoot, 'r');
+    try {await directory.sync();} finally {await directory.close();}
+  }
   async create({task, epoch, generation, spec, resource, grant}) {
+    await this.assertCleanupClear();
     const sessionID = `session_${crypto.randomBytes(16).toString('hex')}`;
     const state = await createInvocationState(this.runtimeRoot, sessionID, {}, 'host');
     const handle = {state, page: null, events: [], sequence: 0, eventKey: crypto.randomBytes(32).toString('hex'),
@@ -151,6 +170,7 @@ export class ApplicationHostDriver {
     return {artifact: {path: file, bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex')}};
   }
   async close(handle) {
+    if (handle?.cleanupFailure) throw handle.cleanupFailure;
     if (!handle || handle.closed) return;
     let failure;
     const diagnose = (phase, error) => this.diagnostic?.({event: 'application_host_cleanup', phase,
@@ -158,8 +178,9 @@ export class ApplicationHostDriver {
     try {await handle.page?.closeTaskPage();} catch (error) {diagnose('close_page', error); failure = error;}
     try {await handle.page?.stop();} catch (error) {diagnose('stop_cli', error); failure ??= error;}
     // Reaping is the final owned-process fence, even if the page call failed.
-    try {await handle.state.reapDaemon();} catch (error) {diagnose('reap', error); throw error;}
-    await handle.state.remove();
+    try {await handle.state.reapDaemon();} catch (error) {diagnose('reap', error); await this.fenceCleanup(handle, error); throw error;}
+    if (failure) await this.fenceCleanup(handle, failure);
+    else await handle.state.remove();
     if (handle.bootstrap) {this.controller.finishApplication(handle.bootstrap); handle.bootstrap = null;}
     for (const id of handle.activities.keys()) await this.revokeActivity(handle, id);
     handle.closed = true; this.handles.delete(handle);

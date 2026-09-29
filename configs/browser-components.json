@@ -25,7 +25,7 @@
       "requires": [],
       "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/bae3b72972e2135ebfe66508aa5855a6b2bfdd77/runtimes/browser/assets/mail/qq-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/2824c254eaafa3003c5cc06a5c377046bbb58aa7/runtimes/browser/assets/mail/qq-mail-reader.user.js"
     },
     {
       "file": "gmail-mail-reader.user.js",
@@ -34,7 +34,7 @@
       "requires": [],
       "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/bae3b72972e2135ebfe66508aa5855a6b2bfdd77/runtimes/browser/assets/mail/gmail-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/2824c254eaafa3003c5cc06a5c377046bbb58aa7/runtimes/browser/assets/mail/gmail-mail-reader.user.js"
     },
     {
       "file": "outlook-mail-reader.user.js",
@@ -43,7 +43,7 @@
       "requires": [],
       "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/bae3b72972e2135ebfe66508aa5855a6b2bfdd77/runtimes/browser/assets/mail/outlook-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/2824c254eaafa3003c5cc06a5c377046bbb58aa7/runtimes/browser/assets/mail/outlook-mail-reader.user.js"
     }
   ]
 }

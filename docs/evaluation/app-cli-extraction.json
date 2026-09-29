@@ -2,8 +2,8 @@
   "schema_version": 1,
   "date": "2026-09-29",
   "release_id": "0.3.0-sparkclaw.1",
-  "app_cli_source_commit": "bae3b72972e2135ebfe66508aa5855a6b2bfdd77",
-  "runtime_digest": "a82d56c053e96e455c670e78fbbd1770ef4792bbb1651779bdf4695d9392c021",
+  "app_cli_source_commit": "2824c254eaafa3003c5cc06a5c377046bbb58aa7",
+  "runtime_digest": "7e255b793cc76d0364707efb02026b4091f699b346d8dfacf80563106211048d",
   "host": {
     "os": "Linux",
     "architecture": "arm64",
@@ -18,10 +18,10 @@
       "passed": 86
     },
     "application_runtime_and_mail": {
-      "passed": 273
+      "passed": 275
     },
     "controller": {
-      "passed": 121,
+      "passed": 122,
       "skipped": 0
     },
     "desktop": {
@@ -42,7 +42,10 @@
     "gateway_full_suite": "passed",
     "gateway_vet": "passed",
     "webchat_build": "passed",
-    "markdown_files": 95
+    "markdown_files": 95,
+    "mail_qualification_runner": {
+      "passed": 8
+    }
   },
   "paired_release": {
     "fresh_install": true,
@@ -153,7 +156,37 @@
     "production_activated": false,
     "real_mailbox_tested": false,
     "real_mail_sent": false,
-    "cloud_ci_executed": false
+    "sparkclaw_cloud_ci_executed": false
   },
-  "resolved_intermediate_failure": "Electron download timed out after dependency reinstall with scripts disabled; applying the existing pinned Playwright download hook and rerunning the complete qualification passed."
+  "resolved_intermediate_failure": "Electron download timed out after dependency reinstall with scripts disabled; applying the existing pinned Playwright download hook and rerunning the complete qualification passed.",
+  "gateway_container": {
+    "built": true,
+    "isolated_entrypoint_smoke": true,
+    "image": "sha256:0b7296b848c73c455e4a2854a10624299ad45d8b487641420d3bfe61064652a7",
+    "deployed": false
+  },
+  "cleanup_failure": {
+    "persistent_host_fence": true,
+    "survives_daemon_reaping": true,
+    "survives_host_restart": true
+  },
+  "app_cli_cloud_ci": {
+    "url": "https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114",
+    "head_sha": "2824c254eaafa3003c5cc06a5c377046bbb58aa7",
+    "conclusion": "success",
+    "jobs_passed": 7,
+    "matrix": {
+      "os": [
+        "ubuntu-latest",
+        "windows-latest",
+        "macos-latest"
+      ],
+      "python": [
+        "3.11",
+        "3.13"
+      ]
+    },
+    "windows_posix_transport_tests_skipped": 4
+  },
+  "resolved_ci_failure": "Windows fixture reads used a locale-dependent codec; explicitly reading UTF-8 resolved the two failures and all seven CI jobs passed."
 }

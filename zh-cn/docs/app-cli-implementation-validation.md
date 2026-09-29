@@ -19,8 +19,8 @@ Executor 将请求键与主体/owner/意图持久绑定；丢包查原 task，�
 | 验证 | 结果 |
 | --- | --- |
 | App-CLI Python | 86 项；保留原核心/v1 和原生生命周期夹具；仓库外 wheel 安装复跑同一套测试 |
-| App-CLI 运行时/邮件 | 273 通过，无跳过；真实常驻子进程、锁/重启/丢包、Schema、授权、恢复、Host 租约及迁入邮件用例 |
-| SparkClaw Controller | 启用隔离 Chromium 下载后 121 通过，无跳过 |
+| App-CLI 运行时/邮件 | 275 通过，无跳过；真实常驻子进程、锁/重启/丢包、Schema、授权、恢复、Host 租约及迁入邮件用例 |
+| SparkClaw Controller | 启用隔离 Chromium 下载后 122 通过，无跳过 |
 | Desktop / Bridge | 17 / 67 通过 |
 | Go Gateway | 全量 `go test ./services/gateway/...` 和 `go vet ./services/gateway/...` 通过 |
 | WebChat | 43 文件 / 169 测试通过；生产构建通过，保留既有产物体积提示 |
@@ -29,6 +29,7 @@ Executor 将请求键与主体/owner/意图持久绑定；丢包查原 task，�
 | 兼容整组回退 | 两个不同制品摘要；恢复原消费者+wheel+runtime，原状态保留，epoch 严格递增 |
 | 实际 Electron | 安装后的 Python 公共准入 → 常驻 Executor → 签名 HostPort → 真实非邮件任务页；原 task 防重与页面/进程清理通过 |
 | 普通浏览器回归 | MCP/CLI 导航、读写点击、截图下载、弹窗、worker/OOPIF、个人页及输入隔离、renderer/main 故障恢复、会话 cookie 持久化 |
+| 网关容器 | 实际 Docker 镜像构建及隔离容器启动入口检查通过，未替换宿主运行服务 |
 | 生成/公开产物 | Schema/投影一致、受管 preload 校验、源码卫生及双语 Markdown 链接检查 |
 
 中间一次 Electron 下载验证失败，原因是重装依赖时禁用了生命周期脚本，遗漏既有 Playwright 下载补丁。执行 `install-playwright-downloads.mjs` 的正常安装步骤后，完整用例通过；安装器与 CI 显式执行该步骤，未放宽超时来通过检查。
@@ -71,6 +72,10 @@ npm run check:browser-controller
 
 ## 用户最终验收
 
-实现与上述验证已完成；本次没有改变生产服务或真实邮箱。最终验收在目标环境激活匹配发行，确认正常浏览器任务页，再验 QQ/Gmail/Outlook 冷热读取、通知、原件、账户变化以及明确批准后的发送/对账。供应商模拟验证与实际本地浏览器验证分开记录，不代替三家真实站点验收。未宣称云端 CI 或非 POSIX Runtime v2 清理通过。
+实现与上述验证已完成；本次没有改变生产服务或真实邮箱。最终验收在目标环境激活匹配发行，确认正常浏览器任务页，再验 QQ/Gmail/Outlook 冷热读取、通知、原件、账户变化以及明确批准后的发送/对账。供应商模拟验证与实际本地浏览器验证分开记录，不代替三家真实站点验收。固定源提交的 App-CLI [云端 CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114) 共 7 个任务全部通过：Windows/macOS/Linux × Python 3.11/3.13，以及生命周期运行时任务。Windows 按平台跳过 4 项 POSIX 传输测试；非 POSIX Runtime v2 清理和 SparkClaw 云端 CI 不属于此次通过范围。
 
 脱敏的机器可读证据：[app-cli-extraction.json](../../docs/evaluation/app-cli-extraction.json)。
+
+无法证明任务页清理成功时，Host 在私有 `cli-runtime` 写入 `cleanup-fence.json`。回收 daemon 不会清除此围栏，Host 重启后仍禁用应用准入，普通浏览器启动不受影响。操作员须停止 Executor/Controller、重启专用浏览器并确认旧任务页消失，再归档诊断并仅移除这个 **Host 清理围栏**，随后重新 setup/check。不得移除 `authority.json`、ledger、授权索引或发送 journal。
+
+首轮 Windows CI 检出 Unicode 夹具按系统编码读取的问题；显式 UTF-8 修复两项失败，最终矩阵全部通过。

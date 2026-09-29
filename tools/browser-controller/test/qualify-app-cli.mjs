@@ -17,11 +17,11 @@ export async function qualifyAppCLI({directory, python, adapter, launcher, userD
   const runtimeRoot = fileURLToPath(new URL('../node_modules/@infinimesh/app-cli-runtime/', import.meta.url));
   const manifest = {schema_version: '1.0', id: 'browser-fixture', name: 'Owned browser fixture', version: '1.0.0',
     platforms: ['linux'], adapter: {kind: 'runtime', name: 'BrowserHostPort qualification'}, commands: [
-      {name: 'inspect', description: 'Read an owned local fixture.', side_effect: 'read_only', input_schema: {type: 'object', additionalProperties: false},
-        output_schema: {type: 'object', properties: {title: {type: 'string'}, heading: {type: 'string'}}, required: ['title', 'heading'], additionalProperties: false}},
+      {name: 'inspect', description: 'Inspect and fill an owned local fixture.', side_effect: 'local_mutation', input_schema: {type: 'object', additionalProperties: false},
+        output_schema: {type: 'object', properties: {title: {type: 'string'}, heading: {type: 'string'}, private_fields: {type: 'boolean'}}, required: ['title', 'heading', 'private_fields'], additionalProperties: false}},
     ]};
   const binding = {version: '1.0', manifest, manifest_digest: digest(manifest), commands: {inspect: {
-    handler: 'inspect', resource: 'fixture', timeout_ms: 30000, host: {family: 'fixture', activity: 'read', methods: ['navigate', 'inspect'],
+    handler: 'inspect', resource: 'fixture', timeout_ms: 30000, host: {family: 'fixture', activity: 'exclusive', methods: ['navigate', 'inspect', 'setSecrets', 'fill', 'click'],
       page: {loginURL: origin + '/fixture', origins: [origin], timeoutMS: 30000, codeEnabled: true, beforeNavigationAssets: []}},
   }}};
   const bindingFile = path.join(root, 'binding.json'); await fs.writeFile(bindingFile, JSON.stringify(binding), {mode: 0o600});
@@ -46,15 +46,16 @@ export async function qualifyAppCLI({directory, python, adapter, launcher, userD
     assert.equal(service.exitCode, null, serviceError);
     const product = new ProductClient({configFile, python});
     const admission = product.authorize({app: manifest.id, command: 'inspect', arguments: {}, request_key: 'browser-fixture-one',
-      principal: 'fixture-owner', owner: 'fixture-owner', side_effect: 'read_only', timeout_ms: 60000,
+      principal: 'fixture-owner', owner: 'fixture-owner', side_effect: 'local_mutation', timeout_ms: 60000,
       resource: {binding_digest: digest(binding), profile_id: 'default', credential_generation: 1, token, pool_key: 'fixture'}});
     const result = await product.wait(admission, await product.invoke(admission));
     assert.equal(result.task.status, 'completed', JSON.stringify(result));
     assert.equal(result.data.title, 'Electron adapter fixture');
+    assert.equal(result.data.private_fields, true, 'late private values were not filled exactly');
     const replay = await product.invoke(admission); assert.equal(replay.task.id, result.task.id);
     assert.equal(factory.driver.handles.size, 0, 'completed application left an owned page/process');
     return {public_registry: true, runtime_v2: true, resident_executor: true, browser_host: true,
-      actual_owned_page: true, idempotent_replay: true, cleanup: true, non_mail_application: true};
+      actual_owned_page: true, idempotent_replay: true, cleanup: true, non_mail_application: true, late_private_fields: true};
   } finally {
     const stopped = service.exitCode === null ? new Promise(resolve => service.once('exit', resolve)) : Promise.resolve();
     service.kill('SIGTERM'); await Promise.race([stopped, delay(5000)]); if (service.exitCode === null) service.kill('SIGKILL');

@@ -145,12 +145,14 @@ test("CLI exit classification matches recorded and pinned Playwright messages", 
   assert.equal(classify(golden.cli.unknown_option_raw), "process_exit_invalid_arguments");
   assert.equal(classify(golden.cli.too_many_arguments_raw), "process_exit_invalid_arguments");
   assert.equal(classify(golden.cli.tab_close_missing_raw), "process_exit");
-  assert.equal(classify(golden.cli.click_unknown_ref_json), "process_exit");
+  assert.equal(classify(golden.cli.click_unknown_ref_json), "process_exit_target_missing");
 
   // Messages that cannot be provoked deterministically are pinned to the
   // playwright-core bundle that ships them.
   const bundle = fs.readFileSync(path.join(packageRoot, "node_modules", "playwright-core", "lib", "coreBundle.js"), "utf8");
   for (const [literal, sample, reason] of [
+    ["does not match any elements", 'Error: "[data-owned]" does not match any elements.', "process_exit_target_missing"],
+    ["strict mode violation", 'Error: strict mode violation: locator("[data-owned]") resolved to 2 elements', "process_exit_target_ambiguous"],
     [
       "Target page, context or browser has been closed",
       "Error: Target page, context or browser has been closed",

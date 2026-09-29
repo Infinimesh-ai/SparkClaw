@@ -443,7 +443,7 @@ Go Gateway 沿用挂载到容器的、已鉴权的 owner Controller socket。own
 
 ## 14. 已实现发行与验收边界
 
-已接受的 R3 实现已完成，SparkClaw 分支为 `codex/extract-email-app-cli`，App-CLI fork 分支为 `codex/sparkclaw-email`。成套发行身份为 `0.3.0-sparkclaw.1`，Python 版本为 `0.3.0+sparkclaw.1`。
+已接受的 R3 实现已完成，SparkClaw 分支为 `codex/extract-email-app-cli`，App-CLI fork 分支为 `codex/sparkclaw-email`。成套发行身份为 `0.3.0-sparkclaw.2`，Python 版本为 `0.3.0+sparkclaw.2`。
 
 - Python Registry 仍是唯一公共能力目录/准入点。显式 LifecycleAdapter 注册、签名授权和 Runtime 2.0 扩展原接口，保留 Manifest 1.0、Runtime v1 与默认拒绝写入。
 - 常驻 Executor 拥有持久 task、按主体/owner 隔离的不可变请求键、事件、效果围栏与恢复；POSIX 锁、持久 epoch/高水位、Host generation 和实际 daemon 租约到期共同约束执行权。

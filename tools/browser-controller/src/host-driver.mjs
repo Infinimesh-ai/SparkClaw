@@ -135,6 +135,7 @@ export class ApplicationHostDriver {
         const entry = Object.entries(secrets).find(([, candidate]) => candidate === value);
         if (!entry) throw clientContractError(); return entry[0];
       };
+      await handle.page.reloadSecrets();
       return true;
     }
     const page = handle.page;

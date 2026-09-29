@@ -445,7 +445,7 @@ Offline fixtures establish only their contracts and simulated scenarios. Record 
 
 The approved R3 implementation is complete on `codex/extract-email-app-cli`
 (SparkClaw) and `codex/sparkclaw-email` (App-CLI fork). The complete paired
-release is `0.3.0-sparkclaw.1`; Python uses `0.3.0+sparkclaw.1`.
+release is `0.3.0-sparkclaw.2`; Python uses `0.3.0+sparkclaw.2`.
 
 - Python Registry remains the sole public catalog/admission point. Explicit
   LifecycleAdapter registration, signed authority and Runtime 2.0 extend the

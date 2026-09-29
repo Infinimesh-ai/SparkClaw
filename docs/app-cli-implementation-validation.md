@@ -33,7 +33,7 @@ fencing and bounded page parking survive control-process failures. A failed
 application-release check disables application admission while generic browser
 startup remains available.
 
-## Executed verification
+## Initial extraction verification
 
 Host: Linux ARM64, Python 3.12, Node 26.2.0. Actual isolated browser:
 Electron 44.4.3 / Chromium 152.0.7977.130 / embedded Node 24.21.0.
@@ -59,6 +59,62 @@ were reinstalled with lifecycle scripts disabled. Reapplying the existing
 `install-playwright-downloads.mjs` installation step restored the required
 Playwright hook; the complete run then passed. Installation and CI run this
 step explicitly. No timeout was relaxed to make the check pass.
+
+## Live mail follow-up: 2026-09-29
+
+The existing dedicated browser profile was temporarily attached to the matched
+`0.3.0-sparkclaw.2` Host/Executor for authorized test mail. All six directed
+routes received their uniquely marked original. Each capture passed manifest
+and file integrity validation, exact decoded Subject matching, and From/To route
+checks. Outlook's actual outgoing address was learned from a received original;
+its login alias was not used as an unverified delivery address.
+
+| Route | Received original | Native send acknowledgment |
+| --- | --- | --- |
+| Gmail → QQ Mail | Verified | Confirmed |
+| Gmail → Outlook | Verified | Confirmed |
+| QQ Mail → Gmail | Verified | Unknown after regression; original verified separately |
+| QQ Mail → Outlook | Verified | Unknown; original verified separately |
+| Outlook → QQ Mail | Verified | Unknown; original verified separately |
+| Outlook → Gmail | Verified | Confirmed |
+
+This is cumulative evidence across candidate builds. The final Outlook → Gmail
+and QQ Mail → Gmail confirmation regression use the pinned final release; the
+other directions have not all been repeated at that digest. An unknown task is
+never replayed or silently changed to completed. Its original journal and ledger
+state are retained alongside separate recipient-original evidence.
+
+The live failures led to these changes:
+
+- Reload the owned browser daemon's private form values after `setSecrets`, so
+  late values, quoted text and multiline bodies reach the native editor.
+- Bind managed sends to the authenticated Reader mailbox, with the required
+  snapshot interval, rather than an ambiguous account menu or login alias.
+- Preserve QQ's native accessible recipient editor; distinguish Bcc toggles
+  from editors; verify Outlook nickname pills against its bounded committed
+  recipient model and reject contradictory, unresolved or extra recipients.
+- Share native Sent-folder evidence between legacy and managed QQ/Outlook
+  sends, ignore hidden cached rows, and retain uncertain outcomes if evidence
+  is incomplete. Poll pending watch events without implicitly renewing authority.
+
+Follow-up checks passed: App-CLI Python **86**, runtime/mail **283** (no skips),
+Controller **123** (including actual Chromium download), qualification runner
+**8**, focused Go emailautomation/browsercontrol packages, generated projections,
+managed preload, and fresh paired install/tamper/mixed-version/whole-set rollback.
+The complete isolated Electron run also passed normal browser operations,
+non-mail public Registry execution, late secret injection into textarea and
+contenteditable, page isolation, cleanup and renderer/main-process recovery.
+
+Live receipt-only tests do not establish production notification latency,
+multi-recipient sends, replies, attachments or every account-switch scenario.
+[Sanitized live evidence](evaluation/app-cli-live-mail-20260929.json) records each
+attempt, marker, task outcome and private-log digest without account addresses,
+credentials or mailbox contents. The initial extraction evidence below remains
+a historical record. The [new seven-job App-CLI CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36562915676)
+passed at `6a46352` (release source `99a59e9`), including Windows/macOS/Linux
+Python 3.11/3.13 and the lifecycle runtime. QQ native acknowledgment remains
+unqualified after the final regression; all seven actually dispatched test
+messages have separately verified received originals.
 
 ## Rebuild and consume a release
 
@@ -130,13 +186,20 @@ A failed switch remains unavailable until a verified matching set is restored.
 
 ## Final user acceptance
 
-Implementation and the checks above are complete. Production services and real
-mailboxes have not been changed by this work. Final acceptance should activate
-the matched release in the intended environment, verify the normal browser task
-page, then check QQ/Gmail/Outlook cold/warm reads, notifications, original files,
-account changes and explicitly approved send/reconciliation. Synthetic provider
-tests and actual local-browser tests are recorded separately from live-provider
-results. App-CLI [cloud CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114) passed all seven jobs at the pinned source commit: Python 3.11/3.13 on Windows, macOS and Linux, plus the lifecycle runtime job. Windows skips four POSIX transport tests; non-POSIX Runtime v2 cleanup and SparkClaw cloud CI are not qualified by this run.
+The extraction and follow-up fixes are available on the maintenance branches.
+The live phase temporarily changed owner services and sent the authorized test
+messages; the original deployment is restored after qualification, with the
+new Executor stopped and its durable state preserved. This ends the temporary
+qualification; it is not a compatible App-CLI ledger rollback to legacy code.
+The legacy Gateway does not take over the new Executor ledger or workspaces.
+
+Final acceptance should activate a matched Gateway/Controller/Desktop release,
+verify the normal browser task page, then check cold/warm reads, notifications,
+account changes and the remaining send variants. The original
+[seven-job App-CLI CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114)
+is evidence for the initial extraction only. Windows skipped four POSIX
+transport tests; non-POSIX Runtime v2 cleanup and SparkClaw cloud CI remain
+outside that result.
 
 Machine-readable sanitized evidence: [app-cli-extraction.json](evaluation/app-cli-extraction.json).
 

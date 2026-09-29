@@ -243,6 +243,10 @@ export class HostPage {
 
   async inspect(expression) { return this.#inspect(expression); }
   async act(command) { return this.#agentAction(command); }
+  async reloadSecrets() {
+    await this.#withTaskSelected(() => this.#run(['--raw', `-s=${this.sessionName}`, 'run-code',
+      '/* app-cli:secrets:reload:v1 */ async page => true']));
+  }
   async hookActivate() {
     await this.#assertAllowedOrigin();
     await this.#withTaskSelected(() => this.#run(['--raw', `-s=${this.sessionName}`, 'run-code',

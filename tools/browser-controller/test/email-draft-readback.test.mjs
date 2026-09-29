@@ -72,7 +72,9 @@ test("private JSON config preserves quotes, literal escapes and multiline mail e
   } };
   const state = await createInvocationState(path.join(root, "cli-runtime"), `session_${"a".repeat(32)}`, { message }, "send");
   const driver = new ApplicationHostDriver({});
-  await driver.call({state, activities:new Map([['fixture', {}]])}, 'setSecrets', [{FIRST:message.recipient, SECOND:message.subject, THIRD:message.body.content}], {activity:'fixture'});
+  let reloaded = false;
+  await driver.call({state, page: {reloadSecrets: async () => {reloaded = true;}}, activities:new Map([['fixture', {}]])}, 'setSecrets', [{FIRST:message.recipient, SECOND:message.subject, THIRD:message.body.content}], {activity:'fixture'});
+  assert.equal(reloaded, true);
   const config = JSON.parse(await fs.readFile(state.secretsPath, "utf8"));
   assert.deepEqual(Object.values(config.secrets), [message.recipient, message.subject, message.body.content]);
   assert.equal((await fs.stat(state.secretsPath)).mode & 0o777, 0o600);

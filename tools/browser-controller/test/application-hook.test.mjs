@@ -16,7 +16,7 @@ async function fixture(t, activities) {
   await write({});
   const page = new EventEmitter(); let closes = 0;
   page.close = async () => {closes++; page.emit('close');};
-  const context = {module: {exports: {}}, require: createRequire(import.meta.url),
+  const context = {module: {exports: {}}, require: createRequire(import.meta.url), Buffer,
     process: {env: {APP_CLI_LEASE_FILE: file, APP_CLI_AWAITED_CODE: '1'}},
     Date: {now: () => now}, performance: {now: () => monotonic},
     setInterval: fn => {tick = fn; return {unref() {}};}, clearInterval() {}};
@@ -29,6 +29,19 @@ async function fixture(t, activities) {
 test('daemon watchdog enforces expiry even if the controller dies or wall clock moves backwards', async t => {
   const f = await fixture(t, [{id: 'read', kind: 'read', expires_ms: 1200}]);
   await f.tick(); f.advance(-5000, 201); await f.tick(); assert.equal(f.closes(), 1);
+});
+
+test('late private fields load into the running daemon without a caller-selected path', async t => {
+  const f = await fixture(t, [{id: 'send', kind: 'exclusive', expires_ms: 5000}]);
+  const file = path.join(path.dirname(f.env.APP_CLI_LEASE_FILE), 'secrets.json');
+  const secrets = {RECIPIENT: 'synthetic@example.test', BODY: 'quote " and literal \\n\nsecond line'};
+  await fs.writeFile(file, JSON.stringify({secrets}), {mode: 0o600});
+  const config = {};
+  const tab = {page: f.page, context: {config}, waitForCompletion: callback => callback()};
+  await f.hook.waitForCompletion(tab, {code: '/* app-cli:secrets:reload:v1 */ async page => true'}, async () => true);
+  assert.deepEqual(JSON.parse(JSON.stringify(config.secrets)), secrets);
+  await fs.chmod(file, 0o644);
+  await assert.rejects(f.hook.waitForCompletion(tab, {code: '/* app-cli:secrets:reload:v1 */ async page => true'}, async () => true), /host_secrets_invalid/);
 });
 test('watch expiry preserves a separately leased read; expiry or epoch change closes only the owned page', async t => {
   const f = await fixture(t, [{id: 'watch', kind: 'watch', expires_ms: 1100}, {id: 'read', kind: 'read', expires_ms: 1500}]);

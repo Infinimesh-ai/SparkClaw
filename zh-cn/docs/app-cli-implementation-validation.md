@@ -12,7 +12,7 @@ Gateway → 已鉴权的 owner Controller → App-CLI Python 公共 Registry →
 
 Executor 将请求键与主体/owner/意图持久绑定；丢包查原 task，无法确认受理时不得重发。执行授权过期不撤销合法查询/取消权限。恢复依赖原 journal、效果围栏和递增 epoch。read/watch 各持活动租约，实际 daemon 到期、清理失败隔离和有界 park 在控制进程丢失后仍生效。应用发行校验失败只禁用应用准入，普通浏览器仍可启动。
 
-## 已执行验证
+## 初始抽离阶段验证
 
 环境：Linux ARM64、Python 3.12、Node 26.2.0。实际隔离浏览器：Electron 44.4.3、Chromium 152.0.7977.130、内置 Node 24.21.0。
 
@@ -33,6 +33,32 @@ Executor 将请求键与主体/owner/意图持久绑定；丢包查原 task，�
 | 生成/公开产物 | Schema/投影一致、受管 preload 校验、源码卫生及双语 Markdown 链接检查 |
 
 中间一次 Electron 下载验证失败，原因是重装依赖时禁用了生命周期脚本，遗漏既有 Playwright 下载补丁。执行 `install-playwright-downloads.mjs` 的正常安装步骤后，完整用例通过；安装器与 CI 显式执行该步骤，未放宽超时来通过检查。
+
+## 三邮箱实测续验：2026-09-29
+
+在现有专用浏览器持久 profile 上临时启用匹配的 `0.3.0-sparkclaw.2` Host/Executor，执行用户授权的测试邮件。六个方向均取得唯一标记邮件的接收端原件，校验了 manifest、文件完整性、解码后精确 Subject 和 From/To 路由。Outlook 的实际发信地址从已接收原件中取得，未直接将登录别名当作已验证收信地址。
+
+| 方向 | 接收端原件 | 原生发送确认 |
+| --- | --- | --- |
+| Gmail → QQ Mail | 已验证 | 已确认 |
+| Gmail → Outlook | 已验证 | 已确认 |
+| QQ Mail → Gmail | 已验证 | 复验后仍未知，另有原件证据 |
+| QQ Mail → Outlook | 已验证 | 未知，另有原件证据 |
+| Outlook → QQ Mail | 已验证 | 未知，另有原件证据 |
+| Outlook → Gmail | 已验证 | 已确认 |
+
+这是多个候选构建的累计实测证据。最终 Outlook → Gmail 及 QQ Mail → Gmail 确认复验使用固定的最终发行，其他方向尚未全部在同一摘要下重跑。不重放结果未知的任务，也不将其账本静默改为完成；原 journal 与账本状态保留，接收端原件证据单独记录。
+
+实测发现的问题已落实为以下修复：
+
+- `setSecrets` 后重新加载任务专属浏览器 daemon 的私密表单值，确保后注入的引号、多行正文正确进入原生编辑器。
+- 托管发送使用已鉴权 Reader 邮箱身份及必要的 snapshot 时间范围，避免混用账户菜单身份或登录别名。
+- 保留 QQ 原生可访问的收件人输入框，区分 Bcc 开关与编辑器；Outlook 昵称收件人使用有界的原生已提交模型核验，拒绝矛盾、未解析和多余收件人。
+- 旧发送与托管发送共用 QQ/Outlook 已发送文件夹证据，排除隐藏缓存行，证据不足继续返回不确定；watch 状态查询消费待处理事件，不隐式续期授权。
+
+续验通过：App-CLI Python **86** 项、运行时/邮件 **283** 项（无跳过）、Controller **123** 项（含实际 Chromium 下载）、资格验证脚本 **8** 项、Go emailautomation/browsercontrol 包，以及生成投影、受管 preload、干净成套安装/篡改/混版拒绝/整组回退。完整隔离 Electron 验证还覆盖普通浏览器操作、非邮件公共 Registry 调用、textarea/contenteditable 的后注入私密值、页面隔离、清理及 renderer/main 进程恢复。
+
+本轮 receipt-only 实测不代表生产通知延迟、多收件人、回复、附件及全部账户切换路径均已验收。[脱敏实测证据](../../docs/evaluation/app-cli-live-mail-20260929.json)记录各次尝试、标记、任务结果和私有日志摘要，不包含邮箱地址、凭据或原始邮件。下面的初始阶段证据保留为历史记录。[本次新七任务 App-CLI CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36562915676)在 `6a46352`（发行源码 `99a59e9`）全部通过，覆盖 Windows/macOS/Linux 的 Python 3.11/3.13 和生命周期运行时。QQ 原生发送确认在最终复验后仍未通过；本轮实际发出的七封测试邮件均有独立校验的接收端原件。
 
 ## 构建与消费发行
 
@@ -72,7 +98,9 @@ npm run check:browser-controller
 
 ## 用户最终验收
 
-实现与上述验证已完成；本次没有改变生产服务或真实邮箱。最终验收在目标环境激活匹配发行，确认正常浏览器任务页，再验 QQ/Gmail/Outlook 冷热读取、通知、原件、账户变化以及明确批准后的发送/对账。供应商模拟验证与实际本地浏览器验证分开记录，不代替三家真实站点验收。固定源提交的 App-CLI [云端 CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114) 共 7 个任务全部通过：Windows/macOS/Linux × Python 3.11/3.13，以及生命周期运行时任务。Windows 按平台跳过 4 项 POSIX 传输测试；非 POSIX Runtime v2 清理和 SparkClaw 云端 CI 不属于此次通过范围。
+抽离及本轮修复已提交到维护分支。本次实测临时切换了 owner 服务，并发送了用户授权的测试邮件；验证后恢复原部署，停用临时 Executor，保留其持久状态。这是结束临时资格验证，不是把 App-CLI 账本回退给旧版代码；旧 Gateway 不接管新 Executor 账本或工作目录。
+
+最终验收应激活匹配的 Gateway/Controller/Desktop，确认正常浏览器任务页，再检查冷热读取、通知、账户变化及其余发送模式。原[七任务 App-CLI CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36552474114)仅证明初始抽离版本；Windows 跳过了 4 项 POSIX 传输测试，非 POSIX Runtime v2 清理和 SparkClaw 云端 CI 不在其通过范围。
 
 脱敏的机器可读证据：[app-cli-extraction.json](../../docs/evaluation/app-cli-extraction.json)。
 

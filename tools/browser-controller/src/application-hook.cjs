@@ -58,6 +58,20 @@ async function guard(page) {
 async function waitForCompletion(tab, params, callback) {
   if (!process.env.APP_CLI_LEASE_FILE) return tab.waitForCompletion(callback);
   await guard(tab.page);
+  if (params.code === '/* app-cli:secrets:reload:v1 */ async page => true' && !params.filename) {
+    // The daemon starts before the application supplies private form values.
+    // CLI command environments do not reload its Context configuration. Read
+    // only this owned session's fixed file, never a request-supplied path.
+    const file = path.join(path.dirname(process.env.APP_CLI_LEASE_FILE), 'secrets.json');
+    const stat = await fs.lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) || stat.size > (2 << 20)) throw new Error('host_secrets_invalid');
+    const value = JSON.parse(await fs.readFile(file, 'utf8'));
+    const secrets = value?.secrets;
+    if (!secrets || Array.isArray(secrets) || Object.keys(value).join(',') !== 'secrets' ||
+        Object.keys(secrets).length > 104 || Object.entries(secrets).some(([key, value]) =>
+          !/^[A-Z][A-Z0-9_]{0,63}$/.test(key) || typeof value !== 'string' || Buffer.byteLength(value) > 204800)) throw new Error('host_secrets_invalid');
+    tab.context.config.secrets = secrets;
+  }
   if (params.code === '/* app-cli:hook:install:v1 */ async page => true') await (await applicationHook())?.install?.(tab.page);
   if (params.code === '/* app-cli:hook:activate:v1 */ async page => true') await (await applicationHook())?.activate?.(tab.page);
   if (process.env.APP_CLI_AWAITED_CODE === '1' && typeof params.code === 'string' && params.code.startsWith(AWAITED_MARKER) && !params.filename) return callback();

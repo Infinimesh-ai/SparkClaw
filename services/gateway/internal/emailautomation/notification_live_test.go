@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"golang.org/x/net/html/charset"
 	"mime"
 	"net/mail"
 	"os"
@@ -16,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/html/charset"
+
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
@@ -24,8 +25,8 @@ import (
 )
 
 // Opt-in real-mail qualification. The address of each recipient is taken only
-// from that provider's authenticated Reader, and the observer is started before
-// any send. An uncertain send is never repeated by this test.
+// from that provider's authenticated Reader. Receipt-only mode validates managed
+// sends independently of notifications. An uncertain send is never repeated.
 func TestEmailNotificationMutualSendLive(t *testing.T) {
 	if os.Getenv("SPARKCLAW_TEST_NOTIFICATION_OBSERVE") != "1" {
 		t.Skip("explicit real-mail notification qualification required")
@@ -43,11 +44,13 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 		senderID, receiverID = parts[0], parts[1]
 	}
 	observerSocket := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_OBSERVER_SOCKET")
-	if observerSocket == "" {
+	receiptOnly := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_RECEIPT_ONLY") == "1" || os.Getenv("SPARKCLAW_TEST_NOTIFICATION_RESIDENT_SEND") == "1"
+	reconcileOnly := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_RECONCILE_MARKER") != ""
+	if observerSocket == "" && !receiptOnly && !reconcileOnly {
 		t.Fatal("isolated observer socket required")
 	}
 	readyDir := os.Getenv("SPARKCLAW_NOTIFICATION_OBSERVER_READY_DIR")
-	if !filepath.IsAbs(readyDir) {
+	if !filepath.IsAbs(readyDir) && !receiptOnly && !reconcileOnly {
 		t.Fatal("isolated observer readiness directory required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -172,9 +175,9 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 		verifyLiveNotificationReceipt(t, ctx, runner, receiver, scope, identities[receiverID].address, identities[receiverID].probe, reconcileMarker, time.Now().UTC().Add(-20*time.Minute))
 		return
 	}
-	// Reuse an already running resident observer; send once and reconcile with
-	// the real Reader. This path never starts the old blocking diagnostic watch.
-	if os.Getenv("SPARKCLAW_TEST_NOTIFICATION_RESIDENT_SEND") == "1" {
+	// Send once and verify the original through the real Reader. This can run
+	// independently or alongside an already running resident observer.
+	if receiptOnly {
 		recipient := identities[receiverID].address
 		if receiverID == app.EmailProviderOutlook {
 			var proof struct {
@@ -191,16 +194,10 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 		marker := "SCW-" + strings.ReplaceAll(app.NewID("mail"), "_", "-")
 		start := time.Now().UTC().Add(-time.Minute)
 		t.Logf("sending %s -> %s marker=%s", senderID, receiverID, marker)
-		sendRequest := SendRequest{Provider: senderID, Account: app.EmailAccountDefault, Recipient: recipient, Subject: marker, Body: "SparkClaw resident qualification " + marker, InvocationID: app.NewID("resident_send"), BrowserCredentialGeneration: identities[senderID].probe.Generation, ProbeRevision: sender.Probe.Revision, ScriptRevision: sender.Send.Revision}
-		if senderID == app.EmailProviderOutlook {
-			sendRequest.Mode = "compose"
-			sendRequest.AccountAddress = identities[senderID].address
-			sendRequest.To = []string{recipient}
-			sendRequest.Recipient = ""
-		}
+		sendRequest := SendRequest{Provider: senderID, Account: app.EmailAccountDefault, Mode: "compose", AccountAddress: identities[senderID].address, To: []string{recipient}, Subject: marker, Body: "SparkClaw qualification " + marker + "\nPrivate field check: \"quoted\" 多行正文", InvocationID: app.NewID("resident_send"), BrowserCredentialGeneration: identities[senderID].probe.Generation, ProbeRevision: sender.Probe.Revision, ScriptRevision: sender.Send.Revision}
 		_, sendErr := runner.Send(ctx, sender, sendRequest)
 		if sendErr != nil {
-			t.Logf("uncertain send (%s), reconcile without resend", ErrorCode(sendErr))
+			t.Logf("send not confirmed (%s), check receipt without resend", ErrorCode(sendErr))
 		} else {
 			t.Log("send confirmed")
 		}
@@ -208,7 +205,21 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 			verifyGatewayNotificationReceipt(t, ctx, runtime, receiverID, marker, start)
 			return
 		}
-		verifyLiveNotificationReceipt(t, ctx, runner, receiver, scope, identities[receiverID].address, identities[receiverID].probe, marker, start)
+		original := verifyLiveNotificationReceipt(t, ctx, runner, receiver, scope, identities[receiverID].address, identities[receiverID].probe, marker, start)
+		message, err := mail.ReadMessage(bytes.NewReader(original))
+		parser := &mail.AddressParser{WordDecoder: &mime.WordDecoder{CharsetReader: charset.NewReaderLabel}}
+		if err != nil {
+			t.Fatal("verified original header could not be parsed")
+		}
+		to, err := parser.ParseList(message.Header.Get("To"))
+		if err != nil || len(to) != 1 || !strings.EqualFold(to[0].Address, recipient) {
+			t.Fatal("verified original recipient does not match the requested route")
+		}
+		from, err := parser.ParseList(message.Header.Get("From"))
+		if err != nil || len(from) != 1 || (senderID != app.EmailProviderOutlook && !strings.EqualFold(from[0].Address, identities[senderID].address)) {
+			t.Fatal("verified original sender does not match the requested route")
+		}
+		t.Log("verified original sender and recipient match the route")
 		return
 	}
 
@@ -495,6 +506,16 @@ func verifyLiveNotificationReceipt(t *testing.T, ctx context.Context, runner *Pl
 			}
 			original, err := os.ReadFile(filepath.Join(root, manifest.Files[0].Path))
 			if err == nil && bytes.Contains(original, []byte(marker)) {
+				message, parseErr := mail.ReadMessage(bytes.NewReader(original))
+				if parseErr != nil {
+					t.Fatal("verified receipt header could not be parsed")
+				}
+				subject, decodeErr := (&mime.WordDecoder{CharsetReader: charset.NewReaderLabel}).DecodeHeader(message.Header.Get("Subject"))
+				if decodeErr != nil || subject != marker {
+					seen[target.ProviderMessageID] = true
+					otherOriginals++
+					continue
+				}
 				t.Log("unique test message was received and its original verified")
 				if destination := os.Getenv("SPARKCLAW_TEST_NOTIFICATION_RECEIPT_IDENTITY"); filepath.IsAbs(destination) {
 					message, parseErr := mail.ReadMessage(bytes.NewReader(original))
@@ -548,7 +569,7 @@ func notificationScriptCode(raw json.RawMessage) string {
 func (c liveWaitingController) RunScript(ctx context.Context, request browsercontrol.RunScriptRequest) (browsercontrol.ScriptExecutionResult, error) {
 	request.WaitTimeoutMS = 30_000
 	result, err := c.Service.RunScript(ctx, request)
-	if request.Operation == "capture" || request.Operation == "discover" {
+	if request.Operation == "capture" || request.Operation == "discover" || request.Operation == "send" {
 		if err != nil {
 			c.t.Logf("%s controller code: %s", request.Operation, browsercontrol.ErrorCode(err))
 		} else if result.State == "failed" {

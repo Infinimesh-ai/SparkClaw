@@ -203,6 +203,10 @@ export function classifyProcessExit(stdout, stderr) {
     reason = "process_exit_page_closed";
   } else if (/too many arguments|Unknown option|Invalid input|invalid_type/iu.test(output)) {
     reason = "process_exit_invalid_arguments";
+  } else if (/does not match any elements|not found in the current page snapshot/iu.test(output)) {
+    reason = "process_exit_target_missing";
+  } else if (/strict mode violation/iu.test(output)) {
+    reason = "process_exit_target_ambiguous";
   } else if (/Timeout|timed out/iu.test(output) && /waiting for event ["']download["']/iu.test(output)) {
     reason = "process_exit_download_timeout";
   } else if (/Timeout|timed out/iu.test(output)) {

@@ -7,9 +7,12 @@ const auth=()=>({profile_id:'default',token,credential_generation:7});
 const binding=()=>({provider:'gmail',owner_scope:'a'.repeat(64),mailbox_id:'mailbox-test',binding_generation:2,account_address:'private@example.test'});
 async function fixture(t,options={}) {
   const calls=[]; const slots=new Map();
-  const controller={profileID:'default',scriptFactory:{mailObservers:{slots,recoveries:new Map(),status:()=>({state:'watching'}),async stop(provider){calls.push('stop');slots.delete(provider);}}},
+  const controller={profileID:'default',scriptFactory:{
+    describe:()=>({script_id:'gmail.observe',revision:1}),
+    async pollWatch(provider){return slots.get(provider)??null;},
+    async stopWatch(provider){calls.push('stop');slots.delete(provider);}},
     async validateToken(input){calls.push('proof');if(input.token!==token)throw new Error('denied');},
-    async runScript(input){calls.push('start');const b=feed.bindings.get(input.provider);slots.set(input.provider,{identity:b.identity,ready:true,state:'watching',epoch:'document-1'});}};
+    async runScript(input){calls.push('start');const b=feed.bindings.get(input.provider);slots.set(input.provider,{identity:b.identity,ready:true,state:'watching',epoch:'document-1',task:{id:'watch-fixture',status:'running'}});}};
   const feed=new MailObserverFeed(controller,{pollMS:20,...options});t.after(()=>feed.close());
   const lease=await feed.reconcile({...auth(),bindings:[binding()]});
   await Promise.all([...feed.work.values()].map(w=>w.promise));feed.tick();
@@ -43,13 +46,14 @@ test('a degraded channel produces one catch-up and a bounded state transition',a
 });
 test('intent expiration closes the owned observer without touching unmanaged test sessions',async t=>{
  let now=1000;const {feed,calls,slots}=await fixture(t,{now:()=>now,leaseMS:100});
+ await Promise.all([...feed.work.values()].map(w=>w.promise));
  slots.set('outlook',{identity:'unmanaged',ready:true});now+=101;feed.tick();
  await Promise.all([...feed.work.values()].map(w=>w.promise));assert.equal(feed.bindings.size,0);assert.equal(slots.has('gmail'),false);assert.equal(slots.has('outlook'),true);
  assert.ok(calls.includes('stop'));await assert.rejects(feed.poll({...auth(),epoch:feed.epoch}));
 });
 test('intent renewal does not destroy a task while the resident supervisor is recovering it',async t=>{
  const {feed,slots,calls,controller}=await fixture(t);
- slots.get('gmail').ready=false;controller.scriptFactory.mailObservers.recoveries.set('gmail',Promise.resolve());
+ slots.get('gmail').ready=false;slots.get('gmail').task.status='pending';
  feed.tick();await new Promise(setImmediate);assert.deepEqual(calls,['proof','start']);
 });
 test('rebinding rejects old document events and stop cannot be undone by an in-flight start',async t=>{

@@ -8,7 +8,7 @@ import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {runProcess,MAX_CLI_OUTPUT_BYTES} from '../src/cli-runtime.mjs';
-import {PlaywrightCLITask} from '../src/cli-task.mjs';
+import {HostPage} from '../src/host-page.mjs';
 
 const helper=fileURLToPath(new URL('../src/cli-read-batch.mjs',import.meta.url));
 const fixture=fileURLToPath(new URL('./fixtures/fake-cli-session.mjs',import.meta.url));
@@ -28,8 +28,8 @@ async function harness(t,mode='normal'){
  let spawns=0;
  const countedSpawn=(executable,args,options)=>{spawns++;assert.equal(args.some(arg=>arg.includes(token)),false);return spawn(executable,args,options);};
  return {root,log,task:(batchReadCommands)=>{
-  const task=new PlaywrightCLITask({entryPoint:fileURLToPath(new URL('../node_modules/@playwright/cli/playwright-cli.js',import.meta.url)),batchReadCommands,
-   state:{sessionID,directory:root,outputDir:output,environment:{XDG_CACHE_HOME:cache},secretValues:[]},registration:{provider:'gmail',operation:'collect_page',origins:['https://mail.google.test'],timeoutMS:10000},
+  const task=new HostPage({entryPoint:fileURLToPath(new URL('../node_modules/@playwright/cli/playwright-cli.js',import.meta.url)),batchReadCommands,
+   state:{sessionID,directory:root,outputDir:output,environment:{XDG_CACHE_HOME:cache},secretValues:[]},registration:{codeEnabled:true,readOnlyCode:true,awaitedRead:true,origins:['https://mail.google.test'],timeoutMS:10000},
    actionTimeoutMS:1000,navigationTimeoutMS:1000,spawn:countedSpawn,extraEnv:{},token});
   task.taskIndex=0;task.ownerTabs=[{title:'Owner',url:'https://owner.test/',current:false,crashed:false}];return task;
  },run:async(signal,timeoutMS=5000)=>{
@@ -51,8 +51,8 @@ test('production task transport A/B keeps three backend checks while reducing pr
 });
 test('registrations with same-origin signed-out detection retain the original guarded path',async t=>{
  const h=await harness(t),task=h.task(true);
- task.registration.signedOutURL=url=>url==='https://mail.google.test/';
- await assert.rejects(task.runReadCode('async page=>({ok:true})'),error=>error.code==='email_login_required');
+ task.registration.deniedURLs=[{origin:'https://mail.google.test',path:'^/$'}];
+ await assert.rejects(task.runReadCode('async page=>({ok:true})'),error=>error.code==='application_login_required');
  assert.deepEqual(await h.calls(),['tab-list']);
  assert.equal(h.spawns(),1);
 });

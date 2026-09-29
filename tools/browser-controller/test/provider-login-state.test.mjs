@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 
-import { inspectGmailLogin } from "../../../scripts/email/gmail-browser.mjs";
-import { probeOutlookLogin } from "../../../scripts/email/outlook-login-probe.mjs";
-import { PlaywrightCLITask } from "../src/cli-task.mjs";
+import { inspectGmailLogin } from "../node_modules/@infinimesh/app-cli-runtime/applications/mail/gmail-browser.mjs";
+import { probeOutlookLogin } from "../node_modules/@infinimesh/app-cli-runtime/applications/mail/outlook-login-probe.mjs";
+import { HostPage } from "../src/host-page.mjs";
 
 const providers = [
   {
@@ -29,7 +29,7 @@ function harness(provider, {
   let inspections = 0;
   let urlReads = 0;
   let domReads = 0;
-  const task = new PlaywrightCLITask({
+  const task = new HostPage({
     state: { sessionID: "provider-login-test" },
     registration: {
       operation: "probe", timeoutMS: 45_000,
@@ -66,7 +66,7 @@ function harness(provider, {
     });
     return await (typeof value === "function" ? value() : value);
   };
-  const tab = provider.id === "gmail" ? task.gmailTab() : task.outlookTab();
+  const tab = {inspect: expression => task.inspect(expression)};
   const probe = async () => provider.id === "gmail"
     ? await inspectGmailLogin(tab, { includeAccountHint: true })
     : await probeOutlookLogin({

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 
-import { PlaywrightCLITask } from "../src/cli-task.mjs";
-import { probeQQMailLogin, QQMAIL_LOGIN_PROBE_SELECTORS as selectors } from "../../../scripts/email/qqmail-login-probe.mjs";
+import { HostPage } from "../src/host-page.mjs";
+import { probeQQMailLogin, QQMAIL_LOGIN_PROBE_SELECTORS as selectors } from "../node_modules/@infinimesh/app-cli-runtime/applications/mail/qqmail-login-probe.mjs";
 
 function harness({
   accountPresent = true, accountVisible = true, loginVisible = false,
@@ -12,7 +12,7 @@ function harness({
 } = {}) {
   let evaluations = 0;
   let reads = 0;
-  const task = new PlaywrightCLITask({
+  const task = new HostPage({
     state: { sessionID: "probe-batch-test" },
     registration: { operation: "probe", timeoutMS: 90_000, origins: ["https://mail.qq.com", "https://wx.mail.qq.com"] },
   });
@@ -44,7 +44,7 @@ function harness({
     probe: () => probeQQMailLogin({
       schema_version: 1, operation: "probe", provider: "qq_mail", account: "default", invocation_id: "batch-test",
     }, { withTaskTab: async (_operation, callback) => {
-      const adapter=task.qqTask();
+      const adapter={onTab: commands => task.probeReads(commands)};
       return callback({onTab:commands=>commands[0]?.[0]==='wait'?Promise.resolve([{success:true,result:{}}]):adapter.onTab(commands)});
     } }),
   };
@@ -95,6 +95,6 @@ test("batched probe rejects malformed URL, text, and visibility", async () => {
   ]) {
     const h = harness();
     h.task.evaluate = async () => ({ url: "https://wx.mail.qq.com/home/index", results: [result] });
-    await assert.rejects(h.task.qqTask().onTab([command]));
+    await assert.rejects(h.task.probeReads([command]));
   }
 });

@@ -116,7 +116,7 @@ func decodeStrictJSONLimit(raw []byte, output any, maxBytes int) error {
 // scripts emit onto the bounded email vocabulary. Canonical app.ToolErrorEmail*
 // codes pass through unchanged; anything unmapped is reported as a provider
 // outage. TestScriptErrorCodesCoverEveryEmittedCode keeps this table and the
-// scripts under scripts/email in step.
+// scripts in the pinned App-CLI application release in step.
 var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_send_journal_unavailable":      app.ToolErrorEmailNotConfigured,
 	"email_send_configuration_error":      app.ToolErrorEmailNotConfigured,

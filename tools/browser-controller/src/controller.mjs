@@ -46,9 +46,6 @@ const PAGE_MUTATING_OPERATIONS = new Set([
   "tabs.handoff",
   "tabs.new",
 ]);
-const PARALLEL_PROVIDERS = new Set(["qq_mail", "gmail", "outlook"]);
-const PARALLEL_OPERATIONS = new Set(["probe", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page", "observe"]);
-const SCRIPT_OPERATIONS = new Set(["probe", "send", "read", "discover", "capture", "enumerate_thread", "mark_read", "collect_page", "observe"]);
 
 export class BrowserController {
   constructor({
@@ -303,11 +300,6 @@ export class BrowserController {
       const token = parseToken(input.token);
       const provider = parseID(input.provider, "provider");
       const operation = parseID(input.operation, "operation");
-      if (!SCRIPT_OPERATIONS.has(operation)) {
-        throw new ControllerError("browser_script_unavailable", "browser provider script is unavailable", {
-          status: 400,
-        });
-      }
       const scriptID = parseID(input.script_id, "script_id");
       const revision = parseGeneration(input.revision, "revision");
       const scriptInput = parseScriptInput(input.input);
@@ -319,52 +311,31 @@ export class BrowserController {
       );
       this.#requireScriptFactory();
 
-      let reservation;
       try {
-        const providerKey = PARALLEL_PROVIDERS.has(provider) && PARALLEL_OPERATIONS.has(operation) ? provider : null;
-        reservation = await this.#reserve(waitMS, "cli", taskID, providerKey, signal);
-        if (!providerKey) await this.scriptFactory.drainIdleMailReads();
-        const result = await this.scriptFactory.runScript({
-          token,
-          taskID,
-          credentialGeneration,
-          sessionID: reservation.sessionID,
-          controllerGeneration: this.controllerGeneration,
-          sessionGeneration: reservation.sessionGeneration,
-          pageGeneration: 1,
-          provider,
-          operation,
-          scriptID,
-          revision,
-          input: scriptInput,
-          signal: signal ? AbortSignal.any([signal, reservation.abortController.signal]) : reservation.abortController.signal,
-        });
-        return {
-          schema_version: 1,
-          state: result.state,
-          profile_id: this.profileID,
-          lane: reservation.lane,
-          provider,
-          operation,
-          script_id: scriptID,
-          revision,
-          source_checksum: result.sourceChecksum,
-          credential_generation: credentialGeneration,
-          controller_generation: this.controllerGeneration,
-          session_generation: reservation.sessionGeneration,
-          result: result.result,
-        };
-      } catch (error) {
-        throw normalizeClientError(error);
-      } finally {
-        if (reservation) this.#finishReservation(reservation);
-      }
+        const result = await this.scriptFactory.runScript({token, taskID, credentialGeneration,
+          provider, operation, scriptID, revision, input: scriptInput, signal, waitMS});
+        return {schema_version: 1, state: result.state, profile_id: this.profileID, lane: 'cli',
+          provider, operation, script_id: scriptID, revision, source_checksum: result.sourceChecksum,
+          credential_generation: credentialGeneration, controller_generation: this.controllerGeneration,
+          session_generation: ++this.sessionGeneration, result: result.result};
+      } catch (error) {throw normalizeClientError(error);}
+
     } finally {
       if (input && typeof input === "object" && !Array.isArray(input)) {
         if (typeof input.token === "string") input.token = "";
         clearScriptInput(input.input);
       }
     }
+  }
+
+  // ApplicationHostPort uses the same scheduler as ordinary browser tasks.
+  // Resource names and sharing policy come from the verified application binding.
+  async reserveApplication({taskID, resource, exclusive, signal, waitMS = 2000}) {
+    return this.#reserve(waitMS, 'app-cli', parseID(taskID, 'task_id'), exclusive ? null : parseID(resource, 'resource'), signal);
+  }
+
+  finishApplication(reservation) {
+    this.#finishReservation(reservation);
   }
 
   async openProviderLogin(input) {
@@ -407,11 +378,12 @@ export class BrowserController {
     for (const reservation of reservations) reservation.abortController.abort();
     this.shutdownPromise = (async () => {
       await this.mailObserverFeed.close();
+      const applicationClose = this.scriptFactory?.close();
       await Promise.all(reservations.map(async reservation => {
         if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
         else await reservation.done.promise;
       }));
-      if (this.scriptFactory) await this.scriptFactory.close();
+      await applicationClose;
     })();
     await this.shutdownPromise;
   }
@@ -547,10 +519,11 @@ export class BrowserController {
 }
 
 function clearScriptInput(input) {
-  if (!input?.message) return;
-  input.message.recipient = "";
-  if (Object.hasOwn(input.message, "subject")) input.message.subject = "";
-  if (input.message.body) input.message.body.content = "";
+  if (!input || typeof input !== 'object') return;
+  for (const key of Object.keys(input)) {
+    if (typeof input[key] === 'string') input[key] = '';
+    else if (input[key] && typeof input[key] === 'object') clearScriptInput(input[key]);
+  }
 }
 
 function normalizeClientError(error) {

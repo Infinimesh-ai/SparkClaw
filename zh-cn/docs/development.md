@@ -29,7 +29,7 @@ PostgreSQL 实现同一 EmailRepository，WebChat 通过 owner 鉴权的 ID 接�
 [邮件来源数据](email-read-design.md)。
 
 合成专项检查命令为 `node --test tools/browser-controller/test/email-capture.test.mjs`
-与 `node --test tools/browser-controller/test/cli-client.test.mjs`。这些测试不替代真实
+与 `node --test tools/browser-controller/test/application-artifacts.test.mjs`。这些测试不替代真实
 服务商验收，也不能证明已部署生产环境。
 
 ## 仓库结构

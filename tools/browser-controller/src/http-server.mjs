@@ -1,3 +1,4 @@
+import {decode} from '@infinimesh/app-cli-runtime/protocol';
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
@@ -13,6 +14,17 @@ export function createRequestHandler(controller) {
       if (request.method === "GET" && url.pathname === "/v1/health") {
         rejectQuery(url);
         return writeJSON(response, 200, controller.health());
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/application-host') {
+        rejectQuery(url);
+        if (!controller.scriptFactory?.host) return writeJSON(response, 503, {error: {code: 'HOST_UNAVAILABLE'}});
+        try {
+          const value = await controller.scriptFactory.host.control(await readJSON(request, 2 * 1024 * 1024, decode));
+          return writeJSON(response, 200, value);
+        } catch (error) {
+          const code = /^[A-Za-z][A-Za-z0-9_]{0,63}$/u.test(error.code) ? error.code.toUpperCase() : 'HOST_UNAVAILABLE';
+          return writeJSON(response, 400, {error: {code, ...(error.diagnosticReason === 'process_exit_context_destroyed' ? {diagnostic: error.diagnosticReason} : {})}});
+        }
       }
       if (request.method === "POST" && url.pathname === "/v1/validate-token") {
         rejectQuery(url);
@@ -104,7 +116,7 @@ export async function startUnixServer({ socketPath, controller }) {
   };
 }
 
-async function readJSON(request, maximumBytes = MAX_REQUEST_BYTES) {
+async function readJSON(request, maximumBytes = MAX_REQUEST_BYTES, decoder = JSON.parse) {
   const contentType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") throw invalidRequest();
   let size = 0;
@@ -119,7 +131,7 @@ async function readJSON(request, maximumBytes = MAX_REQUEST_BYTES) {
     }
     if (size === 0) throw invalidRequest();
     body = Buffer.concat(chunks);
-    return JSON.parse(body.toString("utf8"));
+    return decoder(body.toString("utf8"));
   } catch {
     throw invalidRequest();
   } finally {

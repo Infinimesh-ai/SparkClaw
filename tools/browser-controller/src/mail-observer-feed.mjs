@@ -55,7 +55,7 @@ export class MailObserverFeed {
         const next=desired.get(provider);
         if (!next || next.identity!==b.identity || next.mailbox_id!==b.mailbox_id || next.binding_generation!==b.binding_generation) {
           b.retired=true; this.bindings.delete(provider); this.work.get(provider)?.abort.abort();
-          if (this.controller.scriptFactory?.sharedMailPages) this.controller.scriptFactory.mailObservers?.revoke?.(provider);
+          await this.controller.scriptFactory?.stopWatch(provider);
         }
       }
       for (const [provider,b] of desired) if (!this.bindings.has(provider)) {
@@ -122,37 +122,40 @@ export class MailObserverFeed {
 
   tick() {
     if (this.closed) return;
-    if (this.now()>=this.expires) {
+    const factory = this.controller.scriptFactory;
+    if (this.now() >= this.expires) {
       this.bindings.clear(); this.token=undefined; this.notify();
       for (const work of this.work.values()) work.abort.abort();
-      if (this.controller.scriptFactory?.sharedMailPages) for (const provider of providers) this.controller.scriptFactory.mailObservers?.revoke?.(provider);
     }
     for (const provider of providers) {
       if (this.work.has(provider)) continue;
-      const b=this.bindings.get(provider), manager=this.controller.scriptFactory?.mailObservers;
-      const slot=manager?.slots.get(provider);
-      if (b && manager?.recoveries.has(provider)) continue;
-      if (b && !slot && (manager?.pendingRecovery?.get(provider)?.restarts??0)>=3) continue;
-      if (!b && (!slot || !this.owned.has(provider))) continue;
-      if (b && slot?.identity===b.identity && slot.ready && manager.status(provider).state!=='degraded') {
-        this.observe(provider,{...slot,state:manager.status(provider).state},'state'); continue;
-      }
-      if (b && slot?.identity===b.identity && slot.ready && manager.status(provider).state==='degraded' &&
-          (slot.restarts>=3 || this.now()<(slot.retryAt??0))) {
-        this.observe(provider,{...slot,state:'degraded'},'state'); continue;
-      }
-      if (b && this.now()<(b.retryAt??0)) continue;
-      const abort=new AbortController();
-      const promise=(async () => {
-        if (slot) {await manager.recoveries.get(provider); await manager.stop(provider,
-          {recover:Boolean(b && slot.identity===b.identity && manager.status(provider).state==='degraded')}); this.owned.delete(provider);}
-        if (!b || this.bindings.get(provider)!==b || this.closed) return;
+      const binding = this.bindings.get(provider);
+      if (!binding && !this.owned.has(provider)) continue;
+      if (binding && this.now() < (binding.retryAt ?? 0)) continue;
+      const abort = new AbortController();
+      const promise = (async () => {
+        if (!binding) {await factory.stopWatch(provider); this.owned.delete(provider); return;}
+        const current = await factory.pollWatch(provider, {renew: this.now() < this.expires});
+        if (this.closed || this.bindings.get(provider) !== binding) return;
+        if (current && ['pending', 'running'].includes(current.task.status)) return;
+        if (current?.state === 'login_required') {this.observe(provider, current, 'state'); return;}
+        if (current) {
+          binding.restarts = (binding.restarts ?? 0) + 1;
+          if (binding.restarts > 3) return;
+          await factory.stopWatch(provider);
+          this.publish(binding, 'resync_required', 'observer_degraded');
+        }
+        const spec = factory.describe(provider, 'observe');
         this.owned.add(provider);
-        await this.controller.runScript({profile_id:this.controller.profileID,token:this.token,credential_generation:this.generation,
-          task_id:`mail-observer-${provider}`,provider,operation:'observe',script_id:`${provider}.observe`,revision:1,wait_timeout_ms:30000,
-          input:{schema_version:1,action:'start',account_address:b.account_address,owner_scope:b.owner_scope}}, {signal:abort.signal});
+        await this.controller.runScript({profile_id: this.controller.profileID, token: this.token,
+          credential_generation: this.generation, task_id: `mail-observer-${provider}`, provider, operation: 'observe',
+          script_id: spec.script_id, revision: spec.revision,
+          input: {schema_version: 1, action: 'start', account_address: binding.account_address, owner_scope: binding.owner_scope}},
+        {signal: abort.signal});
       })().catch(() => {
-        if (b && this.bindings.get(provider)===b) {b.state='degraded'; b.retryAt=this.now()+60000; this.publish(b,'watch_state','start_failed');}
+        if (binding && this.bindings.get(provider) === binding) {
+          binding.state='degraded'; binding.retryAt=this.now()+60000; this.publish(binding,'watch_state','start_failed');
+        }
       }).finally(() => this.work.delete(provider));
       this.work.set(provider,{promise,abort});
     }
@@ -161,5 +164,9 @@ export class MailObserverFeed {
     this.closed=true; clearInterval(this.timer); this.notify(); this.bindings.clear(); this.token=undefined;
     for (const w of this.work.values()) w.abort.abort();
     await Promise.allSettled([...this.work.values()].map(w=>w.promise));
+    if (this.controller.scriptFactory) {
+      await Promise.all([...this.owned].map(provider => this.controller.scriptFactory.stopWatch(provider)));
+      this.owned.clear();
+    }
   }
 }

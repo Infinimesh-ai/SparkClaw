@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BrowserController } from "../src/controller.mjs";
+import { BrowserController } from "./fixtures/application-controller.mjs";
 
 const token = "qualification-token-value";
 
@@ -258,7 +258,7 @@ test("runScript uses the shared profile reservation and returns fixed script ide
   assert.equal(result.source_checksum, `sha256:${"a".repeat(64)}`);
   assert.equal(result.credential_generation, 7);
   assert.equal(result.controller_generation, 505);
-  assert.equal(result.session_generation, 1);
+  assert.equal(result.session_generation, 2);
   assert.deepEqual(result.result, { schema_version: 1, status: "authenticated" });
   assert.match(scriptFactory.calls[0].sessionID, /^session_[0-9a-f]{32}$/u);
   assert.equal(input.token, "");
@@ -537,6 +537,7 @@ test("all shutdown callers wait for active read cleanup and the final pool close
 
 class BlockingScriptFactory extends FakeScriptFactory {
   async runScript({ signal }) {
+    if (signal.aborted) {this.aborted = true; throw new Error("aborted");}
     await new Promise((_, reject) => {
       signal.addEventListener("abort", () => {
         this.aborted = true;

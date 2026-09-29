@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-29",
+  "release_id": "0.3.0-sparkclaw.1",
+  "app_cli_source_commit": "bae3b72972e2135ebfe66508aa5855a6b2bfdd77",
+  "runtime_digest": "a82d56c053e96e455c670e78fbbd1770ef4792bbb1651779bdf4695d9392c021",
+  "host": {
+    "os": "Linux",
+    "architecture": "arm64",
+    "python": "3.12",
+    "node": "26.2.0"
+  },
+  "tests": {
+    "python_source": {
+      "passed": 86
+    },
+    "python_installed_same_suite": {
+      "passed": 86
+    },
+    "application_runtime_and_mail": {
+      "passed": 273
+    },
+    "controller": {
+      "passed": 121,
+      "skipped": 0
+    },
+    "desktop": {
+      "passed": 17
+    },
+    "bridge": {
+      "passed": 67
+    },
+    "webchat": {
+      "files": 43,
+      "passed": 169
+    },
+    "component_scripts": {
+      "passed": 14,
+      "skipped": 1,
+      "skip_reason": "Optional downloaded official Tampermonkey background not configured"
+    },
+    "gateway_full_suite": "passed",
+    "gateway_vet": "passed",
+    "webchat_build": "passed",
+    "markdown_files": 95
+  },
+  "paired_release": {
+    "fresh_install": true,
+    "configuration_drift_rejected": true,
+    "native_cli_runtime": true,
+    "installed_file_tamper_rejected": true,
+    "mixed_python_runtime_rejected": true,
+    "mixed_consumer_rejected": true,
+    "live_host_activation_rejected": true,
+    "live_executor_activation_rejected": true,
+    "whole_set_rollback": true,
+    "durable_state_preserved": true,
+    "epoch_monotonic": true
+  },
+  "production_assembly": {
+    "production_assembly": true,
+    "paired_python_and_consumer": true,
+    "signed_host_handshake": true,
+    "registered_mail_commands": 27,
+    "public_registry_lookup": true,
+    "browser_resources_opened": 0
+  },
+  "actual_electron": {
+    "schema_version": 1,
+    "isolated_display": true,
+    "versions": {
+      "electron": "44.4.3",
+      "chromium": "152.0.7977.130",
+      "node": "24.21.0",
+      "architecture": "arm64"
+    },
+    "mcp": {
+      "actual_client": true,
+      "navigate": true,
+      "read": true,
+      "snapshot": true,
+      "fill": true,
+      "click": true,
+      "screenshot": true,
+      "download_artifact": true,
+      "download_source_cleaned": true
+    },
+    "cli": {
+      "actual_client": true,
+      "attach": true,
+      "navigate": true,
+      "snapshot": true,
+      "fill": true,
+      "click": true,
+      "evaluate_read": true,
+      "screenshot": true,
+      "open_close_page": true
+    },
+    "isolation": {
+      "personal_target_hidden": true,
+      "native_pointer_blocked": true,
+      "native_keyboard_blocked": true,
+      "native_context_menu_blocked": true,
+      "native_shortcuts_blocked": true,
+      "native_paste_blocked": true,
+      "native_drag_drop_blocked": true,
+      "native_ime_sequence_blocked": true,
+      "javascript_dialog_dismissed": true,
+      "devtools_closed": true,
+      "automation_input_working": true
+    },
+    "observation": {
+      "opaque_target_stable": true,
+      "viewport_bounds_stable": true,
+      "switching_did_not_replace_target": true,
+      "hidden_background_execution": true
+    },
+    "login": {
+      "provider_website_tested": false,
+      "local_session_cookie_persisted": true
+    },
+    "lifecycle": {
+      "close_to_hide": true,
+      "same_runtime_reopened": true,
+      "workbench_renderer_recovered": true,
+      "task_renderer_invalidated": true,
+      "main_restart_generation_invalidated": true,
+      "browser_session_persisted_across_restart": true,
+      "unknown_effects_replayed": false
+    },
+    "scripts": {
+      "document_start_main_world": true,
+      "gm_persistence": true,
+      "gm_menu_command": true
+    },
+    "app_cli": {
+      "public_registry": true,
+      "runtime_v2": true,
+      "resident_executor": true,
+      "browser_host": true,
+      "actual_owned_page": true,
+      "idempotent_replay": true,
+      "cleanup": true,
+      "non_mail_application": true
+    },
+    "targets": {
+      "worker_scoped": true,
+      "oopif_scoped": true,
+      "popup_adopted": true
+    }
+  },
+  "limitations": {
+    "production_activated": false,
+    "real_mailbox_tested": false,
+    "real_mail_sent": false,
+    "cloud_ci_executed": false
+  },
+  "resolved_intermediate_failure": "Electron download timed out after dependency reinstall with scripts disabled; applying the existing pinned Playwright download hook and rerunning the complete qualification passed."
+}

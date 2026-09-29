@@ -128,8 +128,17 @@ jobs:
         run: npm run test:desktop
       - name: Verify generated managed-script preload
         run: npm run check:desktop-managed-scripts
-      - name: Qualify actual pinned MCP and CLI on disposable Electron
-        run: npm run qualify:desktop
+      - name: Install and qualify the paired application release
+        run: |
+          npm ci --prefix tools/browser-controller
+          node scripts/sync-app-cli-projections.mjs --check
+          python3 scripts/qualify-app-cli-release.py
+          python3 scripts/install-app-cli.py --root /tmp/app-cli-ci --host-socket /tmp/app-cli-ci/host.sock --host-runtime-root /tmp/app-cli-ci/cli-runtime --workspace-root /tmp/app-cli-ci/workspace > /tmp/app-cli-ci.json
+          node tools/browser-controller/test/qualify-app-cli-deployment.mjs /tmp/app-cli-ci.json
+      - name: Qualify public App-CLI, pinned MCP and CLI on disposable Electron
+        run: |
+          export SPARKCLAW_TEST_APP_CLI_PYTHON="$(python3 -c 'import json; print(json.load(open("/tmp/app-cli-ci.json"))["python"])')"
+          npm run qualify:desktop
 
   webchat:
     name: WebChat

@@ -11,8 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-// providerScriptContract is generated from the Controller provider registry
-// (tools/browser-controller/src/provider-scripts.mjs) by
+// providerScriptContract is generated from the pinned App-CLI package by
 // `npm run sync:provider-contract --prefix tools/browser-controller`. The
 // Controller test suite fails when the two drift, so the script identity,
 // revision, and budget the gateway binds to are never restated by hand here.
@@ -34,6 +33,8 @@ type providerScriptContractFile struct {
 }
 
 type providerScriptContractEntry struct {
+	App       string `json:"app"`
+	Command   string `json:"command"`
 	Provider  string `json:"provider"`
 	Operation string `json:"operation"`
 	ScriptID  string `json:"script_id"`
@@ -41,8 +42,7 @@ type providerScriptContractEntry struct {
 	TimeoutMS int    `json:"timeout_ms"`
 }
 
-// Script identifies a provider script by the ID and revision the browser
-// controller resolves in its own registry; Timeout is the controller-side
+// Script identifies a provider script by the ID and revision App-CLI resolves through its public Registry; Timeout is the controller-side
 // budget for that script and bounds the gateway's wait for it.
 type Script struct {
 	ID       string
@@ -50,8 +50,8 @@ type Script struct {
 	Timeout  time.Duration
 }
 
-// Provider is the gateway's view of one Controller-registered mail provider.
-// Login URL and allowed origins live only in the Controller registry, which
+// Provider is the gateway's view of one App-CLI-registered mail provider.
+// Login URL and allowed origins live only in the App-CLI application binding, which
 // resolves them from the provider ID at run time.
 type Provider struct {
 	ID              string
@@ -132,7 +132,7 @@ func NewRegistry(providers []Provider) (Registry, error) {
 }
 
 // DefaultRegistry binds every app.EmailProviderIDs entry to the probe and
-// send scripts the Controller contract declares for it.
+// send scripts the App-CLI contract declares for it.
 func DefaultRegistry() Registry {
 	registry, err := registryFromContract(providerScriptContract)
 	if err != nil {

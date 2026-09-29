@@ -22,11 +22,11 @@ test('batch transport depends on pure guards without loading task, DOM or downlo
   }
   await visit(path.join(root,'cli-read-batch.mjs'));
   assert.ok(visited.has(path.join(root,'cli-page-guards.mjs')));
-  for(const name of ['cli-task.mjs','dom-actions.mjs','cli-download.mjs','awaited-mail-read.cjs']){
+  for(const name of ['host-page.mjs','dom-actions.mjs','cli-download.mjs','awaited-mail-read.cjs']){
     assert.equal(visited.has(path.join(root,name)),false,`batch imported ${name}`);
   }
   assert.equal([...visited].some(file=>file.includes('/scripts/email/')),false);
-  const task=await fs.readFile(path.join(root,'cli-task.mjs'),'utf8');
+  const task=await fs.readFile(path.join(root,'host-page.mjs'),'utf8');
   assert.match(task,/from "\.\/cli-page-guards\.mjs"/u);
   assert.doesNotMatch(task,/export\s+(?:function\s+(?:parseTabs|sanitizeTabListOutput|assertExpectedOrigin|assertTaskTopology|tabFingerprint)|\{[^}]*\b(?:parseTabs|sanitizeTabListOutput|assertExpectedOrigin|assertTaskTopology|tabFingerprint)\b)/u);
 });

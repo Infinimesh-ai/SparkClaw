@@ -7,6 +7,7 @@ import vm from "node:vm";
 import crypto from "node:crypto";
 
 import { BACKGROUND_FOCUS_FUNCTION, BATCH_READ_FUNCTION, EDITOR_LINES_FUNCTION } from "../src/dom-actions.mjs";
+import {ApplicationHostDriver} from "../src/host-driver.mjs";
 import { createInvocationState } from "../src/cli-runtime.mjs";
 
 const text = value => ({ nodeType: 3, textContent: value });
@@ -70,6 +71,8 @@ test("private JSON config preserves quotes, literal escapes and multiline mail e
     content: 'literal \\n and \\r\nactual newline\n"quote" # hash\tend',
   } };
   const state = await createInvocationState(path.join(root, "cli-runtime"), `session_${"a".repeat(32)}`, { message }, "send");
+  const driver = new ApplicationHostDriver({});
+  await driver.call({state, activities:new Map([['fixture', {}]])}, 'setSecrets', [{FIRST:message.recipient, SECOND:message.subject, THIRD:message.body.content}], {activity:'fixture'});
   const config = JSON.parse(await fs.readFile(state.secretsPath, "utf8"));
   assert.deepEqual(Object.values(config.secrets), [message.recipient, message.subject, message.body.content]);
   assert.equal((await fs.stat(state.secretsPath)).mode & 0o777, 0o600);

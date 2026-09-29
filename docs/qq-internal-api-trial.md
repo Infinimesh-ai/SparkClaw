@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/qq-internal-api-trial.md)
 
-Historical trial: 2026-09-10. The owner authorized an experimental Tampermonkey userscript and real QQ speed trial. Its exact source ran in a logged-in QQ task page through the existing CLI test runtime, but persistent installation through Tampermonkey was unverified at that time. No security gate was relaxed. The unused standalone prototype and its prototype-only tests were removed on 2026-09-17; this evidence remains historical, not an active implementation guide. The production implementation is the [managed QQ Reader](../tools/browser-userscripts/qq-mail-reader.user.js); current acceptance is recorded in the [timeline guide](email-timeline-incremental-sync-design.md).
+Historical trial: 2026-09-10. The owner authorized an experimental Tampermonkey userscript and real QQ speed trial. Its exact source ran in a logged-in QQ task page through the existing CLI test runtime, but persistent installation through Tampermonkey was unverified at that time. No security gate was relaxed. The unused standalone prototype and its prototype-only tests were removed on 2026-09-17; this evidence remains historical, not an active implementation guide. The production implementation is the [managed QQ Reader](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/assets/mail/qq-mail-reader.user.js); current acceptance is recorded in the [timeline guide](email-timeline-incremental-sync-design.md).
 
 ## Verified behavior
 

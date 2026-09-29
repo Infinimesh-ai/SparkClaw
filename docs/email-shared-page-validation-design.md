@@ -53,9 +53,9 @@ that does not traverse retained rows; active-query coexistence still needs live 
 
 Source starting points:
 
-- [Observer manager](../tools/browser-controller/src/mail-observers.mjs), [feed](../tools/browser-controller/src/mail-observer-feed.mjs) and [page hooks](../tools/browser-controller/src/mail-observer-page.mjs).
-- [Read pool](../tools/browser-controller/src/mail-read-pool.mjs), [CLI factory](../tools/browser-controller/src/cli-client.mjs) and [round lifecycle](../tools/browser-controller/src/cli-task.mjs).
-- [Reader core](../scripts/email/userscripts/lib/reader-core.mjs), [Outlook transport](../scripts/email/userscripts/lib/outlook-transport.mjs) and [Controller reservations](../tools/browser-controller/src/controller.mjs).
+- [Observer manager](../tools/browser-controller/src/app-cli-client.mjs), [feed](../tools/browser-controller/src/mail-observer-feed.mjs) and [page hooks](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/applications/mail/runtime/mail-observer-page.mjs).
+- [Read pool](../tools/browser-controller/src/host-driver.mjs), [CLI factory](../tools/browser-controller/src/app-cli-client.mjs) and [round lifecycle](../tools/browser-controller/src/host-page.mjs).
+- [Reader core](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/applications/mail/userscripts/lib/reader-core.mjs), [Outlook transport](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/applications/mail/userscripts/lib/outlook-transport.mjs) and [Controller reservations](../tools/browser-controller/src/controller.mjs).
 - [Resident observer evidence](email-resident-observer.md) and [cross-round reuse](email-cross-round-reuse.md).
 
 ## 3. Candidate ownership model

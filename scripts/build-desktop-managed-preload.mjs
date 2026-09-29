@@ -1,3 +1,4 @@
+import {applicationAsset} from './app-cli-artifacts.mjs';
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -22,7 +23,7 @@ for (const entry of componentManifest.scripts) {
     throw new Error("Managed script manifest entry is invalid");
   }
   const scriptPath = path.join(ROOT, "tools", "browser-userscripts", entry.file);
-  const source = await fs.readFile(scriptPath, "utf8");
+  const source = entry.source === "app-cli" ? applicationAsset("assets/mail/" + entry.file) : await fs.readFile(scriptPath, "utf8");
   const sha256 = crypto.createHash("sha256").update(source).digest("hex");
   if (sha256 !== entry.sha256) throw new Error(`Managed script checksum mismatch: ${entry.file}`);
   const metadata = parseMetadata(source, entry.file);

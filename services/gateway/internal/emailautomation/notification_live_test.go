@@ -191,7 +191,14 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 		marker := "SCW-" + strings.ReplaceAll(app.NewID("mail"), "_", "-")
 		start := time.Now().UTC().Add(-time.Minute)
 		t.Logf("sending %s -> %s marker=%s", senderID, receiverID, marker)
-		_, sendErr := runner.Send(ctx, sender, SendRequest{Provider: senderID, Account: app.EmailAccountDefault, Recipient: recipient, Subject: marker, Body: "SparkClaw resident qualification " + marker, InvocationID: app.NewID("resident_send"), BrowserCredentialGeneration: identities[senderID].probe.Generation, ProbeRevision: sender.Probe.Revision, ScriptRevision: sender.Send.Revision})
+		sendRequest := SendRequest{Provider: senderID, Account: app.EmailAccountDefault, Recipient: recipient, Subject: marker, Body: "SparkClaw resident qualification " + marker, InvocationID: app.NewID("resident_send"), BrowserCredentialGeneration: identities[senderID].probe.Generation, ProbeRevision: sender.Probe.Revision, ScriptRevision: sender.Send.Revision}
+		if senderID == app.EmailProviderOutlook {
+			sendRequest.Mode = "compose"
+			sendRequest.AccountAddress = identities[senderID].address
+			sendRequest.To = []string{recipient}
+			sendRequest.Recipient = ""
+		}
+		_, sendErr := runner.Send(ctx, sender, sendRequest)
 		if sendErr != nil {
 			t.Logf("uncertain send (%s), reconcile without resend", ErrorCode(sendErr))
 		} else {

@@ -101,6 +101,7 @@ async function start() {
     descriptorPath: path.join(app.getPath("userData"), "backend.json"),
     legacyPaths,
     qualification,
+    requireLAN: process.platform === "darwin" && !qualification,
     fetcher: electronNet.fetch,
     onChange: (status) => {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);

@@ -113,6 +113,36 @@ test("descriptor grammar never loosens legacy loopback or accepts embedded secre
   assert.throws(() => parseBackendDescriptor({ ...lan, origin: "https://sparkclaw.example:9443/path" }), /canonical/);
 });
 
+test("LAN-required startup and configuration reject v1 before credential use while keeping Linux v1 supported", async (t) => {
+  const { options, directory } = await fixture(t);
+  let requests = 0;
+  const auth = new DesktopAuth({ ...options, requireLAN: true, fetcher: async () => { requests++; return new Response(JSON.stringify(identity)); } });
+  assert.equal((await auth.initialize()).state, "incomplete_setup");
+  assert.equal(auth.descriptor, undefined);
+  assert.equal((await auth.login(token)).state, "incomplete_setup");
+  assert.equal(requests, 0);
+  await assert.rejects(auth.configure(descriptor), /version 2 HTTPS LAN/);
+  assert.equal(JSON.parse(await fs.readFile(options.descriptorPath)).schema_version, 1);
+
+  const lan = { schema_version: 2, origin: "https://sparkclaw.example:9443", deployment_id: identity.deployment_id,
+    owner_id: identity.owner_id, tls_certificate_sha256: "a".repeat(64) };
+  assert.equal((await auth.configure(lan)).state, "locked");
+  const configured = await fs.readFile(options.descriptorPath, "utf8");
+  await assert.rejects(auth.configure(descriptor), /version 2 HTTPS LAN/);
+  assert.equal(await fs.readFile(options.descriptorPath, "utf8"), configured, "rejected v1 cannot replace the LAN description");
+  assert.equal((await new DesktopAuth({ ...options, requireLAN: true }).initialize()).state, "locked");
+
+  const legacyDescriptorPath = path.join(directory, "legacy-workbench.json");
+  await fs.writeFile(legacyDescriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
+  const fallback = new DesktopAuth({ ...options, requireLAN: true, descriptorPath: path.join(directory, "missing.json"),
+    legacyPaths: { descriptorPath: legacyDescriptorPath, credentialPath: path.join(directory, "desktop-client.json") } });
+  assert.equal((await fallback.initialize()).state, "incomplete_setup", "path discovery cannot bypass the LAN requirement");
+
+  const linux = new DesktopAuth({ ...options, requireLAN: false });
+  assert.equal((await linux.configure(descriptor)).state, "locked");
+  assert.equal((await linux.login(token)).state, "connected");
+});
+
 test("auth IPC permits only the workbench main frame", () => {
   const mainFrame = { url: "sparkclaw-app://workbench/index.html" };
   const window = { webContents: { mainFrame } };

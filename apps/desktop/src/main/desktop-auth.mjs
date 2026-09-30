@@ -5,8 +5,8 @@ import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendCon
 import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 
 export class DesktopAuth {
-  constructor({ vault, descriptorPath, legacyPaths, qualification = false, fetcher, onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { vault, descriptorPath, legacyPaths, qualification, fetcher, onChange, onLock });
+  constructor({ vault, descriptorPath, legacyPaths, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
+    Object.assign(this, { vault, descriptorPath, legacyPaths, qualification, requireLAN, fetcher, onChange, onLock });
     this.requests = new Set();
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
@@ -17,6 +17,10 @@ export class DesktopAuth {
     try { this.descriptor = await loadLocalBackendDescriptor({ descriptorPath: this.descriptorPath }); }
     catch {
       try { this.descriptor = await loadLocalBackendDescriptor(this.legacyPaths); } catch { return this.#set("incomplete_setup"); }
+    }
+    if (this.requireLAN && this.descriptor.schemaVersion !== 2) {
+      this.descriptor = undefined;
+      return this.#set("incomplete_setup");
     }
     if (this.qualification && this.legacyPaths) {
       try { this.connection = await loadLocalBackendConnection(this.legacyPaths); return this.retry(); } catch { /* new-install gate */ }
@@ -32,6 +36,9 @@ export class DesktopAuth {
 
   async configure(value) {
     const descriptor = parseBackendDescriptor(value);
+    if (this.requireLAN && descriptor.schemaVersion !== 2) {
+      throw new Error("This desktop requires a version 2 HTTPS LAN backend description");
+    }
     const generation = this.generation + 1;
     await this.logout();
     if (generation !== this.generation) return this.status;

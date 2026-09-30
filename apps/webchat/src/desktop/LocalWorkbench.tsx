@@ -92,7 +92,7 @@ export function LocalWorkbench() {
     setLanguage(next); window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
   }
 
-  return <div className="workbench localWorkbench">
+  return <div className="shell workbench localWorkbench">
     {settings ? <WorkspaceSettingsSidebar text={dictionaries[language]} language={language} tab={tab}
       pendingApprovalCount={0} pendingCandidateCount={0} onTabChange={setTab} onBack={() => setSettings(false)}
       availableTabs={["devices", "appearance"]} /> : <aside className="sidebar">

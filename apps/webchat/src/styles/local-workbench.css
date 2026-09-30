@@ -1,6 +1,6 @@
 .localWorkbench .topbar { justify-content: space-between; }
 .localWorkbench .topbar h1 { margin: 0; font-size: 18px; font-weight: 600; }
-.localConversationList { flex: 1; min-height: 0; overflow: auto; margin-block: 18px; }
+.localWorkbench .localConversationList { flex: 1; min-height: 0; overflow: auto; margin-block: 18px; }
 .localConversationList p { padding-inline: 8px; color: var(--text-secondary); line-height: 1.6; }
 .localConversationList button { width: 100%; padding: 10px; text-align: start; background: transparent; border-radius: var(--radius-control); overflow-wrap: anywhere; color: var(--text-primary); }
 .localConversationList button:hover, .localConversationList button[aria-current] { background: var(--surface-hover); }
@@ -24,7 +24,18 @@
 .localSettingsContent { padding: 16px 32px; overflow: auto; }
 .localWorkbench .primaryButton { display: flex; gap: 8px; align-items: center; justify-content: center; padding: 10px 14px; }
 @media (max-width: 800px) {
-  .localWorkbench { grid-template-columns: 200px minmax(0, 1fr); }
+  .shell.localWorkbench { grid-template-columns: 200px minmax(0, 1fr); }
   .localHistory, .localComposer, .localSettingsContent { padding-inline: 16px; }
   .localComposer > div { flex-wrap: wrap; }
 }
+@media (max-width: 700px) {
+  .shell.localWorkbench { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 100dvh; overflow: visible; }
+  .shell.localWorkbench .sidebar { gap: 10px; padding: 12px 16px; }
+  .shell.localWorkbench .workspace { height: calc(100dvh - 220px); min-height: 520px; }
+  .localWorkbench .localConversationList { display: flex; gap: 8px; flex: 0 0 auto; margin-block: 0; max-height: 70px; overflow-x: auto; }
+  .localWorkbench .localConversationList button { width: auto; min-width: 140px; max-width: 220px; }
+  .localWorkbench .sidebarFooter { display: flex; gap: 8px; padding: 0; }
+  .localWorkbench .topbar { padding-inline: 16px; }
+}
+.shell.localWorkbench { grid-template-columns: 244px minmax(0, 1fr); }
+.shell.localWorkbench .sidebar { display: flex; }

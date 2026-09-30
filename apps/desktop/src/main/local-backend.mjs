@@ -56,7 +56,10 @@ export function parseBackendDescriptor(descriptor) {
 		if (typeof descriptor.tls_certificate_sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(descriptor.tls_certificate_sha256)) {
 			throw new Error("LAN certificate fingerprint must be a lowercase SHA-256 digest");
 		}
-		const ca = descriptor.tls_ca_pem === undefined ? undefined : requiredString(descriptor.tls_ca_pem, "LAN CA certificate", 32768);
+		if (descriptor.tls_ca_pem !== undefined && (typeof descriptor.tls_ca_pem !== "string" || descriptor.tls_ca_pem.length > 32768)) {
+			throw new Error("LAN CA certificate is invalid");
+		}
+		const ca = descriptor.tls_ca_pem === undefined ? undefined : requiredString(descriptor.tls_ca_pem.trim(), "LAN CA certificate", 32768);
 		if (ca && (!ca.startsWith("-----BEGIN CERTIFICATE-----") || !ca.endsWith("-----END CERTIFICATE-----"))) {
 			throw new Error("LAN CA certificate must be a public PEM certificate");
 		}

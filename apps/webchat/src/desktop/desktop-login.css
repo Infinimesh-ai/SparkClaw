@@ -1,7 +1,8 @@
 .desktopLogin {
   display: grid;
-  min-height: 100%;
-  place-items: center;
+  height: 100dvh;
+  align-items: safe center;
+  justify-items: center;
   padding: 32px 24px;
   overflow: auto;
   background: var(--surface-muted);

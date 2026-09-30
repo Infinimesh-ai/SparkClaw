@@ -38,7 +38,8 @@
       "archiver": "^8.0.0",
       "unzipper": "^0.12.5",
       "uuid": "^11.1.1"
-    }
+    },
+    "undici@7": "7.29.1"
   },
   "scripts": {
     "deploy:local": "bash scripts/deploy_local.sh",

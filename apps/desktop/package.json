@@ -25,6 +25,7 @@
     "npm": ">=11 <12"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "electron": "44.4.3",
     "electron-builder": "26.15.3"
   },

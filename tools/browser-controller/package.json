@@ -21,7 +21,7 @@
     "npm": ">=11 <12"
   },
   "dependencies": {
-    "@infinimesh/app-cli-runtime": "file:../../vendor/app-cli/infinimesh-app-cli-runtime-0.3.0-sparkclaw.9.tgz",
+    "@infinimesh/app-cli-runtime": "file:../../vendor/app-cli/infinimesh-app-cli-runtime-0.3.0-sparkclaw.10.tgz",
     "@playwright/cli": "0.1.19",
     "@playwright/mcp": "0.0.80",
     "playwright": "1.63.0-alpha-2026-08-31",

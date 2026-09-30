@@ -2,15 +2,15 @@
 
 > Language: English | [简体中文](../zh-cn/docs/app-cli-email-extraction-design.md)
 
-- Status: **R3 implementation in progress; first public lifecycle core delivered; mail migration incomplete**
-- Date: 2026-09-29
+- Status: **R3 extraction and cumulative six-route delivery verified; production follow-up deferred until the main-branch merge**
+- Date: 2026-09-30
 - Initial applications: QQ Mail, Gmail, Outlook
 - SparkClaw inspection baseline: `6f4c97e4d0d7e03fab2de48661ddd6aed3034cd9`
 - App-CLI inspection baseline: `c9e49acd486fcbbbed0c0c3f398d6c7041a5a66f`
 
 This replaces the earlier proposal to extract mail implementations through direct npm imports. The objective is a sustainable application control system built on App-CLI's existing architecture. Mail validates the first complete integration. The target architecture determines implementation scope; reducing changed files does not justify two public registries or bypassing App-CLI's execution entry point.
 
-The user has authorized coding. This fork now implements the public lifecycle core and explicit Runtime v2 client transport, with scope recorded in section 14; upstream has not merged these changes. The resident service, BrowserHostPort, mail adapters and production deployment remain subsequent work, not capabilities established by this design.
+This fork implements the public lifecycle core, Runtime v2, resident service, BrowserHostPort and mail adapters, with scope recorded in section 14; this does not mean upstream has merged the changes or production acceptance has passed. Cumulative six-route delivery was verified on 2026-09-29, while QQ native send acknowledgment remains unqualified. The user deferred remaining work until the SparkClaw main-branch merge; see the checklist in the [implementation and acceptance record](app-cli-implementation-validation.md).
 
 ## 1. Architecture Decisions
 
@@ -465,8 +465,11 @@ release is `0.3.0-sparkclaw.2`; Python uses `0.3.0+sparkclaw.2`.
   are implemented. State and request history survive compatible rollback.
 
 See the [implementation and acceptance record](app-cli-implementation-validation.md)
-for executed checks and reproducible commands. Actual isolated Electron covers
+for executed checks, reproducible commands and work deferred until the main-branch merge. Actual isolated Electron covers
 non-mail application reuse and ordinary browser task/personal-page regression;
-mail fixtures cover migrated provider semantics. Live mailbox acceptance and
-production activation are separate final acceptance steps. No real mail was
-sent and no shared service was deployed by this work.
+mail fixtures cover migrated provider semantics. On 2026-09-29, temporary matched
+Host/Executor services sent seven authorized test messages with verified originals
+across six directions; four send records retain uncertain status. Original
+services were then restored with the new ledger preserved. Full verification on
+the final artifacts, production notification integration and production
+activation remain outstanding.

@@ -116,6 +116,43 @@ Python 3.11/3.13 and the lifecycle runtime. QQ native acknowledgment remains
 unqualified after the final regression; all seven actually dispatched test
 messages have separately verified received originals.
 
+## Work deferred until the main-branch merge: 2026-09-30
+
+Execution status: **At the user's request, the following work starts only after
+this SparkClaw change is merged into the main branch.** This update records the
+handoff only; it does not merge, send more mail, switch services or deploy.
+Merging code neither passes production acceptance nor activates the new runtime.
+
+The handoff baseline is SparkClaw `cf28f87`, App-CLI fork `6a46352`, and consumed
+release `0.3.0-sparkclaw.2` built from `99a59e9`. Preserve the cumulative six-route
+delivery evidence, seven received originals and four historical uncertain
+records in the sanitized report linked above. They do not prove that every
+route passed on the final release. App-CLI remains maintained in the fork;
+merging it back upstream is not a prerequisite for this work.
+
+| Order | Work after merge | Completion criteria |
+| --- | --- | --- |
+| 1 | Verify the merge result and release scope | Record the main-branch commit, App-CLI source, paired artifact digests and features intended for release; check conflict resolutions affecting consumers, projections and Host, and run the relevant regressions |
+| 2 | Fix QQ send acknowledgment and complete unknown-outcome handling | Diagnose insufficient native Sent evidence in App-CLI; normal sends obtain reliable acknowledgment; SparkClaw correctly presents unknown and reconciliation results without reporting failure or automatically resending; retain the four historical records and separate delivery evidence |
+| 3 | Build and freeze the final release; verify the complete product path | Produce matching wheel/runtime/consumer projections after fixes, record digests and pass release checks; exercise the matched Gateway, Controller, Executor and Desktop from the product UI; preserve ordinary task pages, personal pages and login state |
+| 4 | Repeat all six routes on the same final artifacts | Check send status, received original, exact subject and addresses for QQ↔Gmail, QQ↔Outlook and Gmail↔Outlook; use a fresh marker for each independent case without replaying old uncertain tasks; received mail does not substitute for send-acknowledgment acceptance |
+| 5 | Verify real reads and send modes intended for release | Cover cold starts, repeated reuse, account changes and expired login for all providers; test multiple recipients, Cc, reply/reply-all and original downloads within the release scope; do not mark unpassed modes accepted or expand scope to attachment sending merely because of this checklist |
+| 6 | Verify incoming notifications and sustained operation | Exercise real arrival through watch, capture, deduplication, ingestion and UI; cover both read/watch startup orders, multiple authorization renewals and gap backfill after disconnection; record notification latency and page/process/resource trends |
+| 7 | Rehearse recovery and compatible whole-set rollback in the target deployment | Exercise Gateway/Executor/Controller/browser restarts, disconnects, cancellation, authorization expiry and credential changes; prevent duplicate sends and unauthorized continuation, fence failed cleanup; preserve ledger, journals, authority records, originals and login state through compatible rollback |
+| 8 | Assemble final evidence for user acceptance | Record final artifact digests, results and remaining limits for every item; align bilingual documentation with sanitized evidence; the user performs final acceptance before production enablement scope is finalized |
+
+Execute 1→2→3, then 4–7 on the same final artifacts, followed by 8. If relevant
+implementation changes, rerun affected cases and update evidence instead of
+reusing a pass tied to old digests. Provider business fixes remain in App-CLI;
+SparkClaw owns only generic Host behavior, upper-layer calls and product state.
+Changes to a frozen cross-project contract still require an InfiniCenter decision.
+
+At the end of the 2026-09-29 temporary qualification, original services were
+restored, the temporary Executor was disabled and durable state retained. That
+was not a compatible rollback handing new ledger state to pre-extraction code.
+Resume from existing records without clearing state or replaying old mail.
+This checklist schedules no background monitoring or automatic continuation.
+
 ## Rebuild and consume a release
 
 In the App-CLI fork, commit the reviewed implementation and run:

@@ -2,15 +2,15 @@
 
 > 语言：简体中文 | [English](../../docs/app-cli-email-extraction-design.md)
 
-- 状态：**R3 实施中；公共生命周期核心首批完成，邮件迁移尚未完成**
-- 日期：2026-09-29
+- 状态：**R3 抽离与六向累计送达验证已完成；生产收尾延后至合并主分支后执行**
+- 日期：2026-09-30
 - 首批应用：QQ 邮箱、Gmail、Outlook
 - SparkClaw 调查基线：`6f4c97e4d0d7e03fab2de48661ddd6aed3034cd9`
 - App-CLI 调查基线：`c9e49acd486fcbbbed0c0c3f398d6c7041a5a66f`
 
 本文取代此前“通过 npm 包直接抽离邮件实现”的提案。目标是基于 App-CLI 已有架构建设可持续扩展的应用控制能力，邮件用于验证第一条完整链路。实现范围由目标架构决定，不能以少改文件为理由保留两套注册核心或绕开 App-CLI 的执行入口。
 
-用户已授权开始编写代码。本 fork 已实现公共生命周期核心与显式 Runtime v2 客户端传输，具体范围见第 14 节；这不代表上游已合并。常驻执行服务、BrowserHostPort、邮件适配与生产部署仍为后续工作，不能从设计描述推断已实现。
+本 fork 已实现公共生命周期核心、Runtime v2、常驻执行服务、BrowserHostPort 及邮件适配，具体范围见第 14 节；这不代表上游已合并或生产验收通过。2026-09-29 已完成六向累计送达验证，QQ 原生发送确认仍未通过；用户要求剩余收尾在 SparkClaw 合并主分支后进行，执行清单见[实现与验收记录](app-cli-implementation-validation.md)。
 
 ## 1. 架构决策
 
@@ -451,4 +451,4 @@ Go Gateway 沿用挂载到容器的、已鉴权的 owner Controller socket。own
 - 产品通过固定客户端调用 Python 公共入口；Controller/Bridge/Desktop 保留通用页面所有权与调度。read/watch 共享资源但各持有限租约，导航前资产、账户/文档校验和清理失败隔离保持。
 - 成套 wheel/npm/依赖制品、安装文件校验、Go/Reader/preload 生成投影、服务安装和整组回退均已实现，兼容回退保留状态与请求历史。
 
-执行结果及可复跑命令见[实现与验收记录](app-cli-implementation-validation.md)。实际隔离 Electron 验证非邮件应用复用、普通浏览器任务与个人页隔离；邮件 fixtures 验证迁入供应商语义。真实邮箱业务验收和生产激活属于用户最终验收步骤，本轮未发送真实邮件、未部署共享服务。
+执行结果、可复跑命令和合并主分支后的收尾清单见[实现与验收记录](app-cli-implementation-validation.md)。实际隔离 Electron 验证非邮件应用复用、普通浏览器任务与个人页隔离；邮件 fixtures 验证迁入供应商语义。2026-09-29 临时切换匹配 Host/Executor 后，七封授权测试邮件均取得原件，覆盖六个方向；四条发送记录仍保留不确定状态。验证后恢复原服务并保留新账本，最终制品全量复验、生产通知联验及生产激活尚未完成。

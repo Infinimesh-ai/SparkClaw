@@ -38,7 +38,7 @@ import { currentTextSize, currentTheme, setTextSize, setTheme, type TextSize, ty
 import { ExternalMCPSettings } from "../externalMCPSettings";
 import { SectionHeader } from "./primitives";
 import { ConnectorBindingSettings } from "./settingsBindings";
-import { PairedClientsSettings } from "./settingsClients";
+import { PairedClientsSettings, type ClientSettingsActions } from "./settingsClients";
 import { AIPlatformLoginSettings } from "./settingsAIPlatforms";
 import { BrowserEmailSettings } from "./settingsEmail";
 import { BrowserControlSettings } from "./settingsBrowserControl";
@@ -47,7 +47,7 @@ import { integrationStateLabel } from "./settingsIntegrationState";
 import { OwnerProfileSettings } from "./settingsOwner";
 
 type SettingsCategory = "account" | "connections" | "agent" | "system";
-export type WorkspaceSettingsSection = "general" | "appearance" | "models-tools" | "permissions" | "connections";
+export type WorkspaceSettingsSection = "general" | "appearance" | "devices" | "models-tools" | "permissions" | "connections";
 type SettingsDetail =
   | "owner"
   | "clients"
@@ -69,6 +69,12 @@ export function SettingsPanel({
   runtimeConfig,
   ownerProfile,
   clients,
+  currentClientID,
+  clientsLoading,
+  clientsError,
+  onReloadClients,
+  onCurrentClientRevoked,
+  onLogout,
   connectors,
   notificationBindings,
   text,
@@ -85,7 +91,7 @@ export function SettingsPanel({
   onUpdateConnector,
   onUpdatePolicy,
   onCheckStatus
-}: {
+}: ClientSettingsActions & {
   connectionsOnly?: boolean;
   section?: WorkspaceSettingsSection;
   runtimeConfig: PublicConfig | null;
@@ -169,6 +175,14 @@ export function SettingsPanel({
     try { setLoginStartup(await window.sparkclawDesktop.loginStartup(enabled)); }
     catch (error) { setPolicyError(error instanceof Error ? error.message : String(error)); }
     finally { setLoginBusy(false); }
+  }
+
+  if (section === "devices") {
+    return <div className="panelStack settingsPanel settingsSurface">
+      <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
+        clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
+        onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />
+    </div>;
   }
 
   if (section === "general") {
@@ -438,7 +452,9 @@ export function SettingsPanel({
             <span>{detailTitle}</span>
           </button>
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
-          {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} />}
+          {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
+            clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
+            onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />}
           {detail === "language" && (
             <article className="settingsBlock">
               <strong>{text.nav.language}</strong>

@@ -948,6 +948,96 @@
   color: var(--text-secondary);
 }
 
+.workbench .settingsPageMain .clientSettings p,
+.workbench .settingsPageMain .clientSettings .muted {
+  margin-block: 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.clientCredentialActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.clientSettings button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-small);
+  color: var(--text-primary);
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.clientSettings button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.clientSettings .reject {
+  color: var(--crimson-danger);
+  border-color: var(--crimson-danger);
+}
+
+.clientSettings .clientIssuance .approve {
+  color: #fff;
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.clientSettings .clientIssuance .approve:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.clientSettings .issuedClientCredential {
+  background: var(--surface);
+}
+
+.clientSettings .issuedClientCredential small {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.clientSettings .clientItem {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.clientSettings .clientItem strong,
+.clientSettings .clientItem small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.clientSettings .clientItem small {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.clientSettings .clientItem button {
+  width: 36px;
+  height: 36px;
+}
+
+.clientSettings .clientItem .pill {
+  display: inline-flex;
+  margin-inline-start: 4px;
+}
+
+.clientSettings .clientIssuance input {
+  font-size: 16px;
+}
+
+.clientLogout {
+  align-self: start;
+}
+
 .evalResult.passed {
   border-color: rgba(66, 133, 244, 0.5);
 }

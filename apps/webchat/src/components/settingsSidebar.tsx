@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Brain, Bot, CircleAlert, History, Palette, PlugZap, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, Brain, Bot, CircleAlert, History, KeyRound, Palette, PlugZap, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import type { Copy, Language } from "../i18n";
 import type { PanelTab } from "./inspector";
 import { workbenchCopy } from "./workbench";
@@ -10,6 +10,7 @@ type WorkspaceSettingsSidebarProps = {
   tab: PanelTab;
   pendingApprovalCount: number;
   pendingCandidateCount: number;
+  availableTabs?: PanelTab[];
   onTabChange: (tab: PanelTab) => void;
   onBack: () => void;
 };
@@ -20,6 +21,7 @@ export function WorkspaceSettingsSidebar({
   tab,
   pendingApprovalCount,
   pendingCandidateCount,
+  availableTabs,
   onTabChange,
   onBack
 }: WorkspaceSettingsSidebarProps) {
@@ -28,17 +30,19 @@ export function WorkspaceSettingsSidebar({
   const items = useMemo(() => [
     { group: "workspace" as const, id: "settings" as const, label: copy.general, icon: SlidersHorizontal, count: 0 },
     { group: "workspace" as const, id: "appearance" as const, label: copy.appearance, icon: Palette, count: 0 },
+    { group: "workspace" as const, id: "devices" as const, label: copy.devices, icon: KeyRound, count: 0 },
     { group: "agent" as const, id: "models-tools" as const, label: copy.modelsTools, icon: Bot, count: 0 },
     { group: "agent" as const, id: "permissions" as const, label: copy.permissions, icon: ShieldCheck, count: 0 },
     { group: "agent" as const, id: "connections" as const, label: copy.connections, icon: PlugZap, count: 0 },
     { group: "context" as const, id: "memory" as const, label: text.tabs.memory, icon: Brain, count: pendingCandidateCount },
     { group: "activity" as const, id: "approvals" as const, label: text.tabs.approvals, icon: CircleAlert, count: pendingApprovalCount },
     { group: "activity" as const, id: "timeline" as const, label: text.tabs.timeline, icon: History, count: 0 },
-  ], [copy.appearance, copy.connections, copy.general, copy.modelsTools, copy.permissions, pendingApprovalCount, pendingCandidateCount, text.tabs]);
+  ], [copy.appearance, copy.connections, copy.devices, copy.general, copy.modelsTools, copy.permissions, pendingApprovalCount, pendingCandidateCount, text.tabs]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleItems = normalizedQuery
-    ? items.filter((item) => item.label.toLocaleLowerCase().includes(normalizedQuery))
-    : items;
+  const visibleItems = items.filter((item) =>
+    (!availableTabs || availableTabs.includes(item.id)) &&
+    (!normalizedQuery || item.label.toLocaleLowerCase().includes(normalizedQuery))
+  );
 
   return (
     <aside className="settingsPageSidebar">

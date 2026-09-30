@@ -3,10 +3,10 @@
 // trigger. Extracted from App.tsx so the root component stays below the
 // size baseline; shared state stays in the parent and is refreshed through
 // the injected callbacks, so behavior is unchanged.
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { FileSearch, Gauge, MemoryStick, ScrollText, Settings, ShieldAlert } from "lucide-react";
-import { api } from "../api/client";
+import { api, APIError, clearAPIToken } from "../api/client";
 import type { Copy, Language } from "../i18n";
 import { isBindingSetupPending } from "../lib/connectors";
 import { notificationBindingErrorMessage } from "../lib/bindingError";
@@ -19,6 +19,7 @@ import {
   TracePanel
 } from "./panels";
 import type { WorkspaceSettingsSection } from "./panels/settings";
+import type { ClientSettingsActions } from "./panels/settingsClients";
 import type {
   Approval,
   ArtifactObject,
@@ -39,9 +40,9 @@ import type {
   TraceMetadata
 } from "../api/types";
 
-export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings" | "appearance" | "models-tools" | "permissions" | "connections";
+export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings" | "appearance" | "devices" | "models-tools" | "permissions" | "connections";
 
-type InspectorColumnProps = {
+type InspectorColumnProps = ClientSettingsActions & {
   connectionsOnly?: boolean;
   showTabs?: boolean;
   settingsPage?: boolean;
@@ -109,6 +110,12 @@ export function InspectorColumn({
   runtimeConfig,
   ownerProfile,
   clients,
+  currentClientID,
+  clientsLoading,
+  clientsError,
+  onReloadClients,
+  onCurrentClientRevoked,
+  onLogout,
   connectors,
   notificationBindings,
   onOpenTrace,
@@ -126,6 +133,22 @@ export function InspectorColumn({
 }: InspectorColumnProps) {
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
+  const [authenticatedClientID, setAuthenticatedClientID] = useState("");
+  const reloadClients = useCallback(async () => {
+    if (onReloadClients) return onReloadClients();
+    const identity = await api.workbenchIdentity();
+    setAuthenticatedClientID(identity.client_id);
+    return (await api.clients()).clients;
+  }, [onReloadClients]);
+
+  async function endClientLogin() {
+    if (onCurrentClientRevoked) { await onCurrentClientRevoked(); return; }
+    // The browser client retains its legacy token store. Desktop callers
+    // supply the main-process logout callback that also stops host channels.
+    clearAPIToken();
+    surfaceError(new APIError(401, text.auth.unauthorized), text.auth.unauthorized);
+    window.location.reload();
+  }
 
   async function checkSettingsStatus(section: WorkspaceSettingsSection) {
     if (section === "connections") {
@@ -225,9 +248,8 @@ export function InspectorColumn({
     try {
       setError("");
       await api.revokeClient(id);
-      await refreshGlobal();
     } catch (err) {
-      surfaceError(err, text.errors.clientRevoke);
+      if (err instanceof APIError && err.status === 401) surfaceError(new APIError(401, text.auth.unauthorized), text.auth.unauthorized);
       throw err;
     }
   }
@@ -235,11 +257,9 @@ export function InspectorColumn({
   async function issueClient(name: string, idempotencyKey: string) {
     try {
       setError("");
-      const issued = await api.issueClient(name, idempotencyKey);
-      await refreshGlobal();
-      return issued;
+      return await api.issueClient(name, idempotencyKey);
     } catch (err) {
-      surfaceError(err, text.errors.clientIssue);
+      if (err instanceof APIError && err.status === 401) surfaceError(new APIError(401, text.auth.unauthorized), text.auth.unauthorized);
       throw err;
     }
   }
@@ -402,13 +422,20 @@ export function InspectorColumn({
           onError={(message) => setError(message)}
         />
       )}
-      {(tab === "settings" || tab === "appearance" || tab === "models-tools" || tab === "permissions" || tab === "connections") && (
+      {(tab === "settings" || tab === "appearance" || tab === "devices" || tab === "models-tools" || tab === "permissions" || tab === "connections") && (
         <SettingsPanel
+          key={tab}
           connectionsOnly={connectionsOnly}
           section={tab === "settings" ? "general" : tab}
           runtimeConfig={runtimeConfig}
           ownerProfile={ownerProfile}
           clients={clients}
+          currentClientID={currentClientID ?? authenticatedClientID}
+          clientsLoading={clientsLoading}
+          clientsError={clientsError}
+          onReloadClients={reloadClients}
+          onCurrentClientRevoked={endClientLogin}
+          onLogout={onLogout}
           connectors={connectors}
           notificationBindings={notificationBindings}
           text={text}

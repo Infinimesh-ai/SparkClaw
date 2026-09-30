@@ -104,6 +104,7 @@ type Server struct {
 	sessionMessageAdmissions  sync.Map
 	pairing                   *pairingCoordinator
 	clientIssuance            *clientIssuanceCoordinator
+	clientConnections         *clientConnectionRegistry
 	workbenchEvents           *workbenchEventHub
 	workbenchEventMonitorOnce sync.Once
 	storeRuntime              StoreRuntimeMonitor
@@ -300,6 +301,7 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		speechRealtimeTicketIDs: map[string]string{},
 		pairing:                 newPairingCoordinator(),
 		clientIssuance:          newClientIssuanceCoordinator(),
+		clientConnections:       newClientConnectionRegistry(),
 		workbenchEvents:         newWorkbenchEventHub(),
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {

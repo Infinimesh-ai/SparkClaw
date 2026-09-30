@@ -64,6 +64,15 @@ func Load(path string) (Config, error) {
 	if cfg.Gateway.DesktopClientFile != "" && !filepath.IsAbs(cfg.Gateway.DesktopClientFile) {
 		return Config{}, errors.New("SPARKCLAW_DESKTOP_CLIENT_FILE must be an absolute path")
 	}
+	cfg.Gateway.LocalManagementFile = strings.TrimSpace(cfg.Gateway.LocalManagementFile)
+	if cfg.Gateway.LocalManagementFile != "" {
+		if !filepath.IsAbs(cfg.Gateway.LocalManagementFile) {
+			return Config{}, errors.New("SPARKCLAW_LOCAL_MANAGEMENT_FILE must be an absolute path")
+		}
+		if cfg.Gateway.DeploymentID == "" {
+			return Config{}, errors.New("SPARKCLAW_LOCAL_MANAGEMENT_FILE requires SPARKCLAW_DEPLOYMENT_ID")
+		}
+	}
 	if token := cfg.Gateway.WebChatProxyToken; token != "" && !webChatProxyTokenPattern.MatchString(token) {
 		return Config{}, errors.New("Gateway WebChat proxy token must be 43-128 base64url characters")
 	}

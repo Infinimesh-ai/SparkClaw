@@ -162,6 +162,9 @@ func (s *Server) streamWorkbenchEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case event := <-events:
+			if r.Context().Err() != nil {
+				return
+			}
 			payload, err := json.Marshal(event)
 			if err != nil {
 				return
@@ -231,6 +234,9 @@ func (s *Server) runWorkbenchEventMonitor(ctx context.Context) {
 				continue
 			}
 			for _, event := range events {
+				if event.Type == "client.revoked" {
+					s.cancelClientConnections(workbenchEventResourceID(event))
+				}
 				ownerID := workbenchEventOwner(event)
 				if ownerID == "" && event.SessionID != "" {
 					session, found, sessionErr := s.store.GetSession(ctx, event.SessionID)

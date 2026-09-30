@@ -293,5 +293,7 @@ else
   log "WebChat port: $webchat_port"
 fi
 log "deployment complete"
+printf '  First-client credential (backend deployment user, interactive terminal): npm run credentials:initial -- --runtime-dir "%s" --name "My Mac"\n' "$workbench_runtime_dir"
+printf '  Lost-device recovery: npm run credentials:recover -- --runtime-dir "%s" --revoke-id <lost-device-id> --name "Replacement device"\n' "$workbench_runtime_dir"
 
 python3 "$ROOT/scripts/record-deployment.py" complete "$ROOT/data/workspaces"

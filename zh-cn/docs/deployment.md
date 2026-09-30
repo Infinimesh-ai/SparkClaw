@@ -146,6 +146,33 @@ launcher 配置。产品不再监听 `18795`，普通工作台也不再使用 pa
 Gateway client token、MCP Access Ticket、ISCP pairing ticket 与 Browser Controller credential
 仍是彼此独立的 authority。
 
+部署完成后，由后端部署用户在交互终端领取首台用户设备的凭据：
+
+```bash
+npm run credentials:initial -- --name "我的 Mac"
+npm run credentials:recover -- --revoke-id <遗失设备ID> --name "替代 Mac"
+```
+
+两条命令都支持 `--runtime-dir /绝对路径/runtime`；省略时使用
+`SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR` 或当前 checkout 的 `data/runtime`。
+恢复先撤销指定遗失设备，再申请替代设备凭据。已完成的领取不会重新显示旧 Token。
+未完成的重试复用落盘的请求 key 和设备名称；后端重启或十分钟明文窗口到期后，必须显式
+撤销并重新签发。私有领取记录只保存身份、请求 key、状态和时间；Token 仅在本命令交互终端
+显示，不进入普通部署输出或领取记录。
+
+初始化还创建独立的 `local-management.json`（0600）和 `management/` 目录（0700），
+均须由部署用户拥有，路径不得含符号链接；描述符和凭据文件均使用 0600。Gateway 在该目录
+创建 `management/credentials.sock`（0600）。Compose 只读挂载描述符文件，仅允许写入
+management 子目录；容器配置的 UID/GID 必须与部署用户一致。Socket 只开放现有身份验证、
+设备列表、签发和撤销处理器，其管理凭据不能鉴权任何网络 API。所有用户设备均被撤销后，
+本机管理仍可用，重启也不会恢复已撤销的 Desktop Client。
+
+`SPARKCLAW_LOCAL_MANAGEMENT_FILE` 是可选的私有绝对路径：Go 默认空值表示不启用该
+listener；产品 Compose 默认 `/run/sparkclaw/runtime/local-management.json`。配置路径时必须
+设置 `SPARKCLAW_DEPLOYMENT_ID`；加载器校验部署身份、Owner、所有者和私有权限。
+管理文件缺失或无效时，只禁用本机恢复能力并记录启动错误。`npm run doctor` 只检查上述
+初始化文件，不领取或签发凭据。这些是新部署文件，不迁移旧测试数据。
+
 ## 远端部署
 
 远端部署拥有 SparkClaw 应用与持久化状态，但不运行模型容器。在 Ubuntu 上，以具备 sudo

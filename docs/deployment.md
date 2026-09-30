@@ -184,6 +184,42 @@ storage is namespaced by service origin and deployment; R3 desktop secure storag
 remains to be implemented. Gateway client tokens, MCP Access Tickets, ISCP pairing
 tickets, and the Browser Controller credential remain separate authorities.
 
+The backend deployment user retrieves the first user device credential from an
+interactive terminal after deployment:
+
+```bash
+npm run credentials:initial -- --name "My Mac"
+npm run credentials:recover -- --revoke-id <lost-device-id> --name "Replacement Mac"
+```
+
+Both commands accept `--runtime-dir /absolute/runtime`; otherwise they use
+`SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR` or this checkout's `data/runtime`.
+Recovery revokes the specified lost device before requesting a replacement. A
+completed retrieval never displays the old token again. Pending retries reuse
+the saved request key and device name; service restart or the ten-minute
+plaintext window expiring requires explicit revoke/reissue. The private journal
+stores only identity, request key, status and timestamps. Tokens appear only in
+this command's interactive terminal, never normal deployment output or journals.
+
+Provisioning also creates an independent `local-management.json` (0600) and
+`management/` directory (0700). They must be owned by the deployment user, with
+no symbolic-link paths; descriptors and credentials also use 0600. Gateway
+creates `management/credentials.sock` (0600) under that directory. Compose
+mounts descriptor files read-only and only the management subdirectory writable.
+Its configured container UID/GID must match the deployment user. The socket
+exposes only existing identity, device list, issuance and revocation handlers.
+Its management credential never authenticates network APIs and remains available
+when all user devices are revoked; startup never revives a revoked Desktop Client.
+
+`SPARKCLAW_LOCAL_MANAGEMENT_FILE` is an optional, private absolute path. Its Go
+default is empty, which disables this listener; product Compose defaults to
+`/run/sparkclaw/runtime/local-management.json`. A configured path requires
+`SPARKCLAW_DEPLOYMENT_ID`; the loader checks deployment identity, Owner,
+ownership and private permissions. Missing or invalid management files disable
+only local recovery and are reported at startup. `npm run doctor` checks these
+provisioning files without retrieving or issuing credentials. These are new
+deployment files, not a migration of old test data.
+
 ## Remote Deployment
 
 The remote deployment owns the SparkClaw application and durable state but no

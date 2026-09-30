@@ -26,6 +26,30 @@ class LocalWorkbenchProvisioningTest(unittest.TestCase):
             command.append("--check")
         return subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
 
+    def test_doctor_preflight_checks_private_management_without_retrieving_credentials(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary) / "runtime"
+            first = self.run_provision(runtime, "http://127.0.0.1:18790")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            deployment_id = first.stdout.strip()
+            management = runtime / "local-management.json"
+            private = json.loads(management.read_text())
+            desktop = json.loads((runtime / "desktop-client.json").read_text())
+            self.assertNotEqual(private["token"], desktop["token"])
+            snapshots = {file.name: file.read_bytes() for file in runtime.iterdir() if file.is_file()}
+            checked = self.run_provision(runtime, "http://127.0.0.1:18790", deployment_id, check=True)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            self.assertNotIn(private["token"], checked.stdout + checked.stderr)
+            self.assertEqual(snapshots, {file.name: file.read_bytes() for file in runtime.iterdir() if file.is_file()})
+            management.chmod(0o644)
+            insecure = self.run_provision(runtime, "http://127.0.0.1:18790", deployment_id, check=True)
+            self.assertNotEqual(insecure.returncode, 0)
+            self.assertEqual(stat.S_IMODE(management.stat().st_mode), 0o644)
+            management.unlink()
+            missing = self.run_provision(runtime, "http://127.0.0.1:18790", deployment_id, check=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertFalse(management.exists(), "doctor check must never generate or recover credentials")
+
     def test_interrupted_deploy_retry_reuses_the_stable_desktop_client(self):
         with tempfile.TemporaryDirectory() as temporary:
             runtime = Path(temporary) / "runtime"

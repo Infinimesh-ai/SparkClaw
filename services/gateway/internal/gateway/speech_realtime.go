@@ -25,6 +25,7 @@ type speechRealtimeTicket struct {
 	id              string
 	tokenHash       string
 	ownerID         string
+	clientID        string
 	sessionID       string
 	requestID       string
 	language        string
@@ -93,7 +94,7 @@ func (s *Server) postSpeechRealtimeSession(w http.ResponseWriter, r *http.Reques
 	}
 	now := time.Now().UTC()
 	ticket := &speechRealtimeTicket{
-		id: app.NewID("speech-rt"), tokenHash: hashSecret(token), ownerID: principal.OwnerID,
+		id: app.NewID("speech-rt"), tokenHash: hashSecret(token), ownerID: principal.OwnerID, clientID: principal.ClientID,
 		sessionID: input.SessionID, requestID: input.RequestID, language: input.Language,
 		maxAudioSeconds: speechMaxAudioSeconds(s.cfg),
 		expiresAt:       now.Add(time.Duration(speech.RealtimeTicketTTL) * time.Second), auditCtx: context.WithoutCancel(r.Context()), session: realtime,
@@ -103,6 +104,16 @@ func (s *Server) postSpeechRealtimeSession(w http.ResponseWriter, r *http.Reques
 	s.speechRealtimeTicketIDs[ticket.id] = ticket.tokenHash
 	ticket.timer = time.AfterFunc(time.Until(ticket.expiresAt), func() { s.expireSpeechRealtimeTicket(ticket.id, ticket.tokenHash) })
 	s.speechRealtimeMu.Unlock()
+	// Revocation may race ticket creation after the HTTP request was admitted.
+	if principal.ClientID != "" {
+		_, release, err := s.clientConnectionContext(r.Context(), principal.ClientID)
+		release()
+		if err != nil {
+			s.cancelClientConnections(principal.ClientID)
+			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
+			return
+		}
+	}
 	s.addSpeechAudit(r.Context(), "speech.realtime.admitted", ticket.sessionID, ticket.requestID, "Realtime speech session admitted", map[string]any{
 		"request_id": ticket.requestID, "model": s.cfg.Speech.Model, "protocol": speech.RealtimeProtocol,
 	})
@@ -142,6 +153,14 @@ func (s *Server) getSpeechRealtime(w http.ResponseWriter, r *http.Request) {
 		writeSpeechError(w, http.StatusUnauthorized, speech.NewError(speech.CodeInvalidRequest, "realtime speech ticket is invalid or expired", false, nil))
 		return
 	}
+	connected, release, connectionErr := s.clientConnectionContext(r.Context(), ticket.clientID)
+	if connectionErr != nil {
+		_ = ticket.session.Close()
+		writeError(w, http.StatusUnauthorized, errors.New("valid client credential required"))
+		return
+	}
+	defer release()
+	r = r.WithContext(connected)
 	upgrader := websocket.Upgrader{
 		HandshakeTimeout: time.Duration(speech.RealtimeConnectTimeout) * time.Second,
 		CheckOrigin:      sameOriginWebSocket,
@@ -161,6 +180,8 @@ func (s *Server) getSpeechRealtime(w http.ResponseWriter, r *http.Request) {
 
 	opCtx, cancel := context.WithTimeout(r.Context(), time.Duration(speechMaxAudioSeconds(s.cfg)+speech.RealtimeFinalTimeout+5)*time.Second)
 	defer cancel()
+	stopClosing := context.AfterFunc(opCtx, func() { _ = ticket.session.Close(); _ = client.Close() })
+	defer stopClosing()
 	var acknowledged atomic.Int64
 	clientResults := make(chan speechRealtimeRelayResult, 1)
 	serverResults := make(chan speechRealtimeRelayResult, 1)
@@ -319,6 +340,9 @@ func relayRealtimeServer(
 		if err != nil {
 			code, retryable := speech.ErrorDetails(err)
 			return speechRealtimeRelayResult{kind: "fallback", code: code, retryable: retryable}
+		}
+		if ctx.Err() != nil {
+			return speechRealtimeRelayResult{kind: "cancelled", code: speech.CodeCancelled}
 		}
 		switch event.Event {
 		case "ack":

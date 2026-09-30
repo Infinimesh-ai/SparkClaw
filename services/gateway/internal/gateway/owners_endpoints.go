@@ -239,6 +239,12 @@ func (s *Server) revokeClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client, err := s.store.RevokeClient(r.Context(), id)
+	if err != nil && store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+		persisted, found, readErr := s.store.GetClient(r.Context(), id)
+		if readErr == nil && found && persisted.RevokedAt != nil {
+			client, err = persisted, nil
+		}
+	}
 	if err != nil {
 		switch store.StoreErrorCodeOf(err) {
 		case store.StoreErrorNotFound:
@@ -250,6 +256,7 @@ func (s *Server) revokeClient(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	s.cancelClientConnections(client.ID)
 	writeJSON(w, http.StatusOK, client)
 }
 

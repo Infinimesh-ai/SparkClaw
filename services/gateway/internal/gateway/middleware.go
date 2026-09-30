@@ -118,7 +118,17 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, principal)))
+		connected, release, connectionErr := s.clientConnectionContext(r.Context(), principal.ClientID)
+		if connectionErr != nil {
+			if store.StoreErrorCodeOf(connectionErr) != "" {
+				writeError(w, http.StatusServiceUnavailable, errors.New("authentication is temporarily unavailable"))
+			} else {
+				writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
+			}
+			return
+		}
+		defer release()
+		next.ServeHTTP(w, r.WithContext(context.WithValue(connected, requestPrincipalContextKey{}, principal)))
 	})
 }
 

@@ -111,6 +111,13 @@ func main() {
 	} else if failed > 0 {
 		slog.Info("failed runs interrupted by the previous process", "count", failed)
 	}
+	managementServer, managementErr := startLocalCredentialManagement(serverCtx, cfg, st, server)
+	if managementErr != nil {
+		slog.Error("local credential management is unavailable", "error", managementErr)
+	}
+	if managementServer != nil {
+		defer managementServer.Close()
+	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),
@@ -135,6 +142,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if managementServer != nil {
+		_ = managementServer.Shutdown(shutdownCtx)
+	}
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("gateway shutdown failed", "error", err)
 		os.Exit(1)

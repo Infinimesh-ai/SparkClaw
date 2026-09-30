@@ -258,6 +258,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: npm run test:credentials
+      - run: python3 -m unittest scripts/test_local_workbench_provisioning.py
       - run: python3 -m unittest scripts/test_install.py
       - run: python3 -m unittest scripts/test_dotenv.py
       - run: python3 -m unittest scripts/test_model_readiness.py

@@ -389,6 +389,8 @@ if command -v ip >/dev/null 2>&1; then
 fi
 
 log "deployment complete"
+printf '  First-client credential (backend deployment user, interactive terminal): npm run credentials:initial -- --runtime-dir "%s" --name "My Mac"\n' "$workbench_runtime_dir"
+printf '  Lost-device recovery: npm run credentials:recover -- --runtime-dir "%s" --revoke-id <lost-device-id> --name "Replacement device"\n' "$workbench_runtime_dir"
 printf '  WebChat (local): http://127.0.0.1:%s\n' "$webchat_port"
 if [[ -n "$lan_ip" ]]; then
   printf '  WebChat (LAN):   http://%s:%s\n' "$lan_ip" "$webchat_port"

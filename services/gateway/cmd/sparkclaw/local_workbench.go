@@ -96,21 +96,21 @@ func loadDesktopClientProvisioning(path string) (desktopClientProvisioning, erro
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return desktopClientProvisioning{}, errors.New("desktop Client provisioning path must be a regular file")
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if info.Mode().Perm() != 0o600 || !localFileOwnedByCurrentUser(info) {
 		return desktopClientProvisioning{}, errors.New("desktop Client provisioning file must not be accessible by group or others")
 	}
-	parent, err := os.Stat(filepath.Dir(path))
-	if err != nil {
-		return desktopClientProvisioning{}, fmt.Errorf("inspect desktop Client provisioning directory: %w", err)
-	}
-	if !parent.IsDir() || parent.Mode().Perm()&0o077 != 0 {
-		return desktopClientProvisioning{}, errors.New("desktop Client provisioning directory must be private")
+	if err := checkPrivateLocalDirectory(filepath.Dir(path)); err != nil {
+		return desktopClientProvisioning{}, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
 		return desktopClientProvisioning{}, fmt.Errorf("open desktop Client provisioning file: %w", err)
 	}
 	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil || !os.SameFile(info, openedInfo) {
+		return desktopClientProvisioning{}, errors.New("desktop Client provisioning file changed while opening")
+	}
 	decoder := json.NewDecoder(io.LimitReader(file, maxDesktopClientProvisioningBytes+1))
 	decoder.DisallowUnknownFields()
 	var provisioning desktopClientProvisioning
@@ -136,4 +136,19 @@ func loadDesktopClientProvisioning(path string) (desktopClientProvisioning, erro
 func desktopTokenHash(token string) string {
 	digest := sha256.Sum256([]byte(token))
 	return base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
+func checkPrivateLocalDirectory(directory string) error {
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || !localFileOwnedByCurrentUser(info) {
+		return errors.New("local management directory must be private and owned by the deployment user")
+	}
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil || resolved != filepath.Clean(directory) {
+		return errors.New("local management directory must not contain symbolic links")
+	}
+	return nil
 }

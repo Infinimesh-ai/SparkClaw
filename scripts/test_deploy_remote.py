@@ -79,8 +79,13 @@ class DeployRemoteTest(unittest.TestCase):
                     "schema_version": 1, "deployment_id": "deployment-test", "client_id": "client-desktop-test",
                     "owner_id": "owner", "client_name": "SparkClaw Desktop Test", "token": "x" * 48,
                 }), encoding="utf-8")
+                (runtime_dir / "local-management.json").write_text(json.dumps({
+                    "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_management_test",
+                    "owner_id": "owner", "client_name": "Local management test", "token": "m" * 48,
+                }), encoding="utf-8")
                 for runtime_file in runtime_dir.iterdir():
                     runtime_file.chmod(0o600)
+                (runtime_dir / "management").mkdir(mode=0o700)
                 private_text = (
                     "SPARKCLAW_DEPLOYMENT_ID=deployment-test\n"
                     "SPARKCLAW_DESKTOP_CLIENT_FILE=/run/sparkclaw/runtime/desktop-client.json\n"

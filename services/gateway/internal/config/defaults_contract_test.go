@@ -392,6 +392,7 @@ func TestComposeGatewayFallbacksMatchGoDefaults(t *testing.T) {
 		"Adapters.PPTXVisualQA.AllowedHosts": "[] -> [gotenberg]",
 		"Adapters.PPTXVisualQA.BaseURL":      " -> http://gotenberg:3000",
 		"Adapters.PPTXVisualQA.Phase":        "disabled -> shadow",
+		"Gateway.LocalManagementFile":        " -> /run/sparkclaw/runtime/local-management.json",
 		"Gateway.Bind":                       "127.0.0.1 -> 0.0.0.0",
 		"Gateway.PairingRequired":            "false -> true",
 		"Model.Fast.BaseURL":                 "http://127.0.0.1:8001/v1 -> http://sparkclaw-fast:8001/v1",

@@ -84,8 +84,9 @@ type GatewayConfig struct {
 	// DeploymentID binds local workbench clients to one persistent product
 	// installation. DesktopClientFile is an installation-only provisioning
 	// input and is never exposed through the public configuration projection.
-	DeploymentID      string `json:"-"`
-	DesktopClientFile string `json:"-"`
+	DeploymentID        string `json:"-"`
+	DesktopClientFile   string `json:"-"`
+	LocalManagementFile string `json:"-"`
 	// WebChatProxyToken authenticates the private WebChat reverse proxy only
 	// for the local pairing bootstrap. It is never a client or owner token.
 	WebChatProxyToken string `json:"-"`

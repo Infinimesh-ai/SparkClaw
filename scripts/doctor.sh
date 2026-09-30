@@ -48,6 +48,9 @@ load_dotenv_var() {
 
 for name in \
   SPARKCLAW_AUTOSTART_ENABLED \
+  SPARKCLAW_DEPLOYMENT_ID \
+  SPARKCLAW_WEBCHAT_PORT \
+  SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR \
   SPARKCLAW_WEB_SEARCH_ENABLED \
   SPARKCLAW_WEB_SEARCH_PROVIDER \
   SPARKCLAW_INFINIMESH_INFO_LICENSE_ID \
@@ -134,6 +137,13 @@ check_browser_controller() {
   sparkclaw_assert_browser_pid_alive "$browser_pid"
 }
 
+check_workbench_credentials() {
+  node "$ROOT/scripts/provision-local-workbench.mjs" --check \
+    --runtime-dir "${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-$ROOT/data/runtime}" \
+    --origin "http://127.0.0.1:${SPARKCLAW_WEBCHAT_PORT:-18790}" \
+    --deployment-id "${SPARKCLAW_DEPLOYMENT_ID:-}"
+}
+
 check_npm_install_script_approvals() {
   npm approve-scripts --allow-scripts-pending --json |
     node -e '
@@ -149,6 +159,7 @@ check_npm_install_script_approvals() {
 check "Node.js 26" node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
 check "npm 11" bash -lc '[[ "$(npm --version)" == 11.* ]]'
 check "npm install scripts approved" check_npm_install_script_approvals
+check "local credential provisioning" check_workbench_credentials
 check "Node document dependencies" node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
 check "Python 3.12" python3 -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'
 check "pip" python3 -m pip --version

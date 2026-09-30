@@ -104,14 +104,14 @@ func (s *Server) issueClient(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err != nil {
-			if store.StoreErrorCodeOf(err) != store.StoreErrorUnknownOutcome {
+			if store.StoreErrorCodeOf(err) == store.StoreErrorConflict || store.StoreErrorCodeOf(err) == store.StoreErrorInvalid {
 				delete(coordinator.pending, key)
 			}
 			switch store.StoreErrorCodeOf(err) {
 			case store.StoreErrorConflict:
 				persisted, found, readErr := s.store.GetClient(r.Context(), pending.client.ID)
 				if readErr == nil && found && sameIssuedClientMetadata(persisted, pending.client) {
-					writeError(w, http.StatusConflict, errors.New("this Client issuance was already persisted, but its one-time credential is no longer recoverable; revoke it and retry with a new Idempotency-Key"))
+					writeJSON(w, http.StatusConflict, map[string]any{"error": "this Client issuance was already persisted, but its one-time credential is no longer recoverable; revoke it and retry with a new Idempotency-Key", "code": "CLIENT_CREDENTIAL_UNRECOVERABLE", "client_id": persisted.ID})
 					return
 				}
 				writeError(w, http.StatusConflict, errors.New("Client issuance identity conflicts with persisted state"))
@@ -124,6 +124,16 @@ func (s *Server) issueClient(w http.ResponseWriter, r *http.Request) {
 		}
 		pending.client = registered
 		pending.committed = true
+	}
+	current, found, err := s.store.GetClient(r.Context(), pending.client.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("Client issuance verification unavailable; retry with the same Idempotency-Key"))
+		return
+	}
+	if !found || current.RevokedAt != nil {
+		delete(coordinator.pending, key)
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "issued Client has been revoked", "code": "CLIENT_REVOKED", "client_id": pending.client.ID})
+		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")

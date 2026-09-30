@@ -74,7 +74,10 @@
     "build": "npm run build:webchat && npm run test:gateway",
     "qualify:app-cli-release": "python3 scripts/qualify-app-cli-release.py",
     "sync:app-cli-projections": "node scripts/sync-app-cli-projections.mjs",
-    "check:app-cli-projections": "node scripts/sync-app-cli-projections.mjs --check"
+    "check:app-cli-projections": "node scripts/sync-app-cli-projections.mjs --check",
+    "credentials:initial": "node scripts/credentials.mjs initial",
+    "credentials:recover": "node scripts/credentials.mjs recover",
+    "test:credentials": "node --test scripts/test/credentials.test.mjs"
   },
   "engines": {
     "node": ">=26 <27",

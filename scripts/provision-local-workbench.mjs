@@ -3,20 +3,26 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assertNoSymlinkPath, assertPrivateDirectory, readPrivateJSON, writePrivateJSON } from "./lib/private-workbench.mjs";
 
 const options = parseArguments(process.argv.slice(2));
 const runtimeDirectory = path.resolve(options.runtimeDirectory);
 const descriptorPath = path.join(runtimeDirectory, "local-workbench.json");
 const credentialPath = path.join(runtimeDirectory, "desktop-client.json");
+const managementPath = path.join(runtimeDirectory, "local-management.json");
+const managementDirectory = path.join(runtimeDirectory, "management");
 
 if (!options.check) {
+  await assertNoSymlinkPath(runtimeDirectory);
   await fs.mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
-  await fs.chmod(runtimeDirectory, 0o700);
 }
 await assertPrivateDirectory(runtimeDirectory);
+if (!options.check) await fs.mkdir(managementDirectory, { mode: 0o700 }).catch(error => { if (error.code !== "EEXIST") throw error; });
+await assertPrivateDirectory(managementDirectory);
 
 const existingDescriptor = await readOptionalJSON(descriptorPath);
-const existingCredential = await readOptionalJSON(credentialPath, true);
+const existingCredential = await readOptionalJSON(credentialPath);
+const existingManagement = await readOptionalJSON(managementPath);
 const persistedDeploymentID = stringField(existingCredential?.deployment_id) || stringField(existingDescriptor?.deployment_id);
 const requestedDeploymentID = stringField(options.deploymentID);
 if (persistedDeploymentID && requestedDeploymentID && persistedDeploymentID !== requestedDeploymentID) {
@@ -25,9 +31,10 @@ if (persistedDeploymentID && requestedDeploymentID && persistedDeploymentID !== 
 const deploymentID = requestedDeploymentID || persistedDeploymentID || crypto.randomUUID();
 
 if (options.check) {
-  if (!existingDescriptor || !existingCredential) throw new Error("local workbench provisioning files are missing");
+  if (!existingDescriptor || !existingCredential || !existingManagement) throw new Error("local workbench provisioning files are missing");
   validateDescriptor(existingDescriptor, options.origin, deploymentID);
   validateCredential(existingCredential, deploymentID);
+  validateManagementCredential(existingManagement, existingCredential, deploymentID);
 } else {
   const credential = existingCredential || {
     schema_version: 1,
@@ -42,6 +49,9 @@ if (options.check) {
   if (!existingCredential) {
     await writeAtomicJSON(credentialPath, credential, { replace: false });
   }
+  const management = existingManagement || { ...credential, client_id: `local_management_${crypto.randomUUID().replaceAll("-", "")}`, client_name: "Local credential management", token: crypto.randomBytes(32).toString("base64url") };
+  validateManagementCredential(management, credential, deploymentID);
+  if (!existingManagement) await writeAtomicJSON(managementPath, management, { replace: false });
   await writeAtomicJSON(descriptorPath, {
     schema_version: 1,
     origin: options.origin,
@@ -69,26 +79,8 @@ function parseArguments(args) {
   return result;
 }
 
-async function assertPrivateDirectory(directory) {
-  const info = await fs.lstat(directory);
-  if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o700 || info.uid !== process.getuid()) {
-    throw new Error("local workbench runtime directory must be owned by the deployment user with mode 0700");
-  }
-}
-
-async function readOptionalJSON(filename, privateFile = false) {
-  let info;
-  try {
-    info = await fs.lstat(filename);
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  }
-  if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid()) throw new Error(`${path.basename(filename)} is not a controlled regular file`);
-  if (privateFile && (info.mode & 0o777) !== 0o600) throw new Error(`${path.basename(filename)} must have mode 0600`);
-  const raw = await fs.readFile(filename, "utf8");
-  if (Buffer.byteLength(raw) > 64 << 10) throw new Error(`${path.basename(filename)} is too large`);
-  return JSON.parse(raw);
+async function readOptionalJSON(filename) {
+  return readPrivateJSON(filename, { optional: true });
 }
 
 function validateDescriptor(value, origin, deploymentID) {
@@ -104,24 +96,17 @@ function validateCredential(value, deploymentID) {
   }
 }
 
-async function writeAtomicJSON(filename, value, { replace }) {
-  const temporary = `${filename}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
-  await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-	try {
-		if (replace) {
-			await fs.rename(temporary, filename);
-		} else {
-			await fs.link(temporary, filename);
-			await fs.unlink(temporary);
-		}
-		await fs.chmod(filename, 0o600);
-	} catch (error) {
-		await fs.rm(temporary, { force: true });
-		if (!replace && error?.code === "EEXIST") {
-			throw new Error(`${path.basename(filename)} appeared during provisioning; retry to reconcile it`);
-		}
-		throw error;
-	}
+function validateManagementCredential(value, desktop, deploymentID) {
+  validateCredential(value, deploymentID);
+  if (!value.client_id.startsWith("local_management_") || value.client_id === desktop.client_id || value.token === desktop.token) throw new Error("local-management.json must contain an independent host management identity");
+}
+
+async function writeAtomicJSON(filename, value, options) {
+  try { await writePrivateJSON(filename, value, options); }
+  catch (error) {
+    if (!options.replace && error.code === "EEXIST") throw new Error(`${path.basename(filename)} appeared during provisioning; retry to reconcile it`);
+    throw error;
+  }
 }
 
 function stringField(value) {

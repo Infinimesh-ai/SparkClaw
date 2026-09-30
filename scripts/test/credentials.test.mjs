@@ -184,6 +184,7 @@ test("actual Unix HTTP transport uses saved management secret and no network req
   const { request: _, ...deps } = f.deps;
   await claimCredential(f.options, deps);
   assert.match(f.printed(), /shown once/u);
+  assert.ok(f.printed().includes(`Owner: ${f.admin.owner_id}`));
   await assertNoSecretInRecords(f);
 });
 

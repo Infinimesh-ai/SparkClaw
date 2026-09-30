@@ -77,7 +77,7 @@ export async function claimCredential(options, { input = process.stdin, output =
     // the journal; a lost terminal display requires explicit revoke/reissue.
     journal = { ...journal, state: "completed", updated_at: now() };
     await writePrivateJSON(journalPath, journal);
-    output.write(`\nDevice: ${journal.name}\nDeployment: ${journal.deployment_id}\nDevice ID: ${journal.client_id}\nSparkClaw service login credential (shown once):\n${result.body.token}\n\nEnter it in the target client's first-login screen. Keep it in that client's secure credential storage.\n`);
+    output.write(`\nDevice: ${journal.name}\nDeployment: ${journal.deployment_id}\nOwner: ${management.owner_id}\nDevice ID: ${journal.client_id}\nSparkClaw service login credential (shown once):\n${result.body.token}\n\nEnter it in the target client's first-login screen. Keep it in that client's secure credential storage.\n`);
     return { completed: true, clientID: journal.client_id };
   } finally {
     await unlock();

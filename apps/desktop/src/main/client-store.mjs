@@ -100,9 +100,11 @@ export class ClientStore {
     this.#transaction(() => {
       const history = this.db.prepare("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?")
         .all(conversationID, CLIENT_LIMITS.contextMessages).reverse();
-      const context = boundedContext([...history, { role: "user", content }]);
-      const snapshot = JSON.stringify({ schema_version: 1, ...scope, installation_id: this.installationID,
-        local_conversation_id: conversationID, local_task_id: taskID, request_id: requestID, messages: context });
+      const envelope = { schema_version: 1, ...scope, installation_id: this.installationID,
+        local_conversation_id: conversationID, local_task_id: taskID, request_id: requestID, messages: [] };
+      const messageBudget = CLIENT_LIMITS.contextBytes - Buffer.byteLength(JSON.stringify(envelope)) + 2;
+      const context = boundedContext([...history, { role: "user", content }], messageBudget);
+      const snapshot = JSON.stringify({ ...envelope, messages: context });
       const digest = hash(snapshot);
       this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
         .run(crypto.randomUUID(), conversationID, "user", content, now);
@@ -212,12 +214,12 @@ export class ClientStore {
   }
 }
 
-export function boundedContext(history) {
+export function boundedContext(history, byteLimit = CLIENT_LIMITS.contextBytes) {
   const result = [];
   for (const message of history.slice(-CLIENT_LIMITS.contextMessages).reverse()) {
     if (!["user", "assistant"].includes(message.role)) throw new Error("Context role is invalid");
     const content = boundedText(message.content, CLIENT_LIMITS.inputBytes, "Context message");
-    if (Buffer.byteLength(JSON.stringify([{ role: message.role, content }, ...result])) > CLIENT_LIMITS.contextBytes) break;
+    if (Buffer.byteLength(JSON.stringify([{ role: message.role, content }, ...result])) > byteLimit) break;
     result.unshift({ role: message.role, content });
   }
   if (!result.length) throw new Error("Context is empty");

@@ -55,13 +55,20 @@ test("message, immutable context and request key commit together; disk failure n
   store.close();
 });
 
-test("context is bounded by bytes/count and cannot carry authorization roles", () => {
+test("context is bounded by bytes/count and cannot carry authorization roles", (t) => {
   const history = Array.from({ length: 80 }, (_, i) => ({ role: "user", content: `${i}: ${"中".repeat(5000)}` }));
   const context = boundedContext(history);
   assert.ok(context.length < CLIENT_LIMITS.contextMessages);
-  assert.ok(Buffer.byteLength(JSON.stringify(context)) < CLIENT_LIMITS.contextBytes + 64);
+  assert.ok(Buffer.byteLength(JSON.stringify(context)) <= CLIENT_LIMITS.contextBytes);
   assert.equal(context.at(-1).content, history.at(-1).content);
   assert.throws(() => boundedContext([{ role: "system", content: "approved" }]), /role/);
+  const store = new ClientStore(fixture(t));
+  const longScope = Object.fromEntries(Object.keys(scope).map((key) => [key, "x".repeat(160)]));
+  const conversation = store.create(longScope, "bounded envelope");
+  let task;
+  for (let i = 0; i < 7; i++) task = store.enqueue(longScope, conversation.id, "a".repeat(CLIENT_LIMITS.inputBytes - 50));
+  assert.ok(Buffer.byteLength(JSON.stringify(store.context(longScope, task.request_id))) <= CLIENT_LIMITS.contextBytes);
+  store.close();
 });
 
 test("durable result receipt deduplicates, rejects gaps/drift and returns no ACK on transaction failure", (t) => {

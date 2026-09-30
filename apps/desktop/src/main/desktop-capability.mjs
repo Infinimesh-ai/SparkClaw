@@ -3,13 +3,14 @@ const STATE_CHANNEL = "sparkclaw-desktop:state";
 const TRUSTED_ORIGIN = "sparkclaw-app://workbench";
 
 export class DesktopCapability {
-  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration }) {
+  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true }) {
     this.ipcMain = ipcMain;
     this.window = window;
     this.registry = registry;
     this.presentation = presentation;
     this.browserServices = browserServices;
     this.runtimeGeneration = runtimeGeneration;
+    this.authorizeSession = authorizeSession;
     this.revision = 1;
     this.layoutRevision = 0;
     this.emitQueued = false;
@@ -51,6 +52,7 @@ export class DesktopCapability {
 
   async #invoke(event, request) {
     this.#authorize(event);
+    if (!this.authorizeSession()) throw new Error("Desktop session is locked");
     if (!plainObject(request) || request.schema_version !== 1 || typeof request.operation !== "string") {
       throw new Error("Desktop capability request is invalid");
     }

@@ -12,6 +12,7 @@ import {
   net as electronNet,
   powerMonitor,
   protocol,
+  safeStorage,
   session,
   shell,
   WebContentsView,
@@ -23,7 +24,8 @@ import { PageRegistry } from "../browser/page-registry.mjs";
 import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability } from "./desktop-capability.mjs";
-import { connectionStatus, loadLocalBackendConnection, loadLocalBackendDescriptor, verifyLocalBackend } from "./local-backend.mjs";
+import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
+import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
 import { resolveDesktopConnectionPaths } from "./connection-paths.mjs";
@@ -56,6 +58,7 @@ let scriptHost;
 let desktopCapability;
 let ownerBrowserServices;
 let registry;
+let desktopAuth;
 
 void app.whenReady().then(start).catch((error) => {
   process.stderr.write(`SparkClaw Electron failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
@@ -86,49 +89,33 @@ async function start() {
   secureSession(browserSession);
   protocol.handle("sparkclaw-internal", internalProtocolHandler);
   browserSession.protocol.handle("sparkclaw-internal", internalProtocolHandler);
-  let localBackend;
-  let localBackendStatus;
-	let configuredOrigin = "http://127.0.0.1:18790";
-	try {
-		configuredOrigin = (await loadLocalBackendDescriptor(await localBackendPaths())).origin;
-	} catch {
-		// The incomplete-setup UI still needs a safe CSP origin. A repaired
-		// custom-port descriptor is picked up on the next application start.
-	}
-  try {
-    localBackend = await loadLocalBackendConnection(await localBackendPaths());
-    localBackendStatus = await verifyLocalBackend(localBackend, electronNet.fetch);
-  } catch {
-		localBackend = unavailableLocalBackend(configuredOrigin);
-    localBackendStatus = connectionStatus("incomplete_setup");
-  }
-  const setLocalBackendStatus = (status) => {
-    localBackendStatus = status;
-    if (window && !window.isDestroyed()) {
-      window.webContents.send("sparkclaw-local-backend:state", status);
-    }
-  };
-  const refreshLocalBackend = async () => {
-    try {
-      const candidate = await loadLocalBackendConnection(await localBackendPaths());
-			if (candidate.origin !== configuredOrigin) {
-				setLocalBackendStatus(connectionStatus("incomplete_setup"));
-				return localBackendStatus;
-			}
-      const verified = await verifyLocalBackend(candidate, electronNet.fetch);
-      if (verified.state === "connected") localBackend = candidate;
-      setLocalBackendStatus(verified);
-    } catch {
-      setLocalBackendStatus(connectionStatus("incomplete_setup"));
-    }
-    return localBackendStatus;
-  };
-  ipcMain.handle("sparkclaw-local-backend:status", () => localBackendStatus);
-  ipcMain.handle("sparkclaw-local-backend:retry", async () => {
-    setLocalBackendStatus(connectionStatus("reconnecting"));
-    return refreshLocalBackend();
+  const legacyPaths = await localBackendPaths().catch(() => undefined);
+  desktopAuth = new DesktopAuth({
+    vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
+    descriptorPath: path.join(app.getPath("userData"), "backend.json"),
+    legacyPaths,
+    qualification,
+    fetcher: electronNet.fetch,
+    onChange: (status) => {
+      if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
+    },
+    onLock: async () => {
+      for (const [id] of registry?.connections || []) registry.closeConnection(id, "authentication_locked");
+      await adapter?.close().catch(() => {});
+      adapter = undefined;
+    },
   });
-  ipcMain.handle("sparkclaw-desktop:login-startup", async (_event, enabled) => {
+  await desktopAuth.initialize();
+  const trustedHandler = (channel, handler) => ipcMain.handle(channel, (event, ...args) => {
+    authorizeWorkbenchSender(event, window);
+    return handler(...args);
+  });
+  trustedHandler("sparkclaw-local-backend:status", () => desktopAuth.status);
+  trustedHandler("sparkclaw-local-backend:retry", () => desktopAuth.retry());
+  trustedHandler("sparkclaw-local-backend:configure", (descriptor) => desktopAuth.configure(descriptor));
+  trustedHandler("sparkclaw-local-backend:login", (token) => desktopAuth.login(token));
+  trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
+  trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };
     if (typeof enabled !== "undefined" && typeof enabled !== "boolean") throw new TypeError("Invalid login startup value");
     if (process.platform === "linux") {
@@ -141,11 +128,8 @@ async function start() {
     }
     return { supported: false, enabled: false };
   });
-  const speechOrigin = localBackend.origin;
-  workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(
-    webchatDistPath(), electronNet, () => localBackend, () => localBackendStatus,
-    setLocalBackendStatus,
-  ));
+  const speechOrigin = desktopAuth.descriptor?.origin || "http://127.0.0.1:18790";
+  workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(webchatDistPath(), desktopAuth));
 
   window = new BrowserWindow({
     title: qualification ? "SparkClaw Electron Qualification" : "SparkClaw",
@@ -185,8 +169,7 @@ async function start() {
     if (!quitting) void window.loadURL(workbenchURL);
   });
   powerMonitor.on("resume", () => {
-    setLocalBackendStatus(connectionStatus("reconnecting"));
-    void refreshLocalBackend();
+    void desktopAuth.retry();
   });
 
   const qualificationOrigin = qualificationURLOrigin(process.env.SPARKCLAW_DESKTOP_QUALIFICATION_ORIGIN);
@@ -233,7 +216,12 @@ async function start() {
     presentation,
     browserServices: ownerBrowserServices,
     runtimeGeneration,
+    authorizeSession: () => qualification || desktopAuth.status.state === "connected",
   }).start();
+  // The UDS adapter is a qualified legacy Linux transport. R3 production
+  // browser execution waits for the accepted Host Broker transport. macOS
+  // never reads Linux adapter secrets or starts the legacy owner service.
+  if (qualification && process.platform === "linux") {
   adapter = new ElectronAdapterServer({
     socketPath: adapterSocketPath(),
     secretPath: adapterSecretPath(),
@@ -247,6 +235,7 @@ async function start() {
     qualification,
   });
   await adapter.start();
+  }
   await window.loadURL(workbenchURL);
   const workbenchEvidence = workbenchQualification ? await waitForWorkbench() : undefined;
 
@@ -255,7 +244,8 @@ async function start() {
     event: "sparkclaw_electron_ready",
     runtime_kind: "electron",
     runtime_generation: runtimeGeneration,
-    adapter_socket: adapterSocketPath(),
+    ...(adapter ? { adapter_socket: adapterSocketPath() } : {}),
+    browser_execution: adapter ? "legacy_qualification" : "awaiting_host_broker",
     electron_version: process.versions.electron,
     chromium_version: process.versions.chrome,
     node_version: process.versions.node,
@@ -432,6 +422,9 @@ function configureWorkbenchSession(targetSession, targetWindow, speechOrigin) {
     callback(trusted(webContents, requestingOrigin) && permission === "media" &&
       mediaTypes.includes("audio") && !mediaTypes.includes("video"));
   });
+  targetSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (details, callback) => {
+    callback({ cancel: !qualification || desktopAuth.status.state !== "connected" || canonicalOrigin(details.url) !== speechOrigin.replace(/^http/u, "ws") });
+  });
   targetSession.webRequest.onBeforeSendHeaders({
     urls: [`${speechOrigin.replace(/^http/u, "ws")}/*`],
   }, (details, callback) => {
@@ -472,46 +465,28 @@ function localBackendPaths() {
   });
 }
 
-function unavailableLocalBackend(origin = "http://127.0.0.1:18790") {
-  return Object.freeze({
-		origin,
-    deploymentID: "",
-    clientID: "",
-    ownerID: "",
-    actorID: "",
-    clientName: "",
-    authorization: "",
-  });
-}
-
-function workbenchProtocolHandler(root, network, getLocalBackend, getConnectionStatus, setConnectionStatus) {
+function workbenchProtocolHandler(root, auth) {
   return async (request) => {
     try {
       const url = new URL(request.url);
       if (url.hostname !== "workbench") return new Response("Not found", { status: 404 });
-      const localBackend = getLocalBackend();
-      const proxy = proxyTarget(url, localBackend.origin);
+      const origin = auth.descriptor?.origin || "http://127.0.0.1:18790";
+      const proxy = proxyTarget(url, origin);
       if (proxy) {
-        const state = getConnectionStatus().state;
-        if (state === "identity_conflict") return new Response("Local backend identity conflict", { status: 409 });
-        if (state === "invalid_authentication") return new Response("Local desktop authentication is invalid", { status: 401 });
-        if (state !== "connected") return new Response("Local backend is unavailable", { status: 503 });
-        try {
-          const response = await proxyWorkbenchRequest(network, request, proxy, localBackend.authorization);
-          if (response.status === 401 || response.status === 403) {
-            setConnectionStatus(connectionStatus("invalid_authentication"));
-          }
-          return response;
-        } catch {
-          setConnectionStatus(connectionStatus("service_unavailable"));
-          return new Response("Local backend is unavailable", { status: 503 });
-        }
+        const state = auth.status.state;
+        if (state === "identity_conflict") return new Response("Backend identity conflict", { status: 409 });
+        if (["invalid_authentication", "locked", "secure_storage_unavailable"].includes(state)) return new Response("Desktop authentication is locked", { status: 401 });
+        if (state !== "connected") return new Response("Backend is unavailable", { status: 503 });
+        // Legacy session/history APIs have no place in the R3 local workbench.
+        if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("R3 service is not available in this phase", { status: 501 });
+        try { return await proxyWorkbenchRequest(auth, request, proxy); }
+        catch { return new Response("Backend is unavailable", { status: 503 }); }
       }
       const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
       const filename = path.resolve(root, `.${pathname}`);
       if (!filename.startsWith(`${path.resolve(root)}${path.sep}`)) return new Response("Not found", { status: 404 });
       const content = await fs.readFile(filename);
-      return new Response(content, { headers: workbenchHeaders(filename, localBackend.origin) });
+      return new Response(content, { headers: workbenchHeaders(filename, qualification ? origin : "") });
     } catch (error) {
       return new Response(error?.code === "ENOENT" ? "WebChat build not found" : "Not found", {
         status: error?.code === "ENOENT" ? 503 : 404,
@@ -519,6 +494,10 @@ function workbenchProtocolHandler(root, network, getLocalBackend, getConnectionS
       });
     }
   };
+}
+
+export function proxyAPIAllowed(pathname) {
+  return pathname === "/api/workbench/identity" || pathname === "/api/clients" || /^\/api\/clients\/[^/]+\/revoke$/u.test(pathname);
 }
 
 function proxyTarget(url, origin) {
@@ -529,15 +508,16 @@ function proxyTarget(url, origin) {
   return "";
 }
 
-async function proxyWorkbenchRequest(network, request, target, authorization) {
+async function proxyWorkbenchRequest(auth, request, target) {
   const headers = new Headers(request.headers);
   headers.delete("origin");
   headers.delete("referer");
   headers.delete("proxy-authorization");
-  headers.set("authorization", authorization);
+  headers.delete("authorization");
+  headers.delete("cookie");
   const method = request.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
-  const response = await network.fetch(target, { method, headers, body, redirect: "manual" });
+  const response = await auth.authorizedFetch(target, { method, headers, body, redirect: "manual", signal: request.signal });
   if (response.status >= 300 && response.status < 400) {
     return new Response("Cross-origin redirects are not allowed", { status: 502 });
   }

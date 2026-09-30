@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const DESCRIPTOR_KEYS = new Set(["schema_version", "origin", "deployment_id"]);
+const LAN_DESCRIPTOR_KEYS = new Set(["schema_version", "origin", "deployment_id", "owner_id", "tls_certificate_sha256", "tls_ca_pem"]);
 const CREDENTIAL_KEYS = new Set([
   "schema_version", "deployment_id", "client_id", "owner_id", "actor_id", "client_name", "token",
 ]);
@@ -43,15 +44,41 @@ export async function loadLocalBackendDescriptor({ descriptorPath, uid = process
     privateFile: false,
     privateParent: false,
   });
-  assertExactKeys(descriptorFile.value, DESCRIPTOR_KEYS, "local workbench description");
+  return parseBackendDescriptor(descriptorFile.value);
+}
 
-  const descriptor = descriptorFile.value;
+export function parseBackendDescriptor(descriptor) {
+	if (descriptor?.schema_version === 2) {
+		assertExactKeys(descriptor, LAN_DESCRIPTOR_KEYS, "LAN workbench description", ["tls_ca_pem"]);
+		const origin = canonicalHTTPSOrigin(descriptor.origin);
+		const deploymentID = requiredString(descriptor.deployment_id, "deployment identity", 160);
+		const ownerID = requiredString(descriptor.owner_id, "Owner identity", 160);
+		if (typeof descriptor.tls_certificate_sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(descriptor.tls_certificate_sha256)) {
+			throw new Error("LAN certificate fingerprint must be a lowercase SHA-256 digest");
+		}
+		const ca = descriptor.tls_ca_pem === undefined ? undefined : requiredString(descriptor.tls_ca_pem, "LAN CA certificate", 32768);
+		if (ca && (!ca.startsWith("-----BEGIN CERTIFICATE-----") || !ca.endsWith("-----END CERTIFICATE-----"))) {
+			throw new Error("LAN CA certificate must be a public PEM certificate");
+		}
+		return Object.freeze({ schemaVersion: 2, origin, deploymentID, ownerID, certificateSHA256: descriptor.tls_certificate_sha256, ...(ca ? { ca } : {}) });
+	}
+  assertExactKeys(descriptor, DESCRIPTOR_KEYS, "local workbench description");
 	if (descriptor.schema_version !== 1) {
     throw new Error("Local workbench configuration version is unsupported");
   }
   const origin = canonicalLoopbackOrigin(descriptor.origin);
   const deploymentID = requiredString(descriptor.deployment_id, "deployment identity", 160);
 	return Object.freeze({ origin, deploymentID });
+}
+
+function canonicalHTTPSOrigin(value) {
+  const raw = requiredString(value, "LAN workbench origin", 512);
+  let url;
+  try { url = new URL(raw); } catch { throw new Error("LAN workbench origin is invalid"); }
+  if (url.protocol !== "https:" || url.origin !== raw || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("LAN workbench origin must be a canonical HTTPS origin");
+  }
+  return url.origin;
 }
 
 export async function verifyLocalBackend(connection, fetcher) {

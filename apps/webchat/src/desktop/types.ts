@@ -43,15 +43,35 @@ export type DesktopState = {
   };
 };
 
+export type DesktopBackendDescriptor = {
+  schema_version: 1 | 2;
+  origin: string;
+  deployment_id: string;
+  owner_id?: string;
+  tls_certificate_sha256?: string;
+  tls_ca_pem?: string;
+};
+
+export type DesktopConnectionStatus = {
+  schema_version: 1;
+  state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" | "locked" | "secure_storage_unavailable";
+  backend?: DesktopBackendDescriptor;
+  client_id?: string;
+  owner_id?: string;
+};
+
 export type SparkClawDesktop = {
   runtimeKind: "electron";
   capabilityVersion: 1;
   gatewayBase: string;
   speechBase: string;
-  localConnection(): Promise<{ schema_version: 1; state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" }>;
-  retryLocalConnection(): Promise<{ schema_version: 1; state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" }>;
+  localConnection(): Promise<DesktopConnectionStatus>;
+  retryLocalConnection(): Promise<DesktopConnectionStatus>;
+  configureBackend?(descriptor: DesktopBackendDescriptor): Promise<DesktopConnectionStatus>;
+  login?(token: string): Promise<DesktopConnectionStatus>;
+  logout?(): Promise<DesktopConnectionStatus>;
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
-  onLocalConnection(listener: (status: { schema_version: 1; state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" }) => void): () => void;
+  onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;
   state(): Promise<DesktopState>;
   createPersonal(url?: string): Promise<{ page_ref: string }>;
   navigatePersonal(pageRef: string, url: string): Promise<{ completed: true }>;

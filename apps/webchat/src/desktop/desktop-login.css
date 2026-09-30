@@ -1,0 +1,48 @@
+.desktopLogin {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 32px 24px;
+  overflow: auto;
+  background: var(--surface-muted);
+}
+.desktopLoginContent {
+  width: min(100%, 600px);
+  padding: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.desktopLoginHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.desktopLoginHeading h1 { margin: 0; font-size: 26px; line-height: 1.25; font-weight: 650; }
+.desktopLogin p { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+.desktopLogin .desktopLoginStatus { color: var(--text-primary); }
+.desktopLoginIdentity { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px 12px; margin: 24px 0 12px; font-size: 13px; line-height: 1.5; }
+.desktopLoginIdentity dt { color: var(--text-secondary); }
+.desktopLoginIdentity dd { margin: 0; overflow-wrap: anywhere; }
+.desktopLogin form { display: grid; gap: 10px; margin-top: 28px; }
+.desktopLogin form p { margin: 0 0 4px; }
+.desktopLogin label { font-size: 14px; font-weight: 600; }
+.desktopLogin input, .desktopLogin textarea, .desktopLogin select {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-control);
+  color: var(--text-primary); background: var(--surface); caret-color: var(--cyber-blue);
+}
+.desktopLogin textarea { resize: vertical; min-height: 120px; }
+.desktopLogin select { width: auto; max-width: 140px; }
+.desktopLogin button { padding: 10px 16px; border-radius: var(--radius-control); background: var(--text-primary); color: var(--surface); min-height: 42px; }
+.desktopLogin button:hover:not(:disabled) { background: var(--text-secondary); }
+.desktopLogin .desktopLoginSecondary { background: var(--surface-muted); color: var(--text-primary); }
+.desktopLogin .desktopLoginSecondary:hover:not(:disabled) { background: var(--surface-hover); }
+.desktopLoginActions { display: flex; flex-wrap: wrap; gap: 10px; }
+.desktopLogin :is(button,input,textarea,select):focus-visible { outline: 2px solid var(--cyber-blue); outline-offset: 2px; }
+.desktopLogin .desktopLoginError { color: var(--crimson-danger); }
+.desktopLogin .desktopLoginStorage { margin: 28px 0 0; padding-top: 18px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+@media (max-width: 600px) {
+  .desktopLogin { padding: 16px; }
+  .desktopLoginContent { padding: 24px 18px; }
+  .desktopLoginHeading { align-items: flex-start; }
+  .desktopLoginHeading h1 { font-size: 22px; }
+  .desktopLoginIdentity { grid-template-columns: 1fr; gap: 4px; }
+  .desktopLoginIdentity dd { margin-bottom: 8px; }
+}

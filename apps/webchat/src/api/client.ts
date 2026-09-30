@@ -53,10 +53,10 @@ import type {
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 import { clientTimezone } from "../lib/timezone";
 import { emailQuery } from "./email";
-import { desktopGatewayBase } from "../desktop/capability";
+import { desktopCapability, desktopGatewayBase } from "../desktop/capability";
 import type { EmailVerification, EmailDraft, EmailDraftInput, EmailReplyPolishInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailConversationDeleteResult, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus, EmailSyncWarning, EmailSyncWarningPage, EmailRenderPreview, EmailCleanupScope, EmailCleanupResult } from "./email";
 
-const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE || desktopGatewayBase();
+const API_BASE = desktopCapability() ? desktopGatewayBase() : import.meta.env.VITE_SPARKCLAW_API_BASE || "";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
 const DEPLOYMENT_STORAGE_KEY = "sparkclaw.deployment_id";
 
@@ -76,12 +76,14 @@ export class APIError extends Error {
 }
 
 export function apiToken() {
+	if (desktopCapability()) return "";
 	return import.meta.env.VITE_SPARKCLAW_API_TOKEN ??
 		window.localStorage.getItem(pendingTokenStorageKey()) ??
 		window.localStorage.getItem(tokenStorageKey()) ?? "";
 }
 
 export function saveAPIToken(token: string) {
+	if (desktopCapability()) throw new Error("Desktop credentials must be entered in the secure login screen");
 	if (apiToken() !== token) clearEmailRefreshGuard();
 	// A newly entered token is deliberately staged outside any previously
 	// remembered deployment. The authenticated identity response binds it to
@@ -96,6 +98,7 @@ export function clearAPIToken() {
 }
 
 export function bindAPITokenToDeployment(deploymentID: string) {
+	if (desktopCapability()) return;
 	deploymentID = deploymentID.trim();
 	if (!deploymentID || import.meta.env.VITE_SPARKCLAW_API_TOKEN) return;
 	const token = apiToken();
@@ -382,7 +385,7 @@ export async function openEmailFile(mailId: string, partId = "", name = "origina
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
   workbenchIdentity: async () => {
-    const identity = await request<{ deployment_id: string; owner_id: string; client_id: string }>("/api/workbench/identity");
+    const identity = await request<{ deployment_id: string; owner_id: string; client_id: string }>("/api/workbench/identity", { signal: AbortSignal.timeout(5000) });
     bindAPITokenToDeployment(identity.deployment_id);
     return identity;
   },
@@ -421,13 +424,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ display_name: displayName, email, preferences })
     }),
-  clients: () => request<{ clients: Client[] }>("/api/clients"),
+  clients: () => request<{ clients: Client[] }>("/api/clients", { signal: AbortSignal.timeout(30000) }),
   issueClient: (clientName: string, idempotencyKey: string) => request<IssuedClientCredential>("/api/clients", {
     method: "POST",
+    signal: AbortSignal.timeout(30000),
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({ client_name: clientName })
   }),
-  revokeClient: (id: string) => request<Client>(`/api/clients/${id}/revoke`, { method: "POST", body: "{}" }),
+  revokeClient: (id: string) => request<Client>(`/api/clients/${id}/revoke`, { method: "POST", body: "{}", signal: AbortSignal.timeout(30000) }),
   notificationBindings: (channel = "", status = "") => {
     const params = new URLSearchParams();
     if (channel) params.set("channel", channel);

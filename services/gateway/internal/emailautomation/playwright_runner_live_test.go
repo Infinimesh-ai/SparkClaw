@@ -93,7 +93,9 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 		}
 		seen[providerID] = true
 		t.Run(providerID, func(t *testing.T) {
-			probe, err := runner.Probe(ctx, provider, "playwright-live-probe-"+providerID, uint64(status.CredentialGeneration))
+			// Each live run is a new read-only observation. Reusing a fixed
+			// invocation across releases conflicts with its immutable binding.
+			probe, err := runner.Probe(ctx, provider, app.NewID("playwright-live-probe-"+providerID), uint64(status.CredentialGeneration))
 			if err != nil {
 				t.Fatalf("live login probe: %v (code=%s)", err, ErrorCode(err))
 			}

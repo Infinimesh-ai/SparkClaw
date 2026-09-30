@@ -47,7 +47,7 @@
 
 ## 4. 登录态复用与浏览器边界
 
-现有 [Browser Runtime](browser-runtime.md) 使用 owner 的持久 SparkClaw Chromium Profile，Gateway 通过私有 Controller socket 调用 Playwright CLI／Bridge，只控制自有任务页。代码见 [provider-scripts.mjs](../../tools/browser-controller/src/provider-scripts.mjs) 与 [network-reader.mjs](../../scripts/email/lib/network-reader.mjs)。现有固定脚本主要服务邮件，金融注册、Reader、Schema 与解析器需要新增，不能将通用浏览器存在等同于金融采集已实现。
+现有 [Browser Runtime](browser-runtime.md) 使用 owner 的持久 SparkClaw Chromium Profile，Gateway 通过私有 Controller socket 调用 Playwright CLI／Bridge，只控制自有任务页。App-CLI 抽离后，应用准入由 [app-cli-client.mjs](../../tools/browser-controller/src/app-cli-client.mjs) 承接，[host-driver.mjs](../../tools/browser-controller/src/host-driver.mjs) 保留通用任务页控制；邮件脚本和 Reader 来自[成套 App-CLI 发行](../../configs/app-cli-release.json)。金融注册、Reader、Schema 与解析器仍需要新增，不能将通用浏览器存在等同于金融采集已实现。
 
 拟议流程：在 SparkClaw Browser 正常登录 → 同 Profile 创建金融任务页 → 验证站点、登录／权益状态 → 固定脚本读取 → 输出脱敏业务数据 → 释放页面。普通 Chrome、Codex 内置浏览器与 SparkClaw Profile 互不等价；用户若只在其他浏览器登录，需要先在 SparkClaw Browser 登录。Electron 是现有已接受的宿主目标，金融适配器依赖宿主接口，不另建常驻浏览器或恢复已退役的全局 CDP 路线。
 
@@ -82,7 +82,7 @@ flowchart LR
 
 既有邮件观察器曾暴露 Playwright 网络监听与页面生命周期的兼容问题，因此金融 PoC 必须验证实际 Bridge 路径的响应读取；不能只凭普通 Playwright Library 示例宣称可用。导航前受管 Reader 可以复用生命周期思路，但不复用邮件业务 Schema。新增受管页面脚本时应同步组件清单、源码哈希、构建和安装检查。
 
-InfiniCenter 决策 **0030** 仍是 proposed，其 R3 方向是应用能力经 App-CLI 公共 Registry，通用 Browser Host 留在 SparkClaw。本设计遵守该权责方向：业务参数／解析属于适配层，任务页面及 Profile 属于宿主，数据集／指标／分析属于 SparkClaw；不另设绕过 Registry 的永久 Node 公共入口。App-CLI Runtime v2／BrowserHostPort 尚是草案，不能作为已上线依赖。若实施涉及 App-CLI，先补充并接受跨仓决策与契约；本轮不修改其他项目接口，也不改变 Infinimesh-Info、JingSi 或 IMMS 契约。
+InfiniCenter 决策 **0030** 已接受 App-CLI 抽离，其 R3 方向是应用能力经 App-CLI 公共 Registry，通用 Browser Host 留在 SparkClaw。本设计遵守该权责方向：业务参数／解析属于适配层，任务页面及 Profile 属于宿主，数据集／指标／分析属于 SparkClaw；不另设绕过 Registry 的永久 Node 公共入口。App-CLI Runtime v2／BrowserHostPort 已在合并发行中实现，[生产验收仍待完成](app-cli-implementation-validation.md)。金融适配器不属于已完成的邮件范围：若实施涉及 App-CLI，先补充并接受跨仓决策与契约；本轮不修改其他项目接口，也不改变 Infinimesh-Info、JingSi 或 IMMS 契约。
 
 下面是**拟议内部调用语义**，不是已存在命令或可运行 SDK：
 

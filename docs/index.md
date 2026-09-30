@@ -40,7 +40,7 @@ code/qualification evidence; they do not override the new target's data ownershi
 | [AI conversation timeline batch export](ai-conversation-batch-export.md) | RevivalStack batch controls, native Bridge CLI, verified file checkpoints, discovered collections and coverage limits |
 | [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |
 | [Browser email Workflow design](browser-email-workflow-design.md) | Single unread-message source capture, sending, deterministic admission, send approval, and unknown-outcome invariants |
-| [App-CLI application control extension design](app-cli-email-extraction-design.md) | R3 in progress: public lifecycle core delivered; SparkClaw retains the browser host; executor, observation and mail migration pending |
+| [App-CLI application control extension design](app-cli-email-extraction-design.md) | Implemented R3 public lifecycle, executor, observation and mail extraction; SparkClaw retains the browser host; production qualification pending |
 | [Email management system and stages](email-management-design.md) | Implementation contracts: cross-account topics, bounded intake, fixed membership, per-mail viewing and five acceptance stages |
 | [Email management implementation](email-management-implementation.md) | Runtime/API/UI changes, real-provider coverage, engineering evidence and outstanding release gates |
 | [Safe rich email preview design](email-safe-html-preview-design.md) | Proposed persisted, versioned and sandboxed rich-layout replacement with zero remote loads, one-time no-user cutover, legacy-preview removal, deletion semantics and latency gates |

@@ -38,7 +38,7 @@
 | [AI 对话时间线批量导出](ai-conversation-batch-export.md) | RevivalStack 批量控件、原生 Bridge CLI、校验后的文件进度、集合检索与覆盖限制 |
 | [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |
 | [浏览器邮箱 Workflow 设计](browser-email-workflow-design.md) | 单封未读邮件来源采集、发送邮件、确定性 Admission、发送审批与 Unknown-outcome 不变量 |
-| [App-CLI 应用控制扩展设计](app-cli-email-extraction-design.md) | R3 实施中：公共生命周期核心首批完成，保留 SparkClaw 浏览器宿主；执行器、监听与邮件迁移待完成 |
+| [App-CLI 应用控制扩展设计](app-cli-email-extraction-design.md) | R3 公共生命周期、执行器、监听与邮件抽离已实现；保留 SparkClaw 浏览器宿主，生产验收待完成 |
 | [邮件管理整体与阶段设计](email-management-design.md) | 实施契约：跨收件邮箱事项、有界接收、固定归属、逐封查看与五阶段验收 |
 | [邮件管理实施](email-management-implementation.md) | Runtime／接口／界面改动、真实服务商覆盖、工程证据和未完成发布门槛 |
 | [安全邮件原始排版预览设计](email-safe-html-preview-design.md) | 待实施：持久化、版本化、沙箱隔离且零远程加载的富排版替代方案，覆盖无用户一次性切换、旧预览删除、删除语义与延迟门槛 |

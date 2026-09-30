@@ -7,6 +7,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   net as electronNet,
@@ -29,6 +30,9 @@ import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
 import { resolveDesktopConnectionPaths } from "./connection-paths.mjs";
+import { ClientStore } from "./client-store.mjs";
+import { ClientStoreCapability } from "./client-store-capability.mjs";
+import { exportLocalFile } from "./export-local-file.mjs";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
@@ -58,6 +62,8 @@ let scriptHost;
 let desktopCapability;
 let ownerBrowserServices;
 let registry;
+let localStore;
+let localStoreCapability;
 let desktopAuth;
 
 void app.whenReady().then(start).catch((error) => {
@@ -150,9 +156,21 @@ async function start() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      additionalArguments: [`--sparkclaw-speech-base=${speechOrigin}`],
+      additionalArguments: [`--sparkclaw-speech-base=${speechOrigin}`, ...(!qualification ? ["--sparkclaw-client-store=1"] : [])],
     },
   });
+  if (!qualification) {
+    localStore = new ClientStore(path.join(app.getPath("userData"), "client-r3"));
+    localStoreCapability = new ClientStoreCapability({
+      ipcMain, window, store: localStore,
+      getIdentity: () => {
+        const connection = desktopAuth.connection;
+        if (!connection || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
+        return { deployment_id: connection.deploymentID, owner_id: connection.ownerID, client_id: connection.clientID };
+      },
+      exportFile: (file) => exportLocalFile(file, { dialog, window }),
+    }).start();
+  }
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -334,6 +352,8 @@ async function waitForWorkbench() {
 async function shutdown() {
   if (quitting) return;
   quitting = true;
+  localStoreCapability?.close();
+  localStore?.close();
   await adapter?.close().catch(() => {});
   await registry?.flushBrowserState().catch(() => {});
   await scriptHost?.close().catch(() => {});

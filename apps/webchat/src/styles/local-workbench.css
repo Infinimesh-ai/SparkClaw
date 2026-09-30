@@ -1,0 +1,30 @@
+.localWorkbench .topbar { justify-content: space-between; }
+.localWorkbench .topbar h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.localConversationList { flex: 1; min-height: 0; overflow: auto; margin-block: 18px; }
+.localConversationList p { padding-inline: 8px; color: var(--text-secondary); line-height: 1.6; }
+.localConversationList button { width: 100%; padding: 10px; text-align: start; background: transparent; border-radius: var(--radius-control); overflow-wrap: anywhere; color: var(--text-primary); }
+.localConversationList button:hover, .localConversationList button[aria-current] { background: var(--surface-hover); }
+.localHistory { flex: 1; min-height: 0; overflow: auto; padding: 16px 32px; }
+.localHistory .message { padding: 14px 18px; margin-block: 16px; }
+.localHistory .message p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.localPhaseNotice { max-width: 70ch; margin-block: 0 28px; color: var(--text-secondary); line-height: 1.65; }
+.localHistory details p { font-size: 12px; overflow-wrap: anywhere; color: var(--text-secondary); }
+.localHistory h2 { font-size: 15px; margin-block: 24px 8px; }
+.localFileRow { display: flex; gap: 16px; align-items: center; padding-block: 10px; border-bottom: 1px solid var(--border-subtle); }
+.localFileRow span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.localFileRow button { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--surface-muted); color: var(--text-primary); border-radius: var(--radius-control); }
+.localComposer { padding: 16px 32px 24px; border-top: 1px solid var(--border-subtle); }
+.localComposer textarea { display: block; width: 100%; resize: vertical; margin-block: 8px 12px; padding: 12px; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-control); }
+.localComposer > div { display: flex; gap: 16px; justify-content: space-between; align-items: center; }
+.localFileInput { color: var(--text-secondary); }
+.localFileInput input { display: block; margin-top: 6px; max-width: 100%; }
+.localFeedback { margin: 12px 32px; color: var(--text-primary); line-height: 1.5; }
+.localFeedback[role=alert] { color: var(--crimson-danger); }
+.localFeedback button { padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface-muted); color: var(--text-primary); }
+.localSettingsContent { padding: 16px 32px; overflow: auto; }
+.localWorkbench .primaryButton { display: flex; gap: 8px; align-items: center; justify-content: center; padding: 10px 14px; }
+@media (max-width: 800px) {
+  .localWorkbench { grid-template-columns: 200px minmax(0, 1fr); }
+  .localHistory, .localComposer, .localSettingsContent { padding-inline: 16px; }
+  .localComposer > div { flex-wrap: wrap; }
+}

@@ -8,6 +8,21 @@ const invoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-desktop
 const speechArgument = process.argv.find((value) => value.startsWith("--sparkclaw-speech-base="));
 const speechBase = speechArgument ? speechArgument.slice("--sparkclaw-speech-base=".length) : "";
 
+if (process.argv.includes("--sparkclaw-client-store=1")) {
+  const storeInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-client-store:invoke", {
+    schema_version: 1, operation, ...fields,
+  });
+  contextBridge.exposeInMainWorld("sparkclawClientStore", Object.freeze({
+    schemaVersion: 1,
+    list: () => storeInvoke("list"),
+    create: (title) => storeInvoke("create", { title }),
+    read: (conversation_id) => storeInvoke("read", { conversation_id }),
+    enqueue: (conversation_id, content) => storeInvoke("enqueue", { conversation_id, content }),
+    saveFile: (conversation_id, name, bytes) => storeInvoke("saveFile", { conversation_id, name, bytes }),
+    exportFile: (file_id) => storeInvoke("exportFile", { file_id }),
+  }));
+}
+
 contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   runtimeKind: "electron",
   capabilityVersion: 1,

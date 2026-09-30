@@ -5,9 +5,11 @@
 > Date: 2026-09-22 (Asia/Shanghai). Status: implementation complete and isolated qualification passed. Production deployment, real-device microphone/HTTPS acceptance, and release cutover remain separately authorized activities; this document is not a production deployment claim.
 
 > R3 target update (2026-09-30): this document is the implemented shared-state baseline,
-> not the future data-ownership rule. [Client/backend R3](client-backend-architecture-design.md)
+> not the future data-ownership rule. R3 also requires SparkClaw credential unlock on
+> each client's first login; preprovisioned automatic login below is not the new rule.
+> [Client/backend R3](client-backend-architecture-design.md)
 > replaces shared conversations/history/files with client-local storage, retains backend
-> mail synchronization, and supports LAN desktop connections. Its migration is pending;
+> mail synchronization, and supports LAN desktop connections. Cutover is pending, with no legacy test-data migration;
 > the behavior and evidence below apply to the current implementation only.
 
 ## 1. Goal And Scope

@@ -5,7 +5,7 @@
 > R3 归属更新（2026-09-30）：[客户端／后端 R3](client-backend-architecture-design.md)
 > 将后端采集浏览器与各客户端内嵌浏览器分离。客户端自动化仅限内嵌，Profile／非邮箱用户数据
 > 各端本地保存。下文单一已部署 Profile 是当前基线，不是新 LAN 架构的共享 Profile 规则；
-> 远程适配器和数据迁移仍待实施。
+> 远程适配器及全新存储切换仍待实施，不迁移旧测试数据。
 
 > 架构决策（2026-09-21）：唯一目标为 Electron 自带 Chromium、原生浏览视图，以及
 > 现有 Controller / Playwright 控制链的 Electron 适配层。以已确定的

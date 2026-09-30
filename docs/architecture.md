@@ -17,8 +17,8 @@ Only mail synchronizes across clients; there is no shared conversation database.
 
 The sections below still describe the implemented central Store/runtime baseline.
 Local client storage, bounded context/result delivery, remote browser control and
-data migration are pending; they are not already available through the current API.
-Use R3 for the target ownership and migration rules, and the baseline below to
+clean-start cutover are pending; they are not already available through the current API.
+The user confirmed no legacy test-data migration. Use R3 for target ownership and cutover rules, and the baseline below to
 assess existing code. Accepted external integration contracts remain in force
 until their own decision and compatibility process completes.
 

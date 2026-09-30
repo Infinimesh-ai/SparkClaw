@@ -6,7 +6,7 @@
 > separates the backend acquisition browser from each client's embedded browser.
 > Client automation is embedded-only, and profiles/non-mail user data are client-local.
 > The single deployed profile below is a current baseline, not a shared-profile rule
-> for the new LAN architecture; remote adapters and data migration remain pending.
+> for the new LAN architecture; remote adapters and clean-start cutover remain pending; legacy test-data migration is excluded.
 
 > Architecture decision (2026-09-21): the sole target is Electron's bundled
 > Chromium with native browser views and an adapter for the existing Controller /

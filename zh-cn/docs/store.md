@@ -4,8 +4,8 @@
 
 > R3 范围说明（2026-09-30）：下文 repository 描述已实现的后端 Store。
 > [客户端／后端目标架构](client-backend-architecture-design.md) 将非邮箱用户历史／文件移到
-> 各客户端，后端保留邮箱及有界处理／控制状态。拆分和旧数据迁移尚待完成，不能据目标文档删除
-> 当前记录或假定 API 已改变。
+> 各客户端，后端保留邮箱及有界处理／控制状态。拆分和全新存储切换尚待完成，旧测试数据不迁移；本轮文档修订
+> 不执行记录删除，也不表示 API 已改变。
 
 Store package 是 SparkClaw 的 durable state 边界。它向业务 owner 暴露小型、类型化
 repository，在 memory、file 与 PostgreSQL backend 上实现同一契约，并向 Gateway 组装层

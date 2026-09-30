@@ -136,10 +136,15 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 已安装的桌面 launcher 只把两个绝对路径传给 Electron；token 不进入应用包、WebChat 资源或
 launcher 配置。产品不再监听 `18795`，普通工作台也不再使用 pairing bootstrap。
 
-已认证 Owner 在“设置 → 客户端”中签发独立 Web credential。明文 token 只展示一次，由用户填入
-目标浏览器现有 token 表单。浏览器存储按 service origin 和 deployment 隔离，绝不复制 desktop
-token。Gateway client token、MCP Access Ticket、ISCP pairing ticket 与 Browser Controller
-credential 仍是彼此独立的 authority。
+后端已支持经认证的 Client 签发／列表／撤销，现有客户端管理组件能一次性展示新签发的 Token；
+但新版设置导航尚未接入该组件。拟新增的“设置 → 设备与凭据”入口和受控本机首个客户端
+领取／恢复工具，须按 [R3 凭据领取与设备管理](client-backend-architecture-design.md#32-凭据领取与设备管理待实施)
+实施后，再在本指南提供可执行领取说明。拟议的 `credentials:initial` 命令当前尚不可用。
+
+每台设备独立签发，同一设备后续连接复用有效凭据，不能复制预置 Desktop Token 到其他设备。
+现有浏览器存储按 service origin 和 deployment 隔离，R3 桌面安全存储仍待实施。
+Gateway client token、MCP Access Ticket、ISCP pairing ticket 与 Browser Controller credential
+仍是彼此独立的 authority。
 
 ## 远端部署
 

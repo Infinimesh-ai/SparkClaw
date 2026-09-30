@@ -169,12 +169,20 @@ both absolute paths to Electron; no token is placed in the application bundle,
 WebChat assets, or launcher configuration. There is no `18795` listener or
 ordinary workbench pairing bootstrap.
 
-An authenticated Owner issues a separate Web credential from **Settings →
-Clients**. The plaintext token is shown once and is entered in the target
-browser's existing token form. Browser storage is namespaced by service origin
-and deployment; the desktop token is never copied into it. Gateway client
-tokens, MCP Access Tickets, ISCP pairing tickets, and the Browser Controller
-credential remain separate authorities.
+The backend already supports authenticated Client issuance/listing/revocation,
+and the existing client-management component displays a newly issued Token once.
+However, the current settings navigation does not expose that component. The
+planned **Settings → Devices & credentials** entry and controlled local first-client
+retrieval/recovery tool must be implemented according to
+[R3 credential retrieval and device management](client-backend-architecture-design.md#32-credential-retrieval-and-device-management-not-implemented)
+before this guide can give runnable retrieval instructions. The proposed
+`credentials:initial` command is not currently available.
+
+Each device receives a separate credential and reuses it for later connections;
+never copy the preprovisioned Desktop Token to another device. Existing browser
+storage is namespaced by service origin and deployment; R3 desktop secure storage
+remains to be implemented. Gateway client tokens, MCP Access Tickets, ISCP pairing
+tickets, and the Browser Controller credential remain separate authorities.
 
 ## Remote Deployment
 

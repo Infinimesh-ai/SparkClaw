@@ -3,7 +3,7 @@
 > Language: English | [简体中文](../zh-cn/docs/index.md)
 
 This index distinguishes the implemented runtime from explicitly marked target
-designs. During R3 migration, current baseline documents remain available for
+designs. During the R3 transition, current baseline documents remain available for
 code/qualification evidence; they do not override the new target's data ownership.
 
 ## Start Here
@@ -12,7 +12,7 @@ code/qualification evidence; they do not override the new target's data ownershi
 |---|---|---|
 | [README](../README.md) | Project overview, quick start, and current status | Product entry point |
 | [Architecture](architecture.md) | Current implementation, runtime topology and entry to the R3 target | Implementation source of truth |
-| [Client and backend architecture R3](client-backend-architecture-design.md) | Backend business/mail core; client-local non-mail data, LAN connection, embedded control and migration | User-confirmed target; implementation pending |
+| [Client and backend architecture R3](client-backend-architecture-design.md) | Backend business/mail core; client-local non-mail data, LAN connection, embedded control and clean-start cutover | User-confirmed target; implementation pending |
 | [Deployment](deployment.md) | Local, Compose, DGX Spark, state, backup, and troubleshooting | Operator guide |
 | [Development](development.md) | Repository map, implementation rules, validation, and extension workflow | Contributor guide |
 | [Workflow capability matrix](workflow-capabilities.md) | Exactly what the current Workflow runtime can execute | User-visible capability inventory |
@@ -35,7 +35,7 @@ code/qualification evidence; they do not override the new target's data ownershi
 | [Desktop release and cutover plan](desktop-release-plan.md) | Candidate hashes, install/update/uninstall policy, target-host acceptance, atomic cutover, and whole-release rollback |
 | [Web and desktop shared local backend design](local-shared-backend-design.md) | Implemented baseline: shared Gateway/PostgreSQL and client refresh; R3 replaces shared non-mail storage and loopback-only desktop placement |
 | [macOS desktop design R3](macos-lan-desktop-design.md) | Reassesses R2.1/R2.2: local non-mail data, backend mail sync, LAN identity and unified embedded-only browser control; implementation pending |
-| [Mac connection guide](macos-connection-guide.md) | Optional SSH development access; R3 local-data/mail-sync, embedded control, delivery and Mac qualification; no business backend on Mac |
+| [Mac source synchronization and connection guide](macos-connection-guide.md) | Git source delivery for user-run Mac synchronization/builds; no Mac builds in the current environment; commit-specific R3 connection and hardware qualification |
 | [Export AI platform conversations: login and workspace persistence](ai-conversation-export-design.md) | Four AI-provider branches alongside browser/document; listen for userscript downloads, preserve original JSON in session workspace and return receipts |
 | [AI conversation timeline batch export](ai-conversation-batch-export.md) | RevivalStack batch controls, native Bridge CLI, verified file checkpoints, discovered collections and coverage limits |
 | [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |

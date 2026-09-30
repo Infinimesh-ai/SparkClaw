@@ -2,7 +2,7 @@
 
 > 语言： [English](../../docs/index.md) | 简体中文
 
-本索引区分已实现 runtime 与明确标注的目标设计。R3 迁移期间保留现行基线文档，
+本索引区分已实现 runtime 与明确标注的目标设计。R3 架构调整期间保留现行基线文档，
 用于核对代码及验收证据；它们不覆盖新目标的数据归属规则。
 
 ## 从这里开始
@@ -11,7 +11,7 @@
 |---|---|---|
 | [README](../README.md) | 项目概览、快速启动和当前状态 | 项目入口 |
 | [架构](architecture.md) | 当前实现、runtime 拓扑及 R3 目标入口 | 实现事实来源 |
-| [客户端与后端架构 R3](client-backend-architecture-design.md) | 后端业务／邮箱核心、客户端本地非邮箱数据、LAN、内嵌控制及迁移 | 用户已确认目标，实施待完成 |
+| [客户端与后端架构 R3](client-backend-architecture-design.md) | 后端业务／邮箱核心、客户端本地非邮箱数据、LAN、内嵌控制及全新存储切换 | 用户已确认目标，实施待完成 |
 | [部署](deployment.md) | 本地、Compose、DGX Spark、状态、备份和排障 | 运维手册 |
 | [开发](development.md) | 仓库结构、实现规则、验证和扩展流程 | 贡献者手册 |
 | [Workflow 能力矩阵](workflow-capabilities.md) | 当前 Workflow runtime 确切可执行的能力 | 用户可见能力清单 |
@@ -33,7 +33,7 @@
 | [桌面发布与切换方案](desktop-release-plan.md) | 候选哈希、安装／更新／卸载策略、目标主机验收、原子切换与整版回滚 |
 | [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现基线：共享 Gateway／PostgreSQL 与客户端刷新；R3 替代非邮箱共享存储及桌面仅回环限制 |
 | [macOS 桌面端设计 R3](macos-lan-desktop-design.md) | 重评 R2.1／R2.2：本地非邮箱数据、后端邮箱同步、LAN 身份及统一的客户端仅内嵌浏览器控制；实施待完成 |
-| [Mac 实机联调连接指南](macos-connection-guide.md) | 可选 SSH 开发接入，R3 本地数据／邮箱同步、内嵌控制、交付及 Mac 实机验收；Mac 不部署业务后端 |
+| [Mac 源码同步与连接指南](macos-connection-guide.md) | Git 推送交付，由用户在 Mac 同步并编译；当前环境不构建 Mac，按提交记录 R3 连接与实机验收 |
 | [导出 AI 平台对话：登录与 workspace 保存](ai-conversation-export-design.md) | 与浏览器／文档同级的四平台分支；监听油猴下载、原始 JSON 入 workspace 与文件回执 |
 | [AI 对话时间线批量导出](ai-conversation-batch-export.md) | RevivalStack 批量控件、原生 Bridge CLI、校验后的文件进度、集合检索与覆盖限制 |
 | [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |

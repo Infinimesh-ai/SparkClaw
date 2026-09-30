@@ -5,8 +5,8 @@
 > R3 scope note (2026-09-30): the repositories below describe the implemented
 > backend Store. The [client/backend target](client-backend-architecture-design.md)
 > moves non-mail user history/files to each client and keeps backend mail plus
-> bounded processing/control state. That split and legacy-data migration are pending;
-> do not delete current records or infer new API behavior from the target document.
+> bounded processing/control state. That split and clean-start cutover are pending;
+> legacy test-data migration is excluded. This documentation change does not delete records or implement new API behavior.
 
 The Store package is SparkClaw's durable-state boundary. It exposes small,
 typed repositories to business owners, implements those contracts on memory,

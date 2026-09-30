@@ -33,13 +33,19 @@ The project is not ready for a “Mac build only” release. Backend history/con
 | Connectivity | HTTPS business/mail client and outbound WSS host channel | Authenticated entrance and browser-host Broker |
 | App-CLI | Required verified host/page assets only; no second Registry/Executor | Existing public Registry/Executor boundaries and grants |
 
-The package allowlist includes Electron, UI, ClientStore/migrations, constrained IPC/Host Agent, Bridge and verified managed page assets. Exclude Linux Gateway binaries, models, service managers, server database dumps, server credentials and App-CLI Registry/Executor. “No backend on Mac” does not prohibit a local user database.
+The package allowlist includes Electron, UI, ClientStore/schema upgrades, constrained IPC/Host Agent, Bridge and verified managed page assets. Exclude Linux Gateway binaries, models, service managers, server database dumps, server credentials and App-CLI Registry/Executor. “No backend on Mac” does not prohibit a local user database.
 
 Separate client startup from backend-service startup in the current main process. Linux UDS paths, systemd, /run/user assumptions and private backend secrets cannot enter Mac composition. Keep the shared React UI and existing embedded-page execution core where portable.
 
 ## 3. LAN connection and authorization
 
 Use the same logical API for colocated Linux and remote Mac. Mac connects to the backend's reachable LAN HTTPS origin, validates certificate/deployment identity, and receives an installation-specific client credential. Its own 127.0.0.1 is not the Linux host. SSH is only a development tool, not product connectivity.
+
+First login requires the user to enter a SparkClaw service credential; the backend verifies it and binds this installation before unlocking services. Source/packages cannot preprovision an unlocked state. Colocated Linux follows the same rule. Mac main persists login credentials in Keychain through a controlled authentication flow; valid credentials support later reconnection, while invalidation, revocation, logout or backend changes require login again. Before first success, no task submission, mail synchronization or executable browser commands are allowed; unlock does not replace host grants. See the shared architecture's [first-login rules](client-backend-architecture-design.md#31-first-login-and-service-unlock).
+
+Implement retrieval and management according to unified architecture [section 3.2](client-backend-architecture-design.md#32-credential-retrieval-and-device-management-not-implemented): the controlled backend-host initialization entry issues a separate credential for the first target device, while an authenticated device adds another through “Settings → Devices & credentials”. Users can inspect name, client_id, creation/last-activity timestamps and revocation status, never old Token plaintext. A new Token is displayed only during retrieval with copy/hide actions; loss requires revocation and reissuance. The same Mac reuses valid credentials across connections, without generating a new identity on each reconnect or copying the Linux preprovisioned Desktop Token. Backend APIs exist, but initial retrieval, the current settings navigation entry and secure Mac login remain unimplemented; this round changes documentation only.
+
+Scope Keychain entries to verified deployment/Owner/client identity. Revoking the current device stops protected channels, removes its Keychain credential and returns to login while retaining local history/files; backend mail and other devices continue working. Total user-device lockout uses controlled recovery by the backend deployment user, not anonymous credential requests from Mac. Follow the unified design for backend restarts, lost issuance responses and expired one-time plaintext; never silently issue duplicate credentials from the client.
 
 The existing strict v1 loopback descriptor remains unchanged until a separately versioned loader is implemented. The new loader needs schema version, server origin, deployment identity, trust reference, client identity/credential reference and browser-host permission reference. These are design requirements, not a configuration file accepted by current code.
 
@@ -85,18 +91,20 @@ Local conversations can reference authorized mail records. Conversation history 
 
 Persist request IDs/context before submitting, and commit received events/results/files before acknowledging delivery. Backend transient input/output storage is bounded and cleaned after acknowledgement/expiry. A full disk, missing client or expired output must be visible as a delivery problem. Business completion and successful local saving are separate states. See R3's [execution and delivery rules](client-backend-architecture-design.md#5-execution-and-reliable-delivery).
 
-Selecting another client's conversation is not a recovery mechanism, because it is not automatically replicated there. Client backup/import and old server-history assignment are separate migration work, with execution IDs/fences preserved and no automatic outbox replay.
+Selecting another client's conversation is not a recovery mechanism, because it is not automatically replicated there. The user confirmed no migration of existing test data: initialize new local storage without importing backend histories. Future client backup/restore is separate and must not replay accepted requests.
 
 ## 7. Current implementation and work order
 
+The user specified the build split: the current Linux environment implements source, Mac build configuration and applicable Linux/shared checks, then delivers source through Git; the user synchronizes the identified commit and compiles/packages/runs it on Mac. Do not compile, cross-build, sign or notarize Mac artifacts here or run remote builds on the user's behalf. Mac compilation does not block Linux work or source delivery; Mac-specific qualification awaits the user's feedback on that commit. Each handoff includes branch/SHA, actual build commands and pending cases; see the [connection guide](macos-connection-guide.md).
+
 | Phase | Deliverable | Gate |
 |---|---|---|
-| P0 | Freeze data/retention, local schema, transport scopes and migration manifest | Cross-project changes require accepted decisions; no implicit ledger deletion |
+| P0 | Freeze capacity, control fields, local schema, transport scopes and fresh-storage initialization within confirmed data/retention boundaries | Cross-project changes require accepted decisions; no implicit ledger deletion |
 | P1 | ClientStore and bounded client-context submission | Local conversation/task/file persistence; no backend history fallback |
-| P2 | LAN identity, event delivery/ACK and mailbox synchronization | Certificate/Owner/client isolation; lost responses reconcile |
+| P2 | Credential retrieval/device management/secure login, LAN identity, event delivery/ACK and mailbox synchronization | First unlock, reuse and revocation pass; certificate/Owner/client isolation and lost-response reconciliation |
 | P3 | Broker and unified local/remote browser adapters | Mac and Linux embedded commands, resource-side leases and no external automation |
-| P4 | Files/history migration and platform composition | Verified local saves; old data assigned before cleanup; package allowlist |
-| P5 | Mac hardware/build/signing/upgrade qualification | GUI/browser failure matrix and scoped cutover evidence |
+| P4 | File delivery and platform composition | Verified local saves; fresh storage without old test histories; package allowlist |
+| P5 | Push source for user-run Mac builds and hardware/signing/upgrade qualification | Mac build record, GUI/browser failure matrix and scoped cutover evidence for the same commit |
 
 Current code entry points are [desktop composition](../apps/desktop/src/main/main.mjs), [loopback loader](../apps/desktop/src/main/local-backend.mjs), [local adapter](../apps/desktop/src/browser/adapter-server.mjs), [browser protocol](../apps/desktop/src/browser/protocol.mjs), [page presentation](../apps/desktop/src/main/presentation.mjs), [BrowserPanel](../apps/webchat/src/desktop/BrowserPanel.tsx), and [backend Store contracts](../services/gateway/internal/store/store.go). Their current local/shared-state behavior is not evidence that R3 already works.
 
@@ -116,7 +124,9 @@ The accepted App-CLI durable ledger and JingSi Runtime v1 recovery guarantees st
 | M08 | Disk full, dropped delivery ACK, backend restart and expired spool do not report unsaved files as delivered or duplicate work |
 | M09 | GUI launch, Chinese input, Retina/multiple displays, permissions, microphone if enabled, and supported sites are tested on Mac |
 | M10 | Package audit, selected CPU architectures, signing/notarization, upgrade/local-schema rollback and data preservation pass |
+| M11 | A fresh Mac install requires SparkClaw credential unlock; verify invalid-credential rejection, Keychain persistence/restart recovery and protected-channel closure after revocation/logout without local-history deletion |
+| M12 | Retrieve a separate Mac credential from backend initialization or authenticated device settings; one-time display, reuse across restart/reconnect, loss recovery and effective revocation, with reachable settings; no Linux preprovisioned Token, Keychain plaintext or other-device credential in packages/logs/Git |
 
-All M cases remain pending. Product ownership no longer needs clarification. Engineering still needs frozen retention/control schemas, legacy-data destinations, external-contract compatibility and physical Mac evidence. These gates make this a client/backend architecture change, not a frame-viewer upgrade.
+All M cases remain pending. Product ownership, offline behavior and backend temporary-processing/control-record boundaries are confirmed, with undelivered results retained for at most 24 hours from generation; legacy test-data migration is out of scope. Engineering still needs capacity/control-field parameters within those boundaries, external-contract compatibility and physical Mac evidence. These gates make this a client/backend architecture change, not a frame-viewer upgrade.
 
 Practical access and qualification: [Mac connection guide](macos-connection-guide.md).

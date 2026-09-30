@@ -2,6 +2,12 @@
 
 > Language: English | [简体中文](../zh-cn/docs/webchat.md)
 
+> R3 scope note (2026-09-30): this guide describes the current server-backed UI.
+> [Client/backend R3](client-backend-architecture-design.md) instead requires
+> ClientStore/ExecutionClient/MailSyncClient: non-mail data stays local, mail
+> synchronizes, and the backend retains business decisions. The Web storage adapter
+> and desktop embedded-host path each need implementation and separate qualification.
+
 WebChat is the owner-facing control surface for SparkClaw. This guide replaces
 the original frontend handoff requirements with the current implemented
 responsibilities and extension rules.

@@ -2,6 +2,12 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store.md)
 
+> R3 scope note (2026-09-30): the repositories below describe the implemented
+> backend Store. The [client/backend target](client-backend-architecture-design.md)
+> moves non-mail user history/files to each client and keeps backend mail plus
+> bounded processing/control state. That split and legacy-data migration are pending;
+> do not delete current records or infer new API behavior from the target document.
+
 The Store package is SparkClaw's durable-state boundary. It exposes small,
 typed repositories to business owners, implements those contracts on memory,
 file, and PostgreSQL backends, and gives the Gateway assembly layer one runtime

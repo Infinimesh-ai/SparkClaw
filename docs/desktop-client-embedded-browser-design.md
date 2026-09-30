@@ -8,6 +8,13 @@
 > Electron's bundled Chromium is the sole target browser runtime. The current
 > production runtime has not been switched.
 
+> R3 target update (2026-09-30): retain the Electron embedded execution core, but use
+> [Client/backend R3](client-backend-architecture-design.md) for data and process ownership.
+> Client automation runs only in embedded views; the dedicated backend browser is an
+> acquisition/operations resource. Each client stores non-mail data locally and connects
+> through the LAN (or colocated loopback). Earlier Linux qualification does not qualify
+> the new client store, remote adapter or Mac package.
+
 Implementation resumption: read the [Electron implementation handoff](desktop-electron-implementation-handoff.md)
 for the current code state, ordered work, qualification gates, and desktop test boundaries.
 

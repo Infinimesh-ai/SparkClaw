@@ -2,6 +2,11 @@
 
 > 语言： [English](../../docs/webchat.md) | 简体中文
 
+> R3 范围说明（2026-09-30）：本文描述当前依赖服务端存储的 UI。
+> [客户端／后端 R3](client-backend-architecture-design.md) 要求改为
+> ClientStore／ExecutionClient／MailSyncClient：非邮箱数据留在本地，邮箱可同步，业务决策仍在后端。
+> Web 本地存储适配器和桌面内嵌宿主路径均须实施并分别验收。
+
 WebChat 是 SparkClaw 面向 owner 的控制界面。本文档以当前已实现职责和扩展规则替代最初的
 前端 handoff requirements。
 

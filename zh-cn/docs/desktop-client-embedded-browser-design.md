@@ -6,6 +6,11 @@
 > 资格验证；Provider 凭据、目标硬件和发布／切换仍由用户最终验收。Electron 自带
 > Chromium 是唯一目标浏览器运行时；当前生产浏览器尚未切换。
 
+> R3 目标更新（2026-09-30）：保留 Electron 内嵌执行核心，数据与进程职责以
+> [客户端／后端 R3](client-backend-architecture-design.md) 为准。客户端自动化只使用内嵌视图，
+> 后端专用浏览器仅是采集／操作资源。各客户端本地保存非邮箱数据，通过 LAN（或同机回环）连接；
+> 既有 Linux 验收不证明新增本地存储、远程适配器或 Mac 安装包已通过。
+
 继续实施前请读 [Electron 实施交接](desktop-electron-implementation-handoff.md)，其中记录
 当前代码状态、待办顺序、验收门槛及桌面测试边界。
 

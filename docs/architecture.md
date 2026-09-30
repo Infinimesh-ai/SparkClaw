@@ -2,9 +2,25 @@
 
 > Language: English | [简体中文](../zh-cn/docs/architecture.md)
 
-This document is the current system source of truth. Component contracts are
-linked from the [documentation index](index.md); completed plans and superseded
-designs are intentionally absent from the active documentation set.
+This document is the current implementation source of truth. Component contracts
+and explicitly marked target designs are linked from the [documentation index](index.md).
+
+## R3 client/backend target and current baseline
+
+The user-confirmed 2026-09-30 target is [Client and backend architecture R3](client-backend-architecture-design.md):
+the backend performs business processing and durably stores mail; each client
+durably stores its own non-mail conversations, messages, task history and files.
+Clients connect over the LAN; loopback is only a colocated deployment detail.
+Backend acquisition browsers and client embedded browsers have separate roles,
+controlled through one adapter. Client automation stays in its embedded browser.
+Only mail synchronizes across clients; there is no shared conversation database.
+
+The sections below still describe the implemented central Store/runtime baseline.
+Local client storage, bounded context/result delivery, remote browser control and
+data migration are pending; they are not already available through the current API.
+Use R3 for the target ownership and migration rules, and the baseline below to
+assess existing code. Accepted external integration contracts remain in force
+until their own decision and compatibility process completes.
 
 ## Product Boundary
 

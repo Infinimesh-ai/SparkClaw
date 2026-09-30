@@ -2,15 +2,16 @@
 
 > 语言： [English](../../docs/index.md) | 简体中文
 
-本索引列出当前有效的文档集合。文档描述现行 runtime 和受支持的扩展边界；
-已经完成的迁移计划和被替代的实现方案只保留在 Git 历史中，不再混入当前文档树。
+本索引区分已实现 runtime 与明确标注的目标设计。R3 迁移期间保留现行基线文档，
+用于核对代码及验收证据；它们不覆盖新目标的数据归属规则。
 
 ## 从这里开始
 
 | 文档 | 用途 | 权威范围 |
 |---|---|---|
 | [README](../README.md) | 项目概览、快速启动和当前状态 | 项目入口 |
-| [架构](architecture.md) | 产品边界、runtime 拓扑、职责和不变量 | 系统事实来源 |
+| [架构](architecture.md) | 当前实现、runtime 拓扑及 R3 目标入口 | 实现事实来源 |
+| [客户端与后端架构 R3](client-backend-architecture-design.md) | 后端业务／邮箱核心、客户端本地非邮箱数据、LAN、内嵌控制及迁移 | 用户已确认目标，实施待完成 |
 | [部署](deployment.md) | 本地、Compose、DGX Spark、状态、备份和排障 | 运维手册 |
 | [开发](development.md) | 仓库结构、实现规则、验证和扩展流程 | 贡献者手册 |
 | [Workflow 能力矩阵](workflow-capabilities.md) | 当前 Workflow runtime 确切可执行的能力 | 用户可见能力清单 |
@@ -27,10 +28,12 @@
 | [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
-| [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 已确定唯一路线：Electron 自带 Chromium、原生浏览视图，适配保留 Controller / Playwright 控制链；软件实施完成，仍待用户发布验收 |
+| [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 既有 Electron／原生视图实现及 Controller / Playwright 适配基线；R3 新增客户端本地存储与 LAN 宿主控制，尚待实施 |
 | [Electron 桌面浏览器实施交接](desktop-electron-implementation-handoff.md) | 四阶段实施记录、代码入口、资格证据和剩余用户验收门槛 |
 | [桌面发布与切换方案](desktop-release-plan.md) | 候选哈希、安装／更新／卸载策略、目标主机验收、原子切换与整版回滚 |
-| [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现：共享 Gateway／PostgreSQL、同端口 LAN Web 与本机桌面、无需 18795 的独立客户端认证与双端刷新 |
+| [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现基线：共享 Gateway／PostgreSQL 与客户端刷新；R3 替代非邮箱共享存储及桌面仅回环限制 |
+| [macOS 桌面端设计 R3](macos-lan-desktop-design.md) | 重评 R2.1／R2.2：本地非邮箱数据、后端邮箱同步、LAN 身份及统一的客户端仅内嵌浏览器控制；实施待完成 |
+| [Mac 实机联调连接指南](macos-connection-guide.md) | 可选 SSH 开发接入，R3 本地数据／邮箱同步、内嵌控制、交付及 Mac 实机验收；Mac 不部署业务后端 |
 | [导出 AI 平台对话：登录与 workspace 保存](ai-conversation-export-design.md) | 与浏览器／文档同级的四平台分支；监听油猴下载、原始 JSON 入 workspace 与文件回执 |
 | [AI 对话时间线批量导出](ai-conversation-batch-export.md) | RevivalStack 批量控件、原生 Bridge CLI、校验后的文件进度、集合检索与覆盖限制 |
 | [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |
@@ -72,6 +75,7 @@
 | [Store](store.md) | 类型化 repository、风险分级可靠性、三 backend、内嵌 PostgreSQL migration、Runtime 监管、source layout 与验证；已完成的 S0-S5 迁移的长期规则并入本文，阶段计划保留在 Git 历史中 |
 | [ASR runtime CI](asr-runtime-ci-design.md) | 独立轻量 fake-model ASR 依赖、协议测试、cleanup 和 CI 契约 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
+| [金融行情数据设计](finance-market-data-design.md) | 浏览器登录态复用、天天基金／东方财富／同花顺采集、OHLCV／净值统一格式、确定性指标与验收计划；待实施 |
 | [Info 上游聚合结果消费](info-aggregate-result-consumption-design.md) | 已实现的 Info `answer_context` 类型化、无二次聚合消费方案，覆盖 citation、limitation 与 Info 最终浏览器顺序契约 |
 | [PPTX 最终渲染视觉质量门禁](pptx-final-render-visual-qa-design.md) | 已实施 Phase 1 shadow：固定 LibreOffice/pypdfium2/配置 Fast 审查变更页；自动修复与密封发布仍受门禁控制 |
 | [DOCX 编辑](docx-editing-optimization.md) | 当前 DOCX 样式验证、证据绑定、run 保真、coverage、目标感知 decision 投影与评测契约 |

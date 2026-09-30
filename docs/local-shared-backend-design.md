@@ -4,6 +4,12 @@
 >
 > Date: 2026-09-22 (Asia/Shanghai). Status: implementation complete and isolated qualification passed. Production deployment, real-device microphone/HTTPS acceptance, and release cutover remain separately authorized activities; this document is not a production deployment claim.
 
+> R3 target update (2026-09-30): this document is the implemented shared-state baseline,
+> not the future data-ownership rule. [Client/backend R3](client-backend-architecture-design.md)
+> replaces shared conversations/history/files with client-local storage, retains backend
+> mail synchronization, and supports LAN desktop connections. Its migration is pending;
+> the behavior and evidence below apply to the current implementation only.
+
 ## 1. Goal And Scope
 
 One host runs one SparkClaw Gateway, PostgreSQL database, and business file store. The ordinary browser workbench and Electron workbench access that backend and share the same Owner's conversations, messages, tasks, email, memory, approvals, and configuration. Desktop startup connects to the host service automatically, without server selection or pairing.

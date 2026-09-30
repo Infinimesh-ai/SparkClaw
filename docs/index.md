@@ -2,17 +2,17 @@
 
 > Language: English | [简体中文](../zh-cn/docs/index.md)
 
-This index lists the current documentation set. Documents describe the active
-runtime and supported extension boundaries; completed migration plans and
-superseded implementation proposals belong in Git history, not in the active
-documentation tree.
+This index distinguishes the implemented runtime from explicitly marked target
+designs. During R3 migration, current baseline documents remain available for
+code/qualification evidence; they do not override the new target's data ownership.
 
 ## Start Here
 
 | Document | Purpose | Authority |
 |---|---|---|
 | [README](../README.md) | Project overview, quick start, and current status | Product entry point |
-| [Architecture](architecture.md) | Product boundary, runtime topology, ownership, and invariants | System source of truth |
+| [Architecture](architecture.md) | Current implementation, runtime topology and entry to the R3 target | Implementation source of truth |
+| [Client and backend architecture R3](client-backend-architecture-design.md) | Backend business/mail core; client-local non-mail data, LAN connection, embedded control and migration | User-confirmed target; implementation pending |
 | [Deployment](deployment.md) | Local, Compose, DGX Spark, state, backup, and troubleshooting | Operator guide |
 | [Development](development.md) | Repository map, implementation rules, validation, and extension workflow | Contributor guide |
 | [Workflow capability matrix](workflow-capabilities.md) | Exactly what the current Workflow runtime can execute | User-visible capability inventory |
@@ -30,10 +30,12 @@ documentation tree.
 | [Model input and output capacity contract](model-capacity-contract-design.md) | Accepted physical-window and output-capability-class contract, oversized-question rejection, final admission, completion handling, and fail-fast profile authority |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
 | [Browser runtime](browser-runtime.md) | Current persistent Chromium, SparkClaw Browser Bridge, owner-scoped Controller, task-tab ownership, login handoff, deployment, and security |
-| [Desktop client and embedded browser design](desktop-client-embedded-browser-design.md) | Accepted sole target: Electron bundled Chromium, native browser views, and an adapter preserving the Controller / Playwright control chain; software implementation complete, owner release gates pending |
+| [Desktop client and embedded browser design](desktop-client-embedded-browser-design.md) | Existing Electron/native-view implementation and Controller / Playwright adapter baseline; R3 adds client-local storage and LAN host control, still pending |
 | [Electron desktop browser implementation handoff](desktop-electron-implementation-handoff.md) | Implemented phase record, code entry points, qualification evidence, and remaining owner acceptance gates |
 | [Desktop release and cutover plan](desktop-release-plan.md) | Candidate hashes, install/update/uninstall policy, target-host acceptance, atomic cutover, and whole-release rollback |
-| [Web and desktop shared local backend design](local-shared-backend-design.md) | Implemented shared Gateway/PostgreSQL, LAN Web plus local desktop on one port, separate client credentials without port 18795, and dual-client refresh |
+| [Web and desktop shared local backend design](local-shared-backend-design.md) | Implemented baseline: shared Gateway/PostgreSQL and client refresh; R3 replaces shared non-mail storage and loopback-only desktop placement |
+| [macOS desktop design R3](macos-lan-desktop-design.md) | Reassesses R2.1/R2.2: local non-mail data, backend mail sync, LAN identity and unified embedded-only browser control; implementation pending |
+| [Mac connection guide](macos-connection-guide.md) | Optional SSH development access; R3 local-data/mail-sync, embedded control, delivery and Mac qualification; no business backend on Mac |
 | [Export AI platform conversations: login and workspace persistence](ai-conversation-export-design.md) | Four AI-provider branches alongside browser/document; listen for userscript downloads, preserve original JSON in session workspace and return receipts |
 | [AI conversation timeline batch export](ai-conversation-batch-export.md) | RevivalStack batch controls, native Bridge CLI, verified file checkpoints, discovered collections and coverage limits |
 | [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |
@@ -74,6 +76,7 @@ documentation tree.
 | [Store](store.md) | Typed repositories, risk-tiered reliability, three backends, embedded PostgreSQL migrations, Runtime supervision, source layout, and verification; the shipped S0-S5 migration's durable rules live here and the stage plans live in Git history |
 | [ASR runtime CI](asr-runtime-ci-design.md) | Independent lightweight fake-model ASR dependency, protocol-test, cleanup, and CI contract |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
+| [Financial market data design](finance-market-data-design.md) | Proposed browser-session reuse, Tiantian/Eastmoney/Tonghuashun collection, OHLCV/NAV normalization, deterministic indicators, and qualification plan; not implemented |
 | [Info aggregated result consumption](info-aggregate-result-consumption-design.md) | Implemented typed, non-reaggregating consumption of Info `answer_context`, including citation, limitation, and Info-final browser-order contracts |
 | [PPTX final-render visual quality gate](pptx-final-render-visual-qa-design.md) | Phase 1 shadow implementation of pinned LibreOffice/pypdfium2/configured-Fast changed-page review; automatic repair and sealed publication remain gated |
 | [DOCX editing](docx-editing-optimization.md) | Current DOCX style verification, evidence binding, run preservation, coverage, target-aware decision projection, and eval contracts |

@@ -34,6 +34,9 @@ var providerUnavailableScriptCodes = map[string]bool{
 	// The Controller envelope substitutes this code when a script error
 	// carries no well-formed code of its own.
 	"provider_script_failed": true,
+	// The opt-in, redacted phase diagnostic uses this fallback when the
+	// original exception has no safe code. It never proves a send outcome.
+	"unavailable": true,
 }
 
 // providerUnavailableScriptCodeFamilies lists the template-built code

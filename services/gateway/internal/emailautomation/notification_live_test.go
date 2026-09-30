@@ -95,6 +95,13 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 				t.Fatal("browser proof wait timed out")
 			}
 		}
+		// This zero-wait administrative check cannot reserve a page during a
+		// background Reader round. The authenticated provider probe below uses
+		// the bounded execution queue and still proves the actual credential.
+		if browsercontrol.ErrorCode(checkErr) == browsercontrol.CodeBusy && status.Configured && status.CredentialGeneration > 0 {
+			t.Logf("%s administrative check busy; require authenticated provider probes before send", name)
+			return service
+		}
 		if checkErr != nil || !status.Configured || status.CredentialGeneration < 1 {
 			t.Fatalf("%s browser credential unavailable: %v", name, checkErr)
 		}
@@ -179,7 +186,8 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 	// independently or alongside an already running resident observer.
 	if receiptOnly {
 		recipient := identities[receiverID].address
-		if receiverID == app.EmailProviderOutlook {
+		expectedSender := identities[senderID].address
+		if senderID == app.EmailProviderOutlook || receiverID == app.EmailProviderOutlook {
 			var proof struct {
 				Marker string `json:"marker"`
 				Sender string `json:"sender"`
@@ -189,7 +197,12 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 			if !filepath.IsAbs(proofPath) || err != nil || json.Unmarshal(raw, &proof) != nil || !strings.HasPrefix(proof.Marker, "SCW-mail-") || !mailAddressPattern.MatchString(proof.Sender) {
 				t.Fatal("verified Outlook outgoing identity required")
 			}
-			recipient = proof.Sender
+			if receiverID == app.EmailProviderOutlook {
+				recipient = proof.Sender
+			}
+			if senderID == app.EmailProviderOutlook {
+				expectedSender = proof.Sender
+			}
 		}
 		marker := "SCW-" + strings.ReplaceAll(app.NewID("mail"), "_", "-")
 		start := time.Now().UTC().Add(-time.Minute)
@@ -201,11 +214,12 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 		} else {
 			t.Log("send confirmed")
 		}
+		var original []byte
 		if os.Getenv("SPARKCLAW_TEST_NOTIFICATION_GATEWAY_RECEIPT") == "1" {
-			verifyGatewayNotificationReceipt(t, ctx, runtime, receiverID, marker, start)
-			return
+			original = verifyGatewayNotificationReceipt(t, ctx, runtime, receiverID, marker, start)
+		} else {
+			original = verifyLiveNotificationReceipt(t, ctx, runner, receiver, scope, identities[receiverID].address, identities[receiverID].probe, marker, start)
 		}
-		original := verifyLiveNotificationReceipt(t, ctx, runner, receiver, scope, identities[receiverID].address, identities[receiverID].probe, marker, start)
 		message, err := mail.ReadMessage(bytes.NewReader(original))
 		parser := &mail.AddressParser{WordDecoder: &mime.WordDecoder{CharsetReader: charset.NewReaderLabel}}
 		if err != nil {
@@ -216,10 +230,13 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 			t.Fatal("verified original recipient does not match the requested route")
 		}
 		from, err := parser.ParseList(message.Header.Get("From"))
-		if err != nil || len(from) != 1 || (senderID != app.EmailProviderOutlook && !strings.EqualFold(from[0].Address, identities[senderID].address)) {
+		if err != nil || len(from) != 1 || !strings.EqualFold(from[0].Address, expectedSender) {
 			t.Fatal("verified original sender does not match the requested route")
 		}
 		t.Log("verified original sender and recipient match the route")
+		if os.Getenv("SPARKCLAW_TEST_NOTIFICATION_REQUIRE_CONFIRMATION") == "1" && sendErr != nil {
+			t.Fatal("original retained, but native send confirmation is still unknown; do not resend")
+		}
 		return
 	}
 
@@ -394,7 +411,7 @@ func TestEmailNotificationMutualSendLive(t *testing.T) {
 
 // The production smoke sends once, then only reads Store/local originals. It
 // never invokes discovery or capture to manufacture a successful receipt.
-func verifyGatewayNotificationReceipt(t *testing.T, ctx context.Context, runtime *store.Runtime, provider, marker string, start time.Time) {
+func verifyGatewayNotificationReceipt(t *testing.T, ctx context.Context, runtime *store.Runtime, provider, marker string, start time.Time) []byte {
 	t.Helper()
 	owners, err := runtime.OwnerRepository().ListOwnerProfiles(ctx)
 	if err != nil {
@@ -436,12 +453,21 @@ func verifyGatewayNotificationReceipt(t *testing.T, ctx context.Context, runtime
 					if "sha256:"+hex.EncodeToString(sum[:]) != capture.OriginalSHA256 {
 						t.Fatal("production original checksum mismatch")
 					}
+					parsed, parseErr := mail.ReadMessage(bytes.NewReader(original))
+					if parseErr != nil {
+						t.Fatal("production original header could not be parsed")
+					}
+					decoder := &mime.WordDecoder{CharsetReader: charset.NewReaderLabel}
+					subject, decodeErr := decoder.DecodeHeader(parsed.Header.Get("Subject"))
+					if decodeErr != nil || subject != marker {
+						t.Fatal("production original subject mismatch")
+					}
 					expectedReason := map[string]string{app.EmailProviderQQMail: "qq_inbound_envelope", app.EmailProviderGmail: "gmail_topic_invalidation", app.EmailProviderOutlook: "outlook_delivery_change"}[provider]
 					if box.ObserverEpoch == "" || box.LastNotificationAt.Before(start.Add(time.Minute)) || box.LastNotificationReason != expectedReason || box.SignalRevision < 1 {
 						t.Fatal("original exists without persisted notification")
 					}
 					t.Logf("production Gateway original verified: provider=%s watch=%s signal_revision=%d reconciled_revision=%d receipt_age=%s", provider, box.WatchState, box.SignalRevision, box.ReconciledRevision, time.Since(start.Add(time.Minute)).Round(time.Millisecond))
-					return
+					return original
 				}
 			}
 		}
@@ -452,6 +478,7 @@ func verifyGatewayNotificationReceipt(t *testing.T, ctx context.Context, runtime
 		}
 	}
 	t.Fatal("production Gateway did not publish the test original")
+	return nil
 }
 
 func verifyLiveNotificationReceipt(t *testing.T, ctx context.Context, runner *PlaywrightRunner, receiver Provider, scope, address string, probe ProbeResult, marker string, start time.Time) []byte {

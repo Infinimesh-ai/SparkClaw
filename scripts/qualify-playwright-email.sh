@@ -25,6 +25,9 @@ Also set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE=1 to exercise a one-hour
 timeline query. A passing smoke is not full incremental coverage qualification.
 Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ=1 and SPARKCLAW_TEST_EMAIL_OWNER_ID
 to also capture one unread inbox message per provider and verify its local files.
+Set SPARKCLAW_TEST_APP_CLI_SHARED_ORDERS=1, with production intake paused, for
+read-only read-first/watch-first cold/warm rounds and explicit watcher cancellation
+on all three existing accounts through the installed App-CLI release.
 Set SPARKCLAW_TEST_NOTIFICATION_OBSERVE=1 only for an authorized real-mail
 qualification, with SPARKCLAW_TEST_NOTIFICATION_OBSERVER_SOCKET and
 SPARKCLAW_NOTIFICATION_OBSERVER_READY_DIR set to an isolated observer runtime.
@@ -33,7 +36,10 @@ Set SPARKCLAW_TEST_NOTIFICATION_RECEIPT_ONLY=1 to validate a managed send and
 its exact original independently of notifications; no observer socket is needed.
 SPARKCLAW_TEST_NOTIFICATION_ROUTE=sender:receiver selects any two distinct
 qq_mail, gmail or outlook providers. Set SPARKCLAW_TEST_NOTIFICATION_DRY_RUN=1
-to observe without sending. SPARKCLAW_TEST_NOTIFICATION_DURATION_MS bounds
+to observe without sending. SPARKCLAW_TEST_NOTIFICATION_REQUIRE_CONFIRMATION=1
+also requires native send confirmation after preserving and verifying the receipt;
+an unknown send fails qualification without being resent. The default keeps the
+receipt-only diagnostic behavior. SPARKCLAW_TEST_NOTIFICATION_DURATION_MS bounds
 the observation window (1000..120000). To verify an already sent message's
 original without sending, set SPARKCLAW_TEST_NOTIFICATION_RECONCILE_MARKER.
 For a no-send Reader concurrency control, set
@@ -258,5 +264,8 @@ if [[ "${SPARKCLAW_TEST_SHARED_PAGE:-}" == 1 ]]; then
 fi
 if [[ "${SPARKCLAW_TEST_SHARED_PAGE_SENDER_PROOF:-}" == 1 ]]; then
   live_test='^TestMailSharedPageHistoricalSenderProof$'
+fi
+if [[ "${SPARKCLAW_TEST_APP_CLI_SHARED_ORDERS:-}" == 1 ]]; then
+  live_test='^TestAppCLISharedPageOrdersLive$'
 fi
 go test -timeout=30m -count=1 -run "$live_test" -v ./internal/emailautomation

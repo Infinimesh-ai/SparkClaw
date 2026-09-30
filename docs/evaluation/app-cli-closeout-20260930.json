@@ -1,0 +1,1409 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-30",
+  "status": "PARTIAL_ACCEPTANCE",
+  "release": {
+    "schema_version": 1,
+    "id": "0.3.0-sparkclaw.11",
+    "runtime_digest": "748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000",
+    "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
+    "source_commit": "9da7cfde4c2f24904f87e2992e9dcf69e20f89d7",
+    "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
+    "runtime_protocol": "2.0",
+    "host_protocol": "1.0",
+    "ledger_version": 1,
+    "artifacts": {
+      "python_dependencies": {
+        "file": "python-requirements.txt",
+        "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+      },
+      "wheel": {
+        "file": "infinimesh_app_cli-0.3.0+sparkclaw.11-py3-none-any.whl",
+        "sha256": "9f839c1daf01ce3abcd4c6508815a04256c5111792ea95726d05404833b04f1d"
+      },
+      "runtime": {
+        "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.11.tgz",
+        "sha256": "a3fefca44e556321a0cc4f8faad5ffbc263195b21563ffeaf4d6e81eb3759b0e"
+      }
+    }
+  },
+  "sparkclaw_base_merge": "6a6f665",
+  "source_branch": "codex/sparkclaw-email",
+  "account_scope": {
+    "existing_accounts": 3,
+    "account_switch": "DEFERRED_BY_USER",
+    "attachments": "OUT_OF_SCOPE",
+    "reply_all": "DEFERRED_UNDER_THREE_OWNED_ACCOUNTS: product excludes all known own mailbox addresses from reply-all recipients"
+  },
+  "attempts": [
+    {
+      "log": "final-10-gmail-outlook.log",
+      "log_sha256": "56647cb17481d91440954a8ffdb9212a8075e5ba834db9cf87a2b5230d5cefcc",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-52ff53391551edd6",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "46dc39cfc6384a08",
+          "request_sha256": "1cb5bed6920b2e85fad035973c3fff30416914e2e5aee0161d2973296c5746dd",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-10-gmail-qq.log",
+      "log_sha256": "0f6554e1aaa858a79d3cd594f64f38b2c4fbe108fbeabb54ec2a4804956184af",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-eb90ae3c7399cb25",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "7796036e0d7ccbf9",
+          "request_sha256": "7edc439f369b475e42a938913b3c43b08882b88a7ef5210104822b10cc7fde7b",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-10-outlook-qq.log",
+      "log_sha256": "8ea26cbf880c325cefc11c28abb9c77489509ee4aaaf59119d3cbc7e4fb4688a",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-b18883a8b8f4a3ae",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "1b2ae58fa047b986",
+          "request_sha256": "3130161552bc0011e0bdb11923dad8b4687b4bb8ee58ed17f385862502ad2f83",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-10-qq-gmail.log",
+      "log_sha256": "934fc72ec11eae6c52851bd7847b57c2198a750a9292d291dfe22267a9e3127a",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-5dc76d385da4cfde",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "d5aad47e6b48476a",
+          "request_sha256": "3a9fce511891e01c8157892680b45b32bd777e3e2d98b054e9255331e0b75ed5",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-10-qq-outlook.log",
+      "log_sha256": "dc20c2fdfe7023220526b7bf6d25c184fc3bb2b057d51d85b9e9471cc0aafe7c",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-c5b463513e2aeaf0",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "22b1ec55ba97397d",
+          "request_sha256": "30a3ea5068536d867a02667b458ab63cd12cb584c2da4dcf2aa32f5556827fc5",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-gmail-outlook.log",
+      "log_sha256": "c3656d05b8c480918833eee5c7c4c5967dab904996d1d385106cdc880056673f",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-0f9082aac7d4cdb9",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "8f1e367ca77e624e",
+          "request_sha256": "01b607ac1d8f231dd0be7010ab4807766ba9409d1b45a3ba89e74be901e4e1b5",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-outlook-gmail.log",
+      "log_sha256": "606d6e601b4246282a0c2b880876df4aedbff9474b3a321fb0d46eef7a03de97",
+      "sender": "outlook",
+      "receiver": "gmail",
+      "marker": "SCW-mail-8f2971d0cd261acd",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "d7a9ddd961c8e918",
+          "request_sha256": "9a7b55f4677ed1398461d7744d22d1e578d7354048be37968e44a073299835b0",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-qq-gmail.log",
+      "log_sha256": "03a21d074401fe963327e902d85b3e58c5a50615b0adad6bf5306f87154df8be",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-4aa4124d2727c6cf",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "28b45e2861e592da",
+          "request_sha256": "d65b65fcb2c35bc32fbe31706077052968ed129d7c34c6119ca0a0f0421468b0",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-gmail-outlook.log",
+      "log_sha256": "bb92e7b3376bfbd05719a7acc254fcdcd1d477fde50a72490a64b1c35ee5f835",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-9e718fcff57de442",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "ab0c067e82e9707c",
+          "request_sha256": "136e10d841aafa0fc2f63c9baced24a02b447702928ff8f77755c2f9a723ff1c",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-gmail-qq.log",
+      "log_sha256": "17b09290ef39bb385ae68b8372e41d437fbe20296e32d3fa61f4a580375ece5e",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-f1725ffa3858e7b6",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "e76fe6651e4264b8",
+          "request_sha256": "e83ba0ed4a75eb263a266b79a15ef13715c5e45868b9b3c7e47a228e5dd64705",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-outlook-gmail.log",
+      "log_sha256": "8e1fa6590926985c287acd698514856f3cd1a4009725d1a9b2585ccc88e3288b",
+      "sender": "outlook",
+      "receiver": "gmail",
+      "marker": "SCW-mail-8c54b5f8ea66810f",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "d0aad26e511e03cc",
+          "request_sha256": "fbe4b14cf61660801bd6f78ff1d26ce20c78e2367ef2f7585a0b5155845e9998",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-outlook-qq.log",
+      "log_sha256": "8a8e47cbd63c1e95fb835918877fbf296f840830ded5ab0ef05f8105be8cc44b",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-9350f1ed04f5a156",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "23d169daf5a7c472",
+          "request_sha256": "9aa0afb2afd30536c78fc7e8acf2e10058511ebbf2990d8bce6c409a8636a77f",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-qq-gmail.log",
+      "log_sha256": "bad3f3e2d7486c3b1525e5c05481632af1eba60c6af43fd36bdc3eba8d68833b",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-895bf416728c0363",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "f3f571292768b2c6",
+          "request_sha256": "67e7535ffc8384ac01ea13b8307e1f177c8c1535419f74057a08d3874ede1a67",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-qq-outlook.log",
+      "log_sha256": "d5d1f694c5eefb86bd4d4fca87348f96ffb83f9e314c4c33ffe3e3796b235641",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-66de3522ca395e47",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "777c00259a94ba6a",
+          "request_sha256": "1240f32e536fbbe18006ea9a2e149a2a2b97ae290781d87bbadd063067a1651c",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-8-gmail-qq.log",
+      "log_sha256": "e76e28326e9c733f17bd0522bc2dfbf2013c5b22f8b938ed9483df63f5272d25",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-781059abd036de56",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "6e8bd91e3816b600",
+          "request_sha256": "e9bddb8c923d6af757d3e53e1bf1a3d2327f92bb29f925dfa11852912da2473e",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-8-qq-gmail.log",
+      "log_sha256": "50ea1f4adf41cfd04809992e083f3854bfb5e51ba4fb3ad4e17318cdd7ab863c",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-8ea911cf9a363d6e",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "c75afed855113bf6",
+          "request_sha256": "2ef114a8dd0a7e2e750fbfdeecfaff255f69f20b5633232a35b7895c915923f0",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-8-qq-outlook.log",
+      "log_sha256": "4eea8384ff546254182d955d4b74c937cae5cfaf7aade5313d0907fb5195b0d8",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-15c2b0250d45b51f",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "e89e00f84edba431",
+          "request_sha256": "0e85ede140e0f0cf02fe54b128e81fa8ec88e7557d81411b1acbebaf5f71f244",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-9-gmail-qq-independent.log",
+      "log_sha256": "a65d143e184d535d9510de4c6af3f19b617310826f51a7bf7311d9b99df7cc95",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-903dda417e4acc5a",
+      "native_send_confirmed": false,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "ce5c94769d71fe4f",
+          "request_sha256": "ee0c22d1ba0b1240d0a8ab530fccf8baf2544e71e2a7d9709ec4a785fb213966",
+          "status": "failed",
+          "effect": 0,
+          "reason": "EMAIL_REPLY_EDITOR_UNVERIFIED"
+        }
+      ]
+    },
+    {
+      "log": "final-9-gmail-qq.log",
+      "log_sha256": "a32075e25100f6ab28794ae235bd0753cffa8f004c1fe327ddc0a6a3456daa72",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-ddea10b8a8143c7b",
+      "native_send_confirmed": false,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "381c58045011ef12",
+          "request_sha256": "0455b9fe9710a1e7bb773175cc43dee5e1444553d969384aaab33ad1b7689a61",
+          "status": "failed",
+          "effect": 0,
+          "reason": "EMAIL_REPLY_EDITOR_UNVERIFIED"
+        }
+      ]
+    },
+    {
+      "log": "final-9-qq-gmail.log",
+      "log_sha256": "a8607b74fcb0c6294bf8af2587f9903da4f3d91e1b04e4d5a5de8d2baab8bd07",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-5b2d5e54fc22d46e",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "6412739c674e01ea",
+          "request_sha256": "b9a07f64d4796abbe7cb9219a6e454ae76b4041c4cd74cae8b49e8b73b514341",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        },
+        {
+          "task_hash": "28f013703dc7a8f5",
+          "request_sha256": "815063c8a59c5b4104cd7464a5bb8c35aea0001083a8b794b680fbae2793906f",
+          "status": "failed",
+          "effect": 0,
+          "reason": "EMAIL_REPLY_TARGET_UNVERIFIED"
+        }
+      ]
+    },
+    {
+      "log": "final-9-qq-outlook.log",
+      "log_sha256": "c6f8c08362c3185eb99d602c92ae9878e507434230de7b769400bcd2fb9305d9",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-edab240c23dd6ed9",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "c57ac109876b809a",
+          "request_sha256": "f90a90aab9fbdc0f6602345da6196eeb3075168be0192c60f5e4b2ba8e36c496",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-gmail-qq.log",
+      "log_sha256": "17d29b149bb844f9bf72f1084288252353ec6f1b10ac139e96766fa061e98c99",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-6d78678d5bb80d41",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "15dc69208d934056",
+          "request_sha256": "39315726196de774ca1b988b05cbfa5ba53d518afcc197017a943721fcec3062",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-outlook-qq.log",
+      "log_sha256": "9e5f68f7973ed9640063493c69cdb14e8399813674e262947e37c89d4ed9dd1d",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-72570bdb8770e8f6",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "983931283adeb96f",
+          "request_sha256": "70779c4612d23fe0826cbb5b8d7bbc2ec0a5f21e8b86d1de4d86b1b9a3bb3f3d",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-qq-outlook.log",
+      "log_sha256": "302103eb5abafb6b3b5da1912a087bd5c80464679476446d11d704dc7271574a",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-a89861fd97699397",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "e954673693aaab8d",
+          "request_sha256": "65a4067f5ea069db6c9be412b79d678d04c07cd58d6fa85d298f6f1998aaa265",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "qq-gmail-diagnostic-candidate.log",
+      "log_sha256": "2d7dc367f39549f45e2b05e97f1194404c2e540e3dbeb85c121d4240fdefe2cf",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-e1c7222ed8e80c52",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "2c1e5611fa9c6223",
+          "request_sha256": "dc802fd011d898fd3a1e52e32ab2da56cf42035e3ad62ac99179a2b8d4155547",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "final_digest_results": [
+    {
+      "log": "final-11-gmail-outlook.log",
+      "log_sha256": "c3656d05b8c480918833eee5c7c4c5967dab904996d1d385106cdc880056673f",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-0f9082aac7d4cdb9",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "8f1e367ca77e624e",
+          "request_sha256": "01b607ac1d8f231dd0be7010ab4807766ba9409d1b45a3ba89e74be901e4e1b5",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-outlook-gmail.log",
+      "log_sha256": "606d6e601b4246282a0c2b880876df4aedbff9474b3a321fb0d46eef7a03de97",
+      "sender": "outlook",
+      "receiver": "gmail",
+      "marker": "SCW-mail-8f2971d0cd261acd",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "d7a9ddd961c8e918",
+          "request_sha256": "9a7b55f4677ed1398461d7744d22d1e578d7354048be37968e44a073299835b0",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-qq-gmail.log",
+      "log_sha256": "03a21d074401fe963327e902d85b3e58c5a50615b0adad6bf5306f87154df8be",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-4aa4124d2727c6cf",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "28b45e2861e592da",
+          "request_sha256": "d65b65fcb2c35bc32fbe31706077052968ed129d7c34c6119ca0a0f0421468b0",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-gmail-outlook.log",
+      "log_sha256": "bb92e7b3376bfbd05719a7acc254fcdcd1d477fde50a72490a64b1c35ee5f835",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-9e718fcff57de442",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "ab0c067e82e9707c",
+          "request_sha256": "136e10d841aafa0fc2f63c9baced24a02b447702928ff8f77755c2f9a723ff1c",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-gmail-qq.log",
+      "log_sha256": "17b09290ef39bb385ae68b8372e41d437fbe20296e32d3fa61f4a580375ece5e",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-f1725ffa3858e7b6",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "e76fe6651e4264b8",
+          "request_sha256": "e83ba0ed4a75eb263a266b79a15ef13715c5e45868b9b3c7e47a228e5dd64705",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-outlook-gmail.log",
+      "log_sha256": "8e1fa6590926985c287acd698514856f3cd1a4009725d1a9b2585ccc88e3288b",
+      "sender": "outlook",
+      "receiver": "gmail",
+      "marker": "SCW-mail-8c54b5f8ea66810f",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "d0aad26e511e03cc",
+          "request_sha256": "fbe4b14cf61660801bd6f78ff1d26ce20c78e2367ef2f7585a0b5155845e9998",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-outlook-qq.log",
+      "log_sha256": "8a8e47cbd63c1e95fb835918877fbf296f840830ded5ab0ef05f8105be8cc44b",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-9350f1ed04f5a156",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "23d169daf5a7c472",
+          "request_sha256": "9aa0afb2afd30536c78fc7e8acf2e10058511ebbf2990d8bce6c409a8636a77f",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-qq-gmail.log",
+      "log_sha256": "bad3f3e2d7486c3b1525e5c05481632af1eba60c6af43fd36bdc3eba8d68833b",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-895bf416728c0363",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "f3f571292768b2c6",
+          "request_sha256": "67e7535ffc8384ac01ea13b8307e1f177c8c1535419f74057a08d3874ede1a67",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-qq-outlook.log",
+      "log_sha256": "d5d1f694c5eefb86bd4d4fca87348f96ffb83f9e314c4c33ffe3e3796b235641",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-66de3522ca395e47",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "777c00259a94ba6a",
+          "request_sha256": "1240f32e536fbbe18006ea9a2e149a2a2b97ae290781d87bbadd063067a1651c",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "history": {
+    "original_uncertain_tasks": 4,
+    "replayed": false,
+    "request_integrity": "preserved",
+    "journal_only_reconciliation": "passed"
+  },
+  "checks": {
+    "python_tests": 86,
+    "runtime_tests": 299,
+    "controller_tests": 127,
+    "go_build_vet_full_tests": "passed",
+    "paired_release_qualification": "passed in disposable state",
+    "app_cli_ci": "https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36683544137",
+    "shared_read_watch_orders": "passed all six combinations, 196.06 seconds",
+    "desktop": {
+      "isolated_full_pass": true,
+      "earlier_mcp_timeouts": 2,
+      "timeout_failures_retained": true
+    },
+    "original_download": {
+      "marker": "SCW-mail-781059abd036de56",
+      "download_via_product_button": true,
+      "bytes": 6691,
+      "sha256": "3474ffdfe012c466f82c02a352d1b10d649ae0eecc75278e0db670550a222aed",
+      "matches_persisted_original": true,
+      "candidate_scope": "earlier candidate, original from .8 send; retained historical evidence"
+    },
+    "target_compatible_rollback": {
+      "fixture": "compatible NOTICE-only paired release; unchanged runtime code and ledger v1",
+      "digests": [
+        "748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000",
+        "9322287cd06dc65f6a69e861654b480ecde5bfbe14d8f40c7ee3aa8c61c2e113",
+        "748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000"
+      ],
+      "epochs": [
+        56,
+        90,
+        91
+      ],
+      "send_rows_preserved": 39,
+      "immutable_files_preserved": 2357,
+      "all_previous_requests_outcomes_and_effects_unchanged": true,
+      "all_previous_grants_journals_originals_unchanged": true,
+      "browser_restart_task_pages_zero": true,
+      "three_real_login_probes_on_fixture": "passed 35.06 seconds",
+      "three_real_login_probes_on_return": "passed 32.04 seconds",
+      "cleanup_fence_blocked_initial_admission": true,
+      "only_host_fence_archived_after_task_zero": true,
+      "fixture_and_return_setup_checks": "passed"
+    },
+    "target_authorization": {
+      "runtime_digest": "748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000",
+      "real_watch_ready": true,
+      "expired_task_fenced": true,
+      "expired_task_state": "waiting_confirmation",
+      "expiry_reason": "AUTHORIZATION_EXPIRED",
+      "explicit_cancel": true,
+      "invalid_browser_credential_rejected": true,
+      "invalid_credential_reason": "browser_extension_rejected",
+      "send_rows_unchanged": true,
+      "actual_credential_rotation": "NOT_RUN"
+    },
+    "product_send_disconnect": {
+      "marker": "SCW-ui-fault-1a0f0e0ba1e",
+      "gateway_killed_after_effect_boundary": true,
+      "executor_kept_running": true,
+      "only_one_send_task": true,
+      "task_hash": "a19172cd8dbb5758",
+      "request_sha256": "876941749aa925b7d2e449c90628664d63ee763ea8ce5d1a113bdacf00d77404",
+      "status": "uncertain",
+      "effect": 1,
+      "reason": "CANCEL_REQUESTED",
+      "native_receipt_status": null,
+      "original_request_unchanged": true,
+      "replayed": false,
+      "product_unknown_ui_observed": true,
+      "product_send_button_disabled": true,
+      "product_reconcile_clicked": true,
+      "after_reconcile_status": "uncertain",
+      "after_reconcile_effect": 1,
+      "after_reconcile_reason": "SEND_OUTCOME_UNKNOWN",
+      "task_and_request_count_unchanged": true,
+      "additional_send_admissions": 0
+    },
+    "product_reply": {
+      "task_hash": "28f013703dc7a8f5",
+      "request_sha256": "815063c8a59c5b4104cd7464a5bb8c35aea0001083a8b794b680fbae2793906f",
+      "status": "failed",
+      "effect": 0,
+      "reason": "EMAIL_REPLY_TARGET_UNVERIFIED"
+    },
+    "product_multi_recipient": {
+      "marker": "SCW-ui-multi-20260930-1634",
+      "only_one_send_task": true,
+      "task_hash": "fb8b4a4bb0758b36",
+      "request_sha256": "519ff1fba845b1293152d40a8c0c44ec58d08aa07d67d668a675e9bf4c775dd2",
+      "status": "completed",
+      "effect": 1,
+      "reason": null,
+      "native_receipt_status": "sent",
+      "replayed": false
+    },
+    "product_original_headers": [
+      {
+        "marker": "SCW-mail-66de3522ca395e47",
+        "provider": "outlook",
+        "original_sha256": "sha256:28c2b3005288db09663ef71ce36955e62d8f092db3227d17748f814ae940cbac",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T09:15:37.724235Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 1,
+        "cc_count": 0,
+        "original_bytes": 10698,
+        "exact_from_to": true
+      },
+      {
+        "marker": "SCW-mail-9e718fcff57de442",
+        "provider": "outlook",
+        "original_sha256": "sha256:f666bf47a06e3eb20bb7aa9028e8a5f29b05fe8a1cf6545b69faf8a5e8c6bf73",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T09:15:37.724235Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 1,
+        "cc_count": 0,
+        "original_bytes": 13894,
+        "exact_from_to": true
+      },
+      {
+        "marker": "SCW-ui-multi-20260930-1634",
+        "provider": "outlook",
+        "original_sha256": "sha256:61feaefe3d878c281f53f9610221903d94c33640287d9b4b070101d6c454ca0c",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T09:15:37.724235Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 2,
+        "cc_count": 1,
+        "original_bytes": 14258,
+        "exact_from_to_cc": true
+      },
+      {
+        "marker": "SCW-ui-multi-20260930-1634",
+        "provider": "qq_mail",
+        "original_sha256": "sha256:ef44d5cd7901903a3bf55b7dbf43c8a417f3ec0edbf8d0648daeb65df2663e5b",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T08:45:22.480494Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 2,
+        "cc_count": 1,
+        "original_bytes": 6551,
+        "exact_from_to_cc": true
+      },
+      {
+        "marker": "SCW-ui-fault-1a0f0e0ba1e",
+        "provider": "outlook",
+        "original_sha256": "sha256:a2f2242904bb79cb4be75f80346944ba633a93f2bc7a2b19b73c1b0cafee8e3e",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T08:34:36.940763Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 2,
+        "cc_count": 1,
+        "original_bytes": 14063,
+        "exact_from_to_cc": true
+      },
+      {
+        "marker": "SCW-ui-fault-1a0f0e0ba1e",
+        "provider": "qq_mail",
+        "original_sha256": "sha256:5e2030294236a99d0a50883a179e65e186637616a1e6b7251393371b5ae85242",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T08:32:45.255374Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 2,
+        "cc_count": 1,
+        "original_bytes": 6541,
+        "exact_from_to_cc": true
+      },
+      {
+        "marker": "SCW-mail-0f9082aac7d4cdb9",
+        "provider": "outlook",
+        "original_sha256": "sha256:db58dd7ea557054507fac7ad924b793087c43ee4d090d7ff62e90aafa0f10afa",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T08:10:00.568813Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 1,
+        "cc_count": 0,
+        "original_bytes": 13943,
+        "exact_from_to": true
+      },
+      {
+        "marker": "SCW-mail-52ff53391551edd6",
+        "provider": "outlook",
+        "original_sha256": "sha256:5aeecdfe36984835be3cba55ac454eb92a0e5f6acb2d5b5fec27359846e070f9",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T08:10:00.568813Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 1,
+        "cc_count": 0,
+        "original_bytes": 13900,
+        "exact_from_to": true
+      }
+    ],
+    "final_original_download": {
+      "marker": "SCW-ui-multi-20260930-1634",
+      "runtime_digest": "748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000",
+      "product_button_clicked": true,
+      "authenticated_file_endpoint_status": 200,
+      "bytes": 6551,
+      "sha256": "ef44d5cd7901903a3bf55b7dbf43c8a417f3ec0edbf8d0648daeb65df2663e5b",
+      "matches_persisted_original": true,
+      "browser_download_event_observable": false,
+      "browser_saved_file_verified": false
+    },
+    "first_final_digest_soak": {
+      "samples": 181,
+      "seconds": 1823.515488,
+      "task_pages_min": 0,
+      "task_pages_max": 4,
+      "stale_pages_max": 0,
+      "focused_task_window_samples": 0,
+      "rss_mib_min": 6547.21484375,
+      "rss_mib_max": 8247.54296875,
+      "watch_distinct_tasks_after_bootstrap": {
+        "mail-qq-mail": 1,
+        "mail-gmail": 1,
+        "mail-outlook": 1
+      },
+      "scope": "dedicated profile including existing personal tabs",
+      "store_receipt_validation_at_soak": "before microsecond fix"
+    },
+    "provider_login_expiration": "NOT_RUN: no recoverable interactive reauthentication supplied for the three existing accounts",
+    "credential_rotation": "NOT_RUN: invalid-credential rejection is a separate bounded check",
+    "consumer_precision_validation": {
+      "actual_completed_outlook_page_decoding": "passed",
+      "actual_capture_source_admission_and_mime": "passed",
+      "microsecond_storage_normalization": "covered with exact locator and timestamp negative cases",
+      "live_probe_invocation": "fresh read invocation per independently authorized probe"
+    },
+    "six_routes_all_passed": false,
+    "six_route_attempts_finished": true,
+    "post_consumer_fix_soak": {
+      "samples": 181,
+      "seconds": 1823.944,
+      "complete_30_minutes": true,
+      "task_pages_min": 3,
+      "task_pages_max": 4,
+      "stale_pages_max": 0,
+      "focused_task_window_samples": 0,
+      "rss_mib_min": 7518.785,
+      "rss_mib_max": 8200.062,
+      "watch_distinct_running_tasks_after_bootstrap": {
+        "mail-qq-mail": 1,
+        "mail-gmail": 1,
+        "mail-outlook": 1
+      },
+      "scope": "whole dedicated browser profile including existing personal tabs and CLI daemons",
+      "raw_samples_sha256": "d4099f70ae84db0d6252c8a7960998162c12ba39b1d3c61da797f91282e908bc",
+      "note": "watch continuity and clean topology do not make original-capture failures accepted",
+      "watch_renewals": {
+        "mail-qq-mail": {
+          "minimum_grant_revision": 5,
+          "maximum_grant_revision": 12
+        },
+        "mail-gmail": {
+          "minimum_grant_revision": 5,
+          "maximum_grant_revision": 12
+        },
+        "mail-outlook": {
+          "minimum_grant_revision": 5,
+          "maximum_grant_revision": 12
+        }
+      }
+    }
+  },
+  "remaining": [
+    "final-candidate Outlook original capture for new inbound mail (later legacy recovery retained separately)",
+    "native reply target opening and live reply qualification",
+    "reply-all live case within permitted account scope",
+    "browser-saved original download on the final candidate",
+    "real provider login expiration",
+    "actual credential rotation",
+    "account switching (deferred by user)",
+    "final user acceptance and production scope"
+  ],
+  "notes": [
+    "Historical and intermediate-candidate successes do not qualify the current digest.",
+    "Logs, credentials, account addresses, email bodies, browser profiles and private journals are not published.",
+    "Receipt age includes native Send time; it is not a pure notification-latency measurement.",
+    "RSS covers the whole dedicated browser profile including personal tabs.",
+    "NOTICE-only target rollback changes an artifact digest while keeping the same runtime code and ledger format; it does not qualify arbitrary older software.",
+    "The uncertain Gateway fault case has recipient originals but no native Send confirmation; receipt does not change its uncertain task.",
+    "Gmail reply was rejected before the effect boundary with EMAIL_REPLY_TARGET_UNVERIFIED; no retry of that invocation.",
+    "Failures and missing cases remain production acceptance gates."
+  ],
+  "production_accepted": false,
+  "consumer_validation_commit": "41caf5a",
+  "consumer_precision_fix": "44e0dac",
+  "qualification_gateway_image": "sha256:ec78940415510915a10321d73fc2cff5e7f7bb750f97f1cc8a894a9210d5cc8b",
+  "same_digest_post_consumer_fix_routes": [
+    {
+      "log": "final-11-return-gmail-outlook.log",
+      "log_sha256": "bb92e7b3376bfbd05719a7acc254fcdcd1d477fde50a72490a64b1c35ee5f835",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-9e718fcff57de442",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "ab0c067e82e9707c",
+          "request_sha256": "136e10d841aafa0fc2f63c9baced24a02b447702928ff8f77755c2f9a723ff1c",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-gmail-qq.log",
+      "log_sha256": "17b09290ef39bb385ae68b8372e41d437fbe20296e32d3fa61f4a580375ece5e",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-f1725ffa3858e7b6",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "e76fe6651e4264b8",
+          "request_sha256": "e83ba0ed4a75eb263a266b79a15ef13715c5e45868b9b3c7e47a228e5dd64705",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-outlook-gmail.log",
+      "log_sha256": "8e1fa6590926985c287acd698514856f3cd1a4009725d1a9b2585ccc88e3288b",
+      "sender": "outlook",
+      "receiver": "gmail",
+      "marker": "SCW-mail-8c54b5f8ea66810f",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "d0aad26e511e03cc",
+          "request_sha256": "fbe4b14cf61660801bd6f78ff1d26ce20c78e2367ef2f7585a0b5155845e9998",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-outlook-qq.log",
+      "log_sha256": "8a8e47cbd63c1e95fb835918877fbf296f840830ded5ab0ef05f8105be8cc44b",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-9350f1ed04f5a156",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "23d169daf5a7c472",
+          "request_sha256": "9aa0afb2afd30536c78fc7e8acf2e10058511ebbf2990d8bce6c409a8636a77f",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-qq-gmail.log",
+      "log_sha256": "bad3f3e2d7486c3b1525e5c05481632af1eba60c6af43fd36bdc3eba8d68833b",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-895bf416728c0363",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": true,
+      "exact_subject_from_to": true,
+      "passed": true,
+      "tasks": [
+        {
+          "task_hash": "f3f571292768b2c6",
+          "request_sha256": "67e7535ffc8384ac01ea13b8307e1f177c8c1535419f74057a08d3874ede1a67",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "log": "final-11-return-qq-outlook.log",
+      "log_sha256": "d5d1f694c5eefb86bd4d4fca87348f96ffb83f9e314c4c33ffe3e3796b235641",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-66de3522ca395e47",
+      "native_send_confirmed": true,
+      "gateway_receipt_and_notification": false,
+      "exact_subject_from_to": false,
+      "passed": false,
+      "tasks": [
+        {
+          "task_hash": "777c00259a94ba6a",
+          "request_sha256": "1240f32e536fbbe18006ea9a2e149a2a2b97ae290781d87bbadd063067a1651c",
+          "status": "completed",
+          "effect": 1,
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "late_publication": [
+    {
+      "marker": "SCW-mail-0f9082aac7d4cdb9",
+      "provider": "outlook",
+      "original_sha256": "sha256:db58dd7ea557054507fac7ad924b793087c43ee4d090d7ff62e90aafa0f10afa",
+      "capture_state": "complete",
+      "parse_state": "ready",
+      "capture_state_in_mail": "complete",
+      "capture_created_at": "2026-09-30T08:10:00.568813Z",
+      "exact_subject": true,
+      "from_count": 1,
+      "to_count": 1,
+      "cc_count": 0,
+      "original_bytes": 13943,
+      "exact_from_to": true
+    },
+    {
+      "marker": "SCW-mail-52ff53391551edd6",
+      "provider": "outlook",
+      "original_sha256": "sha256:5aeecdfe36984835be3cba55ac454eb92a0e5f6acb2d5b5fec27359846e070f9",
+      "capture_state": "complete",
+      "parse_state": "ready",
+      "capture_state_in_mail": "complete",
+      "capture_created_at": "2026-09-30T08:10:00.568813Z",
+      "exact_subject": true,
+      "from_count": 1,
+      "to_count": 1,
+      "cc_count": 0,
+      "original_bytes": 13900,
+      "exact_from_to": true
+    }
+  ],
+  "post_restoration_originals": {
+    "qualification_runtime": "archived pre-extraction Controller and original Gateway after dedicated browser restart",
+    "results": [
+      {
+        "marker": "SCW-mail-66de3522ca395e47",
+        "provider": "outlook",
+        "original_sha256": "sha256:28c2b3005288db09663ef71ce36955e62d8f092db3227d17748f814ae940cbac",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T09:15:37.724235Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 1,
+        "cc_count": 0,
+        "original_bytes": 10698,
+        "exact_from_to": true
+      },
+      {
+        "marker": "SCW-mail-9e718fcff57de442",
+        "provider": "outlook",
+        "original_sha256": "sha256:f666bf47a06e3eb20bb7aa9028e8a5f29b05fe8a1cf6545b69faf8a5e8c6bf73",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T09:15:37.724235Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 1,
+        "cc_count": 0,
+        "original_bytes": 13894,
+        "exact_from_to": true
+      },
+      {
+        "marker": "SCW-ui-multi-20260930-1634",
+        "provider": "outlook",
+        "original_sha256": "sha256:61feaefe3d878c281f53f9610221903d94c33640287d9b4b070101d6c454ca0c",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "capture_state_in_mail": "complete",
+        "capture_created_at": "2026-09-30T09:15:37.724235Z",
+        "exact_subject": true,
+        "from_count": 1,
+        "to_count": 2,
+        "cc_count": 1,
+        "original_bytes": 14258,
+        "exact_from_to_cc": true
+      }
+    ],
+    "original_timed_route_failures_retained": true,
+    "send_tasks_replayed": false
+  },
+  "stage_results": [
+    {
+      "order": 1,
+      "result": "PASS",
+      "scope": "merge, source pins and regressions"
+    },
+    {
+      "order": 2,
+      "result": "PASS_WITH_RETAINED_UNKNOWN",
+      "scope": "QQ native confirmations and conservative product unknown/reconciliation; historical tasks not replayed"
+    },
+    {
+      "order": 3,
+      "result": "PASS",
+      "scope": "paired candidate installation, product pairing, ordinary isolated Desktop and real dedicated profile"
+    },
+    {
+      "order": 4,
+      "result": "FAIL",
+      "scope": "all six post-consumer-fix attempts on the final digest"
+    },
+    {
+      "order": 5,
+      "result": "PARTIAL",
+      "scope": "reads, compose and exact multi-To/Cc headers verified; reply failed; reply-all/account switch/login expiration/final browser saved download not accepted"
+    },
+    {
+      "order": 6,
+      "result": "PARTIAL",
+      "scope": "orders, watch renewals, measured resource soak and delivered originals; Outlook capture failures and historical Gmail gap retained"
+    },
+    {
+      "order": 7,
+      "result": "PARTIAL",
+      "scope": "target compatible whole-set rollback, service/browser restarts, cancellation, authority expiry, invalid credential and live Gateway disconnect; actual credential rotation not run"
+    },
+    {
+      "order": 8,
+      "result": "PENDING_USER_ACCEPTANCE",
+      "scope": "sanitized evidence and bilingual closeout; production not enabled by this report"
+    }
+  ],
+  "deployment_restoration": {
+    "status": "RESTORED",
+    "utc": "2026-09-30T09:14:41.824734+00:00",
+    "containers": [
+      {
+        "service": "gateway",
+        "image": "sha256:56f8f961d1050a094b05cea3ad5bd03e7b03cfc82d5c20c1a9494d3a54cc39e0",
+        "original_container_id_preserved": true
+      },
+      {
+        "service": "webchat",
+        "image": "sha256:a15e13a04fe90962bd8d6609993454634204f1b496bab6c993bf0b4752e7c284",
+        "original_container_id_preserved": true
+      }
+    ],
+    "gateway_healthy": true,
+    "webchat_http_status": 200,
+    "controller": "archived pre-extraction implementation; checked provider contract",
+    "executor_active": false,
+    "executor_enabled": false,
+    "old_task_pages_after_browser_restart": 0,
+    "old_stale_task_pages_after_browser_restart": 0,
+    "authority_and_ledger_epoch": 91,
+    "new_executor_ledger_consumed_by_legacy": false,
+    "qualification_evidence_dropin_removed": true,
+    "personal_profile_retained": true,
+    "three_existing_account_login_probes": "passed",
+    "receiving_settings": "all three active as before",
+    "previous_send_rows_preserved": 47,
+    "previous_immutable_files_preserved": 2604,
+    "all_previous_requests_outcomes_and_effects_unchanged": true,
+    "all_previous_grants_journals_originals_unchanged": true,
+    "executor_epoch_unchanged": true,
+    "login_probe_seconds": 26.08,
+    "earlier_probe_busy_failure_retained": true,
+    "restored_webchat_draft_proxy": {
+      "source_commit": "b322db4",
+      "original_image_and_container_retained": true,
+      "nginx_config_valid": true,
+      "template_and_active_config_patched": true,
+      "authenticated_drafts_http_status": 200,
+      "changes": [
+        {
+          "path": "/etc/nginx/templates/default.conf.template",
+          "before_sha256": "5a0e5dd2092d1c314b0703f5ca0a4ae9f95d461d1d0f30c284e4713c8f840c0a",
+          "after_sha256": "5dc470da174160a6bcfcb1b1aa77195c21aef902b8dd09d1a3b4aaf7e524ba69",
+          "change": "one existing draft-location proxy_pass directive"
+        },
+        {
+          "path": "/etc/nginx/conf.d/default.conf",
+          "before_sha256": "74ffdd0f66602593444ea91df2b2b8255c40a783e2d8449bc5c7ebf51d10549e",
+          "after_sha256": "8ce709938dbce8b3d91f35b0b2f3a6a8215e1e00f30c230d635a0004f2fef05b",
+          "change": "one existing draft-location proxy_pass directive"
+        }
+      ]
+    },
+    "product_pairing_preserved": true,
+    "product_unknown_send_disabled_after_restoration": true,
+    "product_unknown_draft_preserved": true,
+    "restoration_ui_screenshot_sha256": "caac4fd140542851df82f4965c5370dabab7da9442e77768bb9ee51fe12876e2"
+  },
+  "qualification_execution_completed": true,
+  "pre_send_failures": [
+    {
+      "log": "final-11-postfix-gmail-outlook.log",
+      "log_sha256": "a461d41602bef191f575a66a98d92d2c5260a4ba630c511a4049c2f61fd04b84",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-4-qq-gmail.log",
+      "log_sha256": "b1f5cb32cef5663459883014dff2e08062ee7280cb302120a74da51969d11e52",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-5-qq-gmail.log",
+      "log_sha256": "70474da57c0678fc6f958a79e6395d3f854884d2978ca7f52f940b55548a768a",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-6-qq-gmail.log",
+      "log_sha256": "e193ee9ad8d80f1b8fc4d57d6fcdb02f755424cbd84d22658aa01d318323359f",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-7-qq-gmail.log",
+      "log_sha256": "59134c65d9184b9f9039959d711f06bcf7c982e73cf5aeba6de5913405272af8",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-7b-qq-gmail.log",
+      "log_sha256": "d46a20b586023e8557de069ac693909e76a83d65f8d8ce510c7102a74f00df64",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-7c-qq-gmail.log",
+      "log_sha256": "8c7bbc6083730159403ad7ee27700b10e68a18bffb5246982c210944f735f315",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    },
+    {
+      "log": "final-gmail-outlook.log",
+      "log_sha256": "82341623e7d99d6f488a5dab06c488a38d167d979a026a9f58303e2b4a03dc72",
+      "test": "TestEmailNotificationMutualSendLive",
+      "send_marker_created": false
+    }
+  ]
+}

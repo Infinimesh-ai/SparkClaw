@@ -118,10 +118,9 @@ messages have separately verified received originals.
 
 ## Work deferred until the main-branch merge: 2026-09-30
 
-Execution status: **At the user's request, the following work starts only after
-this SparkClaw change is merged into the main branch.** This update records the
-handoff only; it does not merge, send more mail, switch services or deploy.
-Merging code neither passes production acceptance nor activates the new runtime.
+Handoff status: this checklist originally deferred execution until the merge.
+The user has now authorized execution and main is merged; the active qualification
+results are recorded below. Merging code does not pass production acceptance.
 
 The handoff baseline is SparkClaw `cf28f87`, App-CLI fork `6a46352`, and consumed
 release `0.3.0-sparkclaw.2` built from `99a59e9`. Preserve the cumulative six-route
@@ -152,6 +151,111 @@ restored, the temporary Executor was disabled and durable state retained. That
 was not a compatible rollback handing new ledger state to pre-extraction code.
 Resume from existing records without clearing state or replaying old mail.
 This checklist schedules no background monitoring or automatic continuation.
+
+## Post-merge qualification: 2026-09-30
+
+**Bounded qualification has remaining acceptance gates; production is not accepted.**
+The workspace was committed before main merged at `6a6f665`; the original
+SparkClaw worktree and merged branches were removed with private state backed up.
+The final candidate is `0.3.0-sparkclaw.11`, App-CLI source `9da7cfd`, freeze
+commit `c08d396`, runtime digest
+`748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000`.
+The post-fix consumer is `41caf5a`, including Outlook receipt precision fix
+`44e0dac`. [Sanitized closeout evidence](evaluation/app-cli-closeout-20260930.json)
+retains each attempt, request digest, outcome, artifact pin and remaining gate.
+Scope is the existing three accounts; account switching is deferred by the user
+and attachment sending is out of scope.
+
+App-CLI fixes cover concurrent shared-page initialization, watch/finite-read
+execution lanes, watch preservation during idle draining and failed partial
+capture, original-task access across compatible bindings, journal-only
+reconciliation, renewal replies, Gmail minimized compose restoration and the
+initial live-lease window. SparkClaw fixes generic resource reservations,
+product/cache subscription identities and the nested draft Nginx proxy. Outlook
+retry receipts now compare timestamps at PostgreSQL microsecond precision while
+preserving exact locators and all other identity fields; a new discovery candidate
+is retained unless explicit source recovery requires the stored target. A live
+probe uses a fresh invocation identity rather than conflicting with an earlier
+immutable grant. Frozen contracts and authority windows are unchanged.
+
+All six cold/warm read-first/watch-first combinations and explicit cancellation
+pass in **196.06 seconds without sending**. Python **86**, runtime **299**,
+Controller **127**, full Go build/vet/tests, projection/preload parity and paired
+installation/tamper/mixed-version/live-activation rejection pass.
+[App-CLI CI](https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36683544137)
+is green. Full isolated Electron qualification passes ordinary MCP/CLI and
+public App-CLI operations, personal-page/input isolation, cookies, downloads and
+renderer/main recovery; two earlier MCP timeouts remain recorded.
+
+The following independent routes use the same final artifacts after the consumer
+fix. Each test sends once with a new marker. Earlier candidates and timed-out
+attempts do not become passes after later delivery.
+
+| Route | Native Send | Gateway original and exact From/To | Result |
+| --- | --- | --- | --- |
+| Gmail → Outlook | Confirmed | Not passed | FAIL |
+| Gmail → QQ Mail | Confirmed | Verified | PASS |
+| Outlook → Gmail | Confirmed | Verified | PASS |
+| Outlook → QQ Mail | Confirmed | Verified | PASS |
+| QQ Mail → Gmail | Confirmed | Verified | PASS |
+| QQ Mail → Outlook | Confirmed | Not passed | FAIL |
+
+New Outlook inbound originals returned `email_network_original_unqualified`,
+preventing receipt acceptance despite native Send confirmation. The two earlier
+Gmail→Outlook originals were subsequently persisted and parsed after the
+microsecond fix; their original timed-out tests remain failed and neither task
+was resent. After restoring the original Gateway/Controller and restarting the
+browser, the two new timed-out route originals and the multi-To/Cc Outlook
+original were also persisted with exact headers. This is separate legacy-recovery
+evidence, not a pass on the final candidate. The failed partial captures retain
+the active watch rather than
+silently passing the mail. Send-to-original age includes native operations and
+is not pure notification latency.
+
+Product pairing used the existing token. A real UI compose with two To addresses
+and one Cc obtained native confirmation; its received QQ original has exact
+Subject/From/To/Cc and a verified file hash. Outlook receipt during the final-candidate test is not
+accepted; its later original is recorded under deployment restoration. A real reply draft was saved, but sending stopped before the effect
+boundary with `EMAIL_REPLY_TARGET_UNVERIFIED`; the original task was not retried.
+Gmail's selected network target was not proven open in the native reply view.
+Reply-all excludes every known own mailbox address, so the three-owned-account
+scope has no meaningful live positive recipient case. Replies/reply-all remain
+outside accepted modes. Final-candidate download was clicked and its authenticated
+file endpoint returned the exact persisted original (HTTP 200); the browser did
+not expose a saved file. The earlier actual browser download of a `.8` send remains
+historical evidence, not a final-candidate download pass.
+
+After the consumer fix, the final set ran for 1823.94 seconds with 181 samples. Owned pages ranged from 3 to 4, stale pages remained 0, and the task window was never focused. Whole-profile RSS ranged from 7519 to 8200 MiB; this includes personal tabs and CLI daemons. The watch task identities and renewal observations are in the sanitized evidence. This passes the bounded topology/renewal observation, while the original-capture failures remain open.
+
+The target deployment completed an actual compatible whole-set switch from the
+final digest to a distinct NOTICE-only paired fixture and back, including matched
+Gateway/consumer/wheel/runtime/projections. Epochs advanced **56→90→91**, all
+**39** previous Send records and **2357** immutable grants/journals/originals
+were unchanged, and all three real login probes passed on the fixture and return.
+The initially retained cleanup fence blocked application admission; only that
+Host fence was archived after browser restart proved zero old task pages.
+This qualifies a compatible fixture with unchanged runtime code and ledger v1,
+not arbitrary older releases or legacy consumption of the new ledger.
+
+A real watch reached `waiting_confirmation / AUTHORIZATION_EXPIRED` and was
+explicitly canceled. An invalid browser credential was rejected. These checks do
+not establish real provider-login expiry or actual credential rotation. Killing
+the real Gateway after the Send effect boundary produced one uncertain task;
+the UI disabled Send and reported “result pending confirmation.” Public
+reconciliation left the original request and task uncertain with zero additional
+Send admissions. Both recipient originals verified separately; they do not
+replace missing native confirmation. The four historical uncertain tasks also
+retain their request hashes under public journal-only reconciliation without
+current browser credentials or replay.
+
+The original Gateway/WebChat containers and archived pre-extraction Controller implementation have been restored and checked. The original WebChat container retains the tested one-line draft proxy fix in its template and active Nginx configuration; its image/container identity is unchanged. Pairing and the unknown draft remain visible, with Send disabled. The candidate Executor is stopped and disabled; its ledger, grants, authority records, journals and originals remain preserved. This restoration does not hand the new Executor ledger to legacy code.
+
+Checklist 1–3 are covered; 4–7 retain the failed/deferred gates detailed above.
+Evidence assembly is complete when the bounded tests and restoration are recorded;
+checklist 8 still requires the user's final acceptance and production scope.
+Real login expiry, credential rotation, account switching, final browser-saved
+download and unpassed send modes cannot be marked accepted. Historical Gmail
+coverage gaps and current processing warnings remain visible.
 
 ## Rebuild and consume a release
 
@@ -223,12 +327,13 @@ A failed switch remains unavailable until a verified matching set is restored.
 
 ## Final user acceptance
 
-The extraction and follow-up fixes are available on the maintenance branches.
-The live phase temporarily changed owner services and sent the authorized test
-messages; the original deployment is restored after qualification, with the
-new Executor stopped and its durable state preserved. This ends the temporary
-qualification; it is not a compatible App-CLI ledger rollback to legacy code.
-The legacy Gateway does not take over the new Executor ledger or workspaces.
+The SparkClaw extraction and follow-up fixes are merged into main; provider
+implementation remains on the App-CLI maintenance fork. The 2026-09-29 service
+restoration is historical; the 2026-09-30 qualification and deployment status
+above is authoritative for this closeout. Restoring original services stops the
+new Executor while retaining its durable state, rather than handing its ledger
+to legacy code. The Gateway continues to use its canonical mailbox storage and
+retained original files.
 
 Final acceptance should activate a matched Gateway/Controller/Desktop release,
 verify the normal browser task page, then check cold/warm reads, notifications,

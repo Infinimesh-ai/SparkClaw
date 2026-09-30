@@ -169,27 +169,28 @@ both absolute paths to Electron; no token is placed in the application bundle,
 WebChat assets, or launcher configuration. There is no `18795` listener or
 ordinary workbench pairing bootstrap.
 
-The backend already supports authenticated Client issuance/listing/revocation,
-and the existing client-management component displays a newly issued Token once.
-However, the current settings navigation does not expose that component. The
-planned **Settings → Devices & credentials** entry and controlled local first-client
-retrieval/recovery tool must be implemented according to
-[R3 credential retrieval and device management](client-backend-architecture-design.md#32-credential-retrieval-and-device-management-not-implemented)
-before this guide can give runnable retrieval instructions. The proposed
-`credentials:initial` command is not currently available.
+**Settings → Devices & credentials** now exposes authenticated listing,
+one-time issuance/copy/hide and revocation through the actual settings route.
+The desktop main owns login and encrypted credential persistence through
+Electron safeStorage; Mac uses Keychain, and Linux rejects plaintext fallback.
+The [R3 phase ledger](client-r3-implementation.md) distinguishes these scoped
+implementations from pending execution, mailbox and Mac hardware qualification.
 
 Each device receives a separate credential and reuses it for later connections;
 never copy the preprovisioned Desktop Token to another device. Existing browser
-storage is namespaced by service origin and deployment; R3 desktop secure storage
-remains to be implemented. Gateway client tokens, MCP Access Tickets, ISCP pairing
+storage is namespaced by service origin and deployment. Desktop credentials
+are bound to the verified backend/Owner/client identity. Gateway client tokens, MCP Access Tickets, ISCP pairing
 tickets, and the Browser Controller credential remain separate authorities.
 
-The backend deployment user retrieves the first user device credential from an
-interactive terminal after deployment:
+### Initial device credential and recovery
+
+After deploying this commit's Gateway and provisioning files, the backend
+deployment user retrieves the first user device credential in an interactive
+terminal. Updating client source alone does not install the private listener:
 
 ```bash
 npm run credentials:initial -- --name "My Mac"
-npm run credentials:recover -- --revoke-id <lost-device-id> --name "Replacement Mac"
+npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "Replacement Mac"
 ```
 
 Both commands accept `--runtime-dir /absolute/runtime`; otherwise they use

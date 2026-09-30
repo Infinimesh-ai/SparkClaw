@@ -6,6 +6,8 @@ This index distinguishes the implemented runtime from explicitly marked target
 designs. During the R3 transition, current baseline documents remain available for
 code/qualification evidence; they do not override the new target's data ownership.
 
+- [Client R3 implementation and acceptance](client-r3-implementation.md) — phase ledger, scoped evidence and source handoff.
+
 ## Start Here
 
 | Document | Purpose | Authority |

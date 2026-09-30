@@ -136,21 +136,24 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 已安装的桌面 launcher 只把两个绝对路径传给 Electron；token 不进入应用包、WebChat 资源或
 launcher 配置。产品不再监听 `18795`，普通工作台也不再使用 pairing bootstrap。
 
-后端已支持经认证的 Client 签发／列表／撤销，现有客户端管理组件能一次性展示新签发的 Token；
-但新版设置导航尚未接入该组件。拟新增的“设置 → 设备与凭据”入口和受控本机首个客户端
-领取／恢复工具，须按 [R3 凭据领取与设备管理](client-backend-architecture-design.md#32-凭据领取与设备管理待实施)
-实施后，再在本指南提供可执行领取说明。拟议的 `credentials:initial` 命令当前尚不可用。
+“设置 → 设备与凭据”已通过真实设置路由接通经认证的列表、一次性签发／复制／收起及撤销。
+桌面主进程通过 Electron safeStorage 保存加密凭据；Mac 由 Keychain 保护，Linux 拒绝明文
+回退。[R3 阶段记录](client-r3-implementation.md)区分这些已实现范围与尚未完成的任务执行、
+邮箱同步及 Mac 实机验收。
 
 每台设备独立签发，同一设备后续连接复用有效凭据，不能复制预置 Desktop Token 到其他设备。
-现有浏览器存储按 service origin 和 deployment 隔离，R3 桌面安全存储仍待实施。
+现有浏览器存储按 service origin 和 deployment 隔离；桌面凭据绑定经验证的后端／Owner／设备身份。
 Gateway client token、MCP Access Ticket、ISCP pairing ticket 与 Browser Controller credential
 仍是彼此独立的 authority。
 
-部署完成后，由后端部署用户在交互终端领取首台用户设备的凭据：
+### 首个设备凭据与恢复
+
+先部署本提交的 Gateway 和初始化私有文件，再由后端部署用户在交互终端领取首台用户设备
+的凭据。只同步客户端源码不会为旧后端安装本机管理监听：
 
 ```bash
 npm run credentials:initial -- --name "我的 Mac"
-npm run credentials:recover -- --revoke-id <遗失设备ID> --name "替代 Mac"
+npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "替代 Mac"
 ```
 
 两条命令都支持 `--runtime-dir /绝对路径/runtime`；省略时使用

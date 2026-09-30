@@ -49,4 +49,34 @@ Candidate backend values in 0031: 15-minute execution budget, 32 MiB content/tas
 | A16 | NOT_RUN | Mac build/hardware/signing/upgrades and ordinary Web local persistence not qualified |
 | A18–A21 | PARTIAL | Local retrieval/recovery and device navigation/error/retry/revocation fixtures; no live production credentials or Mac secure-store evidence |
 
-Final test counts, Git SHA and runnable handoff commands are appended when integration is validated. Source delivery, Mac build, hardware acceptance and production switching remain separate states.
+## Integrated Linux/shared verification
+
+Integration was verified on Linux ARM64 with Node 26.2.0/npm 11.17.0/Go 1.25.5. The installed Electron 44.4.3 uses Chromium 152.0.7977.130 and Node 24.21.0 internally; ClientStore was also exercised with that exact Electron binary in Node mode.
+
+| Check | Result |
+|---|---|
+| `go build ./...`, `go vet ./...`, `go test ./...` from `services/gateway` | PASS, full suite after integration |
+| `go test -race ./cmd/sparkclaw ./internal/gateway ./internal/config` | PASS |
+| `npm run test:desktop` | PASS, 36 tests |
+| Electron Node-mode ClientStore/capability tests | PASS, 7 tests; fresh DB/restart, scope, disk-failure rollback, paths/hash and trusted IPC |
+| `npm run test:webchat`, `npm run build:desktop-ui` | PASS, 185 tests / 46 files; i18n 757 keys and production build |
+| Synthetic token/origin injected into desktop UI build then scanned | PASS, neither canary in built assets |
+| `npm run test:credentials` | PASS, 14 tests including actual private UDS, PTY one-time display and absolute slow-response deadline |
+| Provisioning/deploy/Compose/autostart/dotenv/install Python suites | PASS, 2 + 5 + 11 + 10 + 7 + 6 + 2 tests |
+| Local and remote Compose config expansion | PASS with synthetic private environment; no live deployment |
+| `npm run check:desktop-managed-scripts` | PASS |
+| `npm run qualify:desktop` | PASS on isolated Xvfb/disposable profile; regression of the older adapter, not R3 Broker evidence |
+| Synthetic ASAR/Mac Resources package hook | PASS; a private connection file is rejected, no Mac build |
+| Dependency audit, exact bilingual CI/link check, `git diff --check` | PASS; zero npm audit vulnerabilities; 100 mirrored project Markdown files |
+
+Pinned HTTPS tests cover actual TLS hostname/chain/pin validation, wrong Owner, accepted identity and main-owned credential persistence. Production Mac requires v2; v1 strict loopback remains Linux/qualification only. Secure vault tests use fixtures; Mac Keychain itself is NOT_RUN.
+
+Device/login synthetic UI fixtures were inspected at 1440 and 390 pixels. The new local workbench has React integration checks and layout/source review; its separate live browser preview was NOT_RUN because the available in-app browser blocked the local fixture. This does not count as Mac GUI acceptance. The Vite bundle-size warning remains non-fatal.
+
+## Source delivery and next gate
+
+Delivery remote: `origin` (`https://github.com/Infinimesh-ai/SparkClaw.git`), branch `codex/sparkclaw-r3`. The handoff reports the final pushed HEAD SHA; record that SHA with Mac results. [Mac commands and connection prerequisites](macos-connection-guide.md#3-synchronize-and-build-on-mac) include Node/npm, architecture selection, actual initial/recovery tools and required pre-existing LAN HTTPS. No production deployment, real credential use, mail operation, legacy-data migration, Mac compile/cross-build/signing or cleanup of active ledgers was performed.
+
+The 0031 counterpart review is the next required coordination gate. Do not mark P0 accepted or proceed to the incompatible backend storage/execution cutover, BrowserHostAdapter/WSS or external result expiry before the required decision is accepted. The new local receipt helpers remain on the delivery branch until a production ExecutionClient calls them; do not merge unused helpers to main. Future submission must be explicit and must not replay this tranche's local `awaiting_runtime` queue automatically.
+
+Once 0031 is accepted, finish P0's backend temporary/control field allowlist and frozen budgets, then P1 context execution, P2 delivery/mail sync, P3 Broker/host grants, P4 output/cleanup fault matrix and P5 exact-SHA Mac qualification in order. Failed or absent evidence keeps its acceptance gate open.

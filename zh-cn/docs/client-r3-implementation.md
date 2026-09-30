@@ -49,4 +49,36 @@ ClientStore Schema 1 使用 SQLite WAL/FULL，生成新的安装 UUID；部署�
 | A16 | NOT_RUN | Mac 构建／硬件／签名／升级及普通 Web 本地存储未验 |
 | A18–A21 | PARTIAL | 本机领取／恢复及设备导航／失败／重试／撤销夹具；没有真实生产凭据或 Mac 安全存储证据 |
 
-集成验收完成后追加实际测试数、Git SHA 和可执行交接命令。源码交付、Mac 构建、实机验收、生产切换分别记录。
+源码交付、Mac 构建、实机验收、生产切换分别记录。最终交付 SHA 见本次交接消息。
+
+## 集成后的 Linux／共享验证
+
+集成验证环境为 Linux ARM64、Node 26.2.0、npm 11.17.0、Go 1.25.5。已安装 Electron 44.4.3 内部使用 Chromium 152.0.7977.130／Node 24.21.0；另用该 Electron 二进制的 Node 模式直接验证 ClientStore。
+
+| 检查 | 结果 |
+|---|---|
+| 在 `services/gateway` 执行 `go build ./...`、`go vet ./...`、`go test ./...` | PASS，合并后全量测试 |
+| `go test -race ./cmd/sparkclaw ./internal/gateway ./internal/config` | PASS |
+| `npm run test:desktop` | PASS，36 项 |
+| Electron Node 模式 ClientStore／capability 测试 | PASS，7 项，覆盖新库／重启、隔离、磁盘失败回滚、路径／哈希及受控 IPC |
+| `npm run test:webchat`、`npm run build:desktop-ui` | PASS，185 项／46 文件；i18n 757 keys 及生产构建 |
+| 向桌面构建注入合成 Token／origin 后扫描 | PASS，产物不含两项 canary |
+| `npm run test:credentials` | PASS，14 项，含实际私有 UDS、PTY 一次展示及慢响应绝对截止 |
+| 初始化／deploy／Compose／autostart／dotenv／install Python 测试 | PASS，2 + 5 + 11 + 10 + 7 + 6 + 2 项 |
+| 本地及远端 Compose 配置展开 | PASS，合成私有环境；没有实际部署 |
+| `npm run check:desktop-managed-scripts` | PASS |
+| `npm run qualify:desktop` | PASS，隔离 Xvfb／一次性 Profile；这是旧适配器回归，不是 R3 Broker 验收 |
+| 合成 ASAR／Mac Resources 打包 hook | PASS，拒绝私有连接文件；没有编译 Mac |
+| 依赖审计、实际双语 CI／链接检查、`git diff --check` | PASS，npm audit 零漏洞，100 项项目 Markdown 镜像 |
+
+Pinned HTTPS 测试覆盖实际 TLS 主机名／证书链／指纹、错误 Owner、正确身份及主进程凭据保存。正式 Mac 强制 v2，严格 v1 回环仅保留 Linux／qualification。安全 vault 测试使用夹具，Mac Keychain 自身为 NOT_RUN。
+
+设备／登录合成 UI 夹具在 1440、390 像素检查。新本地工作台有 React 集成测试与布局／源码复核；单独的实时浏览器预览因可用应用内浏览器阻止本地夹具而 NOT_RUN，不计入 Mac GUI 验收。Vite 仍有非致命包体积提示。
+
+## 源码交付及下一阶段门
+
+交付 remote 为 `origin`（`https://github.com/Infinimesh-ai/SparkClaw.git`），分支 `codex/sparkclaw-r3`。交接消息给出最终已推送 HEAD SHA，Mac 结果绑定同一 SHA。[Mac 命令及连接前置条件](macos-connection-guide.md#3-mac-同步代码与构建)包含 Node／npm、架构选择、实际首次领取／恢复工具及先行配置的 LAN HTTPS。本次未生产部署、使用真实凭据、操作邮件、迁移旧数据、编译／交叉构建／签名 Mac 或清理活动账本。
+
+0031 的对端评审是下一项必要协调门。accepted 前不把 P0 标为通过，不推进不兼容的后端存储／执行切换、BrowserHostAdapter／WSS 或外部结果过期变更。本地交付 receipt helper 在真实 ExecutionClient 接入前留在交付分支，不把没有生产调用方的 helper 合入 main。未来提交必须显式发起，不自动重放本批 `awaiting_runtime` 本地队列。
+
+0031 accepted 后，先补完 P0 后端临时／控制字段白名单和冻结预算，再按顺序完成 P1 上下文执行、P2 交付／邮箱同步、P3 Broker／宿主授权、P4 输出／清理故障矩阵、P5 同 SHA Mac 验收。失败或缺失证据继续保留阶段门。

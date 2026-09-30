@@ -26,23 +26,36 @@ Each build handoff identifies the pushed remote/branch and exact commit SHA, req
 
 Include lockfiles, necessary build configuration, source and versioned managed assets in the delivery. The Mac may check out the full repository, including backend source, but builds the client without deploying Linux Gateway, models or App-CLI Registry/Executor. The client package includes UI, ClientStore, Browser Host Agent, Electron/Bridge and verified page assets; exclude server database dumps, credentials, private test data and platform-incompatible binaries.
 
-Current desktop scripts provide Linux ARM64 packaging only. Mac packaging scripts/configuration must be implemented and pushed before providing a concrete Mac build command. Do not describe a proposed script as available or use the Linux packaging command as Mac qualification.
+Mac ARM64 and x64 packaging scripts now exist. This tranche supports local conversations/files, device management and secure login. Task execution, mailbox sync and browser Host control remain unavailable; see the [phase ledger](client-r3-implementation.md). Mac build/signing/hardware are unverified. Packages are unsigned development builds (`mac.identity=null`), audited against the public client allowlist before distributables are created.
 
-## 3. Synchronize on Mac
+## 3. Synchronize and build on Mac
 
-In the Mac repository directory, first inspect the working tree and preserve any local changes. Replace DELIVERY_BRANCH with the branch specified in the handoff, then synchronize without rewriting local history:
+Preserve local changes and synchronize without rewriting history:
 
 ```sh
 git status --short
 git fetch origin
-git switch DELIVERY_BRANCH
-git pull --ff-only origin DELIVERY_BRANCH
+git switch codex/sparkclaw-r3
+git pull --ff-only origin codex/sparkclaw-r3
 git rev-parse HEAD
 ```
 
-Use the supplied remote name if it differs from origin. Verify HEAD matches the delivered commit SHA before building. If local changes, divergence or a newer remote commit prevent that match, resolve the checkout explicitly; do not force-reset or clean the user's workspace.
+Verify HEAD against the handoff SHA. Do not force-reset or clean the user's workspace. Use Node 26.x and npm 11.x. Install from the lockfile on Mac; do not copy Linux node_modules or native artifacts. Choose **one** command matching the CPU and Node architecture:
 
-Install dependencies and run the actual Mac commands from that commit's handoff locally on Mac. Do not copy Linux node_modules, native modules or build artifacts as substitutes for Mac dependencies.
+```sh
+npm ci
+npm --workspace @sparkclaw/desktop run dist:mac-arm64
+# Intel alternative: npm --workspace @sparkclaw/desktop run dist:mac-x64
+```
+
+The script builds UI with old WebChat Token/origin variables cleared, checks managed assets and runs local electron-builder with publishing disabled. Outputs are under `apps/desktop/dist/`: `SparkClaw-0.1.0-mac-ARCH.dmg` and `.zip`. Source GUI diagnosis on Mac uses:
+
+```sh
+npm run build:desktop-ui
+npm run dev:desktop
+```
+
+Mac does not build the Go backend. Linux calls to the Mac packager are rejected; no Mac artifact was built in this delivery. Record the exact SHA and command even if the build fails.
 
 ## 4. Local Mac preparation
 
@@ -66,17 +79,43 @@ Build-error feedback should include commit SHA, macOS/CPU architecture, Node/npm
 
 After the R3 components exist, record the backend's reachable HTTPS origin, deployment identity/certificate fingerprint, paired Owner/client/host identifiers, selected build versions, and the actual client-local data root. Inspect free space and the local schema version. Keep secrets out of the record. Application pairing and host permission are distinct; Git synchronization does not provision either.
 
-### 5.1 Where to obtain the credential (entries not implemented yet)
+### 5.1 Where to obtain the credential
 
-This section specifies the later implementation and user flow; it does not claim a runnable retrieval command or complete settings entry exists today. Follow [unified architecture section 3.2](client-backend-architecture-design.md#32-credential-retrieval-and-device-management-not-implemented).
+These tools require this commit's Gateway/provisioning on the **Linux backend host**, including independent `local-management.json` and a live private socket. An old deployment must first be updated through its established process; source delivery does not modify a running deployment. See [private management prerequisites](deployment.md#initial-device-credential-and-recovery).
 
-1. For a first deployment with no authenticated user device, the completion screen/terminal supplies retrieval instructions. The deployment user runs controlled initialization on the **Linux backend host**, issuing a separate credential for this Mac. The proposed `npm run credentials:initial -- --name "My Mac"` enters executable handoff instructions only after implementation. Do not initialize the backend on Mac or directly read/copy the Token from `desktop-client.json`.
-2. If an authenticated device is available, open “Settings → Devices & credentials”, enter a recognizable name such as “My Mac”, issue a separate credential and copy it. The device list exposes identity, timestamps and status, with no old-Token reveal button.
-3. Confirm backend address/identity on the new Mac and enter the new credential in its login screen; desktop main stores it in Keychain after verification. Hide the issuance display once securely saved. Keep the Token out of Git, build arguments, screenshots, feedback logs and ordinary configuration.
-4. Later connections from the same Mac reuse a valid credential without fetching another. Invalid/revoked credentials require login again; a lost credential is revoked and reissued from another authenticated device. Total user-device lockout requires controlled recovery by the backend deployment user. Deliver the actual recovery command with implementation, never substitute old-Token display or anonymous LAN issuance.
-5. Retry the same issuance after timeout or response loss, rather than repeatedly creating devices. If backend restart or expiration makes one-time plaintext unavailable, follow instructions to revoke the unclaimed device and reissue. Retain redacted device IDs and error states for troubleshooting, never return the Token in feedback.
+1. With no usable signed-in device, the backend deployment user runs the initial tool in an interactive terminal from the backend checkout:
+
+   ```sh
+   npm run credentials:initial -- --name "My Mac"
+   ```
+
+   It displays a new Token once, with deployment, Owner and device ID. All three standard streams must be TTYs. A non-default private runtime directory uses `--runtime-dir /absolute/runtime`. Do not run this on Mac or copy a preprovisioned Desktop Token. Management authority works only over the private Unix socket.
+2. With a usable device, open **Settings → Devices & credentials**, enter a device name, issue/copy the credential, and hide it after secure login. The list shows metadata and revocation only; it cannot reveal old Tokens.
+3. Paste the administrator's **public v2 connection JSON** into Mac login, then enter this device's credential:
+
+   ```json
+   {
+     "schema_version": 2,
+     "origin": "https://your-backend.lan",
+     "deployment_id": "ACTUAL_DEPLOYMENT_ID",
+     "owner_id": "ACTUAL_OWNER_ID",
+     "tls_certificate_sha256": "ACTUAL_LOWERCASE_64_HEX_LEAF_CERTIFICATE_SHA256"
+   }
+   ```
+
+   Replace every placeholder. Private PKI may also supply `tls_ca_pem`, containing the public CA certificate. No Token/private key belongs in this JSON. Mac requires v2 HTTPS and verifies chain, hostname and leaf pin before bearer transmission. A pin does not bypass certificate validation. This tranche does **not** provision a LAN TLS entrance; the backend needs a correctly configured HTTPS reverse proxy.
+4. Main saves encrypted credentials protected by OS secure storage (Mac Keychain through Electron safeStorage). The same device reuses its credential. Logout/revocation/backend changes clear credentials and lock UI, preserving local conversations/files. Server installation-ID registration remains pending; issued client identity is verified and locally bound.
+5. Unknown issuance outcomes reuse the original command/name/request key. Completed retrievals never redisplay a Token. Total device lockout or unrecoverable plaintext after restart/ten-minute expiry requires recovery of the **exact lost device ID** (replace `LOST_DEVICE_ID`):
+
+   ```sh
+   npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "Replacement Mac"
+   ```
+
+   Recovery revokes that device before issuing a replacement. Keep Tokens out of Git, builds, screenshots and feedback logs; retain only redacted IDs/error states.
 
 ### 5.2 Login and acceptance
+
+The table below is the complete target acceptance matrix. This tranche enables local saving, device management and login only. Execution, mailbox sync, Host WSS, backend output delivery and production cutover remain unavailable. All Mac M01–M12 require user evidence on the delivered SHA.
 
 On first launch, confirm the backend address and verify its certificate/service identity, then enter the SparkClaw service credential in the client login UI. The backend verifies it and binds this installation before unlocking authorized tasks, mail synchronization and other services. Mac main securely persists login credentials in Keychain, never in Git, build configuration or feedback logs. Valid credentials support later reconnection; invalidation/revocation, logout or backend changes require login again.
 

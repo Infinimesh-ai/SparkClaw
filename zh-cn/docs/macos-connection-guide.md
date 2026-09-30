@@ -26,23 +26,36 @@ Mac 编译不作为 Linux 实施或源码交付的前置条件。验证结果分
 
 交付包含锁文件、必要构建配置、源码及版本化受管资产。Mac 可以同步完整仓库（包含后端源码），但只构建客户端，不部署 Linux Gateway、模型或 App-CLI Registry／Executor。客户端安装包包含 UI、ClientStore、Browser Host Agent、Electron／Bridge 和已验证页面资产，不包含服务端数据库转储、凭据、私有测试数据或不兼容平台的二进制。
 
-当前桌面脚本只有 Linux ARM64 打包入口。须实现并推送 Mac 打包脚本／配置后，再给出具体 Mac 构建命令；不能把拟议脚本当作已存在，也不能用 Linux 打包命令代替 Mac 验收。
+Mac ARM64／x64 本机打包脚本已经实现。本批支持本机对话／文件、设备管理和安全登录；任务执行、邮箱同步及浏览器 Host 控制尚未启用，见[阶段记录](client-r3-implementation.md)。Mac 构建／签名／实机仍待验证。当前包为未签名开发构建（`mac.identity=null`），生成安装包前执行公开客户端白名单审计，不能视为正式签名发行版。
 
-## 3. Mac 同步代码
+## 3. Mac 同步代码与构建
 
-在 Mac 仓库目录先检查工作区并保留本地改动，将 DELIVERY_BRANCH 换成交接指定分支，再按不重写本地历史的方式同步：
+先保留本地改动，再按不重写历史的方式同步：
 
 ```sh
 git status --short
 git fetch origin
-git switch DELIVERY_BRANCH
-git pull --ff-only origin DELIVERY_BRANCH
+git switch codex/sparkclaw-r3
+git pull --ff-only origin codex/sparkclaw-r3
 git rev-parse HEAD
 ```
 
-若交付 remote 不是 origin，使用交接给出的名称。构建前核对 HEAD 与交付 SHA 一致；本地改动、分支分叉或远端已有更新导致不一致时，先明确检出版本，不能强制 reset／clean 用户工作区。
+构建前核对 HEAD 与交付 SHA 一致；不强制 reset／clean 用户工作区。使用 Node 26.x、npm 11.x，在 Mac 根据锁文件安装，不复制 Linux node_modules 或原生构建产物。选择**一条**与 CPU／Node 架构一致的命令：
 
-依赖安装及实际 Mac 构建命令，以该提交的交接说明为准，全部由用户在 Mac 本地执行。不要复制 Linux 的 node_modules、原生模块或构建产物来代替 Mac 依赖。
+```sh
+npm ci
+npm --workspace @sparkclaw/desktop run dist:mac-arm64
+# Intel 替代命令：npm --workspace @sparkclaw/desktop run dist:mac-x64
+```
+
+脚本清空旧 WebChat Token／origin 环境变量，构建 UI、检查受管资产，再运行禁用发布的本机 electron-builder。产物在 `apps/desktop/dist/`，文件名为 `SparkClaw-0.1.0-mac-ARCH.dmg` 和 `.zip`。源码 GUI 排障可运行：
+
+```sh
+npm run build:desktop-ui
+npm run dev:desktop
+```
+
+Mac 无需编译 Go 后端。Linux 调用 Mac 打包入口会被拒绝；本次未生成 Mac 产物。构建失败也记录准确 SHA 和实际命令。
 
 ## 4. Mac 本机准备
 
@@ -66,17 +79,43 @@ GUI 验收时登录 Mac 桌面、接通电源，并让 Mac 与 Linux 连接可�
 
 R3 组件实现后，记录后端可达的 HTTPS origin、部署身份／证书指纹、已配对的 Owner／客户端／宿主标识、所用构建版本及实际客户端本地数据根目录，检查可用空间和本地 Schema 版本；记录中不包含密钥。应用配对与宿主权限是两项授权，Git 同步不能代替它们。
 
-### 5.1 凭据从哪里取得（以下入口待实现）
+### 5.1 凭据从哪里取得
 
-本节是后续实施和使用流程，不表示当前已有可运行的领取命令或完整设置入口。实施依据为[统一架构 3.2](client-backend-architecture-design.md#32-凭据领取与设备管理待实施)。
+以下工具需先在**Linux 后端主机**安装本提交的 Gateway／初始化文件，包括独立 `local-management.json` 和运行中的私有 socket。缺少这些文件的旧部署先按既有流程更新；本次源码交付不修改运行中部署。权限条件见[私有管理前置条件](deployment.md#首个设备凭据与恢复)。
 
-1. 首次部署且没有已登录的用户设备：部署完成页面／终端给出领取说明，由部署用户在**Linux 后端主机**运行受控初始化工具，为这台 Mac 签发独立凭据。拟议入口为 `npm run credentials:initial -- --name "我的 Mac"`，实现后才纳入可执行交接；不在 Mac 上运行后端初始化，也不直接读取或复制 `desktop-client.json` 的 Token。
-2. 已有可用登录设备：打开“设置 → 设备与凭据”，填写可辨认的设备名称（如“我的 Mac”），签发独立凭据并复制。设备列表只展示身份、时间和状态，不提供查看旧 Token 的按钮。
-3. 在新 Mac 上确认后端地址与身份，将新凭据输入登录界面；登录成功后由主进程存入 Keychain。完成安全保存后收起签发页。不要把 Token 放入 Git、构建参数、截图、反馈日志或普通配置。
-4. 同一 Mac 后续连接复用有效凭据，不需要每次向后端领取。失效／吊销时重新登录；遗失凭据时在另一已登录设备撤销旧设备并重发。全部用户设备无法登录时，由后端部署用户执行受控恢复；具体恢复命令随实现交付，不以显示旧 Token 或匿名 LAN 签发代替。
-5. 签发超时或丢响应时重试本次请求，不能不停创建新设备；后端重启／一次性明文暂存过期后，按提示撤销未领取的设备并重新签发。保留脱敏设备 ID 和错误状态用于排障，不回传 Token。
+1. 没有可用登录设备时，后端部署用户在后端仓库的交互终端运行：
+
+   ```sh
+   npm run credentials:initial -- --name "我的 Mac"
+   ```
+
+   新 Token 只展示一次，同时显示部署、Owner 和设备 ID。stdin／stdout／stderr 均须为 TTY。非默认私有运行目录可加 `--runtime-dir /绝对路径/runtime`。不在 Mac 运行该工具，不复制预置 Desktop Token；管理权限只能通过私有 Unix socket 使用。
+2. 已有可用设备时，打开**设置 → 设备与凭据**，填写名称、签发／复制新凭据，安全登录后收起明文。列表只展示元数据和撤销状态，不能查看旧 Token。
+3. 在 Mac 登录界面粘贴部署用户提供的**公开 v2 连接 JSON**，再输入此设备凭据：
+
+   ```json
+   {
+     "schema_version": 2,
+     "origin": "https://your-backend.lan",
+     "deployment_id": "ACTUAL_DEPLOYMENT_ID",
+     "owner_id": "ACTUAL_OWNER_ID",
+     "tls_certificate_sha256": "ACTUAL_LOWERCASE_64_HEX_LEAF_CERTIFICATE_SHA256"
+   }
+   ```
+
+   替换全部占位符。私有 PKI 可另含 `tls_ca_pem`，内容为公开 CA 证书；JSON 不能包含私钥或 Token。Mac 强制 v2 HTTPS，发送凭据前核验证书链、主机名及叶证书指纹；指纹不能替代证书验证。本批**不自动配置 LAN TLS 入口**，后端需已有正确的 HTTPS 反向代理。
+4. 主进程通过系统安全存储保护加密凭据（Mac 使用 Electron safeStorage／Keychain），同一设备后续复用。退出／撤销／切换后端清除凭据并锁定界面，保留本机对话／文件。服务端安装 ID 注册仍待实现；当前校验已签发身份并作本地绑定。
+5. 未知签发结果沿用原命令／名称／请求 key 重试；已完成领取不重显旧 Token。全部设备不可用，或重启／十分钟窗口到期导致明文不可恢复时，明确恢复**准确的遗失设备 ID**（替换 `LOST_DEVICE_ID`）：
+
+   ```sh
+   npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "替代 Mac"
+   ```
+
+   工具先撤销该设备再签发替代凭据。Token 不进入 Git、构建、截图或反馈日志；排障仅保留脱敏 ID／错误状态。
 
 ### 5.2 登录与验收
+
+下表为完整目标验收矩阵。本批仅启用本机保存、设备管理和登录。任务执行、邮箱同步、Host WSS、后端输出交付及生产切换仍不可用；全部 Mac M01–M12 均需用户在交付 SHA 上提供证据。
 
 首次启动先确认后端地址并验证证书／服务身份，在客户端登录界面输入 SparkClaw 服务访问凭据；由后端验证并绑定当前安装身份，成功后才解锁任务、邮箱同步等获授权服务。凭据由 Mac 主进程安全保存到 Keychain，不提交到 Git、编译配置或反馈日志。后续有效凭据可恢复连接，失效／吊销、退出或切换后端时重新登录。
 

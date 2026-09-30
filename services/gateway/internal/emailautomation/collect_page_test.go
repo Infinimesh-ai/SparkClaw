@@ -84,6 +84,55 @@ func TestCollectPageRunnerBindsSingleTimelineScriptWithoutPageAck(t *testing.T) 
 	}
 }
 
+func TestOutlookPageRetryPreservesReceiptPrecisionAndExactLocators(t *testing.T) {
+	provider, _ := DefaultRegistry().Get(app.EmailProviderOutlook)
+	for _, test := range []struct {
+		name     string
+		mutate   func(*app.EmailCaptureTarget)
+		accepted bool
+	}{
+		{"persisted microseconds", func(*app.EmailCaptureTarget) {}, true},
+		{"different microsecond", func(r *app.EmailCaptureTarget) { at := r.ReceivedAt.Add(time.Microsecond); r.ReceivedAt = &at }, false},
+		{"missing receipt time", func(r *app.EmailCaptureTarget) { r.ReceivedAt = nil }, false},
+		{"different native locator", func(r *app.EmailCaptureTarget) { r.ProviderNativeID = "other" }, false},
+		{"different selection", func(r *app.EmailCaptureTarget) { r.ProviderSelectionID = "other" }, false},
+		{"different folder", func(r *app.EmailCaptureTarget) { r.Folder = "sent" }, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := pageRequest()
+			request.Provider = provider.ID
+			wire := pageWire(t)
+			wire["provider"] = provider.ID
+			discovery := wire["discovery"].(app.EmailDiscoveryResult)
+			discovery.Provider = provider.ID
+			target := discovery.Candidates[0]
+			received := request.Discovery.IntervalStart.Add(226778200 * time.Nanosecond)
+			target.ReceivedAt = &received
+			discovery.Candidates[0] = target
+			wire["discovery"] = discovery
+			retry := target
+			persisted := received.Truncate(time.Microsecond)
+			retry.ReceivedAt = &persisted
+			test.mutate(&retry)
+			request.Discovery.RetryTargets = []app.EmailCaptureTarget{retry}
+			wire["discovery_options"] = request.Discovery
+			capture := wire["captures"].([]any)[0].(map[string]any)
+			capture["target"] = target
+			capture["result"].(map[string]any)["provider"] = provider.ID
+			output, err := decodePageResult(pageWireBytes(t, wire), provider, request)
+			if !test.accepted {
+				if ErrorCode(err) != app.ToolErrorEmailScriptInvalidOutput {
+					t.Fatalf("changed retry target accepted: %v", err)
+				}
+				return
+			}
+			if err != nil || len(output.Captures) != 1 || !output.Captures[0].Target.ReceivedAt.Equal(received) {
+				t.Fatalf("native high-precision observation lost or rejected: %v", err)
+			}
+		})
+	}
+}
+
 func TestCollectPageRejectsUnboundRequestsBeforeBrowser(t *testing.T) {
 	provider, _ := DefaultRegistry().Get("gmail")
 	for name, mutate := range map[string]func(*ReadRequest){

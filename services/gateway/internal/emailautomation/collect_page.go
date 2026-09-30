@@ -213,10 +213,22 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 		if existing, duplicate := candidates[target.ProviderMessageID]; duplicate {
 			base := target
 			base.RecoveryCapture = nil
+			// Outlook exposes sub-microsecond receipt times, while the Store
+			// persists them at PostgreSQL's microsecond precision. Compare only
+			// that observation at the persisted precision; every locator and
+			// recovery descriptor remains bound exactly.
+			if provider.ID == app.EmailProviderOutlook && existing.ReceivedAt != nil && base.ReceivedAt != nil &&
+				existing.ReceivedAt.UTC().Truncate(time.Microsecond).Equal(base.ReceivedAt.UTC().Truncate(time.Microsecond)) {
+				base.ReceivedAt = existing.ReceivedAt
+			}
 			if !reflect.DeepEqual(existing, base) {
 				return false
 			}
-			candidates[target.ProviderMessageID] = target
+			// The Reader prefers the newly discovered target unless restoring
+			// a retained immutable source from the explicit recovery target.
+			if target.RecoveryCapture != nil {
+				candidates[target.ProviderMessageID] = target
+			}
 			continue
 		}
 		candidates[target.ProviderMessageID] = target

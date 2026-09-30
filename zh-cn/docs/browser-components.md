@@ -38,6 +38,6 @@ start／预检验证已安装版本，deploy 安装并同步。升级必须同�
 
 ## 受管邮件读取脚本
 
-组件清单还包含 QQ Mail、Gmail 和 Outlook Network Reader。可编辑源码位于 `scripts/email/userscripts/lib/`；运行 `node scripts/email/userscripts/build.mjs` 生成 `tools/browser-userscripts/` 中的三份固定脚本并更新清单哈希，`--check` 会拒绝过期产物。脚本在匹配的已登录邮箱页面向 Controller 提供只读操作，不自行调度同步。
+QQ Mail、Gmail 和 Outlook Network Reader 的源码/构建位于 App-CLI 维护 fork 的 `runtimes/browser/applications/mail/userscripts`。SparkClaw 从 `vendor/app-cli` 经摘要校验的归档消费固定资产，运行 `node scripts/sync-app-cli-projections.mjs` 和 `node scripts/build-desktop-managed-preload.mjs` 更新投影，两者支持 `--check`。修改须在 App-CLI 源端完成并重建整组发行；详见[应用发行手册](app-cli-implementation-validation.md)。
 
 会话请求头、邮箱分页游标和已学习的原件下载地址仅保留在受控页面内存。Gateway 持久化绑定账号的收件时间区间与原件回执。由于 Outlook 可能在油猴异步注入完成前绑定传输对象，Controller 在页面创建时安装小型 Worker 观察桥，由已安装 Reader 消费观察结果并执行合格读取。脚本缺失或接口证据不足时，以类型化网络能力错误 fail-closed。安装就绪不等于所有文件夹覆盖或原件采集通过，详见[邮件链路设计中的实现状态](email-pipeline-optimization-design.md)。

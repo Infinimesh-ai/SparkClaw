@@ -32,14 +32,18 @@ const patches = [
   ],
 ];
 
+const applicationWaitBefore = 'try {\n          await require("../../../src/awaited-mail-read.cjs").waitForMailRead(tab2, params2, async () => {\n            context.__fn__ = import_vm.default.runInContext';
+const applicationWaitAfter = 'try {\n          await require("../../../src/application-hook.cjs").waitForCompletion(tab2, params2, async () => {\n            context.__fn__ = import_vm.default.runInContext';
+
 export function patchedBundle(source) {
-  let result = source;
+  // Accept the previous pinned hook while replacing it as one matched release.
+  let result = source.replace(applicationWaitAfter, applicationWaitBefore);
   for (const [before, after] of patches) {
     if (result.split(after).length === 2) continue;
     if (result.split(before).length !== 2) throw new Error('Pinned Playwright download hook changed');
     result = result.replace(before, after);
   }
-  return result;
+  return result.replace(applicationWaitBefore, applicationWaitAfter);
 }
 
 export async function installDownloads({ check = false } = {}) {

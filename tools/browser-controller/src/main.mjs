@@ -2,7 +2,7 @@
 
 import path from "node:path";
 
-import { PlaywrightCLIClientFactory } from "./cli-client.mjs";
+import { AppCLIClientFactory } from "./app-cli-client.mjs";
 import { BrowserController } from "./controller.mjs";
 import { electronAdapterConfig } from "./electron-adapter-client.mjs";
 import { startUnixServer } from "./http-server.mjs";
@@ -23,7 +23,7 @@ const clientFactory = new PlaywrightMCPClientFactory({
   actionTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_ACTION_TIMEOUT_MS", 10_000, 500, 120_000),
   navigationTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_NAVIGATION_TIMEOUT_MS", 30_000, 1_000, 120_000),
 });
-const scriptFactory = new PlaywrightCLIClientFactory({
+const scriptFactory = new AppCLIClientFactory({
   browserChannel: process.env.SPARKCLAW_BROWSER_CHANNEL?.trim() || "chromium",
   executablePath: process.env.SPARKCLAW_BROWSER_EXECUTABLE?.trim() || "",
   userDataDir: process.env.SPARKCLAW_BROWSER_USER_DATA_DIR?.trim() || "",
@@ -41,6 +41,7 @@ const scriptFactory = new PlaywrightCLIClientFactory({
 });
 await Promise.all([clientFactory.prepare(), scriptFactory.prepare()]);
 const controller = new BrowserController({ profileID, clientFactory, scriptFactory });
+scriptFactory.bindController(controller);
 const runtime = await startUnixServer({ socketPath, controller });
 
 process.stdout.write(`${JSON.stringify({

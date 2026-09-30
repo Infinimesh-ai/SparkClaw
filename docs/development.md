@@ -41,7 +41,7 @@ source integrity and historical qualification boundaries.
 
 Focused synthetic checks are `node --test
 tools/browser-controller/test/email-capture.test.mjs` and `node --test
-tools/browser-controller/test/cli-client.test.mjs`. They do not replace live
+tools/browser-controller/test/application-artifacts.test.mjs`. They do not replace live
 provider acceptance or establish production deployment.
 
 ## Repository Map

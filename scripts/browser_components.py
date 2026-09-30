@@ -65,7 +65,17 @@ def manifest():
 
 def pinned_file(entry):
     path = ROOT / 'tools/browser-userscripts' / entry['file']
-    data = path.read_bytes()
+    if entry.get('source') == 'app-cli':
+        import tarfile
+        release = json.loads((ROOT / 'configs/app-cli-release.json').read_text())
+        artifact = release['artifacts']['runtime']
+        archive = ROOT / 'vendor/app-cli' / artifact['file']
+        if digest(archive.read_bytes()) != artifact['sha256']:
+            raise ValueError('App-CLI artifact digest mismatch')
+        with tarfile.open(archive) as package:
+            data = package.extractfile('package/assets/mail/' + entry['file']).read()
+    else:
+        data = path.read_bytes()
     if digest(data) != entry['sha256']:
         raise ValueError('userscript artifact checksum mismatch: ' + entry['file'])
     return data

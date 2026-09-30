@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { BrowserController } from "../src/controller.mjs";
+import { BrowserController } from "./fixtures/application-controller.mjs";
 import { createRequestHandler, startUnixServer } from "../src/http-server.mjs";
 
 const token = "http-test-extension-token";

@@ -92,7 +92,8 @@ export function assertExpectedOrigin(rawURL, expectedOrigin, allowedOrigins) {
   ) {
     throw pageStale("page_url_credentials");
   }
-  if (parsed.protocol !== "https:") {
+  const approvedLoopback = parsed.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(parsed.hostname) && allowedOrigins.includes(parsed.origin);
+  if (parsed.protocol !== "https:" && !approvedLoopback) {
     throw pageStale(
       parsed.protocol === "chrome-extension:"
         ? "page_extension_origin"

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "0.3.0-sparkclaw.2",
+  "runtime_digest": "d4a5f5af300100dc3fc22f48c434e891d31cd8820acebde2694969d0cd8770e7",
+  "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
+  "source_commit": "99a59e95268cf03671d90611282ffeb48edf2a36",
+  "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
+  "runtime_protocol": "2.0",
+  "host_protocol": "1.0",
+  "ledger_version": 1,
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.2-py3-none-any.whl",
+      "sha256": "789d85cef7166dc1bd16fe5221004482ec1ee7e4573bef375a9aa3c07692b0bf"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.2.tgz",
+      "sha256": "eae7b4e78c4fa9edd726030ef60bd2769cc9770315c351d15d90952f57aa0db2"
+    }
+  }
+}

@@ -7,12 +7,6 @@ export const MAX_CLI_OUTPUT_BYTES = 2 << 20;
 
 const SESSION_DIRECTORY_PATTERN = /^session-[0-9a-f]{24}$/u;
 const SESSION_NAME_PATTERN = /^sc-cli-[0-9a-f]{20}$/u;
-const SECRET_NAMES = Object.freeze({
-  recipient: "SPARKCLAW_EMAIL_RECIPIENT",
-  subject: "SPARKCLAW_EMAIL_SUBJECT",
-  body: "SPARKCLAW_EMAIL_BODY",
-});
-
 export async function prepareRuntimeRoot(runtimeRoot) {
   validateRuntimeRoot(runtimeRoot);
   await fs.mkdir(runtimeRoot, { recursive: true, mode: 0o700 });
@@ -40,7 +34,7 @@ export async function createInvocationState(runtimeRoot, sessionID, input, opera
   await fs.mkdir(cacheDir, { mode: 0o700 });
   await fs.mkdir(outputDir, { mode: 0o700 });
 
-  const secrets = operation === "send" ? messageSecrets(input) : null;
+  const secrets = null;
   let secretsPath = "";
   if (secrets) {
     secretsPath = path.join(directory, "secrets.json");
@@ -209,6 +203,10 @@ export function classifyProcessExit(stdout, stderr) {
     reason = "process_exit_page_closed";
   } else if (/too many arguments|Unknown option|Invalid input|invalid_type/iu.test(output)) {
     reason = "process_exit_invalid_arguments";
+  } else if (/does not match any elements|not found in the current page snapshot/iu.test(output)) {
+    reason = "process_exit_target_missing";
+  } else if (/strict mode violation/iu.test(output)) {
+    reason = "process_exit_target_ambiguous";
   } else if (/Timeout|timed out/iu.test(output) && /waiting for event ["']download["']/iu.test(output)) {
     reason = "process_exit_download_timeout";
   } else if (/Timeout|timed out/iu.test(output)) {
@@ -273,17 +271,6 @@ export function scrubPlaywrightEnvironment(env) {
     }
   }
   return env;
-}
-
-export function clearMessageInput(input) {
-  if (!input?.message) return;
-  input.message.recipient = "";
-  if(Array.isArray(input.message.to))input.message.to.fill("");
-  if(Array.isArray(input.message.cc))input.message.cc.fill("");
-  if(input.account_address)input.account_address="";
-  if(input.reply_target)for(const k of Object.keys(input.reply_target))input.reply_target[k]="";
-  if (Object.hasOwn(input.message, "subject")) input.message.subject = "";
-  if (input.message.body) input.message.body.content = "";
 }
 
 export function clientUnavailableError(cause, diagnosticReason, diagnosticContext) {
@@ -435,16 +422,6 @@ async function terminateProcess(pid, expectedStart=undefined) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw clientUnavailableError();
-}
-
-function messageSecrets(input) {
-  const recipients=[...input.message.to??[],...input.message.cc??[]];
-  return {
-    ...Object.fromEntries(recipients.map((value,index)=>["EMAIL_RECIPIENT_"+index,value])),
-    [SECRET_NAMES.recipient]: input.message.recipient,
-    [SECRET_NAMES.subject]: input.message.subject ?? "",
-    [SECRET_NAMES.body]: input.message.body.content,
-  };
 }
 
 async function sha256Hex(value) {

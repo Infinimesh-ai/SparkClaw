@@ -25,7 +25,6 @@ COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
 COPY --from=build /out/iscp-bridge /usr/local/bin/iscp-bridge
 COPY configs /app/configs
 COPY scripts/browser_controller_smoke.mjs /app/scripts/browser_controller_smoke.mjs
-COPY scripts/email /app/scripts/email
 RUN chmod -R a+rX /app/configs /app/scripts
 ENV SPARKCLAW_MODEL_CAPACITY_CATALOG=/app/configs/model.profiles.json
 ENV LANG=C.UTF-8

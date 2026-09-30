@@ -37,13 +37,13 @@ export async function downloadFromPage(task, selector, destination, maxBytes) {
   const temporary = path.join(task.state.outputDir, `download-${crypto.randomUUID()}`);
   const capture = `async page => {
     const origins = ${JSON.stringify(task.registration.origins)};
-    if (!await page.evaluate(origins => origins.includes(location.origin), origins)) throw new Error("email_provider_origin_invalid");
+    if (!await page.evaluate(origins => origins.includes(location.origin), origins)) throw new Error("application_origin_invalid");
     let download;
     const pending = page.waitForEvent("download", { timeout: 25000 });
     pending.catch(() => {});
     try {
       await page.evaluate(${routeExport.toString()}, {key:${JSON.stringify(key)}, origins:${JSON.stringify(task.registration.downloadOrigins ?? task.registration.origins)}});
-      if (${JSON.stringify(selector === '#sparkclaw-mail-original')}) {
+      if (${JSON.stringify(task.registration.trustedDownloadSelectors?.includes(selector) === true)}) {
         // A trusted click supplies Chromium's download user activation even
         // after a slow native inspection. The one-pixel link is task-owned.
         await page.locator(${JSON.stringify(selector)}).evaluate(node => {
@@ -80,10 +80,10 @@ export async function downloadFromPage(task, selector, destination, maxBytes) {
   }`;
   try {
     const result = await task.runReadCode(capture, 45_000);
-    if (result?.status !== "saved") throw Object.assign(new Error("email_capture_unavailable"), { code: "email_capture_unavailable" });
+    if (result?.status !== "saved") throw Object.assign(new Error("application_download_unavailable"), { code: "application_download_unavailable" });
     const info = await fs.lstat(temporary);
     if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid()) throw new Error("Invalid download file");
-    if (info.size > maxBytes) throw Object.assign(new Error("email_download_limit"), { code: "email_download_limit" });
+    if (info.size > maxBytes) throw Object.assign(new Error("application_download_limit"), { code: "application_download_limit" });
     await fs.chmod(temporary, 0o600);
     await fs.copyFile(temporary, destination, fs.constants.COPYFILE_EXCL);
     return { bytes: info.size };

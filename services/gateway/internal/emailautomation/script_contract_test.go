@@ -1,6 +1,13 @@
 package emailautomation
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,16 +45,8 @@ var providerUnavailableScriptCodeFamilies = map[string]bool{
 
 func TestScriptErrorCodesCoverEveryEmittedCode(t *testing.T) {
 	root := repositoryRoot(t)
-	scriptSources := readSources(t, filepath.Join(root, "scripts", "email"), ".mjs")
-	controllerDir := filepath.Join(root, "tools", "browser-controller", "src")
-	controllerSources := map[string]string{}
-	for _, name := range []string{"cli-task.mjs", "cli-client.mjs", "cli-download.mjs", "provider-scripts.mjs"} {
-		raw, err := os.ReadFile(filepath.Join(controllerDir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		controllerSources[name] = string(raw)
-	}
+	scriptSources := releaseSources(t, root)
+	controllerSources := map[string]string{"provider-scripts.mjs": scriptSources["runtime/provider-scripts.mjs"]}
 
 	emitted := map[string][]string{}
 	families := map[string][]string{}
@@ -219,29 +218,58 @@ func isIdentifierByte(value byte) bool {
 	return value == '_' || value == '.' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }
 
-func readSources(t *testing.T, dir, extension string) map[string]string {
+// The consumer validates error projections against the actual pinned package,
+// so plain Go tests do not depend on an npm install or a sibling checkout.
+func releaseSources(t *testing.T, root string) map[string]string {
 	t.Helper()
-	sources := map[string]string{}
-	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || filepath.Ext(path) != extension {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		relative, _ := filepath.Rel(dir, path)
-		sources[relative] = string(raw)
-		return nil
-	})
+	raw, err := os.ReadFile(filepath.Join(root, "vendor", "app-cli", "release.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) == 0 {
-		t.Fatalf("no %s sources under %s", extension, dir)
+	var release struct {
+		Artifacts map[string]struct {
+			File   string `json:"file"`
+			SHA256 string `json:"sha256"`
+		} `json:"artifacts"`
+	}
+	if err := json.Unmarshal(raw, &release); err != nil {
+		t.Fatal(err)
+	}
+	artifact := release.Artifacts["runtime"]
+	raw, err = os.ReadFile(filepath.Join(root, "vendor", "app-cli", artifact.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != artifact.SHA256 {
+		t.Fatal("App-CLI release digest mismatch")
+	}
+	zip, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zip.Close()
+	archive := tar.NewReader(zip)
+	sources := map[string]string{}
+	for {
+		header, err := archive.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		const prefix = "package/applications/mail/"
+		if strings.HasPrefix(header.Name, prefix) && strings.HasSuffix(header.Name, ".mjs") {
+			content, err := io.ReadAll(archive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sources[strings.TrimPrefix(header.Name, prefix)] = string(content)
+		}
+	}
+	if len(sources) < 20 {
+		t.Fatal("App-CLI application sources missing")
 	}
 	return sources
 }
@@ -252,8 +280,8 @@ func repositoryRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "scripts", "email")); err != nil {
-		t.Fatalf("repository root %s has no scripts/email: %v", root, err)
+	if _, err := os.Stat(filepath.Join(root, "vendor", "app-cli", "release.json")); err != nil {
+		t.Fatalf("repository root %s has no paired App-CLI release: %v", root, err)
 	}
 	return root
 }

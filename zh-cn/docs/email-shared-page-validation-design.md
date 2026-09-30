@@ -43,9 +43,9 @@ Reader 重置会清除行、分页、查询回复和原文缓冲。监听的文�
 
 实现核对入口：
 
-- [监听管理器](../../tools/browser-controller/src/mail-observers.mjs)、[feed](../../tools/browser-controller/src/mail-observer-feed.mjs)和[页内钩子](../../tools/browser-controller/src/mail-observer-page.mjs)。
-- [读取池](../../tools/browser-controller/src/mail-read-pool.mjs)、[CLI 工厂](../../tools/browser-controller/src/cli-client.mjs)和[轮次生命周期](../../tools/browser-controller/src/cli-task.mjs)。
-- [Reader 核心](../../scripts/email/userscripts/lib/reader-core.mjs)、[Outlook transport](../../scripts/email/userscripts/lib/outlook-transport.mjs)和[Controller 准入](../../tools/browser-controller/src/controller.mjs)。
+- [监听管理器](../../tools/browser-controller/src/app-cli-client.mjs)、[feed](../../tools/browser-controller/src/mail-observer-feed.mjs)和[页内钩子](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/applications/mail/runtime/mail-observer-page.mjs)。
+- [读取池](../../tools/browser-controller/src/host-driver.mjs)、[CLI 工厂](../../tools/browser-controller/src/app-cli-client.mjs)和[轮次生命周期](../../tools/browser-controller/src/host-page.mjs)。
+- [Reader 核心](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/applications/mail/userscripts/lib/reader-core.mjs)、[Outlook transport](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/applications/mail/userscripts/lib/outlook-transport.mjs)和[Controller 准入](../../tools/browser-controller/src/controller.mjs)。
 - [常驻监听证据](email-resident-observer.md)和[跨轮读取复用](email-cross-round-reuse.md)。
 
 ## 3. 候选资源归属设计

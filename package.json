@@ -59,7 +59,7 @@
     "qualify:local-shared-backend": "bash scripts/qualify-local-shared-backend.sh",
     "build:webchat": "npm --workspace @sparkclaw/webchat run build",
     "test:webchat": "npm --workspace @sparkclaw/webchat run test",
-    "test:email-scripts": "node --test tools/browser-controller/test/provider-runtime.test.mjs",
+    "test:email-scripts": "node --test tools/browser-controller/test/provider-script-contract.test.mjs",
     "setup:browser": "bash scripts/setup-browser.sh",
     "setup:browser-controller": "bash scripts/setup-browser-controller.sh",
     "check:browser-controller": "bash scripts/setup-browser-controller.sh --check",
@@ -70,7 +70,10 @@
     "doctor": "bash scripts/doctor.sh",
     "setup:document-tools": "bash scripts/setup-document-tools.sh",
     "eval": "bash scripts/run-eval.sh",
-    "build": "npm run build:webchat && npm run test:gateway"
+    "build": "npm run build:webchat && npm run test:gateway",
+    "qualify:app-cli-release": "python3 scripts/qualify-app-cli-release.py",
+    "sync:app-cli-projections": "node scripts/sync-app-cli-projections.mjs",
+    "check:app-cli-projections": "node scripts/sync-app-cli-projections.mjs --check"
   },
   "engines": {
     "node": ">=26 <27",

@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/qq-internal-api-trial.md)
 
-历史试验：2026-09-10。用户授权编写试验性油猴脚本并用真实 QQ 邮箱测速，同一份源码通过既有 CLI 测试通道在已登录 QQ 页面运行成功，但当时尚未验证油猴内持久安装。未放宽安全门禁。2026-09-17 已删除无生产调用的独立原型及其专属测试；本文保留历史证据，不再作为现行实现说明。正式实现是[受管 QQ Reader](../../tools/browser-userscripts/qq-mail-reader.user.js)，当前验收见[增量时间线设计](email-timeline-incremental-sync-design.md)。
+历史试验：2026-09-10。用户授权编写试验性油猴脚本并用真实 QQ 邮箱测速，同一份源码通过既有 CLI 测试通道在已登录 QQ 页面运行成功，但当时尚未验证油猴内持久安装。未放宽安全门禁。2026-09-17 已删除无生产调用的独立原型及其专属测试；本文保留历史证据，不再作为现行实现说明。正式实现是[受管 QQ Reader](https://github.com/ZZZZJJJ0928/App-CLI/blob/codex/sparkclaw-email/runtimes/browser/assets/mail/qq-mail-reader.user.js)，当前验收见[增量时间线设计](email-timeline-incremental-sync-design.md)。
 
 ## 已验证行为
 

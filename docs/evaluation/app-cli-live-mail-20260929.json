@@ -1,0 +1,501 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-29",
+  "release": {
+    "schema_version": 1,
+    "id": "0.3.0-sparkclaw.2",
+    "runtime_digest": "d4a5f5af300100dc3fc22f48c434e891d31cd8820acebde2694969d0cd8770e7",
+    "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
+    "source_commit": "99a59e95268cf03671d90611282ffeb48edf2a36",
+    "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
+    "runtime_protocol": "2.0",
+    "host_protocol": "1.0",
+    "ledger_version": 1,
+    "artifacts": {
+      "python_dependencies": {
+        "file": "python-requirements.txt",
+        "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+      },
+      "wheel": {
+        "file": "infinimesh_app_cli-0.3.0+sparkclaw.2-py3-none-any.whl",
+        "sha256": "789d85cef7166dc1bd16fe5221004482ec1ee7e4573bef375a9aa3c07692b0bf"
+      },
+      "runtime": {
+        "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.2.tgz",
+        "sha256": "eae7b4e78c4fa9edd726030ef60bd2769cc9770315c351d15d90952f57aa0db2"
+      }
+    }
+  },
+  "scope": "Cumulative real-provider qualification across candidate builds using the existing dedicated profile; not all routes were repeated against the final digest. Final Outlook-to-Gmail and QQ-to-Gmail confirmation runs use the pinned release.",
+  "matrix": [
+    {
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "delivery_verified": true,
+      "evidence_marker": "SCW-mail-4abb1bf6da2a9e1f",
+      "native_send_confirmed": true
+    },
+    {
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "delivery_verified": true,
+      "evidence_marker": "SCW-mail-608155a3f13a7a44",
+      "native_send_confirmed": false
+    },
+    {
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "delivery_verified": true,
+      "evidence_marker": "SCW-mail-50ace317cd8a49ad",
+      "native_send_confirmed": false
+    },
+    {
+      "sender": "gmail",
+      "receiver": "outlook",
+      "delivery_verified": true,
+      "evidence_marker": "SCW-mail-e8e6dade94e32025",
+      "native_send_confirmed": true
+    },
+    {
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "delivery_verified": true,
+      "evidence_marker": "SCW-mail-05b05395be8e4404",
+      "native_send_confirmed": false
+    },
+    {
+      "sender": "outlook",
+      "receiver": "gmail",
+      "delivery_verified": true,
+      "evidence_marker": "SCW-mail-510b953ec4354e02",
+      "native_send_confirmed": true
+    }
+  ],
+  "attempts": [
+    {
+      "log_name": "gmail-outlook-verified.log",
+      "log_sha256": "6fd98ff9d138330ae858040e438c7861a44c77e36b2b0aff0786140d75915007",
+      "sender": "gmail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-e8e6dade94e32025",
+      "native_send_confirmed": true,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "19f82cd0-bbea-43bf-939c-a18c209638bb",
+      "application": "mail-gmail",
+      "ledger_status": "completed",
+      "reason": null,
+      "effect_boundary_crossed": true,
+      "duration_seconds": 165.91
+    },
+    {
+      "log_name": "gmail-qq-fixed.log",
+      "log_sha256": "ff422c21334689179130b0b583f60c441426bbd78122cee3a9eb6eaa712cfb0e",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-b18c14b385b03210",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "25213c91-946b-4f6b-9a1c-9f058ffe7be6",
+      "application": "mail-gmail",
+      "ledger_status": "waiting_confirmation",
+      "reason": "EMAIL_ACCOUNT_IDENTITY_MISMATCH",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "gmail-qq-reader-fixed.log",
+      "log_sha256": "b2ab9439db80b7f43d1ff3728cab3066b6e22605fa5ee25a9fc4088e9816cd8c",
+      "sender": "gmail",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-4abb1bf6da2a9e1f",
+      "native_send_confirmed": true,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "5167850a-46f3-460b-8cdd-7222d8054971",
+      "application": "mail-gmail",
+      "ledger_status": "completed",
+      "reason": null,
+      "effect_boundary_crossed": true,
+      "duration_seconds": 102.93
+    },
+    {
+      "log_name": "outlook-gmail-verified.log",
+      "log_sha256": "a9ac71768ea758664082daa48dfa0224f2c8b20254e451d77ceb8081655d157f",
+      "sender": "outlook",
+      "receiver": "gmail",
+      "marker": "SCW-mail-510b953ec4354e02",
+      "native_send_confirmed": true,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "fa1e6405-0673-491e-bd1b-a41a5159db9e",
+      "application": "mail-outlook",
+      "ledger_status": "completed",
+      "reason": null,
+      "effect_boundary_crossed": true,
+      "duration_seconds": 122.17
+    },
+    {
+      "log_name": "outlook-qq-bcc-fixed.log",
+      "log_sha256": "25b1e4b9ec1bad2170d1754ae703446ea54adf2557b19cc149757756fd6f7507",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-d35853e306d6fc09",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "fa2d5b0f-e808-4acc-954e-215391da65c9",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-chip-fixed.log",
+      "log_sha256": "dd1226662bf84e4b8ca17a368e3efa8e2b6846064e30a100962ceb22d4620b70",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-c6b764c9d26b5f10",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "55367557-e8d6-4124-b7ae-5070c2be88d5",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-collection-diagnostic.log",
+      "log_sha256": "9fbdc577bd9b051c00c1818fc725558e97f812c14dc79398cf1418c107bbe002",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-226d0ba9d0c67d3e",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "1cdcc826-6aad-4db6-b8a7-b440418109ce",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-fixed.log",
+      "log_sha256": "a62b66784fc0e43dce502fc232892e305b1aeb6e49e5a2c90223e9ee2e4e370c",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-dc5f29793781e4b8",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "b6d55d2a-8ee9-4ed6-9153-f546419d22d0",
+      "application": "mail-outlook",
+      "ledger_status": "blocked",
+      "reason": "BROWSER_EXTENSION_UNAVAILABLE",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-metadata-fixed.log",
+      "log_sha256": "f420a8f0ad32ecd2eeb0da84fecc2ae5706d33c0d2144e8ca42f4c193bc45ad5",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-b17786e7453c8ee1",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "a0670aa5-757f-40cb-ba68-d682f23205fe",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-model-fixed.log",
+      "log_sha256": "475be2f30c43d7344cb1c1bcc5167c13d3d3bcde9ab1247c1c13d4c72af0fedc",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-47b1aab1385d3778",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "8d4057ee-46cb-4446-9449-d3981bd2e72e",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-native-model.log",
+      "log_sha256": "f0d59b973c810e86ca87d8c0b6b00de9511b45af3f079a967779caaa888b9b5f",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-6e0f8cea74944c37",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "4ce281cd-1eda-4b28-9ff2-1faae043de25",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "outlook-qq-observable-fixed.log",
+      "log_sha256": "0e88ea4499435ead10fe7f724f59d51d3c58c0538da94c3914b601c3aeef90d9",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-50ace317cd8a49ad",
+      "native_send_confirmed": false,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "297b3b6b-0391-4766-b456-d0b9b7f396a4",
+      "application": "mail-outlook",
+      "ledger_status": "uncertain",
+      "reason": "SEND_OUTCOME_UNKNOWN",
+      "effect_boundary_crossed": true,
+      "duration_seconds": 123.04
+    },
+    {
+      "log_name": "outlook-qq-reader-fixed.log",
+      "log_sha256": "504a9030a0fcbdaeeefc3bf52a7f38d3726ce100da0c64a73f8fd45b6c87c950",
+      "sender": "outlook",
+      "receiver": "qq_mail",
+      "marker": "SCW-mail-a18583daed4b332f",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "d8b4e9d1-8c27-4365-8dab-41439d669b78",
+      "application": "mail-outlook",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_VERIFICATION_FAILED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "qq-gmail-editor-fixed.log",
+      "log_sha256": "fef81bc9aa0870763ec5a87e13a84c8a65d9ede9b3d688408cdc45ea474bd0c0",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-9e4524b8c3795ec9",
+      "native_send_confirmed": false,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "51f646aa-c3c2-4c9f-988e-8b114367ad6b",
+      "application": "mail-qq-mail",
+      "ledger_status": "uncertain",
+      "reason": "SEND_OUTCOME_UNKNOWN",
+      "effect_boundary_crossed": true,
+      "duration_seconds": 106.34
+    },
+    {
+      "log_name": "qq-gmail-fixed.log",
+      "log_sha256": "ea0bc7dd4870e2c9d0b802f2dfdd551f25019972800a3f58d4f3eef1822ad2e8",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-fb18dc766295a9a3",
+      "native_send_confirmed": false,
+      "original_verified": false,
+      "route_headers_verified": false,
+      "qualification_passed": false,
+      "task_id": "de7d7308-d2ba-4f28-a19c-9b1435481cb8",
+      "application": "mail-qq-mail",
+      "ledger_status": "failed",
+      "reason": "EMAIL_RECIPIENT_EDITOR_UNVERIFIED",
+      "effect_boundary_crossed": false
+    },
+    {
+      "log_name": "qq-gmail-sent-proof-verified.log",
+      "log_sha256": "09dbc7a2dab33e0c2ce234b08ecfa02d88e3e5d609e05dda6e44c5fc7ae92d7b",
+      "sender": "qq_mail",
+      "receiver": "gmail",
+      "marker": "SCW-mail-608155a3f13a7a44",
+      "native_send_confirmed": false,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "fe696225-912b-4dae-bac2-24a3988e91fd",
+      "application": "mail-qq-mail",
+      "ledger_status": "uncertain",
+      "reason": "SEND_OUTCOME_UNKNOWN",
+      "effect_boundary_crossed": true,
+      "duration_seconds": 104.99
+    },
+    {
+      "log_name": "qq_mail-outlook-verified.log",
+      "log_sha256": "3865fc800e812d6f9588498d8f8f7773a3fe50b8f9f13511241ee1e65ed190d0",
+      "sender": "qq_mail",
+      "receiver": "outlook",
+      "marker": "SCW-mail-05b05395be8e4404",
+      "native_send_confirmed": false,
+      "original_verified": true,
+      "route_headers_verified": true,
+      "qualification_passed": true,
+      "task_id": "22b3dfbb-8679-4864-adb1-083f387751d8",
+      "application": "mail-qq-mail",
+      "ledger_status": "uncertain",
+      "reason": "SEND_OUTCOME_UNKNOWN",
+      "effect_boundary_crossed": true,
+      "duration_seconds": 156.41
+    }
+  ],
+  "checks": {
+    "app_cli_python": {
+      "passed": 86
+    },
+    "app_cli_runtime": {
+      "passed": 283,
+      "skipped": 0
+    },
+    "controller": {
+      "passed": 123,
+      "skipped": 0
+    },
+    "go_packages": [
+      "internal/emailautomation",
+      "internal/browsercontrol"
+    ],
+    "qualification_runner": {
+      "passed": 8
+    },
+    "paired_release": {
+      "fresh_install": true,
+      "configuration_drift_rejected": true,
+      "native_cli_runtime": true,
+      "installed_file_tamper_rejected": true,
+      "mixed_python_runtime_rejected": true,
+      "mixed_consumer_rejected": true,
+      "live_host_activation_rejected": true,
+      "live_executor_activation_rejected": true,
+      "whole_set_rollback": true,
+      "durable_state_preserved": true,
+      "epoch_monotonic": true
+    },
+    "electron": {
+      "schema_version": 1,
+      "isolated_display": true,
+      "versions": {
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "node": "24.21.0",
+        "architecture": "arm64"
+      },
+      "mcp": {
+        "actual_client": true,
+        "navigate": true,
+        "read": true,
+        "snapshot": true,
+        "fill": true,
+        "click": true,
+        "screenshot": true,
+        "download_artifact": true,
+        "download_source_cleaned": true
+      },
+      "cli": {
+        "actual_client": true,
+        "attach": true,
+        "navigate": true,
+        "snapshot": true,
+        "fill": true,
+        "click": true,
+        "evaluate_read": true,
+        "screenshot": true,
+        "open_close_page": true
+      },
+      "isolation": {
+        "personal_target_hidden": true,
+        "native_pointer_blocked": true,
+        "native_keyboard_blocked": true,
+        "native_context_menu_blocked": true,
+        "native_shortcuts_blocked": true,
+        "native_paste_blocked": true,
+        "native_drag_drop_blocked": true,
+        "native_ime_sequence_blocked": true,
+        "javascript_dialog_dismissed": true,
+        "devtools_closed": true,
+        "automation_input_working": true
+      },
+      "observation": {
+        "opaque_target_stable": true,
+        "viewport_bounds_stable": true,
+        "switching_did_not_replace_target": true,
+        "hidden_background_execution": true
+      },
+      "login": {
+        "provider_website_tested": false,
+        "local_session_cookie_persisted": true
+      },
+      "lifecycle": {
+        "close_to_hide": true,
+        "same_runtime_reopened": true,
+        "workbench_renderer_recovered": true,
+        "task_renderer_invalidated": true,
+        "main_restart_generation_invalidated": true,
+        "browser_session_persisted_across_restart": true,
+        "unknown_effects_replayed": false
+      },
+      "scripts": {
+        "document_start_main_world": true,
+        "gm_persistence": true,
+        "gm_menu_command": true
+      },
+      "app_cli": {
+        "public_registry": true,
+        "runtime_v2": true,
+        "resident_executor": true,
+        "browser_host": true,
+        "actual_owned_page": true,
+        "idempotent_replay": true,
+        "cleanup": true,
+        "non_mail_application": true,
+        "late_private_fields": true
+      },
+      "targets": {
+        "worker_scoped": true,
+        "oopif_scoped": true,
+        "popup_adopted": true
+      }
+    },
+    "app_cli_cloud_ci": {
+      "head_commit": "6a46352ac69e4136fd882b5d732115708747077c",
+      "run_url": "https://github.com/ZZZZJJJ0928/App-CLI/actions/runs/36562915676",
+      "conclusion": "success",
+      "jobs": 7
+    }
+  },
+  "limitations": [
+    "Historical SEND_OUTCOME_UNKNOWN task records and journals are retained; recipient-original proof is reported separately and does not rewrite the ledger.",
+    "This receipt-only live matrix does not qualify production notification latency, multi-recipient send, replies, attachments or all account-switch paths.",
+    "Production activation of the matched Gateway/Controller/Desktop set remains subject to user final acceptance."
+  ],
+  "restoration": {
+    "status": "completed",
+    "legacy_gateway": "running_healthy",
+    "legacy_controller": "active_check_passed",
+    "dedicated_browser": "active",
+    "qualification_executor": "inactive_disabled",
+    "durable_ledger_and_journals": "retained",
+    "legacy_services_use_separate_workspace": true
+  },
+  "summary": {
+    "directions_verified": 6,
+    "qualification_attempts": 17,
+    "effect_boundary_crossed": 7,
+    "recipient_originals_verified": 7,
+    "native_send_confirmed": 3,
+    "historical_uncertain_preserved": 4
+  }
+}

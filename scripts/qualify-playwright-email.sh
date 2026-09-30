@@ -29,6 +29,8 @@ Set SPARKCLAW_TEST_NOTIFICATION_OBSERVE=1 only for an authorized real-mail
 qualification, with SPARKCLAW_TEST_NOTIFICATION_OBSERVER_SOCKET and
 SPARKCLAW_NOTIFICATION_OBSERVER_READY_DIR set to an isolated observer runtime.
 This mode sends one uniquely marked Gmail-to-QQ test message by default.
+Set SPARKCLAW_TEST_NOTIFICATION_RECEIPT_ONLY=1 to validate a managed send and
+its exact original independently of notifications; no observer socket is needed.
 SPARKCLAW_TEST_NOTIFICATION_ROUTE=sender:receiver selects any two distinct
 qq_mail, gmail or outlook providers. Set SPARKCLAW_TEST_NOTIFICATION_DRY_RUN=1
 to observe without sending. SPARKCLAW_TEST_NOTIFICATION_DURATION_MS bounds

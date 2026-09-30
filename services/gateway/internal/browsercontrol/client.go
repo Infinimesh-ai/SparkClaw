@@ -36,6 +36,8 @@ type Versions struct {
 	BrowserChannel    string `json:"browser_channel,omitempty"`
 	CLI               string `json:"cli,omitempty"`
 	CLIVersion        string `json:"cli_version,omitempty"`
+	AppCLI            string `json:"app_cli,omitempty"`
+	BrowserHost       string `json:"browser_host,omitempty"`
 }
 
 type ValidationResult struct {

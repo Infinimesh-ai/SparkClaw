@@ -13,7 +13,9 @@
     "dev": "electron src/main/main.mjs",
     "test": "node --test test/*.test.mjs",
     "qualify": "node test/run-isolated-qualification.mjs",
-    "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never"
+    "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never",
+    "dist:mac-arm64": "node scripts/package-macos.mjs --arch arm64",
+    "dist:mac-x64": "node scripts/package-macos.mjs --arch x64"
   },
   "dependencies": {
     "@sparkclaw/browser-bridge": "1.0.28"
@@ -30,6 +32,7 @@
     "appId": "ai.infinimesh.sparkclaw",
     "productName": "SparkClaw",
     "asar": true,
+    "afterPack": "./scripts/audit-package.mjs",
     "directories": {
       "output": "dist"
     },
@@ -60,6 +63,16 @@
     },
     "deb": {
       "priority": "optional"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "identity": null,
+      "artifactName": "SparkClaw-${version}-mac-${arch}.${ext}",
+      "target": ["dmg", "zip"],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "SparkClaw uses the microphone only when you start voice input."
+      }
     }
   }
 }

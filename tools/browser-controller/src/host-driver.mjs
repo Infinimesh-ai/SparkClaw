@@ -66,8 +66,9 @@ export class ApplicationHostDriver {
     this.handles.add(handle);
     let phase = 'reserve';
     try {
-      handle.bootstrap = await this.controller.reserveApplication({taskID: task, resource: spec.resource,
-        exclusive: spec.host.activity === 'exclusive'});
+      handle.bootstrap = await this.controller.reserveApplication({taskID: task, resource: spec.host.family ?? spec.resource,
+        exclusive: spec.host.activity === 'exclusive',
+        waitMS: Math.max(0, Math.min(30000, spec.timeout_ms ?? 30000, grant.execution_expires_ms - Date.now()))});
       if (spec.host.activity === 'exclusive') await this.drainIdle?.();
       const registration = {...spec.host.page};
       registration.beforeNavigationSources = await Promise.all((registration.beforeNavigationAssets ?? []).map(async relative => {
@@ -102,8 +103,9 @@ export class ApplicationHostDriver {
       throw error;
     }
   }
-  async beginActivity(handle, {id, kind, spec, resource, signal, task}) {
-    const reservation = handle.bootstrap ?? await this.controller.reserveApplication({taskID: task, resource: spec.resource, exclusive: kind === 'exclusive', signal});
+  async beginActivity(handle, {id, kind, spec, resource, grant, signal, task}) {
+    const reservation = handle.bootstrap ?? await this.controller.reserveApplication({taskID: task, resource: spec.host.family ?? spec.resource, exclusive: kind === 'exclusive', signal,
+      waitMS: Math.max(0, Math.min(30000, spec.timeout_ms ?? 30000, grant.execution_expires_ms - Date.now()))});
     handle.bootstrap = null;
     handle.activities.set(id, {reservation, kind, spec, resource});
   }

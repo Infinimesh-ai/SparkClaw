@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -61,7 +62,14 @@ export class AppCLIClientFactory {
   async runScript(request) {
     const client = this.requireClient();
     try {
-      return await client.execute({...request, onEvent: (slot, kind, reason) => this.mailObserverSink?.(request.provider, slot, kind, reason)});
+      // The product subscription identity is independent of App-CLI's private
+      // release/cache identity. Retain the original credential identity in the
+      // callback so events from a retired subscription cannot enter a new one.
+      const identity = request.operation === 'observe' ? crypto.createHash('sha256').update(JSON.stringify([
+        request.token, request.credentialGeneration, request.provider, request.input.account_address?.toLowerCase(), request.input.owner_scope,
+      ])).digest('hex') : null;
+      return await client.execute({...request, onEvent: (slot, kind, reason) => this.mailObserverSink?.(
+        request.provider, {...slot, identity}, kind, reason)});
     } catch (error) {
       if (error.code === 'HOST_RESOURCE_BUSY' || error.code === 'BROWSER_BUSY') throw new ControllerError('browser_busy', 'Browser is busy', {status: 409, retryable: true});
       if (['RELEASE_MISMATCH', 'COMMAND_NOT_FOUND', 'DEPLOYMENT_INVALID'].includes(error.code)) throw new ControllerError('browser_script_unavailable', 'Application release is unavailable', {status: 503});

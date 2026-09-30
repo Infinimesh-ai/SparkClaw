@@ -152,7 +152,9 @@ export class MailObserverFeed {
           script_id: spec.script_id, revision: spec.revision,
           input: {schema_version: 1, action: 'start', account_address: binding.account_address, owner_scope: binding.owner_scope}},
         {signal: abort.signal});
-      })().catch(() => {
+      })().catch(error => {
+        const code = typeof error?.code === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(error.code) ? error.code : 'WATCH_POLL_FAILED';
+        factory.diagnostic?.({event: 'mail_observer_poll_failed', provider, code});
         if (binding && this.bindings.get(provider) === binding) {
           binding.state='degraded'; binding.retryAt=this.now()+60000; this.publish(binding,'watch_state','start_failed');
         }

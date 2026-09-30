@@ -1,9 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from 'node:fs';
 
 import { BrowserController } from "./fixtures/application-controller.mjs";
 
 const token = "qualification-token-value";
+
+for (const provider of ['gmail', 'outlook', 'qq_mail']) test(`${provider} watch initialization excludes a shared Reader until hook activation`, async () => {
+  const binding = JSON.parse(fs.readFileSync(new URL(`../node_modules/@infinimesh/app-cli-runtime/bindings/mail-${provider.replace('_', '-')}.json`, import.meta.url)));
+  const controller = new BrowserController({clientFactory: new FakeFactory()});
+  assert.notEqual(binding.commands.watch.resource, binding.commands.collect_page.resource, 'persistent watch must not hold the Reader execution lane');
+  const watch = await controller.reserveApplication({taskID: 'initial-watch', resource: binding.commands.watch.host.family, exclusive: false});
+  let reading = false;
+  const read = controller.reserveApplication({taskID: 'shared-read', resource: binding.commands.collect_page.host.family, exclusive: false, waitMS: 1000})
+    .then(value => {reading = true; return value;});
+  await new Promise(setImmediate);
+  assert.equal(reading, false, 'Reader entered before the watcher prepared its owned page');
+  controller.finishApplication(watch);
+  const reservation = await read;
+  assert.equal(reading, true);
+  controller.finishApplication(reservation); await controller.shutdown();
+});
 
 test("validateToken opens and closes one ephemeral task page", async () => {
   const factory = new FakeFactory();

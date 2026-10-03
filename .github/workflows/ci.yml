@@ -118,6 +118,10 @@ jobs:
           node-version: "26"
           cache: npm
           cache-dependency-path: package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/gateway/go.mod
+          cache-dependency-path: services/gateway/go.sum
       - name: Install Electron qualification dependencies
         run: |
           sudo apt-get update
@@ -128,6 +132,8 @@ jobs:
         run: npm run test:desktop
       - name: Verify generated managed-script preload
         run: npm run check:desktop-managed-scripts
+      - name: Qualify R3 outbound host on actual embedded pages
+        run: npm run qualify:desktop-r3
       - name: Install and qualify the paired application release
         run: |
           npm ci --prefix tools/browser-controller

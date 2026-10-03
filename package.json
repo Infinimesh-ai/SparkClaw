@@ -53,6 +53,7 @@
     "dev:webchat:host": "npm --workspace @sparkclaw/webchat run dev",
     "test:desktop": "npm --workspace @sparkclaw/desktop run test",
     "qualify:desktop": "npm --workspace @sparkclaw/desktop run qualify",
+    "qualify:desktop-r3": "npm --workspace @sparkclaw/desktop run qualify:r3",
     "build:desktop-managed-scripts": "node scripts/build-desktop-managed-preload.mjs",
     "build:desktop-ui": "node scripts/build-desktop-ui.mjs",
     "check:desktop-managed-scripts": "node scripts/build-desktop-managed-preload.mjs --check",

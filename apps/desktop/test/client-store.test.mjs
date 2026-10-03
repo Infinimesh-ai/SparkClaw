@@ -75,17 +75,19 @@ test("durable result receipt deduplicates, rejects gaps/drift and returns no ACK
   const store = new ClientStore(fixture(t));
   const conversation = store.create(scope, "test");
   const task = store.enqueue(scope, conversation.id, "input");
-  const result = { request_id: task.request_id, sequence: 1, digest: digest("answer"), content: "answer" };
+  store.markSubmitted(scope, task.request_id);
+  const payload = JSON.stringify({ content: "answer", files: [] });
+  const result = { request_id: task.request_id, sequence: 1, digest: digest(payload), payload };
   store.db.exec("CREATE TRIGGER fail_delivery BEFORE INSERT ON deliveries BEGIN SELECT RAISE(ABORT,'disk full'); END;");
-  assert.throws(() => store.commitResult(scope, result), /disk full/);
+  assert.throws(() => store.commitDelivery(scope, result, new Map()), /disk full/);
   assert.equal(store.read(scope, conversation.id).messages.length, 1);
   store.db.exec("DROP TRIGGER fail_delivery");
-  const ack = store.commitResult(scope, result);
+  const ack = store.commitDelivery(scope, result, new Map());
   assert.equal(ack.durable, true);
-  assert.deepEqual(store.commitResult(scope, result), ack);
+  assert.deepEqual(store.commitDelivery(scope, result, new Map()), ack);
   assert.equal(store.read(scope, conversation.id).messages.length, 2);
-  assert.throws(() => store.commitResult(scope, { ...result, sequence: 3 }), /gap/);
-  assert.throws(() => store.commitResult(scope, { ...result, content: "changed", digest: digest("changed") }), /replay/);
+  assert.throws(() => store.commitDelivery(scope, { ...result, sequence: 3 }, new Map()), /gap|replay/);
+  assert.throws(() => store.commitDelivery(scope, { ...result, payload: JSON.stringify({ content: "changed", files: [] }), digest: digest(JSON.stringify({ content: "changed", files: [] })) }, new Map()), /replay/);
   store.close();
 });
 
@@ -111,7 +113,7 @@ test("newer schemas and insecure/symlink storage fail closed without deleting us
   const root = fixture(t);
   let store = new ClientStore(root);
   store.create(scope, "preserve");
-  store.db.exec("PRAGMA user_version=2");
+  store.db.exec("PRAGMA user_version=3");
   store.close();
   assert.throws(() => new ClientStore(root), /newer/);
   const db = new DatabaseSync(path.join(root, "client.sqlite"));
@@ -122,4 +124,52 @@ test("newer schemas and insecure/symlink storage fail closed without deleting us
   const symlink = path.join(fixture(t), "link");
   fs.symlinkSync(root, symlink);
   assert.throws(() => new ClientStore(symlink), /private/);
+});
+
+test("schema 1 upgrade preserves installation and saved requests without enabling replay", (t) => {
+  const root = fixture(t);
+  const databasePath = path.join(root, "client.sqlite");
+  fs.closeSync(fs.openSync(databasePath, "wx", 0o600));
+  const db = new DatabaseSync(databasePath);
+  const installation = crypto.randomUUID();
+  const conversation = crypto.randomUUID();
+  const task = crypto.randomUUID();
+  const request = crypto.randomUUID();
+  const envelope = JSON.stringify({ schema_version: 1, ...scope, installation_id: installation,
+    local_conversation_id: conversation, local_task_id: task, request_id: request, messages: [{ role: "user", content: "saved before upgrade" }] });
+  db.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+    CREATE TABLE conversations(id TEXT PRIMARY KEY,scope TEXT NOT NULL,title TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+    CREATE TABLE messages(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),role TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL);
+    CREATE TABLE tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),request_id TEXT UNIQUE NOT NULL,input_digest TEXT NOT NULL,context_json TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
+    CREATE TABLE files(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),name TEXT NOT NULL,sha256 TEXT NOT NULL,size INTEGER NOT NULL,created_at TEXT NOT NULL);
+    CREATE TABLE deliveries(request_id TEXT NOT NULL REFERENCES tasks(request_id),sequence INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(request_id,sequence));
+    PRAGMA user_version=1;`);
+  db.prepare("INSERT INTO metadata VALUES('installation_id',?)").run(installation);
+  db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?)").run(conversation, JSON.stringify(Object.values(scope)), "prior conversation", "", "");
+  db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?)").run(task, conversation, request, digest(envelope), envelope, "awaiting_runtime", "");
+  db.close();
+  const store = new ClientStore(root);
+  assert.equal(store.installationID, installation);
+  assert.equal(store.request(scope, request).context_json, envelope);
+  assert.equal(store.request(scope, request).explicitly_submitted, 0);
+  assert.deepEqual(store.pending(scope), []);
+  assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 2);
+  store.close();
+});
+
+test("large assistant output is bounded safely in future context without changing the local result", (t) => {
+  const store = new ClientStore(fixture(t));
+  const conversation = store.create(scope, "large output");
+  const task = store.enqueue(scope, conversation.id, "first input");
+  store.markSubmitted(scope, task.request_id);
+  const answer = "🐾".repeat(20000);
+  const payload = JSON.stringify({ content: answer, files: [] });
+  store.commitDelivery(scope, { request_id: task.request_id, sequence: 1, digest: digest(payload), payload }, new Map());
+  const next = store.enqueue(scope, conversation.id, "follow up");
+  const context = store.context(scope, next.request_id);
+  assert.equal(store.read(scope, conversation.id).messages[1].content, answer);
+  assert.ok(Buffer.byteLength(context.messages.find((message) => message.role === "assistant").content) <= CLIENT_LIMITS.inputBytes);
+  assert.ok(!context.messages.some((message) => message.content.includes("�")));
+  assert.equal(context.messages.at(-1).content, "follow up");
+  store.close();
 });

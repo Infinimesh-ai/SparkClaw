@@ -3,12 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-export const CLIENT_SCHEMA_VERSION = 1;
+export const CLIENT_SCHEMA_VERSION = 2;
 export const CLIENT_LIMITS = Object.freeze({
   inputBytes: 16 * 1024,
   contextBytes: 96 * 1024,
   contextMessages: 32,
   fileBytes: 64 * 1024 * 1024,
+  resultBytes: 8 * 1024 * 1024,
+  resultFiles: 32,
 });
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
@@ -31,6 +33,7 @@ export class ClientStore {
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
       if (version > CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is newer than this application; preserve data and upgrade");
       if (version === 0) this.#initialize();
+      if (version < 2) this.#upgrade();
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -67,6 +70,21 @@ export class ClientStore {
     });
   }
 
+  #upgrade() {
+    this.#transaction(() => {
+      this.db.exec(`
+        ALTER TABLE tasks ADD COLUMN explicitly_submitted INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE tasks ADD COLUMN updated_at TEXT;
+        ALTER TABLE deliveries ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE delivery_files(request_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+          file_id TEXT NOT NULL REFERENCES files(id), remote_id TEXT NOT NULL,
+          PRIMARY KEY(request_id, sequence, remote_id),
+          FOREIGN KEY(request_id, sequence) REFERENCES deliveries(request_id, sequence));
+        PRAGMA user_version=2;
+      `);
+    });
+  }
+
   list(scope) {
     return this.db.prepare("SELECT id,title,created_at,updated_at FROM conversations WHERE scope=? ORDER BY updated_at DESC,id")
       .all(scopeKey(scope));
@@ -85,15 +103,23 @@ export class ClientStore {
     this.#conversation(scope, conversationID);
     return {
       messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID),
-      tasks: this.db.prepare("SELECT id,request_id,status,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID),
+      tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID),
       files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID),
     };
   }
 
-  enqueue(scope, conversationID, content) {
+  enqueue(scope, conversationID, content, localFileIDs = []) {
     this.#conversation(scope, conversationID);
     content = boundedText(content, CLIENT_LIMITS.inputBytes, "Input").trim();
     if (!content) throw new Error("Input is empty");
+    if (!Array.isArray(localFileIDs) || localFileIDs.length > CLIENT_LIMITS.resultFiles || new Set(localFileIDs).size !== localFileIDs.length) throw new Error("Invalid input file selection");
+    const inputFiles = localFileIDs.map((id) => {
+      uuid(id);
+      const record = this.db.prepare("SELECT id,name,size,sha256 FROM files WHERE id=? AND conversation_id=?").get(id, conversationID);
+      if (!record || record.size > CLIENT_LIMITS.resultBytes) throw new Error("Input file is unavailable or exceeds 8 MiB");
+      this.file(scope, id);
+      return record;
+    });
     const requestID = crypto.randomUUID();
     const taskID = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -101,14 +127,16 @@ export class ClientStore {
       const history = this.db.prepare("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?")
         .all(conversationID, CLIENT_LIMITS.contextMessages).reverse();
       const envelope = { schema_version: 1, ...scope, installation_id: this.installationID,
-        local_conversation_id: conversationID, local_task_id: taskID, request_id: requestID, messages: [] };
+        local_conversation_id: conversationID, local_task_id: taskID, request_id: requestID, messages: [],
+        ...(inputFiles.length ? { input_files: inputFiles } : {}) };
       const messageBudget = CLIENT_LIMITS.contextBytes - Buffer.byteLength(JSON.stringify(envelope)) + 2;
       const context = boundedContext([...history, { role: "user", content }], messageBudget);
       const snapshot = JSON.stringify({ ...envelope, messages: context });
+      if (inputFiles.reduce((sum, file) => sum + file.size, Buffer.byteLength(snapshot)) > 32 * 1024 * 1024) throw new Error("Input exceeds 32 MiB task budget");
       const digest = hash(snapshot);
       this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
         .run(crypto.randomUUID(), conversationID, "user", content, now);
-      this.db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?)")
+      this.db.prepare("INSERT INTO tasks(id,conversation_id,request_id,input_digest,context_json,status,created_at) VALUES(?,?,?,?,?,?,?)")
         .run(taskID, conversationID, requestID, digest, snapshot, "awaiting_runtime", now);
       this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, conversationID);
     });
@@ -118,45 +146,133 @@ export class ClientStore {
   }
 
   context(scope, requestID) {
-    uuid(requestID);
-    const task = this.db.prepare(`SELECT t.context_json FROM tasks t JOIN conversations c ON c.id=t.conversation_id
-      WHERE t.request_id=? AND c.scope=?`).get(requestID, scopeKey(scope));
-    if (!task) throw new Error("Local request not found");
-    return JSON.parse(task.context_json);
+    return JSON.parse(this.request(scope, requestID).context_json);
   }
 
-  // Only a trusted main-process ExecutionClient may call this after verifying
-  // an authenticated event. Renderer IPC deliberately does not expose it.
-  commitResult(scope, { request_id, sequence, digest, content }) {
+  request(scope, requestID) {
+    uuid(requestID);
+    const task = this.db.prepare(`SELECT t.* FROM tasks t JOIN conversations c ON c.id=t.conversation_id
+      WHERE t.request_id=? AND c.scope=?`).get(requestID, scopeKey(scope));
+    if (!task) throw new Error("Local request not found");
+    if (hash(task.context_json) !== task.input_digest) throw new Error("Local immutable context verification failed");
+    return task;
+  }
+
+  markSubmitted(scope, requestID) {
+    return this.#transaction(() => {
+      const task = this.request(scope, requestID);
+      if (task.explicitly_submitted) return { first: false, task };
+      if (task.status !== "awaiting_runtime") throw new Error("Task cannot be submitted");
+      this.db.prepare("UPDATE tasks SET explicitly_submitted=1,status='submission_pending',updated_at=? WHERE request_id=?")
+        .run(new Date().toISOString(), requestID);
+      return { first: true, task: this.request(scope, requestID) };
+    });
+  }
+
+  pending(scope) {
+    return this.db.prepare(`SELECT t.request_id FROM tasks t JOIN conversations c ON c.id=t.conversation_id
+      WHERE c.scope=? AND t.explicitly_submitted=1 AND t.status IN
+      ('submission_pending','accepted','running','cancel_pending','saved') ORDER BY t.rowid`).all(scopeKey(scope));
+  }
+
+  setExecutionState(scope, requestID, state) {
+    const task = this.request(scope, requestID);
+    if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");
+    if (!["submission_pending", "accepted", "running", "cancel_pending", "failed", "canceled", "unknown", "delivery_expired", "delivered"].includes(state)) {
+      throw new Error("Invalid execution state");
+    }
+    // A durable delivery remains retryable for ACK after a lost response or expiry.
+    const receipt = this.db.prepare("SELECT acknowledged FROM deliveries WHERE request_id=? ORDER BY sequence DESC LIMIT 1").get(requestID);
+    if (receipt) state = receipt.acknowledged ? "delivered" : "saved";
+    this.db.prepare("UPDATE tasks SET status=?,updated_at=? WHERE request_id=?")
+      .run(state, new Date().toISOString(), requestID);
+    return this.request(scope, requestID);
+  }
+
+  receipt(scope, requestID) {
+    this.request(scope, requestID);
+    const receipt = this.db.prepare("SELECT sequence,digest,acknowledged FROM deliveries WHERE request_id=? ORDER BY sequence DESC LIMIT 1").get(requestID);
+    if (!receipt) return null;
+    const files = this.db.prepare("SELECT file_id FROM delivery_files WHERE request_id=? AND sequence=?").all(requestID, receipt.sequence);
+    for (const file of files) this.file(scope, file.file_id);
+    return { request_id: requestID, ...receipt, durable: true };
+  }
+
+  acknowledge(scope, requestID, sequence, digest) {
+    const receipt = this.receipt(scope, requestID);
+    if (!receipt || receipt.sequence !== sequence || receipt.digest !== digest) throw new Error("Delivery receipt mismatch");
+    this.#transaction(() => {
+      this.db.prepare("UPDATE deliveries SET acknowledged=1 WHERE request_id=? AND sequence=?").run(requestID, sequence);
+      this.db.prepare("UPDATE tasks SET status='delivered',updated_at=? WHERE request_id=?").run(new Date().toISOString(), requestID);
+    });
+  }
+
+  // Bytes are staged and fsynced before the single SQLite text/manifest/receipt
+  // commit. Crash leftovers are reclaimed on restart; no receipt exists until
+  // every output is durably owned by this installation.
+  commitDelivery(scope, { request_id, sequence, digest, payload }, fileContents) {
     uuid(request_id);
-    if (!Number.isSafeInteger(sequence) || sequence < 1 || !/^[a-f0-9]{64}$/u.test(digest) || hash(content) !== digest) {
+    if (!Number.isSafeInteger(sequence) || sequence < 1 || !/^[a-f0-9]{64}$/u.test(digest) ||
+        typeof payload !== "string" || Buffer.byteLength(payload) > CLIENT_LIMITS.resultBytes || hash(payload) !== digest) {
       throw new Error("Invalid delivery envelope");
     }
-    content = boundedText(content, CLIENT_LIMITS.contextBytes, "Result");
-    return this.#transaction(() => {
-      const task = this.db.prepare(`SELECT t.* FROM tasks t JOIN conversations c ON c.id=t.conversation_id
-        WHERE t.request_id=? AND c.scope=?`).get(request_id, scopeKey(scope));
-      if (!task) throw new Error("Local request not found");
-      const prior = this.db.prepare("SELECT digest FROM deliveries WHERE request_id=? AND sequence=?").get(request_id, sequence);
-      if (prior) {
-        if (prior.digest !== digest) throw new Error("Delivery replay changed content");
-        return { request_id, sequence, digest, durable: true };
+    const result = parseResultPayload(payload);
+    const task = this.request(scope, request_id);
+    if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");
+    const prior = this.receipt(scope, request_id);
+    if (prior) {
+      if (prior.sequence !== sequence || prior.digest !== digest) throw new Error("Delivery replay changed content");
+      return prior;
+    }
+    if (sequence !== 1) throw new Error("Delivery sequence gap");
+    if (!(fileContents instanceof Map) || fileContents.size !== result.files.length) throw new Error("Missing delivered files");
+    let total = Buffer.byteLength(payload);
+    const staged = [];
+    let committed = false;
+    try {
+      for (const manifest of result.files) {
+        const bytes = fileContents.get(manifest.id);
+        if (!(bytes instanceof Uint8Array) || bytes.byteLength !== manifest.size || hash(bytes) !== manifest.sha256) throw new Error("Delivered file verification failed");
+        total += bytes.byteLength;
+        if (total > CLIENT_LIMITS.resultBytes) throw new Error("Delivery exceeds result budget");
+        const record = this.#writeFile(manifest.name, bytes);
+        staged.push({ ...record, remote_id: manifest.id });
       }
-      const latest = this.db.prepare("SELECT COALESCE(MAX(sequence),0) AS seq FROM deliveries WHERE request_id=?").get(request_id).seq;
-      if (sequence !== latest + 1) throw new Error("Delivery sequence gap");
-      this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
-        .run(crypto.randomUUID(), task.conversation_id, "assistant", content, new Date().toISOString());
-      this.db.prepare("INSERT INTO deliveries VALUES(?,?,?)").run(request_id, sequence, digest);
-      this.db.prepare("UPDATE tasks SET status='saved' WHERE request_id=?").run(request_id);
-      return { request_id, sequence, digest, durable: true };
-    });
+      this.#transaction(() => {
+        const now = new Date().toISOString();
+        this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
+          .run(crypto.randomUUID(), task.conversation_id, "assistant", result.content, now);
+        this.db.prepare("INSERT INTO deliveries(request_id,sequence,digest) VALUES(?,?,?)").run(request_id, sequence, digest);
+        for (const record of staged) {
+          this.#fileManifest(task.conversation_id, record);
+          this.db.prepare("INSERT INTO delivery_files VALUES(?,?,?,?)").run(request_id, sequence, record.id, record.remote_id);
+        }
+        this.db.prepare("UPDATE tasks SET status='saved',updated_at=? WHERE request_id=?").run(now, request_id);
+        this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, task.conversation_id);
+      });
+      committed = true;
+      return this.receipt(scope, request_id);
+    } catch (error) {
+      if (!committed) for (const record of staged) fs.rmSync(path.join(this.filesRoot, record.id), { force: true });
+      throw error;
+    }
   }
 
   saveFile(scope, conversationID, name, value) {
     this.#conversation(scope, conversationID);
-    name = boundedText(name, 240, "File name");
-    if (!name || name === "." || name === ".." || /[\/\\\u0000-\u001f\u007f]/u.test(name)) throw new Error("Invalid file name");
+    validFileName(name);
     if (!(value instanceof Uint8Array) || value.byteLength > CLIENT_LIMITS.fileBytes) throw new Error("Invalid or oversized file");
+    const record = this.#writeFile(name, value);
+    try { this.#fileManifest(conversationID, record); return record; }
+    catch (error) { fs.rmSync(path.join(this.filesRoot, record.id), { force: true }); throw error; }
+  }
+
+  #fileManifest(conversationID, record) {
+    this.db.prepare("INSERT INTO files VALUES(?,?,?,?,?,?)")
+      .run(record.id, conversationID, record.name, record.sha256, record.size, record.created_at);
+  }
+
+  #writeFile(name, value) {
     const id = crypto.randomUUID();
     const pending = path.join(this.filesRoot, `.pending-${id}`);
     const destination = path.join(this.filesRoot, id);
@@ -169,8 +285,6 @@ export class ClientStore {
       fs.closeSync(fd); fd = undefined;
       fs.renameSync(pending, destination);
       syncDirectory(this.filesRoot);
-      this.db.prepare("INSERT INTO files VALUES(?,?,?,?,?,?)")
-        .run(id, conversationID, name, record.sha256, record.size, record.created_at);
       return record;
     } catch (error) {
       if (fd !== undefined) fs.closeSync(fd);
@@ -218,12 +332,41 @@ export function boundedContext(history, byteLimit = CLIENT_LIMITS.contextBytes) 
   const result = [];
   for (const message of history.slice(-CLIENT_LIMITS.contextMessages).reverse()) {
     if (!["user", "assistant"].includes(message.role)) throw new Error("Context role is invalid");
-    const content = boundedText(message.content, CLIENT_LIMITS.inputBytes, "Context message");
+    const content = boundedText(message.role === "assistant" ? truncateUTF8(message.content, CLIENT_LIMITS.inputBytes) : message.content,
+      CLIENT_LIMITS.inputBytes, "Context message");
     if (Buffer.byteLength(JSON.stringify([{ role: message.role, content }, ...result])) > byteLimit) break;
     result.unshift({ role: message.role, content });
   }
   if (!result.length) throw new Error("Context is empty");
   return result;
+}
+
+export function parseResultPayload(payload) {
+  const value = JSON.parse(payload);
+  if (!value || Object.keys(value).sort().join(",") !== "content,files" ||
+      typeof value.content !== "string" || value.content.includes("\u0000") || !Array.isArray(value.files) ||
+      value.files.length > CLIENT_LIMITS.resultFiles) throw new Error("Invalid result payload");
+  const ids = new Set();
+  for (const file of value.files) {
+    if (!file || Object.keys(file).sort().join(",") !== "id,name,sha256,size" || typeof file.id !== "string" ||
+        !ID.test(file.id) || ids.has(file.id) || !Number.isSafeInteger(file.size) || file.size < 0 ||
+        file.size > CLIENT_LIMITS.resultBytes || typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(file.sha256)) throw new Error("Invalid result file manifest");
+    validFileName(file.name);
+    ids.add(file.id);
+  }
+  return value;
+}
+function validFileName(name) {
+  boundedText(name, 240, "File name");
+  if (!name || name === "." || name === ".." || /[\/\\\u0000-\u001f\u007f]/u.test(name)) throw new Error("Invalid file name");
+}
+function truncateUTF8(value, bytes) {
+  if (typeof value !== "string") throw new Error("Context message is invalid");
+  if (Buffer.byteLength(value) <= bytes) return value;
+  let end = bytes;
+  const buffer = Buffer.from(value);
+  while (end > 0 && (buffer[end] & 0xc0) === 0x80) end--;
+  return buffer.subarray(0, end).toString("utf8");
 }
 
 function scopeKey(value) {

@@ -1,0 +1,195 @@
+import crypto from "node:crypto";
+import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
+
+const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
+const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+
+// The main process owns credentials and immutable requests. Timers can only
+// look up explicitly submitted IDs and retry durable ACKs; they never POST work.
+export class ExecutionClient {
+  constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {} }) {
+    Object.assign(this, { auth, store, getIdentity, intervalMS, onChange });
+    this.operations = new Map();
+    this.closed = false;
+  }
+
+  start() {
+    this.closed = false;
+    if (!this.timer) this.timer = setInterval(() => void this.reconcilePending().catch(() => {}), this.intervalMS);
+    this.timer.unref?.();
+    void this.reconcilePending().catch(() => {});
+    return this;
+  }
+
+  close() { this.closed = true; clearInterval(this.timer); this.timer = undefined; }
+
+  async submit(scope, requestID) {
+    return this.#serialized(scope, requestID, async () => {
+      const { first, task } = this.store.markSubmitted(scope, requestID);
+      if (!first) {
+        const found = await this.#lookup(scope, task);
+        // A user may explicitly retry an unadmitted request with the SAME ID.
+        // A persisted unknown fence or terminal state never reaches this path.
+        if (found || task.status !== "submission_pending") return this.#view(scope, requestID);
+      }
+      try {
+        await this.#uploadInputs(scope, task);
+        const response = await this.#fetch(scope, "/api/r3/executions", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-R3-Digest": task.input_digest }, body: task.context_json,
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          if ([400, 413, 422].includes(response.status)) this.store.setExecutionState(scope, requestID, "failed");
+          throw new Error("Execution submission was not accepted");
+        }
+        await this.#accept(scope, task, await json(response));
+      } catch (error) {
+        // A lost admission response is reconciled, never blindly replayed.
+        await this.#lookup(scope, this.store.request(scope, requestID)).catch(() => {});
+        throw error;
+      } finally { this.onChange(); }
+      return this.#view(scope, requestID);
+    });
+  }
+
+  async reconcile(scope, requestID) {
+    return this.#serialized(scope, requestID, async () => {
+      const task = this.store.request(scope, requestID);
+      if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");
+      await this.#lookup(scope, task);
+      this.onChange();
+      return this.#view(scope, requestID);
+    });
+  }
+
+  async cancel(scope, requestID) {
+    return this.#serialized(scope, requestID, async () => {
+      const task = this.store.request(scope, requestID);
+      if (!task.explicitly_submitted || !["submission_pending", "accepted", "running", "cancel_pending"].includes(task.status)) throw new Error("Task cannot be canceled");
+      this.store.setExecutionState(scope, requestID, "cancel_pending");
+      try {
+        const response = await this.#fetch(scope, `/api/r3/executions/${requestID}/cancel`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+        });
+        if (!response.ok) { await response.body?.cancel(); throw new Error("Execution cancellation is awaiting reconciliation"); }
+        await this.#accept(scope, task, await json(response));
+      } catch (error) { await this.#lookup(scope, task).catch(() => {}); throw error; }
+      finally { this.onChange(); }
+      return this.#view(scope, requestID);
+    });
+  }
+
+  async reconcilePending() {
+    if (this.closed || this.polling || this.auth.status.state !== "connected") return;
+    const scope = this.getIdentity();
+    if (!scope) return;
+    this.polling = true;
+    try {
+      const requests = this.store.pending(scope);
+      // Keep network concurrency and shutdown work bounded.
+      for (let i = 0; i < requests.length && !this.closed; i += 4) {
+        await Promise.allSettled(requests.slice(i, i + 4).map((task) => this.reconcile(scope, task.request_id)));
+      }
+    } finally { this.polling = false; }
+  }
+
+  async #lookup(scope, task) {
+    const receipt = this.store.receipt(scope, task.request_id);
+    if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
+    const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}`);
+    if (response.status === 404) { await response.body?.cancel(); return false; }
+    if (!response.ok) { await response.body?.cancel(); throw new Error("Execution status is unavailable"); }
+    await this.#accept(scope, task, await json(response));
+    return true;
+  }
+
+  async #accept(scope, task, event) {
+    this.#sameIdentity(scope);
+    if (!event || event.schema_version !== 1 || event.request_id !== task.request_id ||
+        event.input_digest !== task.input_digest || !SERVER_STATES.has(event.state)) throw new Error("Execution identity or digest mismatch");
+    if (event.state !== "completed") {
+      if (event.result) throw new Error("Unexpected execution result");
+      this.store.setExecutionState(scope, task.request_id, event.state);
+      return;
+    }
+    const result = event.result;
+    if (!result || Object.keys(result).sort().join(",") !== "digest,payload,sequence" || result.sequence !== 1 ||
+        typeof result.payload !== "string" || Buffer.byteLength(result.payload) > CLIENT_LIMITS.resultBytes ||
+        typeof result.digest !== "string" || sha256(result.payload) !== result.digest) throw new Error("Result digest verification failed");
+    const payload = parseResultPayload(result.payload);
+    let bytes = Buffer.byteLength(result.payload);
+    const files = new Map();
+    for (const manifest of payload.files) {
+      bytes += manifest.size;
+      if (bytes > CLIENT_LIMITS.resultBytes) throw new Error("Delivery exceeds result budget");
+      const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}/files/${encodeURIComponent(manifest.id)}`);
+      if (!response.ok) { await response.body?.cancel(); throw new Error("Delivered file is unavailable"); }
+      const content = new Uint8Array(await response.arrayBuffer());
+      if (content.byteLength !== manifest.size || sha256(content) !== manifest.sha256) throw new Error("Delivered file verification failed");
+      files.set(manifest.id, content);
+    }
+    this.#sameIdentity(scope);
+    const receipt = this.store.commitDelivery(scope, { request_id: task.request_id, ...result }, files);
+    await this.#ack(scope, receipt);
+  }
+
+  async #uploadInputs(scope, task) {
+    const envelope = JSON.parse(task.context_json);
+    for (const manifest of envelope.input_files || []) {
+      const file = this.store.file(scope, manifest.id);
+      if (file.content.byteLength !== manifest.size || sha256(file.content) !== manifest.sha256) throw new Error("Local input file verification failed");
+      const response = await this.#fetch(scope, `/api/r3/inputs/${task.request_id}/files/${manifest.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/octet-stream", "X-R3-Digest": manifest.sha256,
+          "X-SparkClaw-Installation": this.store.installationID }, body: file.content,
+      });
+      if (!response.ok) { await response.body?.cancel(); throw new Error("Input file upload was not accepted"); }
+      await response.body?.cancel();
+    }
+  }
+
+  async #ack(scope, receipt) {
+    this.#sameIdentity(scope);
+    // Reverify disk contents immediately before exposing a durable ACK.
+    this.store.receipt(scope, receipt.request_id);
+    const response = await this.#fetch(scope, `/api/r3/executions/${receipt.request_id}/ack`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sequence: receipt.sequence, digest: receipt.digest, durable: true }),
+    });
+    if (!response.ok) { await response.body?.cancel(); throw new Error("Saved locally; delivery acknowledgement is pending"); }
+    await response.body?.cancel();
+    this.#sameIdentity(scope);
+    this.store.acknowledge(scope, receipt.request_id, receipt.sequence, receipt.digest);
+  }
+
+  #fetch(scope, route, init) {
+    this.#sameIdentity(scope);
+    if (this.closed || this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; local input is preserved");
+    const headers = new Headers(init?.headers);
+    headers.set("X-SparkClaw-Installation", this.store.installationID);
+    return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers });
+  }
+  #sameIdentity(scope) {
+    const current = this.getIdentity();
+    if (!current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
+        JSON.stringify([current.deployment_id, current.owner_id, current.client_id])) throw new Error("Execution authentication changed");
+  }
+  #view(scope, requestID) {
+    const task = this.store.request(scope, requestID);
+    return { id: task.id, request_id: task.request_id, status: task.status,
+      explicitly_submitted: task.explicitly_submitted, created_at: task.created_at };
+  }
+  #serialized(scope, requestID, operation) {
+    this.#sameIdentity(scope);
+    this.store.request(scope, requestID);
+    const key = JSON.stringify([scope, requestID]);
+    const pending = (this.operations.get(key) || Promise.resolve()).catch(() => {}).then(operation);
+    this.operations.set(key, pending);
+    return pending.finally(() => { if (this.operations.get(key) === pending) this.operations.delete(key); });
+  }
+}
+
+async function json(response) {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > CLIENT_LIMITS.resultBytes) throw new Error("Execution response exceeds result budget");
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+}

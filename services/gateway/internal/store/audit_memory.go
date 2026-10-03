@@ -10,6 +10,9 @@ import (
 )
 
 func (s *MemoryStore) AddAudit(ctx context.Context, event app.AuditEvent) error {
+	if err := s.admitTransientContent(event); err != nil {
+		return err
+	}
 	ctx, cancel := operationContext(ctx, OperationAuditAdd, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationAuditAdd, ctx); err != nil {

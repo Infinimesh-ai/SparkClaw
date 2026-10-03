@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -29,6 +30,9 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3browser"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3execution"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3mail"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -63,6 +67,13 @@ type Repository interface {
 }
 
 type Server struct {
+	r3Broker                  *r3browser.Broker
+	r3Mail                    *r3mail.Service
+	r3Schedules               *r3ScheduleRegistry
+	r3Mu                      sync.Mutex
+	r3Root                    string
+	r3Executor                r3execution.Executor
+	r3Executions              *r3execution.Service
 	cfg                       config.Config
 	store                     Repository
 	tools                     *toolhub.ToolHub
@@ -331,6 +342,13 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 			return s.connectors.Enabled(ownerID, "mcp")
 		})
 	}
+	if s.r3Mail == nil && s.emailManagement != nil {
+		root, _ := filepath.Abs(s.cfg.State.Path + ".r3/mail")
+		service, err := r3mail.New(root, r3mail.Repository{OwnerStatus: s.emailManagement.ClientSyncOwnerStatus, Mailbox: s.emailManagement.ClientSyncMailbox, Mailboxes: s.emailManagement.ClientSyncMailboxes}, s.emailManagement)
+		if err == nil {
+			s.r3Mail = service
+		}
+	}
 	s.routes()
 	return s
 }
@@ -406,6 +424,12 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		s.streamWG.Wait()
+		s.r3Mu.Lock()
+		executions := s.r3Executions
+		s.r3Mu.Unlock()
+		if executions != nil {
+			executions.Wait()
+		}
 		close(done)
 	}()
 	select {
@@ -420,6 +444,10 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 }
 
 func (s *Server) routes() {
+	s.registerR3ExecutionRoutes()
+	s.registerR3MailRoutes()
+	s.registerR3ScheduleRoutes()
+	s.registerR3HostRoutes()
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /readyz", s.readyz)
 	s.mux.HandleFunc("GET /metrics", s.metrics)

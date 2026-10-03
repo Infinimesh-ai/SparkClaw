@@ -10,6 +10,9 @@ import (
 )
 
 func (s *MemoryStore) SaveDocumentRecord(ctx context.Context, record app.DocumentRecord) (app.DocumentRecord, error) {
+	if err := s.admitTransientContent(record); err != nil {
+		return app.DocumentRecord{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationDocumentRecordSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationDocumentRecordSave, ctx); err != nil {

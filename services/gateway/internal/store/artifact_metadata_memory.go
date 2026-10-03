@@ -10,6 +10,9 @@ import (
 )
 
 func (s *MemoryStore) SaveArtifactObject(ctx context.Context, object app.ArtifactObject) (app.ArtifactObject, error) {
+	if err := s.admitTransientContent(object); err != nil {
+		return app.ArtifactObject{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationArtifactMetadataSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationArtifactMetadataSave, ctx); err != nil {

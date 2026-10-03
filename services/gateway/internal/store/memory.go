@@ -8,6 +8,7 @@ import (
 )
 
 type MemoryStore struct {
+	transientContentAdmission         func(any) error
 	mu                                sync.RWMutex
 	operationTimeouts                 OperationTimeouts
 	sessions                          map[string]app.Session
@@ -140,4 +141,17 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 		artifactObjectIDsByURI:            map[string]map[string]struct{}{},
 		episodeSummaries:                  map[string]app.EpisodeSummary{},
 	}
+}
+
+// WithTransientContentAdmission is used only by an isolated in-memory R3
+// execution. It does not alter persistent backend repository contracts.
+func (s *MemoryStore) WithTransientContentAdmission(admit func(any) error) *MemoryStore {
+	s.transientContentAdmission = admit
+	return s
+}
+func (s *MemoryStore) admitTransientContent(value any) error {
+	if s.transientContentAdmission != nil {
+		return s.transientContentAdmission(value)
+	}
+	return nil
 }

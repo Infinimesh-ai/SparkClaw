@@ -80,6 +80,9 @@ func (s *MemoryStore) ListRunFeedback(ctx context.Context, runID string) ([]app.
 }
 
 func (s *MemoryStore) SaveRun(ctx context.Context, run app.AgentRun) (app.AgentRun, error) {
+	if err := s.admitTransientContent(run); err != nil {
+		return app.AgentRun{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationRunSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationRunSave, ctx); err != nil {
@@ -152,6 +155,9 @@ func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]app.Age
 }
 
 func (s *MemoryStore) SaveModelCall(ctx context.Context, call app.ModelCall) (app.ModelCall, error) {
+	if err := s.admitTransientContent(call); err != nil {
+		return app.ModelCall{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationModelCallSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationModelCallSave, ctx); err != nil {
@@ -224,6 +230,9 @@ func (s *MemoryStore) LatestModelCallsByLane(ctx context.Context) (map[string]ap
 }
 
 func (s *MemoryStore) SaveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
+	if err := s.admitTransientContent(call); err != nil {
+		return app.ToolCall{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationToolCallSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationToolCallSave, ctx); err != nil {

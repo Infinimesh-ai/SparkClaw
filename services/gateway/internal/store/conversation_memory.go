@@ -11,6 +11,9 @@ import (
 )
 
 func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.Message, error) {
+	if err := s.admitTransientContent(message); err != nil {
+		return app.Message{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationConversationAddMessage, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationConversationAddMessage, ctx); err != nil {

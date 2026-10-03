@@ -115,7 +115,7 @@ func (b *Broker) RevokeGrant(identity Identity, hostID string) error {
 	}
 	return nil
 }
-func (b *Broker) RevokeClient(clientID string) {
+func (b *Broker) RevokeClientHosts(clientID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for id, g := range b.grants {

@@ -10,6 +10,9 @@ import (
 )
 
 func (s *MemoryStore) SaveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
+	if err := s.admitTransientContent(approval); err != nil {
+		return app.Approval{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationApprovalSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalSave, ctx); err != nil {

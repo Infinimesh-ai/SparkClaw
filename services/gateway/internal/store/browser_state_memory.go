@@ -11,6 +11,9 @@ import (
 )
 
 func (s *MemoryStore) SaveBrowserAuthRecord(ctx context.Context, record app.BrowserAuthRecord) (app.BrowserAuthRecord, error) {
+	if err := s.admitTransientContent(record); err != nil {
+		return app.BrowserAuthRecord{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationBrowserAuthSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationBrowserAuthSave, ctx); err != nil {
@@ -151,6 +154,9 @@ func (s *MemoryStore) RevokeBrowserAuthRecord(ctx context.Context, id, reason st
 }
 
 func (s *MemoryStore) SaveBrowserLoginBlock(ctx context.Context, block app.BrowserLoginBlock) (app.BrowserLoginBlock, error) {
+	if err := s.admitTransientContent(block); err != nil {
+		return app.BrowserLoginBlock{}, err
+	}
 	ctx, cancel := operationContext(ctx, OperationBrowserLoginBlockSave, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationBrowserLoginBlockSave, ctx); err != nil {

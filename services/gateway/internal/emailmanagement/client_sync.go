@@ -5,8 +5,23 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+// These typed reads let client mail synchronization use the same authoritative
+// repository as collection without adding mail to Gateway's general Store.
+func (s *Service) GetEmailOwnerStatus(ctx context.Context, owner string) (app.EmailOwnerStatus, error) {
+	return s.repository.GetEmailOwnerStatus(ctx, owner)
+}
+
+func (s *Service) GetEmailMailbox(ctx context.Context, owner, mailbox string) (app.EmailMailbox, bool, error) {
+	return s.repository.GetEmailMailbox(ctx, owner, mailbox)
+}
+
+func (s *Service) ListEmailMailboxes(ctx context.Context, owner string) ([]app.EmailMailbox, error) {
+	return s.repository.ListEmailMailboxes(ctx, owner)
+}
 
 // ClientSyncMessages is a read-only typed mail projection. Unlike the ordinary
 // UI list it includes pending mail and bounded plain body text for offline use.

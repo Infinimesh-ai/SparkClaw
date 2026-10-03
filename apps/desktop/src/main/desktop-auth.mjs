@@ -30,7 +30,13 @@ export class DesktopAuth {
       const saved = await this.vault.load();
       if (saved && saved.binding === descriptorBinding(this.descriptor)) this.connection = Object.freeze({ ...saved, origin: this.descriptor.origin });
       else if (saved) await this.vault.clear();
-    } catch { await this.vault.clear(); }
+    } catch {
+      // A temporary OS key-store failure must lock access without destroying
+      // the encrypted credential needed by a later launch. Explicit login,
+      // logout and a confirmed binding mismatch still clear the old record.
+      this.connection = undefined;
+      return this.#set("locked");
+    }
     return this.connection ? this.retry() : this.#set("locked");
   }
 

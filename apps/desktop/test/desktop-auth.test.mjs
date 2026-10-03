@@ -71,6 +71,23 @@ test("bad credential stays locked; Linux basic_text fails closed before transmit
   await assert.rejects(unavailable.vault.load(), /unavailable/);
 });
 
+test("temporary key-store decryption failure preserves ciphertext and cannot open protected channels", async (t) => {
+  const { auth, options, vault } = await fixture(t);
+  await auth.initialize();
+  await auth.login(token);
+  const ciphertext = await fs.readFile(vault.filename);
+  const unavailableVault = new SecureCredentialStore({ directory: vault.directory, platform: "linux", safeStorage: {
+    ...secureStorage, decryptString() { throw new Error("OS key-store unavailable"); },
+  } });
+  const blocked = new DesktopAuth({ ...options, vault: unavailableVault, fetcher() { throw new Error("must not transmit"); } });
+  assert.equal((await blocked.initialize()).state, "locked");
+  assert.equal(blocked.connection, undefined);
+  assert.equal((await blocked.authorizedFetch(`${descriptor.origin}/api/clients`)).status, 401);
+  assert.deepEqual(await fs.readFile(vault.filename), ciphertext);
+  assert.equal((await new DesktopAuth(options).initialize()).state, "connected");
+  assert.deepEqual(await fs.readFile(vault.filename), ciphertext);
+});
+
 test("401 and explicit logout clear the secret, abort protected channels, and call lock cleanup", async (t) => {
   const { auth, vault } = await fixture(t);
   await auth.initialize(); await auth.login(token);

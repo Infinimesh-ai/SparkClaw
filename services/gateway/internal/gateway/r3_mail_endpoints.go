@@ -4,12 +4,44 @@ import (
 	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3mail"
 	"net/http"
+	"net/url"
 )
 
 func WithR3MailSync(service *r3mail.Service) Option { return func(s *Server) { s.r3Mail = service } }
 func (s *Server) registerR3MailRoutes() {
 	s.mux.HandleFunc("GET /api/r3/mail/mailboxes", s.r3Mailboxes)
 	s.mux.HandleFunc("POST /api/r3/mail/{mailbox}/sync", s.r3MailSync)
+	s.mux.HandleFunc("GET /api/r3/mail/{mailbox}/messages/{mail}/attachments/{part}", s.r3MailAttachment)
+}
+
+func (s *Server) r3MailAttachment(w http.ResponseWriter, r *http.Request) {
+	principal, err := s.r3Principal(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"code": "r3_installation_required"})
+		return
+	}
+	if s.emailManagement == nil {
+		writeR3MailError(w, errors.New("mail service unavailable"))
+		return
+	}
+	if len(r.URL.Query()) != 0 || r.PathValue("part") == "original" {
+		writeR3MailError(w, r3mail.ErrInvalid)
+		return
+	}
+	mail, found, err := s.emailManagement.GetEmailMail(r.Context(), principal.OwnerID, r.PathValue("mail"))
+	if err != nil {
+		writeR3MailError(w, err)
+		return
+	}
+	if !found || mail.MailboxID != r.PathValue("mailbox") {
+		writeR3MailError(w, r3mail.ErrNotFound)
+		return
+	}
+	clone := r.Clone(r.Context())
+	copyURL := *r.URL
+	copyURL.RawQuery = url.Values{"part_id": []string{r.PathValue("part")}}.Encode()
+	clone.URL = &copyURL
+	s.getEmailMessageFile(w, clone)
 }
 func (s *Server) r3Mailboxes(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.r3Principal(r)

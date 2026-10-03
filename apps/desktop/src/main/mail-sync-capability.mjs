@@ -9,8 +9,8 @@ export class MailSyncCapability {
     let url;try{url=new URL(event.senderFrame?.url);}catch{}
     if(event.sender!==this.window.webContents||event.senderFrame!==this.window.webContents.mainFrame||!url||url.protocol!=='sparkclaw-app:'||url.hostname!=='workbench'||url.username||url.password)throw new Error('Mail sync sender is not trusted');
     if(!request||typeof request!=='object'||Array.isArray(request)||request.schema_version!==1)throw new Error('Invalid mail sync request');
-    const args=['read','sync'].includes(request.operation)?['mailbox_id']:[];
+    const args=request.operation==='saveAttachment'?['mailbox_id','mail_id','part_id','conversation_id']:['read','sync'].includes(request.operation)?['mailbox_id']:[];
     if(Object.keys(request).sort().join(',')!==['schema_version','operation',...args].sort().join(','))throw new Error('Invalid mail sync request fields');
-    switch(request.operation){case 'catalog':return this.client.catalog();case 'refreshCatalog':return this.client.refreshCatalog();case 'read':return this.client.read(request.mailbox_id);case 'sync':return this.client.sync(request.mailbox_id);default:throw new Error('Mail sync operation is unavailable');}
+    switch(request.operation){case 'catalog':return this.client.catalog();case 'refreshCatalog':return this.client.refreshCatalog();case 'read':return this.client.read(request.mailbox_id);case 'sync':return this.client.sync(request.mailbox_id);case 'saveAttachment':return this.client.saveAttachment(request.mailbox_id,request.mail_id,request.part_id,request.conversation_id);default:throw new Error('Mail sync operation is unavailable');}
   }
 }

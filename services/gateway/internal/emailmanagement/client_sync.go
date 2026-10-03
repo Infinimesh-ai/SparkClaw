@@ -23,6 +23,10 @@ func (s *Service) ListEmailMailboxes(ctx context.Context, owner string) ([]app.E
 	return s.repository.ListEmailMailboxes(ctx, owner)
 }
 
+func (s *Service) GetEmailMail(ctx context.Context, owner, mail string) (app.EmailMail, bool, error) {
+	return s.repository.GetEmailMail(ctx, owner, mail)
+}
+
 // ClientSyncMessages is a read-only typed mail projection. Unlike the ordinary
 // UI list it includes pending mail and bounded plain body text for offline use.
 // It never synchronizes provider cursors, credential/profile state or disk paths.
@@ -59,6 +63,25 @@ func (s *Service) ClientSyncMessages(ctx context.Context, q store.EmailQuery) (M
 				view.Subject, view.BodyText, view.Summary = "", "", ""
 			}
 			view.Verification = nil
+			// Sync manifests carry integrity metadata for an explicitly saved
+			// client-local copy. Legacy mail responses remain unchanged.
+			if row.RepresentationID != "" {
+				representation, found, err := s.repository.GetEmailRepresentation(ctx, q.OwnerID, row.RepresentationID)
+				if err != nil {
+					return out, err
+				}
+				if !found {
+					return out, ErrNotFound
+				}
+				for i := range view.Attachments {
+					for _, attachment := range representation.Attachments {
+						if attachment.ID == view.Attachments[i].ID {
+							view.Attachments[i].SHA256 = attachment.SHA256
+							break
+						}
+					}
+				}
+			}
 			out.Messages = append(out.Messages, view)
 		}
 		return out, nil

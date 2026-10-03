@@ -19,7 +19,7 @@ function message(value, mailbox) {
   required(Buffer.byteLength(JSON.stringify(value)) <= 256 * 1024, 'Mail projection exceeds capacity');
   for (const key of ['to','cc']) required(Array.isArray(value[key]) && value[key].length <= 100 && value[key].every((v) => typeof v === 'string' && v.length <= 1024), 'Invalid mail addresses');
   for (const key of ['body_truncated','viewed','original_available']) required(typeof value[key] === 'boolean', 'Invalid mail projection flags');
-  required(Array.isArray(value.attachments) && value.attachments.length <= 100 && value.attachments.every((a) => plain(a) && Object.keys(a).every((k) => ['id','name','size','available'].includes(k)) && typeof a.id === 'string' && typeof a.name === 'string' && Number.isSafeInteger(a.size) && a.size >= 0 && typeof a.available === 'boolean'), 'Invalid attachment manifest');
+  required(Array.isArray(value.attachments) && value.attachments.length <= 100 && value.attachments.every((a) => plain(a) && Object.keys(a).every((k) => ['id','name','size','available','sha256'].includes(k)) && typeof a.id === 'string' && ID.test(a.id) && typeof a.name === 'string' && Number.isSafeInteger(a.size) && a.size >= 0 && typeof a.available === 'boolean' && (!a.available || typeof a.sha256==='string' && /^sha256:[a-f0-9]{64}$/u.test(a.sha256))), 'Invalid attachment manifest');
   return value;
 }
 

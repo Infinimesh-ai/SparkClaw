@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import crypto from 'node:crypto';
+import { ClientStore } from '../src/main/client-store.mjs';
 import { MailSyncStore } from '../src/main/mail-sync-store.mjs';
 import { MailSyncClient } from '../src/main/mail-sync-client.mjs';
 import { MailSyncCapability } from '../src/main/mail-sync-capability.mjs';
@@ -58,4 +60,20 @@ test('mail IPC trusts only the workbench main frame and rejects renderer identit
  await assert.rejects(cap.dispatch({...event,senderFrame:{url:mainFrame.url}},{schema_version:1,operation:'catalog'}),/trusted/);
  await assert.rejects(cap.dispatch(event,{schema_version:1,operation:'read',mailbox_id:'box',owner_id:'other'}),/fields/);
  await assert.rejects(cap.dispatch(event,{schema_version:1,operation:'delete'}),/unavailable/);
+});
+
+test('verified mail attachment copies become local files; backend loss, tamper and disk failure preserve ownership',async(t)=>{
+ const cache=new MailSyncStore(fixture(t));const local=new ClientStore(fixture(t));const conversation=local.create(scope,'Attachment copies');
+ const bytes=Buffer.alloc(2*1024*1024,65);const hash=`sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+ const attachment={id:'part-1',name:'report.bin',size:bytes.length,available:true,sha256:hash};
+ const projection=mail('a');projection.attachments=[attachment];cache.apply(scope,'box',response('snapshot',1,1,[{...event('a',1),mail:projection}],'first'),'');
+ const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
+ let original=bytes;let calls=0;const fetcher=async(url,init)=>{calls++;assert.equal(new URL(url).pathname,'/api/r3/mail/box/messages/a/attachments/part-1');assert.equal(init.headers['X-SparkClaw-Installation'],'installation');return original?new Response(original):new Response(null,{status:404});};
+ const client=new MailSyncClient({store:cache,localStore:local,getConnection:()=>connection,getFetch:()=>{throw new Error('ordinary proxy must not transfer attachments');},getFileFetch:()=>fetcher,installationID:'installation'});
+ const saved=await client.saveAttachment('box','a','part-1',conversation.id);assert.equal(saved.size,bytes.length);assert.deepEqual(local.file(scope,saved.id).content,bytes);
+ original=undefined;await assert.rejects(client.saveAttachment('box','a','part-1',conversation.id),/unavailable/);assert.deepEqual(local.file(scope,saved.id).content,bytes);
+ original=Buffer.alloc(bytes.length,66);await assert.rejects(client.saveAttachment('box','a','part-1',conversation.id),/integrity/);assert.equal(local.read(scope,conversation.id).files.length,1);
+ original=bytes;local.db.exec("CREATE TRIGGER mail_copy_disk_full BEFORE INSERT ON files BEGIN SELECT RAISE(ABORT,'disk full'); END;");await assert.rejects(client.saveAttachment('box','a','part-1',conversation.id),/disk full/);assert.equal(local.read(scope,conversation.id).files.length,1);assert.equal(original,bytes);
+ const before=calls;await assert.rejects(client.saveAttachment('box','a','missing',conversation.id),/available attachment/);assert.equal(calls,before);
+ cache.close();local.close();
 });

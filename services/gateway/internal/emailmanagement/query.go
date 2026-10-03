@@ -53,6 +53,7 @@ type AttachmentView struct {
 	Name      string `json:"name"`
 	Size      int64  `json:"size"`
 	Available bool   `json:"available"`
+	SHA256    string `json:"sha256,omitempty"`
 }
 type MessageView struct {
 	ClassificationState       string                   `json:"classification_state"`

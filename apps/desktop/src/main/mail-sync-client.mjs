@@ -1,9 +1,30 @@
+import crypto from 'node:crypto';
+
 const scope = (connection) => ({deployment_id:connection.deploymentID,owner_id:connection.ownerID,client_id:connection.clientID});
 export class MailSyncClient {
-  constructor({store,getConnection,getFetch,installationID,ensureInstallation=async()=>{}}) {Object.assign(this,{store,getConnection,getFetch,installationID,ensureInstallation});this.inflight=new Map();}
+  constructor({store,localStore,getConnection,getFetch,getFileFetch,installationID,ensureInstallation=async()=>{}}) {Object.assign(this,{store,localStore,getConnection,getFetch,getFileFetch,installationID,ensureInstallation});this.inflight=new Map();}
   #connection(){const connection=this.getConnection();if(!connection) throw new Error('Mail sync is locked; sign in first');return connection;}
   read(mailbox){return this.store.read(scope(this.#connection()),mailbox);}
   catalog(){return this.store.catalog(scope(this.#connection()));}
+  async saveAttachment(mailbox,mailID,partID,conversationID){
+    const connection=this.#connection(); const identity=scope(connection);
+    if(!this.localStore||!this.getFileFetch)throw new Error('Attachment saving is unavailable');
+    this.localStore.read(identity,conversationID);
+    const mail=this.store.read(identity,mailbox).messages.find((value)=>value.id===mailID);
+    const part=mail?.attachments.find((value)=>value.id===partID);
+    if(!part?.available||!/^sha256:[a-f0-9]{64}$/u.test(part.sha256)||!Number.isSafeInteger(part.size)||part.size<0||part.size>64*1024*1024)throw new Error('Synchronize an available attachment within 64 MiB before saving it');
+    await this.ensureInstallation();
+    if(this.getConnection()!==connection)throw new Error('Mail login changed');
+    const response=await this.getFileFetch()(`${connection.origin}/api/r3/mail/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(mailID)}/attachments/${encodeURIComponent(partID)}`,{method:'GET',headers:{Authorization:connection.authorization,'X-SparkClaw-Installation':this.installationID},redirect:'manual',signal:AbortSignal.timeout(30000)});
+    if(!response.ok)throw new Error('The mail attachment is unavailable; synchronize and retry');
+    const reader=response.body?.getReader();if(!reader)throw new Error('Attachment response is empty');
+    const chunks=[];const hash=crypto.createHash('sha256');let size=0;
+    try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>part.size||size>64*1024*1024)throw new Error('Mail attachment size differs from its manifest');hash.update(value);chunks.push(value);}}
+    finally{await reader.cancel().catch(()=>{});}
+    if(size!==part.size||`sha256:${hash.digest('hex')}`!==part.sha256)throw new Error('Mail attachment integrity differs from its manifest');
+    if(this.getConnection()!==connection)throw new Error('Mail login changed');
+    return this.localStore.saveFile(identity,conversationID,part.name,Buffer.concat(chunks));
+  }
   async #request(path, {method='GET', body}={}){
     const connection=this.#connection();
     const response=await this.getFetch()(`${connection.origin}${path}`,{method, ...(body!==undefined?{body}:{}),headers:{Authorization:connection.authorization,Accept:'application/json','X-SparkClaw-Installation':this.installationID,...(body!==undefined?{'Content-Type':'application/json'}:{})},redirect:'manual',signal:AbortSignal.timeout(30000)});

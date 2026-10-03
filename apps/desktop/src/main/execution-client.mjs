@@ -11,18 +11,20 @@ export class ExecutionClient {
   constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {} }) {
     Object.assign(this, { auth, store, getIdentity, intervalMS, onChange });
     this.operations = new Map();
+    this.controller = new AbortController();
     this.closed = false;
   }
 
   start() {
     this.closed = false;
+    if (this.controller.signal.aborted) this.controller = new AbortController();
     if (!this.timer) this.timer = setInterval(() => void this.reconcilePending().catch(() => {}), this.intervalMS);
     this.timer.unref?.();
     void this.reconcilePending().catch(() => {});
     return this;
   }
 
-  close() { this.closed = true; clearInterval(this.timer); this.timer = undefined; }
+  close() { this.closed = true; this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
 
   async submit(scope, requestID) {
     scope = this.#boundScope(scope);
@@ -170,11 +172,11 @@ export class ExecutionClient {
     if (this.closed || this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; local input is preserved");
     const headers = new Headers(init?.headers);
     headers.set("X-SparkClaw-Installation", this.store.installationID);
-    return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers });
+    return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers, signal: this.controller.signal });
   }
   #sameIdentity(scope) {
     const current = this.getIdentity();
-    if (!current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
+    if (this.closed || !current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
         JSON.stringify([current.deployment_id, current.owner_id, current.client_id]) ||
         (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation)) throw new Error("Execution authentication changed");
   }

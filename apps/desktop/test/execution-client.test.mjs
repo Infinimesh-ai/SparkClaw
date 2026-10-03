@@ -191,6 +191,22 @@ test("logout and same-identity relogin generation fence an old result", async (t
   assert.equal(f.store.receipt(scope, f.task.request_id), null);
 });
 
+test("suspending the client aborts outstanding result work without persisting or ACKing it", async (t) => {
+  let signal; let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const f = fixture(t, async (_url, init) => {
+    signal = init.signal; await wait;
+    return new Response(JSON.stringify(event(f, "completed", result())));
+  });
+  const submitted = f.client.submit(scope, f.task.request_id);
+  await new Promise((resolve) => setImmediate(resolve));
+  f.client.close();
+  assert.equal(signal.aborted, true);
+  release();
+  await assert.rejects(submitted, /authentication changed/);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
+});
+
 test("cancel and expired delivery preserve distinct terminal states without creating outputs", async (t) => {
   let state = "accepted"; let cancel = false;
   const f = fixture(t, async (url) => {

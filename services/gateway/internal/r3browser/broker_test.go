@@ -161,6 +161,12 @@ func TestBoundReadAndDurableContentFreeWriteFence(t *testing.T) {
 	if err := restarted.Reconcile(testIdentity, "cmd_write", fences[0].Digest, "observed_completed"); err != nil {
 		t.Fatal(err)
 	}
+	if err := restarted.Reconcile(testIdentity, "cmd_write", fences[0].Digest, "observed_completed"); err != nil {
+		t.Fatalf("reconciliation replay must be idempotent: %v", err)
+	}
+	if err := restarted.Reconcile(testIdentity, "cmd_write", fences[0].Digest, "observed_not_applied"); !errors.Is(err, ErrFence) {
+		t.Fatalf("outcome replacement allowed: %v", err)
+	}
 	if len(restarted.Fences(testIdentity)) != 0 {
 		t.Fatal("explicit reconciliation did not release fence")
 	}

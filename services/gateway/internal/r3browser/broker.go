@@ -433,6 +433,9 @@ func (b *Broker) Reconcile(identity Identity, commandID, digestValue, outcome st
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	fence, ok := b.fences[commandID]
+	if ok && fence.Scope.Identity == identity && fence.Digest == digestValue && fence.State == outcome {
+		return nil
+	}
 	if !ok || fence.Scope.Identity != identity || fence.Digest != digestValue || fence.State != "unknown" {
 		return ErrFence
 	}

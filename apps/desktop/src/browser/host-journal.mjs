@@ -41,10 +41,14 @@ export class HostJournal {
     await this.#store({ ...this.rows.get(id), state, updated_at: new Date().toISOString() });
   }
   unknown(scope) { return [...this.rows.values()].filter((row) => row.state === "unknown" && row.installation_id === scope.installation_id && row.owner_id === scope.owner_id && row.client_id === scope.client_id); }
-  async reconcile(id, digest, outcome) {
+  async reconcile(id, digest, outcome, remoteUnknown = false) {
     const row = this.rows.get(id);
-    if (!row || row.state !== "unknown" || row.digest !== digest || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser reconciliation is invalid");
+    if (!row || !(row.state === "unknown" || remoteUnknown && row.state === "completed" || row.state === outcome) || row.digest !== digest || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser reconciliation is invalid");
     await this.#store({ ...row, state: outcome, updated_at: new Date().toISOString() });
+  }
+  async recordReconciled(fence, outcome) {
+    if (!fence || this.rows.has(fence.command_id) || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser reconciliation is invalid");
+    await this.#store({ command_id: fence.command_id, digest: fence.digest, ...fence.scope, state: outcome, updated_at: new Date().toISOString() });
   }
   async #store(row) {
     validate(row);

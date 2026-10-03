@@ -18,7 +18,7 @@ export class BrowserHostAgent {
     this.runtime = registry.runtimeGeneration;
     this.state = "ungranted";
     this.generation = 0;
-    this.leases = new Map(); this.queues = new Map();
+    this.leases = new Map(); this.queues = new Map(); this.remoteFences = new Map();
   }
   async start(scope) {
     if (!ID.test(scope?.installation_id)) throw new Error("Browser installation is unavailable");
@@ -29,7 +29,10 @@ export class BrowserHostAgent {
     this.#state("ungranted"); return this.snapshot();
   }
   snapshot() {
-    return { state: this.state, role: "client_embedded", unknown_writes: this.scope ? this.journal.unknown(this.scope).map((row) => ({ command_id: row.command_id, digest: row.digest, local_conversation_id: row.local_conversation_id, local_task_id: row.local_task_id })) : [] };
+    const rows = new Map();
+    for (const row of this.scope ? this.journal.unknown(this.scope) : []) rows.set(row.command_id, row);
+    for (const [id, fence] of this.remoteFences) rows.set(id, { ...fence.scope, command_id: id, digest: fence.digest });
+    return { state: this.state, role: "client_embedded", unknown_writes: [...rows.values()].map((row) => ({ command_id: row.command_id, digest: row.digest, local_conversation_id: row.local_conversation_id, local_task_id: row.local_task_id })) };
   }
   // Invoked only by trusted main-frame explicit user activation. Credentials
   // and host grant never cross IPC or become local renderer configuration.
@@ -38,7 +41,7 @@ export class BrowserHostAgent {
     const generation = ++this.generation;
     this.#disconnect("reconnecting");
     const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/grants`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ installation_id: this.scope.installation_id }),
+      method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: "{}",
     });
     if (!response.ok) throw new Error("Browser host permission was rejected");
     const grant = await response.json();
@@ -76,6 +79,7 @@ export class BrowserHostAgent {
           else this.#disconnect("fenced");
         });
       });
+      await this.refreshFences();
       return this.snapshot();
     } catch (error) {
       if (generation === this.generation && (isTLSIdentityError(error) || error?.status === 401)) await this.auth.logout?.(isTLSIdentityError(error) ? "identity_conflict" : "invalid_authentication");
@@ -83,14 +87,43 @@ export class BrowserHostAgent {
       throw new Error("Browser host channel is unavailable");
     }
   }
-  async stop() { this.generation++; this.#disconnect("ungranted"); this.scope = undefined; }
+  async stop() { this.generation++; this.#disconnect("ungranted"); this.scope = undefined; this.remoteFences.clear(); }
   async suspend() { this.generation++; this.#disconnect("suspended"); }
+  async refreshFences() {
+    if (!this.scope || this.auth.status.state !== "connected") throw new Error("Browser reconciliation identity is unavailable");
+    const generation = this.generation; const scope = this.scope;
+    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/fences`, { headers: { "X-SparkClaw-Installation": scope.installation_id } });
+    if (!response.ok) throw new Error("Browser write fences are unavailable");
+    const result = await response.json();
+    if (generation !== this.generation || scope !== this.scope) throw new Error("Browser reconciliation identity changed");
+    if (!result || Object.keys(result).join() !== "fences" || !Array.isArray(result.fences) || result.fences.length > 1024) throw new Error("Browser fence response is invalid");
+    const fences = new Map();
+    for (const row of result.fences) {
+      const keys = ["command_id", "scope", "host_id", "runtime_generation", "connection_epoch", "lease_id", "page_id", "page_generation", "authorization_digest", "digest", "write", "state", "updated_at"];
+      const scopedKeys = ["owner_id", "client_id", "installation_id", "local_conversation_id", "local_task_id"];
+      if (!row || Object.keys(row).sort().join() !== keys.sort().join() || !row.scope || Object.keys(row.scope).sort().join() !== scopedKeys.sort().join() ||
+          scopedKeys.some((key) => !ID.test(row.scope[key])) || ["owner_id", "client_id", "installation_id"].some((key) => row.scope[key] !== scope[key]) ||
+          !ID.test(row.command_id) || !["host_id", "runtime_generation", "connection_epoch", "lease_id", "page_id"].every((key) => ID.test(row[key])) || !HASH.test(row.digest) || !HASH.test(row.authorization_digest) ||
+          row.state !== "unknown" || row.write !== true || !Number.isSafeInteger(row.page_generation) || row.page_generation < 1 || !Number.isFinite(Date.parse(row.updated_at)) || fences.has(row.command_id)) throw new Error("Browser fence identity is invalid");
+      const local = this.journal.rows.get(row.command_id);
+      if (local && (local.digest !== row.digest || scopedKeys.some((key) => local[key] !== row.scope[key]))) { this.#disconnect("reconciliation_conflict"); throw new Error("Browser fence digest conflicts with the local journal"); }
+      fences.set(row.command_id, Object.freeze(row));
+    }
+    this.remoteFences = fences; this.onChange(); return this.snapshot();
+  }
   async reconcile(commandID, digest, outcome) {
-    const row = this.journal.unknown(this.scope || {}).find((item) => item.command_id === commandID && item.digest === digest);
-    if (!row || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser write reconciliation is invalid");
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/reconcile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ installation_id: this.scope.installation_id, command_id: commandID, digest, outcome }) });
+    if (!ID.test(commandID) || !HASH.test(digest) || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser write reconciliation is invalid");
+    await this.refreshFences();
+    const local = this.journal.rows.get(commandID);
+    const remote = this.remoteFences.get(commandID);
+    const scopedKeys = ["owner_id", "client_id", "installation_id"];
+    const localBound = local && local.digest === digest && scopedKeys.every((key) => local[key] === this.scope?.[key]);
+    if (!(remote?.digest === digest || localBound && local.state === "unknown") || local && !localBound) throw new Error("Browser write reconciliation is invalid");
+    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/reconcile`, { method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: JSON.stringify({ command_id: commandID, digest, outcome }) });
     if (!response.ok) throw new Error("Backend write reconciliation failed");
-    await this.journal.reconcile(commandID, digest, outcome); this.onChange(); return this.snapshot();
+    if (local) await this.journal.reconcile(commandID, digest, outcome, Boolean(remote));
+    else await this.journal.recordReconciled(remote, outcome);
+    this.remoteFences.delete(commandID); this.onChange(); return this.snapshot();
   }
   #renew(message) {
     if (message.connection_epoch !== this.epoch || !Array.isArray(message.bindings) || message.bindings.length > 32) { this.#disconnect("fenced"); return; }

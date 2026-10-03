@@ -15,7 +15,7 @@ async function fixture(t, execute) {
  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-host-test-"));t.after(() => fs.rm(root, { recursive: true, force: true }));
  const pages = new Map(); let closed = 0; let grantCalls = 0;
  const registry = { runtimeGeneration: "runtime_test", acquireHostPage(b) { if (pages.has(b.local_conversation_id)) throw new Error("second controller"); const record = { binding: b, pageRef: `ref_${b.local_conversation_id}` }; pages.set(b.local_conversation_id, record); return record; }, requireHostPage(b) { const record = pages.get(b.local_conversation_id); if (!record || record.binding.lease_id !== b.lease_id) throw new Error("stale"); return record; }, releaseHostPage(b) { pages.delete(b.local_conversation_id); }, closeHostPages() { closed++; pages.clear(); }, closeConnection(id) { for (const [key, value] of pages) if (value.binding.lease_id === id) pages.delete(key); } };
- const auth = { status: { state: "connected" }, connection: { ownerID: "owner", clientID: "client", authorization: "Bearer synthetic" }, descriptor: { schemaVersion: 2, origin: "https://example.test" }, async authorizedFetch(url) { grantCalls++; assert.equal(url, "https://example.test/api/r3/hosts/grants"); return Response.json({ host_id: "host_test", grant_token: "synthetic-private-grant", grant_digest: "a".repeat(64), expires_at: new Date(Date.now() + 60000).toISOString() }); } };
+ const auth = { status: { state: "connected" }, connection: { ownerID: "owner", clientID: "client", authorization: "Bearer synthetic" }, descriptor: { schemaVersion: 2, origin: "https://example.test" }, async authorizedFetch(url, init) { if (url.endsWith("/fences")) { assert.equal(init.headers["X-SparkClaw-Installation"], "installation"); return Response.json({ fences: [] }); } grantCalls++; assert.equal(url, "https://example.test/api/r3/hosts/grants"); assert.equal(init.headers["X-SparkClaw-Installation"], "installation"); assert.deepEqual(JSON.parse(init.body), {}); return Response.json({ host_id: "host_test", grant_token: "synthetic-private-grant", grant_digest: "a".repeat(64), expires_at: new Date(Date.now() + 60000).toISOString() }); } };
  const socket = new EventEmitter(); socket.results = []; socket.send = (value) => socket.results.push(value); socket.close = () => { if (!socket.closed) { socket.closed = true; socket.emit("close"); } };
  const agent = new BrowserHostAgent({ auth, registry, userDataDir: root, execute: execute || (async (_record, _op, _args, b, fence) => { fence(); return { text: b.local_conversation_id }; }), connect: async () => { setTimeout(() => socket.emit("message", { schema_version: 1, type: "welcome", host_id: "host_test", runtime_generation: "runtime_test", connection_epoch: "epoch_test", authorization_digest: "a".repeat(64), lease_seconds: 30, heartbeat_seconds: 10 }), 0); return socket; } });
  t.after(() => agent.stop()); await agent.start({ installation_id: "installation" });
@@ -59,4 +59,30 @@ test("journal crash recovery is content-free and explicit evidence is required t
  const second = await new HostJournal(root).load(); assert.equal(second.unknown(scope).length, 1);
  await assert.rejects(second.reconcile(write.command_id, "0".repeat(64), "observed_completed"), /invalid/);
  await second.reconcile(write.command_id, write.digest, "observed_completed"); assert.equal(second.unknown(scope).length, 0);
+});
+
+test("lost reply after durable local completion merges backend unknown by exact identity/hash and requires explicit evidence", async (t) => {
+ const { socket, agent, auth, pages } = await fixture(t);
+ const a = binding();socket.emit("message", command("acquire", a));await until(() => pages.size === 1);
+ const write = command("fill", a, { ref: "snapshot:e1", snapshot_id: "snapshot", value: "local draft" }, "lost_result_write");
+ socket.emit("message", write);await until(() => agent.journal.rows.get(write.command_id)?.state === "completed");
+ const fence = { command_id: write.command_id, scope: { ...scope, local_conversation_id: "A", local_task_id: "task_A" }, host_id: a.host_id,
+   runtime_generation: a.runtime_generation, connection_epoch: a.connection_epoch, lease_id: a.lease_id, page_id: a.page_id, page_generation: 1,
+   authorization_digest: a.authorization_digest, digest: write.digest, write: true, state: "unknown", updated_at: new Date().toISOString() };
+ let reconcileCalls = 0;
+ auth.authorizedFetch = async (url, init) => {
+   assert.equal(init.headers["X-SparkClaw-Installation"], "installation");
+   if (url.endsWith("/fences")) return Response.json({ fences: [fence] });
+   assert.ok(url.endsWith("/reconcile"));reconcileCalls++;
+   assert.deepEqual(JSON.parse(init.body), { command_id: write.command_id, digest: write.digest, outcome: "observed_completed" });
+   return Response.json({ reconciled: true });
+ };
+ await agent.refreshFences();assert.equal(agent.snapshot().unknown_writes.length, 1);assert.equal(reconcileCalls, 0, "a local completed journal cannot automatically resolve remote unknown");
+ await assert.rejects(agent.reconcile(write.command_id, "0".repeat(64), "observed_completed"), /invalid/);assert.equal(reconcileCalls, 0);
+ await agent.reconcile(write.command_id, write.digest, "observed_completed");assert.equal(agent.snapshot().unknown_writes.length, 0);assert.equal(agent.journal.rows.get(write.command_id).state, "observed_completed");assert.equal(reconcileCalls, 1);
+ // Another Owner/client/installation's fence must never enter this UI scope.
+ auth.authorizedFetch = async () => Response.json({ fences: [{ ...fence, scope: { ...fence.scope, client_id: "other-client" } }] });
+ await assert.rejects(agent.refreshFences(), /identity/);
+ auth.authorizedFetch = async () => Response.json({ fences: [{ ...fence, digest: "0".repeat(64) }] });
+ await assert.rejects(agent.refreshFences(), /digest conflicts/);assert.equal(agent.state, "reconciliation_conflict");assert.equal(pages.size, 0);
 });

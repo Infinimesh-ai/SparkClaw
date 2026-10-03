@@ -42,6 +42,17 @@ func main() {
 		if !authorized(w, r) {
 			return
 		}
+		if r.Header.Get("X-SparkClaw-Installation") != identity.InstallationID {
+			http.Error(w, "installation rejected", 403)
+			return
+		}
+		var input struct{}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&input) != nil {
+			http.Error(w, "strict grant request rejected", 400)
+			return
+		}
 		grant, err := broker.IssueGrant(identity)
 		if err != nil {
 			http.Error(w, "grant failed", 500)
@@ -103,6 +114,13 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(output)
+	})
+	mux.HandleFunc("GET /api/r3/hosts/fences", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) || r.Header.Get("X-SparkClaw-Installation") != identity.InstallationID {
+			http.Error(w, "installation rejected", 403)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"fences": broker.Fences(identity)})
 	})
 	mux.HandleFunc("GET /qualify/fences", func(w http.ResponseWriter, r *http.Request) {
 		if authorized(w, r) {

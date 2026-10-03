@@ -2,77 +2,103 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-r3-dual-host-acceptance.md)
 
-Date: 2026-10-03, Asia/Shanghai. Branch: `codex/sparkclaw-r3`. This continues the [initial Mac record](macos-r3-acceptance.md) after the user supplied `infinimesh@192.168.20.252` and authorized paired acceptance. **The scoped checks below passed; full M01–M12 release acceptance remains incomplete.**
+Updated: 2026-10-03, Asia/Shanghai. Branch: `codex/sparkclaw-r3`. This continues the [initial Mac record](macos-r3-acceptance.md). The user authorized this Mac and `infinimesh@192.168.20.252` for paired testing and limited the Mac to internal use. **Executed evidence is listed below; full M01–M12 acceptance remains incomplete.**
 
 ## Environment and exact versions
 
 | Component | Actual version / location |
 |---|---|
 | Delivery baseline | `d797d6193b3679125dfccd1c274dd990e5cd9c8f` |
-| Gateway build source | `40986ababcafd390b4501686f670fec7395d4d04`; its Go product source is identical to the final client source revision |
-| Final client/build source | `f7074ba5116d2724a3dc0781b49e142185f8380b` |
-| HTTPS DELETE repair | `da851139a9879499be57949a02050d0f8b4ab131` |
-| Workbench clipboard repair | `f7074ba5116d2724a3dc0781b49e142185f8380b` |
-| Mac | ARM64 macOS 26.6.2 (25G83), Node 26.2.0/npm 11.13.0; packaged application in normal product mode |
-| Linux | `gx10-7660`, ARM64 Linux 6.17.0-1032-nvidia; Go 1.25.5, Node 26.2.0; native Electron clients on private Xvfb with the logged-in user's GNOME Secret Service |
-| Both native client runtimes | Electron 44.4.3, Chromium 152.0.7977.130 |
-| Gateway binary SHA-256 | `e1d18fd6c33db271487879d4dd7f9cb88edaf8a5bf5b606d856d0b8a9419c9d2` |
-| New Linux root | `/home/infinimesh/.cache/sparkclaw-r3-dual-FZMMvi` |
-| New Mac profile | Repository `.cache/dual-host-acceptance/mac-profile` |
+| Final client/package source in this round | `86176211a7c51abb6ab8680f14e884fc06934430` |
+| Running isolated Gateway build source | `ab8833dd9d4e418ef5a0d180d1afa8edb5f36e77`; later changes affect desktop code only, with identical Go product source |
+| Gateway binary SHA-256 | `e879343ac14e1db4ccc71945f216e9ccc1bcfde7e4f4dfc0c375b56fb765e64b` |
+| Mac | Apple M5 / ARM64, macOS 26.6.2 (25G83), internal Retina 2560×1664, scale factor 2; Node 26.2.0/npm 11.13.0 |
+| Linux | `gx10-7660`, ARM64 Linux 6.17.0-1032-nvidia; Go 1.25.5/Node 26.2.0; native clients on private Xvfb with the user's GNOME Secret Service |
+| Native runtimes on both hosts | Electron 44.4.3 / Chromium 152.0.7977.130; Electron Node 24.21.0 |
+| Isolated Linux root | `/home/infinimesh/.cache/sparkclaw-r3-dual-FZMMvi` |
+| Mac test profile | Repository `.cache/dual-host-acceptance/mac-profile` |
+| Internal Mac installation | Repository `.cache/dual-host-acceptance/installed/SparkClaw.app`, actually mounted/copied from this round's DMG |
 | HTTPS origin / deployment / owner | `https://192.168.20.252:25543` / `dual-host-r3-20261003-FZMMvi` / `owner` |
 | Leaf certificate SHA-256 | `1a2e2668378f11dcf44f0027a15f8318d55604d69ceb85f6fe432cca2d4b32cd` |
 
-SSH was used for inspection, source transfer and test launch. Client HTTPS/WSS traffic traversed the LAN directly, without an SSH tunnel. The fresh public v2 descriptor includes the dedicated public CA; certificate chain, hostname and leaf pin validation were retained. The certificate is a two-day test certificate, not a production trust configuration.
+SSH is used for inspection, source transfer and test launch. Client HTTPS/WSS traverses the LAN directly, without an SSH tunnel. A dedicated two-day test CA retains chain, hostname and leaf-pin validation. The isolated Gateway uses mock models with external MCP/integrations disabled; synthetic-mail intake is paused. The existing Linux Gateway was not repaired, restarted or reconfigured; the initial HTTP `18790/healthz` check returned 502.
 
-The existing repository on Linux was at the baseline, but its existing Gateway container was restarting/unhealthy and HTTP `18790/healthz` returned 502; its runtime lacked the new local-management credential file. No existing service was restarted, reconfigured or repaired. All new state, workspaces, artifacts, TLS keys and logs are beneath the dedicated root. The Gateway uses mock models, no external MCP/integrations, an unused private browser-controller path and synthetic mail whose provider intake is disabled. No existing mail, browser Profile, token, owner data or production database was imported. InfiniCenter/0031 and main were untouched.
+Only GB10/Linux collects mail. The Mac synchronizes authorized backend mail and keeps its local cache. The existing dedicated browser's three mailbox Profiles were directly reused as authorized, without copying Profiles/mailbox credentials to Mac, importing historical mail or old test history, modifying production business data, merging main, or connecting to InfiniCenter/waiting for 0031.
 
-Mailbox collection runs only on the GB10/Linux backend. The Mac client synchronizes authorized backend mail and retains its local cache; it does not run a collector or copy the backend mailbox credentials/Profile. Existing Linux/shared acceptance remains baseline evidence. The missing real-provider evidence below concerns this paired data path, not a requirement to repeat Linux collector qualification.
+## Executed physical-host evidence
 
-## Executed evidence
+- **Paired mail contracts:** independent clients/installations synchronized fresh synthetic mail and Chinese-name attachments through the real Gateway. Authoritative HTTP deletion rejects stale versions, retries the same command key without repeating deletion, and sends tombstones to both caches. Saved local attachment copies survive source deletion. An expired-epoch cursor resets and rebuilds the full cache; malformed cursors return 400 and are not mislabeled as recovery passes.
+- **Independent local persistence:** fresh native processes restore each client's conversations/messages/request IDs/files. The Mac's “最终实机验收” message “休眠断网后保留” remains unsubmitted. Installation UUID is `0715c02e-fb84-4b14-a9e4-92b8fabdd446`; saved-file SHA-256 is `242a3103061c81ed1e1e1f9c380d9324980b8a3e4129dd829af3b3bdc0255803`. Its marker and conversation ID are absent from the Linux backend and Linux client's non-mail database. This does not include a macOS reboot yet.
+- **Actual lid/network/quit:** the user's lid operation produced a system Clamshell Sleep record from 16:42:26 to 16:44:17, lasting 111 seconds. GUI/local message/file survived wake. Wi-Fi `en0` was actually off for 45.08 seconds; backend TCP was unreachable while local file hash/unsubmitted state remained valid, then LAN connectivity recovered. GUI Cmd+Q fully exited the process; application rebuild/relaunch retained local data. The first offline GUI mailbox action exposed the installation-binding defect. The complete GUI network recheck after repair is still pending.
+- **Common adapter and ordinary product workflow:** an earlier disposable `25544` facade used the real Go Broker and both hosts' real WebContents for navigation, input, click/read, 20 A/B switches, same-view release/reacquire, late-event fencing, system-browser/popup rejection, and unknown-write fences following a real click whose response was lost. That facade is stopped. Subsequent ordinary workflows used the actual Gateway, navigating/reading `https://www.google.com` in each native Host; the mock answer was grounded in real page reads. Neither host used a copied Linux page or substituted backend page. After actual renderer crashes, explicit new tasks created new WebContents/page refs, preserved selection of B, and rejected old refs/cross-conversation display.
+- **Actual lease expiry:** using the real Gateway/WSS and native pages, the fixtures suppressed two client heartbeats and delayed a started read, retaining real wall time. Mac closed the task page after 29.97 seconds and Linux after 30.05 seconds. Old references were invalid, and late results did not reopen pages. Each host submitted once. Unknown-write reconciliation is covered separately by the actual click case, not inferred from a read timeout.
+- **ACK loss/restarts:** the fixture discarded an ACK response after the real Gateway accepted it. Actual isolated Gateway/native client restarts then reconciled one ACK with zero new execution submissions, the same digest, and exactly two local messages. Ordinary execution-context markers were absent from persistent backend state/workspace/traces/logs.
+- **GUI/credentials:** the user entered an independent Mac credential, opened device settings, issued/revoked devices, and confirmed Copy/local paste after the clipboard repair. Revoked devices retaining timestamped metadata is expected. Real private TTY bootstrap/recovery was one-time; repeated completed retrieval did not redisplay tokens. Linux actually revoked the old client, authenticated a new one, and retained its installation UUID/old scoped data without cross-client migration. Native Mac Keychain/Linux `gnome_libsecret` process restoration, wrong pin/deployment/owner/token rejection and protected-event-stream abortion on logout were verified.
+- **Tests/packages:** final desktop suites passed all 90 tests on each host; 50 related tests passed under Mac Electron Node/SQLite. Final Mac native credential checks across three processes and both native Host suites passed. ARM64 DMG/ZIP was rebuilt locally, afterPack allowlists and `hdiutil verify` passed. The actual installed application refused a private future-Schema-5 database with exit code 1, preserving database/saved-file byte hashes. Known automated tokens were absent from Git/ASAR/logs/backend content/binaries; the human GUI token was not decrypted for scanning.
 
-- **Native paired mail:** two independently issued clients and installation UUIDs authenticated to the real Gateway. The typed repository was seeded offline with two fresh synthetic messages, structured previews and verified Chinese-name attachments, using the existing discovery/capture/parse/classification/assignment contracts. Both native clients synchronized the same mailbox. Authoritative HTTP deletes rejected stale versions, replayed the same command key without repeating deletion, and propagated durable tombstones to both caches, including an empty final mailbox. A syntactically valid expired-epoch cursor produced the server reset path and both clients rebuilt their caches. Malformed cursors correctly return 400 and were not mislabeled as expired-cursor recovery.
-- **Persistence and independence:** fresh Electron processes restored each client's own Chinese conversation, immutable request ID, local file and saved attachment. A stopped isolated Gateway left each complete mail cache/cursor and local input intact. Reconnection resumed using persisted identity. Synthetic Mac non-mail markers were absent from Linux backend/other-client storage; Linux markers were absent from Mac non-mail storage. Deleting backend mail did not remove saved local attachment copies. This was application/process restart, not a macOS reboot.
-- **Shared LAN Broker:** a disposable test facade around the real Go `r3browser.Broker` listened at `25544` with separate Host identities. Both physical hosts used the same adapter with real embedded WebContents to navigate, fill, click and read, switch A/B 20 times, release/reacquire the same view, reject late A presentation over B, block system-browser commands and Host popups, and fence a lost response after a real click as an unknown write on both sides. The facade is a qualification endpoint, not a production Gateway API. Its listener was stopped after the checks. Mac Host/GB10 backend-acquisition role isolation in the deployed product and real supported sites were not tested in this paired round.
-- **Real delivery ACK loss and restart:** each native client explicitly submitted a fresh ordinary request to the real Gateway's mock-model workflow. The fixture discarded the first ACK response *after the real Gateway accepted the ACK*. The local durable receipt remained unacknowledged. After an actual isolated Gateway restart and fresh client process, reconciliation issued one ACK, zero execution submissions, retained the same digest and exactly two local messages, and marked the receipt acknowledged. Execution context markers were absent from persistent backend state/workspace/traces/logs. This does not replace expiry/power-loss qualification.
-- **Credential bootstrap/recovery:** the actual `credentials.mjs` CLI ran on Linux in real private TTYs against the private management socket. Initial/recovery retrieval displayed a credential once; repeated completed retrieval did not redisplay it. Journals contain only metadata. The Mac and Linux clients used independent credentials, not the provisioned Linux desktop token. Real Linux recovery revoked the old client (subsequent authentication returned invalid/401), issued a new client, retained the installation UUID and old local data, and authenticated/synchronized using the replacement. Old data remains in its original client scope; no cross-client data migration was performed.
-- **Mac product GUI:** the user completed terminal recovery and entered the one-time credential directly in the packaged application. Settings → Devices & credentials was reachable; GUI issuance and revocation succeeded. Revoked entries remain visibly marked `revoked` with a timestamp as device records. The user initially reported Copy failure. After the clipboard repair/rebuild, the packaged application restarted and unlocked from its own Keychain vault without token entry; the user confirmed Copy/paste revalidation succeeded. The revalidation device was actually named `My device`, and backend metadata confirmed it revoked; the suggested test name was not substituted for this observation. No one-time GUI token was captured in screenshots/chat.
-- **Secure storage/TLS:** Mac Keychain and Linux `gnome_libsecret` encrypted vaults survived native process restart; `basic_text` was not accepted. Wrong pin, deployment, owner and invalid credentials were rejected. Logout aborted a real protected event stream while preserving local data. Real recovery/revocation clears the old vault. GUI self-revocation and the complete sleep/lease/exit matrix remain outstanding.
-- **Verification:** all 88 desktop tests passed on both hosts. The 49 store/execution/approval/schedule/mail tests also passed under Mac Electron's embedded Node/SQLite. Native OS clipboard write tests passed on Mac and Linux; clipboard reads remained denied. Final ARM64 packaging, afterPack allowlist audit and `hdiutil verify` passed. Known automated test tokens were absent from tracked files, actual ASAR, logs, backend content and binaries. Package allowlists exclude private profiles, all backend credentials and other-device state; the human GUI credential was not decrypted for inspection.
+Mac and Linux use the same product frontend: all three actual built asset SHA-256 hashes match. Main JS `index-BC08-68r.js` is `31738392ed82e657f277b9397fb73245224d211c303a904a1c47f9576bf0157c`. Asset parity does not certify unexecuted physical Linux GUI checks.
 
-## Source repairs found by paired acceptance
+## Real mail and the existing collection environment
 
-The pinned HTTPS implementation wrote a DELETE body without framing it. Node did not automatically send its JSON length for that method, so the Gateway received an invalid empty request (400). The repair computes the encoded byte length, overrides conflicting Content-Length, and removes conflicting Transfer-Encoding before writing the body. A real HTTPS regression check includes Chinese UTF-8 JSON. The repaired LAN request exercised authoritative deletion/CAS/replay on the real Gateway.
+The user authorized exactly three fresh mails, one attempt per route, subject prefix `SCW-mail-R3-20261003-405d1b61`, no attachments, recipients limited to the three existing Profile accounts. No mail was resent.
 
-The workbench session's permission handlers allowed only audio media and rejected clipboard writes. They now allow `clipboard-sanitized-write` only for the trusted workbench's main frame. Clipboard reading, sibling WebContents, subframes and other origins remain denied; audio/video rules are preserved. Security-boundary unit checks, actual Electron/OS clipboard checks on both hosts and the user's packaged-Mac Copy revalidation passed. Both repairs were committed and pushed to R3.
+| Route | Actual outcome |
+|---|---|
+| QQ → Outlook | `email_draft_verification_failed`; sending unconfirmed; recipient's bounded new-mail window yielded zero candidates; FAIL/no replay |
+| Outlook → Gmail | `email_page_contract_changed`; sending unconfirmed; recipient's bounded new-mail window yielded zero candidates; FAIL/no replay |
+| Gmail → QQ | Send confirmed; one qualified new QQ candidate; real original capture/product MIME parsing and Mac/Linux native sync passed (Mac uses its independent native qualification Profile, without copying credentials/cache into the GUI Profile); Mac product GUI sync awaits restored login |
 
-## Updated M01–M12 scope
+After the Mac completely exited, GB10 captured the unique new QQ message again: `cap_072ff1b4c907243de56194bdded252ea`, original hash `sha256:7eee34a1df4657c40ee06a497981329fc0f900445efe2372a545bca969a76e2d`. Product receipt/manifest/original validation was followed by isolated typed-store discovery/page-batch lease publication and the real MIME parser. Constructed text was not substituted for the original. Isolated mail ID is `d49178ad82a4f96227e580038f9c4a19814d64f292490c2b00725fd5446edaef`; Both native caches share body SHA-256 is `9de3b3bc68a6eef8026b871befc5381b35290f46b4eec11a999e29a464111c83`. This proves one actual collection operation remained independent of Mac exit, not long-running periodic collection qualification.
 
-`PASS (scoped)` applies only to this fresh non-production LAN/test-data workflow. `PARTIAL` does not certify the full case. The initial record's NOT_RUN entries describe the earlier local-only round, not this follow-up.
+The existing browser Controller runs `/home/infinimesh/.local/share/sparkclaw/qualification/20260930/pre-extraction-baseline/tools/browser-controller/src/main.mjs`, entry SHA-256 `e211904e52c1940d207eac32ab0dedc460ea0988c65d03eb0e5becb426ff9b16`, without the current R3 `AppCLIClientFactory`/release configuration. Site failures are attributed to that running version, not presented as complete pass/fail results for the current R3 App-CLI release. The existing service was not upgraded or restarted. Default discover is account bootstrap; zero candidates does not mean an empty mailbox. Recipient outcomes used subsequent explicit new-time-window discovery.
 
-| Case | Current evidence/status | Still not executed |
+## Source repairs committed and pushed
+
+| SHA | Defect and resulting behavior |
+|---|---|
+| `da851139a9879499be57949a02050d0f8b4ab131` | pinned HTTPS DELETE lacked UTF-8 byte framing and the real Gateway received an empty body; framing fixed and authoritative deletion verified |
+| `f7074ba5116d2724a3dc0781b49e142185f8380b` | clipboard writes allowed only for the trusted workbench main frame; reads/other origins remain denied; user revalidation passed |
+| `c8f81144c6b0a3144522ccd579a5deb1aac4a87e` | ordinary GUI mailbox refresh called removed `executionClient.register`; uses completed DesktopAuth installation binding; actual GUI catalog/sync recovered |
+| `ab8833dd9d4e418ef5a0d180d1afa8edb5f36e77` | ScopedAdapter omitted legacy ToolHub result fields and real navigation stopped before read; result contracts and cross-layer workflow regression fixed |
+| `0f24edc2610499ffa5b75ac24735f322b0076fdf` | local conversation ownership was lost on lease release; retained ownership constrains display/navigation/popups; actual paired crash recovery passed |
+| `86176211a7c51abb6ab8680f14e884fc06934430` | temporary OS key-store decryption failure must not destroy ciphertext; access stays locked without protected requests, and a later normal process can recover |
+
+An operator mistake is also recorded: a bare Electron fixture read the ordinary SparkClaw Profile under a different Keychain application identity. Old startup logic cleared the saved GUI login. No token was extracted or local history deleted; the final repair protects subsequent decryption failures. The user must re-enter the original token in the actual product GUI. Login restoration has not been marked passed.
+
+## Current M01–M12 status
+
+`PASS (scoped)` certifies only the stated internal non-production cases. Unexecuted cases are not passes; user-scoped `N/A` does not certify formal distribution.
+
+| Case | Evidence/status | Remaining |
 |---|---|---|
-| M01 | PASS (scoped): real LAN HTTPS, independent credentials/installations, identity/pin rejection | Formal production certificate/distribution deployment |
-| M02 | PARTIAL: two physical native clients, process restart and non-mail independence; local copies survive mail deletion | macOS OS reboot |
-| M03 | PASS (scoped): paired typed-mail sync, authoritative deletion/tombstones, offline cache and expired-cursor recovery | Real GB10-collected mail → backend → Mac synchronization, including Mac exit while GB10 collection continues; collector implementation itself uses the existing Linux acceptance |
-| M04 | PARTIAL: shared Go Broker controls real Mac/Linux embedded pages over LAN | Mac Host/GB10 backend-acquisition role isolation in the deployed product and product workflow/site integration |
-| M05 | PARTIAL: both Hosts reject system-browser commands and independent popups | Full supported-site/Profile/substitution matrix |
-| M06 | PARTIAL: both Hosts preserve A/B ownership and same-view reacquire | Authorized child-page and page-crash/restart matrix |
-| M07 | PARTIAL: real logout/revocation controls, Gateway outage; actual write-response-loss unknown fences | Physical network loss, lid/sleep, all GUI quit/lease-expiry combinations |
-| M08 | PARTIAL: real ACK response loss + actual backend/client restart without resubmission; earlier real ENOSPC check | 24-hour result expiry, physical disk/power-loss cases |
-| M09 | PARTIAL: normal unlocked Mac GUI/settings, earlier manual Chinese IME and successful OS clipboard | External/multiple displays, full Retina/permissions, enabled microphone, supported sites |
-| M10 | PARTIAL: rebuilt audited ARM64 development DMG/ZIP; native schema safeguards | Developer ID/notarization/Gatekeeper acceptance, formal install/upgrade/rollback |
-| M11 | PARTIAL: real LAN Mac GUI login/Keychain restart; real native bad-token/logout/revoke checks | GUI self-revocation/logout and complete protected-channel matrix |
-| M12 | PASS (scoped): real TTY bootstrap/recovery, independent identities, GUI one-time issuance/Copy/revoke, reuse and package/log checks | Formal production rollout is outside this session |
+| M01 | PASS (scoped): direct LAN HTTPS/WSS, independent identity, full certificate validation/rejection | Production certificates/deployment outside this round |
+| M02 | PARTIAL: process restart/upgrade retains local content; no Linux copy | Actual macOS reboot; verification script prepared |
+| M03 | PARTIAL: synthetic paired delete/cursor recovery; real Gmail→QQ original, GB10 independent capture, product parser/paired native sync | Mac GUI real-mail sync after original login restoration; two QQ/Outlook routes failed; current R3 collection runtime not physically integrated |
+| M04 | PARTIAL: common Broker navigation/input/read; ordinary Gateway paired public-site workflow | Full supported-site matrix/current R3 GB10 collection versus Mac Host roles |
+| M05 | PASS (scoped): real managed Host rejects system browser/independent popup; no Profile copy/backend substitution | Authorized child pages currently unsupported; capability gaps are not passes |
+| M06 | PARTIAL: A/B, same-view reacquire, ownership after release, actual renderer recovery/new ref, stale-ref rejection | Full authorized-child supported-site matrix |
+| M07 | PARTIAL: actual lid/sleep, 45-second Wi-Fi loss/local retention, Cmd+Q, native revoke/logout, actual 30-second lease deadline and lost-write-response fencing | Repaired GUI network recovery and GUI self-revoke/logout combinations |
+| M08 | PARTIAL: actual bounded 32 MiB HFS+ ENOSPC, ACK loss/backend-client restart without replay | Real 24-hour expiry running; filling the physical system disk/power cuts are not extra requirements of original M08 |
+| M09 | PARTIAL: normal GUI, manual Chinese IME, internal 2× Retina, clipboard/native permission checks | Full supported-site matrix; external display N/A (no hardware); mic N/A (not enabled in this local workbench round) |
+| M10 | PASS (internal scope): native ARM64 package/audit, actual DMG install, app upgrade retention, actual future-schema startup refusal | Developer ID/notarization/formal Gatekeeper distribution N/A (no certificate/internal testing only) |
+| M11 | PARTIAL: normal GUI login/earlier Keychain restoration, native bad-token/logout/revoke fencing/local retention | Restoration after operator error, product GUI self-revoke/logout matrix, macOS reboot restoration |
+| M12 | PARTIAL: TTY one-time bootstrap/recovery, independent Mac identity, GUI issuance/Copy/revoke, reconnect reuse/package-log scans | GUI restoration after decryption mistake; production rollout outside this round |
 
-## Final artifacts and retained environment
+## Real 24-hour checks and artifacts
 
-Artifacts were rebuilt from `f7074ba5116d2724a3dc0781b49e142185f8380b`; later documentation commits do not change their source. They replace the same-named local packages listed in the initial record. Signing/notarization remains unexecuted; the development package is not a formal distribution pass.
+One result per host is retained using real time; each has one execution POST and zero ACKs. Actual Gateway restarts retained request IDs/digests/deadlines. No clock advance or shorter TTL was used.
+
+- Linux deadline: 2026-10-04 16:23:47.870 (Asia/Shanghai).
+- Mac deadline: 2026-10-04 16:24:33.787 (Asia/Shanghai).
+- Fixtures wait another 65 seconds before requiring `delivery_expired` and no readable result. Both results can be collected no earlier than 16:25:39. Current phase is `waiting_real_24_hours`, not PASS.
+
+Final artifacts were built from `86176211a7c51abb6ab8680f14e884fc06934430`; subsequent record commits do not change that build source.
 
 | Local file under `apps/desktop/dist/` | SHA-256 |
 |---|---|
-| `SparkClaw-0.1.0-mac-arm64.dmg` | `87fd3e2b899f4d4bebd90719e988f1cfe0aba06501b4cb9d0e36ec19b36f1c94` |
-| `SparkClaw-0.1.0-mac-arm64.zip` | `15b33a20cf8d7be787d861aba12b5ac9485ddabbeb30fef233d890dd09d724b7` |
+| `SparkClaw-0.1.0-mac-arm64.dmg` | `5bcd1995dfa44b22d81d30c8039e4879e10f55585fe2c87532726828f03cf278` |
+| `SparkClaw-0.1.0-mac-arm64.zip` | `c1c78688c25192ef7cd4a085033b2c2c1996f1c067d0410fbb1392a2b71d677b` |
 
-Ignored local evidence: `.cache/dual-host-acceptance/` contains phase JSONL files, device metadata without tokens, Mac/Linux test/build/DMG logs, `artifact-manifest.json`, private fixture sources and their `fixture-manifest.json` hashes. Fixtures may hold temporary synthetic credentials in mode-600 files beneath private test roots; these are neither deploy logs nor Git/package content. SSH-side mail-seeding and Browser test facades are test-only additions, not source repairs or shipped endpoints.
+Ignored private evidence lives in `.cache/dual-host-acceptance/`: build/native-test/network/crash/lease/real-mail logs, artifact manifests, fixture sources/hashes and original receipts. Temporary automated credentials remain in private mode-600 files, outside Git/packages. `start-product.sh` starts the actual internal installation. After restoring original GUI login and Mac mail sync, refresh `reboot-baseline.json`, actually reboot macOS, then run `verify-post-reboot.mjs` under Electron Node. It requires a changed OS boot epoch and checks local message/file/unsubmitted request/mail cache/encrypted vault; app restart cannot substitute for M02. Actual GUI Keychain unlocking and absence of Linux copies must also be observed.
 
-The `25544` Broker facade is stopped. The isolated `25543` Gateway and Mac test profile remain available for follow-up; there is no startup service or production deployment. The test certificate expires after two days. Existing Linux production services/data were not modified. Full acceptance should continue from the explicitly outstanding cases above, using new authorized test data.
+The `25544` facade is stopped. The isolated `25543` Gateway, two real 24-hour check processes and Mac test profile are retained. No startup service/production deployment was added. Test certificates expire after two days.

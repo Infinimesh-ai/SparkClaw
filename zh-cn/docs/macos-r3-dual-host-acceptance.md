@@ -1,78 +1,104 @@
-# SparkClaw R3 Mac／Linux 隔离 LAN 验收记录
+# SparkClaw R3 Mac/Linux 隔离 LAN 实机验收
 
 > 语言：简体中文 | [English](../../docs/macos-r3-dual-host-acceptance.md)
 
-日期：2026-10-03，Asia/Shanghai。分支：`codex/sparkclaw-r3`。这是用户提供 `infinimesh@192.168.20.252` 并授权双端验收后，对[首轮 Mac 记录](macos-r3-acceptance.md)的补充。**下述隔离范围内检查通过，完整 M01–M12 发布验收仍未全部通过。**
+更新：2026-10-03，Asia/Shanghai。分支：`codex/sparkclaw-r3`。本记录接续[首轮 Mac 记录](macos-r3-acceptance.md)。用户授权当前 Mac 与 `infinimesh@192.168.20.252` 双端验收，并明确 Mac 仅用于内部测试。**已执行证据如下；完整 M01–M12 尚未全部通过。**
 
 ## 环境与准确版本
 
 | 项目 | 实际版本／位置 |
 |---|---|
 | 交付基线 | `d797d6193b3679125dfccd1c274dd990e5cd9c8f` |
-| Gateway 构建源码 | `40986ababcafd390b4501686f670fec7395d4d04`；其 Go 产品源码与最终客户端版本相同 |
-| 最终客户端／安装包源码 | `f7074ba5116d2724a3dc0781b49e142185f8380b` |
-| HTTPS DELETE 修复 | `da851139a9879499be57949a02050d0f8b4ab131` |
-| 工作台复制修复 | `f7074ba5116d2724a3dc0781b49e142185f8380b` |
-| Mac | ARM64 macOS 26.6.2（25G83），Node 26.2.0／npm 11.13.0；安装包以普通产品模式运行 |
-| Linux | `gx10-7660`，ARM64 Linux 6.17.0-1032-nvidia；Go 1.25.5、Node 26.2.0；原生 Electron 客户端使用私有 Xvfb 和已登录用户的 GNOME Secret Service |
-| 双端原生运行时 | Electron 44.4.3，Chromium 152.0.7977.130 |
-| Gateway 二进制 SHA-256 | `e1d18fd6c33db271487879d4dd7f9cb88edaf8a5bf5b606d856d0b8a9419c9d2` |
-| 新建 Linux 根目录 | `/home/infinimesh/.cache/sparkclaw-r3-dual-FZMMvi` |
-| 新建 Mac Profile | 仓库 `.cache/dual-host-acceptance/mac-profile` |
-| HTTPS origin／部署／Owner | `https://192.168.20.252:25543`／`dual-host-r3-20261003-FZMMvi`／`owner` |
+| 本轮最终客户端／安装包源码 | `86176211a7c51abb6ab8680f14e884fc06934430` |
+| 当前隔离 Gateway 构建源码 | `ab8833dd9d4e418ef5a0d180d1afa8edb5f36e77`；后续修改仅涉及桌面代码，Go 产品源码相同 |
+| Gateway 二进制 SHA-256 | `e879343ac14e1db4ccc71945f216e9ccc1bcfde7e4f4dfc0c375b56fb765e64b` |
+| Mac | Apple M5／ARM64，macOS 26.6.2（25G83），内置 Retina 2560×1664，scale factor 2；Node 26.2.0／npm 11.13.0 |
+| Linux | `gx10-7660`，ARM64 Linux 6.17.0-1032-nvidia；Go 1.25.5／Node 26.2.0；原生客户端使用私有 Xvfb 与该用户 GNOME Secret Service |
+| 双端客户端运行时 | Electron 44.4.3／Chromium 152.0.7977.130；Electron Node 24.21.0 |
+| 隔离 Linux 根目录 | `/home/infinimesh/.cache/sparkclaw-r3-dual-FZMMvi` |
+| Mac 测试 Profile | 仓库 `.cache/dual-host-acceptance/mac-profile` |
+| Mac 内部安装位置 | 仓库 `.cache/dual-host-acceptance/installed/SparkClaw.app`，从本轮 DMG 实际挂载并复制安装 |
+| HTTPS origin／deployment／owner | `https://192.168.20.252:25543`／`dual-host-r3-20261003-FZMMvi`／`owner` |
 | 叶证书 SHA-256 | `1a2e2668378f11dcf44f0027a15f8318d55604d69ceb85f6fe432cca2d4b32cd` |
 
-SSH 仅用于检查、传源码和启动测试。客户端 HTTPS／WSS 直接经过 LAN，没有 SSH 隧道。全新公开 v2 描述包含专用公开 CA，保留证书链、主机名及叶证书指纹校验。证书有效期两天，仅供验收使用。
+SSH 仅用于检查、源码传输与启动验收；客户端 HTTPS/WSS 直接走 LAN，没有 SSH 隧道。使用独立两天有效测试 CA，保留证书链、主机名及叶指纹验证。隔离 Gateway 使用 mock 模型，关闭外部 MCP／集成；合成邮箱采集已暂停。没有修复、重启或重新配置现有 Linux Gateway；初次检查其 HTTP `18790/healthz` 返回 502。
 
-Linux 现有仓库位于交付基线，但现有 Gateway 容器重启中且不健康，HTTP `18790/healthz` 返回 502，运行目录缺少新凭据管理文件。没有重启、修改或修复现有服务。新实例的状态、工作区、产物、TLS 密钥及日志全部位于专用目录；使用 mock 模型，关闭外部 MCP／集成，使用不存在的私有浏览器控制路径，合成邮箱关闭提供商采集。未导入现有邮件、浏览器 Profile、Token、Owner 数据或生产数据库。未接入 InfiniCenter／等待 0031，未合并 main。
+邮箱采集只在 GB10/Linux。Mac 只同步授权邮箱及保留本地缓存，不运行采集器。按用户授权直接复用已有专用浏览器三大邮箱 Profile，没有复制 Profile／邮箱凭据到 Mac，没有导入旧邮件／旧测试历史，没有操作生产业务数据、合并 main 或接入 InfiniCenter／等待 0031。
 
-邮箱采集仅在 GB10／Linux 后端运行。Mac 客户端同步有权限的后端邮件并保留本地缓存，不运行采集器、不复制后端邮箱凭据或 Profile。已完成的 Linux／共享验收继续作为基线；下文缺少的真实邮箱证据指本轮双端数据链路，不要求重验 Linux 采集器本身。
+## 已执行的实机证据
 
-## 实际执行证据
+- **双端邮箱契约：**独立 Client 与安装 UUID 经真实 Gateway 同步新建合成邮件及中文附件。HTTP 权威删除拒绝旧版本、同 command key 重试不重复删除，双端接收 tombstone；删除邮件保留另存的本地附件。过期 epoch 游标触发重置并重建完整缓存；非法游标返回 400，没有冒充恢复通过。
+- **本地独立与保存：**双端新原生进程恢复各自对话、消息、request ID 与文件。Mac“最终实机验收”的“休眠断网后保留”始终为未显式提交。安装 UUID 为 `0715c02e-fb84-4b14-a9e4-92b8fabdd446`，文件 SHA-256 为 `242a3103061c81ed1e1e1f9c380d9324980b8a3e4129dd829af3b3bdc0255803`。Mac 本地标记和该对话 ID 不在 Linux 后端或 Linux 客户端非邮箱库中。此项尚不包含 macOS 系统重启。
+- **实际合盖／断网／退出：**用户合盖后，系统记录 16:42:26→16:44:17 的 Clamshell Sleep，共 111 秒；唤醒后 GUI、本地消息和文件完整。Wi-Fi `en0` 实际断开 45.08 秒，后端 TCP 不可达期间文件摘要与未提交状态完整，恢复后 LAN 可达。GUI Cmd+Q 已确认进程完全退出，开发包升级／重新启动保留原本地数据。首轮断网后的 GUI 邮箱操作暴露安装绑定缺陷，修复后的完整 GUI 断网复验尚待执行。
+- **同一适配层与真实产品工作流：**早期 `25544` 临时 facade 使用真实 Go Broker 与双端真实 WebContents 完成导航、输入、点击、读取、20 次 A/B 切换、同页释放再获取、迟到事件隔离、系统浏览器／独立弹窗拒绝与真实点击后响应丢失的 unknown 写围栏。该 facade 已停止。后续直接使用实际 Gateway 的普通工作流，两端都在独立 native Host 内导航并读取 `https://www.google.com`，mock 回答基于真实读取结果；不是 Linux 页面副本或后台页面替换。真实渲染器崩溃后，显式新任务创建新 WebContents／page ref；B 保持选中，旧引用和越对话显示被拒绝。
+- **真实租约到期：**双端在实际 Gateway/WSS 与真实内嵌页中抑制两次客户端心跳并延迟已开始的读取结果，保留真实时钟。Mac 29.97 秒、Linux 30.05 秒后任务页关闭，旧引用不可用；迟到结果没有重开页面。每端仅显式提交一次。写结果丢失围栏另由上述真实点击案例验证，不把读取超时冒充写对账。
+- **ACK 丢失及重启：**实际 Gateway 接受首个交付 ACK 后夹具丢弃响应。真实重启隔离 Gateway 与原生客户端后，只对账一次 ACK、零次重新执行，digest 相同、本地恰好两条消息。普通执行上下文标记不在后端持久状态／工作区／trace／日志中。
+- **GUI 与凭据：**用户实际输入独立 Mac 凭据、打开设备设置、签发／撤销凭据。复制问题修复后，用户确认 Copy／本机粘贴成功。撤销后的设备保留带时间戳的 revoked 元数据属于预期。真实私有 TTY 初始化／遗失恢复只领取一次，重复领取不重新显示；Linux 实际旧身份撤销、新身份登录、原安装 UUID 与旧作用域数据保留，未迁移跨 Client 历史。Mac Keychain、Linux `gnome_libsecret` 原生重启恢复、错误指纹／部署／Owner／Token 拒绝、受保护事件流退出中断均已验证。
+- **验证与包：**最终双端各 90 项桌面测试通过；Mac Electron Node／SQLite 内 50 项相关测试通过；最终 Mac 原生凭据三进程检查及双端原生 Host 检查通过。ARM64 DMG／ZIP 本机重新构建，afterPack 允许列表审计与 `hdiutil verify` 通过。实际安装包面对私有未来 Schema 5 数据库以退出码 1 拒绝启动，数据库与保存文件字节摘要未变。已知自动化测试 Token 不在 Git、ASAR、日志、后端内容或二进制中，人工 GUI Token 未解密用于扫描。
 
-- **双端原生邮箱同步：**两个独立签发的 Client 和安装 UUID 登录真实 Gateway。通过既有 discovery／capture／parse／classification／assignment 类型化仓库合同，在启动前写入两封新合成邮件、结构化预览及有完整性校验的中文附件。两端同步同一后端邮箱；权威 HTTP 删除拒绝错误版本，相同命令键重试不重复删除，持久 tombstone 传到两个缓存，包括最终空邮箱。合法但 epoch 已过期的游标触发服务端重置，两端重新建立缓存。格式损坏的游标正确返回 400，没有把它记成过期游标恢复通过。
-- **本地保留及独立性：**新 Electron 进程恢复各端自己的中文对话、不可变 request ID、本地文件和已保存附件。停止隔离 Gateway 后，两端保留完整邮箱缓存／游标及本地输入；重新连接复用已持久化身份。Linux 后端及另一端存储中没有 Mac 非邮箱标记，Mac 非邮箱存储中没有 Linux 标记。删除后端邮件不删除已保存的本地附件副本。这是应用／进程重启，未重启 macOS。
-- **同一个 LAN Broker：**围绕真实 Go `r3browser.Broker` 的临时验收 facade 在 `25544` 监听，两端使用不同 Host 身份。两台实机通过同一适配层操作真实 WebContents，完成导航、输入、点击、读取、20 次 A／B 切换、同页释放再获取、迟到 A 结果不覆盖 B、拒绝系统浏览器命令和 Host 独立弹窗，以及真实点击后的响应丢失在双方形成 unknown 写围栏。facade 是测试入口，未增加生产 Gateway API；测试后已停止监听。本轮未执行产品环境中 Mac Host 与 GB10 后端采集角色的隔离联测及真实支持站点验收。
-- **真实交付 ACK 丢失与重启：**两端分别向真实 Gateway 的 mock 模型工作流显式提交一个新普通请求。夹具在真实 Gateway 接受首个 ACK 后丢弃响应，本地持久 receipt 保持未确认。实际重启隔离 Gateway，再启动新客户端进程，对账只发送一次 ACK、零次执行提交；保留相同 digest 和恰好两条本地消息，receipt 转为已确认。执行上下文标记未进入后端持久状态／工作区／trace／日志。未以此代替结果过期或断电验收。
-- **凭据初始化／遗失恢复：**真实 `credentials.mjs` CLI 在 Linux 私有真实 TTY 中访问私有管理 socket。首次领取／恢复只显示一次，重复已完成领取不再次显示；journal 只有元数据。Mac／Linux 使用分别签发的凭据，没有复用预置 Linux Desktop Token。Linux 真实恢复吊销旧 Client，后续认证 invalid／401；新凭据以新 Client 登录、同步，安装 UUID 和旧本地数据保留。旧数据仍属原 Client 作用域，未执行跨 Client 数据迁移。
-- **Mac 产品 GUI：**用户在终端完成恢复，把一次性凭据直接输入打包应用。Settings → Devices & credentials 真实可达，GUI 签发和吊销成功。已吊销项保留在列表中并标为 `revoked` 和时间，属于设备记录。用户最初报告 Copy 失败；修复、重新构建及重启后，产品直接从自身 Keychain vault 恢复登录，无需再次输入 Token，用户确认复制／粘贴复验成功。复验新增设备实际名称是 `My device`，后端元数据确认已吊销，没有用问询中的建议名称替代实测名称。没有在聊天／截图中采集 GUI 一次性 Token。
-- **安全存储／TLS：**Mac Keychain 和 Linux `gnome_libsecret` 加密 vault 可跨原生进程恢复，拒绝 `basic_text`。错误指纹、部署、Owner 和无效凭据被阻断。退出中断真实受保护事件流并保留本地数据，真实恢复／吊销清除旧 vault。GUI 当前设备自我吊销及完整休眠／租约／退出组合尚未执行。
-- **验证：**双端各自 88 项桌面测试全部通过；49 项 store／execution／approval／schedule／mail 测试在 Mac Electron 自带 Node／SQLite 下通过。Mac 和 Linux 原生系统剪贴板写入检查通过，读取权限仍拒绝。最终 ARM64 构建、afterPack 允许列表审计及 `hdiutil verify` 通过。已知自动化测试 Token 不在 Git 跟踪文件、实际 ASAR、日志、后端内容或二进制中。安装包允许列表排除私有 Profile、后端凭据及其他设备状态；未解密人工输入的 GUI 凭据进行检查。
+Mac 产品与 Linux 产品前端一致：实际构建的三个资源文件 SHA-256 逐个相同。主 JS `index-BC08-68r.js` 为 `31738392ed82e657f277b9397fb73245224d211c303a904a1c47f9576bf0157c`。这证明使用相同产品前端资源，不代表未执行的 Linux 物理 GUI 检查已通过。
 
-## 联测发现的源码修复
+## 真实邮箱及现有采集环境
 
-原 pinned HTTPS 实现对 DELETE 写正文但未指定长度。Node 对此方法没有自动设置 JSON 正文长度，Gateway 因空请求而返回 400。修复计算编码后的字节数，覆盖冲突的 Content-Length，删除冲突的 Transfer-Encoding 后发送正文。真实 HTTPS 回归检查包含中文 UTF-8 JSON；修复后通过 LAN 完成真实 Gateway 权威删除、版本冲突及重试检查。
+用户只授权三封新邮件，各路线只尝试一次，主题前缀 `SCW-mail-R3-20261003-405d1b61`，无附件，限定已有三个 Profile 账户；没有重发。
 
-工作台权限处理原先只允许音频，统一拒绝了剪贴板写入。现在仅向可信工作台主 frame 允许 `clipboard-sanitized-write`；读取、其他 WebContents、子 frame 和其他 origin 仍拒绝，保留原音频／视频规则。权限边界单测、双端实际 Electron／系统剪贴板检查及用户的 Mac 安装包 Copy 复验通过。两处修复均提交并推送到 R3 分支。
-
-## 更新后的 M01–M12 范围
-
-`PASS（限定范围）` 仅指本轮新建非生产 LAN／测试数据流程；`PARTIAL` 不代表完整项目通过。首轮记录中的 NOT_RUN 是当时本机验收的历史状态，不是本次双端结果。
-
-| 项目 | 当前证据／状态 | 尚未执行 |
-|---|---|---|
-| M01 | PASS（限定范围）：真实 LAN HTTPS，独立凭据／安装身份，身份／指纹拒绝 | 正式生产证书／分发部署 |
-| M02 | PARTIAL：双端实机原生客户端、进程重启、非邮箱独立，本地副本不随后端邮件删除 | macOS 系统重启 |
-| M03 | PASS（限定范围）：双端类型化邮箱同步、权威删除／tombstone、离线缓存、过期游标恢复 | 真实 GB10 采集邮件 → 后端 → Mac 同步，及 Mac 退出后 GB10 继续采集；采集器实现本身沿用已有 Linux 验收 |
-| M04 | PARTIAL：同一 Go Broker 通过 LAN 操作真实 Mac／Linux 内嵌页 | 产品环境中 Mac Host／GB10 后端采集角色隔离联测，以及产品工作流／站点集成 |
-| M05 | PARTIAL：双端拒绝系统浏览器命令和独立弹窗 | 完整支持站点／Profile／替换矩阵 |
-| M06 | PARTIAL：双端 A／B 精确归属、同页再获取 | 授权子页和页面崩溃／重启矩阵 |
-| M07 | PARTIAL：真实退出／吊销控制、Gateway 中断、真实写响应丢失 unknown 围栏 | 物理断网、合盖／休眠、完整 GUI 退出／租约到期组合 |
-| M08 | PARTIAL：真实 ACK 响应丢失和后端／客户端重启不重发，首轮真实 ENOSPC | 24 小时结果过期、物理磁盘／断电场景 |
-| M09 | PARTIAL：普通 Mac GUI 解锁／设置、首轮中文输入法、系统剪贴板成功 | 外接／多屏、完整 Retina／权限、启用麦克风、支持站点 |
-| M10 | PARTIAL：重新构建并审计的 ARM64 开发 DMG／ZIP、原生 schema 保护 | Developer ID／公证／Gatekeeper、正式安装／升级／回退 |
-| M11 | PARTIAL：真实 LAN Mac GUI 登录／Keychain 重启恢复，原生错误凭据／退出／吊销 | GUI 自我吊销／退出和完整受保护通道矩阵 |
-| M12 | PASS（限定范围）：真实 TTY 初始化／恢复、独立身份、GUI 单次签发／复制／吊销、复用及包／日志检查 | 正式生产上线不属于本轮 |
-
-## 最终产物与保留环境
-
-安装包构建源为 `f7074ba5116d2724a3dc0781b49e142185f8380b`，之后的文档提交不改变其源码；已替换首轮记录中同名的本地安装包。签名／公证仍未执行，开发包不代表正式分发通过。
-
-| `apps/desktop/dist/` 中本地文件 | SHA-256 |
+| 路线 | 实际结果 |
 |---|---|
-| `SparkClaw-0.1.0-mac-arm64.dmg` | `87fd3e2b899f4d4bebd90719e988f1cfe0aba06501b4cb9d0e36ec19b36f1c94` |
-| `SparkClaw-0.1.0-mac-arm64.zip` | `15b33a20cf8d7be787d861aba12b5ac9485ddabbeb30fef233d890dd09d724b7` |
+| QQ→Outlook | `email_draft_verification_failed`；发送未确认，收件端限定新时间窗候选为 0；FAIL／不重放 |
+| Outlook→Gmail | `email_page_contract_changed`；发送未确认，收件端限定新时间窗候选为 0；FAIL／不重放 |
+| Gmail→QQ | 发送确认，QQ 新时间窗唯一候选；产品真实原件采集与 MIME 解析通过，Mac/Linux 原生同步通过（Mac 使用独立原生验收 Profile，GUI Profile 不复制凭据或缓存）；Mac 产品 GUI 同步待恢复登录后补验 |
 
-被 Git 忽略的 `.cache/dual-host-acceptance/` 保存各阶段 JSONL、不带 Token 的设备元数据、双端测试／构建／DMG 日志、`artifact-manifest.json`、私有测试夹具及其 `fixture-manifest.json` 哈希。夹具可能在私有测试目录的 600 文件中保留临时合成凭据，它们不属于部署日志、Git 或安装包。SSH 端邮件 seed 和 Browser facade 是测试专用内容，不是源码修复或交付的产品入口。
+Mac 完全退出后，GB10 再次采集了唯一新 QQ 邮件：`cap_072ff1b4c907243de56194bdded252ea`，原件摘要 `sha256:7eee34a1df4657c40ee06a497981329fc0f900445efe2372a545bca969a76e2d`。产品验证 receipt／manifest／原件后，经隔离类型化仓库 discovery/page-batch 租约发布并调用实际 MIME parser；没有用构造正文冒充真实邮件。隔离后端 Mail ID `d49178ad82a4f96227e580038f9c4a19814d64f292490c2b00725fd5446edaef`；双端原生缓存正文 SHA-256 `9de3b3bc68a6eef8026b871befc5381b35290f46b4eec11a999e29a464111c83`。这是一次实际采集操作的 Mac 退出独立性证据，不冒充长期定时采集验收。
 
-`25544` Broker facade 已停止；隔离 `25543` Gateway 和 Mac Profile 暂保留供后续验收，没有新增开机服务或生产部署。测试证书两天后过期。现有 Linux 生产服务／数据未修改。完整验收仍需按上表未执行项继续，并仅使用新授权的测试数据。
+现有专用浏览器 Controller 实际从 `/home/infinimesh/.local/share/sparkclaw/qualification/20260930/pre-extraction-baseline/tools/browser-controller/src/main.mjs` 运行，入口 SHA-256 `e211904e52c1940d207eac32ab0dedc460ea0988c65d03eb0e5becb426ff9b16`；没有当前 R3 的 `AppCLIClientFactory`／release 配置。上述真实站点失败按该运行版本记录，不能当作当前 R3 App-CLI 版本通过或失败的完整结论。没有升级或重启这项现有服务。默认 discover 是账户 bootstrap，候选 0 不等同空邮箱；收件结果来自后续明确限定的新时间窗。
+
+## 本轮发现并已推送的源码修复
+
+| SHA | 问题与修复 |
+|---|---|
+| `da851139a9879499be57949a02050d0f8b4ab131` | pinned HTTPS DELETE 缺少 UTF-8 字节长度，真实 Gateway 收到空正文；固定 framing 并验证权威删除 |
+| `f7074ba5116d2724a3dc0781b49e142185f8380b` | 仅可信工作台主框架获准剪贴板写入；读取与其他来源仍拒绝，用户复验成功 |
+| `c8f81144c6b0a3144522ccd579a5deb1aac4a87e` | 普通 GUI 更新邮箱调用已移除的 `executionClient.register`；统一使用 DesktopAuth 已完成的安装绑定，实际 GUI catalog／sync 恢复 |
+| `ab8833dd9d4e418ef5a0d180d1afa8edb5f36e77` | ScopedAdapter 缺少旧 ToolHub 所需 result 字段，真实页面已导航却停止读取；补 result contract 与跨层真实工作流回归 |
+| `0f24edc2610499ffa5b75ac24735f322b0076fdf` | 租约释放后丢失本地对话归属；保留持久归属并约束显示／导航／弹窗，双端实际崩溃恢复通过 |
+| `86176211a7c51abb6ab8680f14e884fc06934430` | 临时安全存储解密失败不得销毁密文；保持锁定且不发受保护请求，后续正常进程可恢复 |
+
+操作失误也如实记录：裸 Electron 夹具读取普通 SparkClaw Profile 时不能使用同一 Keychain 身份，旧逻辑清除了 GUI 保存的登录。没有读出 Token，也没有删除本地历史；上述最后一项修复已保护后续解密失败。当前需要用户在实际产品 GUI 重新输入原 Token；没有把未恢复的登录写成通过。
+
+## M01–M12 当前状态
+
+`PASS（限定范围）`仅认证列明的内部非生产场景。未执行不计通过；`N/A` 按用户本轮限制判断，并不等于正式发布验收通过。
+
+| 用例 | 当前证据／状态 | 剩余项 |
+|---|---|---|
+| M01 | PASS（限定范围）：直接 LAN HTTPS/WSS、独立身份、完整证书验证及错误身份拒绝 | 生产证书／部署不在本轮 |
+| M02 | PARTIAL：进程重启／升级保留本地全部测试内容，Linux 无副本 | 实际 macOS 系统重启；核对脚本已准备 |
+| M03 | PARTIAL：合成邮件双端删除／游标恢复通过；真实 Gmail→QQ 原件、GB10 独立采集、产品解析与双端原生同步通过 | 原登录恢复后的 Mac GUI 真实邮件同步；QQ／Outlook 两条站点路线失败；当前 R3 采集运行版本尚未实机联测 |
+| M04 | PARTIAL：共享 Broker 双端输入／导航／读取，普通 Gateway 双端真实公开站点工作流通过 | 完整支持站点矩阵／当前 R3 GB10 采集与 Mac Host 角色联测 |
+| M05 | PASS（限定范围）：真实 Host 受管页面拒绝系统浏览器／独立弹窗，未复制 Profile／用后台页替换 | 授权子页当前未受支持，不将能力缺口记为通过 |
+| M06 | PARTIAL：A/B、同页再获取、租约释放后归属、实际崩溃新页及旧引用拒绝通过 | 授权子页的完整站点矩阵未执行 |
+| M07 | PARTIAL：实际合盖／休眠、45 秒断网、本地保留、Cmd+Q、原生撤销／退出、实际 30 秒租约到期、写响应丢失围栏通过 | 修复后 GUI 断网恢复及 GUI 自我撤销／退出组合 |
+| M08 | PARTIAL：真实受限 32 MiB HFS+ ENOSPC、ACK 丢失、后端／客户端重启不重发通过 | 真实 24 小时结果过期进行中；物理填满系统盘／断电不是原 M08 的额外必需条件 |
+| M09 | PARTIAL：普通 GUI、用户中文 IME、内置 2× Retina、复制及原生权限检查通过 | 完整支持站点矩阵；外接屏 N/A（无设备），麦克风 N/A（本轮本地工作台未启用） |
+| M10 | PASS（内部限定范围）：ARM64 本机包、审计、DMG 实际安装、应用升级保留、真实未来 Schema 启动拒绝 | Developer ID／公证／正式 Gatekeeper 分发 N/A（用户无证书，仅内部测试） |
+| M11 | PARTIAL：普通 GUI 登录／此前 Keychain 恢复、原生错误凭据／退出／撤销通道停止、本地保留 | 此次误清登录的恢复、产品 GUI 自我撤销／退出完整矩阵、macOS 重启恢复 |
+| M12 | PARTIAL：TTY 单次领取／恢复、独立 Mac 身份、GUI 单次签发／复制／撤销、重连复用、包／日志扫描 | 凭据解密失误后的 GUI 恢复待补；生产上线不在本轮 |
+
+## 24 小时检查与安装包
+
+两端各一个结果以真实时间保留，至今每端仅提交 1 次、ACK 0 次；实际 Gateway 重启后保留相同 request ID、digest 与期限。未调整时钟或缩短 TTL。
+
+- Linux 期限：2026-10-04 16:23:47.870（Asia/Shanghai）。
+- Mac 期限：2026-10-04 16:24:33.787（Asia/Shanghai）。
+- 夹具在期限后再等 65 秒检查 `delivery_expired` 且 result 不可读取；最早 16:25:39 可收齐两端结果。当前为 `waiting_real_24_hours`，不是 PASS。
+
+最终包源码为 `86176211a7c51abb6ab8680f14e884fc06934430`；后续记录提交不改变该构建源码。
+
+| `apps/desktop/dist/` 本地文件 | SHA-256 |
+|---|---|
+| `SparkClaw-0.1.0-mac-arm64.dmg` | `5bcd1995dfa44b22d81d30c8039e4879e10f55585fe2c87532726828f03cf278` |
+| `SparkClaw-0.1.0-mac-arm64.zip` | `c1c78688c25192ef7cd4a085033b2c2c1996f1c067d0410fbb1392a2b71d677b` |
+
+忽略的私有证据位于 `.cache/dual-host-acceptance/`：构建／原生测试／网络／页面崩溃／租约／真实邮件日志、安装包 manifest、夹具源及摘要、原件 receipt；临时自动化凭据仅在私有 mode-600 文件中，不进入 Git 或安装包。`start-product.sh` 启动实际内部安装包。待用户恢复原登录并完成 Mac 邮件同步后，刷新 `reboot-baseline.json`，实际重启 macOS，再以 Electron Node 运行 `verify-post-reboot.mjs`；脚本要求系统 boot epoch 改变，验证本地消息／文件／未提交请求／邮箱缓存／加密 vault，不会用应用重启代替 M02。最后仍需观察实际 GUI Keychain 解锁及核对 Linux 无副本。
+
+`25544` facade 已关闭；隔离 `25543` Gateway、两个真实 24 小时检查进程及 Mac 测试 Profile 暂保留。没有新增开机服务或生产部署；测试证书两天后过期。

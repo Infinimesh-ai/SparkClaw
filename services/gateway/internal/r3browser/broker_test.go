@@ -20,7 +20,7 @@ var testIdentity = Identity{OwnerID: "owner", ClientID: "client", InstallationID
 
 func newTestBroker(t *testing.T) *Broker {
 	t.Helper()
-	b, err := NewBroker(t.TempDir())
+	b, err := NewBroker(filepath.Join(t.TempDir(), "control"))
 	if err != nil {
 		t.Fatal(err)
 	}

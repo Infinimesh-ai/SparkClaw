@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -28,8 +29,27 @@ type Fence struct {
 }
 
 func loadFences(root string) (map[string]Fence, error) {
+	if !filepath.IsAbs(root) {
+		return nil, errors.New("browser control root must be absolute")
+	}
+	for current := filepath.Clean(root); current != string(filepath.Separator); current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("browser control path is unsafe")
+		}
+	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("browser control root must be private")
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Uid != uint32(os.Getuid()) {
+		return nil, errors.New("browser control root owner differs")
 	}
 	out := map[string]Fence{}
 	entries, err := os.ReadDir(root)
@@ -39,6 +59,10 @@ func loadFences(root string) (map[string]Fence, error) {
 	for _, entry := range entries {
 		if filepath.Ext(entry.Name()) != ".json" {
 			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 8192 {
+			return nil, errors.New("browser control record is unsafe")
 		}
 		file, err := os.Open(filepath.Join(root, entry.Name()))
 		if err != nil {

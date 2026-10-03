@@ -29,8 +29,24 @@ type Capabilities struct {
 type BrowserHostAdapter interface {
 	Capabilities() Capabilities
 	Acquire(context.Context, Scope) (Binding, error)
+	Renew(context.Context, Binding) (Binding, error)
 	Dispatch(context.Context, Binding, string, string, map[string]any) (json.RawMessage, error)
 	Release(context.Context, Binding) error
+}
+
+func (b *Broker) Renew(ctx context.Context, binding Binding) (Binding, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	host := b.hosts[binding.Scope.Identity.key()]
+	if host == nil || host.epoch != binding.ConnectionEpoch || host.runtime != binding.RuntimeGeneration || host.hostID != binding.HostID || host.grantDigest != binding.AuthorizationDigest {
+		return Binding{}, ErrFence
+	}
+	live, ok := host.leases[binding.LeaseID]
+	if !ok || live.Scope != binding.Scope || live.PageID != binding.PageID || live.PageGeneration != binding.PageGeneration || !b.now().Before(live.LeaseExpiresAt) || b.now().Sub(host.lastHeartbeat) >= LeaseDuration {
+		return Binding{}, ErrFence
+	}
+	// Only a real host heartbeat extends remote resource authority.
+	return live, nil
 }
 
 func (b *Broker) Capabilities() Capabilities {
@@ -43,10 +59,12 @@ type BackendHost struct {
 	Adapter  browserautomation.Adapter
 	mu       sync.Mutex
 	bindings map[string]Binding
+	pageURLs map[string]string
+	pageIDs  map[string]string
 }
 
 func NewBackendHost(adapter browserautomation.Adapter) *BackendHost {
-	return &BackendHost{Adapter: adapter, bindings: map[string]Binding{}}
+	return &BackendHost{Adapter: adapter, bindings: map[string]Binding{}, pageURLs: map[string]string{}, pageIDs: map[string]string{}}
 }
 func (*BackendHost) Capabilities() Capabilities {
 	return Capabilities{Role: BackendAcquisition, Operations: []string{"acquire", "navigate", "read", "snapshot", "click", "fill", "select", "screenshot", "wait", "release"}, LeaseSeconds: 30, HeartbeatSeconds: 10}
@@ -61,7 +79,7 @@ func (h *BackendHost) Acquire(ctx context.Context, scope Scope) (Binding, error)
 		if binding.Scope == scope && time.Now().Before(binding.LeaseExpiresAt) {
 			return binding, nil
 		}
-		if binding.Scope.ConversationID == scope.ConversationID && binding.Scope.Identity == scope.Identity {
+		if binding.Scope != scope {
 			return Binding{}, ErrFence
 		}
 	}
@@ -69,6 +87,28 @@ func (h *BackendHost) Acquire(ctx context.Context, scope Scope) (Binding, error)
 	h.bindings[binding.LeaseID] = binding
 	return binding, nil
 }
+func (h *BackendHost) Renew(ctx context.Context, binding Binding) (Binding, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	live, ok := h.bindings[binding.LeaseID]
+	if !ok || live.Scope != binding.Scope || live.RuntimeGeneration != binding.RuntimeGeneration || live.PageID != binding.PageID || live.PageGeneration != binding.PageGeneration || !time.Now().Before(live.LeaseExpiresAt) {
+		return Binding{}, ErrFence
+	}
+	live.LeaseExpiresAt = time.Now().Add(LeaseDuration)
+	h.bindings[binding.LeaseID] = live
+	return live, nil
+}
+
+// This private bridge preserves the incumbent Controller Adapter's exact
+// arguments/result schema after common host ownership/operation validation.
+// It is never supplied by a renderer or by model arguments.
+type incumbentCallKey struct{}
+type incumbentCall struct {
+	tool   string
+	args   map[string]any
+	result *browserautomation.Result
+}
+
 func (h *BackendHost) Dispatch(ctx context.Context, binding Binding, id, operation string, args map[string]any) (json.RawMessage, error) {
 	if !idPattern.MatchString(id) || validateOperation(operation, args) != nil {
 		return nil, ErrFence
@@ -76,7 +116,7 @@ func (h *BackendHost) Dispatch(ctx context.Context, binding Binding, id, operati
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	active, ok := h.bindings[binding.LeaseID]
-	if !ok || active != binding || !time.Now().Before(active.LeaseExpiresAt) {
+	if !ok || active.Scope != binding.Scope || active.RuntimeGeneration != binding.RuntimeGeneration || active.ConnectionEpoch != binding.ConnectionEpoch || active.PageID != binding.PageID || active.PageGeneration != binding.PageGeneration || !time.Now().Before(active.LeaseExpiresAt) {
 		return nil, ErrFence
 	}
 	if operation == "acquire" {
@@ -89,6 +129,8 @@ func (h *BackendHost) Dispatch(ctx context.Context, binding Binding, id, operati
 			}
 		}
 		delete(h.bindings, binding.LeaseID)
+		delete(h.pageURLs, binding.LeaseID)
+		delete(h.pageIDs, binding.LeaseID)
 		return json.Marshal(map[string]any{"released": true})
 	}
 	tool := map[string]string{"navigate": "browser.open", "read": "browser.read", "snapshot": "browser.snapshot", "click": "browser.click", "fill": "browser.type", "select": "browser.select", "screenshot": "browser.screenshot", "wait": "browser.wait"}[operation]
@@ -102,11 +144,88 @@ func (h *BackendHost) Dispatch(ctx context.Context, binding Binding, id, operati
 		}
 		callArgs[k] = v
 	}
+	if pageID := h.pageIDs[binding.LeaseID]; pageID != "" {
+		callArgs["page_id"] = pageID
+	}
+	call, preserve := ctx.Value(incumbentCallKey{}).(*incumbentCall)
+	if preserve {
+		tool = call.tool
+		callArgs = call.args
+	}
+	if operation == "read" && !preserve {
+		targetURL := h.pageURLs[binding.LeaseID]
+		if targetURL == "" {
+			return nil, ErrFence
+		}
+		callArgs["reuse_active_page"] = true
+		read, err := h.Adapter.ReadPage(ctx, targetURL, callArgs)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(read)
+	}
 	result, err := h.Adapter.Call(ctx, tool, callArgs)
+	if preserve && err == nil {
+		*call.result = result
+	}
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(result.Output)
+	if operation == "navigate" && !preserve {
+		h.pageURLs[binding.LeaseID], _ = args["url"].(string)
+		h.pageIDs[binding.LeaseID] = backendSelectedPageID(result.Output)
+		if h.pageIDs[binding.LeaseID] == "" {
+			return nil, errors.New("backend acquisition did not bind an actual managed page")
+		}
+	}
+	if preserve {
+		return json.Marshal(result.Output)
+	}
+	raw, err := json.Marshal(result.Output)
+	if err != nil {
+		return nil, err
+	}
+	var projected any
+	if err := json.Unmarshal(raw, &projected); err != nil {
+		return nil, err
+	}
+	projectBackendPageID(projected, binding.PageID)
+	return json.Marshal(projected)
+}
+func backendSelectedPageID(output any) string {
+	values, ok := output.(map[string]any)
+	if !ok {
+		return ""
+	}
+	if id, ok := values["page_id"].(string); ok && id != "" {
+		return id
+	}
+	if pages, ok := values["pages"].([]any); ok {
+		for _, item := range pages {
+			if page, ok := item.(map[string]any); ok {
+				if id, ok := page["page_id"].(string); ok && id != "" {
+					return id
+				}
+			}
+		}
+	}
+	return ""
+}
+func projectBackendPageID(value any, pageID string) {
+	switch values := value.(type) {
+	case map[string]any:
+		for key, nested := range values {
+			if key == "page_id" {
+				values[key] = pageID
+			} else {
+				projectBackendPageID(nested, pageID)
+			}
+		}
+	case []any:
+		for _, nested := range values {
+			projectBackendPageID(nested, pageID)
+		}
+	}
 }
 func (h *BackendHost) Release(ctx context.Context, binding Binding) error {
 	_, err := h.Dispatch(ctx, binding, opaque("cmd_"), "release", map[string]any{})
@@ -116,11 +235,12 @@ func (h *BackendHost) Release(ctx context.Context, binding Binding) error {
 // ScopedAdapter is inserted into the isolated R3 ToolHub. It never trusts model
 // arguments for identity, role, task, host or page ownership.
 type ScopedAdapter struct {
-	mu      sync.Mutex
-	host    BrowserHostAdapter
-	scope   Scope
-	binding *Binding
-	closed  bool
+	mu        sync.Mutex
+	host      BrowserHostAdapter
+	scope     Scope
+	binding   *Binding
+	activeURL string
+	closed    bool
 }
 
 func (b *Broker) ForScope(scope Scope) browserautomation.Adapter { return NewScopedAdapter(b, scope) }
@@ -147,7 +267,7 @@ func (a *ScopedAdapter) Health(ctx context.Context, _ map[string]any) (browserau
 	if err != nil {
 		return browserautomation.Result{}, err
 	}
-	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"state": "ready", "role": a.host.Capabilities().Role, "host_id": binding.HostID, "page_id": binding.PageID}, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "r3_host"}, nil
+	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true, "configured": true, "status": "ready", "state": "ready", "role": a.host.Capabilities().Role, "host_id": binding.HostID, "page_id": binding.PageID}, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "r3_host"}, nil
 }
 func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	a.mu.Lock()
@@ -173,9 +293,29 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 	switch operation {
 	case "navigate":
 		input["url"] = args["url"]
+	case "snapshot":
+		if url, ok := args["url"].(string); ok && url != "" && url != a.activeURL {
+			if _, err := a.host.Dispatch(ctx, binding, opaque("cmd_"), "navigate", map[string]any{"url": url}); err != nil {
+				return browserautomation.Result{}, err
+			}
+			a.activeURL = url
+		}
 	case "read":
 		if value, ok := args["max_chars"]; ok {
-			input["max_chars"] = value
+			switch n := value.(type) {
+			case int:
+				if n > 24000 {
+					n = 24000
+				}
+				input["max_chars"] = n
+			case float64:
+				if n > 24000 {
+					n = 24000
+				}
+				input["max_chars"] = n
+			default:
+				return browserautomation.Result{}, ErrFence
+			}
 		}
 	case "click", "fill", "select":
 		ref := args["uid"]
@@ -200,8 +340,12 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 	if err != nil {
 		return browserautomation.Result{}, err
 	}
+	if operation == "navigate" {
+		a.activeURL, _ = input["url"].(string)
+	}
 	if operation == "release" {
 		a.binding = nil
+		a.activeURL = ""
 	}
 	var decoded map[string]any
 	if err := json.Unmarshal(output, &decoded); err != nil {

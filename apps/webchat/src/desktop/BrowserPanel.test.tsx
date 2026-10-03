@@ -132,8 +132,26 @@ describe("BrowserPanel launcher", () => {
 
       expect(desktop.createPersonal).toHaveBeenCalledWith("https://www.google.com/search?q=local+agent+release+notes");
       expect(desktop.presentPersonal).toHaveBeenCalledWith(pageRef);
-    } finally {
+
+      // A new local conversation has no task page. It must not silently
+      // present the user's older personal browser merely because it exists.
       await act(async () => root.unmount());
+      vi.mocked(desktop.state).mockResolvedValue({
+        ...EMPTY_STATE,
+        pages: [{ page_ref: pageRef, role: "personal", task_id: "", title: "Old personal page", url: "https://example.com/private", presented: true, loading: false, crashed: false, can_go_back: false, can_go_forward: false }],
+        presentation: { ...EMPTY_STATE.presentation, presented_page_ref: pageRef },
+      });
+      vi.mocked(desktop.presentPersonal).mockClear();
+      const localRoot = createRoot(host);
+      try {
+        await act(async () => localRoot.render(<BrowserPanel language="en" localConversationID="new-conversation" />));
+        expect(host.textContent).toContain("Start browsing");
+        expect(desktop.presentPersonal).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => localRoot.unmount());
+      }
+    } finally {
+      if (host.firstChild) await act(async () => root.unmount());
     }
   });
 });

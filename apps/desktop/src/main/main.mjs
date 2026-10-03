@@ -22,6 +22,7 @@ import {
 import { ElectronAdapterServer } from "../browser/adapter-server.mjs";
 import { ManagedScriptHost } from "../browser/managed-script-host.mjs";
 import { PageRegistry } from "../browser/page-registry.mjs";
+import { BrowserHostAgent } from "../browser/host-agent.mjs";
 import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability } from "./desktop-capability.mjs";
@@ -31,6 +32,11 @@ import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
 import { resolveDesktopConnectionPaths } from "./connection-paths.mjs";
 import { ClientStore } from "./client-store.mjs";
+import { ExecutionClient } from "./execution-client.mjs";
+import { ScheduleClient } from "./schedule-client.mjs";
+import { MailSyncStore } from "./mail-sync-store.mjs";
+import { MailSyncClient } from "./mail-sync-client.mjs";
+import { MailSyncCapability } from "./mail-sync-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
 
@@ -65,6 +71,12 @@ let registry;
 let localStore;
 let localStoreCapability;
 let desktopAuth;
+let executionClient;
+let mailStore;
+let mailCapability;
+let browserHost;
+let scheduleClient;
+let browserHostPreparation = Promise.resolve();
 
 void app.whenReady().then(start).catch((error) => {
   process.stderr.write(`SparkClaw Electron failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
@@ -96,7 +108,9 @@ async function start() {
   protocol.handle("sparkclaw-internal", internalProtocolHandler);
   browserSession.protocol.handle("sparkclaw-internal", internalProtocolHandler);
   const legacyPaths = await localBackendPaths().catch(() => undefined);
+  if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "client-r3"));
   desktopAuth = new DesktopAuth({
+    installationID: localStore?.installationID,
     vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
     descriptorPath: path.join(app.getPath("userData"), "backend.json"),
     legacyPaths,
@@ -104,9 +118,21 @@ async function start() {
     requireLAN: process.platform === "darwin" && !qualification,
     fetcher: electronNet.fetch,
     onChange: (status) => {
+      if (status.state === "connected") {
+        executionClient?.start();
+        scheduleClient?.start();
+        void prepareBrowserHostScope().catch(() => {});
+      } else {
+        executionClient?.close();
+        scheduleClient?.close();
+        void browserHost?.suspend();
+      }
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
     },
     onLock: async () => {
+      executionClient?.close();
+      scheduleClient?.close();
+      await browserHost?.stop();
       for (const [id] of registry?.connections || []) registry.closeConnection(id, "authentication_locked");
       await adapter?.close().catch(() => {});
       adapter = undefined;
@@ -161,14 +187,23 @@ async function start() {
     },
   });
   if (!qualification) {
-    localStore = new ClientStore(path.join(app.getPath("userData"), "client-r3"));
+    const localChanged = () => {
+      if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
+    };
+    executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
+    scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
+    mailStore = new MailSyncStore(path.join(app.getPath("userData"), "client-r3", "mail"));
+    const mailClient = new MailSyncClient({
+      store: mailStore, localStore, getConnection: () => desktopAuth.connection,
+      getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
+      getFileFetch: () => desktopAuth.authorizedR3MailFileFetch.bind(desktopAuth),
+      installationID: localStore.installationID,
+      ensureInstallation: () => executionClient.register(),
+    });
+    mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient }).start();
     localStoreCapability = new ClientStoreCapability({
-      ipcMain, window, store: localStore,
-      getIdentity: () => {
-        const connection = desktopAuth.connection;
-        if (!connection || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
-        return { deployment_id: connection.deploymentID, owner_id: connection.ownerID, client_id: connection.clientID };
-      },
+      ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
+      getIdentity: localIdentity,
       exportFile: (file) => exportLocalFile(file, { dialog, window }),
     }).start();
   }
@@ -186,6 +221,11 @@ async function start() {
     : "sparkclaw-app://workbench/index.html";
   window.webContents.on("render-process-gone", () => {
     if (!quitting) void window.loadURL(workbenchURL);
+  });
+  powerMonitor.on("suspend", () => {
+    executionClient?.close();
+    scheduleClient?.close();
+    void browserHost?.suspend();
   });
   powerMonitor.on("resume", () => {
     void desktopAuth.retry();
@@ -217,6 +257,13 @@ async function start() {
     qualification,
   });
   scriptHost.setRegistry(registry);
+  if (!qualification) {
+    browserHost = new BrowserHostAgent({
+      auth: desktopAuth, registry, userDataDir: app.getPath("userData"),
+      onChange: () => desktopCapability?.changed(),
+    });
+    await prepareBrowserHostScope().catch(() => {});
+  }
   ownerBrowserServices = await new OwnerBrowserServices({
     browserSession,
     workbenchSession,
@@ -234,11 +281,24 @@ async function start() {
     registry,
     presentation,
     browserServices: ownerBrowserServices,
+    browserHost: browserHost ? {
+      snapshot: () => browserHost.snapshot(),
+      grant: async () => {
+        await executionClient.register();
+        await prepareBrowserHostScope();
+        return browserHost.grant();
+      },
+      reconcile: async (...args) => {
+        await executionClient.register();
+        await prepareBrowserHostScope();
+        return browserHost.reconcile(...args);
+      },
+    } : null,
     runtimeGeneration,
     authorizeSession: () => qualification || desktopAuth.status.state === "connected",
   }).start();
   // The UDS adapter is a qualified legacy Linux transport. R3 production
-  // browser execution waits for the accepted Host Broker transport. macOS
+  // browser execution uses the explicitly granted outbound Host transport. macOS
   // never reads Linux adapter secrets or starts the legacy owner service.
   if (qualification && process.platform === "linux") {
   adapter = new ElectronAdapterServer({
@@ -264,7 +324,7 @@ async function start() {
     runtime_kind: "electron",
     runtime_generation: runtimeGeneration,
     ...(adapter ? { adapter_socket: adapterSocketPath() } : {}),
-    browser_execution: adapter ? "legacy_qualification" : "awaiting_host_broker",
+    browser_execution: adapter ? "legacy_qualification" : "host_grant_required",
     electron_version: process.versions.electron,
     chromium_version: process.versions.chrome,
     node_version: process.versions.node,
@@ -353,6 +413,11 @@ async function waitForWorkbench() {
 async function shutdown() {
   if (quitting) return;
   quitting = true;
+  executionClient?.close();
+  scheduleClient?.close();
+  mailCapability?.close();
+  mailStore?.close();
+  await browserHost?.stop();
   localStoreCapability?.close();
   localStore?.close();
   await adapter?.close().catch(() => {});
@@ -584,4 +649,24 @@ function shieldDocument() {
     addEventListener('keydown',event=>{event.preventDefault();event.stopImmediatePropagation()},{capture:true});
     </script>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function localIdentity() {
+  const connection = desktopAuth?.connection;
+  if (!connection || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
+  return { deployment_id: connection.deploymentID, owner_id: connection.ownerID, client_id: connection.clientID };
+}
+
+function prepareBrowserHostScope() {
+  browserHostPreparation = browserHostPreparation.catch(() => {}).then(async () => {
+    if (!browserHost || !localStore || desktopAuth.status.state !== "connected") return;
+    const connection = desktopAuth.connection;
+    const scope = browserHost.scope;
+    if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {
+      await browserHost.start({ installation_id: localStore.installationID });
+    }
+    await browserHost.refreshFences();
+    desktopCapability?.changed();
+  });
+  return browserHostPreparation;
 }

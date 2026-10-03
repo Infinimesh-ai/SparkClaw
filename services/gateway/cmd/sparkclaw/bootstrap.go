@@ -23,6 +23,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3browser"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -109,7 +110,7 @@ func newGatewayServices(
 	// Schedule admission through reminder tools must honor the owner's
 	// connector opt-out; without this gate third-party routes fail closed.
 	tools.WithConnectorGate(connectors.registry.Enabled)
-	tools.WithBrowserAutomationAdapter(browserautomation.NewPlaywrightExtensionAdapter(cfg, browserControl))
+	tools.WithBrowserAutomationAdapter(r3browser.NewAcquisitionAdapter(browserautomation.NewPlaywrightExtensionAdapter(cfg, browserControl)))
 
 	var reminderScheduler *reminder.Scheduler
 	if cfg.Tools.Reminders.Enabled {

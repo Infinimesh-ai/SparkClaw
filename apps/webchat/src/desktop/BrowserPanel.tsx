@@ -96,8 +96,8 @@ export function BrowserPanel({ language, localConversationID }: { language: Lang
     setSurface("browser");
     setError("");
   }, [localConversationID]);
-  const presented = pages.find((page) => page.page_ref === state?.presentation.presented_page_ref);
-  const activePage = presented ?? pages.find((page) => page.page_ref === selectedPageRef) ?? pages[0];
+  const presented = pages.find((page) => page.page_ref === state?.presentation.presented_page_ref && (localConversationID === undefined || page.role === "task" || page.page_ref === selectedPageRef));
+  const activePage = presented ?? pages.find((page) => page.page_ref === selectedPageRef) ?? (localConversationID === undefined ? pages[0] : pages.find((page) => page.role === "task"));
   const blankPage = activePage?.role === "personal" && activePage.url === "about:blank";
 
   useEffect(() => {

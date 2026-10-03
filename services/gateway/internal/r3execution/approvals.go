@@ -78,7 +78,7 @@ func (s *Service) AwaitApproval(ctx context.Context, e Envelope, row PendingAppr
 	}
 }
 
-func (s *Service) ResolveApproval(owner, client, request, id, digest, decision string) error {
+func (s *Service) DecideApproval(owner, client, request, id, digest, decision string) error {
 	if !digestPattern.MatchString(digest) || (decision != "approve" && decision != "reject") {
 		return ErrConflict
 	}

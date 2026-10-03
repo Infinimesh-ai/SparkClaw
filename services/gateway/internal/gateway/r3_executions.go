@@ -243,7 +243,7 @@ func (s *Server) r3ResolveApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, errors.New("invalid R3 approval decision"))
 		return
 	}
-	if err = s.r3Executions.ResolveApproval(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("approval"), input.Digest, input.Decision); err != nil {
+	if err = s.r3Executions.DecideApproval(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("approval"), input.Digest, input.Decision); err != nil {
 		r3Error(w, err)
 		return
 	}

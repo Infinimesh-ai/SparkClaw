@@ -52,18 +52,18 @@ func TestApprovalBoundDecisionIdempotencyAndNoDurableContent(t *testing.T) {
 	}
 	pending := waitPending(t, s, e)
 	pending.Arguments["content"] = "mutated lookup copy"
-	if err = s.ResolveApproval("other", e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); !errors.Is(err, ErrNotFound) {
+	if err = s.DecideApproval("other", e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
-	if err = s.ResolveApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, strings.Repeat("0", 64), "approve"); !errors.Is(err, ErrConflict) {
+	if err = s.DecideApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, strings.Repeat("0", 64), "approve"); !errors.Is(err, ErrConflict) {
 		t.Fatal(err)
 	}
 	for range 5 {
-		if err = s.ResolveApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); err != nil {
+		if err = s.DecideApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err = s.ResolveApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "reject"); !errors.Is(err, ErrConflict) {
+	if err = s.DecideApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "reject"); !errors.Is(err, ErrConflict) {
 		t.Fatal(err)
 	}
 	status, _ := s.Lookup(e.OwnerID, e.ClientID, e.RequestID)
@@ -79,7 +79,7 @@ func TestApprovalBoundDecisionIdempotencyAndNoDurableContent(t *testing.T) {
 	if effects.Load() != 1 {
 		t.Fatal("duplicate effect", effects.Load())
 	}
-	if err = s.ResolveApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); !errors.Is(err, ErrExpired) {
+	if err = s.DecideApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); !errors.Is(err, ErrExpired) {
 		t.Fatal(err)
 	}
 }
@@ -107,7 +107,7 @@ func TestPendingApprovalCancelRestartAndDeadlineNeverReplay(t *testing.T) {
 				f.Deadline = s.now().Add(-time.Second)
 				s.control.Fences[keyFor(e.OwnerID, e.ClientID, e.RequestID)] = f
 				s.mu.Unlock()
-				if err := s.ResolveApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); !errors.Is(err, ErrExpired) {
+				if err := s.DecideApproval(e.OwnerID, e.ClientID, e.RequestID, row.ApprovalID, row.Digest, "approve"); !errors.Is(err, ErrExpired) {
 					t.Fatal(err)
 				}
 				status, _ := s.Lookup(e.OwnerID, e.ClientID, e.RequestID)

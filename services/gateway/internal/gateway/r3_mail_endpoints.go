@@ -4,13 +4,12 @@ import (
 	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3mail"
 	"net/http"
-	"strconv"
 )
 
 func WithR3MailSync(service *r3mail.Service) Option { return func(s *Server) { s.r3Mail = service } }
 func (s *Server) registerR3MailRoutes() {
 	s.mux.HandleFunc("GET /api/r3/mail/mailboxes", s.r3Mailboxes)
-	s.mux.HandleFunc("GET /api/r3/mail/{mailbox}/sync", s.r3MailSync)
+	s.mux.HandleFunc("POST /api/r3/mail/{mailbox}/sync", s.r3MailSync)
 }
 func (s *Server) r3Mailboxes(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.r3Principal(r)
@@ -44,22 +43,15 @@ func (s *Server) r3MailSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "r3_mail_unavailable"})
 		return
 	}
-	q := r.URL.Query()
-	for key, values := range q {
-		if len(values) != 1 || (key != "cursor" && key != "limit") {
-			writeR3MailError(w, r3mail.ErrInvalid)
-			return
-		}
+	var input struct {
+		Cursor *string `json:"cursor"`
+		Limit  *int    `json:"limit"`
 	}
-	limit := 100
-	if q.Get("limit") != "" {
-		limit, err = strconv.Atoi(q.Get("limit"))
-		if err != nil {
-			writeR3MailError(w, r3mail.ErrInvalid)
-			return
-		}
+	if len(r.URL.Query()) != 0 || readEmailJSON(w, r, &input) != nil || input.Cursor == nil || input.Limit == nil {
+		writeR3MailError(w, r3mail.ErrInvalid)
+		return
 	}
-	out, err := s.r3Mail.Sync(r.Context(), principal.OwnerID, r.PathValue("mailbox"), q.Get("cursor"), limit)
+	out, err := s.r3Mail.Sync(r.Context(), principal.OwnerID, r.PathValue("mailbox"), *input.Cursor, *input.Limit)
 	if err != nil {
 		writeR3MailError(w, err)
 		return

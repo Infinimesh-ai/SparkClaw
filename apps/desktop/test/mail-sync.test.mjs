@@ -39,11 +39,11 @@ test('malformed, gapped, secret-bearing, oversized and disk-failed pages cannot 
 test('network sync binds main-owned installation, resumes snapshot and reads offline cache',(t)=>{
  const store=new MailSyncStore(fixture(t));const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
  const calls=[];let online=true;
- const fetcher=async(url,init)=>{calls.push({url,init});if(!online)throw new Error('offline');const parsed=new URL(url);const cursor=parsed.searchParams.get('cursor');
+ const fetcher=async(url,init)=>{calls.push({url,init});if(!online)throw new Error('offline');const cursor=JSON.parse(init.body).cursor;
  if(!cursor)return new Response(JSON.stringify(response('snapshot',2,2,[event('a',2)],'page',true)),{status:200});
  return new Response(JSON.stringify(response('snapshot',2,2,[event('b',2)],'complete')),{status:200});};
  const client=new MailSyncClient({store,getConnection:()=>connection,getFetch:()=>fetcher,installationID:'installation',ensureInstallation:async()=>{}});
- return client.sync('box').then(async result=>{assert.equal(result.messages.length,2);assert.equal(calls[0].init.headers['X-SparkClaw-Installation'],'installation');assert.equal(calls[0].init.headers.Authorization,connection.authorization);assert.match(calls[1].url,/cursor=page/);online=false;await assert.rejects(client.sync('box'),/offline/);assert.equal(client.read('box').messages.length,2);store.close();});
+ return client.sync('box').then(async result=>{assert.equal(result.messages.length,2);assert.equal(calls[0].init.headers['X-SparkClaw-Installation'],'installation');assert.equal(calls[0].init.headers.Authorization,connection.authorization);assert.equal(calls[0].init.method,'POST');assert.deepEqual(JSON.parse(calls[1].init.body),{cursor:'page',limit:100});online=false;await assert.rejects(client.sync('box'),/offline/);assert.equal(client.read('box').messages.length,2);store.close();});
 });
 test('epoch reset clears only staging and last full mail cache survives failed resnapshot',(t)=>{
  const store=new MailSyncStore(fixture(t));store.apply(scope,'box',response('snapshot',1,1,[event('a',1)],'old'),'');

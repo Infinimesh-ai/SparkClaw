@@ -4,9 +4,9 @@ export class MailSyncClient {
   #connection(){const connection=this.getConnection();if(!connection) throw new Error('Mail sync is locked; sign in first');return connection;}
   read(mailbox){return this.store.read(scope(this.#connection()),mailbox);}
   catalog(){return this.store.catalog(scope(this.#connection()));}
-  async #request(path){
+  async #request(path, {method='GET', body}={}){
     const connection=this.#connection();
-    const response=await this.getFetch()(`${connection.origin}${path}`,{headers:{Authorization:connection.authorization,Accept:'application/json','X-SparkClaw-Installation':this.installationID},redirect:'manual',signal:AbortSignal.timeout(30000)});
+    const response=await this.getFetch()(`${connection.origin}${path}`,{method, ...(body!==undefined?{body}:{}),headers:{Authorization:connection.authorization,Accept:'application/json','X-SparkClaw-Installation':this.installationID,...(body!==undefined?{'Content-Type':'application/json'}:{})},redirect:'manual',signal:AbortSignal.timeout(30000)});
     if(response.status===401||response.status===403)throw new Error('Mail authorization expired; sign in again');
     if(response.status===409){const error=new Error('Mail cursor reset required');error.code='MAIL_RESET';throw error;}
     if(!response.ok)throw new Error('Mail service is unavailable; the last complete cache is retained');
@@ -30,7 +30,7 @@ export class MailSyncClient {
       if(this.getConnection()!==connection)throw new Error('Mail login changed');
       const cursor=this.store.cursor(identity,mailbox);
       let response;
-      try {response=await this.#request(`/api/r3/mail/${encodeURIComponent(mailbox)}/sync?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`);}
+      try {response=await this.#request(`/api/r3/mail/${encodeURIComponent(mailbox)}/sync`,{method:'POST',body:JSON.stringify({cursor,limit:100})});}
       catch(error){if(error.code==='MAIL_RESET'&&resets++<3){this.store.reset(identity,mailbox);continue;}throw error;}
       const cached=this.store.apply(identity,mailbox,response,cursor);if(!response.more)return cached;
     }

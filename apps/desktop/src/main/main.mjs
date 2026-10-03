@@ -73,6 +73,7 @@ let localStoreCapability;
 let desktopAuth;
 let executionClient;
 let mailStore;
+let mailClient;
 let mailCapability;
 let browserHost;
 let scheduleClient;
@@ -118,13 +119,16 @@ async function start() {
     requireLAN: process.platform === "darwin" && !qualification,
     fetcher: electronNet.fetch,
     onChange: (status) => {
+      if (quitting) return;
       if (status.state === "connected") {
         executionClient?.start();
         scheduleClient?.start();
+        mailClient?.start();
         void prepareBrowserHostScope().catch(() => {});
       } else {
         executionClient?.close();
         scheduleClient?.close();
+        mailClient?.close();
         void browserHost?.suspend();
       }
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
@@ -132,6 +136,7 @@ async function start() {
     onLock: async () => {
       executionClient?.close();
       scheduleClient?.close();
+      mailClient?.close();
       await browserHost?.stop();
       for (const [id] of registry?.connections || []) registry.closeConnection(id, "authentication_locked");
       await adapter?.close().catch(() => {});
@@ -193,13 +198,15 @@ async function start() {
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
     mailStore = new MailSyncStore(path.join(app.getPath("userData"), "client-r3", "mail"));
-    const mailClient = new MailSyncClient({
+    mailClient = new MailSyncClient({
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
       getFileFetch: () => desktopAuth.authorizedR3MailFileFetch.bind(desktopAuth),
       installationID: localStore.installationID,
       ensureInstallation: () => executionClient.register(),
     });
+    if (desktopAuth.status.state === "connected") mailClient.start();
+    else mailClient.close();
     mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient }).start();
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
@@ -225,6 +232,7 @@ async function start() {
   powerMonitor.on("suspend", () => {
     executionClient?.close();
     scheduleClient?.close();
+    mailClient?.close();
     void browserHost?.suspend();
   });
   powerMonitor.on("resume", () => {
@@ -415,6 +423,7 @@ async function shutdown() {
   quitting = true;
   executionClient?.close();
   scheduleClient?.close();
+  mailClient?.close();
   mailCapability?.close();
   mailStore?.close();
   await browserHost?.stop();
@@ -659,7 +668,7 @@ function localIdentity() {
 
 function prepareBrowserHostScope() {
   browserHostPreparation = browserHostPreparation.catch(() => {}).then(async () => {
-    if (!browserHost || !localStore || desktopAuth.status.state !== "connected") return;
+    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected") return;
     const connection = desktopAuth.connection;
     const scope = browserHost.scope;
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
 
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
+const AUTH_GENERATION = Symbol("execution_auth_generation");
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 // The main process owns credentials and immutable requests. Timers can only
@@ -24,6 +25,7 @@ export class ExecutionClient {
   close() { this.closed = true; clearInterval(this.timer); this.timer = undefined; }
 
   async submit(scope, requestID) {
+    scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
       const { first, task } = this.store.markSubmitted(scope, requestID);
       if (!first) {
@@ -53,6 +55,7 @@ export class ExecutionClient {
   }
 
   async reconcile(scope, requestID) {
+    scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
       const task = this.store.request(scope, requestID);
       if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");
@@ -63,6 +66,7 @@ export class ExecutionClient {
   }
 
   async cancel(scope, requestID) {
+    scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
       const task = this.store.request(scope, requestID);
       if (!task.explicitly_submitted || !["submission_pending", "accepted", "running", "cancel_pending"].includes(task.status)) throw new Error("Task cannot be canceled");
@@ -171,8 +175,10 @@ export class ExecutionClient {
   #sameIdentity(scope) {
     const current = this.getIdentity();
     if (!current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
-        JSON.stringify([current.deployment_id, current.owner_id, current.client_id])) throw new Error("Execution authentication changed");
+        JSON.stringify([current.deployment_id, current.owner_id, current.client_id]) ||
+        (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation)) throw new Error("Execution authentication changed");
   }
+  #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation }; }
   #view(scope, requestID) {
     const task = this.store.request(scope, requestID);
     return { id: task.id, request_id: task.request_id, status: task.status,
@@ -182,7 +188,7 @@ export class ExecutionClient {
     this.#sameIdentity(scope);
     this.store.request(scope, requestID);
     const key = JSON.stringify([scope, requestID]);
-    const pending = (this.operations.get(key) || Promise.resolve()).catch(() => {}).then(operation);
+    const pending = (this.operations.get(key) || Promise.resolve()).catch(() => {}).then(() => { this.#sameIdentity(scope); return operation(); });
     this.operations.set(key, pending);
     return pending.finally(() => { if (this.operations.get(key) === pending) this.operations.delete(key); });
   }

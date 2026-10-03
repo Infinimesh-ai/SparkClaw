@@ -180,6 +180,17 @@ test("scope changes while a result is in flight fence local persistence and ACK"
   assert.equal(acks, 0); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
 });
 
+test("logout and same-identity relogin generation fence an old result", async (t) => {
+  const f = fixture(t, async () => {
+    f.auth.generation++;
+    return new Response(JSON.stringify(event(f, "completed", result())));
+  });
+  f.auth.generation = 1;
+  await assert.rejects(f.client.submit(scope, f.task.request_id), /authentication changed/);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
+  assert.equal(f.store.receipt(scope, f.task.request_id), null);
+});
+
 test("cancel and expired delivery preserve distinct terminal states without creating outputs", async (t) => {
   let state = "accepted"; let cancel = false;
   const f = fixture(t, async (url) => {

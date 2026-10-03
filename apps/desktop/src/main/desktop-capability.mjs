@@ -3,7 +3,7 @@ const STATE_CHANNEL = "sparkclaw-desktop:state";
 const TRUSTED_ORIGIN = "sparkclaw-app://workbench";
 
 export class DesktopCapability {
-  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true }) {
+  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true, browserHost = null }) {
     this.ipcMain = ipcMain;
     this.window = window;
     this.registry = registry;
@@ -11,6 +11,7 @@ export class DesktopCapability {
     this.browserServices = browserServices;
     this.runtimeGeneration = runtimeGeneration;
     this.authorizeSession = authorizeSession;
+    this.browserHost = browserHost;
     this.revision = 1;
     this.layoutRevision = 0;
     this.emitQueued = false;
@@ -45,6 +46,7 @@ export class DesktopCapability {
       runtime_generation: this.runtimeGeneration,
       revision: this.revision,
       pages: this.registry.desktopSnapshot(),
+      browser_host: this.browserHost?.snapshot() || { state: "unavailable" },
       ...this.browserServices.snapshot(),
       presentation: this.presentation.status(),
     });
@@ -57,6 +59,17 @@ export class DesktopCapability {
       throw new Error("Desktop capability request is invalid");
     }
     switch (request.operation) {
+      case "selectConversation":
+        exactKeys(request, ["operation", "schema_version", "local_conversation_id"]);
+        return { page_ref: this.registry.selectConversation(request.local_conversation_id) };
+      case "reconcileBrowserHost":
+        exactKeys(request, ["operation", "schema_version", "command_id", "digest", "outcome"]);
+        if (!this.browserHost) throw new Error("Browser host is unavailable");
+        return this.browserHost.reconcile(request.command_id, request.digest, request.outcome);
+      case "grantBrowserHost":
+        exactKeys(request, ["operation", "schema_version"]);
+        if (!this.browserHost) throw new Error("Browser host is unavailable");
+        return this.browserHost.grant();
       case "state":
         exactKeys(request, ["operation", "schema_version"]);
         return this.snapshot();

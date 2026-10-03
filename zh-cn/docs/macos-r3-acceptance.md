@@ -4,6 +4,8 @@
 
 日期：2026-10-03，Asia/Shanghai。分支：`codex/sparkclaw-r3`。
 
+本页保留首轮本机验收历史。后续双端 LAN 证据、修复及替换安装包哈希见[Mac／Linux 补充记录](macos-r3-dual-host-acceptance.md)，当前状态请以上述补充矩阵为准。
+
 本机 ARM64 开发包构建、启动及下列隔离检查通过。**M01–M12 完整验收尚未通过**：用户确认暂时没有非生产 Linux R3 后端及 Linux 客户端，本轮只完成 Mac 构建和本机隔离验收。没有接入 InfiniCenter、等待 0031、合并 main、迁移旧测试数据或操作生产数据。
 
 ## 版本与环境

@@ -4,6 +4,8 @@
 
 Date: 2026-10-03, Asia/Shanghai. Branch: `codex/sparkclaw-r3`.
 
+This page records the initial local-only round. Subsequent paired LAN evidence, repairs and replacement artifact hashes are in the [Mac/Linux follow-up](macos-r3-dual-host-acceptance.md); its current matrix supersedes the historical matrix below.
+
 The native ARM64 development package, launch checks and isolated checks below passed. **Full M01–M12 acceptance has not passed.** The user confirmed that a non-production Linux R3 backend and Linux client are currently unavailable and requested Mac builds and local isolated qualification first. This session did not connect InfiniCenter, wait for 0031, merge main, migrate old test data or operate production data.
 
 ## Versions and environment

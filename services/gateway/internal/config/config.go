@@ -59,6 +59,11 @@ func Load(path string) (Config, error) {
 	if cfg.Gateway.Port <= 0 {
 		return Config{}, errors.New("gateway.port must be positive")
 	}
+	cfg.Gateway.TLSCertFile = strings.TrimSpace(cfg.Gateway.TLSCertFile)
+	cfg.Gateway.TLSKeyFile = strings.TrimSpace(cfg.Gateway.TLSKeyFile)
+	if _, err := GatewayTLSConfig(cfg.Gateway); err != nil {
+		return Config{}, err
+	}
 	cfg.Gateway.DeploymentID = strings.TrimSpace(cfg.Gateway.DeploymentID)
 	cfg.Gateway.DesktopClientFile = strings.TrimSpace(cfg.Gateway.DesktopClientFile)
 	if cfg.Gateway.DesktopClientFile != "" && !filepath.IsAbs(cfg.Gateway.DesktopClientFile) {

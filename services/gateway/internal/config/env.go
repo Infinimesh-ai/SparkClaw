@@ -146,6 +146,8 @@ func infinimeshInfo(cfg *Config) *InfinimeshInfoConfig {
 var envBindings = []envBinding{
 	{name: "SPARKCLAW_BIND", doc: "Gateway listen address.", apply: envString(func(c *Config) *string { return &c.Gateway.Bind })},
 	{name: "SPARKCLAW_PORT", doc: "Gateway listen port.", apply: envInt(func(c *Config) *int { return &c.Gateway.Port })},
+	{name: "SPARKCLAW_GATEWAY_TLS_CERT_FILE", doc: "Absolute PEM certificate-chain file for native Gateway HTTPS; requires the TLS key file.", apply: envString(func(c *Config) *string { return &c.Gateway.TLSCertFile })},
+	{name: "SPARKCLAW_GATEWAY_TLS_KEY_FILE", doc: "Absolute owner-only non-symlink PEM private-key file for native Gateway HTTPS; requires the TLS certificate file.", apply: envString(func(c *Config) *string { return &c.Gateway.TLSKeyFile })},
 	{name: "SPARKCLAW_API_TOKEN", doc: "Static gateway bearer token; empty means pairing-only auth.", apply: envString(func(c *Config) *string { return &c.Gateway.APIToken })},
 	{name: "SPARKCLAW_DEPLOYMENT_ID", doc: "Persistent identity of this SparkClaw product installation.", apply: envString(func(c *Config) *string { return &c.Gateway.DeploymentID })},
 	{name: "SPARKCLAW_DESKTOP_CLIENT_FILE", doc: "Restricted local desktop Client provisioning file.", apply: envString(func(c *Config) *string { return &c.Gateway.DesktopClientFile })},

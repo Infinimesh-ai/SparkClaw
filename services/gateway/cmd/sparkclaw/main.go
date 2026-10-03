@@ -129,7 +129,7 @@ func main() {
 
 	go func() {
 		slog.Info("sparkclaw gateway listening", "addr", server.Addr())
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := serveGatewayHTTP(httpServer, cfg.Gateway); err != nil && err != http.ErrServerClosed {
 			slog.Error("gateway failed", "error", err)
 			os.Exit(1)
 		}

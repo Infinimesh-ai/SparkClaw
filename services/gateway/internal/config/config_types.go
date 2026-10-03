@@ -81,6 +81,9 @@ type GatewayConfig struct {
 	PairingRequired bool   `json:"pairing_required"`
 	RemoteAccess    string `json:"remote_access"`
 	APIToken        string `json:"api_token,omitempty"`
+	// A complete pair enables native HTTPS, including the R3 WSS host route.
+	TLSCertFile string `json:"tls_cert_file,omitempty"`
+	TLSKeyFile  string `json:"tls_key_file,omitempty"`
 	// DeploymentID binds local workbench clients to one persistent product
 	// installation. DesktopClientFile is an installation-only provisioning
 	// input and is never exposed through the public configuration projection.

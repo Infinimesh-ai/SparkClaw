@@ -7,9 +7,17 @@ export function pinnedHTTPSFetch(descriptor) {
   return (raw, init = {}) => new Promise((resolve, reject) => {
     const url = new URL(raw);
     if (url.origin !== descriptor.origin || url.protocol !== "https:") return reject(new Error("Backend origin differs from pinned identity"));
+    const body = init.body === undefined ? undefined : Buffer.from(init.body);
+    const headers = new Headers(init.headers);
+    if (body !== undefined) {
+      // Node does not automatically frame DELETE bodies. Use the encoded byte
+      // length for every method so the Gateway receives the complete JSON.
+      headers.delete("transfer-encoding");
+      headers.set("content-length", String(body.length));
+    }
     const request = https.request(url, {
       method: init.method || "GET",
-      headers: Object.fromEntries(new Headers(init.headers).entries()),
+      headers: Object.fromEntries(headers.entries()),
       // A fresh socket validates the chain, hostname and leaf pin before it can
       // transmit any HTTP header, including the bearer. Never bypass PKI.
       agent: false,
@@ -36,7 +44,7 @@ export function pinnedHTTPSFetch(descriptor) {
     });
     request.on("error", reject);
     request.setTimeout(30000, () => request.destroy(new Error("Backend request timed out")));
-    if (init.body !== undefined) request.write(Buffer.from(init.body));
+    if (body !== undefined) request.write(body);
     request.end();
   });
 }

@@ -20,9 +20,16 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   let requests = 0;
   let authorization = "Bearer synthetic-test-token";
   let body = { connected: true };
-  const server = https.createServer({ key, cert }, (request, response) => {
+  const server = https.createServer({ key, cert }, async (request, response) => {
     requests++;
     assert.equal(request.headers.authorization, authorization);
+    if (request.method === "DELETE") {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const received = Buffer.concat(chunks);
+      response.end(JSON.stringify({ input: JSON.parse(received), length: request.headers["content-length"], transferEncoding: request.headers["transfer-encoding"] || null }));
+      return;
+    }
     response.end(JSON.stringify(body));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -37,6 +44,11 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   assert.equal(requests, 0, "pin alone never bypasses trusted chain validation");
   assert.deepEqual(await (await pinnedHTTPSFetch(base)(`${origin}/identity`, init)).json(), { connected: true });
   assert.equal(requests, 1);
+  const deletion = JSON.stringify({ command_key: "删除验收", expected_version: 3 });
+  const deleted = await pinnedHTTPSFetch(base)(`${origin}/mail`, {
+    method: "DELETE", headers: { ...init.headers, "Content-Type": "application/json", "Content-Length": "1", "Transfer-Encoding": "chunked" }, body: deletion,
+  });
+  assert.deepEqual(await deleted.json(), { input: JSON.parse(deletion), length: String(Buffer.byteLength(deletion)), transferEncoding: null });
   await assert.rejects(pinnedHTTPSFetch(base)("https://elsewhere.example/identity", init), /origin differs/);
   let saved;
   const installationID = "12345678-1234-4123-8123-123456789abc";

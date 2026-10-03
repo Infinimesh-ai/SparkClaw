@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-backend-architecture-design.md)
 
-Date: 2026-09-30. Status: the user confirmed product ownership, no legacy test-data migration, offline task behavior, and section 2's backend temporary-processing/control-record boundary including the 24-hour maximum for undelivered results; staged implementation has started; production cutover remains pending. See the [implementation and acceptance ledger](client-r3-implementation.md). This is the target architecture for SparkClaw's own clients. [Architecture](architecture.md), [Store](store.md), and [WebChat](webchat.md) describe the current implementation where explicitly marked. This document does not claim deployment, data deletion or changes to accepted cross-project contracts.
+Date: 2026-10-03. Status: the user confirmed product ownership, no legacy test-data migration, offline task behavior, and section 2's backend temporary-processing/control-record boundary including the 24-hour maximum for undelivered results; P0–P5 Linux/shared source and applicable isolated checks are complete; Mac qualification and production cutover remain pending. See the [implementation and acceptance ledger](client-r3-implementation.md). This is the target architecture for SparkClaw's own clients. [Architecture](architecture.md), [Store](store.md), and [WebChat](webchat.md) describe the current implementation where explicitly marked. This document does not claim deployment, data deletion or changes to accepted cross-project contracts.
 
 ## 1. Confirmed boundary
 
@@ -44,7 +44,7 @@ Backend acquisition of non-mail data also uses ephemeral page/cache/download sto
 
 Undelivered results expire at their generation time plus 24 hours; reconnects, retries and service restarts do not extend this deadline. Acknowledgement triggers earlier cleanup; expiry stops delivery and triggers cleanup. Startup recovery checks deadlines before serving content. Inputs/intermediates follow task necessity and execution deadlines; service configuration and minimal deduplication records do not inherit the results' 24-hour cleanup rule.
 
-Per-task/Owner capacity, lease duration and control-record retention are implementation parameters within the confirmed boundary, to be frozen and tested before qualification. Admission fails when required limits are unavailable or exhausted. There is no indefinite backend result mailbox, and this design cannot guarantee unlimited offline recovery without another durable copy.
+Per-task/Owner capacity, lease duration and control-record retention are now frozen and tested in the [implementation ledger](client-r3-implementation.md#frozen-storage-identity-and-capacity). Admission fails when required limits are unavailable or exhausted. There is no indefinite backend result mailbox, and this design cannot guarantee unlimited offline recovery without another durable copy.
 
 ## 3. Topology and connection
 
@@ -87,7 +87,7 @@ Successful login binds backend-confirmed deployment_id, owner_id and this instal
 
 Later launches may reconnect with valid local credentials, while the server still authenticates every access. Invalid/revoked credentials, explicit logout or a different backend identity require login again. Temporary disconnection reports service unavailability, neither granting new authority nor clearing valid credentials as if they were incorrect. Logout clears the corresponding credentials and stops protected channels without deleting client-local conversations/files.
 
-Unlock grants this client only its authorized service access. It does not globally unlock the backend, disable authentication or approve tool writes. Browser execution still requires host grants and task authorization; backend mail/client-local non-mail ownership is unchanged. Existing WebChat Token entry and desktop preprovisioned credentials are reusable baselines. The first-login gate and secure desktop persistence now have Linux/shared implementations; server installation registration and Mac Keychain qualification remain pending. See the [phase ledger](client-r3-implementation.md).
+Unlock grants this client only its authorized service access. It does not globally unlock the backend, disable authentication or approve tool writes. Browser execution still requires host grants and task authorization; backend mail/client-local non-mail ownership is unchanged. Existing WebChat Token entry and desktop preprovisioned credentials are reusable baselines. The first-login gate and secure desktop persistence now have Linux/shared implementations; server installation registration is implemented; Mac Keychain qualification remains pending. See the [phase ledger](client-r3-implementation.md).
 
 ### 3.2 Credential retrieval and device management
 
@@ -180,15 +180,15 @@ Cutover still drains/stops old executions, fences old writers and verifies fresh
 
 The accepted App-CLI contract requires durable request bindings, journals and execution fencing; JingSi Runtime v1 requires durable lookup/result/event recovery. These contracts are not silently replaced by client-local history. Mail-specific journals fit the backend mail responsibility; non-mail payload retention and externally-owned tasks still need a field-by-field compatibility design.
 
-Before modifying either external interface, retention guarantee or executor ledger, file a ProjectGroup-2 decision and obtain acceptance, then update contracts and qualification together. Existing integrations keep their current contract during this documentation phase; that is an implementation gap, not a permanent exception to R3's target. A connector without a durable client destination cannot be declared migrated. This document introduces no new cross-project wire schema.
+Before modifying either external interface, retention guarantee or executor ledger, file a ProjectGroup-2 decision and obtain acceptance, then update contracts and qualification together. Existing integrations keep their current contract; this source delivery does not claim their production cutover. A connector without a durable client destination cannot be declared migrated. This document introduces no new cross-project wire schema.
 
-Product boundaries are fully confirmed. Remaining gates are to freeze capacity/lease/control-record retention parameters and field allowlists within those boundaries; settle external integration retention through the accepted decision process; qualify ordinary Web storage; and validate Mac runtime, embedded-site compatibility and packaging on hardware. Legacy test-data migration is out of scope.
+Product boundaries and Linux/shared capacity/lease/control allowlists are implemented and qualified within the recorded scope. The user excludes InfiniCenter coordination and waiting for 0031 in this round. Ordinary Web storage, future external-interface changes and Mac runtime/site/packaging hardware qualification remain separate gates. Legacy test-data migration is out of scope.
 
 ## 10. Delivery order and acceptance
 
 The build handoff is confirmed: this environment implements source and validates Linux/shared code, delivering through Git; the user synchronizes and compiles locally on Mac. Mac compilation/packaging/signing does not run here or require an SSH-operated build. Mac builds do not block Linux implementation or source delivery; A16/Mac-specific qualification depends on the user's exact-commit hardware evidence and remains pending until received.
 
-P0 freezes data classification, protocol/retention budgets, fresh-storage initialization and required cross-project decisions. P1 builds client-local storage and bounded context submission. P2 adds credential retrieval/device management/secure login, LAN identity, execution delivery/acknowledgement and mail sync. P3 adds the shared browser adapter with embedded-only client routing. P4 completes file delivery and failure recovery. P5 qualifies Mac packaging/hardware and clean-start cutover. No legacy test-data migration is implemented, and no phase silently changes production.
+P0 freezes data classification, protocol/retention budgets, fresh-storage initialization and required cross-project decisions. P1 builds client-local storage and bounded context submission. P2 adds credential retrieval/device management/secure login, LAN identity, execution delivery/acknowledgement and mail sync. P3 adds the shared browser adapter with embedded-only client routing. P4 completes file delivery and failure recovery. P5 delivers source/build preparation and Linux checks, then hands off Mac packaging/hardware and clean-start cutover qualification to the user. No legacy test-data migration is implemented, and no phase silently changes production.
 
 | ID | Required evidence |
 |---|---|
@@ -214,4 +214,4 @@ P0 freezes data classification, protocol/retention budgets, fresh-storage initia
 | A20 | Reconnect/restart reuses a valid credential while different devices have different identities; revocation rejects APIs and closes protected channels without affecting other devices, backend mail, backend restart or client-local history |
 | A21 | Issuance timeout/lost response recovers with the same key without duplicate devices; retention expiry/backend restart directs revocation and reissuance; completed initialization never redisplays, and total user-device lockout requires controlled local recovery without resurrecting old credentials |
 
-No complete R3 acceptance case is passed yet; scoped PARTIAL evidence and NOT_RUN gates are in the [implementation ledger](client-r3-implementation.md). Earlier shared-database and Electron qualification remains evidence for the older implementation only. Platform details: [Mac design](macos-lan-desktop-design.md) and [Mac connection guide](macos-connection-guide.md).
+Linux/shared PASS, scoped PARTIAL evidence and NOT_RUN Mac/production gates are in the [implementation ledger](client-r3-implementation.md). Earlier shared-database and Electron qualification remains evidence for the older implementation only. Platform details: [Mac design](macos-lan-desktop-design.md) and [Mac connection guide](macos-connection-guide.md).

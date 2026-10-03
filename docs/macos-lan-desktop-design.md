@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-lan-desktop-design.md)
 
-Date: 2026-09-30. Revision: R3. Status: product boundary confirmed; local-data separation, LAN control and physical-Mac qualification are pending. The authoritative cross-platform target is [Client and backend architecture R3](client-backend-architecture-design.md). This revision supersedes both the original R2.1 and the intervening R2.2; The [implementation ledger](client-r3-implementation.md) records the first Linux/shared tranche and outstanding gates; production deployment and Mac qualification are not claimed.
+Date: 2026-10-03. Revision: R3. Status: Linux/shared local-data separation and LAN control are implemented; physical-Mac qualification is pending. The authoritative cross-platform target is [Client and backend architecture R3](client-backend-architecture-design.md). This revision supersedes both the original R2.1 and the intervening R2.2; The [implementation ledger](client-r3-implementation.md) records P0–P5 Linux/shared source, scoped checks and outstanding Mac gates; production deployment and Mac qualification are not claimed.
 
 **Mac presents business results, persists its own non-mail user data, and executes authorized browser commands only in its embedded browser. The Linux backend performs business processing and stores authoritative mail.** The same rule applies to a Linux client, including when it shares a machine with the backend.
 
@@ -47,11 +47,13 @@ Implement retrieval and management according to unified architecture [section 3.
 
 Scope Keychain entries to verified deployment/Owner/client identity. Revoking the current device stops protected channels, removes its Keychain credential and returns to login while retaining local history/files; backend mail and other devices continue working. Total user-device lockout uses controlled recovery by the backend deployment user, not anonymous credential requests from Mac. Follow the unified design for backend restarts, lost issuance responses and expired one-time plaintext; never silently issue duplicate credentials from the client.
 
-The strict v1 loopback parser remains unchanged for Linux/qualification. A separate v2 secret-free HTTPS descriptor now verifies deployment, Owner, public CA/hostname and certificate pin. Credential identity stays in the main-owned secure vault. Browser-host grant references and server installation binding remain pending; see the [phase ledger](client-r3-implementation.md).
+The strict v1 loopback parser remains unchanged for Linux/qualification. A separate v2 secret-free HTTPS descriptor now verifies deployment, Owner, public CA/hostname and certificate pin. Credential identity stays in the main-owned secure vault. Browser-host grants and server installation binding are implemented; see the [phase ledger](client-r3-implementation.md).
 
 A workbench credential permits scoped business requests; a separate host grant permits browser commands. Mac main opens the outbound WSS control channel and registers host identity, runtime generation and capabilities. No inbound Mac listener or raw remote CDP endpoint is exposed. Bind the host to the authenticated Owner/client installation; reconnect creates a new connection epoch and revokes old leases.
 
-Application API names and the host envelope are pending schema freeze. Do not present proposed endpoints as working commands or send the current local relay protocol unchanged across the LAN.
+Host admission requires real TLS reaching Gateway. Configure paired `gateway.tls_cert_file` / `gateway.tls_key_file` for native TLS, or use a proxy with HTTPS upstream; TLS termination followed by HTTP forwarding and spoofable headers do not qualify. Certificates/keys are configured by the deployment user; source delivery does not modify a running service. See the [Mac connection guide](macos-connection-guide.md).
+
+R3 API names, closed context/host envelopes and limits are implemented and documented in the [implementation ledger](client-r3-implementation.md#protocol-and-client-composition). The old local relay is qualification-only; production embedded control uses explicit outbound pinned WSS.
 
 ## 4. Unified browser adapter on Mac
 
@@ -99,14 +101,14 @@ The user specified the build split: the current Linux environment implements sou
 
 | Phase | Deliverable | Gate |
 |---|---|---|
-| P0 | Freeze capacity, control fields, local schema, transport scopes and fresh-storage initialization within confirmed data/retention boundaries | Cross-project changes require accepted decisions; no implicit ledger deletion |
+| P0 | Freeze capacity, control fields, local schema, transport scopes and fresh-storage initialization within confirmed data/retention boundaries | Linux/shared source is complete; this round excludes center coordination and 0031; no implicit ledger deletion |
 | P1 | ClientStore and bounded client-context submission | Local conversation/task/file persistence; no backend history fallback |
 | P2 | Credential retrieval/device management/secure login, LAN identity, event delivery/ACK and mailbox synchronization | First unlock, reuse and revocation pass; certificate/Owner/client isolation and lost-response reconciliation |
 | P3 | Broker and unified local/remote browser adapters | Mac and Linux embedded commands, resource-side leases and no external automation |
 | P4 | File delivery and platform composition | Verified local saves; fresh storage without old test histories; package allowlist |
 | P5 | Push source for user-run Mac builds and hardware/signing/upgrade qualification | Mac build record, GUI/browser failure matrix and scoped cutover evidence for the same commit |
 
-Current code entry points are [desktop composition](../apps/desktop/src/main/main.mjs), [loopback loader](../apps/desktop/src/main/local-backend.mjs), [local adapter](../apps/desktop/src/browser/adapter-server.mjs), [browser protocol](../apps/desktop/src/browser/protocol.mjs), [page presentation](../apps/desktop/src/main/presentation.mjs), [BrowserPanel](../apps/webchat/src/desktop/BrowserPanel.tsx), and [backend Store contracts](../services/gateway/internal/store/store.go). Their current local/shared-state behavior is not evidence that R3 already works.
+Current code entry points are [desktop composition](../apps/desktop/src/main/main.mjs), [loopback loader](../apps/desktop/src/main/local-backend.mjs), [local adapter](../apps/desktop/src/browser/adapter-server.mjs), [browser protocol](../apps/desktop/src/browser/protocol.mjs), [page presentation](../apps/desktop/src/main/presentation.mjs), [BrowserPanel](../apps/webchat/src/desktop/BrowserPanel.tsx), and [backend Store contracts](../services/gateway/internal/store/store.go). R3 composition additionally uses [ExecutionClient](../apps/desktop/src/main/execution-client.mjs), [Host Agent](../apps/desktop/src/browser/host-agent.mjs) and isolated backend R3 services; scoped evidence is in the ledger.
 
 The accepted App-CLI durable ledger and JingSi Runtime v1 recovery guarantees still apply to existing integrations. The [cross-project gate](client-backend-architecture-design.md#9-cross-project-boundaries-and-unresolved-gates) must be resolved before changing their retention/protocol semantics. Internal adapter naming cannot bypass those contracts.
 
@@ -127,6 +129,6 @@ The accepted App-CLI durable ledger and JingSi Runtime v1 recovery guarantees st
 | M11 | A fresh Mac install requires SparkClaw credential unlock; verify invalid-credential rejection, Keychain persistence/restart recovery and protected-channel closure after revocation/logout without local-history deletion |
 | M12 | Retrieve a separate Mac credential from backend initialization or authenticated device settings; one-time display, reuse across restart/reconnect, loss recovery and effective revocation, with reachable settings; no Linux preprovisioned Token, Keychain plaintext or other-device credential in packages/logs/Git |
 
-All M cases remain pending. Product ownership, offline behavior and backend temporary-processing/control-record boundaries are confirmed, with undelivered results retained for at most 24 hours from generation; legacy test-data migration is out of scope. Engineering still needs capacity/control-field parameters within those boundaries, external-contract compatibility and physical Mac evidence. These gates make this a client/backend architecture change, not a frame-viewer upgrade.
+All M cases remain pending. Product ownership, offline behavior and backend temporary-processing/control-record boundaries are confirmed, with undelivered results retained for at most 24 hours from generation; legacy test-data migration is out of scope. Capacity/control-field parameters are frozen and Linux/shared compatibility checks pass; Mac hardware and future external cutover evidence remain required. These gates make this a client/backend architecture change, not a frame-viewer upgrade.
 
 Practical access and qualification: [Mac connection guide](macos-connection-guide.md).
